@@ -1,0 +1,255 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.2.0" option="0">
+    <ItemID idValue="{13B7E9FD-4BC9-4C9A-8F2B-9AE2BEADA6D9}" />
+    <Properties>
+        <ItemName>Annotation</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:15:15" modifiedUniversalDateTime="2005-01-08T23:15:15" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{7C38BA8C-EE23-43D9-8361-6B29D28C90A2}" />
+            <Properties>
+                <ItemName>AecDim 1 Chain</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\7C38BA8C-EE23-43D9-8361-6B29D28C90A2.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T18:17:00" modifiedUniversalDateTime="2005-01-08T18:17:00" refreshedUniversalDateTime="2005-01-08T18:17:00" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{DE61F9FE-84C1-4D43-97D5-5BC5A769BA40}" />
+            <Data>
+                <AecDbDimensionGroup>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">1 Chain</Style>
+                    <UsingCmd>0</UsingCmd>
+                </AecDbDimensionGroup>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{9497323D-74A9-4353-B9EA-B0BA02AAE41E}" />
+            <Properties>
+                <ItemName>AecDim 3 Chain</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\9497323D-74A9-4353-B9EA-B0BA02AAE41E.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T18:17:00" modifiedUniversalDateTime="2005-01-08T18:17:00" refreshedUniversalDateTime="2005-01-08T18:17:00" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{DE61F9FE-84C1-4D43-97D5-5BC5A769BA40}" />
+            <Data>
+                <AecDbDimensionGroup>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">3 Chain</Style>
+                    <UsingCmd>0</UsingCmd>
+                </AecDbDimensionGroup>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{0CD4EF1A-9FCF-4C44-9FB8-A5B11F28685A}" />
+            <Properties>
+                <ItemName>AecDim Building Exterior</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\0CD4EF1A-9FCF-4C44-9FB8-A5B11F28685A.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T18:17:00" modifiedUniversalDateTime="2005-01-08T18:17:00" refreshedUniversalDateTime="2005-01-08T18:17:00" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{DE61F9FE-84C1-4D43-97D5-5BC5A769BA40}" />
+            <Data>
+                <AecDbDimensionGroup>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Building Exterior</Style>
+                    <UsingCmd>0</UsingCmd>
+                </AecDbDimensionGroup>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{F8272319-353C-41F3-868F-44CB84771B5A}" />
+            <Properties>
+                <ItemName>AecDim 2 Chain</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\F8272319-353C-41F3-868F-44CB84771B5A.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T18:17:00" modifiedUniversalDateTime="2005-01-08T18:17:00" refreshedUniversalDateTime="2005-01-08T18:17:00" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{DE61F9FE-84C1-4D43-97D5-5BC5A769BA40}" />
+            <Data>
+                <AecDbDimensionGroup>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">2 Chain</Style>
+                    <UsingCmd>0</UsingCmd>
+                </AecDbDimensionGroup>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{7EAE5F6D-B22A-4326-A7B7-9F5DBFFC534F}" />
+            <Properties>
+                <ItemName>Aec3_Beam_Tag</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\7EAE5F6D-B22A-4326-A7B7-9F5DBFFC534F.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>AECSDU_WSHT_PROPERTYDATA</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:17:22" modifiedUniversalDateTime="2005-01-08T18:17:22" refreshedUniversalDateTime="2005-01-08T18:17:22" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Aec3_Beam_Tag</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{CAE21BD6-54E5-4927-96CB-81A998368EB5}" />
+            <Properties>
+                <ItemName>Aec3_Column_Tag</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\CAE21BD6-54E5-4927-96CB-81A998368EB5.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>AECSDU_WSHT_PROPERTYDATA</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:17:22" modifiedUniversalDateTime="2005-01-08T18:17:22" refreshedUniversalDateTime="2005-01-08T18:17:22" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Aec3_Column_Tag</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{05A12951-23E7-442C-99C6-7508CA25E3E9}" />
+            <Properties>
+                <ItemName>Aec4_Door_Tag</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\05A12951-23E7-442C-99C6-7508CA25E3E9.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>AECSDU_WSHT_PROPERTYDATA</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:17:22" modifiedUniversalDateTime="2005-01-08T18:17:22" refreshedUniversalDateTime="2005-01-08T18:17:22" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Aec4_Door_Tag</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{2E79D743-630F-4B5D-8CA8-8FC62C6AB116}" />
+            <Properties>
+                <ItemName>Aec4_Room_Tag</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\2E79D743-630F-4B5D-8CA8-8FC62C6AB116.png" />
+                </Images>
+                <Description>Space tag</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>AECSDU_WSHT_PROPERTYDATA</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:17:22" modifiedUniversalDateTime="2005-01-08T18:17:22" refreshedUniversalDateTime="2005-01-08T18:17:22" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Aec4_Room_Tag</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{E016946A-BF59-46F1-9DC5-DBFAB57C1BBD}" />
+            <Properties>
+                <ItemName>Aec4_Wall_Tag</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\E016946A-BF59-46F1-9DC5-DBFAB57C1BBD.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>AECSDU_WSHT_PROPERTYDATA</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:17:22" modifiedUniversalDateTime="2005-01-08T18:17:22" refreshedUniversalDateTime="2005-01-08T18:17:22" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Aec4_Wall_Tag</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{5C125B79-FF0B-4CD4-B7ED-B757D7C74DCF}" />
+            <Properties>
+                <ItemName>Aec4_Window_Tag</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\5C125B79-FF0B-4CD4-B7ED-B757D7C74DCF.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>AECSDU_WSHT_PROPERTYDATA</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:17:22" modifiedUniversalDateTime="2005-01-08T18:17:22" refreshedUniversalDateTime="2005-01-08T18:17:22" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Aec4_Window_Tag</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

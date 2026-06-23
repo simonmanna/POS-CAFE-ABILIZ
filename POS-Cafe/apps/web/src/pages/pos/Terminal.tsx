@@ -138,13 +138,8 @@ const TerminalPage: React.FC = () => {
   /* ============== Cart (zustand) ============== */
   const lines = useCartStore((s) => s.lines);
   const transactionDiscountPercent = useCartStore((s) => s.transactionDiscountPercent);
-  const transactionDiscountType = useCartStore((s) => s.transactionDiscountType);
-  const transactionDiscountAmount = useCartStore((s) => s.transactionDiscountAmount);
   const total = useCartStore(selectTotal);
-  const orderType = useCartStore((s) => s.orderType);
   const tableId = useCartStore((s) => s.tableId);
-  const tableNumber = useCartStore((s) => s.tableNumber);
-  const tableName = useCartStore((s) => s.tableName);
   const addLine = useCartStore((s) => s.addLine);
   const setQuantity = useCartStore((s) => s.setQuantity);
   const setDiscount = useCartStore((s) => s.setDiscount);
@@ -210,7 +205,7 @@ const TerminalPage: React.FC = () => {
   }, []);
 
   const locked = !session || !posUser;
-  const orderTypeLabel = 'dine-in';
+  const orderTypeLabel = posMode === 'counter' ? 'Takeaway' : 'Dine In';
   const activeTableLabel = selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : null;
   const [showTableSelector, setShowTableSelector] = useState(false);
 
@@ -855,4 +850,4 @@ const TerminalPage: React.FC = () => {
   );
 };
 
-export default TerminalPage;         
+export default TerminalPage;

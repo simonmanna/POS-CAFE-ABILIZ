@@ -1,0 +1,457 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{AAD270F3-B9B3-401C-BF3B-4221E1B00505}" />
+    <Properties>
+        <ItemName>Wall Styles</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:12:36" modifiedUniversalDateTime="2005-01-08T23:12:36" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{7C2293AB-D235-49F9-B60D-1687C5417EB9}" />
+            <Properties>
+                <ItemName>CMU-8</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_7C2293AB-D235-49F9-B60D-1687C5417EB9.png" />
+                </Images>
+                <Description>8" CMU Wall (Nominal)</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:36" modifiedUniversalDateTime="2005-01-08T23:12:36" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">CMU-8</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{9DC42F26-FDEA-4009-97CF-ECA036921369}" />
+            <Properties>
+                <ItemName>CMU-8 Furring</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_9DC42F26-FDEA-4009-97CF-ECA036921369.png" />
+                </Images>
+                <Description>8" CMU Wall with 2" Furring</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:37" modifiedUniversalDateTime="2005-01-08T23:12:37" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">CMU-8 Furring</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{BC7F3C4F-CEC5-4CEE-8F50-BF8993084753}" />
+            <Properties>
+                <ItemName>CMU-8 Rigid-1.5 Air-2 Stone-4</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_BC7F3C4F-CEC5-4CEE-8F50-BF8993084753.png" />
+                </Images>
+                <Description>8" CMU Wall and 4" Brick Cavity with 2" Furring and 1.5" Rigid</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:39" modifiedUniversalDateTime="2005-01-08T23:12:39" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">CMU-8 Rigid-1.5 Air-2 Stone-4</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{9473C324-4A81-4A31-9147-BF06DB5A01A3}" />
+            <Properties>
+                <ItemName>CMU-8 Rigid-1.5 Air-2 Stone-4 Furring</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_9473C324-4A81-4A31-9147-BF06DB5A01A3.png" />
+                </Images>
+                <Description>8" CMU Wall and 4" Brick Cavity with 2" Furring and 1.5" Rigid</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:40" modifiedUniversalDateTime="2005-01-08T23:12:40" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">CMU-8 Rigid-1.5 Air-2 Stone-4 Furring</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{DB53AC43-ECEC-4AB8-8F09-058B59BCB0FA}" />
+            <Properties>
+                <ItemName>Concrete-16 Concrete-footing</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_DB53AC43-ECEC-4AB8-8F09-058B59BCB0FA.png" />
+                </Images>
+                <Description>16" Concrete Wall with 24"x12" Footing</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:42" modifiedUniversalDateTime="2005-01-08T23:12:42" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Concrete-16 Concrete-footing</Style>
+                    <FloorlineOffset>-16</FloorlineOffset>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{7804A4DB-9473-45FE-8F3F-12712F4253CA}" />
+            <Properties>
+                <ItemName>Concrete-16 Pier Foundation</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_7804A4DB-9473-45FE-8F3F-12712F4253CA.png" />
+                </Images>
+                <Description>Concrete-16 Pier Foundation</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:43" modifiedUniversalDateTime="2005-01-08T23:12:43" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Concrete-16 Pier Foundation</Style>
+                    <FloorlineOffset>-16</FloorlineOffset>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{44CE352F-4C0F-4C06-817D-2B5D83EEFBBE}" />
+            <Properties>
+                <ItemName>Concrete-8 Concrete-footing</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_44CE352F-4C0F-4C06-817D-2B5D83EEFBBE.png" />
+                </Images>
+                <Description>16" Concrete Wall with 24"x12" Footing</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:44" modifiedUniversalDateTime="2005-01-08T23:12:44" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Concrete-8 Concrete-footing</Style>
+                    <FloorlineOffset>-16</FloorlineOffset>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{A092423C-B957-4A9A-BB77-32B8C6A9184D}" />
+            <Properties>
+                <ItemName>Stud-0.875 GWB-0.625 One Side</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_A092423C-B957-4A9A-BB77-32B8C6A9184D.png" />
+                </Images>
+                <Description>7/8" Stud Ptn. (Actual) with 5/8" Gypsum</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:46" modifiedUniversalDateTime="2005-01-08T23:12:46" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Stud-0.875 GWB-0.625 One Side</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{402CDD15-F08F-4F4D-A9ED-1510FCBEC9EB}" />
+            <Properties>
+                <ItemName>Stud-3.625 GWB-0.625 Each Side</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_402CDD15-F08F-4F4D-A9ED-1510FCBEC9EB.png" />
+                </Images>
+                <Description>3 5/8" Stud Ptn. (Actual) with 5/8" Gypsum</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:47" modifiedUniversalDateTime="2005-01-08T23:12:47" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Stud-3.625 GWB-0.625 Each Side</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{6F84CFBB-1A21-4716-8437-7B9F8B4BB9E0}" />
+            <Properties>
+                <ItemName>Stud-3.625 GWB-0.625 Each Side (1 Hour)</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_6F84CFBB-1A21-4716-8437-7B9F8B4BB9E0.png" />
+                </Images>
+                <Description>3 5/8" Stud Ptn. (Actual) with 5/8" Gypsum</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:48" modifiedUniversalDateTime="2005-01-08T23:12:48" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Stud-3.625 GWB-0.625 Each Side (1 Hour)</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{5A51E0B6-A4C6-48B2-B706-3123197176A3}" />
+            <Properties>
+                <ItemName>Stud-3.625 GWB-0.625 Each Side (2 Hour)</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_5A51E0B6-A4C6-48B2-B706-3123197176A3.png" />
+                </Images>
+                <Description>3 5/8" Stud Ptn. (Actual) with 5/8" Gypsum</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:50" modifiedUniversalDateTime="2005-01-08T23:12:50" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Stud-3.625 GWB-0.625 Each Side (2 Hour)</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{C250F058-38FE-4817-9E0E-10262A7243E1}" />
+            <Properties>
+                <ItemName>Stud-3.625 GWB-0.625 Each Side (Soffit)</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_C250F058-38FE-4817-9E0E-10262A7243E1.png" />
+                </Images>
+                <Description>3 5/8" Stud Ptn. (Actual) with 5/8" Gypsum</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:51" modifiedUniversalDateTime="2005-01-08T23:12:51" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Stud-3.625 GWB-0.625 Each Side (Soffit)</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{285A63A5-FFDE-4ECA-A1DE-3747A4F67323}" />
+            <Properties>
+                <ItemName>Stud-3.625 GWB-0.625 One Side (1 Hour)</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_285A63A5-FFDE-4ECA-A1DE-3747A4F67323.png" />
+                </Images>
+                <Description>3 5/8" Stud Ptn. (Actual) with 5/8" Gypsum</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:52" modifiedUniversalDateTime="2005-01-08T23:12:52" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Stud-3.625 GWB-0.625 One Side (1 Hour)</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{16F8A167-7978-4AC3-BB40-27CB8B67BB55}" />
+            <Properties>
+                <ItemName>Stud-3.625 GWB-0.625 One Side (2 Hour)</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_16F8A167-7978-4AC3-BB40-27CB8B67BB55.png" />
+                </Images>
+                <Description>3 5/8" Stud Ptn. (Actual) with 5/8" Gypsum</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:54" modifiedUniversalDateTime="2005-01-08T23:12:54" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Stud-3.625 GWB-0.625 One Side (2 Hour)</Style>
+                    <Dimensions>
+                        <Justify>3</Justify>
+                    </Dimensions>
+                    <Cleanup>
+                        <Auto>-1</Auto>
+                        <Radius>0</Radius>
+                    </Cleanup>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{042072EE-E878-44DC-80E4-71350031191E}" />
+            <Properties>
+                <ItemName>wood_panel</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_042072EE-E878-44DC-80E4-71350031191E.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:58" modifiedUniversalDateTime="2005-01-08T23:12:58" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">wood_panel</Style>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

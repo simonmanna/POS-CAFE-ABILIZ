@@ -1,0 +1,265 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{F16E91A0-F020-467F-BDDF-62DBB83DD0C3}" />
+    <Properties>
+        <ItemName>Plumbing</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:14:47" modifiedUniversalDateTime="2005-01-08T23:14:47" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{1567C84D-0A74-48EE-B5B8-36814AF4C76E}" />
+            <Properties>
+                <ItemName>I_Plumb_WC_Flush - Wall</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\1567C84D-0A74-48EE-B5B8-36814AF4C76E.png" />
+                </Images>
+                <Description>Plumbing: Toilet: Flush valve, wall hung WC [15400]</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:18:44" modifiedUniversalDateTime="2005-01-08T18:18:44" refreshedUniversalDateTime="2005-01-08T18:18:44" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Plumb_WC_Flush - Wall</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{0E46E510-B80C-49BA-93D9-3E0A59C3D0ED}" />
+            <Properties>
+                <ItemName>I_Plumb_Urinal_Wall-Hung</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\0E46E510-B80C-49BA-93D9-3E0A59C3D0ED.png" />
+                </Images>
+                <Description>Plumbing: Urinal: Wall Hung Urinal [15400]</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:18:44" modifiedUniversalDateTime="2005-01-08T18:18:44" refreshedUniversalDateTime="2005-01-08T18:18:44" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Plumb_Urinal_Wall-Hung</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{DBD974B4-2D68-43BB-821D-588A954C4532}" />
+            <Properties>
+                <ItemName>I_Plumb_Lav_Counter 4</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\DBD974B4-2D68-43BB-821D-588A954C4532.png" />
+                </Images>
+                <Description>Plumbing: Lavatory: Counter Lavatory 4 (2D) [15400]</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:18:44" modifiedUniversalDateTime="2005-01-08T18:18:44" refreshedUniversalDateTime="2005-01-08T18:18:44" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Plumb_Lav_Counter 4</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{07720719-8660-482E-BE3A-285EE1AA12F4}" />
+            <Properties>
+                <ItemName>I_Plumb_Sink_Kitchen - Double B</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\07720719-8660-482E-BE3A-285EE1AA12F4.png" />
+                </Images>
+                <Description>Plumbing: Sink: Double Sink 33x22 [15400]</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:18:44" modifiedUniversalDateTime="2005-01-08T18:18:44" refreshedUniversalDateTime="2005-01-08T18:18:44" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Plumb_Sink_Kitchen - Double B</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{68EBD069-0456-41C4-9943-5132A27D177A}" />
+            <Properties>
+                <ItemName>I_Plumb_Grab_36in + plate</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\68EBD069-0456-41C4-9943-5132A27D177A.png" />
+                </Images>
+                <Description>Plumbing: Grab Bar: Grab Bar - 36in (w/ plate) [10800]</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:19:25" modifiedUniversalDateTime="2005-01-08T18:19:25" refreshedUniversalDateTime="2005-01-08T18:19:25" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Plumb_Grab_36in + plate</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{C83F3840-25AD-49C7-8839-54A3BCBE60FE}" />
+            <Properties>
+                <ItemName>I_Plumb_Grab_42in + Plate</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\C83F3840-25AD-49C7-8839-54A3BCBE60FE.png" />
+                </Images>
+                <Description>Plumbing: Grab Bar: Grab Bar - 42in (w/ plate) [10800]</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:19:25" modifiedUniversalDateTime="2005-01-08T18:19:25" refreshedUniversalDateTime="2005-01-08T18:19:25" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Plumb_Grab_42in + Plate</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{8C8274A1-5100-4DEF-B3E9-1752BEC66650}" />
+            <Properties>
+                <ItemName>I_PLUMB_FOUNT_Round - Double</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\8C8274A1-5100-4DEF-B3E9-1752BEC66650.png" />
+                </Images>
+                <Description>Plumbing: Fountain: Drinking Fountain - Round (Double) [15400]</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:19:25" modifiedUniversalDateTime="2005-01-08T18:19:25" refreshedUniversalDateTime="2005-01-08T18:19:25" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_PLUMB_FOUNT_Round - Double</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{24ED80BD-0A6B-42B7-8ECB-815901F92CE8}" />
+            <Properties>
+                <ItemName>Toilet_Stall</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\24ED80BD-0A6B-42B7-8ECB-815901F92CE8.png" />
+                </Images>
+                <Description>Toilet Stall Door</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:22:52" modifiedUniversalDateTime="2005-01-08T18:22:52" refreshedUniversalDateTime="2005-01-08T18:22:52" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{6A56F31F-3F7B-4F8E-B10D-39433621B3C0}" />
+            <Data>
+                <AecDbDoor>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Toilet_Stall</Style>
+                </AecDbDoor>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{3117FDE3-76CF-4F37-BA05-2716CBB2B85B}" />
+            <Properties>
+                <ItemName>Toilet_Ptn</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\3117FDE3-76CF-4F37-BA05-2716CBB2B85B.png" />
+                </Images>
+                <Description>Toilet Stall Partition</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:23:57" modifiedUniversalDateTime="2005-01-08T18:23:57" refreshedUniversalDateTime="2005-01-08T18:23:57" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Toilet_Ptn</Style>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{64CC5C59-9423-4BA0-AD26-37A5594F080B}" />
+            <Properties>
+                <ItemName>Toilet_Counter</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\64CC5C59-9423-4BA0-AD26-37A5594F080B.png" />
+                </Images>
+                <Description>Lavatory Counter w/Splash</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:23:57" modifiedUniversalDateTime="2005-01-08T18:23:57" refreshedUniversalDateTime="2005-01-08T18:23:57" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Toilet_Counter</Style>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{24516413-A150-4919-B015-E3F9504EC9F7}" />
+            <Properties>
+                <ItemName>Toilet_Screen</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\24516413-A150-4919-B015-E3F9504EC9F7.png" />
+                </Images>
+                <Description>Urinal Screen</Description>
+                <Time createdUniversalDateTime="2005-01-08T18:23:57" modifiedUniversalDateTime="2005-01-08T18:23:57" refreshedUniversalDateTime="2005-01-08T18:23:57" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Toilet_Screen</Style>
+                </AecDbWall>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

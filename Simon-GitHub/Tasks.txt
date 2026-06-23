@@ -1,0 +1,5 @@
+- Patient management
+- Appointments
+- Visits
+- Treatment Procedures ....
+- Patient file

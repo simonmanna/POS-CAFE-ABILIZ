@@ -1,0 +1,17 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Splash theme (used while MainActivity boots, before Compose theme kicks in). -->
+    <style name="Theme.CafePos.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/brand_cream</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.CafePos</item>
+    </style>
+
+    <!-- App theme. Compose owns colors beyond these; this is for the splash + system bars. -->
+    <style name="Theme.CafePos" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:statusBarColor">@color/brand_espresso</item>
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <item name="android:navigationBarColor">@color/brand_charcoal</item>
+    </style>
+
+</resources>

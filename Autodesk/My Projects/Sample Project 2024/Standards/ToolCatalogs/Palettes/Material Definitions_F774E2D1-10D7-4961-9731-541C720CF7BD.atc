@@ -1,0 +1,396 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.2.0" option="0">
+    <ItemID idValue="{F774E2D1-10D7-4961-9731-541C720CF7BD}" />
+    <Properties>
+        <ItemName>Material Definitions</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:11:51" modifiedUniversalDateTime="2005-01-08T23:11:51" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{4D9D943A-11B7-4678-AF3B-9FDDD639C64D}" />
+            <Properties>
+                <ItemName>Concrete.Cast-in-Place.Flat.Grey</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_4D9D943A-11B7-4678-AF3B-9FDDD639C64D.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:51" modifiedUniversalDateTime="2005-01-08T23:11:51" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Concrete.Cast-in-Place.Flat.Grey</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{AB4A82BC-8E09-4434-91D7-2987DDD11E1B}" />
+            <Properties>
+                <ItemName>Doors &amp; Windows.Glazing.Glass.Clear</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_AB4A82BC-8E09-4434-91D7-2987DDD11E1B.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:52" modifiedUniversalDateTime="2005-01-08T23:11:52" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Doors &amp; Windows.Glazing.Glass.Clear</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{0186C540-0B9E-4B92-AE5E-96538F5652E3}" />
+            <Properties>
+                <ItemName>Doors &amp; Windows.Glazing.Glass.Mirrored</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_0186C540-0B9E-4B92-AE5E-96538F5652E3.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:52" modifiedUniversalDateTime="2005-01-08T23:11:52" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Doors &amp; Windows.Glazing.Glass.Mirrored</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{F9FF15B0-4EF4-4F25-8663-FBF5E522618B}" />
+            <Properties>
+                <ItemName>Doors &amp; Windows.Metal Doors &amp; Frames.Aluminum Frame.Anodized.Dark Bronze.Satin</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_F9FF15B0-4EF4-4F25-8663-FBF5E522618B.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:53" modifiedUniversalDateTime="2005-01-08T23:11:53" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Doors &amp; Windows.Metal Doors &amp; Frames.Aluminum Frame.Anodized.Dark Bronze.Satin</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{4B6D7DC4-415C-49D9-832F-66F50D2DF02B}" />
+            <Properties>
+                <ItemName>Doors &amp; Windows.Metal Doors &amp; Frames.Steel Doors.Painted.White</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_4B6D7DC4-415C-49D9-832F-66F50D2DF02B.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:53" modifiedUniversalDateTime="2005-01-08T23:11:53" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Doors &amp; Windows.Metal Doors &amp; Frames.Steel Doors.Painted.White</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{64870925-8438-46AF-BEC3-FBF7B4F114E2}" />
+            <Properties>
+                <ItemName>Doors &amp; Windows.Wood Doors.Ash</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_64870925-8438-46AF-BEC3-FBF7B4F114E2.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:54" modifiedUniversalDateTime="2005-01-08T23:11:54" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Doors &amp; Windows.Wood Doors.Ash</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{112D1D0A-E05B-41F9-B4D7-E6AFBE98A30D}" />
+            <Properties>
+                <ItemName>Finishes.Ceilings.Acoustical Tile.Exposed Grid.2x2.Pebble.White</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_112D1D0A-E05B-41F9-B4D7-E6AFBE98A30D.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:54" modifiedUniversalDateTime="2005-01-08T23:11:54" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Finishes.Ceilings.Acoustical Tile.Exposed Grid.2x2.Pebble.White</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{8D55DA87-F1C3-4BE3-87F6-3DABEDED79CC}" />
+            <Properties>
+                <ItemName>Finishes.Metal Framing Systems.Furring</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_8D55DA87-F1C3-4BE3-87F6-3DABEDED79CC.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:55" modifiedUniversalDateTime="2005-01-08T23:11:55" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Finishes.Metal Framing Systems.Furring</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{70771DB1-4849-453B-9BBC-5FB90013049E}" />
+            <Properties>
+                <ItemName>Finishes.Metal Framing Systems.Stud</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_70771DB1-4849-453B-9BBC-5FB90013049E.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:56" modifiedUniversalDateTime="2005-01-08T23:11:56" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Finishes.Metal Framing Systems.Stud</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{B2F9490B-0201-4672-AA7B-663A7372B3B7}" />
+            <Properties>
+                <ItemName>Finishes.Plaster and Gypsum Board.Gypsum Wallboard.Painted.White</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_B2F9490B-0201-4672-AA7B-663A7372B3B7.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:56" modifiedUniversalDateTime="2005-01-08T23:11:56" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Finishes.Plaster and Gypsum Board.Gypsum Wallboard.Painted.White</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{0462FEEC-180E-4467-B7AD-EFFB76F98860}" />
+            <Properties>
+                <ItemName>Masonry.Unit Masonry.Brick.Modular.Running</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_0462FEEC-180E-4467-B7AD-EFFB76F98860.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:57" modifiedUniversalDateTime="2005-01-08T23:11:57" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Masonry.Unit Masonry.Brick.Modular.Running</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{34825CC0-1C0B-49AC-9D4D-6D3AABA2DB4A}" />
+            <Properties>
+                <ItemName>Masonry.Unit Masonry.CMU.Stretcher.Running</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_34825CC0-1C0B-49AC-9D4D-6D3AABA2DB4A.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:58" modifiedUniversalDateTime="2005-01-08T23:11:58" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Masonry.Unit Masonry.CMU.Stretcher.Running</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{2B4891BC-93BA-41C2-96CB-161ECBA74AB7}" />
+            <Properties>
+                <ItemName>Metals.Metal Handrails and Railings.Stainless Steel.Satin</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_2B4891BC-93BA-41C2-96CB-161ECBA74AB7.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:59" modifiedUniversalDateTime="2005-01-08T23:11:59" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Metals.Metal Handrails and Railings.Stainless Steel.Satin</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{F39549E2-2F7E-4B3E-B851-03B3BC07B5A6}" />
+            <Properties>
+                <ItemName>Thermal &amp; Moisture.Insulation.Air</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_F39549E2-2F7E-4B3E-B851-03B3BC07B5A6.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:11:59" modifiedUniversalDateTime="2005-01-08T23:11:59" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Thermal &amp; Moisture.Insulation.Air</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{6C2EA082-105E-44EC-ADDD-56B8B8B2B6AA}" />
+            <Properties>
+                <ItemName>Thermal &amp; Moisture.Insulation.Rigid Insulation</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_6C2EA082-105E-44EC-ADDD-56B8B8B2B6AA.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:12:00" modifiedUniversalDateTime="2005-01-08T23:12:00" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Thermal &amp; Moisture.Insulation.Rigid Insulation</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{AD100C7E-72A2-4B11-B940-0E5E506A37B3}" />
+            <Properties>
+                <ItemName>Wood.Finish Carpentry.Wood.Ash</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Material Tool_AD100C7E-72A2-4B11-B940-0E5E506A37B3.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-AECPolygon_AECPolygons</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T23:12:00" modifiedUniversalDateTime="2005-01-08T23:12:00" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{E04B3676-CBB7-454C-9CDB-A55ACA81C41F}" />
+            <Data>
+                <AecDbMaterialDef>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Wood.Finish Carpentry.Wood.Ash</Style>
+                </AecDbMaterialDef>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

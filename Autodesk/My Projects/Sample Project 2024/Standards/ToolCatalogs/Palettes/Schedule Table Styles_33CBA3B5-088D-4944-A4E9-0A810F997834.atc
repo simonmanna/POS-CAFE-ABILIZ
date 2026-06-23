@@ -1,0 +1,50 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{33CBA3B5-088D-4944-A4E9-0A810F997834}" />
+    <Properties>
+        <ItemName>Schedule Table Styles</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:12:24" modifiedUniversalDateTime="2005-01-08T23:12:24" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{D344BF8C-14BD-4E8A-9FC6-C2C4F6AD8C18}" />
+            <Properties>
+                <ItemName>Door Schedule Project Based</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Schedule Table Tool_D344BF8C-14BD-4E8A-9FC6-C2C4F6AD8C18.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:24" modifiedUniversalDateTime="2005-01-08T23:12:24" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{D7D57910-0EAC-4174-A3D9-43ED9B3673BD}" />
+            <Data>
+                <AecDbScheduleTable>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Door Schedule Project Based</Style>
+                </AecDbScheduleTable>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{E4CF7164-9AC6-4BB7-A998-CFEA3F17C3EE}" />
+            <Properties>
+                <ItemName>Room Finish Matrix Project Based</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Schedule Table Tool_E4CF7164-9AC6-4BB7-A998-CFEA3F17C3EE.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:24" modifiedUniversalDateTime="2005-01-08T23:12:24" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{D7D57910-0EAC-4174-A3D9-43ED9B3673BD}" />
+            <Data>
+                <AecDbScheduleTable>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Room Finish Matrix Project Based</Style>
+                </AecDbScheduleTable>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

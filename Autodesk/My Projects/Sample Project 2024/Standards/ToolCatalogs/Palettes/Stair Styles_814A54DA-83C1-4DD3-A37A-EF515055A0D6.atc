@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{814A54DA-83C1-4DD3-A37A-EF515055A0D6}" />
+    <Properties>
+        <ItemName>Stair Styles</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:12:30" modifiedUniversalDateTime="2005-01-08T23:12:30" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{BC144747-5D91-47E3-AE97-5702C4925806}" />
+            <Properties>
+                <ItemName>Cantilever</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Stair Tool_BC144747-5D91-47E3-AE97-5702C4925806.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:30" modifiedUniversalDateTime="2005-01-08T23:12:30" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{6F8E8B8F-011B-4E17-8EE6-1BFCD004EAC7}" />
+            <Data>
+                <AecDbStair>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Cantilever</Style>
+                </AecDbStair>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

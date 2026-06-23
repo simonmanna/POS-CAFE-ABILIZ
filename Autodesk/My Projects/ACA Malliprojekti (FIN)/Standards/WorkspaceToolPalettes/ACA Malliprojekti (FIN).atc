@@ -1,0 +1,75 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Catalog FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{C08D1EE3-AC52-425F-84D6-F604608AF5DC}" />
+    <Properties>
+        <ItemName>Malliprojekti</ItemName>
+        <Images option="0" />
+        <Description>Tool palettes for the Malliprojekti project</Description>
+        <Time createdUniversalDateTime="2006-06-19T06:31:00" modifiedUniversalDateTime="2006-06-19T06:31:00" />
+    </Properties>
+    <CustomData>
+        <Translation status="1" />
+    </CustomData>
+    <Source />
+    <Tools />
+    <Palettes>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{850455BC-139F-4121-A0AC-5DE6854AB23B}" />
+            <Url href="Palettes\Seinät_850455BC-139F-4121-A0AC-5DE6854AB23B.atc" />
+            <Properties>
+                <ItemName>Seinät</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{687344B8-1D4F-463B-B07D-9F7A4B561336}" />
+            <Url href="Palettes\Laatat_687344B8-1D4F-463B-B07D-9F7A4B561336.atc" />
+            <Properties>
+                <ItemName>Laatat</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{D8C664D8-9CF0-48FE-A1FC-4C17210AD57B}" />
+            <Url href="Palettes\Ovet ja Ikkunat_D8C664D8-9CF0-48FE-A1FC-4C17210AD57B.atc" />
+            <Properties>
+                <ItemName>Ovet ja Ikkunat</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{80E712D0-3065-49EE-B0D0-EB68E1A46D41}" />
+            <Url href="Palettes\New Palette_80E712D0-3065-49EE-B0D0-EB68E1A46D41.atc" />
+            <Properties>
+                <ItemName>Portaat</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{66C84820-363F-4564-B8AC-1B5A37295D0F}" />
+            <Url href="Palettes\Rakenteet_66C84820-363F-4564-B8AC-1B5A37295D0F.atc" />
+            <Properties>
+                <ItemName>Pilarit</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{7AE87E13-6290-420D-B542-FFE1D2A49ADA}" />
+            <Url href="Palettes\Palkit_7AE87E13-6290-420D-B542-FFE1D2A49ADA.atc" />
+            <Properties>
+                <ItemName>Palkit</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+    </Palettes>
+    <Packages />
+    <Categories />
+    <StockTools />
+    <Catalogs />
+</Catalog>

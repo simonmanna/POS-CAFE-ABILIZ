@@ -1,0 +1,262 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{850455BC-139F-4121-A0AC-5DE6854AB23B}" />
+    <Properties>
+        <ItemName>Seinät</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2006-06-19T06:32:12" modifiedUniversalDateTime="2006-06-19T09:35:20" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.1.0" option="0">
+            <ItemID idValue="{C0178365-0089-47FA-ACC2-A1259A7DB7ED}" />
+            <Properties>
+                <ItemName>PM406</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_C0178365-0089-47FA-ACC2-A1259A7DB7ED.png" />
+                </Images>
+                <Description>Creates a Wall</Description>
+                <Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-Walls_Walls</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-02-22T15:53:49" modifiedUniversalDateTime="2006-06-19T09:36:45" />
+            </Properties>
+            <CustomData>
+                <Version>5.0</Version>
+            </CustomData>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbGeo>
+                    <LayerKey>WALL_USK</LayerKey>
+                </AecDbGeo>
+                <Units>mm</Units>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Tyylit.dwg">PM406</Style>
+                </AecDbWall>
+            </Data>
+        </Tool>
+        <Tool Revision="18.1.0" option="0">
+            <ItemID idValue="{5065E588-1DA5-438A-8118-C9057C815266}" />
+            <Properties>
+                <ItemName>PM407</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_5065E588-1DA5-438A-8118-C9057C815266.png" />
+                </Images>
+                <Description>Creates a Wall</Description>
+                <Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-Walls_Walls</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-02-22T15:53:49" modifiedUniversalDateTime="2006-06-19T09:37:23" />
+            </Properties>
+            <CustomData>
+                <Version>5.0</Version>
+            </CustomData>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbGeo>
+                    <LayerKey>WALL_USK</LayerKey>
+                </AecDbGeo>
+                <Units>mm</Units>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Tyylit.dwg">PM407</Style>
+                    <CleanupGroupDef ref="%AECPROJECT_DIR%\Tyylit.dwg">PM407</CleanupGroupDef>
+                </AecDbWall>
+            </Data>
+        </Tool>
+        <Tool Revision="18.1.0" option="0">
+            <ItemID idValue="{AD5F4D27-907E-4610-9191-89F8152BED01}" />
+            <Properties>
+                <ItemName>PM408</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_AD5F4D27-907E-4610-9191-89F8152BED01.png" />
+                </Images>
+                <Description>Creates a Wall</Description>
+                <Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-Walls_Walls</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-02-22T15:53:49" modifiedUniversalDateTime="2006-06-19T09:37:34" />
+            </Properties>
+            <CustomData>
+                <Version>5.0</Version>
+            </CustomData>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbGeo>
+                    <LayerKey>WALL_USK</LayerKey>
+                </AecDbGeo>
+                <Units>mm</Units>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Tyylit.dwg">PM408</Style>
+                </AecDbWall>
+            </Data>
+        </Tool>
+        <Tool Revision="18.1.0" option="0">
+            <ItemID idValue="{74B72C3F-6B91-4E61-8374-59A8FB462B87}" />
+            <Properties>
+                <ItemName>SPR401</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_74B72C3F-6B91-4E61-8374-59A8FB462B87.png" />
+                </Images>
+                <Description>Creates a Wall</Description>
+                <Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-Walls_Walls</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-02-22T15:53:49" modifiedUniversalDateTime="2006-06-19T09:38:45" />
+            </Properties>
+            <CustomData>
+                <Version>5.0</Version>
+            </CustomData>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbGeo>
+                    <LayerKey>WALL_VS</LayerKey>
+                </AecDbGeo>
+                <Units>mm</Units>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Tyylit.dwg">SPR401</Style>
+                </AecDbWall>
+            </Data>
+        </Tool>
+        <Tool Revision="18.1.0" option="0">
+            <ItemID idValue="{83351A46-9629-4B28-982F-BE51B42C36E9}" />
+            <Properties>
+                <ItemName>SPR502</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_83351A46-9629-4B28-982F-BE51B42C36E9.png" />
+                </Images>
+                <Description>Creates a Wall</Description>
+                <Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-Walls_Walls</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-02-22T15:53:49" modifiedUniversalDateTime="2006-06-19T09:38:36" />
+            </Properties>
+            <CustomData>
+                <Version>5.0</Version>
+            </CustomData>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbGeo>
+                    <LayerKey>WALL_VS</LayerKey>
+                </AecDbGeo>
+                <Units>mm</Units>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Tyylit.dwg">SPR502</Style>
+                </AecDbWall>
+            </Data>
+        </Tool>
+        <Tool Revision="18.1.0" option="0">
+            <ItemID idValue="{77260BC5-D775-4500-AF2F-8721486A297B}" />
+            <Properties>
+                <ItemName>US512</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_77260BC5-D775-4500-AF2F-8721486A297B.png" />
+                </Images>
+                <Description>Creates a Wall</Description>
+                <Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-Walls_Walls</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-02-22T15:53:49" modifiedUniversalDateTime="2006-06-19T09:39:01" />
+            </Properties>
+            <CustomData>
+                <Version>5.0</Version>
+            </CustomData>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbGeo>
+                    <LayerKey>WALL_USK</LayerKey>
+                </AecDbGeo>
+                <Units>mm</Units>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Tyylit.dwg">US512</Style>
+                </AecDbWall>
+            </Data>
+        </Tool>
+        <Tool Revision="18.1.0" option="0">
+            <ItemID idValue="{F516C0A6-89FB-46E0-B4E1-824BBCCF35FC}" />
+            <Properties>
+                <ItemName>VS438</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_F516C0A6-89FB-46E0-B4E1-824BBCCF35FC.png" />
+                </Images>
+                <Description>Creates a Wall</Description>
+                <Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-Walls_Walls</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-02-22T15:53:49" modifiedUniversalDateTime="2006-06-19T09:39:14" />
+            </Properties>
+            <CustomData>
+                <Version>5.0</Version>
+            </CustomData>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbGeo>
+                    <LayerKey>WALL_VS</LayerKey>
+                </AecDbGeo>
+                <Units>mm</Units>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Tyylit.dwg">VS438</Style>
+                    <CleanupGroupDef ref="%AECPROJECT_DIR%\Tyylit.dwg">VS438</CleanupGroupDef>
+                </AecDbWall>
+            </Data>
+        </Tool>
+        <Tool Revision="18.1.0" option="0">
+            <ItemID idValue="{A46B93E7-F890-4255-BEDA-1F50D906041B}" />
+            <Properties>
+                <ItemName>VS512</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Wall Tool_A46B93E7-F890-4255-BEDA-1F50D906041B.png" />
+                </Images>
+                <Description>Creates a Wall</Description>
+                <Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT-UG-Walls_Walls</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-02-22T15:53:49" modifiedUniversalDateTime="2006-06-19T09:39:23" />
+            </Properties>
+            <CustomData>
+                <Version>5.0</Version>
+            </CustomData>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{812A08B4-5833-4409-8329-1B3CCAF61C78}" />
+            <Data>
+                <AecDbGeo>
+                    <LayerKey>WALL_VS</LayerKey>
+                </AecDbGeo>
+                <Units>mm</Units>
+                <AecDbWall>
+                    <Style ref="%AECPROJECT_DIR%\Tyylit.dwg">VS512</Style>
+                </AecDbWall>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

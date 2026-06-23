@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  DATABASE_URL: postgresql://cafe-pos:cafe-pos@localhost:5432/cafe-pos?schema=public
+  JWT_ACCESS_SECRET: ci-access-secret-must-be-32-chars-or-more
+  JWT_REFRESH_SECRET: ci-refresh-secret-must-be-32-chars-or-more
+  NODE_ENV: production
+
+jobs:
+  test:
+    name: Lint + Typecheck + Unit + Integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cafe-pos
+          POSTGRES_PASSWORD: cafe-pos
+          POSTGRES_DB: cafe-pos
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U cafe-pos"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared
+        run: pnpm shared:build
+
+      - name: Architecture boundary check
+        run: pnpm lint:arch
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Prisma migrate
+        run: pnpm --filter @erp/api db:migrate
+
+      - name: Seed
+        run: pnpm --filter @erp/api db:seed
+
+      - name: Unit + accounting-invariant tests
+        run: pnpm --filter @erp/api test -- --testPathIgnorePatterns integration
+
+      - name: Integration tests (DB-backed)
+        run: pnpm --filter @erp/api test:integration
+
+      - name: Build
+        run: pnpm --filter @erp/api build

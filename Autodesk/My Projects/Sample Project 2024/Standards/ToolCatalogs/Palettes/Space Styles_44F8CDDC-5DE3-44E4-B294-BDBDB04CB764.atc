@@ -1,0 +1,183 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{44F8CDDC-5DE3-44E4-B294-BDBDB04CB764}" />
+    <Properties>
+        <ItemName>Space Styles</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:12:25" modifiedUniversalDateTime="2005-01-08T23:12:25" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{F591B6B5-0CAD-4CFD-8B73-9CA917B40D92}" />
+            <Properties>
+                <ItemName>Bathroom</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Space Tool_F591B6B5-0CAD-4CFD-8B73-9CA917B40D92.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:25" modifiedUniversalDateTime="2005-01-08T23:12:25" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{FEDDC4F1-33E1-47FA-B4BB-A110B5352C70}" />
+            <Data>
+                <AecDbSpace>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Bathroom</Style>
+                </AecDbSpace>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{491DADD6-8AC4-4040-A810-23A396200107}" />
+            <Properties>
+                <ItemName>Conference</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Space Tool_491DADD6-8AC4-4040-A810-23A396200107.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:26" modifiedUniversalDateTime="2005-01-08T23:12:26" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{FEDDC4F1-33E1-47FA-B4BB-A110B5352C70}" />
+            <Data>
+                <AecDbSpace>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Conference</Style>
+                </AecDbSpace>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{17015F98-279E-44DC-90E6-F9D9F4414B3F}" />
+            <Properties>
+                <ItemName>Elevators</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Space Tool_17015F98-279E-44DC-90E6-F9D9F4414B3F.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:26" modifiedUniversalDateTime="2005-01-08T23:12:26" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{FEDDC4F1-33E1-47FA-B4BB-A110B5352C70}" />
+            <Data>
+                <AecDbSpace>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Elevators</Style>
+                </AecDbSpace>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{EE348DBD-014B-4414-BE9B-66F7446EE08B}" />
+            <Properties>
+                <ItemName>Lobby</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Space Tool_EE348DBD-014B-4414-BE9B-66F7446EE08B.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:27" modifiedUniversalDateTime="2005-01-08T23:12:27" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{FEDDC4F1-33E1-47FA-B4BB-A110B5352C70}" />
+            <Data>
+                <AecDbSpace>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Lobby</Style>
+                </AecDbSpace>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{F34F4F23-1C9D-48A8-800F-808B6E0E97F5}" />
+            <Properties>
+                <ItemName>Office - Hard Wall</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Space Tool_F34F4F23-1C9D-48A8-800F-808B6E0E97F5.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:27" modifiedUniversalDateTime="2005-01-08T23:12:27" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{FEDDC4F1-33E1-47FA-B4BB-A110B5352C70}" />
+            <Data>
+                <AecDbSpace>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Office - Hard Wall</Style>
+                </AecDbSpace>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{B9E83105-E9C8-4E20-B4D0-806AC98763F4}" />
+            <Properties>
+                <ItemName>Open Office</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Space Tool_B9E83105-E9C8-4E20-B4D0-806AC98763F4.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:28" modifiedUniversalDateTime="2005-01-08T23:12:28" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{FEDDC4F1-33E1-47FA-B4BB-A110B5352C70}" />
+            <Data>
+                <AecDbSpace>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Open Office</Style>
+                </AecDbSpace>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{BFD2767F-3EA2-47DB-BA82-6F77822AFEC8}" />
+            <Properties>
+                <ItemName>Service</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Space Tool_BFD2767F-3EA2-47DB-BA82-6F77822AFEC8.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:29" modifiedUniversalDateTime="2005-01-08T23:12:29" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{FEDDC4F1-33E1-47FA-B4BB-A110B5352C70}" />
+            <Data>
+                <AecDbSpace>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Service</Style>
+                </AecDbSpace>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{670F0645-6636-41BE-AA3E-A69E4D8D281F}" />
+            <Properties>
+                <ItemName>Stairs</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Space Tool_670F0645-6636-41BE-AA3E-A69E4D8D281F.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:29" modifiedUniversalDateTime="2005-01-08T23:12:29" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{FEDDC4F1-33E1-47FA-B4BB-A110B5352C70}" />
+            <Data>
+                <AecDbSpace>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Stairs</Style>
+                </AecDbSpace>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{44E0EBB6-C353-468E-A7C6-4F4D5F5C35A3}" />
+            <Properties>
+                <ItemName>Storage</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Space Tool_44E0EBB6-C353-468E-A7C6-4F4D5F5C35A3.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:12:30" modifiedUniversalDateTime="2005-01-08T23:12:30" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{FEDDC4F1-33E1-47FA-B4BB-A110B5352C70}" />
+            <Data>
+                <AecDbSpace>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Storage</Style>
+                </AecDbSpace>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

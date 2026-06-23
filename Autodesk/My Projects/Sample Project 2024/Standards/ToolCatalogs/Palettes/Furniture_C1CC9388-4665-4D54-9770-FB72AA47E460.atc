@@ -1,0 +1,929 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.2.0" option="0">
+    <ItemID idValue="{C1CC9388-4665-4D54-9770-FB72AA47E460}" />
+    <Properties>
+        <ItemName>Furniture</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:15:04" modifiedUniversalDateTime="2005-01-08T23:15:04" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{514F2A60-F517-4D1C-A7F4-C56A95D9BDFC}" />
+            <Properties>
+                <ItemName>I_Case_Wall_24H_36in Wide</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\514F2A60-F517-4D1C-A7F4-C56A95D9BDFC.png" />
+                </Images>
+                <Description>Casework: 24in. High Wall: Kitchen wall cabinet 36in wide 24in high [12300]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:20:12" modifiedUniversalDateTime="2005-01-08T18:20:12" refreshedUniversalDateTime="2005-01-08T18:20:12" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Case_Wall_24H_36in Wide</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{C68500EA-44E2-4ECD-9F91-89433E0968D8}" />
+            <Properties>
+                <ItemName>I_Case_Base_Cab_48in Wide</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\C68500EA-44E2-4ECD-9F91-89433E0968D8.png" />
+                </Images>
+                <Description>Casework: Base Cabinet: Kitchen Cabinet Base 48in [12300]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:20:12" modifiedUniversalDateTime="2005-01-08T18:20:12" refreshedUniversalDateTime="2005-01-08T18:20:12" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Case_Base_Cab_48in Wide</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{95714BA9-CB3A-4105-848A-6E962F236BB5}" />
+            <Properties>
+                <ItemName>I_Appl_Refrig_Top-Bot 31x28</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\95714BA9-CB3A-4105-848A-6E962F236BB5.png" />
+                </Images>
+                <Description>Appliances: Refrigerator: Refrig Top/Bot (Detailed) [11400]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:20:12" modifiedUniversalDateTime="2005-01-08T18:20:12" refreshedUniversalDateTime="2005-01-08T18:20:12" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Appl_Refrig_Top-Bot 31x28</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{BB7EA36A-2242-4DD4-8E55-9B869D99C3AB}" />
+            <Properties>
+                <ItemName>I_Appl_Range_Range 30x26</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\BB7EA36A-2242-4DD4-8E55-9B869D99C3AB.png" />
+                </Images>
+                <Description>Appliances: Range: Range (Detailed) [11400]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:20:12" modifiedUniversalDateTime="2005-01-08T18:20:12" refreshedUniversalDateTime="2005-01-08T18:20:12" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Appl_Range_Range 30x26</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{684874BC-46C0-4D7B-B34E-521C84AFD93A}" />
+            <Properties>
+                <ItemName>I_Case_Base_Cab_18in Wide</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\684874BC-46C0-4D7B-B34E-521C84AFD93A.png" />
+                </Images>
+                <Description>Casework: Base Cabinet: Kitchen Cabinet Base 18in [12300]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:20:12" modifiedUniversalDateTime="2005-01-08T18:20:12" refreshedUniversalDateTime="2005-01-08T18:20:12" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Case_Base_Cab_18in Wide</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{EE9EEDF7-C086-4E64-A360-C39CB58E88FF}" />
+            <Properties>
+                <ItemName>I_Case_Wall_15H_30in Wide</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\EE9EEDF7-C086-4E64-A360-C39CB58E88FF.png" />
+                </Images>
+                <Description>Casework: 15in. High Wall: Kitchen wall cabinet 30in wide 15in high [12300]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:20:12" modifiedUniversalDateTime="2005-01-08T18:20:12" refreshedUniversalDateTime="2005-01-08T18:20:12" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Case_Wall_15H_30in Wide</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{1CDB6142-EC1E-4079-B188-C1AF993507B4}" />
+            <Properties>
+                <ItemName>I_Equip_Misc_Vending Machine</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\1CDB6142-EC1E-4079-B188-C1AF993507B4.png" />
+                </Images>
+                <Description>Equipment: Misc: Vending Machine [11120]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Equip_Misc_Vending Machine</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{D4AF1757-E3AD-4460-A5E6-045396FD0F2C}" />
+            <Properties>
+                <ItemName>I_EQUP_ELEV_Simple</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\D4AF1757-E3AD-4460-A5E6-045396FD0F2C.png" />
+                </Images>
+                <Description>Equipment: Elevator: Simple Elevator (2D) [14200]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_EQUP_ELEV_Simple</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{433D98F1-4834-4F99-AF90-725F65ABEAEE}" />
+            <Properties>
+                <ItemName>I_Furn_Chair_Chair 6</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\433D98F1-4834-4F99-AF90-725F65ABEAEE.png" />
+                </Images>
+                <Description>Furniture: Chair: Chair 6 [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Chair_Chair 6</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{38B54A6F-D072-4323-AB16-3ECF03ED66CA}" />
+            <Properties>
+                <ItemName>I_Furn_Chair_Chair 1</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\38B54A6F-D072-4323-AB16-3ECF03ED66CA.png" />
+                </Images>
+                <Description>Furniture: Chair: Chair 1 [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Chair_Chair 1</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{E2472D6F-AD0A-44E5-B1E0-829B71D836A6}" />
+            <Properties>
+                <ItemName>I_Furn_Chair_Chair 8</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\E2472D6F-AD0A-44E5-B1E0-829B71D836A6.png" />
+                </Images>
+                <Description>Furniture: Chair: Chair 8 [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Chair_Chair 8</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{2FEBB94A-3B72-4E39-9E53-31D209263DC4}" />
+            <Properties>
+                <ItemName>I_Furn_Chair_Executive Rct</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\2FEBB94A-3B72-4E39-9E53-31D209263DC4.png" />
+                </Images>
+                <Description>Furniture: Chair: Executive Rectangle [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Chair_Executive Rct</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{0298D3F5-6E76-4040-96FE-A8580F7B83A1}" />
+            <Properties>
+                <ItemName>I_Furn_Credenza_72x18</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\0298D3F5-6E76-4040-96FE-A8580F7B83A1.png" />
+                </Images>
+                <Description>Furniture: Credenza: Credenza 72x18 [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Credenza_72x18</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{0C3FCA8A-29C7-4638-A92D-073A23AB03E4}" />
+            <Properties>
+                <ItemName>I_Furn_Chair_Secretary</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\0C3FCA8A-29C7-4638-A92D-073A23AB03E4.png" />
+                </Images>
+                <Description>Furniture: Chair: Secretary [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Chair_Secretary</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{7415EA21-14E4-495A-B3AA-9CF0A1C9562F}" />
+            <Properties>
+                <ItemName>I_Furn_Desk_72x36 Right</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\7415EA21-14E4-495A-B3AA-9CF0A1C9562F.png" />
+                </Images>
+                <Description>Furniture: Desk: Desk 72x36 drawers right [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Desk_72x36 Right</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{163FDCA5-E264-4918-9380-2E5A9ADF3868}" />
+            <Properties>
+                <ItemName>I_Furn_File_15x22a</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\163FDCA5-E264-4918-9380-2E5A9ADF3868.png" />
+                </Images>
+                <Description>Furniture: File Cabinet: File cabinet 15x22a [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:06" modifiedUniversalDateTime="2005-01-08T18:21:06" refreshedUniversalDateTime="2005-01-08T18:21:06" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_File_15x22a</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{81570813-99F7-4AC4-B138-CC4A0BDD9A13}" />
+            <Properties>
+                <ItemName>I_Furn_File_30x18d</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\81570813-99F7-4AC4-B138-CC4A0BDD9A13.png" />
+                </Images>
+                <Description>Furniture: File Cabinet: File cabinet 30x18d [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_File_30x18d</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{0A5994D8-1581-461A-925E-4F6C36F62AD7}" />
+            <Properties>
+                <ItemName>I_Furn_File_36x18d</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\0A5994D8-1581-461A-925E-4F6C36F62AD7.png" />
+                </Images>
+                <Description>Furniture: File Cabinet: File cabinet 36x18d [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_File_36x18d</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{E0E0F652-C44D-4FD4-A33A-249141A1825F}" />
+            <Properties>
+                <ItemName>I_Furn_Misc_Billiards</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\E0E0F652-C44D-4FD4-A33A-249141A1825F.png" />
+                </Images>
+                <Description>Billiard/Pool Table</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Misc_Billiards</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{3E636DBC-6711-4A9E-A8B7-8192F555CBE7}" />
+            <Properties>
+                <ItemName>I_Furn_File_42x18d</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\3E636DBC-6711-4A9E-A8B7-8192F555CBE7.png" />
+                </Images>
+                <Description>Furniture: File Cabinet: File cabinet 42x18d [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_File_42x18d</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{538967D6-5438-44C2-83CB-4DE89ADD750A}" />
+            <Properties>
+                <ItemName>I_Furn_Misc_Pingpong</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\538967D6-5438-44C2-83CB-4DE89ADD750A.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Misc_Pingpong</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{553E5730-BB0B-4A0E-A585-2CC576910B8D}" />
+            <Properties>
+                <ItemName>I_Furn_Sofa_Long</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\553E5730-BB0B-4A0E-A585-2CC576910B8D.png" />
+                </Images>
+                <Description>Furniture: Sofa: Long [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Sofa_Long</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{F53CB058-7F47-4654-8FA4-ED3C31666510}" />
+            <Properties>
+                <ItemName>I_Furn_Table_Conf 16ft - 18 Seat</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\F53CB058-7F47-4654-8FA4-ED3C31666510.png" />
+                </Images>
+                <Description>Furniture: Table: Conference Table 16', 18 seat [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Table_Conf 16ft - 18 Seat</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{FDA75A16-4EF1-4F40-AA59-EBB3CF1895BB}" />
+            <Properties>
+                <ItemName>I_Furn_Table_Conf 12ft - 12 Seat</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\FDA75A16-4EF1-4F40-AA59-EBB3CF1895BB.png" />
+                </Images>
+                <Description>Furniture: Table: Conference Table 12', 12 seat [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Table_Conf 12ft - 12 Seat</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{84B26764-E038-41FB-93C4-91B35FD4628F}" />
+            <Properties>
+                <ItemName>I_Furn_Table_Oval</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\84B26764-E038-41FB-93C4-91B35FD4628F.png" />
+                </Images>
+                <Description>Furniture: Table: Oval [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Table_Oval</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{5F24E527-CA42-4432-A139-2B3FCF0DA3F8}" />
+            <Properties>
+                <ItemName>I_Furn_Table_Rectangular 36x36</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\5F24E527-CA42-4432-A139-2B3FCF0DA3F8.png" />
+                </Images>
+                <Description>Furniture: Table: Rectangular table 36x36 [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:21:34" modifiedUniversalDateTime="2005-01-08T18:21:34" refreshedUniversalDateTime="2005-01-08T18:21:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Table_Rectangular 36x36</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{7154D1F1-69F3-47DB-B11F-AF78D748656C}" />
+            <Properties>
+                <ItemName>I_Furn_Table_Square 36 X 36</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\7154D1F1-69F3-47DB-B11F-AF78D748656C.png" />
+                </Images>
+                <Description>Furniture: Table: Square 36 X 36 [12500]</Description>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:22:05" modifiedUniversalDateTime="2005-01-08T18:22:05" refreshedUniversalDateTime="2005-01-08T18:22:05" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_Table_Square 36 X 36</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{1D7C4FE2-0884-4D6E-84DA-520B00ECB67D}" />
+            <Properties>
+                <ItemName>I_Furn_WorkSurface_22x76</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\1D7C4FE2-0884-4D6E-84DA-520B00ECB67D.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:22:05" modifiedUniversalDateTime="2005-01-08T18:22:05" refreshedUniversalDateTime="2005-01-08T18:22:05" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_WorkSurface_22x76</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{7C90462C-4385-48F3-955D-A93DFCC5A33A}" />
+            <Properties>
+                <ItemName>I_Furn_WorkSurface_24Corner</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\7C90462C-4385-48F3-955D-A93DFCC5A33A.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:22:05" modifiedUniversalDateTime="2005-01-08T18:22:05" refreshedUniversalDateTime="2005-01-08T18:22:05" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_WorkSurface_24Corner</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{8C1DCAE3-EDF0-472E-91BF-60A4EB36D1FA}" />
+            <Properties>
+                <ItemName>I_Furn_WorkSurface_24x36</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\8C1DCAE3-EDF0-472E-91BF-60A4EB36D1FA.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:22:05" modifiedUniversalDateTime="2005-01-08T18:22:05" refreshedUniversalDateTime="2005-01-08T18:22:05" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_WorkSurface_24x36</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{8C1F45A7-0C7A-405D-AFD5-D7C1B0C0E007}" />
+            <Properties>
+                <ItemName>I_Furn_WorkSurface_24x60</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\8C1F45A7-0C7A-405D-AFD5-D7C1B0C0E007.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:22:05" modifiedUniversalDateTime="2005-01-08T18:22:05" refreshedUniversalDateTime="2005-01-08T18:22:05" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_WorkSurface_24x60</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{8276906B-9707-446C-870C-689D8AB9BC74}" />
+            <Properties>
+                <ItemName>I_Furn_WorkSurface_24x48</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\8276906B-9707-446C-870C-689D8AB9BC74.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:22:05" modifiedUniversalDateTime="2005-01-08T18:22:05" refreshedUniversalDateTime="2005-01-08T18:22:05" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_WorkSurface_24x48</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.2.0" option="0">
+            <ItemID idValue="{68D5ABB2-19E2-488C-AF6E-FBEFC42CE892}" />
+            <Properties>
+                <ItemName>I_Furn_WorkSurface_30x72_Rnd</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\68D5ABB2-19E2-488C-AF6E-FBEFC42CE892.png" />
+                </Images>
+<Help>
+                    <HelpFile>WBH</HelpFile>
+                    <HelpCommand>HELP_HHWND_TOPIC</HelpCommand>
+                    <HelpData>ADT_UG_DESIGNCENTER</HelpData>
+                </Help>
+                <Time createdUniversalDateTime="2005-01-08T18:22:05" modifiedUniversalDateTime="2005-01-08T18:22:05" refreshedUniversalDateTime="2005-01-08T18:22:05" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{5574B274-1F0A-4A7F-BADB-4F1FD4A842A6}" />
+            <Data>
+                <AecDbMvBlockRef>
+                    <Definition ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">I_Furn_WorkSurface_30x72_Rnd</Definition>
+                </AecDbMvBlockRef>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

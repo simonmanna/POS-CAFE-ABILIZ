@@ -1,0 +1,155 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Catalog FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{BD4B0289-BA5E-4CD7-B98E-8F58F10180A5}" />
+    <Properties>
+        <ItemName>Sample Project</ItemName>
+        <Images option="0">
+            <Image cx="93" cy="123" src=".\Images\sample-dtc.png" />
+        </Images>
+        <Description>Tools generated from style drawing(s).</Description>
+        <Time createdUniversalDateTime="2005-01-08T23:11:30" modifiedUniversalDateTime="2005-01-21T08:53:56" />
+    </Properties>
+    <Source />
+    <Tools />
+    <Palettes>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{968265D1-612E-400F-B642-3B4430DEAC05}" />
+            <Url href=".\Palettes\Curtain Wall Styles_968265D1-612E-400F-B642-3B4430DEAC05.atc" />
+            <Properties>
+                <ItemName>Curtain Wall Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{5D59CDD4-48A9-4A61-B5EB-B83DB6AE44A0}" />
+            <Url href=".\Palettes\Door Styles_5D59CDD4-48A9-4A61-B5EB-B83DB6AE44A0.atc" />
+            <Properties>
+                <ItemName>Door Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{92154B08-AFA9-48C2-A19B-78A4E573EA40}" />
+            <Url href=".\Palettes\Door_Window Assembly Styles_92154B08-AFA9-48C2-A19B-78A4E573EA40.atc" />
+            <Properties>
+                <ItemName>Door/Window Assembly Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{5B946841-E020-45CA-BA2B-E8E439FB9911}" />
+            <Url href=".\Palettes\Mass Element Styles_5B946841-E020-45CA-BA2B-E8E439FB9911.atc" />
+            <Properties>
+                <ItemName>Mass Element Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{F774E2D1-10D7-4961-9731-541C720CF7BD}" />
+            <Url href=".\Palettes\Material Definitions_F774E2D1-10D7-4961-9731-541C720CF7BD.atc" />
+            <Properties>
+                <ItemName>Material Definitions</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{49C344B3-D975-4276-89E5-8E1E0C868FD6}" />
+            <Url href=".\Palettes\Railing Styles_49C344B3-D975-4276-89E5-8E1E0C868FD6.atc" />
+            <Properties>
+                <ItemName>Railing Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{33CBA3B5-088D-4944-A4E9-0A810F997834}" />
+            <Url href=".\Palettes\Schedule Table Styles_33CBA3B5-088D-4944-A4E9-0A810F997834.atc" />
+            <Properties>
+                <ItemName>Schedule Table Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{44F8CDDC-5DE3-44E4-B294-BDBDB04CB764}" />
+            <Url href=".\Palettes\Space Styles_44F8CDDC-5DE3-44E4-B294-BDBDB04CB764.atc" />
+            <Properties>
+                <ItemName>Space Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{814A54DA-83C1-4DD3-A37A-EF515055A0D6}" />
+            <Url href=".\Palettes\Stair Styles_814A54DA-83C1-4DD3-A37A-EF515055A0D6.atc" />
+            <Properties>
+                <ItemName>Stair Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{0D0372CC-31CE-4B9E-9ED7-FF86389B3833}" />
+            <Url href=".\Palettes\Structural Member Styles_0D0372CC-31CE-4B9E-9ED7-FF86389B3833.atc" />
+            <Properties>
+                <ItemName>Structural Member Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{AAD270F3-B9B3-401C-BF3B-4221E1B00505}" />
+            <Url href=".\Palettes\Wall Styles_AAD270F3-B9B3-401C-BF3B-4221E1B00505.atc" />
+            <Properties>
+                <ItemName>Wall Styles</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{F16E91A0-F020-467F-BDDF-62DBB83DD0C3}" />
+            <Url href=".\Palettes\Plumbing_F16E91A0-F020-467F-BDDF-62DBB83DD0C3.atc" />
+            <Properties>
+                <ItemName>Plumbing</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{50C02443-A3A0-4155-98F9-D104F30D93B0}" />
+            <Url href=".\Palettes\Electrical_50C02443-A3A0-4155-98F9-D104F30D93B0.atc" />
+            <Properties>
+                <ItemName>Electrical</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{C1CC9388-4665-4D54-9770-FB72AA47E460}" />
+            <Url href=".\Palettes\Furniture_C1CC9388-4665-4D54-9770-FB72AA47E460.atc" />
+            <Properties>
+                <ItemName>Furniture</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+        <Palette Revision="18.0.0" option="0">
+            <ItemID idValue="{13B7E9FD-4BC9-4C9A-8F2B-9AE2BEADA6D9}" />
+            <Url href=".\Palettes\Annotation_13B7E9FD-4BC9-4C9A-8F2B-9AE2BEADA6D9.atc" />
+            <Properties>
+                <ItemName>Annotation</ItemName>
+                <Images option="0" />
+            </Properties>
+            <Source />
+        </Palette>
+    </Palettes>
+    <Packages />
+    <Categories />
+    <StockTools />
+    <Catalogs />
+</Catalog>

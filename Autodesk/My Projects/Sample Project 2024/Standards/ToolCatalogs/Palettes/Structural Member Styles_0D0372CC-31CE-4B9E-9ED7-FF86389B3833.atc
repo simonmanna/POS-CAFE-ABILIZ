@@ -1,0 +1,252 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Palette FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{0D0372CC-31CE-4B9E-9ED7-FF86389B3833}" />
+    <Properties>
+        <ItemName>Structural Member Styles</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:12:31" modifiedUniversalDateTime="2005-01-08T23:12:31" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{B0EA7C17-FDC2-4E12-A317-4C9FAB903352}" />
+            <Properties>
+                <ItemName>B1</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_B0EA7C17-FDC2-4E12-A317-4C9FAB903352.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:31" modifiedUniversalDateTime="2005-01-08T23:12:31" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">B1</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{5F625DC4-1E22-4062-A545-0A7F8894678E}" />
+            <Properties>
+                <ItemName>B2</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_5F625DC4-1E22-4062-A545-0A7F8894678E.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:32" modifiedUniversalDateTime="2005-01-08T23:12:32" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">B2</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{518EE5B5-1A74-4F15-91FE-CAA5C57342FD}" />
+            <Properties>
+                <ItemName>B3</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_518EE5B5-1A74-4F15-91FE-CAA5C57342FD.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:32" modifiedUniversalDateTime="2005-01-08T23:12:32" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">B3</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{5AEB5E0D-E4A2-470E-A70D-4FFD63A3EDC2}" />
+            <Properties>
+                <ItemName>C1</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_5AEB5E0D-E4A2-470E-A70D-4FFD63A3EDC2.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:33" modifiedUniversalDateTime="2005-01-08T23:12:33" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">C1</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{410894BB-311F-4FBB-BDE8-6CE1A0EF222D}" />
+            <Properties>
+                <ItemName>C2</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_410894BB-311F-4FBB-BDE8-6CE1A0EF222D.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:33" modifiedUniversalDateTime="2005-01-08T23:12:33" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">C2</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{37EA0C97-12B3-44F9-AB9E-704D94575DB7}" />
+            <Properties>
+                <ItemName>C4</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_37EA0C97-12B3-44F9-AB9E-704D94575DB7.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:34" modifiedUniversalDateTime="2005-01-08T23:12:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">C4</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{462C2B58-3CEC-4E53-B85D-32A03479D6C5}" />
+            <Properties>
+                <ItemName>EB1</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_462C2B58-3CEC-4E53-B85D-32A03479D6C5.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:34" modifiedUniversalDateTime="2005-01-08T23:12:34" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">EB1</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{B9422A73-31E8-4EC7-B00A-590CA78DB1EE}" />
+            <Properties>
+                <ItemName>FB1</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_B9422A73-31E8-4EC7-B00A-590CA78DB1EE.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:35" modifiedUniversalDateTime="2005-01-08T23:12:35" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">FB1</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{4F8D7CE6-9738-422E-825A-B9129A4D6D43}" />
+            <Properties>
+                <ItemName>G1</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_4F8D7CE6-9738-422E-825A-B9129A4D6D43.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:35" modifiedUniversalDateTime="2005-01-08T23:12:35" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">G1</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{DAA5C01A-84F9-4545-9E28-E4B2D273A452}" />
+            <Properties>
+                <ItemName>G3</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\Beam Tool_DAA5C01A-84F9-4545-9E28-E4B2D273A452.png" />
+                </Images>
+                <Description>Creates a Structural Beam</Description>
+                <Time createdUniversalDateTime="2005-01-08T23:12:35" modifiedUniversalDateTime="2005-01-08T23:12:35" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{2292D80A-690E-45D9-AC26-6B7D94497C06}" />
+            <Data>
+                <AecsDbMember>
+                    <Type>0</Type>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">G3</Style>
+                </AecsDbMember>
+                <Units>inch</Units>
+                <AecDbGeo>
+                    <BoundSpaces>2</BoundSpaces>
+                </AecDbGeo>
+            </Data>
+        </Tool>
+    </Tools>
+</Palette>

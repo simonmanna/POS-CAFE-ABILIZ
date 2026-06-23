@@ -1,0 +1,97 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Catalog FileRevision="18.0.0" Revision="18.0.0" option="0">
+    <ItemID idValue="{572CBA82-6FFC-4B34-820A-C479222ABBA6}" />
+    <Properties>
+        <ItemName>AEC Dimension Styles</ItemName>
+        <Images option="0" />
+        <Time createdUniversalDateTime="2005-01-08T23:11:30" modifiedUniversalDateTime="2005-01-08T23:11:30" />
+    </Properties>
+    <Source />
+    <Tools>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{F1424740-4609-448B-AA98-AAAC93FD9972}" />
+            <Properties>
+                <ItemName>AecDim 1 Chain</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\AEC Dimension Tool_F1424740-4609-448B-AA98-AAAC93FD9972.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:11:30" modifiedUniversalDateTime="2005-01-08T23:11:30" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{DE61F9FE-84C1-4D43-97D5-5BC5A769BA40}" />
+            <Data>
+                <AecDbDimensionGroup>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">1 Chain</Style>
+                    <UsingCmd>0</UsingCmd>
+                </AecDbDimensionGroup>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{61FAF978-297F-4D61-8ED3-ED3823B61ECD}" />
+            <Properties>
+                <ItemName>AecDim 2 Chain</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\AEC Dimension Tool_61FAF978-297F-4D61-8ED3-ED3823B61ECD.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:11:30" modifiedUniversalDateTime="2005-01-08T23:11:30" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{DE61F9FE-84C1-4D43-97D5-5BC5A769BA40}" />
+            <Data>
+                <AecDbDimensionGroup>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">2 Chain</Style>
+                    <UsingCmd>0</UsingCmd>
+                </AecDbDimensionGroup>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{3DFAF099-BCE2-4107-8A02-C100EC9160E6}" />
+            <Properties>
+                <ItemName>AecDim 3 Chain</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\AEC Dimension Tool_3DFAF099-BCE2-4107-8A02-C100EC9160E6.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:11:31" modifiedUniversalDateTime="2005-01-08T23:11:31" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{DE61F9FE-84C1-4D43-97D5-5BC5A769BA40}" />
+            <Data>
+                <AecDbDimensionGroup>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">3 Chain</Style>
+                    <UsingCmd>0</UsingCmd>
+                </AecDbDimensionGroup>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+        <Tool Revision="18.0.0" option="0">
+            <ItemID idValue="{8EFDA58E-B888-41BD-A049-1E09BC3416A7}" />
+            <Properties>
+                <ItemName>AecDim Building Exterior</ItemName>
+                <Images option="0">
+                    <Image cx="64" cy="64" src=".\Images\AEC Dimension Tool_8EFDA58E-B888-41BD-A049-1E09BC3416A7.png" />
+                </Images>
+                <Time createdUniversalDateTime="2005-01-08T23:11:31" modifiedUniversalDateTime="2005-01-08T23:11:31" />
+            </Properties>
+            <Source />
+            <ToolType>1</ToolType>
+            <StockToolRef idValue="{DE61F9FE-84C1-4D43-97D5-5BC5A769BA40}" />
+            <Data>
+                <AecDbDimensionGroup>
+                    <Style ref="%AECPROJECT_DIR%\Sample Project - Project Standards.dwg">Building Exterior</Style>
+                    <UsingCmd>0</UsingCmd>
+                </AecDbDimensionGroup>
+                <Units>inch</Units>
+            </Data>
+        </Tool>
+    </Tools>
+    <Palettes />
+    <Packages />
+    <Categories />
+    <StockTools />
+    <Catalogs />
+</Catalog>

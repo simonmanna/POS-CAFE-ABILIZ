@@ -1,0 +1,174 @@
+<ToolPaletteProject ProjectID="{C90205B3-2F0C-4026-81D9-43DBE17ADC77}" Name="Sample Project" Location="C:\Documents and Settings\mcardlp\Application Data\Autodesk\ACD-A 2008\enu\Support\Profiles\ProjectCatalogs\C90205B3_2F0C_4026_81D9_43DBE17ADC77" ActiveGroup="All Palettes" ActiveTab="0">
+	<ToolPaletteScheme>
+		<ToolPaletteSets>
+			<ToolPaletteSet>
+				<CAdUiDockControlBar Orientation="-1" AllowDocking="0">
+					<FloatInfo Left="2" Top="114" Width="225" Height="331"/>
+					<DockInfo Left="-30810" Top="-8450" Width="186" Height="1009" MRUDockID="59420"/>
+				</CAdUiDockControlBar>
+				<CAdUiPaletteSet ActivePaletteIndex="0" TitleBarLocation="0" AutoRollup="0" Name="Tool Palettes - All Palettes" Style="126" Opacity="100" Visible="0"/>
+				<CAcTcUiToolPaletteSet>
+					<ToolPalettes>
+						<ToolPalette>
+							<CAdUiPalette PaletteStyle="1"/>
+							<CAcTcUiToolPalette>
+								<CatalogView ID="{C03E7AB8-7DCF-4B4F-812F-87ADEC4EA412}">
+									<ToolSource>
+										<Palette ID="{C03E7AB8-7DCF-4B4F-812F-87ADEC4EA412}">Wall Styles</Palette>
+									</ToolSource>
+									<Image SizeCX="48" SizeCY="48"/>
+									<Style>491522</Style>
+									<ToolOrder>
+										<Tool ID="{4165F1F3-6E0E-4E16-8696-73234D475A0D}"/>
+										<Tool ID="{D7DF8BDE-C36C-4013-B641-5508A6901C55}"/>
+										<Tool ID="{A8F9A611-52A5-4557-824F-B4F4F9E2EF26}"/>
+										<Tool ID="{F915B49B-655F-403B-A18B-4EC71A268B93}"/>
+										<Tool ID="{12729B01-E2D5-4DE7-B853-D562018A1D39}"/>
+										<Tool ID="{F6515991-B781-4341-BBBC-5EB2BC90423E}"/>
+										<Tool ID="{1EB5C538-610B-4EDA-ABB9-7410DFA3E68F}"/>
+										<Tool ID="{DAB899CF-C621-473B-80C7-AA2F95591444}"/>
+										<Tool ID="{BE107CF3-2EF3-4CAB-8EA1-AE6EA01C12EA}"/>
+										<Tool ID="{B284EAC8-17E4-43BA-910D-222AB76125AA}"/>
+										<Tool ID="{C7961C25-4284-4418-929E-D0469EE128E7}"/>
+										<Tool ID="{5A85E18B-92FD-4986-847B-BFCE593E8058}"/>
+										<Tool ID="{CD241788-C9DB-48C5-8001-A7971FD85332}"/>
+										<Tool ID="{8793FC56-4BD5-4733-A782-193DFAD57DCE}"/>
+										<Tool ID="{43BD0F85-E33D-4F45-B407-2E3C9C98ED1E}"/>
+									</ToolOrder>
+								</CatalogView>
+							</CAcTcUiToolPalette>
+						</ToolPalette>
+						<ToolPalette>
+							<CAdUiPalette PaletteStyle="1"/>
+							<CAcTcUiToolPalette>
+								<CatalogView ID="{2E73F6BF-BB50-4E0B-9D9B-EA659C4AE614}">
+									<ToolSource>
+										<Palette ID="{2E73F6BF-BB50-4E0B-9D9B-EA659C4AE614}">Furniture</Palette>
+									</ToolSource>
+									<Image SizeCX="48" SizeCY="48"/>
+									<Style>491522</Style>
+									<ToolOrder>
+										<Tool ID="{9E0E5104-4748-45FA-B2A1-2B5D3E24E6C8}"/>
+										<Tool ID="{9AE43AC9-4764-4B5B-8412-2477DCBC4505}"/>
+										<Tool ID="{0223DFF5-9A35-4E1B-BDB9-0559A8254ADF}"/>
+										<Tool ID="{EA1CE792-050C-451B-82CB-290A9146E4E5}"/>
+										<Tool ID="{9418621F-C10F-43FE-801B-1B8FECA78066}"/>
+										<Tool ID="{80D74220-7764-4AC1-988B-9B51C35EE178}"/>
+										<Tool ID="{993B4DB0-B406-4EA3-8F97-42AAF597EEAD}"/>
+										<Tool ID="{6C70C08A-7D92-4989-B151-8E1B42117E4A}"/>
+										<Tool ID="{E8349660-8451-4C8E-81A6-7D34A23B1C0B}"/>
+										<Tool ID="{D7B0F641-960D-44F0-B7D6-0E2DE539F0FB}"/>
+										<Tool ID="{BEEB5586-AD7E-453F-B884-8BE27380E688}"/>
+										<Tool ID="{A7BC5DA5-98DF-4F30-9472-B57BD2D3628B}"/>
+										<Tool ID="{5F6E134E-76FF-46B2-A80B-1EB523C4C8F5}"/>
+										<Tool ID="{6104BE43-5047-4DEE-81F0-658E10BC8030}"/>
+										<Tool ID="{F6522521-B396-475F-AE6C-0D6BAC956DB5}"/>
+										<Tool ID="{02F9734A-3243-4A3F-A9BD-F7A23195761B}"/>
+										<Tool ID="{4A2A8D83-348E-4896-8A20-099FE3258401}"/>
+										<Tool ID="{37CB8B79-3E30-455C-B9DF-D63F606158E6}"/>
+										<Tool ID="{8C804ABA-B7D2-4B6D-A431-0D46D574E302}"/>
+										<Tool ID="{47AC5898-C9C8-4CE3-8E61-A6FC281B774B}"/>
+										<Tool ID="{877C8B8C-F60F-403F-BBE9-9F1AA65A7A9B}"/>
+										<Tool ID="{3CBCBFC8-AE63-4B69-9D13-343D937C6F51}"/>
+										<Tool ID="{B7CA772D-4F6B-4DD4-B3B1-1927309F7C49}"/>
+										<Tool ID="{4857B169-1F14-4848-A419-128C2D053558}"/>
+										<Tool ID="{A693CCC4-89F2-4677-BF4A-E0D5913183C8}"/>
+										<Tool ID="{1A543C4D-0AA2-408B-8975-72D362159652}"/>
+										<Tool ID="{5D360786-641C-4D67-A8AF-6B439AA9516B}"/>
+										<Tool ID="{57C93CBC-B035-4406-B308-A11BAA6C24B5}"/>
+										<Tool ID="{23013970-5D43-4C4E-BC45-767627573C96}"/>
+										<Tool ID="{9932DD81-4F45-49B7-A69C-E57945913DB0}"/>
+										<Tool ID="{0DB69606-5C6B-4235-A5C2-C26BAE2018C9}"/>
+										<Tool ID="{704902F7-B685-4754-961D-8F4B85963DE9}"/>
+										<Tool ID="{710D3B8F-2D85-4023-B80F-0D78F797A611}"/>
+									</ToolOrder>
+								</CatalogView>
+							</CAcTcUiToolPalette>
+						</ToolPalette>
+						<ToolPalette>
+							<CAdUiPalette PaletteStyle="1"/>
+							<CAcTcUiToolPalette>
+								<CatalogView ID="{242DBCAA-A458-49EA-B365-839D4443587B}">
+									<ToolSource>
+										<Palette ID="{242DBCAA-A458-49EA-B365-839D4443587B}">Door Styles</Palette>
+									</ToolSource>
+									<Image SizeCX="48" SizeCY="48"/>
+									<Style>491522</Style>
+									<ToolOrder>
+										<Tool ID="{81F7676B-3AF9-4BC1-9178-DA519291A925}"/>
+										<Tool ID="{D3F478F0-0EFB-4846-B518-0E0521D554A6}"/>
+										<Tool ID="{E3B621BD-4469-411B-82AC-7D7E476E5E47}"/>
+										<Tool ID="{C074449B-CC66-41E3-8184-32D9C23814FA}"/>
+										<Tool ID="{E1443010-AAEB-44C7-885D-E4DD08F760A6}"/>
+										<Tool ID="{5312DF9E-9EED-4417-82FD-A57FBE4B8FA5}"/>
+										<Tool ID="{20B73957-7EF2-4C81-87FE-84BEF66F7ADF}"/>
+										<Tool ID="{0F5FE4CA-02D6-4005-9433-7DB270124A51}"/>
+									</ToolOrder>
+								</CatalogView>
+							</CAcTcUiToolPalette>
+						</ToolPalette>
+						<ToolPalette>
+							<CAdUiPalette PaletteStyle="1"/>
+							<CAcTcUiToolPalette>
+								<CatalogView ID="{E6637809-E119-452C-9FDA-2D6BFF097C2B}">
+									<ToolSource>
+										<Palette ID="{E6637809-E119-452C-9FDA-2D6BFF097C2B}">Annotation</Palette>
+									</ToolSource>
+									<Image SizeCX="48" SizeCY="48"/>
+									<Style>491522</Style>
+									<ToolOrder>
+										<Tool ID="{A93A469D-B596-4F85-A4A5-1DADA2C6B8CD}"/>
+										<Tool ID="{D475FF2E-B8A9-4F7D-B3E9-C761D3E50AD3}"/>
+										<Tool ID="{CC80112D-BE87-4B07-BB8D-CFF866F3EF2A}"/>
+										<Tool ID="{907B03D1-ADD7-4302-AFD1-443540C6A55D}"/>
+										<Tool ID="{D36EF8CE-BF72-44B6-AEF3-A0995EADAC7E}"/>
+										<Tool ID="{93B0362D-456C-41B8-995B-FFC10B213997}"/>
+										<Tool ID="{EE329B3A-B9E3-4AD0-B0B2-6168AF96A42E}"/>
+										<Tool ID="{8AD079A8-CEB3-484C-A619-52529137F5BE}"/>
+										<Tool ID="{43AECFD2-31D9-46C6-8A19-B0C34FF30DDE}"/>
+										<Tool ID="{9C4BFE27-09A9-4934-BB2A-BFBEF0292507}"/>
+									</ToolOrder>
+								</CatalogView>
+							</CAcTcUiToolPalette>
+						</ToolPalette>
+					</ToolPalettes>
+					<ToolPaletteGroup>
+						<Name>Palette Groups</Name>
+						<ActivePaletteIndex>-1</ActivePaletteIndex>
+						<Contents>
+							<ToolPaletteGroup>
+								<Name>Design</Name>
+								<CustomData/>
+								<ActivePaletteIndex>0</ActivePaletteIndex>
+							</ToolPaletteGroup>
+							<ToolPaletteGroup>
+								<Name>Document</Name>
+								<CustomData/>
+								<ActivePaletteIndex>0</ActivePaletteIndex>
+							</ToolPaletteGroup>
+							<ToolPaletteGroup>
+								<Name>Detailing</Name>
+								<CustomData/>
+								<ActivePaletteIndex>0</ActivePaletteIndex>
+							</ToolPaletteGroup>
+							<ToolPaletteGroup>
+								<Name>Sample Project</Name>
+								<Description>{C90205B3-2F0C-4026-81D9-43DBE17ADC77}</Description>
+								<CustomData>
+									<ProjectID>{C90205B3-2F0C-4026-81D9-43DBE17ADC77}</ProjectID>
+								</CustomData>
+								<ActivePaletteIndex>0</ActivePaletteIndex>
+								<Contents>
+									<ToolPalette ID="{C03E7AB8-7DCF-4B4F-812F-87ADEC4EA412}"/>
+									<ToolPalette ID="{2E73F6BF-BB50-4E0B-9D9B-EA659C4AE614}"/>
+									<ToolPalette ID="{242DBCAA-A458-49EA-B365-839D4443587B}"/>
+									<ToolPalette ID="{E6637809-E119-452C-9FDA-2D6BFF097C2B}"/>
+								</Contents>
+							</ToolPaletteGroup>
+						</Contents>
+					</ToolPaletteGroup>
+				</CAcTcUiToolPaletteSet>
+			</ToolPaletteSet>
+		</ToolPaletteSets>
+	</ToolPaletteScheme>
+</ToolPaletteProject>
