@@ -23,7 +23,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Coffee, LayoutGrid, Users, Clock } from 'lucide-react';
+import { Coffee, LayoutGrid, Users, ArrowLeft } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 
 import { Topbar } from './Topbar';
@@ -119,7 +119,10 @@ const TerminalPage: React.FC = () => {
 
   /* ============== POS Mode (Tables vs Counter) ============== */
   const [posMode, setPosMode] = useState<'tables' | 'counter'>('tables');
-  const [selectedTable, setSelectedTable] = useState<PosTable | null>(null);
+  /* selectedTableId � the table being worked on (null = grid view). */
+  const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  /* tableView: 'grid' | 'detail' | 'ordering' � sub-state within tables mode. */
+  const [tableView, setTableView] = useState<'grid' | 'detail' | 'ordering'>('grid');
   const tableCartsRef = useRef<Map<string, {
     lines: CartLine[];
     sentLineIds: string[];
@@ -154,9 +157,14 @@ const TerminalPage: React.FC = () => {
   /* ============== Tables (auto-polling, 8s) ============== */
   const { data: tables = [], isLoading: tablesLoading } = useTables({ active: true, status: undefined });
 
+  /* Derived selected table � derived from selectedTableId + tables list */
+  const selectedTable = selectedTableId
+    ? tables.find((t) => t.id === selectedTableId) ?? null
+    : null;
+
   /* ============== Per-table cart persistence ============== */
   const saveCurrentTableCart = useCallback(() => {
-    const key = selectedTable?.id ?? 'counter';
+    const key = selectedTableId ?? 'counter';
     tableCartsRef.current.set(key, {
       lines: useCartStore.getState().lines,
       sentLineIds: Array.from(currentSentLineIds.current),
@@ -164,30 +172,70 @@ const TerminalPage: React.FC = () => {
       transactionDiscountType: useCartStore.getState().transactionDiscountType,
       transactionDiscountAmount: useCartStore.getState().transactionDiscountAmount,
     });
-  }, [selectedTable]);
+  }, [selectedTableId]);
 
-  const loadTableCart = useCallback((table: PosTable) => {
-    const saved = tableCartsRef.current.get(table.id);
+  const loadTableCart = useCallback((tableId: string) => {
+    const saved = tableCartsRef.current.get(tableId);
+    const t = tables.find((t) => t.id === tableId) ?? null;
     useCartStore.setState({
       lines: saved?.lines ?? [],
       transactionDiscountPercent: saved?.transactionDiscountPercent ?? 0,
       transactionDiscountType: saved?.transactionDiscountType ?? 'percentage',
       transactionDiscountAmount: saved?.transactionDiscountAmount ?? 0,
       orderType: 'dine-in',
-      tableId: table.id,
-      tableNumber: table.number,
-      tableName: table.name,
+      tableId: tableId ?? undefined,
+      tableNumber: t ? t.number : undefined,
+      tableName: t ? t.name : undefined,
       sentToKitchen: false,
     });
     currentSentLineIds.current = new Set(saved?.sentLineIds ?? []);
-    setSelectedTable(table);
+  }, [tables]);
+
+  const tableHasLocalCart = useCallback((tableId: string) => {
+    const cart = tableCartsRef.current.get(tableId);
+    return !!(cart && cart.lines.length > 0);
   }, []);
 
-  const switchToTable = useCallback((table: PosTable) => {
+  const localCartTotal = useCallback((tableId: string) => {
+    const cart = tableCartsRef.current.get(tableId);
+    if (!cart) return 0;
+    return cart.lines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0);
+  }, []);
+
+  const handleTableClick = useCallback((t: PosTable) => {
     saveCurrentTableCart();
-    loadTableCart(table);
+    setSelectedTableId(t.id);
+    setTableView('detail');
+  }, [saveCurrentTableCart]);
+
+  const handleNewOrder = useCallback((t: PosTable) => {
+    tableCartsRef.current.delete(t.id);
+    loadTableCart(t.id);
+    currentSentLineIds.current = new Set();
+    setSelectedTableId(t.id);
+    setTableView('ordering');
     setPosMode('tables');
-  }, [saveCurrentTableCart, loadTableCart]);
+  }, [loadTableCart]);
+
+  const handleContinueDraft = useCallback((t: PosTable) => {
+    loadTableCart(t.id);
+    setSelectedTableId(t.id);
+    setTableView('ordering');
+    setPosMode('tables');
+  }, [loadTableCart]);
+
+  const handleGoBackToGrid = useCallback(() => {
+    saveCurrentTableCart();
+    setSelectedTableId(null);
+    setTableView('grid');
+  }, [saveCurrentTableCart]);
+
+  /* Auto-save cart to tableCartsRef when leaving the OrderPanel view. */
+  useEffect(() => {
+    if (tableView === 'ordering') {
+      return () => { saveCurrentTableCart(); };
+    }
+  }, [tableView, saveCurrentTableCart]);
 
   /* ============== Mutations ============== */
   const checkout = useCheckout();
@@ -527,7 +575,7 @@ const TerminalPage: React.FC = () => {
         onOpenShift={() => setShowOpenShift(true)}
         onCloseShift={() => setShowCloseShift(true)}
         onOpenTableSelector={() => setShowTableSelector(true)}
-        activeTableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : activeTableLabel}
+        activeTableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : null}
         staffName={user ? `${user.firstName} ${user.lastName ?? ''}`.trim() : undefined}
         staffRole={(user as any)?.roles?.[0]}
         session={session ?? null}
@@ -566,7 +614,11 @@ const TerminalPage: React.FC = () => {
         </div>
       ) : null} */}
 
-      <div className="pos-body-pro" style={posMode === 'tables' && !selectedTable ? { gridTemplateColumns: '1fr' } : undefined}>
+      <div className="pos-body-pro" style={
+        tableView === 'grid' || tableView === 'detail'
+          ? { gridTemplateColumns: '1fr' }
+          : undefined
+      }>
         {locked ? (
           <div className="pos-lock-overlay-pro">
             <div className="pos-lock-icon"><LockIcon className="h-10 w-10" /></div>
@@ -581,7 +633,7 @@ const TerminalPage: React.FC = () => {
               <Coffee className="pos-action-icon" /> Open shift
             </button>
           </div>
-        ) : posMode === 'tables' && !selectedTable ? (
+        ) : tableView === 'grid' ? (
           <div className="flex flex-col h-full">
             <div className="flex items-center justify-between px-6 py-3 border-b bg-white">
               <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Tables</h2>
@@ -608,7 +660,7 @@ const TerminalPage: React.FC = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                   {tables.map((t) => {
                     const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
-                    const tableTotal = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
+                    const backendTotal = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
                     const statusColors: Record<string, string> = {
                       available: 'bg-emerald-400',
                       occupied: 'bg-amber-400',
@@ -617,11 +669,15 @@ const TerminalPage: React.FC = () => {
                       out_of_service: 'bg-slate-400',
                     };
                     const dotClass = statusColors[t.status] ?? 'bg-slate-300';
+                    const hasLocal = tableHasLocalCart(t.id);
+                    const local = localCartTotal(t.id);
+                    const combinedTotal = backendTotal + local;
+                    const combinedCount = openOrders.length + (hasLocal ? 1 : 0);
                     return (
                       <button
                         key={t.id}
                         type="button"
-                        onClick={() => switchToTable(t)}
+                        onClick={() => handleTableClick(t)}
                         className="relative rounded-xl p-4 border-2 border-slate-200 bg-white hover:border-indigo-400 hover:shadow-lg transition-all text-left group min-h-[120px]"
                       >
                         <span className={`absolute top-3 right-3 w-3 h-3 rounded-full ${dotClass} shadow-sm`} />
@@ -634,20 +690,16 @@ const TerminalPage: React.FC = () => {
                         <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-1">
                           <Users className="w-3 h-3" /> {t.seats}
                         </div>
-                        {openOrders.length > 0 ? (
+                        {combinedCount > 0 ? (
                           <>
-                            <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-1">
-                              <Clock className="w-3 h-3" />
-                              {openOrders[0].openedAt
-                                ? `${Math.max(1, Math.floor((Date.now() - new Date(openOrders[0].openedAt).getTime()) / 60000))}m`
-                                : 'New'}
+                            <div className="text-[10px] font-semibold text-slate-600 mb-0.5">
+                              {combinedCount} order{combinedCount !== 1 ? 's' : ''} · UGX {combinedTotal.toLocaleString()}
                             </div>
-                            <div className="text-right font-bold text-slate-700 text-xs">
-                              UGX {tableTotal.toLocaleString()}
-                            </div>
-                            <div className="text-[10px] text-indigo-600 font-semibold mt-0.5">
-                              {openOrders.length} order{openOrders.length !== 1 ? 's' : ''}
-                            </div>
+                            {hasLocal && (
+                              <div className="text-[9px] text-amber-600 font-semibold">
+                                ⚡ Draft cart ({tableCartsRef.current.get(t.id)?.lines.length ?? 0} items)
+                              </div>
+                            )}
                           </>
                         ) : (
                           <div className="text-[10px] text-slate-400 font-semibold mt-1">Tap to open</div>
@@ -659,9 +711,32 @@ const TerminalPage: React.FC = () => {
               )}
             </div>
           </div>
+        ) : tableView === 'detail' && selectedTable ? (
+          <TableDetailView
+            table={selectedTable}
+            onBack={handleGoBackToGrid}
+            onStartOrder={handleNewOrder}
+            onContinueDraft={handleContinueDraft}
+            hasLocalCart={tableHasLocalCart(selectedTable.id)}
+          />
         ) : (
           <>
             <div className="pos-menus-pro">
+              <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border-b border-indigo-100 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={handleGoBackToGrid}
+                  className="flex items-center gap-1 text-xs font-bold text-indigo-700 hover:text-indigo-900"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Tables
+                </button>
+                {selectedTable && (
+                  <span className="text-xs font-bold text-indigo-800">
+                    T{selectedTable.number}{selectedTable.name ? ` ${selectedTable.name}` : ''}
+                  </span>
+                )}
+              </div>
               <CategoryStrip
                 categories={categories as any}
                 activeId={activeCategory}
@@ -675,7 +750,7 @@ const TerminalPage: React.FC = () => {
             <OrderPanel
               customerName={customer?.name}
               orderTypeLabel={orderTypeLabel ?? undefined}
-              tableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : activeTableLabel ?? undefined}
+              tableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : undefined}
               tableId={tableId}
               onInc={onInc}
               onDec={onDec}
@@ -689,15 +764,13 @@ const TerminalPage: React.FC = () => {
               onAddDiscount={() => setShowDiscount(true)}
               onAddTax={onAddTax}
               onCloseOrder={() => {
-                const key = selectedTable?.id ?? 'counter';
-                tableCartsRef.current.delete(key);
-                currentSentLineIds.current = new Set();
+                saveCurrentTableCart();
+                setSelectedTableId(null);
+                setTableView('grid');
                 clearCart();
                 setCustomer(null);
                 setOrderType(undefined);
-                useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined });
-                setSelectedTable(null);
-                setPosMode('tables');
+                useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined, sentToKitchen: false });
               }}
               onPrintKot={() => { if (lines.length === 0) { toast.error('Cart is empty'); return; } setShowKotPreview(true); }}
               onVoidItem={(line) => setVoidLine(line)}
@@ -842,10 +915,136 @@ const TerminalPage: React.FC = () => {
         selectedId={tableId ?? null}
         onPick={(t) => {
           setTable(t.id, t.number, t.name);
+          setSelectedTableId(t.id);
           setShowTableSelector(false);
         }}
       />
 
+    </div>
+  );
+};
+
+/* ============================================================
+ * TableDetailView — shows a selected table's existing backend
+ * orders and lets the cashier open a new order for it.
+ * ============================================================ */
+interface TableDetailViewProps {
+  table: PosTable;
+  onBack: () => void;
+  onStartOrder: (t: PosTable) => void;
+  onContinueDraft: (t: PosTable) => void;
+  hasLocalCart: boolean;
+}
+
+const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStartOrder, onContinueDraft, hasLocalCart }) => {
+  const statusBadge: Record<string, { label: string; cls: string }> = {
+    available: { label: 'Available', cls: 'bg-emerald-100 text-emerald-700' },
+    occupied: { label: 'Occupied', cls: 'bg-amber-100 text-amber-700' },
+    reserved: { label: 'Reserved', cls: 'bg-sky-100 text-sky-700' },
+    dirty: { label: 'Dirty', cls: 'bg-orange-100 text-orange-700' },
+    out_of_service: { label: 'Out of Service', cls: 'bg-slate-100 text-slate-600' },
+  };
+  const badge = statusBadge[table.status] ?? { label: table.status, cls: 'bg-slate-100 text-slate-600' };
+  const openOrders = (table.orders ?? []).filter((o) => !o.closedAt);
+  const tableTotal = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header bar */}
+      <div className="flex items-center gap-3 px-5 py-3 border-b bg-white">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center gap-1 text-xs font-bold text-indigo-700 hover:text-indigo-900 px-2 py-1 rounded hover:bg-indigo-50"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          All Tables
+        </button>
+        <div className="w-px h-5 bg-slate-200" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-bold text-slate-800">
+              Table {table.number}{table.name ? ` — ${table.name}` : ''}
+            </span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badge.cls}`}>
+              {badge.label}
+            </span>
+          </div>
+          <div className="text-[11px] text-slate-500 mt-0.5">
+            {table.seats} seats · Zone: {table.zone} · {openOrders.length} open order{openOrders.length !== 1 ? 's' : ''}
+            {tableTotal > 0 && <span className="ml-2 font-semibold text-slate-700">· Total UGX {tableTotal.toLocaleString()}</span>}
+            {hasLocalCart && <span className="ml-2 font-semibold text-amber-600">· ⚡ Draft in progress</span>}
+          </div>
+        </div>
+          {hasLocalCart ? (
+            <button
+              type="button"
+              onClick={() => onContinueDraft(table)}
+              className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 shadow-sm"
+            >
+              <span className="text-sm leading-none">⚡</span> Continue Draft
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onStartOrder(table)}
+              className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-sm"
+            >
+              <span className="text-sm leading-none">＋</span> New Order
+            </button>
+          )}
+      </div>
+
+      {/* Orders scrollable area */}
+      <div className="flex-1 overflow-y-auto p-5">
+        {openOrders.length === 0 && !hasLocalCart ? (
+          <div className="flex flex-col items-center justify-center h-full text-slate-400">
+            <LayoutGrid className="h-12 w-12 mb-3 opacity-40" />
+            <p className="font-semibold text-sm">No open orders</p>
+            <p className="text-xs mt-1">Tap "New Order" to start ringing up this table.</p>
+          </div>
+        ) : openOrders.length === 0 && hasLocalCart ? (
+          <div className="flex flex-col items-center justify-center h-full text-amber-600">
+            <p className="font-semibold text-sm">⚡ Draft in progress</p>
+            <p className="text-xs mt-1">Items have been added but not yet sent to kitchen.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Open Orders</h3>
+            {openOrders.map((o) => (
+              <div
+                key={o.id}
+                className="flex items-center gap-4 bg-white border border-slate-200 rounded-xl px-5 py-4 hover:border-indigo-300 hover:shadow-sm transition-all"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
+                      {o.document?.documentNumber ?? `#${o.id.slice(0, 6)}`}
+                    </span>
+                    <span className="text-[10px] font-semibold text-slate-400">
+                      {o.openedAt ? `${Math.max(1, Math.floor((Date.now() - new Date(o.openedAt).getTime()) / 60000))}m ago` : 'New'}
+                    </span>
+                  </div>
+                  {o.customerName && (
+                    <div className="text-xs text-slate-600 font-medium truncate">{o.customerName}</div>
+                  )}
+                  {o.notes && (
+                    <div className="text-[11px] text-slate-400 mt-0.5 truncate">Note: {o.notes}</div>
+                  )}
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="text-sm font-bold text-slate-800">
+                    {o.document ? `UGX ${Number(o.document.totalAmount || 0).toLocaleString()}` : '—'}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-0.5">
+                    {o.document?.status ?? 'open'} · {o.guestCount ?? '?'} guests
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
