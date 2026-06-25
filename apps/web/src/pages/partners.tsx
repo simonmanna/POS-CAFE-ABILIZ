@@ -15,11 +15,7 @@ import {
   Code2,
   Tag,
   X,
-  Check,
-  Calendar,
-  Clock,
-  Package,
-  FileText
+  Check
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
@@ -30,7 +26,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -45,13 +40,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { DataTable, type Column } from '@/components/data-table';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { notify } from '@/lib/notify';

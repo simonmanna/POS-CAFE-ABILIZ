@@ -6,11 +6,8 @@ import {
   EyeOff, 
   Plus, 
   Trash2, 
-  Search, 
-  Tag, 
-  Package,
-  X,
-  Check,
+  Search,
+  Tag,
   FolderOpen,
   List,
   DollarSign,
@@ -21,7 +18,6 @@ import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   AlertDialog,
@@ -171,7 +167,7 @@ export function MenuPage() {
                   'w-full text-left rounded-lg px-3 py-2.5 text-sm transition-all ' +
                   (selectedCat === null
                     ? 'bg-[#0066aa]/10 text-[#0066aa] border border-[#0066aa]/20'
-                    : 'hover:bg-gray-50 text-gray-700')
+                    : 'bg-gray-50 text-gray-700')
                 }
               >
                 <div className="flex items-center justify-between">

@@ -20,11 +20,6 @@ import {
   LogOut,
   Menu,
   Search,
-  Boxes,
-  ShieldCheck,
-  Webhook,
-  Repeat,
-  Building2,
   ShoppingCart,
   ClipboardList,
   Truck,
@@ -102,6 +97,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'Accounting',
     items: [
       { to: '/accounts', label: 'Chart of Accounts', icon: BookOpen, permission: PERMISSIONS.account.read },
+      { to: '/accounts/cash-registers', label: 'Cash Registers', icon: Banknote, permission: 'cash_register:read' },
       { to: '/journals', label: 'Journals', icon: BookText, permission: PERMISSIONS.journal.read },
       { to: '/journal-entries', label: 'Journal Entries', icon: ScrollText, permission: PERMISSIONS.journalEntry.read },
       { to: '/trial-balance', label: 'Trial Balance', icon: Scale, permission: PERMISSIONS.report.accounting },
@@ -126,16 +122,16 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote, permission: 'payment:read' },
     ],
   },
-  {
-    title: 'Platform',
-    items: [
-      { to: '/approvals', label: 'Approvals', icon: ShieldCheck, permission: PERMISSIONS.auditLog.read },
-      { to: '/recurring', label: 'Recurring', icon: Repeat },
-      { to: '/webhooks', label: 'Webhooks', icon: Webhook },
-      { to: '/files', label: 'Files', icon: Boxes },
-      { to: '/modules', label: 'Modules', icon: Building2 },
-    ],
-  },
+  // {
+  //   title: 'Platform',
+  //   items: [
+  //     { to: '/approvals', label: 'Approvals', icon: ShieldCheck, permission: PERMISSIONS.auditLog.read },
+  //     { to: '/recurring', label: 'Recurring', icon: Repeat },
+  //     { to: '/webhooks', label: 'Webhooks', icon: Webhook },
+  //     { to: '/files', label: 'Files', icon: Boxes },
+  //     { to: '/modules', label: 'Modules', icon: Building2 },
+  //   ],
+  // },
   {
     title: 'System',
     items: [
