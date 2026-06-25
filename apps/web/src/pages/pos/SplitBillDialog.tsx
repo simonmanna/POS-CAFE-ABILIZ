@@ -1,6 +1,11 @@
-import React, { useMemo, useState } from 'react';
+// Split Bill — divide a table's open tab into N guest checks.
+// Operates on the SERVER tab document (not the local cart) so the split
+// references real DocumentLine ids, and supports PARTIAL quantities: each line's
+// units are allocated across checks and must sum back to the line quantity
+// (the backend validates exact coverage).
+import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Scissors, X, User } from 'lucide-react';
+import { Scissors, Minus, Plus } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -9,8 +14,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { useCartStore } from '@/features/pos/cart.store';
 import { useSplitBill } from '@/features/tables/api';
+import { useTab } from './api';
 
 const fmt = (n: number) => `UGX ${Number(n || 0).toLocaleString()}`;
 
@@ -20,78 +25,67 @@ interface Props {
   tableId: string;
 }
 
+interface DocLine { id: string; description: string; quantity: string; unitPrice: string }
+
 export const SplitBillDialog: React.FC<Props> = ({ open, onClose, tableId }) => {
-  const lines = useCartStore((s) => s.lines);
+  const { data: tab, isLoading } = useTab(open ? tableId : undefined);
   const splitBill = useSplitBill();
+  const docLines = useMemo<DocLine[]>(() => (tab?.lines ?? []) as DocLine[], [tab]);
 
-  const [splits, setSplits] = useState<Array<{ label: string; lineIds: Set<string> }>>([]);
+  // splits[si].qty[lineId] = units of that line assigned to check si.
+  const [splits, setSplits] = useState<Array<{ label: string; qty: Record<string, number> }>>([]);
 
-  const reset = () => {
-    setSplits([]);
-  };
-
-  React.useEffect(() => {
-    if (!open) reset();
-  }, [open]);
-
-  const initByItem = () => {
-    setSplits(lines.map((l) => ({ label: l.name, lineIds: new Set([l.lineId]) })));
-  };
-
-  const initEqual = (count: number) => {
-    const groups: Array<{ label: string; lineIds: Set<string> }> = [];
-    for (let i = 0; i < count; i++) {
-      groups.push({ label: `Guest ${i + 1}`, lineIds: new Set() });
-    }
-    lines.forEach((l, idx) => {
-      const gi = idx % count;
-      groups[gi].lineIds.add(l.lineId);
-    });
+  /** Build N checks; all units of every line default to the first check. */
+  const buildSplits = (count: number) => {
+    const groups = Array.from({ length: count }, (_, i) => ({ label: `Guest ${i + 1}`, qty: {} as Record<string, number> }));
+    for (const l of docLines) groups[0].qty[l.id] = Math.round(Number(l.quantity));
     setSplits(groups);
   };
 
-  const moveLine = (lineId: string, fromIdx: number, toIdx: number) => {
-    if (toIdx < 0 || toIdx >= splits.length || fromIdx === toIdx) return;
+  useEffect(() => {
+    if (!open) setSplits([]);
+  }, [open]);
+
+  const lineQty = (l: DocLine) => Math.round(Number(l.quantity));
+  const assignedFor = (lineId: string) => splits.reduce((s, g) => s + (g.qty[lineId] ?? 0), 0);
+
+  const setQty = (si: number, lineId: string, q: number, max: number) => {
     setSplits((prev) => {
-      const next = prev.map((s) => ({ ...s, lineIds: new Set(s.lineIds) }));
-      next[fromIdx].lineIds.delete(lineId);
-      next[toIdx].lineIds.add(lineId);
-      return next.filter((s) => s.lineIds.size > 0 || s.label);
+      const next = prev.map((g) => ({ ...g, qty: { ...g.qty } }));
+      next[si].qty[lineId] = Math.max(0, Math.min(max, Math.floor(q) || 0));
+      return next;
     });
   };
 
-  const splitTotal = useMemo(() => {
-    return splits.map((s) => {
-      const sum = lines
-        .filter((l) => s.lineIds.has(l.lineId))
-        .reduce((acc, l) => acc + l.quantity * l.unitPrice * (1 - l.discountPercent / 100), 0);
-      return { label: s.label, total: sum };
-    });
-  }, [splits, lines]);
+  const splitTotal = (si: number) =>
+    docLines.reduce((acc, l) => acc + (splits[si]?.qty[l.id] ?? 0) * Number(l.unitPrice), 0);
 
-  const allCovered = useMemo(() => {
-    const assigned = new Set(splits.flatMap((s) => [...s.lineIds]));
-    return lines.every((l) => assigned.has(l.lineId));
-  }, [splits, lines]);
+  const allAllocated = useMemo(
+    () => docLines.length > 0 && docLines.every((l) => assignedFor(l.id) === lineQty(l)),
+    [splits, docLines],
+  );
+  const nonEmpty = splits.filter((g) => docLines.some((l) => (g.qty[l.id] ?? 0) > 0)).length;
 
   const doSplit = async () => {
-    if (!allCovered || splits.length < 2) {
-      toast.error('Assign all items to at least 2 checks');
+    if (!tab?.id) { toast.error('No open tab to split'); return; }
+    if (!allAllocated || nonEmpty < 2) {
+      toast.error('Allocate every item across at least 2 checks');
       return;
     }
-    // Build split payload: each split = guest label + lines (by sourceLineId)
     const body = {
-      sourceDocumentId: tableId, // The backend needs the actual documentId
-      splits: splits.map((s) => ({
-        label: s.label,
-        lines: lines
-          .filter((l) => s.lineIds.has(l.lineId))
-          .map((l) => ({ sourceLineId: l.lineId, quantity: l.quantity })),
-      })),
+      sourceDocumentId: tab.id,
+      splits: splits
+        .map((g, si) => ({
+          label: g.label || `Guest ${si + 1}`,
+          lines: docLines
+            .map((l) => ({ sourceLineId: l.id, quantity: g.qty[l.id] ?? 0 }))
+            .filter((x) => x.quantity > 0),
+        }))
+        .filter((g) => g.lines.length > 0),
     };
     try {
       await splitBill.mutateAsync({ tableId, body });
-      toast.success(`Bill split into ${splits.length} checks`);
+      toast.success(`Bill split into ${body.splits.length} checks`);
       onClose();
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Split failed');
@@ -100,105 +94,82 @@ export const SplitBillDialog: React.FC<Props> = ({ open, onClose, tableId }) => 
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-[640px]">
+      <DialogContent className="sm:max-w-[680px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Scissors className="w-4 h-4" /> Split Bill
           </DialogTitle>
         </DialogHeader>
 
-        {splits.length === 0 ? (
+        {isLoading ? (
+          <div className="py-8 text-center text-slate-400">Loading tab…</div>
+        ) : docLines.length === 0 ? (
+          <div className="py-8 text-center text-slate-400">This table has no open tab to split.</div>
+        ) : splits.length === 0 ? (
           <div className="space-y-3 py-4">
-            <p className="text-sm text-slate-600">How would you like to split?</p>
+            <p className="text-sm text-slate-600">How many checks?</p>
             <div className="grid grid-cols-3 gap-3">
-              <button
-                type="button"
-                className="p-4 rounded-xl border-2 border-slate-200 hover:border-amber-400 text-center transition"
-                onClick={initByItem}
-              >
-                <Scissors className="w-6 h-6 mx-auto mb-2 text-amber-500" />
-                <div className="font-bold text-sm">By Item</div>
-                <div className="text-xs text-slate-500">Each item its own check</div>
-              </button>
-              <button
-                type="button"
-                className="p-4 rounded-xl border-2 border-slate-200 hover:border-amber-400 text-center transition"
-                onClick={() => initEqual(2)}
-              >
-                <User className="w-6 h-6 mx-auto mb-2 text-amber-500" />
-                <div className="font-bold text-sm">Equal Split</div>
-                <div className="text-xs text-slate-500">2-way split</div>
-              </button>
-              <button
-                type="button"
-                className="p-4 rounded-xl border-2 border-slate-200 hover:border-amber-400 text-center transition"
-                onClick={() => initEqual(3)}
-              >
-                <User className="w-6 h-6 mx-auto mb-2 text-amber-500" />
-                <div className="font-bold text-sm">3-Way</div>
-                <div className="text-xs text-slate-500">3-way split</div>
-              </button>
+              {[2, 3, 4].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  className="p-4 rounded-xl border-2 border-slate-200 hover:border-amber-400 text-center transition"
+                  onClick={() => buildSplits(n)}
+                >
+                  <div className="font-bold text-lg">{n}</div>
+                  <div className="text-xs text-slate-500">{n}-way split</div>
+                </button>
+              ))}
             </div>
           </div>
         ) : (
-          <div className="space-y-4 max-h-[50vh] overflow-y-auto py-2">
-            {splits.map((s, si) => (
-              <div key={si} className="rounded-xl border border-slate-200 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <input
-                    value={s.label}
-                    onChange={(e) => {
-                      setSplits((prev) => {
-                        const next = [...prev];
-                        next[si] = { ...next[si], label: e.target.value };
-                        return next;
-                      });
-                    }}
-                    className="font-bold text-sm border-0 bg-transparent focus:outline-none focus:ring-0"
-                  />
-                  <span className="text-xs font-mono font-bold text-slate-600">
-                    {fmt(splitTotal[si]?.total ?? 0)}
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  {lines
-                    .filter((l) => s.lineIds.has(l.lineId))
-                    .map((l) => (
-                      <div key={l.lineId} className="flex items-center justify-between text-xs bg-slate-50 rounded px-2 py-1">
-                        <span className="truncate flex-1">{l.name} ×{l.quantity}</span>
-                        <div className="flex gap-1 ml-2">
-                          {splits.map((_, ti) =>
-                            ti !== si ? (
-                              <button
-                                key={ti}
-                                type="button"
-                                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300"
-                                onClick={() => moveLine(l.lineId, si, ti)}
-                                title={`Move to ${splits[ti].label}`}
-                              >
-                                →{ti + 1}
-                              </button>
-                            ) : null
-                          )}
-                          <button
-                            type="button"
-                            className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 text-rose-600 hover:bg-rose-200"
-                            onClick={() => {
-                              setSplits((prev) => prev.filter((_, i) => i !== si));
-                            }}
-                          >
-                            <X className="w-2.5 h-2.5" />
-                          </button>
+          <div className="space-y-3 max-h-[56vh] overflow-y-auto py-2">
+            {docLines.map((l) => {
+              const assigned = assignedFor(l.id);
+              const q = lineQty(l);
+              const ok = assigned === q;
+              return (
+                <div key={l.id} className="rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-bold truncate">{l.description} <span className="text-slate-400">×{q}</span></span>
+                    <span className={`text-xs font-mono font-bold ${ok ? 'text-emerald-600' : 'text-rose-600'}`}>
+                      {assigned}/{q} allocated
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {splits.map((g, si) => {
+                      const cur = g.qty[l.id] ?? 0;
+                      const headroom = q - (assigned - cur);
+                      return (
+                        <div key={si} className="flex items-center gap-1 rounded-lg bg-slate-50 border border-slate-200 px-2 py-1">
+                          <span className="text-[10px] font-semibold text-slate-500 truncate flex-1">{g.label}</span>
+                          <button type="button" className="text-slate-500 disabled:opacity-30" disabled={cur <= 0} onClick={() => setQty(si, l.id, cur - 1, headroom)}><Minus className="w-3 h-3" /></button>
+                          <span className="w-5 text-center text-xs font-mono font-bold">{cur}</span>
+                          <button type="button" className="text-slate-500 disabled:opacity-30" disabled={cur >= headroom} onClick={() => setQty(si, l.id, cur + 1, headroom)}><Plus className="w-3 h-3" /></button>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-
-            {!allCovered && (
+              );
+            })}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {splits.map((g, si) => (
+                <div key={si} className="rounded-lg bg-amber-50 border border-amber-200 px-2 py-1.5 text-center">
+                  <input
+                    value={g.label}
+                    onChange={(e) =>
+                      setSplits((prev) => { const n = [...prev]; n[si] = { ...n[si], label: e.target.value }; return n; })
+                    }
+                    className="w-full text-center text-xs font-bold bg-transparent border-0 focus:outline-none"
+                  />
+                  <div className="text-xs font-mono font-bold text-amber-700">{fmt(splitTotal(si))}</div>
+                </div>
+              ))}
+            </div>
+            {!allAllocated && (
               <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2">
-                Some items are not assigned to any check.
+                Every item must be fully allocated across the checks.
               </div>
             )}
           </div>
@@ -207,7 +178,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, onClose, tableId }) => 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           {splits.length > 0 && (
-            <Button onClick={doSplit} disabled={!allCovered || splits.length < 2}>
+            <Button onClick={doSplit} disabled={!allAllocated || nonEmpty < 2 || splitBill.isPending}>
               <Scissors className="w-4 h-4 mr-1" /> Confirm Split
             </Button>
           )}

@@ -43,10 +43,11 @@ import { ShiftCloseDialog } from './ShiftCloseDialog';
 import { ReceiptPreview, type ReceiptLine } from './ReceiptPreview';
 import { TableSelectorDialog } from './TableSelectorDialog';
 import { SplitBillDialog } from './SplitBillDialog';
+import { TransferItemsDialog } from './TransferItemsDialog';
 import { VoidItemDialog } from './VoidItemDialog';
 import { CancelOrderDialog } from './CancelOrderDialog';
 import type { PosTable } from '@/features/tables/types';
-import { useTables } from '@/features/tables/api';
+import { useTables, useTransferItems } from '@/features/tables/api';
 
 import {
   useOpenSession,
@@ -54,6 +55,7 @@ import {
   useSettleTab,
   useSaveTab,
   useFireKitchen,
+  useStoreCredit,
 } from './api';
 import { useMenuItemsAvailable } from '@/features/menu/api';
 import { api } from '@/lib/api';
@@ -169,13 +171,16 @@ const TerminalPage: React.FC = () => {
   }, [menuPayload, activeCategory, search]);
 
   /* ============== Shift ============== */
-  const { data: session, refetch: refetchSession } = useOpenSession();
+  const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useOpenSession();
   const [showOpenShift, setShowOpenShift] = useState(false);
   const [showCloseShift, setShowCloseShift] = useState(false);
 
   /* ============== Customer ============== */
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [showCustomer, setShowCustomer] = useState(false);
+  /* Redeemable store-credit balance for the selected customer (drives the
+   * store_credit tender tile in PaymentDialog). */
+  const { data: storeCredit } = useStoreCredit(customer?.id);
 
   /* ============== Discounts ============== */
   const [showDiscount, setShowDiscount] = useState(false);
@@ -186,6 +191,11 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Split bill ============== */
   const [showSplitBill, setShowSplitBill] = useState(false);
+
+  /* ============== Transfer items ============== */
+  /* Holds the OrderPanel selection while the destination-table dialog is open. */
+  const [transferSelection, setTransferSelection] = useState<Array<{ lineId: string; quantity: number }> | null>(null);
+  const [transferBusy, setTransferBusy] = useState(false);
 
   /* ============== Cancel order ============== */
   const [showCancelOrder, setShowCancelOrder] = useState(false);
@@ -295,6 +305,7 @@ const TerminalPage: React.FC = () => {
   const settleTabMut = useSettleTab();
   const saveTab = useSaveTab();
   const fireKitchen = useFireKitchen();
+  const transferItemsMut = useTransferItems();
   /* True while we're fetching+loading a table's order — gates auto-save so the
    * cleared/loading cart isn't pushed back to the server. */
   const [pendingTableLoad, setPendingTableLoad] = useState<string | null>(null);
@@ -327,10 +338,17 @@ const TerminalPage: React.FC = () => {
     // One open order per table. Flush the table we're leaving, clear the cart,
     // set the new table, then imperatively fetch + load THIS table's order.
     const cart = useCartStore.getState();
-    // Flush any unsaved edit on the table we're leaving (fire-and-forget —
-    // state changes MUST happen BEFORE any network wait to keep UI responsive).
+    // Flush any unsaved edit on the table we're leaving. The payload is captured
+    // synchronously from the snapshot here, so clearing the cart immediately after
+    // is safe; we keep the network call non-blocking (table switch stays snappy)
+    // but surface a failed save so a stale server tab can't slip by unnoticed.
     if (cart.tableId && cart.tableId !== t.id && orderSig(cart.lines) !== tabSyncSig.current) {
-      saveTab.mutate({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id });
+      const leavingNumber = cart.tableNumber;
+      saveTab
+        .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id })
+        .catch((e: any) =>
+          toast.error(e?.response?.data?.message || `Failed to save T${leavingNumber ?? ''} order before switching`),
+        );
     }
     setPendingTableLoad(t.id);          // gate auto-save until the load finishes
     cart.clear();
@@ -358,15 +376,44 @@ const TerminalPage: React.FC = () => {
     setPosMode('tables');
   }, [loadTableCart]);
 
-  const handleGoBackToGrid = useCallback(() => {
+  const handleGoBackToGrid = useCallback(async () => {
     const cart = useCartStore.getState();
     if (cart.tableId && orderSig(cart.lines) !== tabSyncSig.current) {
-      saveTab.mutate({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id });
+      const currentSig = orderSig(cart.lines);
+      try {
+        await saveTab.mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id });
+        tabSyncSig.current = currentSig;
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message || 'Failed to save the order — your latest changes may not be persisted');
+      }
     }
     saveCurrentTableCart();
     setSelectedTableId(null);
     setTableView('grid');
   }, [saveCurrentTableCart, saveTab, customer?.id]);
+
+  /* Close / clear the current order. B4: also cancel the SERVER draft (empty
+   * save → draft cancelled + table freed) so a reload can't resurrect stale
+   * items. We only wipe local state once the server confirms. */
+  const handleCloseOrder = useCallback(async () => {
+    const closingTableId = useCartStore.getState().tableId;
+    if (closingTableId) {
+      try {
+        await saveTab.mutateAsync({ tableId: closingTableId, lines: [], partnerId: customer?.id });
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message || 'Failed to cancel the order on the server');
+        return;
+      }
+      tableCartsRef.current.delete(closingTableId);
+    }
+    tabSyncSig.current = orderSig([]);
+    setSelectedTableId(null);
+    setTableView('grid');
+    clearCart();
+    setCustomer(null);
+    setOrderType(undefined);
+    useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined, sentToKitchen: false });
+  }, [saveTab, customer?.id, clearCart, setOrderType]);
 
   /* Auto-save cart to tableCartsRef when leaving the OrderPanel view. */
   useEffect(() => {
@@ -416,7 +463,7 @@ const TerminalPage: React.FC = () => {
     };
   }, []);
 
-  const locked = !session || !posUser;
+  const locked = !posUser || (!sessionLoading && !session);
   const orderTypeLabel = posMode === 'counter' ? 'Takeaway' : 'Dine In';
   const activeTableLabel = selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : null;
   const [showTableSelector, setShowTableSelector] = useState(false);
@@ -589,16 +636,47 @@ const TerminalPage: React.FC = () => {
     setShowPayment(true);
   };
 
+  /* Transfer selected items to another table. We flush the cart first so the
+   * server draft's line ids line up 1:1 with the on-screen order, then map our
+   * selection (made against cart lineIds) onto the canonical server line ids
+   * before moving them. Finally we reload THIS table to show the remainder. */
+  const doTransferItems = useCallback(async (targetId: string) => {
+    if (!tableId || !transferSelection?.length) return;
+    setTransferBusy(true);
+    try {
+      const currentLines = useCartStore.getState().lines;
+      const saved = await saveTab.mutateAsync({ tableId, lines: currentLines.map(cartLineToPayload), partnerId: customer?.id });
+      tabSyncSig.current = orderSig(currentLines);
+      const serverLines: any[] = (saved as any)?.lines ?? [];
+      // saveTabItems rebuilds lines in cart order → index i maps cart[i] ↔ server[i].
+      const items = transferSelection
+        .map((s) => {
+          const idx = currentLines.findIndex((l) => l.lineId === s.lineId);
+          const srv = idx >= 0 ? serverLines[idx] : undefined;
+          return srv ? { lineId: srv.id as string, quantity: s.quantity } : null;
+        })
+        .filter((x): x is { lineId: string; quantity: number } => x != null);
+      if (items.length === 0) { toast.error('Could not match the selected items to the saved order'); return; }
+      const res = await transferItemsMut.mutateAsync({ sourceId: tableId, targetId, items });
+      const moved = ((res as any)?.movedSummary ?? []).reduce((s: number, i: any) => s + Number(i.quantity), 0);
+      const dest = tables.find((t) => t.id === targetId);
+      toast.success(`Transferred ${moved} item(s) to T${dest?.number ?? ''}`);
+      setTransferSelection(null);
+      // Refresh the source cart to its remaining lines (deterministic reload).
+      setPendingTableLoad(tableId);
+      tabSyncSig.current = '__loading__';
+      await loadTableOrder(tableId);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Transfer failed');
+    } finally {
+      setTransferBusy(false);
+    }
+  }, [tableId, transferSelection, saveTab, customer?.id, transferItemsMut, tables, loadTableOrder]);
+
   const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; overrideById?: string }) => {
     /* M4: settle the accumulated server tab instead of cart-checkout */
     if (isTabSettle && tableId) {
-      try {
-        const res = await settleTabMut.mutateAsync({
-          tableId,
-          tenders: input.tenders,
-          cashSessionId: session?.id,
-        });
-        toast.success(`Order settled — change ${fmt((res as any).change ?? 0)}`);
+      const finishSettle = () => {
         setIsTabSettle(false);
         tabSyncSig.current = '';
         clearCart();
@@ -608,7 +686,39 @@ const TerminalPage: React.FC = () => {
         setTableView('grid');
         refetchSession();
         currentSentLineIds.current.clear();
+      };
+      try {
+        const res = await settleTabMut.mutateAsync({
+          tableId,
+          tenders: input.tenders,
+          cashSessionId: session?.id,
+        });
+        toast.success(`Order settled — change ${fmt((res as any).change ?? 0)}`);
+        finishSettle();
       } catch (e: any) {
+        // E4: queue the settle ONLY when the network is genuinely down (no
+        // response). We deliberately do NOT queue on 5xx here — a tab settle
+        // posts + tenders server-side, so a partial failure must not be blindly
+        // replayed under a fresh idempotency key.
+        const status = e?.response?.status;
+        const networkDown = (!status || status === 0) || (typeof navigator !== 'undefined' && !navigator.onLine);
+        if (networkDown) {
+          try {
+            const queued = await enqueueSale(
+              { tenders: input.tenders, cashSessionId: session?.id },
+              { endpoint: `/pos/tabs/${tableId}/settle` },
+            );
+            toast.warning(
+              `Network down — settle queued (${queued.idempotencyKey.slice(0, 8)}). It will sync when you're back online.`,
+              { duration: 12000 },
+            );
+            finishSettle();
+            return;
+          } catch (qErr: any) {
+            toast.error(`Queue failed: ${qErr?.message || 'unknown'}`);
+            return;
+          }
+        }
         toast.error(e?.response?.data?.message || 'Settle failed');
       }
       return;
@@ -982,20 +1092,13 @@ const TerminalPage: React.FC = () => {
               onAddCustomer={() => setShowCustomer(true)}
               onAddDiscount={() => setShowDiscount(true)}
               onAddTax={onAddTax}
-              onCloseOrder={() => {
-                saveCurrentTableCart();
-                setSelectedTableId(null);
-                setTableView('grid');
-                clearCart();
-                setCustomer(null);
-                setOrderType(undefined);
-                useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined, sentToKitchen: false });
-              }}
+              onCloseOrder={handleCloseOrder}
               onPrintKot={() => { if (lines.length === 0) { toast.error('Cart is empty'); return; } setShowKotPreview(true); }}
               onVoidItem={(line) => setVoidLine(line)}
               onSplitBill={() => setShowSplitBill(true)}
               onSendToKitchen={tableId ? handleSendToKitchen : undefined}
               onSettleTab={tableId ? handleSettleTab : undefined}
+              onTransferItems={tableId ? setTransferSelection : undefined}
             />
           </>
         )}
@@ -1040,6 +1143,7 @@ const TerminalPage: React.FC = () => {
         open={showPayment}
         total={total}
         effectiveDiscountPercent={Math.max(transactionDiscountPercent, ...lines.map((l) => l.discountPercent))}
+        storeCreditBalance={storeCredit?.balance ?? 0}
         onRequestOverride={requestOverride}
         onClose={() => { setShowPayment(false); setIsTabSettle(false); }}
         onSettle={onSettle}
@@ -1070,6 +1174,16 @@ const TerminalPage: React.FC = () => {
           tableId={tableId}
         />
       ) : null}
+
+      {/* Transfer items — destination picker */}
+      <TransferItemsDialog
+        open={!!transferSelection}
+        onClose={() => setTransferSelection(null)}
+        sourceTableId={tableId ?? null}
+        itemCount={transferSelection?.length ?? 0}
+        onConfirm={doTransferItems}
+        busy={transferBusy}
+      />
 
       {/* Cancel order dialog */}
       <CancelOrderDialog

@@ -2,7 +2,7 @@
 // Quick-amount buttons, change calculation, manager override for high discounts.
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Banknote, Smartphone, CreditCard, Building2, Wallet, Check, X, Plus,
+  Banknote, Smartphone, CreditCard, Building2, Wallet, Check, X, Plus, Gift,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -24,6 +24,8 @@ interface Props {
   total: number;
   /** Highest discount percentage currently applied (line + transaction). */
   effectiveDiscountPercent?: number;
+  /** Selected customer's redeemable store-credit balance (0 / undefined hides it). */
+  storeCreditBalance?: number;
   /** Called by parent when the cashier needs to verify a manager. */
   onRequestOverride: (kind: 'discount' | 'void' | 'manual_refund') => Promise<string | null>;
   onClose: () => void;
@@ -37,7 +39,7 @@ interface Props {
 const QUICK_AMOUNTS = [1000, 2000, 5000, 10000, 20000, 50000, 100000];
 
 export const PaymentDialog: React.FC<Props> = ({
-  open, total, effectiveDiscountPercent = 0, onRequestOverride, onClose, onSettle,
+  open, total, effectiveDiscountPercent = 0, storeCreditBalance = 0, onRequestOverride, onClose, onSettle,
 }) => {
   const [tenders, setTenders] = useState<PaymentTender[]>([]);
   const [activeMethod, setActiveMethod] = useState<PaymentMethod>('cash');
@@ -50,17 +52,35 @@ export const PaymentDialog: React.FC<Props> = ({
   useEffect(() => {
     if (!open) return;
     setTenders([]); setTendered(''); setReference(''); setError(null); setOverrideId(undefined);
+    setActiveMethod('cash');
   }, [open]);
+
+  // Store-credit tile only appears when the selected customer carries a balance.
+  const methods = useMemo(() => {
+    const base = [...METHODS];
+    if (storeCreditBalance > 0) {
+      base.push({ key: 'store_credit', label: 'Credit', icon: <Gift className="h-4 w-4" />, color: '#0ea5e9' });
+    }
+    return base;
+  }, [storeCreditBalance]);
 
   const paid = useMemo(() => tenders.reduce((s, t) => s + (t.amount || 0), 0), [tenders]);
   const remaining = Math.max(0, total - paid);
   const change = paid > total ? paid - total : 0;
+  const creditUsed = useMemo(
+    () => tenders.filter((t) => t.method === 'store_credit').reduce((s, t) => s + t.amount, 0),
+    [tenders],
+  );
+  const availableCredit = Math.max(0, storeCreditBalance - creditUsed);
   const tenderNum = Number(tendered);
   const tenderValid = Number.isFinite(tenderNum) && tenderNum > 0;
+  const creditBlocked = activeMethod === 'store_credit' && availableCredit <= 0;
 
   const addTender = () => {
-    if (!tenderValid || remaining <= 0) return;
-    const amount = Math.min(tenderNum, remaining);
+    if (!tenderValid || remaining <= 0 || creditBlocked) return;
+    let amount = Math.min(tenderNum, remaining);
+    if (activeMethod === 'store_credit') amount = Math.min(amount, availableCredit);
+    if (amount <= 0) return;
     setTenders((prev) => [
       ...prev,
       {
@@ -113,7 +133,7 @@ export const PaymentDialog: React.FC<Props> = ({
           <div className="p-4 space-y-3">
             {/* Method tabs */}
             <div className="grid grid-cols-4 gap-2">
-              {METHODS.map((m) => (
+              {methods.map((m) => (
                 <button
                   key={m.key}
                   type="button"
@@ -163,9 +183,22 @@ export const PaymentDialog: React.FC<Props> = ({
                   </button>
                 </div>
               ) : null}
+              {activeMethod === 'store_credit' ? (
+                <div className="flex items-center gap-2 mt-2 text-xs">
+                  <span className="font-semibold text-sky-700">Available credit: {fmt(availableCredit)}</span>
+                  <button
+                    type="button"
+                    className="px-2.5 py-1 rounded-md bg-sky-100 text-sky-700 hover:bg-sky-200 font-bold disabled:opacity-50"
+                    disabled={availableCredit <= 0}
+                    onClick={() => setTendered(String(Math.min(remaining, availableCredit)))}
+                  >
+                    Use max
+                  </button>
+                </div>
+              ) : null}
             </div>
 
-            {activeMethod !== 'cash' ? (
+            {activeMethod !== 'cash' && activeMethod !== 'store_credit' ? (
               <div>
                 <Label>Reference / transaction id (optional)</Label>
                 <Input
@@ -177,8 +210,8 @@ export const PaymentDialog: React.FC<Props> = ({
               </div>
             ) : null}
 
-            <Button onClick={addTender} disabled={!tenderValid || remaining <= 0} className="w-full" style={{ background: METHODS.find((m) => m.key === activeMethod)!.color }}>
-              <Plus className="h-4 w-4 mr-1" /> Add {METHODS.find((m) => m.key === activeMethod)!.label} — {fmt(Math.min(tenderValid ? tenderNum : remaining, remaining))}
+            <Button onClick={addTender} disabled={!tenderValid || remaining <= 0 || creditBlocked} className="w-full" style={{ background: methods.find((m) => m.key === activeMethod)?.color }}>
+              <Plus className="h-4 w-4 mr-1" /> Add {methods.find((m) => m.key === activeMethod)?.label} — {fmt(Math.min(tenderValid ? tenderNum : remaining, activeMethod === 'store_credit' ? Math.min(remaining, availableCredit) : remaining))}
             </Button>
 
             {error ? <p className="text-sm text-rose-600">{error}</p> : null}
@@ -203,7 +236,7 @@ export const PaymentDialog: React.FC<Props> = ({
               ) : tenders.map((t, i) => (
                 <div key={i} className="flex items-center justify-between bg-white rounded border border-slate-200 px-2 py-1.5 text-xs">
                   <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full" style={{ background: METHODS.find((m) => m.key === t.method)?.color }} />
+                    <span className="w-2 h-2 rounded-full" style={{ background: methods.find((m) => m.key === t.method)?.color }} />
                     <span className="font-bold">{t.method.replace('_', ' ')}</span>
                   </div>
                   <div className="flex items-center gap-1.5">

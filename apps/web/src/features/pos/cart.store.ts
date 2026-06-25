@@ -38,8 +38,21 @@ interface CartState {
   setOrderType: (type: OrderType | undefined) => void;
   setTable: (id: string | undefined, number?: number, name?: string) => void;
   markSentToKitchen: (v: boolean) => void;
-  /** Replace cart wholesale (used when recalling a hold). */
-  load: (lines: CartLine[]) => void;
+  /**
+   * Replace cart wholesale (used when recalling a hold or loading a server tab).
+   * `opts` restores the transaction-level discount + override; when omitted every
+   * transaction-discount field resets to its neutral value so a stale discount
+   * from the previous cart can never leak onto the freshly-loaded order.
+   */
+  load: (
+    lines: CartLine[],
+    opts?: {
+      transactionDiscountPercent?: number;
+      transactionDiscountType?: DiscountType;
+      transactionDiscountAmount?: number;
+      overrideById?: string;
+    },
+  ) => void;
   clear: () => void;
 }
 
@@ -137,7 +150,14 @@ export const useCartStore = create<CartState>()(
       setOrderType: (type) => set({ orderType: type }),
       setTable: (id, number, name) => set({ tableId: id, tableNumber: number, tableName: name }),
       markSentToKitchen: (v) => set({ sentToKitchen: v }),
-      load: (lines) => set({ lines, transactionDiscountPercent: 0, overrideById: undefined }),
+      load: (lines, opts) =>
+        set({
+          lines,
+          transactionDiscountPercent: opts?.transactionDiscountPercent ?? 0,
+          transactionDiscountType: opts?.transactionDiscountType ?? 'percentage',
+          transactionDiscountAmount: opts?.transactionDiscountAmount ?? 0,
+          overrideById: opts?.overrideById,
+        }),
       clear: () => set({
         lines: [], transactionDiscountPercent: 0, transactionDiscountType: 'percentage',
         transactionDiscountAmount: 0, overrideById: undefined,

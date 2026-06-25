@@ -294,8 +294,24 @@ export class PosService {
     const lowStock: Array<{ productId: string; productName: string; onHand: number; requested: number }> = [];
     const issuedLines: Array<{ productId: string; locationId: string; quantity: number }> = [];
     const paymentIds: string[] = [];
+    // Track store credit drawn down so a failed sale can re-issue it (saga unwind).
+    let redeemedCredit = 0;
 
     try {
+      // Store-credit pre-flight: validate the balance + resolve the liability
+      // account BEFORE any GL effect so an insufficient balance fails cleanly.
+      const creditTotal = tenders
+        .filter((t) => t.method === 'store_credit')
+        .reduce((s, t) => s + Number(t.amount), 0);
+      let storeCreditAccount: string | undefined;
+      if (creditTotal > 0) {
+        const { balance } = await this.loyalty.getCredit(partnerId);
+        if (balance < creditTotal - 0.01) {
+          throw new BadRequestException(`Insufficient store credit: balance ${balance}, needed ${creditTotal}`);
+        }
+        storeCreditAccount = await this.storeCreditAccountId();
+      }
+
       await this.invoices.post(doc.id);
 
       // Stock-out for stockable lines — honors Product.stockPolicy (P9):
@@ -366,6 +382,15 @@ export class PosService {
 
       // Record payment(s). Tenders were validated against the total by the caller.
       for (const tender of tenders) {
+        let accountId: string | undefined;
+        if (tender.method === 'store_credit') {
+          // Draw down the customer's store-credit sub-ledger, then post the
+          // receipt against the store-credit liability account (Dr liability /
+          // Cr receivable) instead of cash — no money actually changed hands.
+          await this.loyalty.redeemCredit({ partnerId, amount: Number(tender.amount), documentId: doc.id });
+          redeemedCredit += Number(tender.amount);
+          accountId = storeCreditAccount;
+        }
         const payment = await this.payments.createReceipt({
           partnerId,
           paymentDate: new Date().toISOString(),
@@ -373,6 +398,7 @@ export class PosService {
           amount: tender.amount,
           reference: tender.reference ?? reference,
           cashSessionId: tender.method === 'cash' ? cashSessionId : undefined,
+          accountId,
           allocations: [{ documentId: doc.id, amount: tender.amount }],
         } as any);
         if ((payment as any)?.id) paymentIds.push((payment as any).id);
@@ -381,8 +407,37 @@ export class PosService {
       return { lowStock, paymentIds };
     } catch (err: any) {
       await this.compensateFailedCheckout(doc.id, issuedLines, paymentIds);
+      // Re-issue any store credit we drew down before the failure.
+      if (redeemedCredit > 0) {
+        try {
+          await this.loyalty.issueCredit({
+            partnerId,
+            amount: redeemedCredit,
+            source: 'sale_reversal',
+            notes: `Reversal of failed sale ${doc.documentNumber}`,
+          });
+        } catch (e: any) {
+          this.logger.error(`store-credit reversal failed: ${String(e?.message ?? e)}`);
+        }
+      }
       throw err;
     }
+  }
+
+  /**
+   * Resolve the GL account a store-credit redemption posts against (the
+   * store-credit liability). Mirrors AccountDeterminationService.mapped: a clear
+   * error if the org hasn't configured it, so credit tenders never silently
+   * book phantom cash.
+   */
+  private async storeCreditAccountId(): Promise<string> {
+    const mapping = await this.prisma.client.accountMapping.findFirst({ where: { key: 'store_credit' } });
+    if (!mapping) {
+      throw new BadRequestException(
+        "Store-credit payments need the 'store_credit' account mapping. Configure it under Accounting > Account Mapping.",
+      );
+    }
+    return mapping.accountId;
   }
 
   /**
@@ -1142,6 +1197,33 @@ export class PosService {
       cashSessionId: input.cashSessionId,
       reference: undefined,
     });
+
+    // E2: make sure the kitchen sees this order even if it was never explicitly
+    // "Sent to Kitchen" — fire tickets at settle, but only if none exist yet for
+    // this document (so an already-fired tab isn't double-ticketed). Non-fatal.
+    try {
+      const already = await this.prisma.client.kitchenTicket.count({ where: { invoiceId: doc.id } });
+      if (already === 0) {
+        const kdsItems: any[] = [];
+        for (const ln of doc.lines as any[]) {
+          if (!ln.productId) continue;
+          const product = await this.prisma.client.product.findFirst({ where: { id: ln.productId } });
+          kdsItems.push({
+            productId: ln.productId,
+            productName: ln.description,
+            quantity: Number(ln.quantity),
+            modifiers: [],
+            notes: ln.note ?? null,
+            station: (product as any)?.station ?? 'cafe',
+          });
+        }
+        if (kdsItems.length > 0) {
+          await this.kds.createTicketsForSale({ invoiceId: doc.id, label: (doc as any).documentNumber, items: kdsItems });
+        }
+      }
+    } catch {
+      // KDS is non-fatal.
+    }
 
     // Close the table order and sync status (available if no open orders)
     const closeResult = await this.tables.closeTableOrder({ tableId: input.tableId, documentId: doc.id });

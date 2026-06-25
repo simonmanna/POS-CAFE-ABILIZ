@@ -418,6 +418,24 @@ export class PosTablesService {
       if (!source.active || !target.active) {
         throw new ConflictException('Cannot merge an archived table');
       }
+      if (source.status === 'out_of_service' || target.status === 'out_of_service') {
+        throw new ConflictException('Cannot merge an out-of-service table');
+      }
+      // Settled-table guard (User Story 9): only OPEN draft orders may merge — a
+      // posted / paid sale has GL behind it and must never be re-tabled. We also
+      // refuse a cross-branch merge (branch is carried on the Document, since a
+      // PosTable itself is not branch-scoped).
+      const involved = await tx.posTableOrder.findMany({
+        where: { tableId: { in: [sourceId, targetId] }, closedAt: null },
+        include: { document: { select: { status: true, branchId: true } } },
+      });
+      if (involved.some((o: any) => o.document && o.document.status !== 'draft')) {
+        throw new ConflictException('Cannot merge settled tables');
+      }
+      const branches = new Set(involved.map((o: any) => o.document?.branchId).filter(Boolean));
+      if (branches.size > 1) {
+        throw new ConflictException('Cannot merge tables from different branches');
+      }
       // Collect every table merged into source (cascade) — they all reassign too.
       const cascadedSourceIds = await tx.posTable.findMany({
         where: { mergedIntoId: sourceId },
@@ -597,6 +615,279 @@ export class PosTablesService {
       });
       return { sourceId, targetId, transferredDocuments: transferred };
     });
+  }
+
+  // ─── Transfer Items (soft move — split a draft between two tables) ────────
+
+  /**
+   * Transfer specific order ITEMS (lines, with optional partial quantities)
+   * from `sourceId`'s open draft order into `targetId`'s. Unlike `transfer`
+   * (which moves whole documents into an empty table), this splits a draft:
+   * the chosen quantities leave the source line-set and are appended to the
+   * target's draft (created on the fly if the target had none) — so it works
+   * into an already-OCCUPIED table without losing its existing items. Totals on
+   * both sides are recomputed by the tax engine; if the source is fully drained
+   * it becomes AVAILABLE.
+   *
+   * KDS note: already-fired KitchenTicket rows reference the *source* document
+   * and stay there — this operates on the live draft order only.
+   */
+  async transferItems(
+    sourceId: string,
+    targetId: string,
+    items: Array<{ lineId: string; quantity: number }>,
+  ) {
+    if (sourceId === targetId) {
+      throw new BadRequestException('A table cannot transfer items to itself');
+    }
+    if (!items?.length) throw new BadRequestException('No items selected to transfer');
+    const organizationId = this.tenant.organizationId;
+    const userId = this.tenant.userId;
+
+    return this.prisma.client.$transaction(async (tx: any) => {
+      // Lock both rows (lower id first) to keep concurrent moves deadlock-free.
+      const first = sourceId < targetId ? sourceId : targetId;
+      const second = first === sourceId ? targetId : sourceId;
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM "PosTable" WHERE id = ANY($1::uuid[]) AND "organizationId" = $2 ORDER BY id FOR UPDATE`,
+        [first, second],
+        organizationId,
+      );
+      const source = await tx.posTable.findFirst({ where: { id: sourceId, organizationId } });
+      const target = await tx.posTable.findFirst({ where: { id: targetId, organizationId } });
+      if (!source) throw new NotFoundException('Source table not found');
+      if (!target) throw new NotFoundException('Target table not found');
+      if (!source.active || !target.active) {
+        throw new ConflictException('Cannot transfer to/from an archived table');
+      }
+      if (target.status === 'out_of_service') {
+        throw new ConflictException(`Target table T${target.number} is out of service`);
+      }
+
+      // Source open draft order + lines (with modifier rows, to re-attach later).
+      const sourceOrder = await tx.posTableOrder.findFirst({
+        where: { tableId: sourceId, closedAt: null },
+        include: {
+          document: { include: { lines: { include: { modifiers: true }, orderBy: { lineNumber: 'asc' } } } },
+        },
+      });
+      if (!sourceOrder?.document || sourceOrder.document.status !== 'draft') {
+        throw new BadRequestException('No open order on the source table');
+      }
+      const sourceDoc = sourceOrder.document;
+
+      // Tally requested quantities per source line.
+      const byLine = new Map<string, number>();
+      for (const it of items) {
+        if (!(it.quantity > 0)) throw new BadRequestException('Transfer quantity must be greater than zero');
+        byLine.set(it.lineId, (byLine.get(it.lineId) ?? 0) + it.quantity);
+      }
+
+      const toInput = (l: any, quantity: number) => ({
+        productId: l.productId ?? undefined,
+        menuItemId: l.menuItemId ?? undefined,
+        description: l.description,
+        quantity,
+        unitPrice: Number(l.unitPrice),
+        taxId: l.taxId ?? undefined,
+        discountPercent: Number(l.discountPercent),
+        taxInclusive: l.taxInclusive,
+      });
+      const modsOf = (l: any) =>
+        (l.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId, name: m.name, priceDelta: m.priceDelta }));
+
+      // Split each source line into remaining (stays) + moved (goes to target).
+      const remainingInputs: any[] = [];
+      const remainingMods: any[][] = [];
+      const movedInputs: any[] = [];
+      const movedMods: any[][] = [];
+      const movedSummary: Array<{ description: string; quantity: number }> = [];
+      for (const l of sourceDoc.lines as any[]) {
+        const moveQty = byLine.get(l.id) ?? 0;
+        const have = Number(l.quantity);
+        if (moveQty === 0) {
+          remainingInputs.push(toInput(l, have));
+          remainingMods.push(modsOf(l));
+          continue;
+        }
+        if (moveQty > have + 1e-6) {
+          throw new BadRequestException(
+            `Cannot transfer ${moveQty} of "${l.description}" — only ${have} on the order`,
+          );
+        }
+        const keep = have - moveQty;
+        if (keep > 1e-6) {
+          remainingInputs.push(toInput(l, keep));
+          remainingMods.push(modsOf(l));
+        }
+        movedInputs.push(toInput(l, moveQty));
+        movedMods.push(modsOf(l));
+        movedSummary.push({ description: l.description, quantity: moveQty });
+        byLine.delete(l.id);
+      }
+      if (byLine.size > 0) {
+        throw new BadRequestException("One or more selected items are not on this table's order");
+      }
+      if (movedInputs.length === 0) throw new BadRequestException('No items selected to transfer');
+
+      // ── Source side ──────────────────────────────────────────────────────
+      if (remainingInputs.length === 0) {
+        // Fully drained → cancel the draft, close the order, free the table.
+        await tx.documentLine.deleteMany({ where: { documentId: sourceDoc.id } });
+        await tx.document.update({
+          where: { id: sourceDoc.id },
+          data: {
+            status: 'cancelled',
+            subtotal: 0, discountTotal: 0, taxAmount: 0, totalAmount: 0, amountResidual: 0,
+            notes: `Items transferred to T${target.number}`,
+          },
+        });
+        await tx.posTableOrder.updateMany({ where: { id: sourceOrder.id }, data: { closedAt: new Date() } });
+      } else {
+        const srcLines = await this.rebuildDraftLines(tx, organizationId, sourceDoc.id, remainingInputs);
+        await this.attachLineModifiers(tx, organizationId, srcLines, 0, remainingMods);
+      }
+      await this.syncTableStatus(sourceId, tx);
+
+      // ── Target side ──────────────────────────────────────────────────────
+      const targetOrder = await tx.posTableOrder.findFirst({
+        where: { tableId: targetId, closedAt: null },
+        include: {
+          document: { include: { lines: { include: { modifiers: true }, orderBy: { lineNumber: 'asc' } } } },
+        },
+      });
+      let targetDocId: string;
+      if (targetOrder?.document && targetOrder.document.status === 'draft') {
+        // Append moved lines to the existing draft; preserve its current items
+        // and their modifier rows (rebuild cascade-deletes them).
+        targetDocId = targetOrder.documentId;
+        const existing = (targetOrder.document.lines as any[]).map((l) => toInput(l, Number(l.quantity)));
+        const existingMods = (targetOrder.document.lines as any[]).map((l) => modsOf(l));
+        const tgtLines = await this.rebuildDraftLines(tx, organizationId, targetDocId, [...existing, ...movedInputs]);
+        await this.attachLineModifiers(tx, organizationId, tgtLines, 0, [...existingMods, ...movedMods]);
+      } else {
+        const doc = await this.builder.createDocument(
+          tx,
+          'sales_invoice',
+          { partnerId: sourceDoc.partnerId, issueDate: new Date().toISOString(), sourceType: 'pos', branchId: target.branchId ?? undefined } as any,
+          movedInputs,
+        );
+        targetDocId = doc.id;
+        await tx.document.update({ where: { id: doc.id }, data: { tableId: targetId } });
+        await tx.posTableOrder.create({ data: { tableId: targetId, documentId: doc.id } });
+        const tgtLines = await tx.documentLine.findMany({ where: { documentId: doc.id }, orderBy: { lineNumber: 'asc' } });
+        await this.attachLineModifiers(tx, organizationId, tgtLines, 0, movedMods);
+      }
+      if (target.status !== 'occupied' && target.status !== 'reserved') {
+        await tx.posTable.update({ where: { id: targetId }, data: { status: 'occupied' } });
+      }
+      await this.syncTableStatus(targetId, tx);
+
+      // ── Audit trail (User Story 5) ───────────────────────────────────────
+      await this.audit.recordInTx(tx, {
+        entity: 'PosTable',
+        entityId: sourceId,
+        action: 'transfer' as any,
+        newValues: { kind: 'transfer_items', targetId, items: movedSummary, actorId: userId ?? null },
+      });
+
+      const [sourceFresh, targetFresh] = await Promise.all([
+        tx.document.findFirst({ where: { id: sourceDoc.id }, include: { lines: { orderBy: { lineNumber: 'asc' } } } }),
+        tx.document.findFirst({ where: { id: targetDocId }, include: { lines: { orderBy: { lineNumber: 'asc' } } } }),
+      ]);
+      return { sourceId, targetId, targetDocId, movedSummary, source: sourceFresh, target: targetFresh };
+    }).then((res) => {
+      this.events.publish(EVENTS.PosTableTransferred, {
+        organizationId,
+        sourceId,
+        targetId,
+        documentIds: [res.targetDocId],
+        actorId: userId ?? '',
+      });
+      return res;
+    });
+  }
+
+  /**
+   * Replace a draft document's lines with `inputs` (priced through the tax
+   * engine) and refresh its header totals. Returns the freshly-created lines in
+   * order. Shared by transferItems for both the source and target rebuilds.
+   */
+  private async rebuildDraftLines(
+    tx: any,
+    organizationId: string,
+    documentId: string,
+    inputs: Array<{
+      productId?: string; menuItemId?: string; description: string;
+      quantity: number; unitPrice: number; taxId?: string; discountPercent: number; taxInclusive?: boolean;
+    }>,
+  ) {
+    const totals = await this.builder.prepareLines(tx, inputs);
+    await tx.documentLine.deleteMany({ where: { documentId } });
+    for (const p of totals.prepared) {
+      await tx.documentLine.create({
+        data: {
+          organizationId,
+          documentId,
+          productId: p.productId,
+          menuItemId: p.menuItemId,
+          accountId: p.accountId,
+          description: p.description,
+          quantity: p.quantity,
+          unitPrice: p.unitPrice,
+          discountPercent: p.discountPercent,
+          taxId: p.taxId,
+          subtotal: p.subtotal,
+          taxAmount: p.taxAmount,
+          total: p.total,
+          lineNumber: p.lineNumber,
+          taxInclusive: p.taxInclusive,
+        },
+      });
+    }
+    await tx.document.updateMany({
+      where: { id: documentId },
+      data: {
+        subtotal: totals.subtotal,
+        discountTotal: totals.discountTotal,
+        taxAmount: totals.taxAmount,
+        totalAmount: totals.total,
+        amountResidual: totals.total,
+      },
+    });
+    return tx.documentLine.findMany({ where: { documentId }, orderBy: { lineNumber: 'asc' } });
+  }
+
+  /**
+   * Re-create DocumentLineModifier rows after a line rebuild. `modsList[i]`
+   * maps onto `lines[fromIndex + i]` — prepareLines preserves input order 1:1,
+   * so positional mapping is exact. Best-effort (modifier prices are already
+   * baked into unitPrice; these rows exist for reporting).
+   */
+  private async attachLineModifiers(
+    tx: any,
+    organizationId: string,
+    lines: any[],
+    fromIndex: number,
+    modsList: Array<Array<{ modifierId: string | null; name: string; priceDelta: any }>>,
+  ) {
+    for (let i = 0; i < modsList.length; i++) {
+      const mods = modsList[i];
+      if (!mods?.length) continue;
+      const line = lines[fromIndex + i];
+      if (!line) continue;
+      for (const m of mods) {
+        await tx.documentLineModifier.create({
+          data: {
+            organizationId,
+            documentLineId: line.id,
+            modifierId: m.modifierId ?? null,
+            name: m.name,
+            priceDelta: m.priceDelta ?? 0,
+          },
+        });
+      }
+    }
   }
 
   /**

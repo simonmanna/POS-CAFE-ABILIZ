@@ -60,12 +60,15 @@ export const TableSelectorDialog: React.FC<Props> = ({
   const [actionTable, setActionTable] = useState<PosTable | null>(null);
   const [target, setTarget] = useState<PosTable | null>(null);
   const [mode, setMode] = useState<'merge' | 'transfer' | 'unmerge' | null>(null);
+  /* Which table survives a merge: the action table or the chosen target. */
+  const [mergeMaster, setMergeMaster] = useState<'action' | 'target'>('target');
 
   useEffect(() => {
     if (!open) {
       setActionTable(null);
       setTarget(null);
       setMode(null);
+      setMergeMaster('target');
       setSearch('');
       setFilter('all');
     }
@@ -105,8 +108,11 @@ export const TableSelectorDialog: React.FC<Props> = ({
     if (!actionTable || !target || !mode) return;
     try {
       if (mode === 'merge') {
-        await merge.mutateAsync({ sourceId: actionTable.id, targetId: target.id });
-        toast.success(`Merged T${actionTable.number} → T${target.number}`);
+        // The master (kept) table is the merge target; the loser drains into it.
+        const master = mergeMaster === 'action' ? actionTable : target;
+        const loser = mergeMaster === 'action' ? target : actionTable;
+        await merge.mutateAsync({ sourceId: loser.id, targetId: master.id });
+        toast.success(`Merged T${loser.number} into T${master.number} (kept T${master.number})`);
       } else {
         await transfer.mutateAsync({ sourceId: actionTable.id, targetId: target.id });
         toast.success(`Transferred orders to T${target.number}`);
@@ -114,6 +120,7 @@ export const TableSelectorDialog: React.FC<Props> = ({
       setActionTable(null);
       setTarget(null);
       setMode(null);
+      setMergeMaster('target');
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Action failed');
     }
@@ -123,6 +130,7 @@ export const TableSelectorDialog: React.FC<Props> = ({
     setActionTable(null);
     setTarget(null);
     setMode(null);
+    setMergeMaster('target');
   };
 
   return (
@@ -273,7 +281,9 @@ export const TableSelectorDialog: React.FC<Props> = ({
               {tables
                 .filter((x) => {
                   if (x.id === actionTable.id || x.mergedIntoId) return false;
-                  if (mode === 'merge') return x.status !== 'occupied';
+                  // Merge allows an OCCUPIED target (Occupied + Occupied is a valid
+                  // combine per the epic); only out-of-service / archived are barred.
+                  if (mode === 'merge') return x.status !== 'out_of_service';
                   return x.status === 'available';
                 })
                 .map((x) => (
@@ -290,6 +300,29 @@ export const TableSelectorDialog: React.FC<Props> = ({
                   </button>
                 ))}
             </div>
+            {/* Master selection — which table survives the merge (User Story 2). */}
+            {mode === 'merge' && target ? (
+              <div className="mt-4 flex items-center gap-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
+                <span className="text-xs font-bold text-slate-600">Keep which table?</span>
+                {([
+                  { key: 'target' as const, tbl: target },
+                  { key: 'action' as const, tbl: actionTable },
+                ]).map(({ key, tbl }) => (
+                  <label key={key} className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="merge-master"
+                      checked={mergeMaster === key}
+                      onChange={() => setMergeMaster(key)}
+                    />
+                    T{tbl.number}
+                  </label>
+                ))}
+                <span className="ml-auto text-[10px] text-slate-400">
+                  Orders combine onto the kept table; the other becomes Available.
+                </span>
+              </div>
+            ) : null}
             <div className="flex justify-end gap-2 mt-4">
               <Button variant="ghost" size="sm" onClick={closeActionMode}>
                 Cancel

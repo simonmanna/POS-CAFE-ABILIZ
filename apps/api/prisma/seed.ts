@@ -166,6 +166,7 @@ async function main(): Promise<void> {
     { code: '2100', name: 'Accounts Payable', accountType: 'payable', cashFlowCategory: 'operating' },
     { code: '2150', name: 'Goods Received Not Invoiced (GRNI)', accountType: 'liability', cashFlowCategory: 'operating' },
     { code: '2200', name: 'Tax Payable', accountType: 'tax', cashFlowCategory: 'operating' },
+    { code: '2300', name: 'Store Credit Liability', accountType: 'liability', cashFlowCategory: 'financing' },
     { code: '3000', name: 'Equity', accountType: 'equity', isGroup: true, cashFlowCategory: 'financing' },
     { code: '3100', name: 'Retained Earnings', accountType: 'equity', cashFlowCategory: 'financing' },
     { code: '4000', name: 'Revenue', accountType: 'revenue', isGroup: true, cashFlowCategory: 'operating' },
@@ -226,6 +227,8 @@ async function main(): Promise<void> {
     default_cash: accountIds['1100'],
     default_bank: accountIds['1200'],
     default_expense: accountIds['5200'],
+    // POS P7 — store-credit redemptions post Dr this liability / Cr receivable.
+    store_credit: accountIds['2300'],
     retained_earnings: accountIds['3100'],
     // M3 — inventory → GL
     stock_valuation: accountIds['1400'],

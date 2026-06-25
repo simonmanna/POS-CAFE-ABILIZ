@@ -102,14 +102,14 @@ export function useOpenSession() {
   return useQuery({
     queryKey: ['cash-session', 'open'],
     queryFn: async () => {
-      try {
-        const res = await api.get<CashSession>('/cash-sessions/open');
-        return res.data ?? null;
-      } catch {
-        return null;
-      }
+      const res = await api.get<CashSession | null>('/cash-sessions/open');
+      return res.data ?? null;
     },
-    refetchInterval: 30_000,
+    // Open session is stable; rely on mutation invalidation, not polling.
+    // Long staleTime prevents flicker; no refetchInterval needed.
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 }
 
@@ -415,6 +415,19 @@ export function useVoidSale() {
     mutationFn: async (body: { invoiceId: string; reason: string; overrideById: string }) =>
       (await api.post(`/pos/sales/${body.invoiceId}/void`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
+  });
+}
+
+/* ============== Store credit ============== */
+
+/** The customer's redeemable store-credit balance (0 when none / no customer). */
+export function useStoreCredit(partnerId?: string) {
+  return useQuery({
+    queryKey: ['pos-store-credit', partnerId],
+    enabled: !!partnerId,
+    queryFn: async () =>
+      (await api.get<{ balance: number; expiresAt: string | null }>(`/pos/loyalty/credit/${partnerId}`)).data,
+    staleTime: 15_000,
   });
 }
 

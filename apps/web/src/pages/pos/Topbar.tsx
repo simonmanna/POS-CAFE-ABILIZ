@@ -31,6 +31,11 @@ interface Props {
   onLogout: () => void;
   onUserChanged: () => void;
   onOpenHeldOrders?: () => void;
+  /** Tables vs counter mode toggle (omit to hide the toggle). */
+  posMode?: 'tables' | 'counter';
+  onChangeMode?: (mode: 'tables' | 'counter') => void;
+  /** Extra nodes pinned to the right cluster (e.g. the offline indicator). */
+  rightExtras?: React.ReactNode;
 }
 
 const initials = (name?: string) => {
@@ -55,6 +60,9 @@ export const Topbar: React.FC<Props> = ({
   onLogout,
   onUserChanged,
   onOpenHeldOrders,
+  posMode,
+  onChangeMode,
+  rightExtras,
 }) => {
   const shiftOpen = !!session && session.status === 'open';
 
@@ -113,10 +121,42 @@ export const Topbar: React.FC<Props> = ({
           }}
         >
           <LayoutGrid className="h-3.5 w-3.5" />
-          <span>{activeTableLabel ?? 'No table'}</span>
+          <span>{activeTableLabel ?? 'Tables'}</span>
           {activeTableLabel ? <span className="pos-active-dot" /> : null}
         </button>
       )}
+
+      {/* Tables / Counter mode toggle */}
+      {onChangeMode ? (
+        <div className="flex items-center gap-1 ml-1">
+          <button
+            type="button"
+            className="pos-tbl-pill"
+            onClick={() => onChangeMode('tables')}
+            title="Dine-in / tables mode"
+            style={{
+              background: posMode === 'tables' ? 'rgba(99, 102, 241, .25)' : undefined,
+              borderColor: posMode === 'tables' ? 'rgba(99, 102, 241, .6)' : undefined,
+            }}
+          >
+            <LayoutGrid className="h-3.5 w-3.5" />
+            <span>Tables</span>
+          </button>
+          <button
+            type="button"
+            className="pos-tbl-pill"
+            onClick={() => onChangeMode('counter')}
+            title="Counter / takeaway mode"
+            style={{
+              background: posMode === 'counter' ? 'rgba(99, 102, 241, .25)' : undefined,
+              borderColor: posMode === 'counter' ? 'rgba(99, 102, 241, .6)' : undefined,
+            }}
+          >
+            <Coffee className="h-3.5 w-3.5" />
+            <span>Counter</span>
+          </button>
+        </div>
+      ) : null}
 
       {/* Reports */}
       <button type="button" className="pos-tbl-pill" onClick={onOpenReports} title="X / Z reports + sales analytics">
@@ -138,6 +178,9 @@ export const Topbar: React.FC<Props> = ({
       </div>
 
       <div className="flex-1" />
+
+      {/* Right-cluster extras (e.g. offline indicator) */}
+      {rightExtras ? <div className="flex items-center mr-1">{rightExtras}</div> : null}
 
       {/* POS User Switcher — PIN‑logged cashier */}
       <UserSwitcher onUserChanged={onUserChanged} />

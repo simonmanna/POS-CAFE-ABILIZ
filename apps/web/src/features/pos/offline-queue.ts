@@ -28,7 +28,10 @@ export interface QueuedSale {
   createdAt: number; // epoch ms
   attempts: number;
   lastError?: string;
-  payload: any; // the CheckoutBody that useCheckout normally sends
+  /** API path to replay against. Defaults to '/pos/checkout' (counter sale);
+   *  a dine-in tab settle queues '/pos/tabs/{tableId}/settle'. */
+  endpoint?: string;
+  payload: any; // the CheckoutBody / SettleTab body the request normally sends
 }
 
 /* ====================== IndexedDB wrapper ====================== */
@@ -101,7 +104,7 @@ async function idbClear(): Promise<void> {
 
 /* ====================== Public API ====================== */
 
-export async function enqueueSale(payload: any): Promise<QueuedSale> {
+export async function enqueueSale(payload: any, opts?: { endpoint?: string }): Promise<QueuedSale> {
   const idempotencyKey = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
     ? (crypto as any).randomUUID()
     : Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -109,6 +112,7 @@ export async function enqueueSale(payload: any): Promise<QueuedSale> {
     idempotencyKey,
     createdAt: Date.now(),
     attempts: 0,
+    endpoint: opts?.endpoint ?? '/pos/checkout',
     payload: { ...payload, idempotencyKey },
   };
   await idbPut(sale);
@@ -139,7 +143,7 @@ export async function replayAll(onResult?: (sale: QueuedSale, result: 'ok' | 'er
   const unresolved: QueuedSale[] = [];
   for (const sale of pending) {
     try {
-      await api.post('/pos/checkout', sale.payload, {
+      await api.post(sale.endpoint ?? '/pos/checkout', sale.payload, {
         headers: { 'Idempotency-Key': sale.idempotencyKey },
       });
       await removePending(sale.idempotencyKey);

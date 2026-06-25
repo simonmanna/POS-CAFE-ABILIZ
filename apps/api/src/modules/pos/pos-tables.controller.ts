@@ -99,6 +99,17 @@ class SplitBillBody {
   @ApiProperty({ required: false }) @IsOptional() @IsString() partnerId?: string;
 }
 
+class TransferItemBody {
+  @ApiProperty() @IsString() lineId!: string;
+  @ApiProperty() @IsNumber() @Min(0.0001) quantity!: number;
+}
+
+class TransferItemsBody {
+  @ApiProperty({ type: [TransferItemBody] })
+  @IsArray() @ValidateNested({ each: true }) @Type(() => TransferItemBody)
+  items!: TransferItemBody[];
+}
+
 @ApiTags('pos/tables')
 @ApiBearerAuth()
 @Controller('pos/tables')
@@ -180,6 +191,22 @@ export class PosTablesController {
   @RequirePermissions('tables:transfer')
   transfer(@Param('id') id: string, @Param('targetId') targetId: string) {
     return this.svc.transfer(id, targetId);
+  }
+
+  /**
+   * Item-level transfer (ADR-012): move selected lines (with optional partial
+   * quantities) from this table's draft order into another table's. Works into
+   * an occupied table. Table ids travel in the URL only — keeping them out of
+   * the body keeps the DTO `forbidNonWhitelisted`-safe.
+   */
+  @Post(':id/transfer-items/:targetId')
+  @RequirePermissions('tables:transfer')
+  transferItems(
+    @Param('id') id: string,
+    @Param('targetId') targetId: string,
+    @Body() dto: TransferItemsBody,
+  ) {
+    return this.svc.transferItems(id, targetId, dto.items);
   }
 
   @Post(':id/split-bill')

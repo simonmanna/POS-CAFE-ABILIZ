@@ -169,6 +169,25 @@ export function useTransferTable() {
   });
 }
 
+/**
+ * Item-level transfer: move selected lines (with optional partial quantities)
+ * from one table's draft order into another's. Works into an occupied table.
+ */
+export function useTransferItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { sourceId: string; targetId: string; items: Array<{ lineId: string; quantity: number }> }) =>
+      (await api.post<unknown>(`/pos/tables/${args.sourceId}/transfer-items/${args.targetId}`, { items: args.items }, {
+        headers: { 'Idempotency-Key': uuid() },
+      })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+      qc.invalidateQueries({ queryKey: ['pos-tables', 'stats'] });
+      qc.invalidateQueries({ queryKey: ['pos-tab'] });
+    },
+  });
+}
+
 export function useSplitBill() {
   const qc = useQueryClient();
   return useMutation({
