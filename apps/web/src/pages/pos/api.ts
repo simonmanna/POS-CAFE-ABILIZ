@@ -337,7 +337,7 @@ export function useTab(tableId?: string) {
 export function useAddToTab() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: {
+    mutationFn: async ({ tableId, ...body }: {
       tableId: string;
       lines: CheckoutBody['lines'];
       partnerId?: string;
@@ -345,7 +345,9 @@ export function useAddToTab() {
       sendToKitchen?: boolean;
       overrideById?: string;
       transactionDiscountPercent?: number;
-    }) => (await api.post(`/pos/tabs/${body.tableId}/items`, body)).data,
+      // tableId travels in the URL only — the API DTOs use forbidNonWhitelisted,
+      // so leaving it in the body returns 400 "property tableId should not exist".
+    }) => (await api.post(`/pos/tabs/${tableId}/items`, body)).data,
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-tab', v.tableId] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
@@ -357,13 +359,13 @@ export function useAddToTab() {
 export function useSettleTab() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: {
+    mutationFn: async ({ tableId, ...body }: {
       tableId: string;
       tenders?: CheckoutBody['tenders'];
       paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
       amountTendered?: number;
       cashSessionId?: string;
-    }) => (await api.post(`/pos/tabs/${body.tableId}/settle`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
+    }) => (await api.post(`/pos/tabs/${tableId}/settle`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-tab', v.tableId] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
@@ -380,8 +382,8 @@ export function useSettleTab() {
 export function useSaveTab() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { tableId: string; lines: CheckoutBody['lines']; partnerId?: string; guestCount?: number }) =>
-      (await api.post<TabDocument | null>(`/pos/tabs/${body.tableId}/save`, body)).data,
+    mutationFn: async ({ tableId, ...body }: { tableId: string; lines: CheckoutBody['lines']; partnerId?: string; guestCount?: number }) =>
+      (await api.post<TabDocument | null>(`/pos/tabs/${tableId}/save`, body)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
       // Note: we deliberately do NOT invalidate ['pos-tab', tableId] here — the
