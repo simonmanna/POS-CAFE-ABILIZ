@@ -125,14 +125,12 @@ export function useOpenShift() {
 export function useCloseShift() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { closingCounted: number; notes?: string; sessionId?: string }) =>
-      // Close-session endpoint accepts the active session via tenant context;
-      // sessionId is ignored if the cashier only has one open.
-      (await api.post<CashSession>('/cash-sessions/close', {
-        closingCounted: body.closingCounted,
-        notes: body.notes,
-      })).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['cash-session'] }),
+    mutationFn: async (body: { closingCounted: number; notes?: string; varianceReason?: string; varianceStatus?: string }) =>
+      (await api.post<CashSession>('/cash-sessions/close', body)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-session'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
+    },
   });
 }
 
@@ -173,7 +171,10 @@ export function useRecordMovement() {
   return useMutation({
     mutationFn: async (body: { sessionId?: string; movementType: 'pay_in' | 'pay_out' | 'adjustment'; amount: number; reason?: string }) =>
       (await api.post('/cash-sessions/movement', body)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['cash-session'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-session'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
+    },
   });
 }
 
@@ -198,7 +199,10 @@ export function useRecordBankDeposit() {
   return useMutation({
     mutationFn: async (body: { sessionId: string; amount: number; bankName: string; reference?: string; notes?: string }) =>
       (await api.post(`/cash-sessions/${body.sessionId}/banking`, body)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['cash-session'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-session'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
+    },
   });
 }
 

@@ -1,9 +1,0 @@
-<resources>
-    <color name="brand_espresso">#3B2418</color>
-    <color name="brand_amber">#D6A95C</color>
-    <color name="brand_cream">#F5E9D4</color>
-    <color name="brand_charcoal">#1F1B16</color>
-    <color name="brand_success">#2E7D32</color>
-    <color name="brand_warn">#ED6C02</color>
-    <color name="brand_error">#C62828</color>
-</resources>

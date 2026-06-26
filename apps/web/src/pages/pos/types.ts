@@ -70,13 +70,17 @@ export interface CashSession {
   id: string;
   cashRegisterId: string;
   userId: string | null;
-  status: 'open' | 'closed';
+  status: 'open' | 'closed' | 'reconciled';
   openingFloat: string;
   closingCounted?: string | null;
   closingExpected?: string | null;
   closingDifference?: string | null;
   openedAt: string | null;
   closedAt?: string | null;
+  varianceReason?: string | null;
+  varianceStatus?: string | null;
+  bankedAmount?: string | null;
+  bankName?: string | null;
   notes?: string | null;
   cashRegister?: { id: string; code: string; name: string };
 }

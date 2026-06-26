@@ -33,7 +33,7 @@ export function useTables(filter: { status?: string; zone?: string; active?: boo
       if (filter.zone) params.zone = filter.zone;
       if (filter.active !== undefined) params.active = filter.active;
       const res = await api.get<PosTable[]>('/pos/tables', { params });
-      return res.data;
+      return Array.isArray(res.data) ? res.data : [];
     },
     refetchInterval: 10_000,
   });

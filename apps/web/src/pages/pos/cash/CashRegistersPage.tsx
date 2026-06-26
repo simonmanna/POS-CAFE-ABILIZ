@@ -16,7 +16,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowLeftRight, ArrowRight, Banknote, Calculator, Check,
-  CircleDollarSign, ClipboardList, Coins,
+  CircleDollarSign, ClipboardList, Coins, ThumbsUp, ThumbsDown,
   History, LogOut, Minus, Plus,
   RefreshCw, X,
 } from 'lucide-react';
@@ -26,7 +26,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
   useCashRegisters, useCloseShift, useDailyReconciliation, useOpenSession,
-  useOpenShift, useRecordMovement, useSessionHistory,
+  useOpenShift, useRecordBankDeposit, useRecordMovement, useSessionHistory,
   useSessionMovements, useUpdateVariance,
 } from '../api';
 import { HandoverDialog } from '../HandoverDialog';
@@ -37,7 +37,7 @@ import type {
 } from '../types';
 import '../pos-pro.css';
 
-const fmt = (n: number | string | null | undefined) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string | null | undefined) => (n == null ? '—' : `UGX ${Number(n).toLocaleString()}`);
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -160,6 +160,7 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
   const [showOpenShift, setShowOpenShift] = useState(false);
   const [showCloseShift, setShowCloseShift] = useState(false);
   const [showHandover, setShowHandover] = useState(false);
+  const [showBankDeposit, setShowBankDeposit] = useState(false);
   const currentUserId = usePosAuthStore((s) => s.user?.userId);
 
   // Refresh when dialogs close
@@ -184,11 +185,14 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
           <CashInOutButton sessionId={thisSession.id} onDone={onSessionChange} direction="pay_in" />
           <CashInOutButton sessionId={thisSession.id} onDone={onSessionChange} direction="pay_out" />
             <Button variant="outline" className="border-indigo-300 text-indigo-700" onClick={() => setShowHandover(true)}>
               <ArrowLeftRight className="h-4 w-4 mr-1" /> Handover
+            </Button>
+            <Button variant="outline" className="border-blue-300 text-blue-700" onClick={() => setShowBankDeposit(true)}>
+              <Banknote className="h-4 w-4 mr-1" /> Bank Deposit
             </Button>
             <Button variant="outline" className="border-rose-300 text-rose-700" onClick={() => setShowCloseShift(true)}>
               <LogOut className="h-4 w-4 mr-1" /> Close register
@@ -225,6 +229,14 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
         onOpened={handleSessionChange}
         preselectedRegisterId={registerId}
       />
+      {thisSession && (
+        <BankDepositDialog
+          open={showBankDeposit}
+          sessionId={thisSession.id}
+          onClose={() => setShowBankDeposit(false)}
+          onDone={onSessionChange}
+        />
+      )}
       <CloseShiftDialog
         open={showCloseShift}
         session={thisSession}
@@ -266,6 +278,9 @@ const CashInOutButton: React.FC<{
   const [reason, setReason] = useState('');
   const record = useRecordMovement();
 
+  const reset = () => { setAmount(''); setReason(''); };
+  const close = () => { reset(); setOpen(false); };
+
   const handleSubmit = async () => {
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt <= 0) { toast.error('Enter a valid amount'); return; }
@@ -278,9 +293,7 @@ const CashInOutButton: React.FC<{
         reason: reason.trim(),
       });
       toast.success(direction === 'pay_in' ? 'Cash in recorded' : 'Cash out recorded');
-      setOpen(false);
-      setAmount('');
-      setReason('');
+      close();
       onDone();
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Failed to record movement');
@@ -301,14 +314,14 @@ const CashInOutButton: React.FC<{
       </Button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setOpen(false)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={close}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 {isIn ? <Plus className="h-4 w-4 text-emerald-600" /> : <Minus className="h-4 w-4 text-amber-600" />}
                 {isIn ? 'Cash In' : 'Cash Out'}
               </h2>
-              <button onClick={() => setOpen(false)}><X className="h-5 w-5 text-slate-400" /></button>
+              <button onClick={close}><X className="h-5 w-5 text-slate-400" /></button>
             </div>
 
             <div>
@@ -322,7 +335,7 @@ const CashInOutButton: React.FC<{
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button variant="ghost" onClick={close}>Cancel</Button>
               <Button onClick={handleSubmit} disabled={record.isPending} style={{ background: isIn ? '#16a34a' : '#d97706' }}>
                 {record.isPending ? 'Recording…' : isIn ? 'Record Cash In' : 'Record Cash Out'}
               </Button>
@@ -342,7 +355,7 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
   const { data, isLoading } = useSessionMovements(sessionId);
 
   if (isLoading) {
-    return <div className="text-sm text-slate-500 p-4">Loading audit trail…</div>;
+    return <div className="flex items-center gap-2 text-sm text-slate-500 p-4"><RefreshCw className="h-4 w-4 animate-spin" /> Loading audit trail…</div>;
   }
   if (!data) {
     return <div className="text-sm text-slate-500 p-4">No data</div>;
@@ -470,8 +483,9 @@ const OpenShiftDialog: React.FC<{
   const submit = async () => {
     setErr(null);
     if (!registerId) { setErr('Pick a cash register'); return; }
+    if (openingFloat.trim() === '') { setErr('Enter an opening float amount'); return; }
     const float = Number(openingFloat);
-    if (!Number.isFinite(float) || float < 0) { setErr('Opening float must be non-negative'); return; }
+    if (!Number.isFinite(float) || float < 0) { setErr('Opening float must be a non-negative number'); return; }
     try {
       await openShift.mutateAsync({ cashRegisterId: registerId, openingFloat: float, notes: notes.trim() || undefined });
       toast.success('Shift opened — you can now sell');
@@ -556,13 +570,12 @@ const CloseShiftDialog: React.FC<{
   const [notes, setNotes] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const closeShift = useCloseShift();
-  const updateVariance = useUpdateVariance();
 
   useEffect(() => {
     if (open) { setCounted(''); setVarianceReason(''); setNotes(''); setErr(null); }
   }, [open]);
 
-  if (!session) return null;
+  if (!open || !session) return null;
 
   const expectedCash = Number(session.closingExpected ?? session.openingFloat ?? 0);
   const countedNum = Number(counted);
@@ -571,16 +584,14 @@ const CloseShiftDialog: React.FC<{
   const submit = async () => {
     setErr(null);
     if (!Number.isFinite(countedNum) || countedNum < 0) { setErr('Counted cash must be non-negative'); return; }
+    if (variance !== 0 && !varianceReason.trim()) { setErr('A variance reason is required when the drawer is off'); return; }
     try {
-      const result = await closeShift.mutateAsync({ closingCounted: countedNum, notes: notes.trim() || undefined });
-      // If there's a variance, save the reason
-      if (variance !== 0 && varianceReason.trim()) {
-        await updateVariance.mutateAsync({
-          sessionId: result.id || session.id,
-          reason: varianceReason.trim(),
-          status: 'pending_review',
-        });
-      }
+      await closeShift.mutateAsync({
+        closingCounted: countedNum,
+        notes: notes.trim() || undefined,
+        varianceReason: variance !== 0 ? varianceReason.trim() : undefined,
+        varianceStatus: variance !== 0 ? 'pending_review' : undefined,
+      });
       toast.success(`Register closed. Variance: ${fmt(variance)}`);
       onClosed();
       onClose();
@@ -656,12 +667,106 @@ const CloseShiftDialog: React.FC<{
 };
 
 /* ==========================================================================
+   Bank Deposit Dialog
+   ========================================================================== */
+
+const BankDepositDialog: React.FC<{
+  open: boolean;
+  sessionId: string;
+  onClose: () => void;
+  onDone: () => void;
+}> = ({ open, sessionId, onClose, onDone }) => {
+  const [amount, setAmount] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [reference, setReference] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const deposit = useRecordBankDeposit();
+
+  useEffect(() => {
+    if (open) { setAmount(''); setBankName(''); setReference(''); setErr(null); }
+  }, [open]);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    setErr(null);
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) { setErr('Enter a valid amount'); return; }
+    if (!bankName.trim()) { setErr('Bank name is required'); return; }
+    try {
+      await deposit.mutateAsync({ sessionId, amount: amt, bankName: bankName.trim(), reference: reference.trim() || undefined });
+      toast.success('Bank deposit recorded');
+      onDone();
+      onClose();
+    } catch (e: any) {
+      setErr(e?.response?.data?.message || 'Failed to record bank deposit');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold flex items-center gap-2">
+            <Banknote className="h-4 w-4 text-blue-600" /> Bank Deposit
+          </h2>
+          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
+        </div>
+
+        <div>
+          <Label>Amount (UGX)</Label>
+          <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus />
+        </div>
+
+        <div>
+          <Label>Bank name</Label>
+          <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g. Stanbic" />
+        </div>
+
+        <div>
+          <Label>Reference (optional)</Label>
+          <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. Deposit slip #123" />
+        </div>
+
+        {err && <p className="text-sm text-rose-600">{err}</p>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit} disabled={deposit.isPending} style={{ background: '#2563eb' }}>
+            {deposit.isPending ? 'Recording…' : 'Record Deposit'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ==========================================================================
    Register Session List (past sessions for a register)
    ========================================================================== */
 
 const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) => {
   const [page, setPage] = useState(1);
   const { data, isLoading } = useSessionHistory(page, 10, registerId);
+  const updateVariance = useUpdateVariance();
+
+  const handleApprove = async (sessionId: string, reason: string) => {
+    try {
+      await updateVariance.mutateAsync({ sessionId, reason: reason || 'Approved by manager', status: 'approved' });
+      toast.success('Variance approved');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to update variance');
+    }
+  };
+
+  const handleReject = async (sessionId: string, reason: string) => {
+    try {
+      await updateVariance.mutateAsync({ sessionId, reason: reason || 'Rejected by manager', status: 'rejected' });
+      toast.success('Variance rejected');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to update variance');
+    }
+  };
 
   if (isLoading) return <div className="text-sm text-slate-500">Loading sessions…</div>;
   if (!data || data.data.length === 0) {
@@ -681,12 +786,15 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
               <th className="py-2 pr-3 text-right">Expected</th>
               <th className="py-2 pr-3 text-right">Counted</th>
               <th className="py-2 pr-3 text-right">Variance</th>
+              <th className="py-2 pr-3">Variance Status</th>
               <th className="py-2 pr-3">Movements</th>
             </tr>
           </thead>
           <tbody>
             {data.data.map((s: SessionHistoryItem) => {
               const diff = Number(s.closingDifference ?? 0);
+              const varStatus = s.varianceStatus;
+              const needsApproval = varStatus === 'pending_review';
               return (
                 <tr key={s.id} className="border-b border-slate-100">
                   <td className="py-2 pr-3 text-xs font-mono">{new Date(s.openedAt).toLocaleString()}</td>
@@ -701,6 +809,33 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
                   <td className="py-2 pr-3 text-right font-mono text-xs">{s.closingCounted ? fmt(s.closingCounted) : '—'}</td>
                   <td className={'py-2 pr-3 text-right font-mono text-xs font-bold ' + (diff >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
                     {s.closingDifference ? fmt(s.closingDifference) : '—'}
+                  </td>
+                  <td className="py-2 pr-3 text-xs">
+                    {needsApproval ? (
+                      <div className="flex items-center gap-1">
+                        <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800">Review</span>
+                        <button
+                          className="p-1 rounded hover:bg-emerald-100 text-emerald-600"
+                          title="Approve variance"
+                          onClick={() => handleApprove(s.id, s.varianceReason ?? '')}
+                        >
+                          <ThumbsUp className="h-3 w-3" />
+                        </button>
+                        <button
+                          className="p-1 rounded hover:bg-rose-100 text-rose-600"
+                          title="Reject variance"
+                          onClick={() => handleReject(s.id, s.varianceReason ?? '')}
+                        >
+                          <ThumbsDown className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : varStatus === 'approved' ? (
+                      <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">Approved</span>
+                    ) : varStatus === 'rejected' ? (
+                      <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-800">Rejected</span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
                   </td>
                   <td className="py-2 pr-3 text-xs">{s.movementCount}</td>
                 </tr>
@@ -727,6 +862,25 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
 const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) => {
   const [page, setPage] = useState(1);
   const { data, isLoading } = useSessionHistory(page, 20, registerId);
+  const updateVariance = useUpdateVariance();
+
+  const handleApprove = async (sessionId: string, reason: string) => {
+    try {
+      await updateVariance.mutateAsync({ sessionId, reason: reason || 'Approved by manager', status: 'approved' });
+      toast.success('Variance approved');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to update variance');
+    }
+  };
+
+  const handleReject = async (sessionId: string, reason: string) => {
+    try {
+      await updateVariance.mutateAsync({ sessionId, reason: reason || 'Rejected by manager', status: 'rejected' });
+      toast.success('Variance rejected');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to update variance');
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -750,12 +904,15 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
                     <th className="py-2 pr-3 text-right">Expected</th>
                     <th className="py-2 pr-3 text-right">Counted</th>
                     <th className="py-2 pr-3 text-right">Variance</th>
+                    <th className="py-2 pr-3">Variance</th>
                     <th className="py-2 pr-3">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.data.map((s: SessionHistoryItem) => {
                     const diff = Number(s.closingDifference ?? 0);
+                    const varStatus = s.varianceStatus;
+                    const needsApproval = varStatus === 'pending_review';
                     return (
                       <tr key={s.id} className="border-b border-slate-100">
                         <td className="py-2 pr-3 text-xs font-semibold">{s.cashRegister.code}</td>
@@ -771,6 +928,25 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
                         <td className="py-2 pr-3 text-right font-mono text-xs">{s.closingCounted ? fmt(s.closingCounted) : '—'}</td>
                         <td className={'py-2 pr-3 text-right font-mono text-xs font-bold ' + (diff >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
                           {s.closingDifference ? fmt(s.closingDifference) : '—'}
+                        </td>
+                        <td className="py-2 pr-3 text-xs">
+                          {needsApproval ? (
+                            <div className="flex items-center gap-1">
+                              <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800">Review</span>
+                              <button className="p-1 rounded hover:bg-emerald-100 text-emerald-600" title="Approve" onClick={() => handleApprove(s.id, s.varianceReason ?? '')}>
+                                <ThumbsUp className="h-3 w-3" />
+                              </button>
+                              <button className="p-1 rounded hover:bg-rose-100 text-rose-600" title="Reject" onClick={() => handleReject(s.id, s.varianceReason ?? '')}>
+                                <ThumbsDown className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ) : varStatus === 'approved' ? (
+                            <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">Approved</span>
+                          ) : varStatus === 'rejected' ? (
+                            <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-800">Rejected</span>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
                         </td>
                         <td className="py-2 pr-3 text-xs text-slate-500 max-w-[150px] truncate">{s.notes || '—'}</td>
                       </tr>

@@ -74,6 +74,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/partners', label: 'Customers/Suppliers', icon: Users, permission: PERMISSIONS.partners.view },
       { to: '/products', label: 'Products', icon: Package, permission: PERMISSIONS.products.view },
       { to: '/menu', label: 'Menu', icon: Coffee, permission: PERMISSIONS.menu.view },
+      { to: '/tables', label: 'Tables', icon: Coffee, permission: PERMISSIONS.menu.view },
       { to: '/menu/modifiers', label: 'Modifiers', icon: Tag, permission: PERMISSIONS.menu.view },
     ],
   },

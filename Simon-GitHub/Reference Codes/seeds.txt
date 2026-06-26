@@ -1,6 +1,0 @@
-npx ts-node prisma/seeds/staff.ts
-npx ts-node prisma/seeds/seed-procedure-categories.ts
-npx ts-node prisma/seeds/seed-procedures.ts
-npx ts-node prisma/seeds/seed-drug-categories.ts
-npx ts-node prisma/seeds/seed-locations.ts
-npx ts-node prisma/seeds/patients.ts

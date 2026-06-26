@@ -1,7 +1,0 @@
-local.properties template. Copy to local.properties (which is git-ignored) and fill in.
-
-- sdk.dir: Android SDK location on this machine (already wired up to detect on Windows).
-- API_BASE_URL: the URL the Android client uses to reach the NestJS server.
-  For the standard Android emulator → host loopback use http://10.0.2.2:3000/
-  For a real tablet on the same LAN use http://<host-ip>:3000/
-  For HTTPS production deploys use https://api.yourdomain.com/

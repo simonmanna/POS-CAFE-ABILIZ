@@ -10,6 +10,7 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import { AppModule } from './app.module';
+import { GlobalExceptionFilter } from './kernel/filters/global-exception.filter';
 import { TenantContextService } from './kernel/tenancy/tenant-context.service';
 import { JwtTokenService, type AccessTokenPayload } from './kernel/auth/jwt-token.service';
 import { validateEnv } from './kernel/config/env';
@@ -98,6 +99,8 @@ async function bootstrap(): Promise<void> {
     }
     return next();
   });
+
+  app.useGlobalFilters(new GlobalExceptionFilter());
 
   app.useGlobalPipes(
     new ValidationPipe({

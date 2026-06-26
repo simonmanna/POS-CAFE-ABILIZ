@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-    Background layer for the adaptive icon. Re-uses the existing
-    @color/brand_espresso declared in values/colors.xml so we have a
-    single source of truth for the cafe brand color.
--->
-<resources>
-</resources>

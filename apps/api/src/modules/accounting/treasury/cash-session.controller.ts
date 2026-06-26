@@ -25,6 +25,8 @@ class OpenSessionDto {
 class CloseSessionDto {
   @IsNumber() closingCounted!: number;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() varianceReason?: string;
+  @IsOptional() @IsString() @IsIn(['pending_review', 'approved', 'rejected']) varianceStatus?: string;
 }
 
 class RecordMovementDto {
@@ -108,7 +110,12 @@ export class CashSessionController {
   @Idempotent()
   @RequirePermissions(PERMISSIONS.cashSession.close)
   close(@Body() dto: CloseSessionDto) {
-    return this.sessions.close(dto);
+    return this.sessions.close({
+      closingCounted: dto.closingCounted,
+      notes: dto.notes,
+      varianceReason: dto.varianceReason,
+      varianceStatus: dto.varianceStatus,
+    });
   }
 
   @Post('movement')

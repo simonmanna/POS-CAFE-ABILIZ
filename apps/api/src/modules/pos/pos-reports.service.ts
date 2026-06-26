@@ -194,6 +194,23 @@ export class PosReportsService {
     if (report.cashSession && (await this.sessionStatus(report.cashSession.id)) !== 'closed') {
       throw new BadRequestException('Z-report requires the cash session to be closed');
     }
+    // Persist frozen snapshot so the report can be reprinted later
+    if (report.cashSession?.id) {
+      const organizationId = this.tenant.organizationId;
+      await this.prisma.client.posReportSnapshot.upsert({
+        where: { cashSessionId: report.cashSession.id },
+        create: {
+          organizationId,
+          cashSessionId: report.cashSession.id,
+          kind: 'z',
+          reportData: report as any,
+        },
+        update: {
+          reportData: report as any,
+          generatedAt: new Date(),
+        },
+      });
+    }
     await this.audit.record({
       entity: 'PosReport' as any,
       entityId: report.cashSession?.id ?? 'no-session',
@@ -394,6 +411,16 @@ export class PosReportsService {
       .sort((a, b) => b.total - a.total)
       .slice(0, limit)
       .map((r) => ({ ...r, total: r.total.toFixed(2) }));
+  }
+
+  /** Retrieve a frozen Z-report snapshot for reprint. */
+  async getZReportSnapshot(cashSessionId: string) {
+    const organizationId = this.tenant.organizationId;
+    const snap = await this.prisma.client.posReportSnapshot.findFirst({
+      where: { organizationId, cashSessionId },
+    });
+    if (!snap) throw new NotFoundException('No Z-report snapshot for this session');
+    return snap;
   }
 
   // ─── helpers ─────────────────────────────────────────────────────────────

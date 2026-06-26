@@ -1,6 +1,0 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Theme.CafePos" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="android:statusBarColor">@color/brand_charcoal</item>
-        <item name="android:navigationBarColor">@color/brand_charcoal</item>
-    </style>
-</resources>

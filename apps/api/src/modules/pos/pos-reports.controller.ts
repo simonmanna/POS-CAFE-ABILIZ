@@ -2,7 +2,7 @@
  * POS Phase A — Reports controller.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { PosReportsService } from './pos-reports.service';
@@ -23,6 +23,12 @@ export class PosReportsController {
   @RequirePermissions('pos:reports')
   zReport(@Query('cashSessionId') cashSessionId?: string) {
     return this.svc.zReport(cashSessionId);
+  }
+
+  @Get('z-report/:cashSessionId')
+  @RequirePermissions('pos:reports')
+  getZReport(@Param('cashSessionId') cashSessionId: string) {
+    return this.svc.getZReportSnapshot(cashSessionId);
   }
 
   @Get('sales-by-hour')

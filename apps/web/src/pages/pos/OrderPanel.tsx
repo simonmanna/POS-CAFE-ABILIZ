@@ -1,14 +1,36 @@
 // Order panel — cart lines + qty steppers + line discount + totals + action grid.
 // Pure presentation: reads from the zustand cart store + emits events up.
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
-  ShoppingCart, Plus, Minus, StickyNote, Trash2, X, Tag,
-  CreditCard, Receipt, Scissors, User, Hash, AlertTriangle, Printer, Send, Coffee,
-  ArrowRightLeft, CheckSquare, Square,
-} from 'lucide-react';
-import { getFoodEmoji } from './food-images';
-import { selectItemCount, selectSubtotal, selectTxDiscountAmount, selectTotal, useCartStore } from '@/features/pos/cart.store';
-import type { CartLine } from '@/features/pos/types';
+  ShoppingCart,
+  Plus,
+  Minus,
+  StickyNote,
+  Trash2,
+  X,
+  Tag,
+  CreditCard,
+  Receipt,
+  Scissors,
+  User,
+  Hash,
+  AlertTriangle,
+  Printer,
+  Send,
+  Coffee,
+  ArrowRightLeft,
+  CheckSquare,
+  Square,
+} from "lucide-react";
+import { getFoodEmoji } from "./food-images";
+import {
+  selectItemCount,
+  selectSubtotal,
+  selectTxDiscountAmount,
+  selectTotal,
+  useCartStore,
+} from "@/features/pos/cart.store";
+import type { CartLine } from "@/features/pos/types";
 
 interface Props {
   customerName?: string;
@@ -35,19 +57,41 @@ interface Props {
   /** Dine-in: settle (pay) the table's order. */
   onSettleTab?: () => void;
   /** Dine-in: transfer selected items (partial qty allowed) to another table. */
-  onTransferItems?: (selection: Array<{ lineId: string; quantity: number }>) => void;
+  onTransferItems?: (
+    selection: Array<{ lineId: string; quantity: number }>,
+  ) => void;
 }
 
 const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
 
 export const OrderPanel: React.FC<Props> = ({
-  customerName, orderTypeLabel, tableLabel, tableId,
-  onInc, onDec, onRemove, onNote, onLineDiscount,
-  onPrintBill, onCharge, onSplit, onAddCustomer, onAddDiscount, onAddTax, onCloseOrder,
-  onPrintKot, onVoidItem, onSplitBill, onSendToKitchen, onSettleTab, onTransferItems,
+  customerName,
+  orderTypeLabel,
+  tableLabel,
+  tableId,
+  onInc,
+  onDec,
+  onRemove,
+  onNote,
+  onLineDiscount,
+  onPrintBill,
+  onCharge,
+  onSplit,
+  onAddCustomer,
+  onAddDiscount,
+  onAddTax,
+  onCloseOrder,
+  onPrintKot,
+  onVoidItem,
+  onSplitBill,
+  onSendToKitchen,
+  onSettleTab,
+  onTransferItems,
 }) => {
   const lines = useCartStore((s) => s.lines);
-  const transactionDiscountPercent = useCartStore((s) => s.transactionDiscountPercent);
+  const transactionDiscountPercent = useCartStore(
+    (s) => s.transactionDiscountPercent,
+  );
   const subtotal = useCartStore(selectSubtotal);
   const txDisc = useCartStore(selectTxDiscountAmount);
   const total = useCartStore(selectTotal);
@@ -58,7 +102,10 @@ export const OrderPanel: React.FC<Props> = ({
   const [selectMode, setSelectMode] = useState(false);
   const [sel, setSel] = useState<Record<string, number>>({});
   const selCount = Object.keys(sel).length;
-  const exitSelect = () => { setSelectMode(false); setSel({}); };
+  const exitSelect = () => {
+    setSelectMode(false);
+    setSel({});
+  };
   const toggleLine = (l: CartLine) =>
     setSel((p) => {
       const n = { ...p };
@@ -67,24 +114,42 @@ export const OrderPanel: React.FC<Props> = ({
       return n;
     });
   const setSelQty = (l: CartLine, q: number) =>
-    setSel((p) => ({ ...p, [l.lineId]: Math.max(1, Math.min(l.quantity, Math.floor(q) || 1)) }));
+    setSel((p) => ({
+      ...p,
+      [l.lineId]: Math.max(1, Math.min(l.quantity, Math.floor(q) || 1)),
+    }));
   const confirmTransfer = () => {
-    const selection = Object.entries(sel).map(([lineId, quantity]) => ({ lineId, quantity }));
+    const selection = Object.entries(sel).map(([lineId, quantity]) => ({
+      lineId,
+      quantity,
+    }));
     if (selection.length === 0) return;
     onTransferItems?.(selection);
     exitSelect();
   };
 
   return (
-    <div className="pos-order-pro">
+    <div className="pos-order-pro flex flex-col h-full">
       {/* Header */}
-      <div className="pos-order-head">
+      <div className="pos-order-head shrink-0">
         <div className="flex flex-col leading-tight">
-          <div className="pos-ord-num">{empty ? 'No items' : `${itemCount} item${itemCount === 1 ? '' : 's'}`}</div>
+          <div className="pos-ord-num">
+            {empty
+              ? "No items"
+              : `${itemCount} item${itemCount === 1 ? "" : "s"}`}
+          </div>
           <div className="pos-ord-table">
-            {orderTypeLabel ? <span className="text-amber-600 font-semibold mr-2">{orderTypeLabel}</span> : null}
-            {tableLabel ? <span className="text-sky-600">{tableLabel}</span> : null}
-            {!orderTypeLabel && !tableLabel ? 'Tap a category, scan a barcode, or search' : null}
+            {orderTypeLabel ? (
+              <span className="text-amber-600 font-semibold mr-2">
+                {orderTypeLabel}
+              </span>
+            ) : null}
+            {tableLabel ? (
+              <span className="text-sky-600">{tableLabel}</span>
+            ) : null}
+            {!orderTypeLabel && !tableLabel
+              ? "Tap a category, scan a barcode, or search"
+              : null}
           </div>
         </div>
         {customerName ? (
@@ -94,17 +159,37 @@ export const OrderPanel: React.FC<Props> = ({
           </div>
         ) : null}
         <div className="pos-ord-actions">
-          <button type="button" className="pos-ord-action" onClick={onAddCustomer} title="Add customer">
+          <button
+            type="button"
+            className="pos-ord-action"
+            onClick={onAddCustomer}
+            title="Add customer"
+          >
             <User className="h-4 w-4" />
           </button>
-          <button type="button" className="pos-ord-action" onClick={onAddDiscount} title="Order-level discount">
+          <button
+            type="button"
+            className="pos-ord-action"
+            onClick={onAddDiscount}
+            title="Order-level discount"
+          >
             <Tag className="h-4 w-4" />
           </button>
-          <button type="button" className="pos-ord-action" onClick={onAddTax} title="Tax settings">
+          <button
+            type="button"
+            className="pos-ord-action"
+            onClick={onAddTax}
+            title="Tax settings"
+          >
             <Hash className="h-4 w-4" />
           </button>
           {lines.length > 0 ? (
-            <button type="button" className="pos-ord-action" onClick={onCloseOrder} title="Clear cart">
+            <button
+              type="button"
+              className="pos-ord-action"
+              onClick={onCloseOrder}
+              title="Clear cart"
+            >
               <X className="h-4 w-4" />
             </button>
           ) : null}
@@ -118,28 +203,45 @@ export const OrderPanel: React.FC<Props> = ({
             <ShoppingCart className="h-7 w-7" />
           </div>
           <p className="font-semibold text-base text-slate-300">
-            {tableId ? 'Empty order' : 'No items yet'}
+            {tableId ? "Empty order" : "No items yet"}
           </p>
           <p className="text-xs text-slate-500">
-            {tableId ? 'Pick items — they auto-save to this table' : 'Pick a product to start the order'}
+            {tableId
+              ? "Pick items — they auto-save to this table"
+              : "Pick a product to start the order"}
           </p>
         </div>
       ) : (
-        <div className="pos-order-list">
+<div className="pos-order-list flex-shrink-0 max-h-66 overflow-y-auto min-h-0">
           {lines.map((it) => {
             const emoji = getFoodEmoji(it.name);
-            const lineSub = it.quantity * it.unitPrice * (1 - it.discountPercent / 100);
+            const lineSub =
+              it.quantity * it.unitPrice * (1 - it.discountPercent / 100);
             return (
-              <div key={it.lineId} className={'pos-order-card' + (selectMode && sel[it.lineId] != null ? ' ring-2 ring-indigo-400' : '')}>
+              <div
+                key={it.lineId}
+                className={
+                  "pos-order-card" +
+                  (selectMode && sel[it.lineId] != null
+                    ? " ring-2 ring-indigo-400"
+                    : "")
+                }
+              >
                 <div className="pos-card-row">
                   {selectMode ? (
                     <button
                       type="button"
                       onClick={() => toggleLine(it)}
                       className="shrink-0 text-indigo-600"
-                      aria-label={sel[it.lineId] != null ? 'deselect item' : 'select item'}
+                      aria-label={
+                        sel[it.lineId] != null ? "deselect item" : "select item"
+                      }
                     >
-                      {sel[it.lineId] != null ? <CheckSquare className="h-5 w-5" /> : <Square className="h-5 w-5 text-slate-300" />}
+                      {sel[it.lineId] != null ? (
+                        <CheckSquare className="h-5 w-5" />
+                      ) : (
+                        <Square className="h-5 w-5 text-slate-300" />
+                      )}
                     </button>
                   ) : (
                     <div className="pos-card-emoji">{emoji}</div>
@@ -147,25 +249,49 @@ export const OrderPanel: React.FC<Props> = ({
                   <div className="flex-1 min-w-0">
                     <div className="pos-card-name truncate">{it.name}</div>
                     <div className="pos-card-line">
-                      @ {fmt(it.unitPrice)} · {it.quantity}×{it.discountPercent > 0 ? ` · −${it.discountPercent}%` : ''}
+                      @ {fmt(it.unitPrice)} · {it.quantity}×
+                      {it.discountPercent > 0
+                        ? ` · −${it.discountPercent}%`
+                        : ""}
                     </div>
                   </div>
                   <div className="pos-card-price">{fmt(lineSub)}</div>
                 </div>
                 {it.modifiers && it.modifiers.length > 0 ? (
                   <div className="text-[11px] text-amber-700 px-1 truncate">
-                    {it.modifiers.map((m) => m.name).filter(Boolean).join(' · ')}
+                    {it.modifiers
+                      .map((m) => m.name)
+                      .filter(Boolean)
+                      .join(" · ")}
                   </div>
                 ) : null}
-                {it.note ? <div className="pos-card-notes">! {it.note}</div> : null}
+                {it.note ? (
+                  <div className="pos-card-notes">! {it.note}</div>
+                ) : null}
                 {selectMode ? (
                   sel[it.lineId] != null && it.quantity > 1 ? (
                     <div className="flex items-center gap-2 px-1 pt-1 text-[11px] font-semibold text-slate-600">
                       <span>Move</span>
                       <div className="pos-qty">
-                        <button type="button" onClick={() => setSelQty(it, (sel[it.lineId] ?? 1) - 1)} aria-label="decrease"><Minus className="h-3 w-3" /></button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelQty(it, (sel[it.lineId] ?? 1) - 1)
+                          }
+                          aria-label="decrease"
+                        >
+                          <Minus className="h-3 w-3" />
+                        </button>
                         <div className="pos-qty-val">{sel[it.lineId]}</div>
-                        <button type="button" onClick={() => setSelQty(it, (sel[it.lineId] ?? 1) + 1)} aria-label="increase"><Plus className="h-3 w-3" /></button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelQty(it, (sel[it.lineId] ?? 1) + 1)
+                          }
+                          aria-label="increase"
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
                       </div>
                       <span className="text-slate-400">of {it.quantity}</span>
                     </div>
@@ -173,23 +299,55 @@ export const OrderPanel: React.FC<Props> = ({
                 ) : (
                   <div className="pos-card-footer">
                     <div className="pos-qty">
-                      <button type="button" onClick={() => onDec(it)} aria-label="decrease"><Minus className="h-3 w-3" /></button>
+                      <button
+                        type="button"
+                        onClick={() => onDec(it)}
+                        aria-label="decrease"
+                      >
+                        <Minus className="h-3 w-3" />
+                      </button>
                       <div className="pos-qty-val">{it.quantity}</div>
-                      <button type="button" onClick={() => onInc(it)} aria-label="increase"><Plus className="h-3 w-3" /></button>
+                      <button
+                        type="button"
+                        onClick={() => onInc(it)}
+                        aria-label="increase"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
                     </div>
                     <div className="pos-card-actions">
-                      <button type="button" className="pos-card-action" onClick={() => onNote(it)} title="Add note">
+                      <button
+                        type="button"
+                        className="pos-card-action"
+                        onClick={() => onNote(it)}
+                        title="Add note"
+                      >
                         <StickyNote className="h-3.5 w-3.5" />
                       </button>
-                      <button type="button" className="pos-card-action" onClick={() => onLineDiscount(it)} title="Line discount">
+                      <button
+                        type="button"
+                        className="pos-card-action"
+                        onClick={() => onLineDiscount(it)}
+                        title="Line discount"
+                      >
                         <Tag className="h-3.5 w-3.5" />
                       </button>
                       {onVoidItem ? (
-                        <button type="button" className="pos-card-action text-rose-500" onClick={() => onVoidItem(it)} title="Void item">
+                        <button
+                          type="button"
+                          className="pos-card-action text-rose-500"
+                          onClick={() => onVoidItem(it)}
+                          title="Void item"
+                        >
                           <AlertTriangle className="h-3.5 w-3.5" />
                         </button>
                       ) : null}
-                      <button type="button" className="pos-card-action danger" onClick={() => onRemove(it)} title="Remove">
+                      <button
+                        type="button"
+                        className="pos-card-action danger"
+                        onClick={() => onRemove(it)}
+                        title="Remove"
+                      >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -203,20 +361,30 @@ export const OrderPanel: React.FC<Props> = ({
 
       {/* Totals */}
       <div className="pos-order-totals">
-        <div className="pos-totals-row"><span>Subtotal</span><span className="pos-amt">{fmt(subtotal)}</span></div>
+        <div className="pos-totals-row">
+          <span>Subtotal</span>
+          <span className="pos-amt">{fmt(subtotal)}</span>
+        </div>
         {transactionDiscountPercent > 0 ? (
           <div className="pos-totals-row">
             <span>Discount ({transactionDiscountPercent}%)</span>
             <span className="pos-amt text-emerald-600">−{fmt(txDisc)}</span>
           </div>
         ) : null}
-        <div className="pos-totals-row big"><span>TOTAL</span><span className="pos-amt">{fmt(total)}</span></div>
+        <div className="pos-totals-row big">
+          <span>TOTAL</span>
+          <span className="pos-amt">{fmt(total)}</span>
+        </div>
       </div>
 
       {/* Transfer-items selection bar (replaces the action grid while active). */}
       {selectMode ? (
         <div className="pos-order-actions">
-          <button type="button" className="pos-action-btn-pro bg-slate-400" onClick={exitSelect}>
+          <button
+            type="button"
+            className="pos-action-btn-pro bg-slate-400"
+            onClick={exitSelect}
+          >
             <X className="pos-action-icon" /> Cancel
           </button>
           <button
@@ -226,53 +394,109 @@ export const OrderPanel: React.FC<Props> = ({
             disabled={selCount === 0}
             title="Choose a destination table for the selected items"
           >
-            <ArrowRightLeft className="pos-action-icon" /> Transfer Items{selCount > 0 ? ` (${selCount})` : ''}
+            <ArrowRightLeft className="pos-action-icon" /> Transfer Items
+            {selCount > 0 ? ` (${selCount})` : ""}
           </button>
         </div>
       ) : (
-      <>
-      {/* Actions */}
-      <div className="pos-order-actions">
-        <button type="button" className="pos-action-btn-pro bg-purple" onClick={onPrintBill} disabled={empty}>
-          <Receipt className="pos-action-icon" /> Bill <span className="pos-kbd">F8</span>
-        </button>
-        {onTransferItems && tableId ? (
-          <button type="button" className="pos-action-btn-pro bg-indigo-500" onClick={() => setSelectMode(true)} disabled={empty} title="Select items to move to another table">
-            <ArrowRightLeft className="pos-action-icon" /> Transfer
-          </button>
-        ) : null}
-        <button type="button" className="pos-action-btn-pro bg-amber" onClick={onAddDiscount} disabled={empty}>
-          <Tag className="pos-action-icon" /> Discount
-        </button>
-        {onSplitBill ? (
-          <button type="button" className="pos-action-btn-pro bg-pink" onClick={onSplitBill} disabled={empty}>
-            <Scissors className="pos-action-icon" /> Split Bill
-          </button>
-        ) : (
-          <button type="button" className="pos-action-btn-pro bg-pink" onClick={onSplit} disabled={empty}>
-            <Scissors className="pos-action-icon" /> Split <span className="pos-kbd">F4</span>
-          </button>
-        )}
-        <button type="button" className="pos-action-btn-pro bg-sky-600" onClick={onPrintKot} disabled={empty}>
-          <Printer className="pos-action-icon" /> Print KOT
-        </button>
-        {/* Dine-in: fire kitchen + settle. Counter: single CheckOut. */}
-        {tableId && onSendToKitchen ? (
-          <button type="button" className="pos-action-btn-pro bg-teal-600" onClick={onSendToKitchen} disabled={empty} title="Send the saved order to the kitchen">
-            <Send className="pos-action-icon" /> Send to Kitchen
-          </button>
-        ) : null}
-        {tableId && onSettleTab ? (
-          <button type="button" className="pos-action-btn-pro bg-emerald" onClick={onSettleTab} disabled={empty} title="Settle (pay) this table's order">
-            <Coffee className="pos-action-icon" /> Settle {fmt(total)}
-          </button>
-        ) : (
-          <button type="button" className="pos-action-btn-pro bg-emerald" onClick={onCharge} disabled={empty}>
-            <CreditCard className="pos-action-icon" /> CheckOut <span className="pos-kbd">F2</span>
-          </button>
-        )}
-      </div>
-      </>
+        <>
+          {/* Actions */}
+          <div className="pos-order-actions">
+            <button
+              type="button"
+              className="pos-action-btn-pro bg-purple"
+              onClick={onPrintBill}
+              disabled={empty}
+            >
+              <Receipt className="pos-action-icon" /> Bill{" "}
+              <span className="pos-kbd">F8</span>
+            </button>
+            <button
+              type="button"
+              className="pos-action-btn-pro bg-sky-600"
+              onClick={onPrintKot}
+              disabled={empty}
+            >
+              <Printer className="pos-action-icon" /> Print KOT
+            </button>
+
+                        {tableId && onSettleTab ? (
+              <button
+                type="button"
+                className="pos-action-btn-pro bg-emerald"
+                onClick={onSettleTab}
+                disabled={empty}
+                title="Settle (pay) this table's order"
+              >
+               <CreditCard className="pos-action-icon" />Settle Bill
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="pos-action-btn-pro bg-emerald"
+                onClick={onCharge}
+                disabled={empty}
+              >
+                <CreditCard className="pos-action-icon" /> CheckOut{" "}
+                <span className="pos-kbd">F2</span>
+              </button>
+            )}
+
+
+            <button
+              type="button"
+              className="pos-action-btn-pro bg-amber"
+              onClick={onAddDiscount}
+              disabled={empty}
+            >
+              <Tag className="pos-action-icon" /> Discount
+            </button>
+
+            {onTransferItems && tableId ? (
+              <button
+                type="button"
+                className="pos-action-btn-pro bg-indigo-500"
+                onClick={() => setSelectMode(true)}
+                disabled={empty}
+                title="Select items to move to another table"
+              >
+                <ArrowRightLeft className="pos-action-icon" /> Transfer
+              </button>
+            ) : null}
+            {onSplitBill ? (
+              <button
+                type="button"
+                className="pos-action-btn-pro bg-pink"
+                onClick={onSplitBill}
+                disabled={empty}
+              >
+                <Scissors className="pos-action-icon" /> Split Bill
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="pos-action-btn-pro bg-pink"
+                onClick={onSplit}
+                disabled={empty}
+              >
+                <Scissors className="pos-action-icon" /> Split{" "}
+                <span className="pos-kbd">F4</span>
+              </button>
+            )}
+            {/* Dine-in: fire kitchen + settle. Counter: single CheckOut. */}
+            {/* {tableId && onSendToKitchen ? (
+              <button
+                type="button"
+                className="pos-action-btn-pro bg-teal-600"
+                onClick={onSendToKitchen}
+                disabled={empty}
+                title="Send the saved order to the kitchen"
+              >
+                <Send className="pos-action-icon" />Send Kitchen
+              </button>
+            ) : null} */}
+          </div>
+        </>
       )}
     </div>
   );

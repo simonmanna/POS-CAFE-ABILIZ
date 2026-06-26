@@ -17,6 +17,8 @@ export interface OpenSessionDto {
 export interface CloseSessionDto {
   closingCounted: number | string;
   notes?: string;
+  varianceReason?: string;
+  varianceStatus?: string;
 }
 
 export interface RecordMovementDto {
@@ -129,6 +131,8 @@ export class CashSessionService {
       const expected = await this.computeExpected(tx, session);
 
       const closingDifference = counted.minus(expected);
+      const varianceReason = dto.varianceReason ? dto.varianceReason.trim() : null;
+      const varianceStatus = varianceReason ? (dto.varianceStatus || 'pending_review') : null;
 
       const updated = await tx.cashSession.updateMany({
         where: { id: session.id },
@@ -138,6 +142,8 @@ export class CashSessionService {
           closingCounted: counted,
           closingExpected: expected,
           closingDifference,
+          varianceReason,
+          varianceStatus,
           notes: dto.notes ?? session.notes,
         },
       });
@@ -148,7 +154,7 @@ export class CashSessionService {
         entityId: session.id,
         action: 'update',
         oldValues: { status: 'open' },
-        newValues: { status: 'closed', closingDifference: closingDifference.toString() },
+        newValues: { status: 'closed', closingDifference: closingDifference.toString(), varianceReason, varianceStatus },
       });
 
       this.events.publish('cash.session.closed', {
@@ -203,10 +209,8 @@ export class CashSessionService {
           closingCounted: counted,
           closingExpected: expected,
           closingDifference: variance,
-          // CashSession has no dedicated variance-reason column; keep it on notes.
-          notes: dto.varianceReason
-            ? `${outgoing.notes ? outgoing.notes + ' | ' : ''}Handover variance: ${dto.varianceReason}`
-            : outgoing.notes,
+          varianceReason: dto.varianceReason ?? null,
+          varianceStatus: dto.varianceReason ? 'pending_review' : null,
         },
       });
 
@@ -333,7 +337,7 @@ export class CashSessionService {
 
   /** Get the open session for the current user/cash register (or null). */
   async findOpen(cashRegisterId?: string) {
-    const where: any = { organizationId: this.tenant.organizationId, status: 'open' };
+    const where: any = { organizationId: this.tenant.organizationId, userId: this.tenant.userId, status: 'open' };
     if (cashRegisterId) where.cashRegisterId = cashRegisterId;
     return this.prisma.client.cashSession.findFirst({
       where,
@@ -365,35 +369,6 @@ export class CashSessionService {
     });
     if (!session) throw new NotFoundException('Cash session not found');
 
-    const runningTotal = dec(session.openingFloat);
-    const trail = session.movements.map((m: any) => {
-      const amt = dec(m.amount);
-      switch (m.movementType) {
-        case 'sale':
-        case 'pay_in':
-          runningTotal.plus(amt);
-          break;
-        case 'refund':
-        case 'pay_out':
-          runningTotal.minus(amt);
-          break;
-        default:
-          runningTotal.plus(amt);
-      }
-      return {
-        id: m.id,
-        movementType: m.movementType,
-        amount: amt.toString(),
-        reason: m.reason,
-        paymentMethod: m.payment?.paymentMethod ?? null,
-        paymentReference: m.payment?.reference ?? null,
-        performedBy: m.performedBy,
-        createdAt: m.createdAt,
-        runningTotal: runningTotal.toString(),
-      };
-    });
-
-    // Recompute fresh running total without mutations
     let rt = dec(session.openingFloat);
     const movementsWithRunning = session.movements.map((m: any) => {
       const amt = dec(m.amount);
@@ -427,10 +402,10 @@ export class CashSessionService {
         closingExpected: session.closingExpected ? dec(session.closingExpected).toString() : null,
         closingDifference: session.closingDifference ? dec(session.closingDifference).toString() : null,
         notes: session.notes,
-        bankedAmount: (session as any).bankedAmount ? dec((session as any).bankedAmount).toString() : null,
-        bankName: (session as any).bankName ?? null,
-        varianceReason: (session as any).varianceReason ?? null,
-        varianceStatus: (session as any).varianceStatus ?? null,
+        bankedAmount: session.bankedAmount ? dec(session.bankedAmount).toString() : null,
+        bankName: session.bankName ?? null,
+        varianceReason: session.varianceReason ?? null,
+        varianceStatus: session.varianceStatus ?? null,
       },
       movements: movementsWithRunning,
     };
@@ -468,8 +443,8 @@ export class CashSessionService {
         closingExpected: s.closingExpected ? dec(s.closingExpected).toString() : null,
         closingDifference: s.closingDifference ? dec(s.closingDifference).toString() : null,
         movementCount: s._count.movements,
-        varianceReason: (s as any).varianceReason ?? null,
-        varianceStatus: (s as any).varianceStatus ?? null,
+        varianceReason: s.varianceReason ?? null,
+        varianceStatus: s.varianceStatus ?? null,
         notes: s.notes,
       })),
       total,
@@ -489,7 +464,9 @@ export class CashSessionService {
         where: { id: sessionId, organizationId },
       });
       if (!session) throw new NotFoundException('Cash session not found');
-      if (session.status === 'open') throw new BadRequestException('Cannot bank on an open session. Close it first.');
+
+      const amt = dec(dto.amount);
+      const previousBanked = session.bankedAmount ? dec(session.bankedAmount) : dec(0);
 
       // Record as a special movement
       const movement = await tx.cashMovement.create({
@@ -497,7 +474,7 @@ export class CashSessionService {
           organizationId,
           cashSessionId: session.id,
           movementType: 'pay_out' as any,
-          amount: dec(dto.amount),
+          amount: amt,
           reason: `Bank deposit: ${dto.bankName}${dto.reference ? ` ref:${dto.reference}` : ''}${dto.notes ? ` — ${dto.notes}` : ''}`,
           performedBy: userId ?? null,
         },
@@ -507,15 +484,15 @@ export class CashSessionService {
         entity: 'CashMovement',
         entityId: movement.id,
         action: 'create',
-        newValues: { cashSessionId: session.id, movementType: 'pay_out', amount: dec(dto.amount).toString(), reason: 'bank_deposit' },
+        newValues: { cashSessionId: session.id, movementType: 'pay_out', amount: amt.toString(), reason: 'bank_deposit' },
       });
 
-      // Update session notes with banking info if not already set
-      const bankNote = `Banked: ${dec(dto.amount).toString()} to ${dto.bankName}${dto.reference ? ` (${dto.reference})` : ''}`;
+      // Accumulate banked amount on the session
       await tx.cashSession.update({
         where: { id: session.id },
         data: {
-          notes: session.notes ? `${session.notes}\n${bankNote}` : bankNote,
+          bankedAmount: previousBanked.plus(amt),
+          bankName: dto.bankName,
         },
       });
 
@@ -541,7 +518,6 @@ export class CashSessionService {
 
       const updateData: any = { varianceReason: dto.reason };
       if (dto.status) updateData.varianceStatus = dto.status;
-      if (dto.approvedById) updateData.approvedById = dto.approvedById;
 
       await tx.cashSession.update({ where: { id: session.id }, data: updateData });
 
@@ -549,7 +525,7 @@ export class CashSessionService {
         entity: 'CashSession',
         entityId: session.id,
         action: 'update',
-        oldValues: { varianceReason: (session as any).varianceReason, varianceStatus: (session as any).varianceStatus },
+        oldValues: { varianceReason: session.varianceReason, varianceStatus: session.varianceStatus },
         newValues: updateData,
       });
 
@@ -579,6 +555,13 @@ export class CashSessionService {
       },
       orderBy: { openedAt: 'asc' },
     });
+
+    // Resolve user IDs to cashier names
+    const userIds = Array.from(new Set(sessions.map((s: any) => s.userId).filter(Boolean)));
+    const users = userIds.length
+      ? await this.prisma.client.user.findMany({ where: { id: { in: userIds as string[] } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const userNames = new Map(users.map((u: any) => [u.id, `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}`]));
 
     const rows: DailyReconciliationRow[] = [];
     let grandOpening = ZERO;
@@ -621,7 +604,7 @@ export class CashSessionService {
       rows.push({
         sessionId: s.id,
         cashRegisterName: s.cashRegister.name,
-        cashierName: '', // userId not resolved here
+        cashierName: userNames.get(s.userId) ?? '(unknown)',
         openedAt: s.openedAt,
         closedAt: s.closedAt,
         openingFloat: opening.toString(),
@@ -632,7 +615,7 @@ export class CashSessionService {
         expectedCash: expected.toString(),
         actualCash: actual?.toString() ?? null,
         variance: variance?.toString() ?? null,
-        varianceReason: (s as any).varianceReason ?? null,
+        varianceReason: s.varianceReason ?? null,
         bankedAmount: banked.toString(),
       });
     }
@@ -678,7 +661,7 @@ export class CashSessionService {
   // ─── helpers ────────────────────────────────────────────────────────────
   private async requireOpenSession(tx: any) {
     const session = await tx.cashSession.findFirst({
-      where: { organizationId: this.tenant.organizationId, status: 'open' },
+      where: { organizationId: this.tenant.organizationId, userId: this.tenant.userId, status: 'open' },
     });
     if (!session) throw new NotFoundException('No open cash session');
     return session;
