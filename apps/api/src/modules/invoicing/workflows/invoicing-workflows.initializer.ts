@@ -263,6 +263,19 @@ export class InvoicingWorkflowsInitializer implements OnModuleInit {
               await this.posting.reverse(payment.journalEntryId, { description: `Void of ${payment.paymentNumber}` }, tx);
             }
             for (const alloc of payment.allocations ?? []) {
+              // R2: allocation may target a POS Invoice (separate from Document).
+              if (alloc.invoiceId) {
+                const inv = await tx.invoice.findFirst({ where: { id: alloc.invoiceId } });
+                if (inv) {
+                  const newPaid = (inv.amountPaid as any).minus(alloc.amount);
+                  const newResidual = (inv.amountResidual as any).plus(alloc.amount);
+                  const paymentStatus = newResidual.lessThanOrEqualTo(0) ? 'paid' : (newResidual.lessThan(inv.totalAmount) ? 'partial' : 'not_paid');
+                  const status = inv.status === 'paid' && newResidual.greaterThan(0) ? 'posted' : inv.status;
+                  await tx.invoice.updateMany({ where: { id: inv.id }, data: { amountPaid: newPaid, amountResidual: newResidual, paymentStatus, status } });
+                }
+                await tx.paymentAllocation.deleteMany({ where: { id: alloc.id } });
+                continue;
+              }
               const doc = await tx.document.findFirst({ where: { id: alloc.documentId } });
               if (doc) {
                 const newPaid = (doc.amountPaid as any).minus(alloc.amount);

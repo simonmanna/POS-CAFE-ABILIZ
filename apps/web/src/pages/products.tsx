@@ -30,7 +30,7 @@ import { DataTable, type Column } from '@/components/data-table';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
-import { useCreateProduct, useDeleteProduct, useProducts, useUpdateProduct, type Product } from '@/features/products/api';
+import { useCreateProduct, useDeleteProduct, useProductCategories, useProducts, useUpdateProduct, type Product } from '@/features/products/api';
 
 const PRODUCT_TYPES = ['stockable', 'consumable', 'service', 'fee', 'subscription', 'asset'] as const;
 
@@ -39,6 +39,7 @@ const schema = z.object({
   sku: z.string().optional().or(z.literal('')),
   name: z.string().min(1, 'Name is required'),
   productType: z.string().min(1),
+  categoryId: z.string().optional().or(z.literal('')),
   salesPrice: z.string().optional().or(z.literal('')),
   costPrice: z.string().optional().or(z.literal('')),
   trackInventory: z.boolean(),
@@ -65,15 +66,16 @@ export function ProductsPage() {
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
+  const { data: categories = [] } = useProductCategories();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { code: '', sku: '', name: '', productType: 'stockable', salesPrice: '', costPrice: '', trackInventory: true },
+    defaultValues: { code: '', sku: '', name: '', productType: 'stockable', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true },
   });
 
   const openCreate = () => {
     setEditing(null);
-    form.reset({ code: '', sku: '', name: '', productType: 'stockable', salesPrice: '', costPrice: '', trackInventory: true });
+    form.reset({ code: '', sku: '', name: '', productType: 'stockable', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true });
     setOpen(true);
   };
 
@@ -84,6 +86,7 @@ export function ProductsPage() {
       sku: p.sku ?? '',
       name: p.name,
       productType: p.productType,
+      categoryId: p.categoryId ?? '',
       salesPrice: p.salesPrice ?? '',
       costPrice: p.costPrice ?? '',
       trackInventory: p.trackInventory,
@@ -95,6 +98,7 @@ export function ProductsPage() {
     const data = {
       ...values,
       sku: values.sku || undefined,
+      categoryId: values.categoryId || undefined,
       salesPrice: values.salesPrice ? Number(values.salesPrice) : undefined,
       costPrice: values.costPrice ? Number(values.costPrice) : undefined,
     };
@@ -120,6 +124,7 @@ export function ProductsPage() {
     { key: 'code', header: 'Code' },
     { key: 'sku', header: 'SKU', render: (p) => p.sku ?? '-' },
     { key: 'name', header: 'Name' },
+    { key: 'category', header: 'Category', render: (p) => p.category?.name ?? '-' },
     { key: 'productType', header: 'Type', render: (p) => <Badge variant="secondary">{p.productType}</Badge> },
     {
       key: 'salesPrice',
@@ -238,21 +243,40 @@ export function ProductsPage() {
                 <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
               )}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="productType" className="text-sm font-medium text-slate-700 mb-1.5">Type</Label>
-              <Select
-                value={form.watch('productType')}
-                onValueChange={(v) => form.setValue('productType', v)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRODUCT_TYPES.map((t) => (
-                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="productType" className="text-sm font-medium text-slate-700 mb-1.5">Type</Label>
+                <Select
+                  value={form.watch('productType')}
+                  onValueChange={(v) => form.setValue('productType', v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRODUCT_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>{t}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="categoryId" className="text-sm font-medium text-slate-700 mb-1.5">Category</Label>
+                <Select
+                  value={form.watch('categoryId')}
+                  onValueChange={(v) => form.setValue('categoryId', v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="No category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">No category</SelectItem>
+                    {categories.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

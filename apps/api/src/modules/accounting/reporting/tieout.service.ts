@@ -89,7 +89,13 @@ export class TieOutService {
       where: { documentType: 'sales_invoice', status: { in: ['posted', 'paid'] } },
       select: { amountResidual: true },
     });
-    const arSub = (openInvoices as any[]).reduce(
+    // R2: POS sales invoices live in the separate `Invoice` table but post AR to
+    // the same control account, so include their residuals in the sub-ledger sum.
+    const openPosInvoices = await this.prisma.client.invoice.findMany({
+      where: { status: { in: ['posted', 'paid'] } },
+      select: { amountResidual: true },
+    });
+    const arSub = [...(openInvoices as any[]), ...(openPosInvoices as any[])].reduce(
       (acc, d) => acc.plus(d.amountResidual),
       ZERO,
     );

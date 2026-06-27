@@ -12,8 +12,15 @@ import {
 import { PAYMENT_METHODS, type PaymentMethod } from '@erp/shared';
 
 export class PaymentAllocationDto {
+  /** Generic AR/AP ledger document (manual invoice / vendor bill). */
+  @IsOptional()
   @IsString()
-  documentId!: string;
+  documentId?: string;
+
+  /** POS sales Invoice (R2 — separate from Document). Exactly one of the two. */
+  @IsOptional()
+  @IsString()
+  invoiceId?: string;
 
   @IsNumber()
   @IsPositive()

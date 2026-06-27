@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { PosOrdersService } from './pos-orders.service';
-import { PosBillingService } from '../billing/pos-billing.service';
+import { PosInvoiceService } from '../billing/pos-invoice.service';
 import {
   AddOrderItemsDto, CancelOrderDto, CreateOrderDto, GenerateInvoiceDto, MergeOrderDto,
   MoveTableDto, ReceivePaymentDto, SaveOrderItemsDto, SettleCreditDto, WriteOffDto,
@@ -14,7 +14,7 @@ import {
 export class PosOrdersController {
   constructor(
     private readonly orders: PosOrdersService,
-    private readonly billing: PosBillingService,
+    private readonly billing: PosInvoiceService,
   ) {}
 
   @Get()
@@ -97,7 +97,7 @@ export class PosOrdersController {
 @ApiBearerAuth()
 @Controller('pos/invoices')
 export class PosBillingController {
-  constructor(private readonly billing: PosBillingService) {}
+  constructor(private readonly billing: PosInvoiceService) {}
 
   /** Receive one or more payments and settle the invoice. */
   @Post(':id/payments')

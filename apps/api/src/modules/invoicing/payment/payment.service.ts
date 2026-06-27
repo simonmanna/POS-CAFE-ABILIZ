@@ -165,6 +165,29 @@ export class PaymentService {
         const allocAmount = round(dec(alloc.amount), 6);
         if (allocAmount.lessThanOrEqualTo(0)) continue;
 
+        // R2: allocation may target a POS Invoice (separate from Document).
+        if (alloc.invoiceId) {
+          const inv = await tx.invoice.findFirst({ where: { id: alloc.invoiceId } });
+          if (!inv) throw new BadRequestException(`Invoice ${alloc.invoiceId} not found`);
+          await tx.paymentAllocation.create({
+            data: { organizationId, paymentId: payment.id, invoiceId: inv.id, amount: allocAmount },
+          });
+          const invPaid = (inv.amountPaid as Prisma.Decimal).plus(allocAmount);
+          const invResidual = (inv.amountResidual as Prisma.Decimal).minus(allocAmount);
+          await tx.invoice.updateMany({
+            where: { id: inv.id },
+            data: {
+              amountPaid: invPaid,
+              amountResidual: invResidual,
+              paymentStatus: this.residualStatus(inv.totalAmount, invResidual),
+              status: invResidual.lessThanOrEqualTo(0) ? 'paid' : inv.status,
+            },
+          });
+          allocatedTotal = allocatedTotal.plus(allocAmount);
+          this.events.publish('payment.allocated', { organizationId, paymentId: payment.id, documentId: inv.id, amount: allocAmount.toString() });
+          continue;
+        }
+
         const doc = await tx.document.findFirst({ where: { id: alloc.documentId } });
         if (!doc) throw new BadRequestException(`Document ${alloc.documentId} not found`);
 

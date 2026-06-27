@@ -121,6 +121,11 @@ const ORG_SCOPED = new Set<string>([
   'OrderItem',
   'OrderItemModifier',
   'Receipt',
+  'ReceiptItem',
+  // POS R2 — Invoice pulled out of Document
+  'Invoice',
+  'InvoiceItem',
+  'InvoiceItemModifier',
 ]);
 
 /** Models with a `deletedAt` column → soft-delete filtering on reads/writes. */

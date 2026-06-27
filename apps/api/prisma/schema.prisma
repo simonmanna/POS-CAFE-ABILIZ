@@ -967,11 +967,6 @@ model Document {
   /// Back-reference for PosTableOrder.documentId. The FK is enforced from
   /// the PosTableOrder side (Document → PosTableOrder is a 1:N relation).
   posTableOrders PosTableOrder[]
-  /// POS Order→Invoice split: the operational Order this invoice was billed
-  /// from (1:1). FK lives on Order.invoiceId; this is the back-reference.
-  order          Order?
-  /// POS Order→Invoice split: typed receipt prints generated from this invoice.
-  receipts       Receipt[]
 
   @@unique([organizationId, documentNumber])
   @@index([organizationId])
@@ -1835,16 +1830,21 @@ model PaymentAllocation {
   id             String   @id @default(uuid())
   organizationId String
   paymentId      String
-  documentId     String
+  /// Exactly one of documentId / invoiceId is set: documentId for the generic
+  /// AR/AP ledger (manual invoices, bills), invoiceId for POS sales invoices.
+  documentId     String?
+  invoiceId      String?
   amount         Decimal  @default(0) @db.Decimal(20, 6)
   createdAt      DateTime @default(now())
 
-  payment  Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  document Document @relation(fields: [documentId], references: [id])
+  payment  Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  document Document? @relation(fields: [documentId], references: [id])
+  invoice  Invoice?  @relation(fields: [invoiceId], references: [id])
 
   @@index([organizationId])
   @@index([paymentId])
   @@index([documentId])
+  @@index([invoiceId])
 }
 
 // =============================================================================
@@ -3362,7 +3362,7 @@ model Order {
   updatedBy                  String?
 
   items   OrderItem[]
-  invoice Document?   @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  invoice Invoice?    @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, orderNumber])
   @@index([organizationId])
@@ -3455,10 +3455,145 @@ model Receipt {
   printer        String?
   createdAt      DateTime    @default(now())
 
-  invoice Document @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  items   ReceiptItem[]
 
   @@index([organizationId])
   @@index([organizationId, invoiceId])
   @@index([organizationId, type])
   @@index([receiptNumber])
+}
+
+enum InvoiceStatus {
+  draft
+  posted
+  paid
+  cancelled
+  refunded
+}
+
+/// POS financial Invoice — the sales document, fully separate from the generic
+/// `Document` ledger. It posts its OWN journal entry (Dr AR / Cr Revenue+Tax)
+/// to the shared GL, tracks its own AR balance, and is settled by Payments
+/// allocated via PaymentAllocation.invoiceId. Generated from an Order at bill time.
+model Invoice {
+  id                   String                  @id @default(uuid())
+  organizationId       String
+  invoiceNumber        String
+  /// The operational Order this invoice was billed from (1:1; back-ref of Order.invoiceId).
+  orderId              String?                 @unique
+  partnerId            String
+  branchId             String?
+  cashSessionId        String?
+  /// Denormalised for table/waiter revenue reports.
+  waiterId             String?
+  tableId              String?
+  issueDate            DateTime                @default(now())
+  dueDate              DateTime?
+  currencyId           String?
+  exchangeRate         Decimal                 @default(1) @db.Decimal(18, 8)
+  subtotal             Decimal                 @default(0) @db.Decimal(20, 6)
+  discountTotal        Decimal                 @default(0) @db.Decimal(20, 6)
+  taxAmount            Decimal                 @default(0) @db.Decimal(20, 6)
+  totalAmount          Decimal                 @default(0) @db.Decimal(20, 6)
+  amountPaid           Decimal                 @default(0) @db.Decimal(20, 6)
+  amountResidual       Decimal                 @default(0) @db.Decimal(20, 6)
+  status               InvoiceStatus           @default(draft)
+  paymentStatus        PaymentStatus           @default(not_paid)
+  paymentMode          InvoicePaymentMode?
+  settlementStatus     InvoiceSettlementStatus @default(unsettled)
+  /// GL link — the journal entry posted when this invoice was finalised.
+  journalEntryId       String?
+  reference            String?
+  notes                String?
+  /// Print lifecycle (bill / receipt counters).
+  billPrintCount       Int                     @default(0)
+  billLastPrintedAt    DateTime?
+  receiptPrintCount    Int                     @default(0)
+  receiptLastPrintedAt DateTime?
+  lastPrintedById      String?
+  postedAt             DateTime?
+  postedBy             String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  createdBy            String?
+  updatedBy            String?
+
+  order       Order?
+  items       InvoiceItem[]
+  receipts    Receipt[]
+  allocations PaymentAllocation[]
+
+  @@unique([organizationId, invoiceNumber])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, partnerId])
+  @@index([organizationId, settlementStatus])
+  @@index([organizationId, tableId])
+  @@index([journalEntryId])
+}
+
+/// A line on a POS Invoice (mirrors DocumentLine but on the separate Invoice).
+model InvoiceItem {
+  id              String   @id @default(uuid())
+  organizationId  String
+  invoiceId       String
+  productId       String?
+  menuItemId      String?
+  /// Revenue account resolved at posting time (for the GL credit).
+  accountId       String?
+  description     String
+  quantity        Decimal  @default(1) @db.Decimal(20, 6)
+  unitPrice       Decimal  @default(0) @db.Decimal(20, 6)
+  discountPercent Decimal  @default(0) @db.Decimal(9, 4)
+  taxId           String?
+  taxInclusive    Boolean  @default(false)
+  subtotal        Decimal  @default(0) @db.Decimal(20, 6)
+  taxAmount       Decimal  @default(0) @db.Decimal(20, 6)
+  total           Decimal  @default(0) @db.Decimal(20, 6)
+  lineNumber      Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  invoice   Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  modifiers InvoiceItemModifier[]
+
+  @@index([organizationId])
+  @@index([invoiceId])
+  @@index([menuItemId])
+  @@index([productId])
+}
+
+/// Structured per-item modifier selection on an invoice line (reporting parity).
+model InvoiceItemModifier {
+  id             String   @id @default(uuid())
+  organizationId String
+  invoiceItemId  String
+  modifierId     String?
+  name           String
+  priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
+  createdAt      DateTime @default(now())
+
+  invoiceItem InvoiceItem @relation(fields: [invoiceItemId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([invoiceItemId])
+}
+
+/// A line snapshot on a printed Receipt (what the customer's copy showed).
+model ReceiptItem {
+  id             String   @id @default(uuid())
+  organizationId String
+  receiptId      String
+  invoiceItemId  String?
+  description    String
+  quantity       Decimal  @default(1) @db.Decimal(20, 6)
+  unitPrice      Decimal  @default(0) @db.Decimal(20, 6)
+  total          Decimal  @default(0) @db.Decimal(20, 6)
+  lineNumber     Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  receipt Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([receiptId])
 }

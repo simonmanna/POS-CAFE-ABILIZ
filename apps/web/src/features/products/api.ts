@@ -8,11 +8,19 @@ export interface Product {
   sku: string | null;
   name: string;
   productType: string;
+  categoryId: string | null;
+  category: { id: string; name: string } | null;
   salesPrice: string | null;
   costPrice: string | null;
   isActive: boolean;
   trackInventory: boolean;
   createdAt: string;
+}
+
+export interface ProductCategory {
+  id: string;
+  name: string;
+  parentId: string | null;
 }
 
 export interface ListParams {
@@ -26,6 +34,7 @@ export interface CreateProductInput {
   sku?: string;
   name: string;
   productType: string;
+  categoryId?: string;
   salesPrice?: number;
   costPrice?: number;
   trackInventory?: boolean;
@@ -53,6 +62,14 @@ export function useUpdateProduct() {
     mutationFn: async ({ id, data }: { id: string; data: Partial<CreateProductInput> }) =>
       (await api.patch<Product>(`/products/${id}`, data)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+  });
+}
+
+export function useProductCategories() {
+  return useQuery({
+    queryKey: ['product-categories'],
+    queryFn: async () =>
+      (await api.get<PaginatedResult<ProductCategory>>('/product-categories', { params: { pageSize: 200 } })).data?.data ?? [],
   });
 }
 

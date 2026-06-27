@@ -16,14 +16,32 @@ const OPEN = { documentType: 'sales_invoice' as const, status: { in: ['posted', 
 export class ArReportingService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * R2: POS sales invoices live in the separate `Invoice` table (not Document),
+   * so AR reports must union both. Returns open POS invoices normalised to the
+   * Document row shape (documentNumber, partner.name) the report logic expects.
+   */
+  private async openPosInvoices() {
+    const invs = await this.prisma.client.invoice.findMany({
+      where: { status: { in: ['posted', 'paid'] as any }, amountResidual: { gt: 0 } },
+      orderBy: { dueDate: 'asc' },
+    });
+    if (!invs.length) return [] as any[];
+    const ids = [...new Set(invs.map((i: any) => i.partnerId))];
+    const partners = await this.prisma.client.partner.findMany({ where: { id: { in: ids } } });
+    const nameById = new Map(partners.map((p: any) => [p.id, p.name]));
+    return invs.map((i: any) => ({ ...i, documentNumber: i.invoiceNumber, partner: { name: nameById.get(i.partnerId) ?? 'Unknown' } }));
+  }
+
   /** AR aging by due date relative to `asOf`. */
   async aging(asOfStr?: string) {
     const asOf = asOfStr ? new Date(asOfStr) : new Date();
-    const docs = await this.prisma.client.document.findMany({
+    const documents = await this.prisma.client.document.findMany({
       where: OPEN,
       include: { partner: true },
       orderBy: { dueDate: 'asc' },
     });
+    const docs = [...documents, ...(await this.openPosInvoices())];
 
     const buckets: Record<string, Prisma.Decimal> = {
       current: ZERO,
@@ -60,7 +78,8 @@ export class ArReportingService {
   }
 
   async customerBalances() {
-    const docs = await this.prisma.client.document.findMany({ where: OPEN, include: { partner: true } });
+    const documents = await this.prisma.client.document.findMany({ where: OPEN, include: { partner: true } });
+    const docs = [...documents, ...(await this.openPosInvoices())];
     const map = new Map<string, { partnerId: string; partnerName: string; outstanding: Prisma.Decimal }>();
     for (const d of docs as any[]) {
       const cur = map.get(d.partnerId) ?? { partnerId: d.partnerId, partnerName: d.partner.name, outstanding: ZERO };
@@ -73,11 +92,12 @@ export class ArReportingService {
   }
 
   async outstandingInvoices() {
-    const docs = await this.prisma.client.document.findMany({
+    const documents = await this.prisma.client.document.findMany({
       where: OPEN,
       include: { partner: true },
       orderBy: { dueDate: 'asc' },
     });
+    const docs = [...documents, ...(await this.openPosInvoices())];
     return docs.map((d: any) => ({
       documentId: d.id,
       documentNumber: d.documentNumber,

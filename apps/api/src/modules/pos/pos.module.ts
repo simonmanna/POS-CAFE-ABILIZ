@@ -53,7 +53,7 @@ import { PosTableReportsService } from './pos-table-reports.service';
 import { PosPrintLifecycleService } from './pos-print-lifecycle.service';
 import { PosOrdersService } from './order/pos-orders.service';
 import { PosOrdersController, PosBillingController } from './order/pos-orders.controller';
-import { PosBillingService } from './billing/pos-billing.service';
+import { PosInvoiceService } from './billing/pos-invoice.service';
 import {
   PosTableReportsController,
   PosReservationReportsController,
@@ -113,7 +113,7 @@ export const POS_PERMISSIONS = {
   providers: [
     PosService,
     PosOrdersService,
-    PosBillingService,
+    PosInvoiceService,
     PosWorkflowsInitializer,
     PosShiftService,
     PosHoldsService,
@@ -135,7 +135,7 @@ export const POS_PERMISSIONS = {
     PosPrintLifecycleService,
   ],
   exports: [
-    PosService, PosOrdersService, PosBillingService,
+    PosService, PosOrdersService, PosInvoiceService,
     PosHoldsService, PosOverridesService, PosReportsService,
     PosReceiptsService, PosModifiersService, PosVariantService, PosAccompanimentService, PosKdsService,
     PosLoyaltyService, DigitalMenuService,
