@@ -18,10 +18,14 @@
  */
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { PosMenuService } from './pos-menu.service';
+import { PosVariantService } from './pos-variant.service';
+import { PosAccompanimentService } from './pos-accompaniment.service';
+
+/* ====================== DTOs ====================== */
 
 class CreateMenuItemDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() code?: string;
@@ -66,9 +70,62 @@ class CreateCategoryDto {
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() displayOrder?: number;
 }
 
+class CreateVariantDto {
+  @ApiProperty() @IsString() name!: string;
+  @ApiProperty() @IsNumber() @Min(0) price!: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() sortOrder?: number;
+}
+
+class UpdateVariantDto {
+  @ApiProperty({ required: false }) @IsOptional() @IsString() name?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) price?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() sortOrder?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class CreateAccompanimentGroupDto {
+  @ApiProperty() @IsString() name!: string;
+  @ApiProperty({ required: false, default: true }) @IsOptional() @IsBoolean() isRequired?: boolean;
+  @ApiProperty({ required: false, default: 1 }) @IsOptional() @IsNumber() @Min(0) minSelect?: number;
+  @ApiProperty({ required: false, default: 1 }) @IsOptional() @IsNumber() @Min(0) maxSelect?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() sortOrder?: number;
+}
+
+class UpdateAccompanimentGroupDto {
+  @ApiProperty({ required: false }) @IsOptional() @IsString() name?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isRequired?: boolean;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) minSelect?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) maxSelect?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() sortOrder?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isActive?: boolean;
+}
+
+class CreateAccompanimentOptionDto {
+  @ApiProperty() @IsString() name!: string;
+  @ApiProperty({ required: false, default: 0 }) @IsOptional() @IsNumber() priceImpact?: number;
+  @ApiProperty({ required: false, default: false }) @IsOptional() @IsBoolean() isDefault?: boolean;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() sortOrder?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() inventoryItemId?: string;
+}
+
+class UpdateAccompanimentOptionDto {
+  @ApiProperty({ required: false }) @IsOptional() @IsString() name?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() priceImpact?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isDefault?: boolean;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() sortOrder?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isActive?: boolean;
+  @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() inventoryItemId?: string | null;
+}
+
+/* ====================== Controller ====================== */
+
 @Controller('pos/menu')
 export class PosMenuController {
-  constructor(private readonly svc: PosMenuService) {}
+  constructor(
+    private readonly svc: PosMenuService,
+    private readonly variantSvc: PosVariantService,
+    private readonly accompanimentSvc: PosAccompanimentService,
+  ) {}
 
   // ─── Categories ───
   @Get('categories')
@@ -117,4 +174,105 @@ export class PosMenuController {
   @Delete('items/:id')
   @RequirePermissions('product:delete')
   remove(@Param('id') id: string) { return this.svc.disable(id); }
+
+  // ─── Full bundle (terminal) ───────────────────────────────────────────────
+
+  /** All configuration for a menu item: variants, accompaniments, add-ons, modifiers. */
+  @Get('items/:id/bundle')
+  @RequirePermissions('pos:read')
+  getBundle(@Param('id') id: string) {
+    return this.svc.getFullBundle(id);
+  }
+
+  // ─── Variants ─────────────────────────────────────────────────────────────
+
+  @Get('items/:menuItemId/variants')
+  @RequirePermissions('pos:read')
+  listVariants(@Param('menuItemId') menuItemId: string) {
+    return this.variantSvc.listVariants(menuItemId);
+  }
+
+  @Post('items/:menuItemId/variants')
+  @RequirePermissions('product:create')
+  createVariant(@Param('menuItemId') menuItemId: string, @Body() dto: CreateVariantDto) {
+    return this.variantSvc.createVariant(menuItemId, dto);
+  }
+
+  @Patch('items/:menuItemId/variants/:variantId')
+  @RequirePermissions('product:update')
+  updateVariant(@Param('variantId') variantId: string, @Body() dto: UpdateVariantDto) {
+    return this.variantSvc.updateVariant(variantId, dto);
+  }
+
+  @Delete('items/:menuItemId/variants/:variantId')
+  @RequirePermissions('product:delete')
+  deleteVariant(@Param('variantId') variantId: string) {
+    return this.variantSvc.deleteVariant(variantId);
+  }
+
+  // ─── Accompaniment Groups (standalone CRUD — global, like ModifierGroup) ──
+
+  @Get('accompaniments/groups')
+  @RequirePermissions('pos:read')
+  listAllAccompanimentGroups() {
+    return this.accompanimentSvc.listAllGroups();
+  }
+
+  @Post('accompaniments/groups')
+  @RequirePermissions('product:create')
+  createAccompanimentGroup(@Body() dto: CreateAccompanimentGroupDto) {
+    return this.accompanimentSvc.createGroup(dto);
+  }
+
+  @Patch('accompaniments/groups/:groupId')
+  @RequirePermissions('product:update')
+  updateAccompanimentGroup(@Param('groupId') groupId: string, @Body() dto: UpdateAccompanimentGroupDto) {
+    return this.accompanimentSvc.updateGroup(groupId, dto);
+  }
+
+  @Delete('accompaniments/groups/:groupId')
+  @RequirePermissions('product:delete')
+  deleteAccompanimentGroup(@Param('groupId') groupId: string) {
+    return this.accompanimentSvc.deleteGroup(groupId);
+  }
+
+  // ─── Accompaniment Options ────────────────────────────────────────────────
+
+  @Post('accompaniments/groups/:groupId/options')
+  @RequirePermissions('product:create')
+  createAccompanimentOption(@Param('groupId') groupId: string, @Body() dto: CreateAccompanimentOptionDto) {
+    return this.accompanimentSvc.createOption(groupId, dto);
+  }
+
+  @Patch('accompaniments/options/:optionId')
+  @RequirePermissions('product:update')
+  updateAccompanimentOption(@Param('optionId') optionId: string, @Body() dto: UpdateAccompanimentOptionDto) {
+    return this.accompanimentSvc.updateOption(optionId, dto);
+  }
+
+  @Delete('accompaniments/options/:optionId')
+  @RequirePermissions('product:delete')
+  deleteAccompanimentOption(@Param('optionId') optionId: string) {
+    return this.accompanimentSvc.deleteOption(optionId);
+  }
+
+  // ─── Per-MenuItem assignment (which groups apply to this item) ───────────
+
+  @Get('items/:menuItemId/accompaniments')
+  @RequirePermissions('pos:read')
+  listMenuItemAccompaniments(@Param('menuItemId') menuItemId: string) {
+    return this.accompanimentSvc.listGroupsForMenuItem(menuItemId);
+  }
+
+  @Post('items/:menuItemId/accompaniments')
+  @RequirePermissions('product:create')
+  assignAccompanimentGroup(@Param('menuItemId') menuItemId: string, @Body() dto: { accompanimentGroupId: string; sortOrder?: number }) {
+    return this.accompanimentSvc.assignGroupToMenuItem(menuItemId, dto.accompanimentGroupId, dto.sortOrder);
+  }
+
+  @Delete('items/:menuItemId/accompaniments/:groupId')
+  @RequirePermissions('product:delete')
+  unassignAccompanimentGroup(@Param('menuItemId') menuItemId: string, @Param('groupId') groupId: string) {
+    return this.accompanimentSvc.unassignGroupFromMenuItem(menuItemId, groupId);
+  }
 }

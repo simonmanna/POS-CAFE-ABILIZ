@@ -19,6 +19,8 @@
   height: 100vh;
   background: #f8fafc;
   overflow: hidden;
+  padding-top: 0;
+  margin-top: 0;
 }
 
 .pos-shell-pro.dark-mode {
@@ -29,14 +31,15 @@
 .pos-topbar-pro {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.875rem;
-  background: linear-gradient(135deg, #1e293b 0%, #312e81 100%);
+  gap: 0.1rem;
+  padding: 0.02rem 0.35rem;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
   color: #fff;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
   z-index: 20;
-  margin-top: -4px;
+  margin-top: 0;
+  min-height: 32px;
 }
 
 .pos-brand-pro {
@@ -45,7 +48,7 @@
   gap: 0.5rem;
   font-weight: 700;
   font-size: 0.95rem;
-  padding-right: 0.75rem;
+  padding-right: 0.4rem;
   border-right: 1px solid rgba(255, 255, 255, 0.15);
   white-space: nowrap;
 }
@@ -248,8 +251,8 @@
   transform: translateY(-1px);
 }
 .pos-cat-pill-pro.active {
-  background: #1e293b;
-  border-color: #1e293b;
+  background: #3b82f6;
+  border-color: #3b82f6;
   color: #fff;
 }
 .pos-cat-emoji { font-size: 1rem; line-height: 1; }
@@ -258,9 +261,9 @@
 .pos-menus-grid-pro {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 0.75rem;
-  padding: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 1rem;
+  padding: 1rem;
   overflow-y: auto;
   align-content: start;
 }
@@ -270,17 +273,17 @@
   display: flex;
   flex-direction: column;
   background: #fff;
-  border: 2px solid transparent;
-  border-radius: 12px;
+  border: 2px solid #e2e8f0;
+  border-radius: 14px;
   overflow: hidden;
   cursor: pointer;
   transition: all 0.18s ease;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 .pos-menu-card-pro:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-  border-color: var(--c, #1a7fcf);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.18);
+  border-color: #3b82f6;
 }
 .pos-menu-card-pro.locked {
   opacity: 0.45;
@@ -290,31 +293,33 @@
 
 .pos-menu-img {
   width: 100%;
-  height: 88px;
+  height: 110px;
   object-fit: cover;
 }
 .pos-menu-emoji {
   width: 100%;
-  height: 88px;
+  height: 110px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 3rem;
-  background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+  font-size: 3.5rem;
+  background: #f1f5f9;
 }
 
 .pos-menu-body {
-  padding: 0.5rem 0.6rem 0.6rem;
+  padding: 0.5rem 0.55rem 0.55rem;
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.1rem;
+  text-align: center;      /* centers inline / text content */
+  align-items: center;     /* centers the children horizontally */
 }
 .pos-menu-name {
-  font-size: 0.82rem;
+  font-size: 1.05rem;
   font-weight: 700;
   color: #0f172a;
-  line-height: 1.2;
+  line-height: 1.00;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -327,23 +332,24 @@
   margin-top: auto;
 }
 .pos-menu-price {
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   font-weight: 800;
+  color: #1e293b;
 }
 .pos-menu-addon-tag {
   font-size: 0.62rem;
-  background: #fef3c7;
-  color: #92400e;
+  background: #dbeafe;
+  color: #1e40af;
   padding: 1px 6px;
   border-radius: 4px;
   font-weight: 700;
 }
 .pos-menu-add {
   position: absolute;
-  top: 0.45rem;
-  right: 0.45rem;
-  width: 26px;
-  height: 26px;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -401,9 +407,9 @@
 .pos-order-head {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.75rem;
-  background: linear-gradient(135deg, #1e293b, #312e81);
+  gap: 0.4rem;
+  padding: 0.5rem 0.65rem;
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: #fff;
   flex-shrink: 0;
 }
@@ -450,10 +456,10 @@
 .pos-order-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0.5rem;
+  padding: 0.35rem;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.25rem;
 }
 
 .pos-order-empty {
@@ -481,39 +487,39 @@
   position: relative;
   background: #fff;
   border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.15rem;
 }
 .pos-card-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
 }
 .pos-card-emoji {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
   background: #f1f5f9;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.2rem;
+  font-size: 1rem;
   flex-shrink: 0;
 }
 .pos-card-name {
-  font-size: 0.83rem;
-  font-weight: 700;
+  font-size: 0.78rem;
+  font-weight: 600;
   color: #0f172a;
 }
 .pos-card-line {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   color: #64748b;
 }
 .pos-card-price {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 800;
   color: #0f172a;
   margin-left: auto;
@@ -522,31 +528,31 @@
 .pos-card-addons {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.2rem;
-  padding-left: 2.5rem;
+  gap: 0.15rem;
+  padding-left: 2rem;
 }
 .pos-card-addons span {
-  font-size: 0.66rem;
-  background: #fef3c7;
-  color: #92400e;
-  padding: 1px 6px;
-  border-radius: 4px;
+  font-size: 0.6rem;
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 1px 5px;
+  border-radius: 3px;
   font-weight: 600;
 }
 .pos-card-notes {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: #b45309;
   background: #fef3c7;
   border-radius: 4px;
-  padding: 2px 6px;
-  padding-left: 2.5rem;
+  padding: 1px 5px;
+  padding-left: 2rem;
   font-style: italic;
 }
 .pos-card-footer {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding-left: 2.5rem;
+  gap: 0.35rem;
+  padding-left: 2rem;
 }
 .pos-qty {
   display: inline-flex;
@@ -556,8 +562,8 @@
   overflow: hidden;
 }
 .pos-qty button {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   background: #f8fafc;
   border: none;
   display: flex;
@@ -568,10 +574,10 @@
 }
 .pos-qty button:hover { background: #e2e8f0; }
 .pos-qty-val {
-  width: 28px;
+  width: 24px;
   text-align: center;
   font-weight: 800;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
 }
 .pos-card-actions {
@@ -580,8 +586,8 @@
   margin-left: auto;
 }
 .pos-card-action {
-  width: 26px;
-  height: 26px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -610,7 +616,7 @@
 
 /* ============== Totals + actions ============== */
 .pos-order-totals {
-  padding: 0.65rem 0.85rem;
+  padding: 0.4rem 0.5rem;
   background: #f8fafc;
   border-top: 1px solid #e2e8f0;
   flex-shrink: 0;
@@ -620,16 +626,16 @@
   justify-content: space-between;
   align-items: baseline;
   font-size: 0.78rem;
-  padding: 2px 0;
+  padding: 4px 0;
   color: #475569;
 }
 .pos-totals-row.big {
-  font-size: 1.05rem;
+  font-size: 1rem;
   font-weight: 800;
   color: #0f172a;
-  padding-top: 6px;
+  padding-top: 4px;
   border-top: 1px dashed #cbd5e1;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 .pos-amt {
   font-variant-numeric: tabular-nums;
@@ -639,8 +645,8 @@
 .pos-order-actions {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.4rem;
-  padding: 0.65rem;
+  gap: 0.25rem;
+  padding: 0.4rem;
   border-top: 1px solid #e2e8f0;
   background: #fff;
   flex-shrink: 0;
@@ -654,7 +660,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.3rem;
-  padding: 0.65rem 0.5rem;
+  padding: 0.5rem 0.4rem;
   border-radius: 10px;
   font-size: 0.78rem;
   font-weight: 700;
@@ -663,7 +669,7 @@
   cursor: pointer;
   transition: all 0.15s ease;
   position: relative;
-  min-height: 44px;
+  min-height: 30px;
 }
 .pos-action-btn-pro:hover:not(:disabled) {
   transform: translateY(-1px);

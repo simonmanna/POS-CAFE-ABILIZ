@@ -42,6 +42,10 @@ export interface PosTableOrder {
     totalAmount: string;
     status: string;
     createdAt: string;
+    billPrintCount: number;
+    billLastPrintedAt: string | null;
+    receiptPrintCount: number;
+    receiptLastPrintedAt: string | null;
   };
 }
 

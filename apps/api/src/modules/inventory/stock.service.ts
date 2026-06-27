@@ -194,15 +194,21 @@ export class StockService {
     if (qty.lte(ZERO)) throw new BadRequestException('Quantity must be positive');
 
     return this.prisma.client.$transaction(async (tx: any) => {
-      const stockItem = await tx.stockItem.findFirst({
+      let stockItem = await tx.stockItem.findFirst({
         where: { organizationId, productId: dto.productId, locationId: dto.locationId },
       });
-      if (!stockItem) throw new BadRequestException('No stock found for this product at this location');
+      if (!stockItem) {
+        stockItem = await tx.stockItem.create({
+          data: {
+            organizationId,
+            productId: dto.productId,
+            locationId: dto.locationId,
+            quantity: 0,
+            runningAverageCost: dec(product.costPrice ?? 0),
+          },
+        });
+      }
 
-      // Pessimistic atomic check: issue with a conditional UPDATE that requires
-      // the current quantity to be sufficient. Returns 0 affected rows when
-      // a concurrent issue/transfer drained the stock first, so the caller
-      // sees an "insufficient stock" error and can retry.
       const ledgerCode = await this.seq.next('stock_move', { prefix: 'STK/', padding: 6 }, tx);
       let totalValue = ZERO;
       let unitCost = ZERO;
@@ -249,13 +255,37 @@ export class StockService {
           remaining = remaining.minus(consumed);
         }
         if (remaining.gt(ZERO)) {
-          throw new BadRequestException(
-            `Insufficient batch stock: ${qty.minus(remaining).toString()} issued, ${remaining.toString()} short`,
-          );
+          const consumedQty = qty.minus(remaining);
+          const overflowUnitCost = consumedQty.gt(ZERO)
+            ? totalValue.dividedBy(consumedQty)
+            : dec(product.costPrice ?? 0);
+          const overflowValue = overflowUnitCost.times(remaining);
+          await tx.stockItem.update({
+            where: { id: stockItem.id },
+            data: { quantity: { decrement: remaining } },
+          });
+          await tx.inventoryLedger.create({
+            data: {
+              organizationId,
+              ledgerCode,
+              productId: dto.productId,
+              locationId: dto.locationId,
+              batchId: null,
+              type: 'issue',
+              quantityChange: remaining.negated(),
+              balanceAfter: dec(stockItem.quantity).minus(remaining),
+              unitCost: overflowUnitCost,
+              totalValue: overflowValue,
+              notes: dto.notes ?? null,
+              performedBy: this.tenant.userId ?? null,
+            },
+          });
+          totalValue = totalValue.plus(overflowValue);
+          remaining = ZERO;
         }
-        unitCost = totalValue.dividedBy(qty);
+        unitCost = totalValue.gt(ZERO) ? totalValue.dividedBy(qty) : ZERO;
       } else {
-        // AVCO / STANDARD: atomic conditional update.
+        // AVCO / STANDARD: unconditional decrement (allows negative stock).
         const resolution = this.costResolver.resolveIssueCost(
           { costingMethod: product.costingMethod, costPrice: product.costPrice },
           { quantity: dec(stockItem.quantity), runningAverageCost: dec(stockItem.runningAverageCost) },
@@ -264,24 +294,11 @@ export class StockService {
         unitCost = resolution.unitCost;
         totalValue = resolution.totalValue;
 
-        const decrement = await tx.stockItem.updateMany({
-          where: {
-            id: stockItem.id,
-            organizationId,
-            quantity: { gte: qty.toString() as any },
-          },
+        const updated = await tx.stockItem.update({
+          where: { id: stockItem.id },
           data: { quantity: { decrement: qty } },
         });
-        if (decrement.count === 0) {
-          // Re-read to give a precise error.
-          const fresh = await tx.stockItem.findFirst({
-            where: { id: stockItem.id, organizationId },
-          });
-          throw new BadRequestException(
-            `Insufficient stock: available ${fresh?.quantity ?? 0}, requested ${qty}`,
-          );
-        }
-        const newQty = dec(stockItem.quantity).minus(qty);
+        const newQty = dec(updated.quantity);
         await tx.inventoryLedger.create({
           data: {
             organizationId,

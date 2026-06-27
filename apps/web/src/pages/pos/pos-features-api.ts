@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 export interface ModifierGroupFE {
   id: string;
   name: string;
+  groupType: 'ADD_ON' | 'MODIFIER';
   minSelect: number;
   maxSelect: number;
   sortOrder: number;
@@ -21,6 +22,39 @@ export interface ModifierGroupFE {
 
 export interface ProductBundleFE {
   product: { id: string; name: string; unitPrice: number; sku: string | null; productType: string };
+  groups: ModifierGroupFE[];
+}
+
+export interface VariantFE {
+  id: string;
+  name: string;
+  price: number;
+  sortOrder: number;
+}
+
+export interface AccompanimentOptionFE {
+  id: string;
+  name: string;
+  priceImpact: number;
+  isDefault: boolean;
+  sortOrder: number;
+}
+
+export interface AccompanimentGroupFE {
+  id: string;
+  name: string;
+  isRequired: boolean;
+  minSelect: number;
+  maxSelect: number;
+  sortOrder: number;
+  isActive: boolean;
+  options: AccompanimentOptionFE[];
+}
+
+export interface MenuItemBundleFE {
+  product: { id: string; name: string; unitPrice: number; sku: string | null; productType: string };
+  variants: VariantFE[];
+  accompanimentGroups: AccompanimentGroupFE[];
   groups: ModifierGroupFE[];
 }
 
@@ -53,13 +87,30 @@ export function useProductBundle(productId: string | null) {
   });
 }
 
-/** Menu-based POS: a sellable menu item + its modifier groups (same shape). */
-export function useMenuItemBundle(menuItemId: string | null) {
+/** Menu-based POS: a sellable menu item + its modifier groups (same shape).
+ *  Legacy: only returns modifiers, no variants/accompaniments. */
+export function useMenuItemModifierBundle(menuItemId: string | null) {
   return useQuery({
-    queryKey: ['pos-menu-item-bundle', menuItemId],
+    queryKey: ['pos-menu-item-modifier-bundle', menuItemId],
     queryFn: async () => {
       if (!menuItemId) return null;
       return (await api.get<ProductBundleFE>(`/pos/modifiers/menu-items/${menuItemId}/bundle`)).data;
+    },
+    enabled: !!menuItemId,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/**
+ * Full menu item bundle — variants, accompaniments, add-ons, and modifiers.
+ * Single endpoint the POS terminal uses to drive the 4-step order flow.
+ */
+export function useMenuItemBundle(menuItemId: string | null) {
+  return useQuery({
+    queryKey: ['pos-menu-item-full-bundle', menuItemId],
+    queryFn: async () => {
+      if (!menuItemId) return null;
+      return (await api.get<MenuItemBundleFE>(`/pos/menu/items/${menuItemId}/bundle`)).data;
     },
     enabled: !!menuItemId,
     staleTime: 5 * 60_000,
@@ -77,7 +128,7 @@ export function useCombos() {
 export function useCreateModifierGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { name: string; minSelect?: number; maxSelect?: number }) =>
+    mutationFn: async (body: { name: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number }) =>
       (await api.post('/pos/modifiers/groups', body)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-modifier-groups'] }),
   });
@@ -135,6 +186,159 @@ export function useUnassignModifierGroupFromMenuItem() {
   });
 }
 
+/* ============== Variant hooks ============== */
+
+export function useVariants(menuItemId: string | null) {
+  return useQuery({
+    queryKey: ['pos-variants', menuItemId],
+    queryFn: async () => {
+      if (!menuItemId) return [];
+      return (await api.get<VariantFE[]>(`/pos/menu/items/${menuItemId}/variants`)).data ?? [];
+    },
+    enabled: !!menuItemId,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useCreateVariant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { menuItemId: string; name: string; price: number; sortOrder?: number }) =>
+      (await api.post(`/pos/menu/items/${body.menuItemId}/variants`, body)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-variants'] }),
+  });
+}
+
+export function useUpdateVariant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { menuItemId: string; variantId: string; name?: string; price?: number; sortOrder?: number; isActive?: boolean }) =>
+      (await api.patch(`/pos/menu/items/${body.menuItemId}/variants/${body.variantId}`, body)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-variants'] }),
+  });
+}
+
+export function useDeleteVariant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { menuItemId: string; variantId: string }) =>
+      (await api.delete(`/pos/menu/items/${body.menuItemId}/variants/${body.variantId}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-variants'] }),
+  });
+}
+
+/* ============== Accompaniment hooks ============== */
+
+/** All accompaniment groups (standalone, admin page). */
+export function useAllAccompanimentGroups() {
+  return useQuery({
+    queryKey: ['pos-accompaniment-groups'],
+    queryFn: async () => (await api.get<AccompanimentGroupFE[]>('/pos/menu/accompaniments/groups')).data ?? [],
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Accompaniment groups assigned to a specific menu item. */
+export function useMenuItemAccompaniments(menuItemId: string | null) {
+  return useQuery({
+    queryKey: ['pos-menu-item-accompaniments', menuItemId],
+    queryFn: async () => {
+      if (!menuItemId) return [];
+      return (await api.get<AccompanimentGroupFE[]>(`/pos/menu/items/${menuItemId}/accompaniments`)).data ?? [];
+    },
+    enabled: !!menuItemId,
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useCreateAccompanimentGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { name: string; isRequired?: boolean; minSelect?: number; maxSelect?: number }) =>
+      (await api.post('/pos/menu/accompaniments/groups', body)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-accompaniment-groups'] }),
+  });
+}
+
+export function useUpdateAccompanimentGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { groupId: string; name?: string; isRequired?: boolean; minSelect?: number; maxSelect?: number; isActive?: boolean }) => {
+      const { groupId, ...payload } = body;
+      return (await api.patch(`/pos/menu/accompaniments/groups/${groupId}`, payload)).data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-accompaniment-groups'] }),
+  });
+}
+
+export function useDeleteAccompanimentGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (groupId: string) => (await api.delete(`/pos/menu/accompaniments/groups/${groupId}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-accompaniment-groups'] }),
+  });
+}
+
+export function useCreateAccompanimentOption() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { groupId: string; name: string; priceImpact?: number; isDefault?: boolean }) => {
+      const { groupId, ...payload } = body;
+      return (await api.post(`/pos/menu/accompaniments/groups/${groupId}/options`, payload)).data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-accompaniment-groups'] }),
+  });
+}
+
+export function useUpdateAccompanimentOption() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { optionId: string; name?: string; priceImpact?: number; isDefault?: boolean; isActive?: boolean }) => {
+      const { optionId, ...payload } = body;
+      return (await api.patch(`/pos/menu/accompaniments/options/${optionId}`, payload)).data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-accompaniment-groups'] }),
+  });
+}
+
+export function useDeleteAccompanimentOption() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (optionId: string) => (await api.delete(`/pos/menu/accompaniments/options/${optionId}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-accompaniment-groups'] }),
+  });
+}
+
+/** Assign a standalone accompaniment group to a menu item. */
+export function useAssignAccompanimentGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { menuItemId: string; accompanimentGroupId: string; sortOrder?: number }) => {
+      const { menuItemId, ...payload } = body;
+      return (await api.post(`/pos/menu/items/${menuItemId}/accompaniments`, payload)).data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pos-menu-item-accompaniments'] });
+      qc.invalidateQueries({ queryKey: ['pos-menu-item-full-bundle'] });
+    },
+  });
+}
+
+/** Unassign an accompaniment group from a menu item. */
+export function useUnassignAccompanimentGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { menuItemId: string; groupId: string }) => {
+      const { menuItemId, groupId } = body;
+      return (await api.delete(`/pos/menu/items/${menuItemId}/accompaniments/${groupId}`)).data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pos-menu-item-accompaniments'] });
+      qc.invalidateQueries({ queryKey: ['pos-menu-item-full-bundle'] });
+    },
+  });
+}
+
 /* ============== M-E edit / delete ============== */
 
 function invalidateGroups(qc: ReturnType<typeof useQueryClient>) {
@@ -145,7 +349,7 @@ function invalidateGroups(qc: ReturnType<typeof useQueryClient>) {
 export function useUpdateModifierGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { id: string; name?: string; minSelect?: number; maxSelect?: number; isActive?: boolean }) =>
+    mutationFn: async (body: { id: string; name?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; isActive?: boolean }) =>
       (await api.patch(`/pos/modifiers/groups/${body.id}`, body)).data,
     onSuccess: () => invalidateGroups(qc),
   });
@@ -206,6 +410,8 @@ export interface KdsTicketItemFE {
   modifiers: Array<{ name: string; priceDelta: number }>;
   notes: string | null;
   station: 'bar' | 'kitchen' | 'cafe';
+  variantName?: string;
+  accompanimentNames?: string[];
 }
 
 export interface KdsTicketFE {

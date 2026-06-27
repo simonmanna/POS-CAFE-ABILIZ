@@ -232,3 +232,73 @@ export interface PaymentTender {
   amount: number;
   reference?: string;
 }
+
+/* ============== Order → Invoice → Receipt (DDD split) ============== */
+
+export type OrderStatus = 'draft' | 'open' | 'preparing' | 'ready' | 'served' | 'closed' | 'cancelled';
+export type OrderTypeApi = 'dine_in' | 'takeaway' | 'delivery';
+export type InvoicePaymentMode = 'cash' | 'card' | 'mobile_money' | 'mixed' | 'credit';
+export type InvoiceSettlementStatus = 'unsettled' | 'partially_settled' | 'settled' | 'written_off';
+export type ReceiptType =
+  | 'payment_receipt' | 'partial_payment_receipt' | 'credit_issue_receipt'
+  | 'settlement_receipt' | 'merchant_copy' | 'reprint';
+export type ItemKitchenStatus = 'pending' | 'sent' | 'preparing' | 'ready' | 'served';
+
+export interface OrderItem {
+  id: string;
+  productId: string | null;
+  menuItemId: string | null;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  discountPercent: string;
+  taxId: string | null;
+  note: string | null;
+  kitchenStatus: ItemKitchenStatus;
+  cancelled: boolean;
+  lineNumber: number;
+  accompanimentNames?: string[];
+  modifiers?: Array<{ id: string; name: string; priceDelta: string }>;
+}
+
+export interface Order {
+  id: string;
+  orderNumber: string;
+  orderType: OrderTypeApi;
+  status: OrderStatus;
+  tableId: string | null;
+  partnerId: string | null;
+  waiterId: string | null;
+  guestCount: number | null;
+  notes: string | null;
+  invoiceId: string | null;
+  version: number;
+  subtotal: string;
+  discountTotal: string;
+  taxAmount: string;
+  totalAmount: string;
+  transactionDiscountPercent: string;
+  openedAt: string;
+  closedAt: string | null;
+  items: OrderItem[];
+}
+
+export interface InvoiceResult {
+  id: string;
+  documentNumber: string;
+  totalAmount: string;
+  amountResidual: string;
+  amountPaid: string;
+  paymentMode: InvoicePaymentMode | null;
+  settlementStatus: InvoiceSettlementStatus;
+  partner?: { id: string; name: string } | null;
+  lines?: Array<{ id: string; description: string; quantity: string; unitPrice: string; total: string }>;
+}
+
+export interface PaymentResult {
+  invoiceId: string;
+  settlementStatus: InvoiceSettlementStatus;
+  paymentMode: InvoicePaymentMode;
+  receiptId: string;
+  change: number;
+}

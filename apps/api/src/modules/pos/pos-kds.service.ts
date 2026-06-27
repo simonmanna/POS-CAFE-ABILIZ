@@ -32,6 +32,8 @@ export interface KdsTicketItem {
   modifiers: Array<{ name: string; priceDelta: number }>;
   notes: string | null;
   station: 'bar' | 'kitchen' | 'cafe';
+  variantName?: string;
+  accompanimentNames?: string[];
 }
 
 export interface KdsTicket {
@@ -63,6 +65,8 @@ export class PosKdsService {
    */
   async createTicketsForSale(args: {
     invoiceId?: string;
+    /** POS Order→Invoice split: the operational Order that fired these tickets. */
+    orderId?: string;
     label: string;
     items: KdsTicketItem[];
   }): Promise<string[]> {
@@ -80,6 +84,7 @@ export class PosKdsService {
         data: {
           organizationId: orgId,
           invoiceId: args.invoiceId ?? null,
+          orderId: args.orderId ?? null,
           label: args.label,
           station: station as any,
           status: 'new',
@@ -109,9 +114,36 @@ export class PosKdsService {
       productName: string;
       quantity?: number;
       notes?: string | null;
+      variantName?: string;
+      accompanimentNames?: string[];
     }>;
   }): Promise<string[]> {
     const orgId = this.tenant.organizationId;
+
+    // P5 — KOT reprint guard: if a tableId is provided, check whether any of
+    // the items have already been kitchen-printed. If so, refuse the reprint.
+    if (args.tableId) {
+      const tableOrder = await this.prisma.client.posTableOrder.findFirst({
+        where: { tableId: args.tableId, organizationId: orgId, closedAt: null },
+        include: { document: { include: { lines: { select: { productId: true, kitchenPrintCount: true } } } } },
+      });
+      if (tableOrder?.document?.lines) {
+        const printedProductIds = new Set(
+          tableOrder.document.lines
+            .filter((l) => (l.kitchenPrintCount ?? 0) > 0)
+            .map((l) => l.productId),
+        );
+        if (printedProductIds.size > 0) {
+          const alreadyPrinted = args.items.filter((it) => printedProductIds.has(it.productId));
+          if (alreadyPrinted.length > 0) {
+            throw new BadRequestException(
+              `KOT cannot be reprinted. Items already sent to kitchen for table: ${alreadyPrinted.map((i) => i.productName).join(', ')}. Use the order panel to add new items.`,
+            );
+          }
+        }
+      }
+    }
+
     // Batch-lookup product stations.
     const productIds = [...new Set(args.items.map((i) => i.productId))];
     const products = await this.prisma.client.product.findMany({
@@ -127,6 +159,8 @@ export class PosKdsService {
       modifiers: [],
       notes: it.notes ?? null,
       station: stationMap.get(it.productId) ?? 'cafe',
+      variantName: it.variantName,
+      accompanimentNames: it.accompanimentNames,
     }));
     return this.createTicketsForSale({
       label: args.label,

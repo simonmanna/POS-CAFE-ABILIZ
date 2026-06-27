@@ -88,10 +88,14 @@ export const useCartStore = create<CartState>()(
             taxInclusive?: boolean;
             modifiers?: Array<{ modifierId: string }>;
             note?: string;
+            variantId?: string;
+            accompanimentOptionIds?: string[];
           }) =>
             (l.menuItemId ?? l.productId ?? l.sku?.toLowerCase() ?? '') +
             (l.taxInclusive ? '|incl' : '') +
             '|m:' + (l.modifiers ?? []).map((m) => m.modifierId).sort().join(',') +
+            '|v:' + (l.variantId ?? '') +
+            '|a:' + (l.accompanimentOptionIds ?? []).sort().join(',') +
             '|n:' + (l.note ?? '');
           const key = keyOf(line);
           const existing = state.lines.find((l) => keyOf(l) === key);

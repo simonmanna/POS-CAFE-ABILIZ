@@ -30,6 +30,7 @@ export const AUDIT_ACTIONS = [
   'issue',
   'adjust',
   'transfer',
+  'reprint',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

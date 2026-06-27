@@ -22,6 +22,8 @@ interface DataTableProps<T> {
   loading?: boolean;
   emptyMessage?: ReactNode;
   getRowId?: (row: T) => string;
+  className?: string;
+  headerRowClassName?: string;
 }
 
 /** Reusable, presentational data table. Pagination/search live in the page. */
@@ -31,12 +33,14 @@ export function DataTable<T>({
   loading = false,
   emptyMessage = 'No records found.',
   getRowId,
+  className = '',
+  headerRowClassName = '',
 }: DataTableProps<T>) {
   return (
-    <div className="rounded-md border">
+    <div className={`rounded-md border ${className}`}>
       <Table>
         <TableHeader>
-          <TableRow>
+          <TableRow className={headerRowClassName}>
             {columns.map((c) => (
               <TableHead key={c.key} className={c.className}>
                 {c.header}

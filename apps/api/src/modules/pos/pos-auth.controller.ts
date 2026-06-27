@@ -6,7 +6,7 @@
  * the userId in the `X-Pos-User` header on subsequent requests.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { PosAuthService } from './pos-auth.service';
@@ -22,6 +22,14 @@ class PinLoginDto {
 @Controller('pos/auth')
 export class PosAuthController {
   constructor(private readonly svc: PosAuthService) {}
+
+  /** List active staff for POS terminal PIN login (requires pos:read). */
+  @Get('staff')
+  @HttpCode(200)
+  @RequirePermissions('pos:read')
+  listStaff() {
+    return this.svc.listStaff();
+  }
 
   /** Cashier logs into the POS terminal with their user ID + PIN. */
   @Post('pin-login')

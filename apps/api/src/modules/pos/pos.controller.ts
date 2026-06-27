@@ -57,6 +57,11 @@ class CheckoutLineDto implements CheckoutLine {
   @ApiProperty({ required: false, type: [CheckoutLineModifierDto], description: 'P4 add-ons; priceDeltas are folded into the line total server-side.' })
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CheckoutLineModifierDto)
   modifiers?: CheckoutLineModifierDto[];
+  @ApiProperty({ required: false, description: 'Selected variant id. Variant price replaces basePrice.' })
+  @IsOptional() @IsString() variantId?: string;
+  @ApiProperty({ required: false, description: 'Selected accompaniment option ids (one per group).' })
+  @IsOptional() @IsArray() @IsString({ each: true })
+  accompanimentOptionIds?: string[];
   @ApiProperty({ required: false, description: 'P4 combo id; expanded into component lines on checkout.' })
   @IsOptional() @IsString() comboId?: string;
   @ApiProperty({ required: false, description: 'P10 per-line tax-inclusive override.' })
@@ -148,6 +153,7 @@ class SettleTabDto {
   @ApiProperty({ required: false, enum: ['cash', 'bank', 'card', 'mobile_money'] })
   @IsOptional() @IsString() paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() amountTendered?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() transactionDiscountPercent?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsString() cashSessionId?: string;
 }
 

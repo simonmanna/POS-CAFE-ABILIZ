@@ -7,6 +7,7 @@ import { PartnersPage } from '@/pages/partners';
 import { ProductsPage } from '@/pages/products';
 import { MenuPage } from '@/pages/menu';
 import ModifiersPage from '@/pages/menu/ModifiersPage';
+import AccompanimentGroupsPage from '@/pages/menu/AccompanimentGroupsPage';
 import { SettingsPage } from '@/pages/settings';
 import { ApprovalsPage } from '@/pages/approvals';
 import { RecurringPage } from '@/pages/recurring';
@@ -83,6 +84,7 @@ export function App() {
           <Route path="/products" element={<ProductsPage />} />
           <Route path="/menu" element={<MenuPage />} />
           <Route path="/menu/modifiers" element={<ModifiersPage />} />
+          <Route path="/menu/accompaniments" element={<AccompanimentGroupsPage />} />
           <Route path="/invoices" element={<InvoicesPage />} />
           <Route path="/invoices/new" element={<InvoiceCreatePage />} />
           <Route path="/invoices/:id" element={<InvoiceDetailPage />} />

@@ -2,10 +2,13 @@
 // single/multi + required + min/max, add priced options, and assign groups to
 // products. Uses the existing /pos/modifiers endpoints.
 import { useState } from 'react';
-import { Plus, Tag, Star, Link2, Check, Trash2, Pencil, BarChart3 } from 'lucide-react';
+import { Plus, Tag, Star, Link2, Check, Trash2, Pencil, BarChart3, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import {
@@ -50,12 +53,20 @@ export default function ModifiersPage() {
     catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to rename'); }
   };
 
+  const toggleGroupType = async (id: string, current: 'ADD_ON' | 'MODIFIER') => {
+    const next = current === 'ADD_ON' ? 'MODIFIER' : 'ADD_ON';
+    const label = next === 'ADD_ON' ? 'Add-on' : 'Modifier';
+    try { await updateGroup.mutateAsync({ id, groupType: next }); toast.success(`Type changed to ${label}`); }
+    catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to change type'); }
+  };
+
   // New-group dialog
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [gName, setGName] = useState('');
   const [gType, setGType] = useState<'single' | 'multi'>('single');
   const [gRequired, setGRequired] = useState(false);
   const [gMax, setGMax] = useState(2);
+  const [gGroupType, setGGroupType] = useState<'ADD_ON' | 'MODIFIER'>('ADD_ON');
 
   // Inline add-option (per group)
   const [optFor, setOptFor] = useState<string | null>(null);
@@ -76,9 +87,9 @@ export default function ModifiersPage() {
     const maxSelect = gType === 'single' ? 1 : Math.max(1, Number(gMax) || 1);
     const minSelect = gRequired ? 1 : 0;
     try {
-      await createGroup.mutateAsync({ name: gName.trim(), minSelect, maxSelect });
+      await createGroup.mutateAsync({ name: gName.trim(), groupType: gGroupType, minSelect, maxSelect });
       toast.success(`Group "${gName.trim()}" created`);
-      setShowNewGroup(false); setGName(''); setGType('single'); setGRequired(false); setGMax(2);
+      setShowNewGroup(false); setGName(''); setGType('single'); setGRequired(false); setGMax(2); setGGroupType('ADD_ON');
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to create group'); }
   };
 
@@ -133,7 +144,12 @@ export default function ModifiersPage() {
           {groups.map((g) => (
             <div key={g.id} className="rounded-lg border border-slate-200 bg-white p-4">
               <div className="flex items-center justify-between mb-2">
-                <div className="font-bold text-slate-800">{g.name}</div>
+                <div className="flex items-center gap-2">
+                  <div className="font-bold text-slate-800">{g.name}</div>
+                  <span className={'text-[10px] font-bold px-1.5 py-0.5 rounded ' + (g.groupType === 'ADD_ON' ? 'bg-emerald-100 text-emerald-700' : 'bg-violet-100 text-violet-700')}>
+                    {g.groupType === 'ADD_ON' ? 'Add-on' : 'Modifier'}
+                  </span>
+                </div>
                 <div className="flex items-center gap-1.5 text-[11px]">
                   <span className={'px-2 py-0.5 rounded-full font-semibold ' + (g.minSelect > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600')}>
                     {g.minSelect > 0 ? 'Required' : 'Optional'}
@@ -141,6 +157,9 @@ export default function ModifiersPage() {
                   <span className="px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 font-semibold">
                     {g.maxSelect === 1 ? 'Single choice' : `Up to ${g.maxSelect}`}
                   </span>
+                  <button onClick={() => toggleGroupType(g.id, g.groupType)} className="p-1 text-slate-400 hover:text-amber-600" title="Toggle group type">
+                    <Settings2 className="h-3.5 w-3.5" />
+                  </button>
                   <button onClick={() => renameGroup(g.id, g.name)} className="p-1 text-slate-400 hover:text-indigo-600" title="Rename group">
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
@@ -288,6 +307,16 @@ export default function ModifiersPage() {
             <div>
               <Label>Group name</Label>
               <Input value={gName} onChange={(e) => setGName(e.target.value)} placeholder="e.g. Size" autoFocus />
+            </div>
+            <div>
+              <Label>Group type</Label>
+              <Select value={gGroupType} onValueChange={(v) => setGGroupType(v as 'ADD_ON' | 'MODIFIER')}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ADD_ON">Add-on (product upsell)</SelectItem>
+                  <SelectItem value="MODIFIER">Modifier (prep instruction)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Selection type</Label>

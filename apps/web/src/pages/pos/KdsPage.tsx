@@ -48,6 +48,12 @@ const TicketCard: React.FC<{
                 {it.productName}
               </div>
             </div>
+            {it.variantName && (
+              <div className="text-[11px] font-semibold text-slate-700 mt-0.5">{it.variantName}</div>
+            )}
+            {it.accompanimentNames && it.accompanimentNames.length > 0 && (
+              <div className="text-[11px] text-slate-600 mt-0.5">+ {it.accompanimentNames.join(', ')}</div>
+            )}
             {it.modifiers.length > 0 ? (
               <div className="text-[11px] text-slate-600 mt-0.5">
                 + {it.modifiers.map((m) => m.name).join(', ')}

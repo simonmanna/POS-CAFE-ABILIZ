@@ -20,6 +20,30 @@ export class PosAuthService {
     private readonly audit: AuditService,
   ) {}
 
+  /** List active staff in this org for POS PIN login. */
+  async listStaff() {
+    const organizationId = this.tenant.organizationId;
+    const users = await this.prisma.client.user.findMany({
+      where: { organizationId, isActive: true, deletedAt: null },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        pinHash: true,
+        roles: { select: { name: true } },
+      },
+    });
+    return users.map((u) => ({
+      id: u.id,
+      firstName: u.firstName,
+      lastName: u.lastName,
+      email: u.email,
+      hasPin: !!u.pinHash,
+      roles: u.roles.map((r) => r.name),
+    }));
+  }
+
   /** Verify POS PIN and return user info + permissions. */
   async pinLogin(userId: string, pin: string) {
     const organizationId = this.tenant.organizationId;

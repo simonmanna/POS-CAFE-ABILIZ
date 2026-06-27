@@ -23,13 +23,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Coffee, LayoutGrid, Users, ArrowLeft } from 'lucide-react';
+import { Coffee, LayoutGrid, Users, ArrowLeft, Printer } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 
 import { Topbar } from './Topbar';
 import { OfflineIndicator } from './OfflineIndicator';
 import { enqueueSale } from '@/features/pos/offline-queue';
 import { AddOnsDialog } from './AddOnsDialog';
+import { VariantPicker } from './VariantPicker';
+import { AccompanimentPicker } from './AccompanimentPicker';
 import { CategoryStrip } from './CategoryStrip';
 import { MenuGrid } from './MenuGrid';
 import { OrderPanel } from './OrderPanel';
@@ -42,10 +44,11 @@ import { ShiftOpenDialog } from './ShiftOpenDialog';
 import { ShiftCloseDialog } from './ShiftCloseDialog';
 import { ReceiptPreview, type ReceiptLine } from './ReceiptPreview';
 import { TableSelectorDialog } from './TableSelectorDialog';
-import { SplitBillDialog } from './SplitBillDialog';
+import { MoveItemsDialog } from './MoveItemsDialog';
 import { TransferItemsDialog } from './TransferItemsDialog';
 import { VoidItemDialog } from './VoidItemDialog';
 import { CancelOrderDialog } from './CancelOrderDialog';
+import { ReprintDialog } from './ReprintDialog';
 import type { PosTable } from '@/features/tables/types';
 import { useTables, useTransferItems } from '@/features/tables/api';
 
@@ -54,12 +57,19 @@ import {
   useCheckout,
   useSettleTab,
   useSaveTab,
-  useFireKitchen,
   useStoreCredit,
+  useFireKitchen,
+  usePrintBill,
+  usePrintAdditionalBill,
+  useReprintReceipt,
+  useCreateOrder,
+  useGenerateInvoice,
+  useSettleCredit,
 } from './api';
 import { useMenuItemsAvailable } from '@/features/menu/api';
+import { useMenuItemBundle } from './pos-features-api';
 import { api } from '@/lib/api';
-import { useCartStore, selectTotal } from '@/features/pos/cart.store';
+import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
 import type { Customer } from './types';
 import { useAuthStore } from '@/stores/auth.store';
@@ -104,6 +114,12 @@ function serverLineToCart(l: any): CartLine {
     taxId: l.taxId ?? undefined,
     note: l.note ?? undefined,
     taxInclusive: l.taxInclusive ?? undefined,
+    variantId: l.variantId ?? undefined,
+    variantName: l.variantName ?? undefined,
+    variantPrice: l.variantPrice !== undefined ? Number(l.variantPrice) : undefined,
+    accompanimentOptionIds: l.accompanimentOptionIds ?? undefined,
+    accompanimentNames: l.accompanimentNames ?? undefined,
+    accompanimentPriceImpact: l.accompanimentPriceImpact !== undefined ? Number(l.accompanimentPriceImpact) : undefined,
   };
 }
 
@@ -116,11 +132,19 @@ function cartToReceiptLines(ls: CartLine[]): ReceiptLine[] {
     discountPercent: l.discountPercent,
     note: l.note,
     modifiers: l.modifiers?.map((m) => m.name).filter(Boolean),
+    variantName: l.variantName,
+    accompanimentNames: l.accompanimentNames,
   }));
 }
 
-/** Map a cart line into a checkout / save-tab line payload. */
+/** Map a cart line into a checkout / save-tab line payload.
+ *  Fixed-amount discounts are converted to equivalent percentage (API only
+ *  stores discountPercent on DocumentLine). */
 function cartLineToPayload(l: CartLine) {
+  const base = l.quantity * l.unitPrice;
+  const computedPct = l.discountType === 'fixed' && l.discountAmount
+    ? base > 0 ? Math.min(100, (l.discountAmount / base) * 100) : 0
+    : l.discountPercent;
   return {
     productId: l.productId,
     menuItemId: l.menuItemId,
@@ -129,11 +153,17 @@ function cartLineToPayload(l: CartLine) {
     quantity: l.quantity,
     unitPrice: l.unitPrice,
     taxId: l.taxId,
-    discountPercent: l.discountPercent > 0 ? l.discountPercent : undefined,
+    discountPercent: computedPct > 0 ? computedPct : undefined,
     note: l.note,
     modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
     comboId: l.comboId,
     taxInclusive: l.taxInclusive,
+    variantId: l.variantId,
+    variantName: l.variantName,
+    variantPrice: l.variantPrice,
+    accompanimentOptionIds: l.accompanimentOptionIds,
+    accompanimentNames: l.accompanimentNames,
+    accompanimentPriceImpact: l.accompanimentPriceImpact,
   };
 }
 
@@ -171,7 +201,7 @@ const TerminalPage: React.FC = () => {
   }, [menuPayload, activeCategory, search]);
 
   /* ============== Shift ============== */
-  const { data: session, isLoading: sessionLoading, refetch: refetchSession } = useOpenSession();
+  const { data: session, isLoading: sessionLoading, isFetching: sessionFetching, refetch: refetchSession } = useOpenSession();
   const [showOpenShift, setShowOpenShift] = useState(false);
   const [showCloseShift, setShowCloseShift] = useState(false);
 
@@ -189,8 +219,8 @@ const TerminalPage: React.FC = () => {
   /* ============== Void item ============== */
   const [voidLine, setVoidLine] = useState<CartLine | null>(null);
 
-  /* ============== Split bill ============== */
-  const [showSplitBill, setShowSplitBill] = useState(false);
+  /* ============== Move Items ============== */
+  const [showMoveItems, setShowMoveItems] = useState(false);
 
   /* ============== Transfer items ============== */
   /* Holds the OrderPanel selection while the destination-table dialog is open. */
@@ -211,11 +241,20 @@ const TerminalPage: React.FC = () => {
   /* ============== Receipt preview (Sprint P3) ============== */
   const [showBillPreview, setShowBillPreview] = useState(false);
   const [showKotPreview, setShowKotPreview] = useState(false);
+  const [kotLines, setKotLines] = useState<CartLine[]>([]);
+  const [showAdditionalBillPreview, setShowAdditionalBillPreview] = useState(false);
+  const [additionalBillLines, setAdditionalBillLines] = useState<CartLine[]>([]);
+  const [additionalBillCopy, setAdditionalBillCopy] = useState(1);
+  const [additionalBillPreviousSubtotal, setAdditionalBillPreviousSubtotal] = useState(0);
+  const [additionalBillGrandTotal, setAdditionalBillGrandTotal] = useState(0);
   const [lastCompleted, setLastCompleted] = useState<{
     lines: ReceiptLine[]; total: number; discountPercent: number; discountAmount: number;
     orderTypeLabel?: string; tableLabel?: string; customerName?: string;
-    invoiceNumber?: string;
+    invoiceNumber?: string; invoiceId?: string;
   } | null>(null);
+  const permissions = useAuthStore((s) => s.permissions);
+  const canReprint = permissions?.includes('pos:reports');
+  const [showReprint, setShowReprint] = useState<{ invoiceId: string; title: string } | null>(null);
 
   /* ============== POS Mode (Tables vs Counter) ============== */
   const [posMode, setPosMode] = useState<'tables' | 'counter'>('tables');
@@ -232,8 +271,89 @@ const TerminalPage: React.FC = () => {
   }>>(new Map());
   const currentSentLineIds = useRef<Set<string>>(new Set());
 
-  /* ============== P4: AddOns dialog ============== */
-  const [addOnsFor, setAddOnsFor] = useState<string | null>(null);
+  /* ============== P4: 4-layer order flow (variant → accompaniment → add-ons → cart) ============== */
+  const [pendingItem, setPendingItem] = useState<{
+    productId: string;
+    productName: string;
+    sku: string | null;
+    taxInclusive?: boolean;
+    basePrice: number;
+    variantId?: string;
+    variantName?: string;
+    variantPrice?: number;
+    accompanimentOptionIds?: string[];
+    accompanimentNames?: string[];
+    accompanimentPriceImpact?: number;
+  } | null>(null);
+
+  const { data: pendingBundle } = useMenuItemBundle(pendingItem?.productId ?? null);
+
+  const nextStep = useMemo<'variant' | 'accompaniment' | 'addons' | 'direct' | null>(() => {
+    if (!pendingItem || !pendingBundle) return null;
+    if (pendingBundle.variants.length > 0 && !pendingItem.variantId) return 'variant';
+    if (pendingBundle.accompanimentGroups.length > 0 && !pendingItem.accompanimentOptionIds) return 'accompaniment';
+    if (pendingBundle.groups.length > 0) return 'addons';
+    return 'direct';
+  }, [pendingItem, pendingBundle]);
+
+  const cancelOrderFlow = useCallback(() => setPendingItem(null), []);
+
+  const onVariantConfirm = useCallback((variantId: string, variantName: string, variantPrice: number) => {
+    setPendingItem((prev) => (prev ? { ...prev, variantId, variantName, variantPrice } : prev));
+  }, []);
+
+  const onAccompanimentConfirm = useCallback((selections: Array<{ optionId: string; optionName: string; priceImpact: number }>) => {
+    setPendingItem((prev) =>
+      prev
+        ? {
+            ...prev,
+            accompanimentOptionIds: selections.map((s) => s.optionId),
+            accompanimentNames: selections.map((s) => s.optionName),
+            accompanimentPriceImpact: selections.reduce((sum, s) => sum + s.priceImpact, 0),
+          }
+        : prev,
+    );
+  }, []);
+
+  /** Compute the effective base price for AddOnsDialog = variantPrice ?? basePrice + accompanimentImpact */
+  const effectiveBasePrice = useMemo(() => {
+    if (!pendingItem) return 0;
+    const base = pendingItem.variantPrice ?? pendingItem.basePrice;
+    return base + (pendingItem.accompanimentPriceImpact ?? 0);
+  }, [pendingItem]);
+
+  const onAddAddOnsConfirm = useCallback(
+    (input: {
+      productId: string;
+      productName: string;
+      unitPrice: number;
+      sku: string | null;
+      modifiers: Array<{ modifierId: string; name: string; priceDelta: number }>;
+      quantity: number;
+      note: string;
+      taxInclusive?: boolean;
+    }) => {
+      if (!pendingItem) return;
+      useCartStore.getState().addLine({
+        menuItemId: input.productId,
+        sku: input.sku ?? undefined,
+        name: input.productName,
+        quantity: input.quantity,
+        unitPrice: input.unitPrice,
+        note: input.note || undefined,
+        taxInclusive: input.taxInclusive,
+        modifiers: input.modifiers.length > 0 ? input.modifiers : undefined,
+        variantId: pendingItem.variantId,
+        variantName: pendingItem.variantName,
+        variantPrice: pendingItem.variantPrice,
+        accompanimentOptionIds: pendingItem.accompanimentOptionIds,
+        accompanimentNames: pendingItem.accompanimentNames,
+        accompanimentPriceImpact: pendingItem.accompanimentPriceImpact,
+      });
+      setPendingItem(null);
+    },
+    [pendingItem],
+  );
 
   /* ============== Fullscreen ============== */
   const [fullscreen, setFullscreen] = useState(false);
@@ -241,6 +361,8 @@ const TerminalPage: React.FC = () => {
   /* ============== Cart (zustand) ============== */
   const lines = useCartStore((s) => s.lines);
   const transactionDiscountPercent = useCartStore((s) => s.transactionDiscountPercent);
+  const transactionDiscountType = useCartStore((s) => s.transactionDiscountType);
+  const transactionDiscountAmount = useCartStore((s) => s.transactionDiscountAmount);
   const total = useCartStore(selectTotal);
   const tableId = useCartStore((s) => s.tableId);
   const addLine = useCartStore((s) => s.addLine);
@@ -305,7 +427,14 @@ const TerminalPage: React.FC = () => {
   const settleTabMut = useSettleTab();
   const saveTab = useSaveTab();
   const fireKitchen = useFireKitchen();
+  const printBill = usePrintBill();
+  const printAdditionalBill = usePrintAdditionalBill();
+  const reprintReceipt = useReprintReceipt();
   const transferItemsMut = useTransferItems();
+  /* Credit (postpaid) sale — runs the new Order→Invoice→Receipt pipeline. */
+  const createOrderMut = useCreateOrder();
+  const generateInvoiceMut = useGenerateInvoice();
+  const settleCreditMut = useSettleCredit();
   /* True while we're fetching+loading a table's order — gates auto-save so the
    * cleared/loading cart isn't pushed back to the server. */
   const [pendingTableLoad, setPendingTableLoad] = useState<string | null>(null);
@@ -463,47 +592,54 @@ const TerminalPage: React.FC = () => {
     };
   }, []);
 
-  const locked = !posUser || (!sessionLoading && !session);
+  const locked = !sessionLoading && !session && !sessionFetching;
   const orderTypeLabel = posMode === 'counter' ? 'Takeaway' : 'Dine In';
   const activeTableLabel = selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : null;
   const [showTableSelector, setShowTableSelector] = useState(false);
 
   /* ============== Catalog actions ============== */
-  const onPickProduct = useCallback((p: any) => {
-    if (locked) return;
-    // If the product has a SKU = 'combo:xxx', treat it as a combo line.
-    if (p.sku && p.sku.startsWith('combo:')) {
-      const comboId = p.sku.slice('combo:'.length);
-      addLine({
+  const onPickProduct = useCallback(
+    (p: any) => {
+      if (locked) return;
+      // If the product has a SKU = 'combo:xxx', treat it as a combo line.
+      if (p.sku && p.sku.startsWith('combo:')) {
+        const comboId = p.sku.slice('combo:'.length);
+        addLine({
+          productId: p.id,
+          sku: p.sku,
+          name: p.name,
+          quantity: 1,
+          unitPrice: Number(p.salesPrice || 0),
+          comboId,
+        });
+        return;
+      }
+      // Start the 4-layer order flow (variant → accompaniment → add-ons → cart).
+      // The bundle fetch determines which steps to show; nextStep resolves below.
+      setPendingItem({
         productId: p.id,
+        productName: p.name,
         sku: p.sku,
-        name: p.name,
-        quantity: 1,
-        unitPrice: Number(p.salesPrice || 0),
-        comboId,
+        basePrice: Number(p.salesPrice || 0),
+        taxInclusive: p.taxInclusive,
       });
-      return;
-    }
-    // Open the AddOns dialog if the product has any modifier groups; the
-    // dialog itself handles "no groups" by adding the line directly.
-    setAddOnsFor(p.id);
-  }, [addLine, locked]);
+    },
+    [locked, addLine],
+  );
 
-  const onAddOnsConfirm = useCallback((input: { productId: string; productName: string; unitPrice: number; sku: string | null; modifiers: Array<{ modifierId: string; name: string; priceDelta: number }>; quantity: number; note: string; taxInclusive?: boolean }) => {
-    // input.productId is the MenuItem id (AddOnsDialog uses useMenuItemBundle).
-    // The sale line is a MenuItem, NOT a product — only menuItemId is set.
+  /* When no customization steps exist, add directly to cart. */
+  useEffect(() => {
+    if (nextStep !== 'direct' || !pendingItem) return;
     addLine({
-      menuItemId: input.productId,
-      sku: input.sku ?? undefined,
-      name: input.productName,
-      quantity: input.quantity,
-      unitPrice: input.unitPrice,
-      note: input.note || undefined,
-      taxInclusive: input.taxInclusive,
-      modifiers: input.modifiers.length > 0 ? input.modifiers : undefined,
+      menuItemId: pendingItem.productId,
+      sku: pendingItem.sku ?? undefined,
+      name: pendingItem.productName,
+      quantity: 1,
+      unitPrice: pendingItem.basePrice,
+      taxInclusive: pendingItem.taxInclusive,
     });
-    setAddOnsFor(null);
-  }, [addLine]);
+    setPendingItem(null);
+  }, [nextStep, pendingItem, addLine]);
 
   /* P6: mirror the cart to localStorage so /pos/display (the customer-facing
      pole display) can poll and re-render in real time. */
@@ -607,21 +743,6 @@ const TerminalPage: React.FC = () => {
     setShowPayment(true);
   };
 
-  /* Fire the table's saved order to the kitchen (auto-save flushes first). */
-  const handleSendToKitchen = async () => {
-    if (!tableId) { toast.error('No table selected'); return; }
-    if (lines.length === 0) { toast.error('Order is empty'); return; }
-    try {
-      await saveTab.mutateAsync({ tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id });
-      tabSyncSig.current = orderSig(lines);
-      const res = await fireKitchen.mutateAsync({ tableId });
-      useCartStore.getState().markSentToKitchen(true);
-      toast.success(`Sent ${(res as any)?.count ?? ''} ticket(s) to the kitchen`);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to send to kitchen');
-    }
-  };
-
   /* Settle (pay) the table's order. Flush any pending edit, then open payment. */
   const handleSettleTab = async () => {
     if (!tableId || lines.length === 0) { toast.error('Nothing to settle'); return; }
@@ -673,7 +794,118 @@ const TerminalPage: React.FC = () => {
     }
   }, [tableId, transferSelection, saveTab, customer?.id, transferItemsMut, tables, loadTableOrder]);
 
+  /* Move Items — invoked by MoveItemsDialog after step 2 (destination + selection). */
+  const doMoveItems = useCallback(async (targetId: string, selection: Array<{ lineId: string; quantity: number }>) => {
+    if (!tableId || !selection.length) return;
+    setTransferBusy(true);
+    try {
+      const currentLines = useCartStore.getState().lines;
+      const saved = await saveTab.mutateAsync({ tableId, lines: currentLines.map(cartLineToPayload), partnerId: customer?.id });
+      tabSyncSig.current = orderSig(currentLines);
+      const serverLines: any[] = (saved as any)?.lines ?? [];
+      const items = selection
+        .map((s) => {
+          const idx = currentLines.findIndex((l) => l.lineId === s.lineId);
+          const srv = idx >= 0 ? serverLines[idx] : undefined;
+          return srv ? { lineId: srv.id as string, quantity: s.quantity } : null;
+        })
+        .filter((x): x is { lineId: string; quantity: number } => x != null);
+      if (items.length === 0) { toast.error('Could not match the selected items to the saved order'); return; }
+      const res = await transferItemsMut.mutateAsync({ sourceId: tableId, targetId, items });
+      const moved = ((res as any)?.movedSummary ?? []).reduce((s: number, i: any) => s + Number(i.quantity), 0);
+      const dest = tables.find((t) => t.id === targetId);
+      toast.success(`Moved ${moved} item(s) to T${dest?.number ?? ''}`);
+      setShowMoveItems(false);
+      setPendingTableLoad(tableId);
+      tabSyncSig.current = '__loading__';
+      await loadTableOrder(tableId);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Move failed');
+    } finally {
+      setTransferBusy(false);
+    }
+  }, [tableId, saveTab, customer?.id, transferItemsMut, tables, loadTableOrder]);
+
+  /* Credit / charge-to-account sale: Order → Invoice (credit) → credit-issue
+   * Receipt. Requires a real (non walk-in) customer. Books AR; settled later by
+   * a payment. Runs the new Order→Invoice→Receipt pipeline end-to-end. */
+  const onCreditSale = async () => {
+    if (!customer?.id) { toast.error('Select a customer to charge on account'); return; }
+    if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    const effectiveTxPct = transactionDiscountType === 'fixed' && transactionDiscountAmount > 0
+      ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
+      : transactionDiscountPercent;
+    const orderLines = lines.map((l) => {
+      const base = l.quantity * l.unitPrice;
+      const pct = l.discountType === 'fixed' && l.discountAmount
+        ? base > 0 ? Math.min(100, (l.discountAmount / base) * 100) : 0
+        : l.discountPercent;
+      return {
+        productId: l.productId ?? undefined,
+        menuItemId: l.menuItemId ?? undefined,
+        sku: l.sku ?? undefined,
+        description: l.name,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        taxId: l.taxId ?? undefined,
+        discountPercent: pct > 0 ? pct : undefined,
+        note: l.note ?? undefined,
+        modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
+        comboId: l.comboId ?? undefined,
+        taxInclusive: l.taxInclusive,
+        variantId: l.variantId ?? undefined,
+        accompanimentOptionIds: l.accompanimentOptionIds,
+      };
+    });
+    try {
+      const order = await createOrderMut.mutateAsync({
+        orderType: tableId ? 'dine_in' : 'takeaway',
+        tableId: tableId || undefined,
+        partnerId: customer.id,
+        cashSessionId: session?.id,
+        lines: orderLines,
+      });
+      const invoice = await generateInvoiceMut.mutateAsync({
+        orderId: (order as any).id,
+        paymentMode: 'credit',
+        transactionDiscountPercent: effectiveTxPct,
+      });
+      await settleCreditMut.mutateAsync({ invoiceId: (invoice as any).id, partnerId: customer.id });
+      toast.success(`Charged ${fmt((invoice as any).totalAmount ?? total)} to ${customer.name}'s account`);
+      setLastCompleted({
+        lines: cartToReceiptLines(lines),
+        total,
+        invoiceNumber: (invoice as any).documentNumber,
+        invoiceId: (invoice as any).id,
+        discountPercent: effectiveTxPct,
+        discountAmount: 0,
+        orderTypeLabel: orderTypeLabel ?? undefined,
+        tableLabel: activeTableLabel ?? undefined,
+        customerName: customer.name,
+      });
+      // If this was a dine-in tab, clear the lingering draft + free the table.
+      if (tableId) {
+        try { await saveTab.mutateAsync({ tableId, lines: [], partnerId: customer.id }); } catch { /* best effort */ }
+        tabSyncSig.current = '';
+      }
+      clearCart();
+      setCustomer(null);
+      setShowPayment(false);
+      setSelectedTableId(null);
+      setTableView('grid');
+      setIsTabSettle(false);
+      refetchSession();
+      currentSentLineIds.current.clear();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || 'Credit sale failed');
+    }
+  };
+
   const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; overrideById?: string }) => {
+    /* Compute effective transaction discount percent (handles fixed-amount). */
+    const effectiveTxPct = transactionDiscountType === 'fixed' && transactionDiscountAmount > 0
+      ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
+      : transactionDiscountPercent;
     /* M4: settle the accumulated server tab instead of cart-checkout */
     if (isTabSettle && tableId) {
       const finishSettle = () => {
@@ -691,6 +923,7 @@ const TerminalPage: React.FC = () => {
         const res = await settleTabMut.mutateAsync({
           tableId,
           tenders: input.tenders,
+          transactionDiscountPercent: effectiveTxPct,
           cashSessionId: session?.id,
         });
         toast.success(`Order settled — change ${fmt((res as any).change ?? 0)}`);
@@ -724,26 +957,32 @@ const TerminalPage: React.FC = () => {
       return;
     }
 
-    const checkoutLines = lines.map((l) => ({
-      productId: l.productId,
-      menuItemId: l.menuItemId,
-      sku: l.sku,
-      description: l.name,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      taxId: l.taxId,
-      discountPercent: l.discountPercent > 0 ? l.discountPercent : undefined,
-      note: l.note,
-      // H1: carry add-ons / combo / tax-inclusive through to the server so the
-      // receipt + GL stay authoritative (the API now whitelists these fields).
-      modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
-      comboId: l.comboId,
-      taxInclusive: l.taxInclusive,
-    }));
+    const checkoutLines = lines.map((l) => {
+      const base = l.quantity * l.unitPrice;
+      const pct = l.discountType === 'fixed' && l.discountAmount
+        ? base > 0 ? Math.min(100, (l.discountAmount / base) * 100) : 0
+        : l.discountPercent;
+      return {
+        productId: l.productId,
+        menuItemId: l.menuItemId,
+        sku: l.sku,
+        description: l.name,
+        quantity: l.quantity,
+        unitPrice: l.unitPrice,
+        taxId: l.taxId,
+        discountPercent: pct > 0 ? pct : undefined,
+        note: l.note,
+        modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
+        comboId: l.comboId,
+        taxInclusive: l.taxInclusive,
+        variantId: l.variantId,
+        accompanimentOptionIds: l.accompanimentOptionIds,
+      };
+    });
     const payload = {
       lines: checkoutLines,
       tenders: input.tenders,
-      transactionDiscountPercent: input.transactionDiscountPercent || transactionDiscountPercent,
+      transactionDiscountPercent: effectiveTxPct,
       overrideById: input.overrideById,
       cashSessionId: session?.id,
       branchId: undefined,
@@ -756,20 +995,12 @@ const TerminalPage: React.FC = () => {
     try {
       const res = await checkout.mutateAsync(payload);
       toast.success(`Sale ${res.invoiceNumber} settled — change ${fmt(res.change)}`);
-      // P9: surface any low-stock warnings from the backend.
-      if (res.lowStock && res.lowStock.length > 0) {
-        for (const ls of res.lowStock) {
-          toast.warning(
-            `Low stock: ${ls.productName} — on hand ${ls.onHand}, sold ${ls.requested}`,
-            { duration: 8000 },
-          );
-        }
-      }
+
       setLastCompleted({
         lines: cartToReceiptLines(lines),
-        total, invoiceNumber: res.invoiceNumber,
-        discountPercent: transactionDiscountPercent || 0,
-        discountAmount: transactionDiscountPercent > 0 ? total - lines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0) : 0,
+        total, invoiceNumber: res.invoiceNumber, invoiceId: res.invoiceId,
+        discountPercent: effectiveTxPct,
+        discountAmount: effectiveTxPct > 0 ? total - lines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0) : 0,
         orderTypeLabel: orderTypeLabel ?? undefined,
         tableLabel: activeTableLabel ?? undefined,
         customerName: customer?.name,
@@ -799,8 +1030,8 @@ const TerminalPage: React.FC = () => {
           setLastCompleted({
             lines: cartToReceiptLines(lines),
             total, invoiceNumber: `PENDING-${queued.idempotencyKey.slice(0, 8).toUpperCase()}`,
-            discountPercent: transactionDiscountPercent || 0,
-            discountAmount: transactionDiscountPercent > 0 ? total - lines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0) : 0,
+            discountPercent: effectiveTxPct,
+            discountAmount: effectiveTxPct > 0 ? total - lines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0) : 0,
             orderTypeLabel: orderTypeLabel ?? undefined,
             tableLabel: activeTableLabel ?? undefined,
             customerName: customer?.name,
@@ -830,9 +1061,71 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Hold ============== */
   /* ============== Bill / KOT preview ============== */
-  const onPrintBill = () => {
+  const onPrintBill = async () => {
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    const openOrder = selectedTable?.orders?.find((o) => !o.closedAt);
+    if (!openOrder) { toast.error('No open order on this table'); return; }
+    const billCount = Number(openOrder.document?.billPrintCount ?? 0);
+    if (billCount > 0) {
+      toast.error('Bill already printed. Only Admin/Manager can reprint.');
+      return;
+    }
+    if (openOrder.documentId) {
+      try {
+        await printBill.mutateAsync({ invoiceId: openOrder.documentId });
+      } catch { /* non-fatal */ }
+    }
     setShowBillPreview(true);
+  };
+
+  /* Print only items added since the last bill print. */
+  const onPrintAdditionalBill = async () => {
+    if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    const openOrder = selectedTable?.orders?.find((o) => !o.closedAt);
+    if (!openOrder) { toast.error('No open order on this table'); return; }
+    const billCount = Number(openOrder.document?.billPrintCount ?? 0);
+    if (billCount === 0) {
+      toast.error('Print the initial bill first before printing an additional bill.');
+      return;
+    }
+    try {
+      const saved = await saveTab.mutateAsync({
+        tableId: selectedTableId!,
+        lines: lines.map(cartLineToPayload),
+        partnerId: customer?.id,
+      });
+      const refreshed = await api.get(`/pos/tabs/${selectedTableId!}`).then((r: any) => r.data);
+      const serverLines = (refreshed?.lines ?? []) as any[];
+      const unbilledIds = new Set(
+        serverLines
+          .filter((l: any) => l.billPrintedAt == null)
+          .map((l: any) => l.id),
+      );
+      const srvLines = (saved as any)?.lines ?? [];
+      const matched = lines
+        .map((cartLine) => {
+          const idx = srvLines.findIndex((sl: any) => sl.description === cartLine.name && Number(sl.quantity) === cartLine.quantity);
+          const srvId = idx >= 0 ? srvLines[idx]?.id : undefined;
+          return { cartLine, srvId };
+        })
+        .filter((x) => x.srvId && unbilledIds.has(x.srvId))
+        .map((x) => x.cartLine);
+      if (matched.length === 0) {
+        toast.info('No new items to bill since the last print.');
+        return;
+      }
+      const additionalSubtotal = matched.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0);
+      const docSubtotal = Number(refreshed?.subtotal ?? 0);
+      const previousSubtotal = Math.max(0, docSubtotal - additionalSubtotal);
+      const grandTotal = Number(refreshed?.totalAmount ?? 0);
+      setAdditionalBillLines(matched);
+      setAdditionalBillCopy(billCount + 1);
+      setAdditionalBillPreviousSubtotal(previousSubtotal);
+      setAdditionalBillGrandTotal(grandTotal);
+      setShowAdditionalBillPreview(true);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to prepare additional bill');
+    }
   };
 
   /* ============== Split (placeholder — full split comes with P3 splits) ============== */
@@ -912,32 +1205,6 @@ const TerminalPage: React.FC = () => {
         onChangeMode={setPosMode}
       />
 
-      {/* Workflow stepper */}
-      {/* {hasActiveOrder && !locked ? (
-        <div className="flex items-center justify-center gap-1.5 px-4 py-1.5 bg-white border-b border-slate-100 text-[11px] font-semibold text-slate-500">
-          <span className={sentToKitchen ? 'text-emerald-600' : 'text-amber-600'}>
-            {sentToKitchen ? <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" /> : <Circle className="w-3.5 h-3.5 inline mr-1" />}
-            {orderTypeLabel ?? 'Order'}
-          </span>
-          <span className="text-slate-300 mx-1">›</span>
-          <span className="text-slate-400">
-            {activeTableLabel || (orderType === 'dine-in' ? 'Select table' : '—')}
-          </span>
-          <span className="text-slate-300 mx-1">›</span>
-          <span className={lines.length > 0 ? 'text-slate-800' : 'text-slate-400'}>
-            {lines.length > 0 ? `${lines.length} item${lines.length !== 1 ? 's' : ''}` : 'Add items'}
-          </span>
-          <span className="text-slate-300 mx-1">›</span>
-          <span className={sentToKitchen ? 'text-emerald-600' : 'text-slate-400'}>
-            {sentToKitchen ? 'Sent to kitchen' : 'Kitchen'}
-          </span>
-          <span className="text-slate-300 mx-1">›</span>
-          <span className="text-slate-400">Payment</span>
-          <span className="text-slate-300 mx-1">›</span>
-          <span className="text-slate-400">Receipt</span>
-        </div>
-      ) : null} */}
-
       <div className="pos-body-pro" style={
         tableView === 'grid' || tableView === 'detail'
           ? { gridTemplateColumns: '1fr' }
@@ -959,18 +1226,6 @@ const TerminalPage: React.FC = () => {
           </div>
         ) : tableView === 'grid' ? (
           <div className="flex flex-col h-full">
-            <div className="flex items-center justify-between px-6 py-3 border-b bg-white">
-              <h2 className="text-sm font-bold text-slate-700 uppercase tracking-wider">Tables</h2>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPosMode('counter')}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200"
-                >
-                  Switch to Counter
-                </button>
-              </div>
-            </div>
             <div className="flex-1 overflow-y-auto p-6">
               {tablesLoading ? (
                 <div className="text-center text-slate-400 py-12">Loading tables...</div>
@@ -1051,21 +1306,6 @@ const TerminalPage: React.FC = () => {
         ) : (
           <>
             <div className="pos-menus-pro">
-              <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border-b border-indigo-100 flex-shrink-0">
-                <button
-                  type="button"
-                  onClick={handleGoBackToGrid}
-                  className="flex items-center gap-1 text-xs font-bold text-indigo-700 hover:text-indigo-900"
-                >
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  Tables
-                </button>
-                {selectedTable && (
-                  <span className="text-xs font-bold text-indigo-800">
-                    T{selectedTable.number}{selectedTable.name ? ` ${selectedTable.name}` : ''}
-                  </span>
-                )}
-              </div>
               <CategoryStrip
                 categories={categories as any}
                 activeId={activeCategory}
@@ -1081,6 +1321,8 @@ const TerminalPage: React.FC = () => {
               orderTypeLabel={orderTypeLabel ?? undefined}
               tableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : undefined}
               tableId={tableId}
+              billAlreadyPrinted={!!selectedTable?.orders?.find((o) => !o.closedAt && (o.document?.billPrintCount ?? 0) > 0)}
+              onPrintAdditionalBill={onPrintAdditionalBill}
               onInc={onInc}
               onDec={onDec}
               onRemove={onRemove}
@@ -1093,10 +1335,31 @@ const TerminalPage: React.FC = () => {
               onAddDiscount={() => setShowDiscount(true)}
               onAddTax={onAddTax}
               onCloseOrder={handleCloseOrder}
-              onPrintKot={() => { if (lines.length === 0) { toast.error('Cart is empty'); return; } setShowKotPreview(true); }}
+              onPrintKot={async () => {
+                if (lines.length === 0) { toast.error('Cart is empty'); return; }
+                let printedLineIds = new Set<string>();
+                if (tableId) {
+                  try {
+                    await fireKitchen.mutateAsync({ tableId });
+                    const refreshed = await api.get(`/pos/tabs/${tableId}`).then((r: any) => r.data);
+                    const srvLines = (refreshed?.lines ?? []) as any[];
+                    printedLineIds = new Set(
+                      srvLines
+                        .filter((l: any) => l.kitchenLastPrintedAt != null)
+                        .map((l: any) => l.id),
+                    );
+                  } catch { /* KDS/KOT non-fatal */ }
+                }
+                const unprinted = lines.filter((l) => !printedLineIds.has(l.lineId));
+                if (unprinted.length === 0) {
+                  toast.info('All items already sent to kitchen');
+                  return;
+                }
+                setKotLines(unprinted);
+                setShowKotPreview(true);
+              }}
               onVoidItem={(line) => setVoidLine(line)}
-              onSplitBill={() => setShowSplitBill(true)}
-              onSendToKitchen={tableId ? handleSendToKitchen : undefined}
+              onMoveItems={() => setShowMoveItems(true)}
               onSettleTab={tableId ? handleSettleTab : undefined}
               onTransferItems={tableId ? setTransferSelection : undefined}
             />
@@ -1125,6 +1388,7 @@ const TerminalPage: React.FC = () => {
         onPick={(c) => { setCustomer(c); toast.success(`Customer: ${c.name}`); }}
       />
       <DiscountDialog
+        key={'discount-' + showDiscount}
         open={showDiscount}
         initialPercent={transactionDiscountPercent}
         onClose={() => setShowDiscount(false)}
@@ -1147,6 +1411,8 @@ const TerminalPage: React.FC = () => {
         onRequestOverride={requestOverride}
         onClose={() => { setShowPayment(false); setIsTabSettle(false); }}
         onSettle={onSettle}
+        creditEnabled={!!customer?.id}
+        onCreditSale={onCreditSale}
       />
       <OverrideDialog
         open={!!overrideKind}
@@ -1166,12 +1432,15 @@ const TerminalPage: React.FC = () => {
         }}
       />
 
-      {/* Split bill dialog */}
+      {/* Move Items — 2-step wizard */}
       {tableId ? (
-        <SplitBillDialog
-          open={showSplitBill}
-          onClose={() => setShowSplitBill(false)}
+        <MoveItemsDialog
+          open={showMoveItems}
+          onClose={() => setShowMoveItems(false)}
           tableId={tableId}
+          lines={lines}
+          onConfirm={doMoveItems}
+          busy={transferBusy}
         />
       ) : null}
 
@@ -1206,6 +1475,12 @@ const TerminalPage: React.FC = () => {
         orderTypeLabel={orderTypeLabel ?? undefined}
         tableLabel={activeTableLabel ?? undefined}
         customerName={customer?.name}
+        onPrint={async () => {
+          const docId = selectedTable?.orders?.find((o) => !o.closedAt)?.documentId;
+          if (docId) {
+            try { await printBill.mutateAsync({ invoiceId: docId }); } catch { /* non-fatal */ }
+          }
+        }}
       />
 
       <ReceiptPreview
@@ -1213,11 +1488,32 @@ const TerminalPage: React.FC = () => {
         onClose={() => setShowKotPreview(false)}
         type="kot"
         title="Kitchen Order Ticket"
-        lines={cartToReceiptLines(lines)}
-        total={total}
+        lines={cartToReceiptLines(kotLines)}
+        total={kotLines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0)}
         orderTypeLabel={orderTypeLabel ?? undefined}
         tableLabel={activeTableLabel ?? undefined}
         customerName={customer?.name}
+      />
+
+      <ReceiptPreview
+        open={showAdditionalBillPreview}
+        onClose={() => setShowAdditionalBillPreview(false)}
+        type="bill"
+        title={`Additional Bill #${additionalBillCopy}`}
+        subtitle="ADDITIONAL BILL"
+        lines={cartToReceiptLines(additionalBillLines)}
+        total={additionalBillLines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0)}
+        orderTypeLabel={orderTypeLabel ?? undefined}
+        tableLabel={activeTableLabel ?? undefined}
+        customerName={customer?.name}
+        previousSubtotal={additionalBillPreviousSubtotal}
+        grandTotal={additionalBillGrandTotal}
+        onPrint={async () => {
+          const docId = selectedTable?.orders?.find((o) => !o.closedAt)?.documentId;
+          if (docId) {
+            try { await printAdditionalBill.mutateAsync({ invoiceId: docId }); } catch { /* non-fatal */ }
+          }
+        }}
       />
 
       {lastCompleted && (
@@ -1233,14 +1529,64 @@ const TerminalPage: React.FC = () => {
           orderTypeLabel={lastCompleted.orderTypeLabel}
           tableLabel={lastCompleted.tableLabel}
           customerName={lastCompleted.customerName}
+          onPrint={async () => {
+            if (lastCompleted.invoiceId) {
+              const openOrder = selectedTable?.orders?.find((o) => !o.closedAt);
+              const alreadyPrinted = openOrder ? Number(openOrder.document?.billPrintCount ?? 0) > 0 : false;
+              if (alreadyPrinted) {
+                toast.error('Bill already printed. Only Admin/Manager can reprint.');
+                return;
+              }
+              try { await printBill.mutateAsync({ invoiceId: lastCompleted.invoiceId }); } catch { /* non-fatal */ }
+            }
+          }}
         />
       )}
+      {canReprint && (
+        <>
+          {lastCompleted?.invoiceId && (
+            <button
+              type="button"
+              className="fixed bottom-4 right-4 z-50 bg-sky-700 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-semibold hover:bg-sky-800"
+              onClick={() => setShowReprint({ invoiceId: lastCompleted.invoiceId!, title: 'Receipt' })}
+            >
+              <Printer className="inline h-4 w-4 mr-1" /> Reprint
+            </button>
+          )}
+          <ReprintDialog
+            open={!!showReprint}
+            title={showReprint?.title ?? ''}
+            onClose={() => setShowReprint(null)}
+            onConfirm={(reason) => {
+              if (!showReprint) return;
+              reprintReceipt.mutateAsync({ invoiceId: showReprint.invoiceId, reason });
+              toast.success(`Reprint queued: ${reason}`);
+            }}
+          />
+        </>
+      )}
 
+      {/* P4 4-layer order flow dialogs */}
+      <VariantPicker
+        open={nextStep === 'variant'}
+        productName={pendingItem?.productName ?? ''}
+        variants={pendingBundle?.variants ?? []}
+        onClose={cancelOrderFlow}
+        onConfirm={onVariantConfirm}
+      />
+      <AccompanimentPicker
+        open={nextStep === 'accompaniment'}
+        productName={pendingItem?.productName ?? ''}
+        groups={pendingBundle?.accompanimentGroups ?? []}
+        onClose={cancelOrderFlow}
+        onConfirm={onAccompanimentConfirm}
+      />
       <AddOnsDialog
-        open={!!addOnsFor}
-        productId={addOnsFor}
-        onClose={() => setAddOnsFor(null)}
-        onAdd={onAddOnsConfirm}
+        open={nextStep === 'addons'}
+        productId={pendingItem?.productId ?? null}
+        basePrice={effectiveBasePrice > 0 ? effectiveBasePrice : undefined}
+        onClose={cancelOrderFlow}
+        onAdd={onAddAddOnsConfirm}
       />
 
       {/* Tables (ADR-012) */}

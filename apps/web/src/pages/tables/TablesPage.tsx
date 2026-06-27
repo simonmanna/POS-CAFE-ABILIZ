@@ -203,12 +203,12 @@ export const TablesPage: React.FC = () => {
   }
 
   return (
-    <div className="page-wrap space-y-6">
+    <div className=" p-3 space-y-1">
       {/* ── Hero ── */}
       <div className="page-hero hero-strip">
         <div className="page-hero-inner">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 text-2xl">
+          <div className="flex items-center gap-1">
+            <div className="flex h-10 w-14 items-center justify-center rounded-2xl bg-white/20 backdrop-blur-md border border-white/30 text-2xl">
               <UtensilsCrossed className="h-7 w-7" />
             </div>
             <div>
@@ -326,7 +326,7 @@ export const TablesPage: React.FC = () => {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1">
           {filtered.map((table) => {
             const meta = STATUS_META[table.status];
             const openOrders = (table.orders ?? []).filter((o) => !o.closedAt);

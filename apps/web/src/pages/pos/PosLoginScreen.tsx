@@ -7,7 +7,7 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Coffee, Loader2, AlertCircle } from 'lucide-react';
-import { useUsers } from '@/features/staff/api';
+import { api } from '@/lib/api';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 
 interface Props {
@@ -23,10 +23,23 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
   const [selectedUserId, setSelectedUserId] = useState<string>('');
   const [pin, setPin] = useState('');
   const [localError, setLocalError] = useState<string | null>(null);
+  const [staff, setStaff] = useState<any[]>([]);
+  const [staffLoading, setStaffLoading] = useState(true);
 
-  const { data: userList, isLoading } = useUsers({ page: 1, pageSize: 200 });
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.get('/pos/auth/staff');
+        setStaff(res.data);
+      } catch {
+        console.warn('Failed to load POS staff list');
+      } finally {
+        setStaffLoading(false);
+      }
+    })();
+  }, []);
 
-  const activeUsers = (userList?.data ?? []).filter((u: any) => u.isActive);
+  const activeUsers = staff.filter((u: any) => u.hasPin);
 
   const selectedUser = activeUsers.find((u: any) => u.id === selectedUserId);
 
@@ -97,7 +110,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
           <p className="text-slate-400 text-sm mt-1">Select your name to start</p>
         </div>
 
-        {isLoading ? (
+        {staffLoading ? (
           <div className="flex items-center gap-2 text-slate-400">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading staff…
           </div>

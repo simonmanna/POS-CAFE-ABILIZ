@@ -117,7 +117,20 @@ export class PosTablesService {
       include: {
         orders: {
           where: { closedAt: null },
-          include: { document: { select: { id: true, documentNumber: true, totalAmount: true, status: true } } },
+          include: {
+            document: {
+              select: {
+                id: true,
+                documentNumber: true,
+                totalAmount: true,
+                status: true,
+                billPrintCount: true,
+                billLastPrintedAt: true,
+                receiptPrintCount: true,
+                receiptLastPrintedAt: true,
+              },
+            },
+          },
         },
         reservations: {
           where: { status: { in: ['pending', 'seated'] } },
@@ -143,6 +156,10 @@ export class PosTablesService {
                 totalAmount: true,
                 status: true,
                 createdAt: true,
+                billPrintCount: true,
+                billLastPrintedAt: true,
+                receiptPrintCount: true,
+                receiptLastPrintedAt: true,
               },
             },
           },
@@ -403,11 +420,7 @@ export class PosTablesService {
       // Lock both rows. Always lock the lower id first to avoid deadlock.
       const first = sourceId < targetId ? sourceId : targetId;
       const second = first === sourceId ? targetId : sourceId;
-      await tx.$queryRawUnsafe(
-        `SELECT id FROM "PosTable" WHERE id = ANY($1::uuid[]) AND "organizationId" = $2 ORDER BY id FOR UPDATE`,
-        [first, second],
-        organizationId,
-      );
+      await tx.$queryRaw`SELECT id FROM "PosTable" WHERE id IN (${first}, ${second}) AND "organizationId" = ${organizationId} ORDER BY id FOR UPDATE`;
       const source = await tx.posTable.findFirst({ where: { id: sourceId, organizationId } });
       const target = await tx.posTable.findFirst({ where: { id: targetId, organizationId } });
       if (!source) throw new NotFoundException('Source table not found');
@@ -476,8 +489,7 @@ export class PosTablesService {
           data: { mergedIntoId: targetId, status: 'available' },
         });
       }
-      // Sync status for both tables based on open orders
-      await this.syncTableStatus(sourceId, tx);
+      // Sync target status based on open orders (it absorbed the source's orders).
       await this.syncTableStatus(targetId, tx);
       await this.audit.recordInTx(tx, {
         entity: 'PosTable',
@@ -560,11 +572,7 @@ export class PosTablesService {
     return this.prisma.client.$transaction(async (tx: any) => {
       const first = sourceId < targetId ? sourceId : targetId;
       const second = first === sourceId ? targetId : sourceId;
-      await tx.$queryRawUnsafe(
-        `SELECT id FROM "PosTable" WHERE id = ANY($1::uuid[]) AND "organizationId" = $2 ORDER BY id FOR UPDATE`,
-        [first, second],
-        organizationId,
-      );
+      await tx.$queryRaw`SELECT id FROM "PosTable" WHERE id IN (${first}, ${second}) AND "organizationId" = ${organizationId} ORDER BY id FOR UPDATE`;
       const source = await tx.posTable.findFirst({ where: { id: sourceId, organizationId } });
       const target = await tx.posTable.findFirst({ where: { id: targetId, organizationId } });
       if (!source) throw new NotFoundException('Source table not found');
@@ -648,11 +656,7 @@ export class PosTablesService {
       // Lock both rows (lower id first) to keep concurrent moves deadlock-free.
       const first = sourceId < targetId ? sourceId : targetId;
       const second = first === sourceId ? targetId : sourceId;
-      await tx.$queryRawUnsafe(
-        `SELECT id FROM "PosTable" WHERE id = ANY($1::uuid[]) AND "organizationId" = $2 ORDER BY id FOR UPDATE`,
-        [first, second],
-        organizationId,
-      );
+      await tx.$queryRaw`SELECT id FROM "PosTable" WHERE id IN (${first}, ${second}) AND "organizationId" = ${organizationId} ORDER BY id FOR UPDATE`;
       const source = await tx.posTable.findFirst({ where: { id: sourceId, organizationId } });
       const target = await tx.posTable.findFirst({ where: { id: targetId, organizationId } });
       if (!source) throw new NotFoundException('Source table not found');
@@ -822,9 +826,30 @@ export class PosTablesService {
       quantity: number; unitPrice: number; taxId?: string; discountPercent: number; taxInclusive?: boolean;
     }>,
   ) {
+    // Stash lifecycle fields from old lines before deletion.
+    const oldLines = await tx.documentLine.findMany({
+      where: { documentId },
+      select: {
+        id: true,
+        productId: true,
+        kitchenPrintCount: true,
+        kitchenLastPrintedAt: true,
+        kitchenPrintedQty: true,
+        cancelPrintCount: true,
+        cancelLastPrintedAt: true,
+        lastKitchenPrintedById: true,
+        billPrintedAt: true,
+      },
+    });
+    const lifecycleByProductId = new Map<string, any>();
+    for (const ol of oldLines) {
+      if (ol.productId) lifecycleByProductId.set(ol.productId, ol);
+    }
+
     const totals = await this.builder.prepareLines(tx, inputs);
     await tx.documentLine.deleteMany({ where: { documentId } });
     for (const p of totals.prepared) {
+      const lc = p.productId ? lifecycleByProductId.get(p.productId) : null;
       await tx.documentLine.create({
         data: {
           organizationId,
@@ -842,6 +867,14 @@ export class PosTablesService {
           total: p.total,
           lineNumber: p.lineNumber,
           taxInclusive: p.taxInclusive,
+          // Preserve lifecycle from old lines for the same product.
+          kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
+          kitchenLastPrintedAt: lc?.kitchenLastPrintedAt ?? null,
+          kitchenPrintedQty: lc?.kitchenPrintedQty ?? null,
+          cancelPrintCount: lc?.cancelPrintCount ?? 0,
+          cancelLastPrintedAt: lc?.cancelLastPrintedAt ?? null,
+          lastKitchenPrintedById: lc?.lastKitchenPrintedById ?? null,
+          billPrintedAt: lc?.billPrintedAt ?? null,
         },
       });
     }
@@ -956,6 +989,21 @@ export class PosTablesService {
       // DocumentBuilder so tax + document-level totals are computed correctly —
       // the old hand-rolled lines wrote taxAmount:0 and left the doc total null.
       const created: string[] = [];
+
+      // Phase T5: stash kitchen print lifecycle from source lines so split
+      // tickets don't re-print items already sent to the kitchen.
+      const srcLifecycle = new Map<string, any>();
+      for (const ln of sourceDoc.lines) {
+        srcLifecycle.set(ln.id, {
+          kitchenPrintCount: ln.kitchenPrintCount ?? 0,
+          kitchenLastPrintedAt: ln.kitchenLastPrintedAt ?? null,
+          kitchenPrintedQty: ln.kitchenPrintedQty ?? null,
+          cancelPrintCount: ln.cancelPrintCount ?? 0,
+          cancelLastPrintedAt: ln.cancelLastPrintedAt ?? null,
+          lastKitchenPrintedById: ln.lastKitchenPrintedById ?? null,
+        });
+      }
+
       for (const split of args.splits) {
         const newDoc = await this.builder.createDocument(
           tx,
@@ -995,6 +1043,27 @@ export class PosTablesService {
             notes: `Split from ${sourceDoc.documentNumber}`,
           },
         });
+        // Phase T5: inherit kitchen print lifecycle from source lines so
+        // already-printed items aren't re-sent to the kitchen on split tickets.
+        const splitSrcLineIds = split.lines.map((ln: any) => ln.sourceLineId);
+        const newLines = (newDoc as any).lines ?? [];
+        for (let i = 0; i < newLines.length; i++) {
+          const srcId = splitSrcLineIds[i];
+          if (!srcId) continue;
+          const lc = srcLifecycle.get(srcId);
+          if (!lc) continue;
+          await tx.documentLine.update({
+            where: { id: newLines[i].id },
+            data: {
+              kitchenPrintCount: lc.kitchenPrintCount,
+              kitchenLastPrintedAt: lc.kitchenLastPrintedAt,
+              kitchenPrintedQty: lc.kitchenPrintedQty,
+              cancelPrintCount: lc.cancelPrintCount,
+              cancelLastPrintedAt: lc.cancelLastPrintedAt,
+              lastKitchenPrintedById: lc.lastKitchenPrintedById,
+            },
+          });
+        }
         created.push(newDoc.id);
       }
       // Mark the source document as cancelled (kept for audit; cannot be

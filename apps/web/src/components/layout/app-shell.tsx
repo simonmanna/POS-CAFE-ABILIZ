@@ -76,12 +76,13 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/menu', label: 'Menu', icon: Coffee, permission: PERMISSIONS.menu.view },
       { to: '/tables', label: 'Tables', icon: Coffee, permission: PERMISSIONS.menu.view },
       { to: '/menu/modifiers', label: 'Modifiers', icon: Tag, permission: PERMISSIONS.menu.view },
+      { to: '/menu/accompaniments', label: 'Accompaniments', icon: Tag, permission: PERMISSIONS.menu.view },
     ],
   },
   {
     title: 'Sales',
     items: [
-      { to: '/invoices', label: 'Invoices', icon: Receipt, permission: PERMISSIONS.invoice.read },
+      { to: '/invoices', label: 'Sales/Invoices', icon: Receipt, permission: PERMISSIONS.invoice.read },
       { to: '/credit-notes', label: 'Credit Notes', icon: FileMinus, permission: PERMISSIONS.creditNote.read },
       { to: '/payments', label: 'Receipts', icon: HandCoins, permission: PERMISSIONS.payment.read },
       { to: '/ar-aging', label: 'AR Aging', icon: Clock, permission: PERMISSIONS.report.ar },
@@ -191,7 +192,7 @@ export function AppShell() {
   // ── Sidebar rendering: themed background, brand tile, themed nav items ──
   const renderNav = (onItemClick?: () => void, collapsed = false) => {
     return (
-      <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-3">
+      <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-1">
         {NAV_SECTIONS.map((section, idx) => {
           const items = section.items.filter(
             (i) => !i.permission || hasPermission(i.permission),
@@ -386,7 +387,7 @@ export function AppShell() {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur print:hidden md:px-6">
+        <header className="sticky top-0 z-30 flex h-11 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur print:hidden md:px-6">
           <div className="flex min-w-0 items-center gap-2">
             <Button
               variant="ghost"
@@ -448,7 +449,11 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto p-4 md:p-6">
+        <main
+          className={`flex-1 overflow-auto ${
+            location.pathname.startsWith('/pos/terminal') ? 'p-1 md:p-1' : 'p-1 md:p-1'
+          }`}
+        >
           <Outlet />
         </main>
       </div>

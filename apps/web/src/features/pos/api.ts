@@ -108,6 +108,9 @@ export function useCheckout() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-holds'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['cash-session'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
     },
   });
 }

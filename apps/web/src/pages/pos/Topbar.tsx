@@ -69,7 +69,7 @@ export const Topbar: React.FC<Props> = ({
   return (
     <div className="pos-topbar-pro">
       <div className="pos-brand-pro">
-        <Coffee className="h-5 w-5" />
+        <Coffee className="h-4 w-4" />
         <span>Cafe POS</span>
       </div>
 

@@ -25,7 +25,7 @@ export const CategoryStrip: React.FC<Props> = ({ categories, activeId, onSelect 
           type="button"
           className={'pos-cat-pill-pro' + (activeId === c.id ? ' active' : '')}
           onClick={() => onSelect(c.id)}
-          style={activeId === c.id ? { background: c.color || '#1e293b', borderColor: c.color || '#1e293b' } : {}}
+          style={activeId === c.id ? { background: c.color || '#3b82f6', borderColor: c.color || '#3b82f6' } : {}}
         >
           {c.icon ? <span className="pos-cat-emoji">{c.icon}</span> : null}
           {c.name}

@@ -1,0 +1,594 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import {
+  BadRequestException, ConflictException, Injectable, Logger, NotFoundException,
+} from '@nestjs/common';
+import { EVENTS } from '@erp/shared';
+import { PrismaService } from '../../../kernel/prisma/prisma.service';
+import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
+import { AuditService } from '../../../kernel/audit/audit.service';
+import { EventBus } from '../../../kernel/events/event-bus';
+import { SequenceService } from '../../../kernel/sequence/sequence.service';
+import { DocumentBuilderService } from '../../invoicing/document/document-builder.service';
+import { PosVariantService } from '../pos-variant.service';
+import { PosAccompanimentService } from '../pos-accompaniment.service';
+import { PosModifiersService } from '../pos-modifiers.service';
+import { PosKdsService } from '../pos-kds.service';
+import { dec } from '../../../kernel/common/money';
+import type { CreateOrderDto, SaveOrderItemsDto, AddOrderItemsDto, OrderLineDto } from './dto/order.dto';
+
+/** A cart line resolved to ledger-ready values (modifiers/variant folded into unitPrice). */
+interface ResolvedLine {
+  productId: string | null;
+  menuItemId: string | null;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxId: string | null;
+  discountPercent: number;
+  note: string | null;
+  taxInclusive: boolean | undefined;
+  modifiers: Array<{ modifierId: string; name: string; priceDelta: number }>;
+  variantName?: string;
+  accompanimentNames: string[];
+  station: 'bar' | 'kitchen' | 'cafe';
+}
+
+/**
+ * Operational Order aggregate (the restaurant-ops layer of the Order→Invoice→
+ * Receipt split). Owns the draft/open lifecycle, item editing, the per-item
+ * kitchen flow (KOT), and table/waiter assignment. No GL/stock/cash effect
+ * happens here — that is deferred to PosBillingService at bill generation.
+ */
+@Injectable()
+export class PosOrdersService {
+  private readonly logger = new Logger('PosOrdersService');
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantContextService,
+    private readonly audit: AuditService,
+    private readonly events: EventBus,
+    private readonly sequence: SequenceService,
+    private readonly builder: DocumentBuilderService,
+    private readonly variants: PosVariantService,
+    private readonly accompaniments: PosAccompanimentService,
+    private readonly modifiers: PosModifiersService,
+    private readonly kds: PosKdsService,
+  ) {}
+
+  // ─── Queries ───────────────────────────────────────────────────────────────
+
+  async getOrder(orderId: string) {
+    const orgId = this.tenant.organizationId;
+    const order = await this.prisma.client.order.findFirst({
+      where: { id: orderId, organizationId: orgId },
+      include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true } }, invoice: true },
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
+  }
+
+  /** The current open (un-billed) order on a table, or null. */
+  async getOpenOrderForTable(tableId: string) {
+    const orgId = this.tenant.organizationId;
+    return this.prisma.client.order.findFirst({
+      where: { organizationId: orgId, tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] }, invoiceId: null },
+      orderBy: { openedAt: 'desc' },
+      include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true } } },
+    });
+  }
+
+  async list(filter: { status?: string; tableId?: string; cashSessionId?: string } = {}) {
+    const orgId = this.tenant.organizationId;
+    return this.prisma.client.order.findMany({
+      where: {
+        organizationId: orgId,
+        ...(filter.status ? { status: filter.status as any } : {}),
+        ...(filter.tableId ? { tableId: filter.tableId } : {}),
+        ...(filter.cashSessionId ? { cashSessionId: filter.cashSessionId } : {}),
+      },
+      orderBy: { openedAt: 'desc' },
+      take: 200,
+      include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' } } },
+    });
+  }
+
+  // ─── Lifecycle ───────────────────────────────────────────────────────────────
+
+  /** Create a new order. Number is assigned immediately. Items are optional. */
+  async createOrder(dto: CreateOrderDto) {
+    const orgId = this.tenant.organizationId;
+    const partnerId = dto.partnerId ?? (await this.ensureWalkInCustomer(orgId));
+    if (dto.lines?.length) await this.validateLines(dto.lines);
+    const resolved = dto.lines?.length ? await this.resolveLines(dto.lines) : [];
+
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const orderNumber = await this.nextOrderNumber(tx);
+      const order = await tx.order.create({
+        data: {
+          organizationId: orgId,
+          orderNumber,
+          orderType: dto.orderType ?? 'dine_in',
+          status: 'open',
+          tableId: dto.tableId ?? null,
+          partnerId,
+          waiterId: dto.waiterId ?? this.tenant.userId ?? null,
+          branchId: dto.branchId ?? null,
+          cashSessionId: dto.cashSessionId ?? null,
+          guestCount: dto.guestCount ?? null,
+          notes: dto.notes ?? null,
+          createdBy: this.tenant.userId ?? null,
+        },
+      });
+      if (resolved.length) await this.writeItems(tx, order.id, resolved);
+      await this.syncTableOnOpen(tx, dto.tableId);
+      const fresh = await this.reload(tx, order.id);
+      this.events.publish(EVENTS.PosOrderCreated, {
+        organizationId: orgId, orderId: order.id, orderNumber, tableId: dto.tableId,
+      });
+      await this.audit.recordInTx(tx, {
+        entity: 'Order', entityId: order.id, action: 'create',
+        newValues: { orderNumber, tableId: dto.tableId ?? null, lineCount: resolved.length },
+      });
+      return fresh;
+    });
+  }
+
+  /** Auto-save: replace the order's item set with EXACTLY these lines. */
+  async saveItems(orderId: string, dto: SaveOrderItemsDto) {
+    const orgId = this.tenant.organizationId;
+    if (dto.lines?.length) await this.validateLines(dto.lines);
+    const resolved = dto.lines?.length ? await this.resolveLines(dto.lines) : [];
+
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const order = await this.lockOrder(tx, orderId);
+      this.assertEditable(order);
+      this.assertVersion(order, dto.expectedVersion);
+      await this.writeItems(tx, orderId, resolved, { replace: true, transactionDiscountPercent: dto.transactionDiscountPercent });
+      if (dto.guestCount != null || dto.partnerId) {
+        await tx.order.update({
+          where: { id: orderId },
+          data: {
+            ...(dto.guestCount != null ? { guestCount: dto.guestCount } : {}),
+            ...(dto.partnerId ? { partnerId: dto.partnerId } : {}),
+          },
+        });
+      }
+      const fresh = await this.reload(tx, orderId);
+      this.events.publish(EVENTS.PosOrderUpdated, { organizationId: orgId, orderId, version: fresh.version });
+      return fresh;
+    });
+  }
+
+  /** Append a round of items to an order (creates none — order must exist). */
+  async addItems(orderId: string, dto: AddOrderItemsDto) {
+    const orgId = this.tenant.organizationId;
+    await this.validateLines(dto.lines);
+    const resolved = await this.resolveLines(dto.lines);
+
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
+      const order = await this.lockOrder(tx, orderId);
+      this.assertEditable(order);
+      await this.writeItems(tx, orderId, resolved, { append: true, transactionDiscountPercent: dto.transactionDiscountPercent });
+      if (dto.guestCount != null) await tx.order.update({ where: { id: orderId }, data: { guestCount: dto.guestCount } });
+      return this.reload(tx, orderId);
+    });
+
+    if (dto.sendToKitchen) {
+      await this.fireKitchen(orderId).catch((e) => this.logger.warn(`addItems fire-kitchen failed: ${String(e?.message ?? e)}`));
+    }
+    return result;
+  }
+
+  /** Cancel the whole order (only while un-billed). */
+  async cancelOrder(orderId: string, reason?: string) {
+    const orgId = this.tenant.organizationId;
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const order = await this.lockOrder(tx, orderId);
+      if (order.invoiceId) throw new ConflictException('Order already billed — refund/void the invoice instead');
+      if (order.status === 'cancelled' || order.status === 'closed') return order;
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: reason ?? null, version: { increment: 1 } },
+      });
+      await this.syncTableOnClose(tx, order.tableId);
+      this.events.publish(EVENTS.PosOrderCancelled, { organizationId: orgId, orderId, reason });
+      await this.audit.recordInTx(tx, { entity: 'Order', entityId: orderId, action: 'cancel', newValues: { reason: reason ?? null } });
+      return updated;
+    });
+  }
+
+  /** Reopen a cancelled order (un-billed only). */
+  async reopenOrder(orderId: string) {
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const order = await this.lockOrder(tx, orderId);
+      if (order.invoiceId) throw new ConflictException('Billed orders cannot be reopened');
+      if (order.status !== 'cancelled') throw new BadRequestException('Only a cancelled order can be reopened');
+      const updated = await tx.order.update({
+        where: { id: orderId },
+        data: { status: 'open', cancelledAt: null, cancelReason: null, version: { increment: 1 } },
+      });
+      await this.syncTableOnOpen(tx, order.tableId);
+      return updated;
+    });
+  }
+
+  /** Move an open order to another table. */
+  async moveTable(orderId: string, targetTableId: string) {
+    const orgId = this.tenant.organizationId;
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const order = await this.lockOrder(tx, orderId);
+      this.assertEditable(order);
+      const target = await tx.posTable.findFirst({ where: { id: targetTableId, organizationId: orgId } });
+      if (!target) throw new NotFoundException('Target table not found');
+      if (target.status === 'out_of_service') throw new ConflictException('Target table is out of service');
+      const sourceTableId = order.tableId;
+      const updated = await tx.order.update({ where: { id: orderId }, data: { tableId: targetTableId, version: { increment: 1 } } });
+      await this.syncTableOnClose(tx, sourceTableId);
+      await this.syncTableOnOpen(tx, targetTableId);
+      await this.audit.recordInTx(tx, { entity: 'Order', entityId: orderId, action: 'transfer', newValues: { from: sourceTableId, to: targetTableId } });
+      return updated;
+    });
+  }
+
+  /** Merge a source order's items into this (target) order; source is cancelled. */
+  async mergeOrders(targetOrderId: string, sourceOrderId: string) {
+    if (targetOrderId === sourceOrderId) throw new BadRequestException('Cannot merge an order into itself');
+    const orgId = this.tenant.organizationId;
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const target = await this.lockOrder(tx, targetOrderId);
+      const source = await this.lockOrder(tx, sourceOrderId);
+      this.assertEditable(target);
+      this.assertEditable(source);
+      const srcItems = await tx.orderItem.findMany({
+        where: { orderId: sourceOrderId, cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' },
+      });
+      const tgtItems = await tx.orderItem.findMany({
+        where: { orderId: targetOrderId, cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' },
+      });
+      const merged: ResolvedLine[] = [...tgtItems, ...srcItems].map((it: any) => this.itemToResolved(it));
+      await this.writeItems(tx, targetOrderId, merged, { replace: true });
+      await tx.order.update({
+        where: { id: sourceOrderId },
+        data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: `Merged into ${target.orderNumber}`, version: { increment: 1 } },
+      });
+      await this.syncTableOnClose(tx, source.tableId);
+      await this.audit.recordInTx(tx, { entity: 'Order', entityId: targetOrderId, action: 'merge' as any, newValues: { sourceOrderId } });
+      return this.reload(tx, targetOrderId);
+    });
+  }
+
+  // ─── Kitchen (KOT) ───────────────────────────────────────────────────────────
+
+  /**
+   * Fire the order's un-printed item quantities (delta) to the KDS, one ticket
+   * per station. Marks each item sent so re-firing only sends genuinely new qty.
+   */
+  async fireKitchen(orderId: string) {
+    const orgId = this.tenant.organizationId;
+    const order = await this.prisma.client.order.findFirst({ where: { id: orderId, organizationId: orgId } });
+    if (!order) throw new NotFoundException('Order not found');
+    const items = await this.prisma.client.orderItem.findMany({
+      where: { orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
+    });
+
+    const deltas: Array<{ item: any; delta: number }> = [];
+    for (const it of items as any[]) {
+      if (!it.productId) continue;
+      const printed = Number(it.kitchenPrintedQty ?? 0);
+      const delta = Number(it.quantity) - printed;
+      if (delta > 0) deltas.push({ item: it, delta });
+    }
+    if (deltas.length === 0) return { ticketIds: [], count: 0, message: 'No new items to send' };
+
+    const productIds = [...new Set(deltas.map((d) => d.item.productId))];
+    const products = await this.prisma.client.product.findMany({ where: { id: { in: productIds } }, select: { id: true, station: true } });
+    const stationMap = new Map(products.map((p) => [p.id, (p as any).station ?? 'cafe']));
+
+    const kdsItems = deltas.map(({ item, delta }) => ({
+      productId: item.productId,
+      productName: item.description,
+      quantity: delta,
+      modifiers: (item.modifiers ?? []).map((m: any) => ({ name: m.name, priceDelta: Number(m.priceDelta) })),
+      notes: item.note ?? null,
+      station: stationMap.get(item.productId) ?? 'cafe',
+      accompanimentNames: item.accompanimentNames ?? [],
+    }));
+
+    const ticketIds = await this.kds.createTicketsForSale({ orderId, label: order.orderNumber, items: kdsItems as any });
+
+    const now = new Date();
+    for (const { item } of deltas) {
+      await this.prisma.client.orderItem.update({
+        where: { id: item.id },
+        data: {
+          kitchenPrintedQty: item.quantity,
+          kitchenStatus: 'sent',
+          kitchenPrintCount: { increment: 1 },
+          kitchenLastPrintedAt: now,
+          lastKitchenPrintedById: this.tenant.userId ?? null,
+        },
+      });
+    }
+    if (order.status === 'open') {
+      await this.prisma.client.order.update({ where: { id: orderId }, data: { status: 'preparing' } });
+    }
+    await this.audit.record({ entity: 'Order', entityId: orderId, action: 'update' as any, newValues: { kind: 'fire_kitchen', tickets: ticketIds.length } });
+    return { ticketIds, count: ticketIds.length };
+  }
+
+  // ─── Internals ───────────────────────────────────────────────────────────────
+
+  /** ORD-YYYYMMDD-NNNNNN. Date-keyed sequence so each day restarts at 1. */
+  private async nextOrderNumber(tx: any): Promise<string> {
+    const d = new Date();
+    const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+    return this.sequence.next(`order:${ymd}`, { prefix: `ORD-${ymd}-`, padding: 6 }, tx);
+  }
+
+  /** Validate variant + modifier rules server-side before pricing. */
+  private async validateLines(lines: OrderLineDto[]): Promise<void> {
+    for (const ln of lines) {
+      if (ln.variantId && ln.menuItemId) await this.variants.validateVariant(ln.menuItemId, ln.variantId);
+    }
+    await this.modifiers.validateSelections(lines as any);
+  }
+
+  /** Resolve cart lines into ledger-ready lines (folds variant/accompaniment/modifier into unitPrice, expands combos). */
+  private async resolveLines(inputLines: OrderLineDto[]): Promise<ResolvedLine[]> {
+    const orgId = this.tenant.organizationId;
+    const skuMap = await this.resolveSkus(inputLines);
+    const productStationCache = new Map<string, 'bar' | 'kitchen' | 'cafe'>();
+    const stationFor = async (productId: string | null): Promise<'bar' | 'kitchen' | 'cafe'> => {
+      if (!productId) return 'cafe';
+      if (productStationCache.has(productId)) return productStationCache.get(productId)!;
+      const p = await this.prisma.client.product.findFirst({ where: { id: productId }, select: { station: true } });
+      const st = ((p as any)?.station ?? 'cafe') as 'bar' | 'kitchen' | 'cafe';
+      productStationCache.set(productId, st);
+      return st;
+    };
+
+    const lines: ResolvedLine[] = [];
+    for (const l of inputLines) {
+      const modifierDelta = (l.modifiers ?? []).reduce((s, m) => s + Number(m.priceDelta), 0);
+      let variantName: string | undefined;
+      let variantPrice = 0;
+      let hasVariant = false;
+      if (l.variantId && l.menuItemId) {
+        const v = await this.variants.validateVariant(l.menuItemId, l.variantId);
+        variantName = v.name; variantPrice = v.price; hasVariant = true;
+      }
+      let accompanimentImpact = 0;
+      let accompanimentNames: string[] = [];
+      if (l.accompanimentOptionIds?.length && l.menuItemId) {
+        const r = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds);
+        accompanimentImpact = r.priceImpact; accompanimentNames = r.names;
+      }
+      const baseUnitPrice = hasVariant ? variantPrice : l.unitPrice;
+      const finalUnitPrice = baseUnitPrice + accompanimentImpact + modifierDelta;
+      const noteParts: string[] = [];
+      if (l.note) noteParts.push(l.note);
+      if (accompanimentNames.length) noteParts.push(...accompanimentNames.map((n) => `+ ${n}`));
+      if (l.modifiers?.length) noteParts.push(...l.modifiers.map((m) => `+ ${m.name}`));
+      const productId = l.productId ?? skuMap.get(l.sku?.toLowerCase() ?? '') ?? null;
+      lines.push({
+        productId,
+        menuItemId: l.menuItemId ?? null,
+        description: l.description,
+        quantity: l.quantity,
+        unitPrice: finalUnitPrice,
+        taxId: l.taxId ?? null,
+        discountPercent: l.discountPercent ?? 0,
+        note: noteParts.length ? noteParts.join(' | ') : null,
+        taxInclusive: l.taxInclusive,
+        modifiers: l.modifiers ?? [],
+        variantName,
+        accompanimentNames,
+        station: await stationFor(productId),
+      });
+    }
+
+    // Expand combos into component lines (first component carries the combo price).
+    const expanded: ResolvedLine[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const ln = lines[i];
+      const src = inputLines[i];
+      if (!src.comboId) { expanded.push(ln); continue; }
+      const comps = await this.modifiers.expandCombosForCheckout([{ comboId: src.comboId, quantity: ln.quantity }]);
+      for (let j = 0; j < comps.length; j++) {
+        const c: any = comps[j];
+        expanded.push({
+          ...ln,
+          productId: c.productId,
+          unitPrice: j === 0 ? Number(c.comboPrice ?? ln.unitPrice) : 0,
+          station: await stationFor(c.productId),
+        });
+      }
+    }
+    return expanded;
+  }
+
+  /** Map an existing OrderItem row back to a ResolvedLine (for merge). */
+  private itemToResolved(it: any): ResolvedLine {
+    return {
+      productId: it.productId ?? null,
+      menuItemId: it.menuItemId ?? null,
+      description: it.description,
+      quantity: Number(it.quantity),
+      unitPrice: Number(it.unitPrice),
+      taxId: it.taxId ?? null,
+      discountPercent: Number(it.discountPercent ?? 0),
+      note: it.note ?? null,
+      taxInclusive: it.taxInclusive,
+      modifiers: (it.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId, name: m.name, priceDelta: Number(m.priceDelta) })),
+      accompanimentNames: it.accompanimentNames ?? [],
+      station: 'cafe',
+    };
+  }
+
+  /**
+   * Persist resolved lines as OrderItems and recompute the order header totals.
+   * `replace` wipes existing items first (auto-save); `append` keeps them.
+   * Kitchen lifecycle counters are preserved across a replace by productId.
+   */
+  private async writeItems(
+    tx: any,
+    orderId: string,
+    resolved: ResolvedLine[],
+    opts: { replace?: boolean; append?: boolean; transactionDiscountPercent?: number } = {},
+  ): Promise<void> {
+    const orgId = this.tenant.organizationId;
+
+    let baseline: ResolvedLine[] = [];
+    let lifecycleByPid = new Map<string, any>();
+    if (opts.append) {
+      const existing = await tx.orderItem.findMany({ where: { orderId, cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' } });
+      baseline = existing.map((it: any) => this.itemToResolved(it));
+    } else if (opts.replace) {
+      const old = await tx.orderItem.findMany({ where: { orderId }, select: { id: true, productId: true, kitchenPrintCount: true, kitchenLastPrintedAt: true, kitchenPrintedQty: true, cancelPrintCount: true, cancelLastPrintedAt: true, lastKitchenPrintedById: true, kitchenStatus: true } });
+      for (const o of old) if (o.productId) lifecycleByPid.set(o.productId, o);
+    }
+    const all = [...baseline, ...resolved];
+
+    // Price through the tax engine for authoritative subtotal/tax/total.
+    const totals = await this.builder.prepareLines(tx, all.map((l) => ({
+      productId: l.productId ?? undefined,
+      menuItemId: l.menuItemId ?? undefined,
+      description: l.description,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      taxId: l.taxId ?? undefined,
+      discountPercent: l.discountPercent,
+      taxInclusive: l.taxInclusive,
+    })));
+
+    if (opts.replace || opts.append) {
+      await tx.orderItem.deleteMany({ where: { orderId } });
+    }
+
+    for (let i = 0; i < totals.prepared.length; i++) {
+      const p = totals.prepared[i];
+      const lc = p.productId ? lifecycleByPid.get(p.productId) : null;
+      const src = all[i];
+      const item = await tx.orderItem.create({
+        data: {
+          organizationId: orgId,
+          orderId,
+          productId: p.productId,
+          menuItemId: p.menuItemId,
+          description: p.description,
+          quantity: p.quantity,
+          unitPrice: p.unitPrice,
+          discountPercent: p.discountPercent,
+          taxId: p.taxId,
+          taxInclusive: p.taxInclusive,
+          note: src?.note ?? null,
+          accompanimentNames: src?.accompanimentNames ?? [],
+          lineNumber: p.lineNumber,
+          kitchenStatus: lc?.kitchenStatus ?? 'pending',
+          kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
+          kitchenLastPrintedAt: lc?.kitchenLastPrintedAt ?? null,
+          kitchenPrintedQty: lc?.kitchenPrintedQty ?? null,
+          cancelPrintCount: lc?.cancelPrintCount ?? 0,
+          cancelLastPrintedAt: lc?.cancelLastPrintedAt ?? null,
+          lastKitchenPrintedById: lc?.lastKitchenPrintedById ?? null,
+        },
+      });
+      const mods = src?.modifiers ?? [];
+      if (mods.length) {
+        await tx.orderItemModifier.createMany({
+          data: mods.map((m) => ({ organizationId: orgId, orderItemId: item.id, modifierId: m.modifierId ?? null, name: m.name, priceDelta: m.priceDelta })),
+        });
+      }
+    }
+
+    // Apply optional order-level discount to the header total snapshot.
+    let totalAmount = totals.total;
+    let discountTotal = totals.discountTotal;
+    const txPct = opts.transactionDiscountPercent ?? 0;
+    if (txPct > 0) {
+      const txDisc = dec(totals.total).times(dec(txPct).dividedBy(100));
+      totalAmount = dec(totals.total).minus(txDisc) as any;
+      discountTotal = dec(totals.discountTotal).plus(txDisc) as any;
+    }
+
+    await tx.order.update({
+      where: { id: orderId },
+      data: {
+        subtotal: totals.subtotal,
+        discountTotal,
+        taxAmount: totals.taxAmount,
+        totalAmount,
+        ...(txPct > 0 ? { transactionDiscountPercent: txPct } : {}),
+        version: { increment: 1 },
+      },
+    });
+  }
+
+  private async reload(tx: any, orderId: string) {
+    return tx.order.findFirst({
+      where: { id: orderId },
+      include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true } } },
+    });
+  }
+
+  private async lockOrder(tx: any, orderId: string) {
+    const orgId = this.tenant.organizationId;
+    await tx.$queryRawUnsafe(`SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, orderId, orgId);
+    const order = await tx.order.findFirst({ where: { id: orderId, organizationId: orgId } });
+    if (!order) throw new NotFoundException('Order not found');
+    return order;
+  }
+
+  private assertEditable(order: any): void {
+    if (order.invoiceId) throw new ConflictException('Order is already billed and cannot be edited');
+    if (order.status === 'cancelled') throw new ConflictException('Order is cancelled');
+    if (order.status === 'closed') throw new ConflictException('Order is closed');
+  }
+
+  private assertVersion(order: any, expected?: number): void {
+    if (expected != null && order.version !== expected) {
+      throw new ConflictException(`Order was modified by someone else (expected v${expected}, found v${order.version}). Reload and retry.`);
+    }
+  }
+
+  private async syncTableOnOpen(tx: any, tableId?: string | null): Promise<void> {
+    if (!tableId) return;
+    const table = await tx.posTable.findFirst({ where: { id: tableId } });
+    if (!table || table.status === 'out_of_service' || table.status === 'reserved') return;
+    if (table.status !== 'occupied') await tx.posTable.update({ where: { id: tableId }, data: { status: 'occupied' } });
+  }
+
+  private async syncTableOnClose(tx: any, tableId?: string | null): Promise<void> {
+    if (!tableId) return;
+    const open = await tx.order.count({ where: { tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] }, invoiceId: null } });
+    const table = await tx.posTable.findFirst({ where: { id: tableId } });
+    if (!table || table.status === 'out_of_service' || table.status === 'reserved') return;
+    const next = open > 0 ? 'occupied' : 'available';
+    if (table.status !== next) await tx.posTable.update({ where: { id: tableId }, data: { status: next as any } });
+  }
+
+  private async resolveSkus(lines: OrderLineDto[]): Promise<Map<string, string>> {
+    const skus = Array.from(new Set(lines.filter((l) => !l.productId && l.sku).map((l) => l.sku!.toLowerCase())));
+    if (skus.length === 0) return new Map();
+    const products = await this.prisma.client.product.findMany({
+      where: { organizationId: this.tenant.organizationId, isActive: true, OR: [{ sku: { in: skus, mode: 'insensitive' } }, { code: { in: skus, mode: 'insensitive' } }] },
+      select: { id: true, sku: true, code: true },
+    });
+    const map = new Map<string, string>();
+    for (const p of products) {
+      if (p.sku) map.set(p.sku.toLowerCase(), p.id);
+      if (p.code) map.set(p.code.toLowerCase(), p.id);
+    }
+    return map;
+  }
+
+  private async ensureWalkInCustomer(orgId: string): Promise<string> {
+    const existing = await this.prisma.client.partner.findFirst({ where: { organizationId: orgId, code: 'WALKIN' } });
+    if (existing) return existing.id;
+    const created = await this.prisma.client.partner.create({
+      data: { organizationId: orgId, code: 'WALKIN', name: 'Walk-in Customer', isCustomer: true, isCompany: false },
+    });
+    return created.id;
+  }
+}

@@ -7,12 +7,15 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsIn, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { PosModifiersService } from './pos-modifiers.service';
 
 class CreateGroupDto {
   @ApiProperty() @IsString() name!: string;
+  @ApiProperty({ required: false, enum: ['ADD_ON', 'MODIFIER'], default: 'ADD_ON' })
+  @IsOptional() @IsIn(['ADD_ON', 'MODIFIER'])
+  groupType?: 'ADD_ON' | 'MODIFIER';
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() minSelect?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() maxSelect?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() sortOrder?: number;
@@ -48,6 +51,9 @@ class AssignGroupDto {
 
 class UpdateGroupDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() name?: string;
+  @ApiProperty({ required: false, enum: ['ADD_ON', 'MODIFIER'] })
+  @IsOptional() @IsIn(['ADD_ON', 'MODIFIER'])
+  groupType?: 'ADD_ON' | 'MODIFIER';
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() minSelect?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() maxSelect?: number;
   @ApiProperty({ required: false }) @IsOptional() isActive?: boolean;

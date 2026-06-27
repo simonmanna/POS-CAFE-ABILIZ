@@ -1,7 +1,7 @@
 // Menu grid — colorful cards with emoji fallbacks + click-to-add.
 import React from 'react';
 import { Plus } from 'lucide-react';
-import { getFoodEmoji, getCategoryColor } from './food-images';
+import { getFoodEmoji } from './food-images';
 import type { Product } from './types';
 
 interface Props {
@@ -25,7 +25,6 @@ export const MenuGrid: React.FC<Props> = ({ products, locked, onPick }) => {
   return (
     <div className="pos-menus-grid-pro">
       {products.map((p) => {
-        const color = p.category?.color || getCategoryColor(p.category?.name);
         const emoji = getFoodEmoji(p.name, p.category?.name);
         const price = Number(p.salesPrice || 0);
         return (
@@ -35,23 +34,21 @@ export const MenuGrid: React.FC<Props> = ({ products, locked, onPick }) => {
             className={'pos-menu-card-pro text-left' + (locked ? ' locked' : '')}
             onClick={() => !locked && onPick(p)}
             title={locked ? 'Open your shift first' : `${p.name} — ${fmt(price)}`}
-            style={{ '--c': color } as React.CSSProperties}
           >
             <div
               className="pos-menu-emoji"
-              style={{ background: `linear-gradient(135deg, ${color}1f, ${color}40)` }}
+              style={{ background: '#f1f5f9' }}
             >
-              <span style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,.1))' }}>{emoji}</span>
+              <span>{emoji}</span>
             </div>
             <div className="pos-menu-body">
               <div className="pos-menu-name">{p.name}</div>
               <div className="pos-menu-meta">
-                <span className="pos-menu-price" style={{ color }}>{fmt(price)}</span>
-                {p.sku ? <span className="pos-menu-addon-tag">{p.sku}</span> : null}
+                <span className="pos-menu-price">{fmt(price)}</span>
               </div>
             </div>
             {!locked && (
-              <span className="pos-menu-add" style={{ background: color }}>
+              <span className="pos-menu-add" style={{ background: '#3b82f6' }}>
                 <Plus className="h-4 w-4" />
               </span>
             )}

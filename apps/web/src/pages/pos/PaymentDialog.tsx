@@ -34,12 +34,17 @@ interface Props {
     transactionDiscountPercent: number;
     overrideById?: string;
   }) => Promise<void>;
+  /** Enables the "Charge to account" (postpaid credit) action — true when a real customer is selected. */
+  creditEnabled?: boolean;
+  /** Runs the credit (postpaid AR) sale through the Order→Invoice→Receipt pipeline. */
+  onCreditSale?: () => Promise<void>;
 }
 
 const QUICK_AMOUNTS = [1000, 2000, 5000, 10000, 20000, 50000, 100000];
 
 export const PaymentDialog: React.FC<Props> = ({
   open, total, effectiveDiscountPercent = 0, storeCreditBalance = 0, onRequestOverride, onClose, onSettle,
+  creditEnabled = false, onCreditSale,
 }) => {
   const [tenders, setTenders] = useState<PaymentTender[]>([]);
   const [activeMethod, setActiveMethod] = useState<PaymentMethod>('cash');
@@ -271,6 +276,21 @@ export const PaymentDialog: React.FC<Props> = ({
           {effectiveDiscountPercent > 10 && !overrideId ? (
             <Button onClick={requestOverride} variant="outline" className="border-amber-300 text-amber-700">
               Request manager override
+            </Button>
+          ) : null}
+          {/* Postpaid credit — books AR now, settled later. Needs a real customer. */}
+          {creditEnabled && onCreditSale ? (
+            <Button
+              variant="outline"
+              className="border-sky-300 text-sky-700 hover:bg-sky-50"
+              disabled={busy}
+              onClick={async () => {
+                try { setBusy(true); setError(null); await onCreditSale(); }
+                catch (e: any) { setError(e?.message || 'Credit sale failed'); }
+                finally { setBusy(false); }
+              }}
+            >
+              <Wallet className="h-4 w-4 mr-1" /> Charge to account (Credit)
             </Button>
           ) : null}
         </DialogFooter>

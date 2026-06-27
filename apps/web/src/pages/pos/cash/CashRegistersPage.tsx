@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowLeftRight, ArrowRight, Banknote, Calculator, Check,
   CircleDollarSign, ClipboardList, Coins, ThumbsUp, ThumbsDown,
-  History, LogOut, Minus, Plus,
+  History, List, LogOut, Minus, Plus,
   RefreshCw, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -25,15 +25,15 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
-  useCashRegisters, useCloseShift, useDailyReconciliation, useOpenSession,
-  useOpenShift, useRecordBankDeposit, useRecordMovement, useSessionHistory,
-  useSessionMovements, useUpdateVariance,
+  useCashRegisters, useCloseShift, useDailyReconciliation, useExpectedCash,
+  useOpenSession, useOpenShift, useRecordBankDeposit, useRecordMovement,
+  useSessionHistory, useSessionMovements, useUpdateVariance,
 } from '../api';
 import { HandoverDialog } from '../HandoverDialog';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import type {
   CashMovementItem, CashRegister, CashSession,
-  SessionHistoryItem,
+  SessionDetail, SessionHistoryItem,
 } from '../types';
 import '../pos-pro.css';
 
@@ -351,7 +351,30 @@ const CashInOutButton: React.FC<{
    Cash Drawer Audit Trail
    ========================================================================== */
 
+const movementIcon = (type: string) => {
+  switch (type) {
+    case 'sale': return <CircleDollarSign className="h-3.5 w-3.5 text-emerald-600" />;
+    case 'refund': return <ArrowRight className="h-3.5 w-3.5 text-rose-500" />;
+    case 'pay_in': return <Plus className="h-3.5 w-3.5 text-emerald-600" />;
+    case 'pay_out': return <Minus className="h-3.5 w-3.5 text-amber-600" />;
+    case 'adjustment': return <Coins className="h-3.5 w-3.5 text-blue-600" />;
+    default: return <Coins className="h-3.5 w-3.5" />;
+  }
+};
+
+const typeLabel = (type: string) => {
+  switch (type) {
+    case 'sale': return 'Sale';
+    case 'refund': return 'Refund';
+    case 'pay_in': return 'Cash In';
+    case 'pay_out': return 'Cash Out';
+    case 'adjustment': return 'Adjustment';
+    default: return type;
+  }
+};
+
 const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
+  const [showAllMovements, setShowAllMovements] = useState(false);
   const { data, isLoading } = useSessionMovements(sessionId);
 
   if (isLoading) {
@@ -363,31 +386,14 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
 
   const { session, movements } = data;
 
-  const movementIcon = (type: string) => {
-    switch (type) {
-      case 'sale': return <CircleDollarSign className="h-3 w-3 text-emerald-600" />;
-      case 'refund': return <ArrowRight className="h-3 w-3 text-rose-500" />;
-      case 'pay_in': return <Plus className="h-3 w-3 text-emerald-600" />;
-      case 'pay_out': return <Minus className="h-3 w-3 text-amber-600" />;
-      case 'adjustment': return <Coins className="h-3 w-3 text-blue-600" />;
-      default: return <Coins className="h-3 w-3" />;
-    }
-  };
-
-  const typeLabel = (type: string) => {
-    switch (type) {
-      case 'sale': return 'Sale';
-      case 'refund': return 'Refund';
-      case 'pay_in': return 'Cash In';
-      case 'pay_out': return 'Cash Out';
-      case 'adjustment': return 'Adjustment';
-      default: return type;
-    }
-  };
-
   return (
     <div className="pos-report-card">
-      <h3>Cash Drawer Audit Trail</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Cash Drawer Audit Trail</h3>
+        <Button size="sm" variant="outline" className="border-blue-300 text-blue-700" onClick={() => setShowAllMovements(true)}>
+          <List className="h-3.5 w-3.5 mr-1" /> View all ({movements.length})
+        </Button>
+      </div>
 
       {/* Session summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-xs">
@@ -450,6 +456,13 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
           </tbody>
         </table>
       </div>
+
+      <MovementsDialog
+        open={showAllMovements}
+        onClose={() => setShowAllMovements(false)}
+        session={session}
+        movements={movements}
+      />
     </div>
   );
 };
@@ -575,9 +588,11 @@ const CloseShiftDialog: React.FC<{
     if (open) { setCounted(''); setVarianceReason(''); setNotes(''); setErr(null); }
   }, [open]);
 
+  const { data: expected } = useExpectedCash(open && session ? session.id : undefined);
+
   if (!open || !session) return null;
 
-  const expectedCash = Number(session.closingExpected ?? session.openingFloat ?? 0);
+  const expectedCash = Number(expected?.expectedCash ?? session.openingFloat ?? 0);
   const countedNum = Number(counted);
   const variance = Number.isFinite(countedNum) ? countedNum - expectedCash : 0;
 
@@ -1058,6 +1073,105 @@ const ReconciliationView: React.FC = () => {
           )}
         </>
       )}
+    </div>
+  );
+};
+
+/* ==========================================================================
+   Movements Dialog — read-only full list of cash movements
+   ========================================================================== */
+
+const MovementsDialog: React.FC<{
+  open: boolean;
+  onClose: () => void;
+  session: CashSession | SessionDetail | null;
+  movements: CashMovementItem[];
+}> = ({ open, onClose, session, movements }) => {
+  if (!open) return null;
+  if (!session) return null;
+
+  const rows = [
+    {
+      id: 'opening',
+      time: session.openedAt ? new Date(session.openedAt).toLocaleTimeString() : '',
+      movementType: '',
+      type: 'Opening Float',
+      method: '',
+      amount: session.openingFloat,
+      runningTotal: session.openingFloat,
+      reason: '',
+      isOpening: true,
+      isNegative: false,
+    },
+    ...movements.map((m) => ({
+      id: m.id,
+      time: new Date(m.createdAt).toLocaleTimeString(),
+      movementType: m.movementType,
+      type: typeLabel(m.movementType),
+      method: m.paymentMethod || '',
+      amount: m.amount,
+      runningTotal: m.runningTotal,
+      reason: m.reason ?? '',
+      isOpening: false,
+      isNegative: m.movementType === 'refund' || m.movementType === 'pay_out',
+    })),
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="bg-[#3b82f6] text-white px-6 py-4 shrink-0">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-semibold">Cash Movements</h2>
+              <p className="text-white/75 text-xs mt-0.5">
+                Session opened {session.openedAt ? new Date(session.openedAt).toLocaleString() : '—'} · {rows.length} entries
+              </p>
+            </div>
+            <button onClick={onClose}><X className="h-5 w-5 text-white/80 hover:text-white" /></button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          <table className="w-full text-sm">
+            <thead className="text-left text-slate-500 border-b border-slate-200 sticky top-0 bg-white">
+              <tr>
+                <th className="py-2 pr-3 font-medium">Time</th>
+                <th className="py-2 pr-3 font-medium">Action</th>
+                <th className="py-2 pr-3 text-right font-medium">Amount</th>
+                <th className="py-2 pr-3 text-right font-medium">Balance</th>
+                <th className="py-2 pr-3 font-medium">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className={`border-b border-slate-100 ${r.isOpening ? 'text-slate-600 bg-slate-50/50' : ''}`}>
+                  <td className="py-2.5 pr-3 font-mono text-xs">{r.time}</td>
+                  <td className="py-2.5 pr-3 flex items-center gap-1.5">
+                    {r.isOpening ? <Calculator className="h-3.5 w-3.5 text-slate-400" /> : movementIcon((r as any).movementType)}
+                    <span className="font-medium">{r.type}</span>
+                    {r.method && <span className="text-xs text-slate-400">({r.method})</span>}
+                  </td>
+                  <td className={'py-2.5 pr-3 text-right font-mono font-bold ' + (r.isNegative && !r.isOpening ? 'text-rose-600' : r.isOpening ? 'text-slate-700' : 'text-emerald-700')}>
+                    {r.isOpening ? '' : r.isNegative ? '-' : '+'}{fmt(r.amount)}
+                  </td>
+                  <td className="py-2.5 pr-3 text-right font-mono">{fmt(r.runningTotal)}</td>
+                  <td className="py-2.5 pr-3 text-xs text-slate-500 max-w-[220px] truncate" title={r.reason}>{r.reason || '—'}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-sm text-slate-400">No movements recorded yet</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-end gap-2 shrink-0">
+          <Button variant="outline" onClick={onClose} className="rounded-lg border-gray-300 hover:bg-gray-100">Close</Button>
+        </div>
+      </div>
     </div>
   );
 };

@@ -24,6 +24,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useTable, useTables, useMergeTables, useTransferTable, useUnmergeTable, useSplitBill } from '@/features/tables/api';
+import { api } from '@/lib/api';
 import type { PosTable } from '@/features/tables/types';
 import { STATUS_META, ZONE_LABEL, fmtMoney, minutesBetween } from '@/features/tables/utils';
 
@@ -43,7 +44,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
   const split = useSplitBill();
 
   const otherTables = useMemo(
-    () => allTables.filter((t) => t.id !== id && !t.mergedIntoId),
+    () => allTables.filter((t) => t.id !== id && !t.mergedIntoId && t.active && t.status !== 'out_of_service'),
     [allTables, id],
   );
 
@@ -99,16 +100,39 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
 
   async function doSplit() {
     if (!t || !splitSource) return;
-    // Caller must supply a full breakdown — this quick path takes one
-    // order and splits it 50/50 between two empty tickets. Real production
-    // wiring will read Document.lines from the order panel.
-    const source = openOrders.find((o) => o.documentId === splitSource);
-    if (!source?.document) {
-      toast.error('Source document not found');
-      return;
+    try {
+      const { data: doc } = await api.get(`/pos/tabs/${t.id}`);
+      if (!doc?.lines?.length) { toast.error('Source document has no lines'); return; }
+      const lines: Array<{ id: string; quantity: number }> = doc.lines;
+      const split1: Array<{ sourceLineId: string; quantity: number }> = [];
+      const split2: Array<{ sourceLineId: string; quantity: number }> = [];
+      for (const ln of lines) {
+        const qty = Math.floor(Number(ln.quantity));
+        const half = Math.ceil(qty / 2);
+        if (half > 0 && qty - half > 0) {
+          split1.push({ sourceLineId: ln.id, quantity: half });
+          split2.push({ sourceLineId: ln.id, quantity: qty - half });
+        } else {
+          split2.push({ sourceLineId: ln.id, quantity: qty });
+        }
+      }
+      if (split1.length === 0) { toast.error('Cannot split — each line quantity is 1'); return; }
+      await split.mutateAsync({
+        tableId: t.id,
+        body: {
+          sourceDocumentId: splitSource,
+          splits: [
+            { label: 'Split 1', lines: split1 },
+            { label: 'Split 2', lines: split2 },
+          ],
+        },
+      });
+      toast.success('Bill split into two tickets');
+      setSplitOpen(false);
+      onClose();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Split failed');
     }
-    toast.info('Split-bill detail UI lives in the order panel; this dialog only initiates the action.');
-    setSplitOpen(false);
   }
 
   return (

@@ -12,7 +12,8 @@
 // =============================================================================
 
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  engineType = "library"
 }
 
 datasource db {
@@ -21,6 +22,14 @@ datasource db {
 }
 
 // ----------------------------- Enums ----------------------------------------
+
+/// POS menu layer: distinguishes paid extras from free preparation instructions.
+///   ADD_ON    = "What extra is added?" (Cheese +$1, Bacon +$2)
+///   MODIFIER  = "How is it prepared?" (Well done, No salt)
+enum ModifierGroupType {
+  ADD_ON
+  MODIFIER
+}
 
 enum OrganizationStatus {
   active
@@ -91,6 +100,7 @@ enum AuditAction {
   merge
   clean
   reserve
+  reprint
 }
 
 // ------------------------- System / global tables ---------------------------
@@ -104,7 +114,7 @@ model Organization {
   currencyCode String             @default("USD")
   /// Phase C: FK to Currency for the org's base. Defaults to "USD" via seed.
   /// Renamed relation name avoids ambiguity with other Currency refs.
-  baseCurrency Currency?         @relation("OrgBaseCurrency", fields: [currencyCode], references: [code])
+  baseCurrency Currency?          @relation("OrgBaseCurrency", fields: [currencyCode], references: [code])
   status       OrganizationStatus @default(active)
   settings     Json               @default("{}")
   createdAt    DateTime           @default(now())
@@ -136,9 +146,9 @@ model Currency {
   /// Phase C: this currency IS the org's base for these organizations.
   baseForOrganizations Organization[] @relation("OrgBaseCurrency")
   /// Phase C: FX rates where this currency is the FROM side.
-  ratesFrom     CurrencyRate[] @relation("CurrencyRateFrom")
+  ratesFrom            CurrencyRate[] @relation("CurrencyRateFrom")
   /// Phase C: FX rates where this currency is the TO side.
-  ratesTo       CurrencyRate[] @relation("CurrencyRateTo")
+  ratesTo              CurrencyRate[] @relation("CurrencyRateTo")
 }
 
 /// Phase C: FX rate between two currencies on a given date. Rates are
@@ -146,18 +156,18 @@ model Currency {
 /// "as-of" lookup semantics: posting a 2024-01-15 invoice reads the rate
 /// whose `asOf` is the most recent ≤ postingDate (per IFRS IAS 21).
 model CurrencyRate {
-  id             String   @id @default(uuid())
-  fromCode       String
-  toCode         String
-  asOf           DateTime
-  rate           Decimal  @db.Decimal(18, 8)
+  id        String   @id @default(uuid())
+  fromCode  String
+  toCode    String
+  asOf      DateTime
+  rate      Decimal  @db.Decimal(18, 8)
   /// Where this rate came from: 'manual' (operator entry), 'ecb' (European
   /// Central Bank daily reference), 'fed' (US Fed), 'import' (CSV upload).
-  source         String   @default("manual")
-  createdAt      DateTime @default(now())
+  source    String   @default("manual")
+  createdAt DateTime @default(now())
 
-  from           Currency @relation("CurrencyRateFrom", fields: [fromCode], references: [code], onDelete: Cascade)
-  to             Currency @relation("CurrencyRateTo", fields: [toCode], references: [code], onDelete: Cascade)
+  from Currency @relation("CurrencyRateFrom", fields: [fromCode], references: [code], onDelete: Cascade)
+  to   Currency @relation("CurrencyRateTo", fields: [toCode], references: [code], onDelete: Cascade)
 
   @@unique([fromCode, toCode, asOf])
   @@index([fromCode, toCode, asOf])
@@ -166,20 +176,20 @@ model CurrencyRate {
 /// Phase C: unrealized FX gain/loss on monetary balances in foreign currency.
 /// Written by `RevaluationService.runPeriod(periodId)` at period close.
 model FxRevaluation {
-  id             String   @id @default(uuid())
-  organizationId String
-  fiscalPeriodId String
-  asOf           DateTime
-  accountId      String
-  currencyCode   String
+  id              String   @id @default(uuid())
+  organizationId  String
+  fiscalPeriodId  String
+  asOf            DateTime
+  accountId       String
+  currencyCode    String
   /// Book balance in the foreign currency.
-  bookBalance    Decimal  @db.Decimal(20, 6)
+  bookBalance     Decimal  @db.Decimal(20, 6)
   /// Balance valued at closing rate (in org base currency).
-  revaluedBalance Decimal @db.Decimal(20, 6)
+  revaluedBalance Decimal  @db.Decimal(20, 6)
   /// Gain (positive) or loss (negative) posted to the FX adjustment account.
-  fxGain         Decimal  @db.Decimal(20, 6)
-  rate           Decimal  @db.Decimal(18, 8)
-  createdAt      DateTime @default(now())
+  fxGain          Decimal  @db.Decimal(20, 6)
+  rate            Decimal  @db.Decimal(18, 8)
+  createdAt       DateTime @default(now())
 
   @@unique([organizationId, fiscalPeriodId, accountId])
   @@index([organizationId, fiscalPeriodId])
@@ -192,23 +202,23 @@ model FxRevaluation {
 /// Bank statement imported from a CSV / MT940 / OFX file. Each row is a
 /// single transaction on the bank side.
 model BankStatementLine {
-  id             String   @id @default(uuid())
-  organizationId String
-  bankAccountId  String   // -> BankAccount.id
-  postedAt       DateTime
+  id               String   @id @default(uuid())
+  organizationId   String
+  bankAccountId    String // -> BankAccount.id
+  postedAt         DateTime
   /// Bank's reference (often a transaction ID, check #, etc.).
-  externalRef    String?
-  description    String
+  externalRef      String?
+  description      String
   /// Positive = money in, negative = money out (in the bank's currency).
-  amount         Decimal  @db.Decimal(20, 6)
-  currencyCode   String
+  amount           Decimal  @db.Decimal(20, 6)
+  currencyCode     String
   /// Status: 'unmatched' | 'matched' | 'ignored'.
-  status         String   @default("unmatched")
+  status           String   @default("unmatched")
   /// Linked payment (null until matched).
   matchedPaymentId String?
   /// Linked bank reconciliation run.
-  matchedRunId   String?
-  createdAt      DateTime @default(now())
+  matchedRunId     String?
+  createdAt        DateTime @default(now())
 
   @@index([organizationId, bankAccountId, postedAt])
   @@index([status])
@@ -217,14 +227,14 @@ model BankStatementLine {
 /// Reconciliation run — a single attempt to match a chunk of statement lines
 /// against payments. Stores summary stats for audit.
 model BankReconciliationRun {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   bankAccountId  String
-  startedAt      DateTime @default(now())
+  startedAt      DateTime  @default(now())
   finishedAt     DateTime?
-  matched        Int      @default(0)
-  unmatched      Int      @default(0)
-  totalAmount     Decimal  @db.Decimal(20, 6)
+  matched        Int       @default(0)
+  unmatched      Int       @default(0)
+  totalAmount    Decimal   @db.Decimal(20, 6)
   notes          String?
   createdById    String?
 
@@ -234,44 +244,44 @@ model BankReconciliationRun {
 // ------------------------------- Auth / RBAC --------------------------------
 
 model User {
-  id           String    @id @default(uuid())
-  organizationId String
-  email        String
-  passwordHash String
-  firstName    String
-  lastName     String?
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime?
+  id               String    @id @default(uuid())
+  organizationId   String
+  email            String
+  passwordHash     String
+  firstName        String
+  lastName         String?
+  isActive         Boolean   @default(true)
+  lastLoginAt      DateTime?
   /// Phase B1: TOTP secret (encrypted at rest with AES-256-GCM via the
   /// EncryptionService using a key derived from JWT_ACCESS_SECRET). `null`
   /// means MFA is not enrolled. The plaintext is never stored.
-  mfaSecret    String?
+  mfaSecret        String?
   /// Phase B1: Initialization vector for the mfaSecret ciphertext (hex).
-  mfaSecretIv  String?
+  mfaSecretIv      String?
   /// Phase B1: Auth tag for the mfaSecret ciphertext (hex).
-  mfaSecretTag String?
+  mfaSecretTag     String?
   /// Phase B1: when MFA was enrolled. Used by the UI to show "MFA active since X".
-  mfaEnrolledAt DateTime?
+  mfaEnrolledAt    DateTime?
   /// Phase B1: number of consecutive failed login attempts. Reset on success.
   /// When ≥ 10, the account is locked and requires admin intervention.
-  failedLoginCount Int    @default(0)
-    /// Phase B1: when the account was locked.
-    lockedUntil  DateTime?
-    /// POS Phase A: optional manager PIN hash (bcrypt). Lets a cashier trigger
-    /// a manager override (`pos:override`) by entering the manager's email + PIN
-    /// without exposing the manager's full login password. Null = no PIN set.
-    pinHash      String?
-    /// POS Phase A: salt rounds used for the PIN hash (recorded at set time so
-    /// future rehashes can be triggered). Defaults handled at write time.
-    pinHashRounds Int?
-    /// Phase F: the user's home branch. Optional; null = access to all branches
-    /// the org has marked "all-access". Used by branch-scoped queries.
-    defaultBranchId String?
-    createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  failedLoginCount Int       @default(0)
+  /// Phase B1: when the account was locked.
+  lockedUntil      DateTime?
+  /// POS Phase A: optional manager PIN hash (bcrypt). Lets a cashier trigger
+  /// a manager override (`pos:override`) by entering the manager's email + PIN
+  /// without exposing the manager's full login password. Null = no PIN set.
+  pinHash          String?
+  /// POS Phase A: salt rounds used for the PIN hash (recorded at set time so
+  /// future rehashes can be triggered). Defaults handled at write time.
+  pinHashRounds    Int?
+  /// Phase F: the user's home branch. Optional; null = access to all branches
+  /// the org has marked "all-access". Used by branch-scoped queries.
+  defaultBranchId  String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdBy        String?
+  updatedBy        String?
+  deletedAt        DateTime?
 
   roles         Role[]         @relation("UserRoles")
   refreshTokens RefreshToken[]
@@ -281,17 +291,17 @@ model User {
 }
 
 model Role {
-  id           String    @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  name         String
-  description  String?
-  isSystem     Boolean   @default(false)
-  permissions  String[]  @default([])
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  name           String
+  description    String?
+  isSystem       Boolean   @default(false)
+  permissions    String[]  @default([])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   users User[] @relation("UserRoles")
 
@@ -300,21 +310,21 @@ model Role {
 }
 
 model RefreshToken {
-  id           String    @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  userId       String
-  tokenHash    String
-  expiresAt    DateTime
-  revokedAt    DateTime?
+  userId         String
+  tokenHash      String
+  expiresAt      DateTime
+  revokedAt      DateTime?
   /// D4-4: when this token is rotated, the new refresh token's id goes here.
   /// Allows audit chains ("this token replaced by X, which replaced by Y").
-  replacedById String?
+  replacedById   String?
   /// Optional human-readable device label for the active-sessions UI.
-  deviceLabel  String?
+  deviceLabel    String?
   /// IP and user-agent captured at login. Audit-friendly.
-  ipAddress    String?
-  userAgent    String?
-  createdAt    DateTime  @default(now())
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -328,7 +338,7 @@ model RefreshToken {
 /// + same body returns the cached response without re-running the handler,
 /// preventing duplicate invoices / duplicate GL posts / duplicate stock issues.
 model IdempotencyRecord {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   key            String
   requestHash    String
@@ -339,8 +349,8 @@ model IdempotencyRecord {
   /// `pending` while the handler is running; `completed` once we stored the
   /// response. A second request that finds `pending` returns 409 (the first
   /// request is still in flight).
-  status         String   @default("pending")
-  createdAt      DateTime @default(now())
+  status         String    @default("pending")
+  createdAt      DateTime  @default(now())
   completedAt    DateTime?
 
   @@unique([organizationId, key])
@@ -350,17 +360,17 @@ model IdempotencyRecord {
 // ------------------------------- Kernel -------------------------------------
 
 model AuditLog {
-  id           String      @id @default(uuid())
+  id             String      @id @default(uuid())
   organizationId String
-  entity       String
-  entityId     String
-  action       AuditAction
-  oldValues    Json?
-  newValues    Json?
-  actorId      String?
-  ipAddress    String?
-  userAgent    String?
-  createdAt    DateTime    @default(now())
+  entity         String
+  entityId       String
+  action         AuditAction
+  oldValues      Json?
+  newValues      Json?
+  actorId        String?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime    @default(now())
 
   @@index([organizationId, entity, entityId])
   @@index([organizationId, createdAt])
@@ -369,17 +379,17 @@ model AuditLog {
 /// Phase B1: tracks every login attempt for brute-force detection and
 /// forensic review. Persists even failed attempts.
 model LoginAttempt {
-  id           String   @id @default(uuid())
+  id             String   @id @default(uuid())
   organizationId String?
-  email        String
-  success      Boolean
+  email          String
+  success        Boolean
   /// When MFA was required but not yet verified.
-  mfaRequired  Boolean  @default(false)
-  ipAddress    String?
-  userAgent    String?
+  mfaRequired    Boolean  @default(false)
+  ipAddress      String?
+  userAgent      String?
   /// Failure reason if `success = false`.
-  reason       String?
-  createdAt    DateTime @default(now())
+  reason         String?
+  createdAt      DateTime @default(now())
 
   @@index([email, createdAt])
   @@index([organizationId, createdAt])
@@ -388,14 +398,14 @@ model LoginAttempt {
 
 /// Settings at system (organizationId null), organization, or module scope.
 model Setting {
-  id           String   @id @default(uuid())
+  id             String   @id @default(uuid())
   organizationId String?
-  scope        String   @default("organization")
-  module       String?
-  key          String
-  value        Json
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  scope          String   @default("organization")
+  module         String?
+  key            String
+  value          Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@unique([organizationId, scope, key])
   @@index([organizationId])
@@ -404,40 +414,40 @@ model Setting {
 // ---------------------------- Master data -----------------------------------
 
 model Partner {
-  id           String        @id @default(uuid())
-  organizationId String
-  code         String
-  name         String
-  isCompany    Boolean       @default(false)
-  isCustomer   Boolean       @default(false)
-  isSupplier   Boolean       @default(false)
-  isEmployee   Boolean       @default(false)
-  email        String?
-  phone        String?
-  website      String?
-  taxNumber    String?
+  id                  String        @id @default(uuid())
+  organizationId      String
+  code                String
+  name                String
+  isCompany           Boolean       @default(false)
+  isCustomer          Boolean       @default(false)
+  isSupplier          Boolean       @default(false)
+  isEmployee          Boolean       @default(false)
+  email               String?
+  phone               String?
+  website             String?
+  taxNumber           String?
   receivableAccountId String?
   payableAccountId    String?
-  status       PartnerStatus @default(active)
-  categoryId   String?
-  notes        String?
-  customFields Json          @default("{}")
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  status              PartnerStatus @default(active)
+  categoryId          String?
+  notes               String?
+  customFields        Json          @default("{}")
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  createdBy           String?
+  updatedBy           String?
+  deletedAt           DateTime?
 
-  category  PartnerCategory? @relation(fields: [categoryId], references: [id])
-  contacts  Contact[]
-  addresses Address[]
-  documents Document[]
-  payments  Payment[]
-  purchaseOrders   PurchaseOrder[]    @relation("PurchaseOrder_partner")
-  purchaseRequests PurchaseRequest[]  @relation("PurchaseRequest_partner")
-  debitNotes       DebitNote[]        @relation("DebitNote_partner")
-  deals            Deal[]             @relation("PartnerDeals")
-  activities       Activity[]         @relation("PartnerActivities")
+  category         PartnerCategory?  @relation(fields: [categoryId], references: [id])
+  contacts         Contact[]
+  addresses        Address[]
+  documents        Document[]
+  payments         Payment[]
+  purchaseOrders   PurchaseOrder[]   @relation("PurchaseOrder_partner")
+  purchaseRequests PurchaseRequest[] @relation("PurchaseRequest_partner")
+  debitNotes       DebitNote[]       @relation("DebitNote_partner")
+  deals            Deal[]            @relation("PartnerDeals")
+  activities       Activity[]        @relation("PartnerActivities")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -445,15 +455,15 @@ model Partner {
 }
 
 model PartnerCategory {
-  id           String    @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  name         String
-  parentId     String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  name           String
+  parentId       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   parent   PartnerCategory?  @relation("PartnerCategoryTree", fields: [parentId], references: [id])
   children PartnerCategory[] @relation("PartnerCategoryTree")
@@ -464,20 +474,20 @@ model PartnerCategory {
 }
 
 model Contact {
-  id           String    @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  partnerId    String
-  firstName    String
-  lastName     String?
-  position     String?
-  email        String?
-  phone        String?
-  isPrimary    Boolean   @default(false)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  partnerId      String
+  firstName      String
+  lastName       String?
+  position       String?
+  email          String?
+  phone          String?
+  isPrimary      Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
 
@@ -486,22 +496,22 @@ model Contact {
 }
 
 model Address {
-  id           String      @id @default(uuid())
+  id             String      @id @default(uuid())
   organizationId String
-  partnerId    String
-  type         AddressType @default(billing)
-  line1        String
-  line2        String?
-  city         String?
-  state        String?
-  postalCode   String?
-  country      String?
-  isPrimary    Boolean     @default(false)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  partnerId      String
+  type           AddressType @default(billing)
+  line1          String
+  line2          String?
+  city           String?
+  state          String?
+  postalCode     String?
+  country        String?
+  isPrimary      Boolean     @default(false)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   partner Partner @relation(fields: [partnerId], references: [id], onDelete: Cascade)
 
@@ -510,27 +520,27 @@ model Address {
 }
 
 model Product {
-  id           String      @id @default(uuid())
+  id             String         @id @default(uuid())
   organizationId String
-  code         String
-  sku          String?
-  name         String
-  description  String?
-  productType  ProductType @default(stockable)
-  costingMethod CostingMethod @default(AVCO)
-  categoryId   String?
-  uomId        String?
-  taxId        String?
-  salesPrice   Decimal?    @db.Decimal(18, 6)
-  costPrice    Decimal?    @db.Decimal(18, 6)
-  trackInventory Boolean   @default(true)
-  batchTracking Boolean    @default(false)
+  code           String
+  sku            String?
+  name           String
+  description    String?
+  productType    ProductType    @default(stockable)
+  costingMethod  CostingMethod  @default(AVCO)
+  categoryId     String?
+  uomId          String?
+  taxId          String?
+  salesPrice     Decimal?       @db.Decimal(18, 6)
+  costPrice      Decimal?       @db.Decimal(18, 6)
+  trackInventory Boolean        @default(true)
+  batchTracking  Boolean        @default(false)
   /// POS P5: which station (bar / kitchen / cafe) the KDS should route
   /// tickets for this product to. Required for the Kitchen Display System
   /// to fan out tickets to the right screens. NULL would mean "no KDS",
   /// which is uncommon - every sellable item goes somewhere.
-  station      PosStation @default(cafe)
-  minQuantity  Decimal     @default(0) @db.Decimal(20, 6)
+  station        PosStation     @default(cafe)
+  minQuantity    Decimal        @default(0) @db.Decimal(20, 6)
   /// POS Phase P9: how the cashier flow handles an attempted sale that
   /// exceeds on-hand stock. Default 'silent' = current behaviour.
   stockPolicy    PosStockPolicy @default(silent)
@@ -541,24 +551,24 @@ model Product {
   /// and the receipt prints "(incl. tax)" beside the line. The customer's
   /// menu still shows the same headline number; only the GL split changes.
   /// Default false (additive VAT) for backward compat.
-  taxInclusive   Boolean     @default(false)
-  isActive     Boolean     @default(true)
-  customFields Json        @default("{}")
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  taxInclusive   Boolean        @default(false)
+  isActive       Boolean        @default(true)
+  customFields   Json           @default("{}")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
-  category ProductCategory? @relation(fields: [categoryId], references: [id])
-  uom      UnitOfMeasure?   @relation(fields: [uomId], references: [id])
-  tax      Tax?             @relation(fields: [taxId], references: [id])
-  stockItems   StockItem[]
-  stockBatches InventoryBatch[]
-  stockLedger  InventoryLedger[]
+  category       ProductCategory?       @relation(fields: [categoryId], references: [id])
+  uom            UnitOfMeasure?         @relation(fields: [uomId], references: [id])
+  tax            Tax?                   @relation(fields: [taxId], references: [id])
+  stockItems     StockItem[]
+  stockBatches   InventoryBatch[]
+  stockLedger    InventoryLedger[]
   modifierGroups ProductModifierGroup[]
-  comboItems    ComboItem[]
-  menuProducts  MenuProduct[]
+  comboItems     ComboItem[]
+  menuProducts   MenuProduct[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -566,17 +576,17 @@ model Product {
 }
 
 model ProductCategory {
-  id           String    @id @default(uuid())
-  organizationId String
-  name         String
-  parentId     String?
+  id               String    @id @default(uuid())
+  organizationId   String
+  name             String
+  parentId         String?
   incomeAccountId  String?
   expenseAccountId String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdBy        String?
+  updatedBy        String?
+  deletedAt        DateTime?
 
   parent   ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id])
   children ProductCategory[] @relation("ProductCategoryTree")
@@ -587,19 +597,19 @@ model ProductCategory {
 }
 
 model UnitOfMeasure {
-  id           String    @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  code         String
-  name         String
-  category     String    @default("unit")
-  ratio        Decimal   @default(1) @db.Decimal(18, 6)
-  isBase       Boolean   @default(false)
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  code           String
+  name           String
+  category       String    @default("unit")
+  ratio          Decimal   @default(1) @db.Decimal(18, 6)
+  isBase         Boolean   @default(false)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   products Product[]
 
@@ -608,21 +618,21 @@ model UnitOfMeasure {
 }
 
 model Tax {
-  id           String    @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  name         String
-  code         String?
-  type         TaxType   @default(vat)
-  rate         Decimal   @default(0) @db.Decimal(9, 6)
-  isInclusive  Boolean   @default(false)
-  isCompound   Boolean   @default(false)
-  accountId    String?
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  name           String
+  code           String?
+  type           TaxType   @default(vat)
+  rate           Decimal   @default(0) @db.Decimal(9, 6)
+  isInclusive    Boolean   @default(false)
+  isCompound     Boolean   @default(false)
+  accountId      String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   products Product[]
 
@@ -631,45 +641,45 @@ model Tax {
 }
 
 model FiscalPeriod {
-  id           String             @id @default(uuid())
+  id             String             @id @default(uuid())
   organizationId String
-  name         String
-  startDate    DateTime
-  endDate      DateTime
-  status       FiscalPeriodStatus @default(open)
+  name           String
+  startDate      DateTime
+  endDate        DateTime
+  status         FiscalPeriodStatus @default(open)
   /// D2-2: timestamp set by PeriodCloseService.close().
-  closedAt     DateTime?
+  closedAt       DateTime?
   /// User who closed the period.
-  closedBy     String?
+  closedBy       String?
   /// D2-2: timestamp set by PeriodCloseService.lock(). After this point
   /// PostingService.assertOpen rejects any date in the period.
-  lockedAt     DateTime?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  lockedAt       DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   @@unique([organizationId, name])
   @@index([organizationId])
 }
 
 model Branch {
-  id           String    @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  code         String
-  name         String
-  timezone     String?
-  isActive     Boolean   @default(true)
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  createdBy    String?
-  updatedBy    String?
-  deletedAt    DateTime?
+  code           String
+  name           String
+  timezone       String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
-  purchaseOrders  PurchaseOrder[]    @relation("PurchaseOrder_branch")
-  purchaseRequests PurchaseRequest[] @relation("PurchaseRequest_branch")
-  goodsReceipts   GoodsReceiptNote[] @relation("GoodsReceipt_branch")
+  purchaseOrders   PurchaseOrder[]    @relation("PurchaseOrder_branch")
+  purchaseRequests PurchaseRequest[]  @relation("PurchaseRequest_branch")
+  goodsReceipts    GoodsReceiptNote[] @relation("GoodsReceipt_branch")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -714,25 +724,25 @@ enum JournalEntryStatus {
 
 /// Chart of accounts. `isGroup` accounts are summary nodes and cannot be posted to.
 model Account {
-  id              String      @id @default(uuid())
-  organizationId  String
-  code            String
-  name            String
-  accountType     AccountType
-  parentAccountId String?
-  currencyId      String?
-  isGroup         Boolean     @default(false)
-  isActive        Boolean     @default(true)
-  description     String?
+  id               String      @id @default(uuid())
+  organizationId   String
+  code             String
+  name             String
+  accountType      AccountType
+  parentAccountId  String?
+  currencyId       String?
+  isGroup          Boolean     @default(false)
+  isActive         Boolean     @default(true)
+  description      String?
   /// M6 — Cash Flow classification (operating | investing | financing | null).
   /// Only meaningful for asset / liability / equity accounts; revenue and
   /// expense accounts are always operating.
   cashFlowCategory String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  createdBy       String?
-  updatedBy       String?
-  deletedAt       DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  createdBy        String?
+  updatedBy        String?
+  deletedAt        DateTime?
 
   parent        Account?       @relation("AccountTree", fields: [parentAccountId], references: [id])
   children      Account[]      @relation("AccountTree")
@@ -898,25 +908,31 @@ enum PaymentDirection {
 /// Universal financial document. POS/School/Hotel etc. create these; the
 /// accounting engine posts them. Residual lives here (NOT a separate ledger).
 model Document {
-  id                 String         @id @default(uuid())
+  id                 String                  @id @default(uuid())
   organizationId     String
   documentNumber     String
-  documentType       DocumentType   @default(sales_invoice)
+  documentType       DocumentType            @default(sales_invoice)
   partnerId          String
   currencyId         String?
-  exchangeRate       Decimal        @default(1) @db.Decimal(18, 8)
+  exchangeRate       Decimal                 @default(1) @db.Decimal(18, 8)
   issueDate          DateTime
   dueDate            DateTime?
-  status             DocumentStatus @default(draft)
+  status             DocumentStatus          @default(draft)
   reference          String?
   notes              String?
-  subtotal           Decimal        @default(0) @db.Decimal(20, 6)
-  discountTotal      Decimal        @default(0) @db.Decimal(20, 6)
-  taxAmount          Decimal        @default(0) @db.Decimal(20, 6)
-  totalAmount        Decimal        @default(0) @db.Decimal(20, 6)
-  amountPaid         Decimal        @default(0) @db.Decimal(20, 6)
-  amountResidual     Decimal        @default(0) @db.Decimal(20, 6)
-  paymentStatus      PaymentStatus  @default(not_paid)
+  subtotal           Decimal                 @default(0) @db.Decimal(20, 6)
+  discountTotal      Decimal                 @default(0) @db.Decimal(20, 6)
+  taxAmount          Decimal                 @default(0) @db.Decimal(20, 6)
+  totalAmount        Decimal                 @default(0) @db.Decimal(20, 6)
+  amountPaid         Decimal                 @default(0) @db.Decimal(20, 6)
+  amountResidual     Decimal                 @default(0) @db.Decimal(20, 6)
+  paymentStatus      PaymentStatus           @default(not_paid)
+  /// POS Order→Invoice split: how this invoice is/was settled. NULL until a
+  /// bill is generated. `credit` = postpaid house account (AR), settled later.
+  paymentMode        InvoicePaymentMode?
+  /// POS Order→Invoice split: settlement lifecycle independent of paymentStatus.
+  /// For cash/card it tracks the balance; for `credit` it is driven by AR.
+  settlementStatus   InvoiceSettlementStatus @default(unsettled)
   journalEntryId     String?
   reversedDocumentId String? // credit note -> original invoice
   /// Phase F: the branch this document was created from. Used by
@@ -931,17 +947,31 @@ model Document {
   tableId            String?
   postedAt           DateTime?
   postedBy           String?
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
   createdBy          String?
   updatedBy          String?
 
-  partner     Partner             @relation(fields: [partnerId], references: [id])
-  lines       DocumentLine[]
-  allocations PaymentAllocation[]
+  /// Print lifecycle (Phase T5)
+  billPrintCount       Int       @default(0)
+  billLastPrintedAt    DateTime?
+  receiptPrintCount    Int       @default(0)
+  receiptLastPrintedAt DateTime?
+  lastPrintedById      String?
+  kotPrintCount        Int       @default(0)
+
+  partner        Partner             @relation(fields: [partnerId], references: [id])
+  lines          DocumentLine[]
+  printLogs      DocumentPrintLog[]
+  allocations    PaymentAllocation[]
   /// Back-reference for PosTableOrder.documentId. The FK is enforced from
   /// the PosTableOrder side (Document → PosTableOrder is a 1:N relation).
   posTableOrders PosTableOrder[]
+  /// POS Order→Invoice split: the operational Order this invoice was billed
+  /// from (1:1). FK lives on Order.invoiceId; this is the back-reference.
+  order          Order?
+  /// POS Order→Invoice split: typed receipt prints generated from this invoice.
+  receipts       Receipt[]
 
   @@unique([organizationId, documentNumber])
   @@index([organizationId])
@@ -977,10 +1007,55 @@ model DocumentLine {
   document  Document               @relation(fields: [documentId], references: [id], onDelete: Cascade)
   account   Account?               @relation(fields: [accountId], references: [id])
   modifiers DocumentLineModifier[]
+  printLogs DocumentPrintLog[]
+
+  /// Print lifecycle (Phase T5)
+  kitchenPrintCount      Int       @default(0)
+  kitchenLastPrintedAt   DateTime?
+  /// Quantity that was last sent to kitchen (for delta tracking).
+  kitchenPrintedQty      Decimal?  @db.Decimal(20, 6)
+  cancelPrintCount       Int       @default(0)
+  cancelLastPrintedAt    DateTime?
+  lastKitchenPrintedById String?
+  /// Timestamp when this line was last included on a printed bill.
+  billPrintedAt          DateTime?
 
   @@index([organizationId])
   @@index([documentId])
   @@index([menuItemId])
+}
+
+/// Print event log for the document lifecycle (KOT, BILL, RECEIPT, CANCEL).
+/// Each row is one print or reprint action. Derive current status from the
+/// latest log per (documentLineId, type) plus the counter on the line/doc.
+model DocumentPrintLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  documentId     String
+  /// Null when the print is at document level (bill, receipt).
+  documentLineId String?
+  /// KOT | BILL | RECEIPT | CANCEL
+  type           String
+  /// PRINT | REPRINT
+  action         String   @default("PRINT")
+  copies         Int      @default(1)
+  printedById    String?
+  /// Required for REPRINT actions.
+  reason         String?
+  /// Printer host:port or station name at time of print.
+  printer        String?
+  /// Unique key — prevents duplicate print jobs on retry.
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
+
+  document     Document      @relation(fields: [documentId], references: [id])
+  documentLine DocumentLine? @relation(fields: [documentLineId], references: [id])
+
+  @@index([organizationId])
+  @@index([documentId])
+  @@index([documentLineId])
+  @@index([type])
+  @@index([idempotencyKey])
 }
 
 /// M-D — structured per-line modifier/add-on selections (the order_item_modifiers
@@ -1111,22 +1186,25 @@ enum PosStation {
 }
 
 model ModifierGroup {
-  id             String   @id @default(uuid())
+  id             String            @id @default(uuid())
   organizationId String
   /// Display label, e.g. "Milk options", "Size", "Extras".
   name           String
+  /// ADD_ON = paid extras prominently shown as "What extra is added?"
+  /// MODIFIER = preparation instructions shown as "How is it prepared?"
+  groupType      ModifierGroupType @default(ADD_ON)
   /// Customer must select at least this many modifiers. 0 = optional.
-  minSelect      Int      @default(0)
+  minSelect      Int               @default(0)
   /// Max selections. 1 = radio, 2+ = checkbox.
-  maxSelect      Int      @default(1)
-  sortOrder      Int      @default(0)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  maxSelect      Int               @default(1)
+  sortOrder      Int               @default(0)
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
-  modifiers  Modifier[]
-  products   ProductModifierGroup[]
-  menuItems  MenuItemModifierGroup[]
+  modifiers Modifier[]
+  products  ProductModifierGroup[]
+  menuItems MenuItemModifierGroup[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -1156,13 +1234,13 @@ model Modifier {
 /// M-N: which modifier groups are available on a product. `sortOrder`
 /// controls the order the cashier sees them in the AddOns dialog.
 model ProductModifierGroup {
-  id             String   @id @default(uuid())
-  organizationId String
-  productId      String
+  id              String @id @default(uuid())
+  organizationId  String
+  productId       String
   modifierGroupId String
-  sortOrder      Int      @default(0)
+  sortOrder       Int    @default(0)
 
-  product      Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
   modifierGroup ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
 
   @@unique([productId, modifierGroupId])
@@ -1196,17 +1274,17 @@ model Combo {
 }
 
 model ComboItem {
-  id             String  @id @default(uuid())
+  id             String @id @default(uuid())
   organizationId String
   comboId        String
   productId      String
   /// How many units of this product the combo includes (e.g. 1 croissant + 1 latte).
-  quantity       Int     @default(1)
+  quantity       Int    @default(1)
 
   combo   Combo   @relation(fields: [comboId], references: [id], onDelete: Cascade)
   product Product @relation(fields: [productId], references: [id])
 
-@@unique([comboId, productId])
+  @@unique([comboId, productId])
   @@index([organizationId])
   @@index([comboId])
 }
@@ -1279,9 +1357,14 @@ model MenuItem {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  category       MenuCategory?           @relation(fields: [categoryId], references: [id])
-  ingredients    MenuProduct[]
-  modifierGroups MenuItemModifierGroup[]
+  category            MenuCategory?                @relation(fields: [categoryId], references: [id])
+  ingredients         MenuProduct[]
+  modifierGroups      MenuItemModifierGroup[]
+  /// Variants that replace the base price (e.g. Small $10 / Medium $13 / Large $16).
+  /// Empty = use basePrice directly.
+  variants            MenuItemVariant[]
+  /// Accompaniment groups for mutually-exclusive required choices (e.g. "Choose 1 Side").
+  accompanimentGroups MenuItemAccompanimentGroup[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -1328,6 +1411,124 @@ model MenuProduct {
 }
 
 // ============================================================================
+// POS — Variants + Accompaniments (optional configuration layers on MenuItem).
+//
+// Every layer is optional — a MenuItem with no variants, no accompaniments,
+// and no modifiers is still fully sellable at its basePrice.
+//
+//   Variant       → "What version is it?"   — REPLACES basePrice
+//   Accompaniment → "What comes with it?"   — mutually-exclusive choice
+//   Add-on        → "What extra is added?"  — paid extras (ModifierGroup.ADD_ON)
+//   Modifier      → "How is it prepared?"   — prep instructions (ModifierGroup.MODIFIER)
+//
+// Add-ons and Modifiers share the existing ModifierGroup + Modifier models
+// distinguished by ModifierGroup.groupType.
+// ============================================================================
+
+/// A variant replaces the MenuItem's base price with its own price.
+/// When a MenuItem has variants, the cashier MUST select one before adding
+/// to cart. If no variants exist, basePrice is used directly.
+///
+/// Example: Beef Steak
+///   - Small  (150g)  $10
+///   - Medium (250g)  $13   ← selected → unitPrice becomes $13
+///   - Large  (350g)  $16
+model MenuItemVariant {
+  id             String   @id @default(uuid())
+  organizationId String
+  menuItemId     String
+  /// Display label, e.g. "Small (150g)", "Medium (250g)".
+  name           String
+  /// Absolute per-unit price for this variant. NOT a delta — this REPLACES
+  /// the MenuItem.basePrice when selected.
+  price          Decimal  @db.Decimal(20, 6)
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, menuItemId, name])
+  @@index([organizationId])
+  @@index([menuItemId])
+}
+
+/// A group of mutually-exclusive options the customer picks from.
+/// These are the "Beef Steak includes 1 Side" choices:
+///   - Rice        (included)
+///   - Vegetables  (included)
+///   - Fries       (+$1)
+///
+/// isRequired=true means the cashier cannot add the item to cart without
+/// selecting at least minSelect options from this group.
+/// Accompaniment groups (global, organization-scoped). Assigned to MenuItems
+/// through the MenuItemAccompanimentGroup join table — same pattern as ModifierGroup.
+model AccompanimentGroup {
+  id             String   @id @default(uuid())
+  organizationId String
+  /// Display label, e.g. "Choose 1 Side", "Beverage".
+  name           String
+  /// When true the POS enforces this selection before allowing add-to-cart.
+  isRequired     Boolean  @default(true)
+  /// Minimum selections required (default 1 when isRequired).
+  minSelect      Int      @default(1)
+  /// Maximum selections allowed. 1 = radio, 2+ = checkbox.
+  maxSelect      Int      @default(1)
+  sortOrder      Int      @default(0)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  options   AccompanimentOption[]
+  menuItems MenuItemAccompanimentGroup[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+/// Join table: which AccompanimentGroups are attached to which MenuItems.
+model MenuItemAccompanimentGroup {
+  id                   String @id @default(uuid())
+  organizationId       String
+  menuItemId           String
+  accompanimentGroupId String
+  sortOrder            Int    @default(0)
+
+  menuItem           MenuItem           @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  accompanimentGroup AccompanimentGroup @relation(fields: [accompanimentGroupId], references: [id], onDelete: Cascade)
+
+  @@unique([menuItemId, accompanimentGroupId])
+  @@index([organizationId])
+  @@index([menuItemId])
+}
+
+/// One selectable option within an AccompanimentGroup. Each option either is
+/// included (priceImpact = 0) or carries an upcharge (priceImpact > 0).
+model AccompanimentOption {
+  id              String  @id @default(uuid())
+  organizationId  String
+  groupId         String
+  /// Display label, e.g. "Rice", "Fries".
+  name            String
+  /// Price impact of selecting this option. 0 = included; >0 = upcharge.
+  /// E.g. Rice=0, Fries=1 means Fries costs $1 extra.
+  priceImpact     Decimal @default(0) @db.Decimal(20, 6)
+  /// Pre-selected when the dialog opens (only if within min/max bounds).
+  isDefault       Boolean @default(false)
+  sortOrder       Int     @default(0)
+  isActive        Boolean @default(true)
+  /// Optional: links this accompaniment to a Product for BOM / stock tracking.
+  inventoryItemId String?
+
+  group AccompanimentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, groupId, name])
+  @@index([organizationId])
+  @@index([groupId])
+}
+
+// ============================================================================
 // POS P5: KDS — Kitchen Display System.
 //
 // A KitchenTicket is created by pos.checkout (one per station) when a sale is
@@ -1351,6 +1552,9 @@ model KitchenTicket {
   /// same invoice when a single sale has both bar and kitchen items.
   /// Nullable for pre-payment "Send To Kitchen" tickets.
   invoiceId      String?
+  /// POS Order→Invoice split: the operational Order that fired this ticket.
+  /// Tickets are created from Orders now; invoiceId is kept for back-compat.
+  orderId        String?
   /// Human-readable label for the screen, e.g. "Order #42 — Sarah".
   label          String
   station        PosStation
@@ -1369,6 +1573,7 @@ model KitchenTicket {
   @@index([organizationId, station, status])
   @@index([organizationId, createdAt])
   @@index([invoiceId])
+  @@index([orderId])
 }
 
 // ============================================================================
@@ -1405,21 +1610,21 @@ model LoyaltyProgram {
 }
 
 model LoyaltyLedger {
-  id              String   @id @default(uuid())
-  organizationId  String
-  partnerId       String
+  id             String    @id @default(uuid())
+  organizationId String
+  partnerId      String
   /// Earned (+) or redeemed (−) or adjusted manually.
-  delta           Decimal  @db.Decimal(20, 6)
+  delta          Decimal   @db.Decimal(20, 6)
   /// Snapshot of the partner's running balance after this entry.
-  balanceAfter    Decimal  @db.Decimal(20, 6)
+  balanceAfter   Decimal   @db.Decimal(20, 6)
   /// Earning source: the invoice (sale) that produced the points, or
   /// 'manual' for an admin adjustment, 'redemption' for a use, 'expire'.
-  reason          String
-  documentId      String?
+  reason         String
+  documentId     String?
   /// Optional: when the points expire (NULL = never).
-  expiresAt       DateTime?
-  createdAt       DateTime @default(now())
-  createdBy       String?
+  expiresAt      DateTime?
+  createdAt      DateTime  @default(now())
+  createdBy      String?
 
   @@index([organizationId, partnerId, createdAt])
   @@index([organizationId, partnerId, reason])
@@ -1427,20 +1632,20 @@ model LoyaltyLedger {
 }
 
 model StoreCredit {
-  id              String   @id @default(uuid())
-  organizationId  String
-  partnerId       String
+  id             String    @id @default(uuid())
+  organizationId String
+  partnerId      String
   /// Signed balance. Positive = customer has credit; negative = customer
   /// owes the café (rare; usually we use CustomerTab for that).
-  balance         Decimal  @default(0) @db.Decimal(20, 6)
+  balance        Decimal   @default(0) @db.Decimal(20, 6)
   /// Optional: nil = never expires. Stale credit auto-forfeited via cron.
-  expiresAt       DateTime?
+  expiresAt      DateTime?
   /// Optional: original source (refund id, gift-card purchase, etc.)
-  source          String?
-  notes           String?
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  source         String?
+  notes          String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   ledger StoreCreditLedger[]
 
@@ -1450,17 +1655,17 @@ model StoreCredit {
 }
 
 model StoreCreditLedger {
-  id              String   @id @default(uuid())
-  organizationId  String
-  storeCreditId   String
+  id             String   @id @default(uuid())
+  organizationId String
+  storeCreditId  String
   /// Positive = credit added; negative = credit used.
-  delta           Decimal  @db.Decimal(20, 6)
-  balanceAfter    Decimal  @db.Decimal(20, 6)
+  delta          Decimal  @db.Decimal(20, 6)
+  balanceAfter   Decimal  @db.Decimal(20, 6)
   /// E.g. 'refund', 'gift_card_purchase', 'sale', 'manual_adjust', 'expire'.
-  reason          String
-  documentId      String?
-  createdAt       DateTime @default(now())
-  createdBy       String?
+  reason         String
+  documentId     String?
+  createdAt      DateTime @default(now())
+  createdBy      String?
 
   storeCredit StoreCredit @relation(fields: [storeCreditId], references: [id], onDelete: Cascade)
 
@@ -1468,22 +1673,22 @@ model StoreCreditLedger {
 }
 
 model CustomerTab {
-  id              String   @id @default(uuid())
-  organizationId  String
-  partnerId       String
+  id             String    @id @default(uuid())
+  organizationId String
+  partnerId      String
   /// Signed running balance. Positive = customer owes this much.
-  balance         Decimal  @default(0) @db.Decimal(20, 6)
+  balance        Decimal   @default(0) @db.Decimal(20, 6)
   /// Max balance the customer is allowed to run. 0 = no limit.
-  creditLimit     Decimal  @default(0) @db.Decimal(20, 6)
+  creditLimit    Decimal   @default(0) @db.Decimal(20, 6)
   /// Optional: link to a specific cash session so the cashier can settle
   /// the tab to a particular register at end of shift.
-  cashSessionId   String?
-  isOpen          Boolean  @default(true)
-  openedAt        DateTime @default(now())
-  closedAt        DateTime?
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  cashSessionId  String?
+  isOpen         Boolean   @default(true)
+  openedAt       DateTime  @default(now())
+  closedAt       DateTime?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   ledger CustomerTabLedger[]
 
@@ -1492,19 +1697,19 @@ model CustomerTab {
 }
 
 model CustomerTabLedger {
-  id              String   @id @default(uuid())
-  organizationId  String
-  tabId           String
+  id             String   @id @default(uuid())
+  organizationId String
+  tabId          String
   /// Positive = charge added to the tab; negative = payment received.
-  delta           Decimal  @db.Decimal(20, 6)
-  balanceAfter    Decimal  @db.Decimal(20, 6)
-  reason          String
+  delta          Decimal  @db.Decimal(20, 6)
+  balanceAfter   Decimal  @db.Decimal(20, 6)
+  reason         String
   /// For charges: the invoice that was added to the tab.
   /// For payments: the payment row that settled the tab.
-  documentId      String?
-  paymentId       String?
-  createdAt       DateTime @default(now())
-  createdBy       String?
+  documentId     String?
+  paymentId      String?
+  createdAt      DateTime @default(now())
+  createdBy      String?
 
   tab CustomerTab @relation(fields: [tabId], references: [id], onDelete: Cascade)
 
@@ -1535,18 +1740,18 @@ enum OnlineOrderStatus {
 }
 
 model MenuQrSession {
-  id              String   @id @default(uuid())
-  organizationId  String
-  branchId        String
+  id             String    @id @default(uuid())
+  organizationId String
+  branchId       String
   /// Optional table number, e.g. "5" or "T-12". Free-form string.
-  tableNumber     String?
+  tableNumber    String?
   /// Short opaque token embedded in the QR URL. The customer-facing page
   /// passes it as ?token=... and the backend validates it.
-  token           String   @unique
-  expiresAt       DateTime
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  lastUsedAt      DateTime?
+  token          String    @unique
+  expiresAt      DateTime
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  lastUsedAt     DateTime?
 
   orders OnlineOrder[]
 
@@ -1555,34 +1760,34 @@ model MenuQrSession {
 }
 
 model OnlineOrder {
-  id              String           @id @default(uuid())
-  organizationId  String
+  id             String            @id @default(uuid())
+  organizationId String
   /// The QR session that authorised this order. NULL = walk-in online.
-  sessionId       String?
+  sessionId      String?
   /// Customer info captured during checkout (no auth required).
-  customerName    String
-  customerPhone   String?
-  customerEmail   String?
+  customerName   String
+  customerPhone  String?
+  customerEmail  String?
   /// 'dine_in' | 'takeaway' | 'pickup' (digital menu: no delivery in MVP)
-  orderType       String           @default("dine_in")
+  orderType      String            @default("dine_in")
   /// Denormalised line items so the customer's tracking page renders
   /// without joining 4 tables per request.
-  items           Json
-  subtotal        Decimal          @db.Decimal(20, 6)
-  taxAmount       Decimal          @default(0) @db.Decimal(20, 6)
-  totalAmount     Decimal          @db.Decimal(20, 6)
+  items          Json
+  subtotal       Decimal           @db.Decimal(20, 6)
+  taxAmount      Decimal           @default(0) @db.Decimal(20, 6)
+  totalAmount    Decimal           @db.Decimal(20, 6)
   /// After the cashier settles the order, the resulting sales_invoice
   /// document id. NULL = not yet tendered (still in cart, or pending).
-  invoiceId       String?
+  invoiceId      String?
   /// 'mobile_money' | 'card' | 'cash_on_pickup' | 'wallet' | 'qr'
-  paymentMethod   String?
+  paymentMethod  String?
   /// Raw mobile-money / card reference the customer supplied.
-  paymentRef      String?
-  status          OnlineOrderStatus @default(received)
+  paymentRef     String?
+  status         OnlineOrderStatus @default(received)
   /// Free-form note from the customer ("no onions please", etc.)
-  notes           String?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  notes          String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   session MenuQrSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
 
@@ -1616,8 +1821,8 @@ model Payment {
   createdBy         String?
   updatedBy         String?
 
-  partner     Partner             @relation(fields: [partnerId], references: [id])
-  allocations PaymentAllocation[]
+  partner       Partner             @relation(fields: [partnerId], references: [id])
+  allocations   PaymentAllocation[]
   cashMovements CashMovement[]
 
   @@unique([organizationId, paymentNumber])
@@ -1687,17 +1892,17 @@ model InventoryLocation {
 
 /// On-hand quantity per product per location (the "quant").
 model StockItem {
-  id             String   @id @default(uuid())
-  organizationId String
-  productId      String
-  locationId     String
-  quantity       Decimal  @default(0) @db.Decimal(20, 6)
+  id                 String   @id @default(uuid())
+  organizationId     String
+  productId          String
+  locationId         String
+  quantity           Decimal  @default(0) @db.Decimal(20, 6)
   /// Running weighted-average cost per unit. Updated on every receipt (AVCO
   /// products only). For FIFO products this stays 0; for STANDARD products this
   /// stays 0 (the cost is Product.costPrice). See CostResolverService.
-  runningAverageCost Decimal @default(0) @db.Decimal(20, 6)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  runningAverageCost Decimal  @default(0) @db.Decimal(20, 6)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   product  Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
   location InventoryLocation @relation(fields: [locationId], references: [id])
@@ -1784,18 +1989,18 @@ enum CashMovementType {
 /// the session's opening float and movements. `locationId` is optional and
 /// links the till to a physical InventoryLocation (e.g. a store).
 model CashRegister {
-  id             String    @id @default(uuid())
-  organizationId String
-  code           String
-  name           String
-  locationId     String?
+  id               String    @id @default(uuid())
+  organizationId   String
+  code             String
+  name             String
+  locationId       String?
   defaultAccountId String
-  isActive       Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  createdBy      String?
-  updatedBy      String?
-  deletedAt      DateTime?
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdBy        String?
+  updatedBy        String?
+  deletedAt        DateTime?
 
   defaultAccount Account            @relation("CashRegisterDefaultAccount", fields: [defaultAccountId], references: [id])
   location       InventoryLocation? @relation(fields: [locationId], references: [id])
@@ -1811,7 +2016,7 @@ model CashRegister {
 /// the system computed (= opening + sales + pay-ins − pay-outs − refunds);
 /// `closingDifference = counted − expected` and is the variance.
 model CashSession {
-  id                String           @id @default(uuid())
+  id                String            @id @default(uuid())
   organizationId    String
   cashRegisterId    String
   /// Phase F: redundant cache of the register's branch, for branch-scoped
@@ -1819,22 +2024,22 @@ model CashSession {
   branchId          String?
   userId            String
   status            CashSessionStatus @default(open)
-  openedAt          DateTime         @default(now())
+  openedAt          DateTime          @default(now())
   closedAt          DateTime?
-  openingFloat      Decimal          @default(0) @db.Decimal(20, 6)
-  closingCounted    Decimal?         @db.Decimal(20, 6)
-  closingExpected   Decimal?         @db.Decimal(20, 6)
-  closingDifference Decimal?         @db.Decimal(20, 6)
+  openingFloat      Decimal           @default(0) @db.Decimal(20, 6)
+  closingCounted    Decimal?          @db.Decimal(20, 6)
+  closingExpected   Decimal?          @db.Decimal(20, 6)
+  closingDifference Decimal?          @db.Decimal(20, 6)
   /// Variance investigation trail: user-supplied reason for the discrepancy.
   varianceReason    String?
   /// null = unexamined, 'pending_review' = flagged, 'approved' / 'rejected' = resolved.
   varianceStatus    String?
   /// How much was banked from this session and where.
-  bankedAmount      Decimal?         @db.Decimal(20, 6)
+  bankedAmount      Decimal?          @db.Decimal(20, 6)
   bankName          String?
   notes             String?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
 
   cashRegister CashRegister   @relation(fields: [cashRegisterId], references: [id])
   movements    CashMovement[]
@@ -1850,15 +2055,15 @@ model CashSession {
 /// `Payment` is linked via `paymentId` so the cash session reconciles with the
 /// ledger.
 model CashMovement {
-  id             String          @id @default(uuid())
+  id             String           @id @default(uuid())
   organizationId String
   cashSessionId  String
   movementType   CashMovementType
-  amount         Decimal         @db.Decimal(20, 6)
+  amount         Decimal          @db.Decimal(20, 6)
   paymentId      String?
   reason         String?
   performedBy    String?
-  createdAt      DateTime        @default(now())
+  createdAt      DateTime         @default(now())
 
   cashSession CashSession @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
   payment     Payment?    @relation(fields: [paymentId], references: [id])
@@ -1867,17 +2072,18 @@ model CashMovement {
   @@index([cashSessionId])
   @@index([paymentId])
 }
+
 /// Immutable snapshot of a POS Z-report. Written once when the cash session
 /// is closed so the report can be reprinted later even after movements age.
 model PosReportSnapshot {
-  id              String   @id @default(uuid())
-  organizationId  String
-  cashSessionId   String   @unique
+  id             String   @id @default(uuid())
+  organizationId String
+  cashSessionId  String   @unique
   /// Frozen report data (JSON — same shape as XReport/ZReport response).
-  reportData      Json
+  reportData     Json
   /// 'z' is the only kind today; extensible for future report types.
-  kind            String   @default("z")
-  generatedAt     DateTime @default(now())
+  kind           String   @default("z")
+  generatedAt    DateTime @default(now())
 
   @@index([organizationId, cashSessionId])
   @@index([organizationId, generatedAt])
@@ -1989,12 +2195,12 @@ model ReportTieoutSnapshot {
 /// events never get lost on commit failure and never fire on rollback. The
 /// OutboxWorker polls pending rows and dispatches them to handlers.
 model EventOutbox {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   eventName      String
   payload        Json
-  status         String   @default("pending")
-  attempts       Int      @default(0)
+  status         String    @default("pending")
+  attempts       Int       @default(0)
   lastError      String?
   /// D4-3 / Multi-instance safety: a uuid set by the worker when it claims a
   /// row. Two workers that read the same pending row will see the same claim
@@ -2002,7 +2208,7 @@ model EventOutbox {
   /// wins. Cleared on success.
   claimToken     String?
   claimedAt      DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
   shippedAt      DateTime?
 
   @@index([status, createdAt])
@@ -2057,7 +2263,7 @@ model Notification {
 /// User-level notification preferences. Falls back to org defaults when
 /// missing. Per-channel opt-out; per-category frequency caps.
 model NotificationPreference {
-  id             String   @id @default(uuid())
+  id             String              @id @default(uuid())
   organizationId String
   userId         String
   channel        NotificationChannel
@@ -2117,17 +2323,17 @@ enum OneTimeTokenPurpose {
 /// Generic one-time-use token with TTL. Replaces the previous "abuse of
 /// IdempotencyRecord" pattern with a dedicated, typed table.
 model OneTimeToken {
-  id             String             @id @default(uuid())
+  id             String              @id @default(uuid())
   organizationId String?
   userId         String?
   /// SHA-256 hash of the presented token. The raw token is sent to the user.
-  tokenHash      String             @unique
+  tokenHash      String              @unique
   purpose        OneTimeTokenPurpose
   expiresAt      DateTime
   consumedAt     DateTime?
   /// Optional context (e.g. IP that requested the reset).
-  payload        Json               @default("{}")
-  createdAt      DateTime           @default(now())
+  payload        Json                @default("{}")
+  createdAt      DateTime            @default(now())
 
   @@index([userId, purpose])
   @@index([expiresAt])
@@ -2148,22 +2354,22 @@ enum ApprovalStatus {
 /// approvals from N distinct approvers (e.g. 2-of-3). Configurable per
 /// document type via ApprovalPolicy.
 model ApprovalRequest {
-  id              String         @id @default(uuid())
-  organizationId  String
+  id             String         @id @default(uuid())
+  organizationId String
   /// What is being approved, e.g. "expense:123" or "vendor_bill:abc".
-  entityType      String
-  entityId        String
+  entityType     String
+  entityId       String
   /// Free-form snapshot for the UI (amount, partner, etc.).
-  snapshot        Json
-  policyId        String?
-  status          ApprovalStatus @default(pending)
-  requiredCount   Int            @default(1)
-  decidedAt       DateTime?
-  createdById     String?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  snapshot       Json
+  policyId       String?
+  status         ApprovalStatus @default(pending)
+  requiredCount  Int            @default(1)
+  decidedAt      DateTime?
+  createdById    String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  policy  ApprovalPolicy?     @relation(fields: [policyId], references: [id])
+  policy    ApprovalPolicy?    @relation(fields: [policyId], references: [id])
   decisions ApprovalDecision[]
 
   @@index([organizationId, entityType, entityId])
@@ -2188,18 +2394,18 @@ model ApprovalDecision {
 /// Per-org rules for which documents require approval, who decides, and how
 /// many approvals are needed.
 model ApprovalPolicy {
-  id              String   @id @default(uuid())
-  organizationId  String
-  name            String
-  entityType      String
+  id                  String   @id @default(uuid())
+  organizationId      String
+  name                String
+  entityType          String
   /// Optional amount threshold above which approval is required.
-  minAmount       Decimal? @db.Decimal(20, 6)
+  minAmount           Decimal? @db.Decimal(20, 6)
   /// Permissions required to act as an approver.
   approverPermissions String[] @default([])
-  requiredCount   Int      @default(1)
-  isActive        Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  requiredCount       Int      @default(1)
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   requests ApprovalRequest[]
 
@@ -2225,23 +2431,23 @@ enum RecurringStatus {
 }
 
 model RecurringDocument {
-  id              String              @id @default(uuid())
-  organizationId  String
-  name            String
+  id             String             @id @default(uuid())
+  organizationId String
+  name           String
   /// sales_invoice | vendor_bill | credit_note
-  documentType    DocumentType
+  documentType   DocumentType
   /// Template payload (partnerId, lines, etc.). Generated children copy from this.
-  template        Json
-  frequency       RecurringFrequency
+  template       Json
+  frequency      RecurringFrequency
   /// Next date a child should be generated (UTC midnight).
-  nextRunAt       DateTime
+  nextRunAt      DateTime
   /// Last successfully generated child (for back-fill detection).
-  lastRunAt       DateTime?
-  endDate         DateTime?
-  status          RecurringStatus     @default(active)
-  createdById     String?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
+  lastRunAt      DateTime?
+  endDate        DateTime?
+  status         RecurringStatus    @default(active)
+  createdById    String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 
   runs RecurringDocumentRun[]
 
@@ -2249,20 +2455,20 @@ model RecurringDocument {
 }
 
 model RecurringDocumentRun {
-  id              String   @id @default(uuid())
-  organizationId  String
-  recurringId     String
-  scheduledFor    DateTime
+  id             String    @id @default(uuid())
+  organizationId String
+  recurringId    String
+  scheduledFor   DateTime
   /// When the worker actually ran this slot.
-  ranAt           DateTime?
-  documentId      String?  // -> Document.id when generated
-  status          String   @default("pending") // pending | generated | failed | skipped
-  error           String?
+  ranAt          DateTime?
+  documentId     String? // -> Document.id when generated
+  status         String    @default("pending") // pending | generated | failed | skipped
+  error          String?
 
   recurring RecurringDocument @relation(fields: [recurringId], references: [id], onDelete: Cascade)
 
-  @@index([organizationId, status, scheduledFor])
   @@unique([recurringId, scheduledFor])
+  @@index([organizationId, status, scheduledFor])
 }
 
 // =============================================================================
@@ -2279,18 +2485,18 @@ enum WebhookEventStatus {
 /// Outbound webhook delivery. Signed (HMAC-SHA256) so receivers can verify
 /// origin. Retries with exponential backoff up to N attempts.
 model WebhookEndpoint {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   url            String
   /// Events to subscribe to. Empty array = all events.
-  events         String[] @default([])
+  events         String[]  @default([])
   /// HMAC secret used to sign deliveries (rotated by creating a new endpoint).
   signingSecret  String
-  isActive       Boolean  @default(true)
+  isActive       Boolean   @default(true)
   description    String?
   createdById    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
   deliveries WebhookDelivery[]
@@ -2352,7 +2558,7 @@ model SavedReport {
   reportKey      String
   /// Free-form parameter snapshot (period, accountIds, etc.).
   parameters     Json     @default("{}")
-  schedule       String?  // cron expression, optional
+  schedule       String? // cron expression, optional
   /// CSV | PDF | both.
   format         String   @default("csv")
   emailTo        String[] @default([])
@@ -2366,13 +2572,13 @@ model SavedReport {
 }
 
 model SavedReportRun {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   reportId       String
   scheduledFor   DateTime
   ranAt          DateTime?
-  status         String   @default("pending") // pending | running | succeeded | failed
-  fileId         String?  // -> File.id (CSV or PDF)
+  status         String    @default("pending") // pending | running | succeeded | failed
+  fileId         String? // -> File.id (CSV or PDF)
   error          String?
 
   report SavedReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
@@ -2385,13 +2591,13 @@ model SavedReportRun {
 // =============================================================================
 
 model OrganizationModule {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
-  moduleName     String   // 'pos' | 'school' | 'hospital' | …
-  isActive       Boolean  @default(true)
+  moduleName     String // 'pos' | 'school' | 'hospital' | …
+  isActive       Boolean   @default(true)
   /// Per-tenant config (e.g. POS: enableTips, school: enableBoarding).
-  config         Json     @default("{}")
-  enabledAt      DateTime @default(now())
+  config         Json      @default("{}")
+  enabledAt      DateTime  @default(now())
   disabledAt     DateTime?
 
   @@unique([organizationId, moduleName])
@@ -2408,14 +2614,14 @@ enum PurchaseRequestStatus {
   approved
   rejected
   cancelled
-  converted  // converted to one or more POs
+  converted // converted to one or more POs
 }
 
 enum PurchaseOrderStatus {
   draft
   submitted
   approved
-  sent       // sent to supplier
+  sent // sent to supplier
   acknowledged
   partially_received
   received
@@ -2451,24 +2657,24 @@ enum DebitNoteReason {
 /// delivery / estimated price). Workflow: draft → submitted → approved →
 /// converted (to one or more POs).
 model PurchaseRequest {
-  id              String                @id @default(uuid())
-  organizationId  String
-  requestNumber   String
-  requestedById   String?
-  partnerId       String?  // preferred supplier (optional)
-  branchId        String?
-  description     String?
-  neededBy        DateTime?
-  status          PurchaseRequestStatus @default(draft)
-  approvedAt      DateTime?
-  approvedById    String?
-  rejectedReason  String?
+  id             String                @id @default(uuid())
+  organizationId String
+  requestNumber  String
+  requestedById  String?
+  partnerId      String? // preferred supplier (optional)
+  branchId       String?
+  description    String?
+  neededBy       DateTime?
+  status         PurchaseRequestStatus @default(draft)
+  approvedAt     DateTime?
+  approvedById   String?
+  rejectedReason String?
   /// Free-form JSON snapshot of the request at submit time (for audit).
-  snapshot        Json?
-  customFields    Json                  @default("{}")
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  deletedAt       DateTime?
+  snapshot       Json?
+  customFields   Json                  @default("{}")
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  deletedAt      DateTime?
 
   lines     PurchaseRequestLine[]
   orders    PurchaseOrder[]
@@ -2484,16 +2690,16 @@ model PurchaseRequest {
 }
 
 model PurchaseRequestLine {
-  id               String   @id @default(uuid())
-  organizationId   String
-  purchaseRequestId String
-  productId        String?
-  description      String
-  quantity         Decimal  @db.Decimal(20, 6)
-  unitOfMeasureId  String?
+  id                 String   @id @default(uuid())
+  organizationId     String
+  purchaseRequestId  String
+  productId          String?
+  description        String
+  quantity           Decimal  @db.Decimal(20, 6)
+  unitOfMeasureId    String?
   estimatedUnitPrice Decimal? @db.Decimal(20, 6)
-  notes            String?
-  lineNumber       Int      @default(0)
+  notes              String?
+  lineNumber         Int      @default(0)
 
   request PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
 
@@ -2505,43 +2711,43 @@ model PurchaseRequestLine {
 /// "what we agreed to receive"; the GRN records "what we actually received";
 /// the bill records "what the supplier claims". Three-way match reconciles them.
 model PurchaseOrder {
-  id              String              @id @default(uuid())
-  organizationId  String
-  orderNumber     String
-  partnerId       String
-  branchId        String?
-  description     String?
-  orderDate       DateTime            @default(now())
+  id                   String              @id @default(uuid())
+  organizationId       String
+  orderNumber          String
+  partnerId            String
+  branchId             String?
+  description          String?
+  orderDate            DateTime            @default(now())
   expectedDeliveryDate DateTime?
-  currencyCode    String              @default("USD")
-  exchangeRate    Decimal             @default(1) @db.Decimal(18, 8)
-  subtotal        Decimal             @default(0) @db.Decimal(20, 6)
-  taxAmount       Decimal             @default(0) @db.Decimal(20, 6)
-  totalAmount     Decimal             @default(0) @db.Decimal(20, 6)
-  status          PurchaseOrderStatus @default(draft)
-  approvedAt      DateTime?
-  approvedById    String?
-  sentAt         DateTime?
-  notes           String?
-  terms           String?
+  currencyCode         String              @default("USD")
+  exchangeRate         Decimal             @default(1) @db.Decimal(18, 8)
+  subtotal             Decimal             @default(0) @db.Decimal(20, 6)
+  taxAmount            Decimal             @default(0) @db.Decimal(20, 6)
+  totalAmount          Decimal             @default(0) @db.Decimal(20, 6)
+  status               PurchaseOrderStatus @default(draft)
+  approvedAt           DateTime?
+  approvedById         String?
+  sentAt               DateTime?
+  notes                String?
+  terms                String?
   /// Free-form snapshot at approve/send for audit.
-  snapshot        Json?
-  customFields    Json                @default("{}")
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  deletedAt       DateTime?
+  snapshot             Json?
+  customFields         Json                @default("{}")
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  deletedAt            DateTime?
 
-  requestId       String?  // PR that drove this PO (nullable: ad-hoc POs allowed)
-  parentOrderId   String?  // revision chain
+  requestId     String? // PR that drove this PO (nullable: ad-hoc POs allowed)
+  parentOrderId String? // revision chain
 
-  lines        PurchaseOrderLine[]
-  receipts     GoodsReceiptNote[]
-  bills        VendorBillLink[]    // via join table to support multiple partial bills
+  lines         PurchaseOrderLine[]
+  receipts      GoodsReceiptNote[]
+  bills         VendorBillLink[] // via join table to support multiple partial bills
   matchStatuses ThreeWayMatch[]
-  createdBy    String?
-  updatedBy    String?
+  createdBy     String?
+  updatedBy     String?
 
-  request        PurchaseRequest? @relation(fields: [requestId], references: [id])
+  request PurchaseRequest? @relation(fields: [requestId], references: [id])
 
   partner Partner? @relation("PurchaseOrder_partner", fields: [partnerId], references: [id], onDelete: Restrict)
   branch  Branch?  @relation("PurchaseOrder_branch", fields: [branchId], references: [id], onDelete: SetNull)
@@ -2553,23 +2759,23 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderLine {
-  id              String   @id @default(uuid())
-  organizationId  String
-  purchaseOrderId String
-  productId       String?
-  description     String
-  quantity        Decimal  @db.Decimal(20, 6)
-  receivedQuantity Decimal @default(0) @db.Decimal(20, 6)  // running total
+  id               String  @id @default(uuid())
+  organizationId   String
+  purchaseOrderId  String
+  productId        String?
+  description      String
+  quantity         Decimal @db.Decimal(20, 6)
+  receivedQuantity Decimal @default(0) @db.Decimal(20, 6) // running total
   billedQuantity   Decimal @default(0) @db.Decimal(20, 6)
-  unitOfMeasureId String?
-  unitPrice       Decimal  @db.Decimal(20, 6)
-  taxRate         Decimal  @default(0) @db.Decimal(9, 6)
-  taxId           String?
-  subtotal        Decimal  @default(0) @db.Decimal(20, 6)
-  lineNumber      Int      @default(0)
-  notes           String?
+  unitOfMeasureId  String?
+  unitPrice        Decimal @db.Decimal(20, 6)
+  taxRate          Decimal @default(0) @db.Decimal(9, 6)
+  taxId            String?
+  subtotal         Decimal @default(0) @db.Decimal(20, 6)
+  lineNumber       Int     @default(0)
+  notes            String?
 
-  order    PurchaseOrder       @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  order    PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   receipts GoodsReceiptLine[]
 
   @@index([organizationId, purchaseOrderId])
@@ -2585,7 +2791,7 @@ model GoodsReceiptNote {
   purchaseOrderId String?
   partnerId       String?
   branchId        String?
-  warehouseId     String?  // location where goods arrived
+  warehouseId     String? // location where goods arrived
   receivedAt      DateTime           @default(now())
   status          GoodsReceiptStatus @default(draft)
   notes           String?
@@ -2595,10 +2801,10 @@ model GoodsReceiptNote {
   updatedAt       DateTime           @updatedAt
   deletedAt       DateTime?
 
-  lines  GoodsReceiptLine[]
-  order  PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id])
+  lines     GoodsReceiptLine[]
+  order     PurchaseOrder?     @relation(fields: [purchaseOrderId], references: [id])
   warehouse InventoryLocation? @relation(fields: [warehouseId], references: [id])
-  branch  Branch?           @relation("GoodsReceipt_branch", fields: [branchId], references: [id], onDelete: SetNull)
+  branch    Branch?            @relation("GoodsReceipt_branch", fields: [branchId], references: [id], onDelete: SetNull)
   createdBy String?
   updatedBy String?
 
@@ -2608,20 +2814,20 @@ model GoodsReceiptNote {
 }
 
 model GoodsReceiptLine {
-  id               String   @id @default(uuid())
-  organizationId   String
-  goodsReceiptId   String
+  id                  String    @id @default(uuid())
+  organizationId      String
+  goodsReceiptId      String
   purchaseOrderLineId String?
-  productId        String?
-  description      String
-  quantity         Decimal  @db.Decimal(20, 6)
-  unitCost         Decimal  @default(0) @db.Decimal(20, 6)
-  batchNumber      String?
-  expiryDate       DateTime?
-  notes            String?
-  lineNumber       Int      @default(0)
+  productId           String?
+  description         String
+  quantity            Decimal   @db.Decimal(20, 6)
+  unitCost            Decimal   @default(0) @db.Decimal(20, 6)
+  batchNumber         String?
+  expiryDate          DateTime?
+  notes               String?
+  lineNumber          Int       @default(0)
 
-  receipt GoodsReceiptNote @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
+  receipt GoodsReceiptNote   @relation(fields: [goodsReceiptId], references: [id], onDelete: Cascade)
   poLine  PurchaseOrderLine? @relation(fields: [purchaseOrderLineId], references: [id])
 
   @@index([organizationId, goodsReceiptId])
@@ -2630,51 +2836,51 @@ model GoodsReceiptLine {
 /// Links a vendor bill (Document of type vendor_bill) to one or more POs. A
 /// single bill can be split across POs (e.g. consolidated monthly statement).
 model VendorBillLink {
-  id             String   @id @default(uuid())
-  organizationId String
-  vendorBillId   String  // -> Document.id
+  id              String   @id @default(uuid())
+  organizationId  String
+  vendorBillId    String // -> Document.id
   purchaseOrderId String
-  amount         Decimal  @db.Decimal(20, 6)  // portion of the bill allocated to this PO
-  notes          String?
-  createdAt      DateTime @default(now())
+  amount          Decimal  @db.Decimal(20, 6) // portion of the bill allocated to this PO
+  notes           String?
+  createdAt       DateTime @default(now())
 
   order PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
 
+  @@unique([vendorBillId, purchaseOrderId])
   @@index([organizationId, vendorBillId])
   @@index([organizationId, purchaseOrderId])
-  @@unique([vendorBillId, purchaseOrderId])
 }
 
 /// Computed three-way match result per PO line. Updated whenever a GRN is
 /// posted or a bill is linked. Status determines whether AP can post the bill.
 model ThreeWayMatch {
-  id                String      @id @default(uuid())
-  organizationId    String
-  purchaseOrderId   String
+  id                  String      @id @default(uuid())
+  organizationId      String
+  purchaseOrderId     String
   purchaseOrderLineId String
-  productId         String?
+  productId           String?
   /// Quantities snapshot at last computation.
-  orderedQuantity   Decimal     @db.Decimal(20, 6)
-  receivedQuantity  Decimal     @default(0) @db.Decimal(20, 6)
-  billedQuantity    Decimal     @default(0) @db.Decimal(20, 6)
+  orderedQuantity     Decimal     @db.Decimal(20, 6)
+  receivedQuantity    Decimal     @default(0) @db.Decimal(20, 6)
+  billedQuantity      Decimal     @default(0) @db.Decimal(20, 6)
   /// Price snapshot.
-  orderedUnitPrice  Decimal     @db.Decimal(20, 6)
-  billedUnitPrice   Decimal?    @db.Decimal(20, 6)
+  orderedUnitPrice    Decimal     @db.Decimal(20, 6)
+  billedUnitPrice     Decimal?    @db.Decimal(20, 6)
   /// Variances (positive = over-billed/over-received).
-  quantityVariance  Decimal     @default(0) @db.Decimal(20, 6)
-  priceVariance     Decimal     @default(0) @db.Decimal(20, 6)
+  quantityVariance    Decimal     @default(0) @db.Decimal(20, 6)
+  priceVariance       Decimal     @default(0) @db.Decimal(20, 6)
   /// Computed: matched / partial / mismatch / blocked.
-  status            MatchStatus @default(pending)
+  status              MatchStatus @default(pending)
   /// Variance threshold per org (absolute quantity + price %). When the
   /// variance exceeds the threshold, the bill cannot be posted without
   /// explicit approval (status=blocked).
-  thresholdExceeded Boolean     @default(false)
-  notes             String?
-  lastCheckedAt     DateTime    @default(now())
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  thresholdExceeded   Boolean     @default(false)
+  notes               String?
+  lastCheckedAt       DateTime    @default(now())
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
-  order PurchaseOrder     @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  order PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
 
   @@unique([purchaseOrderLineId])
   @@index([organizationId, purchaseOrderId])
@@ -2688,34 +2894,34 @@ model ThreeWayMatch {
 /// The direction is "outbound" when WE issue (customer AR +), "inbound" when
 /// we RECEIVE one (vendor AP +).
 model DebitNote {
-  id              String         @id @default(uuid())
-  organizationId  String
-  noteNumber      String
+  id             String          @id @default(uuid())
+  organizationId String
+  noteNumber     String
   /// 'outbound' = we issued to a customer (increases AR)
   /// 'inbound'  = received from a supplier (increases AP / decreases expense)
-  direction       String         @default("outbound")
-  partnerId       String
+  direction      String          @default("outbound")
+  partnerId      String
   /// Optional: linked customer invoice (outbound) or vendor bill (inbound)
-  documentId      String?
-  reason          DebitNoteReason @default(other)
-  reasonNote      String?
-  issueDate       DateTime       @default(now())
-  currencyCode    String         @default("USD")
-  exchangeRate    Decimal        @default(1) @db.Decimal(18, 8)
-  subtotal        Decimal        @default(0) @db.Decimal(20, 6)
-  taxAmount       Decimal        @default(0) @db.Decimal(20, 6)
-  totalAmount     Decimal        @default(0) @db.Decimal(20, 6)
-  status          String         @default("draft")  // draft | posted | cancelled
-  postedAt        DateTime?
-  postedById      String?
-  notes           String?
-  customFields    Json           @default("{}")
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  deletedAt       DateTime?
+  documentId     String?
+  reason         DebitNoteReason @default(other)
+  reasonNote     String?
+  issueDate      DateTime        @default(now())
+  currencyCode   String          @default("USD")
+  exchangeRate   Decimal         @default(1) @db.Decimal(18, 8)
+  subtotal       Decimal         @default(0) @db.Decimal(20, 6)
+  taxAmount      Decimal         @default(0) @db.Decimal(20, 6)
+  totalAmount    Decimal         @default(0) @db.Decimal(20, 6)
+  status         String          @default("draft") // draft | posted | cancelled
+  postedAt       DateTime?
+  postedById     String?
+  notes          String?
+  customFields   Json            @default("{}")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  deletedAt      DateTime?
 
-  lines  DebitNoteLine[]
-  partner Partner?        @relation("DebitNote_partner", fields: [partnerId], references: [id], onDelete: Restrict)
+  lines     DebitNoteLine[]
+  partner   Partner?        @relation("DebitNote_partner", fields: [partnerId], references: [id], onDelete: Restrict)
   createdBy String?
   updatedBy String?
 
@@ -2725,19 +2931,19 @@ model DebitNote {
 }
 
 model DebitNoteLine {
-  id              String   @id @default(uuid())
-  organizationId  String
-  debitNoteId     String
-  productId       String?
-  description     String
-  quantity        Decimal  @db.Decimal(20, 6)
-  unitPrice       Decimal  @db.Decimal(20, 6)
-  taxId           String?
-  taxAmount       Decimal  @default(0) @db.Decimal(20, 6)
-  subtotal        Decimal  @default(0) @db.Decimal(20, 6)
-  total           Decimal  @default(0) @db.Decimal(20, 6)
-  lineNumber      Int      @default(0)
-  notes           String?
+  id             String  @id @default(uuid())
+  organizationId String
+  debitNoteId    String
+  productId      String?
+  description    String
+  quantity       Decimal @db.Decimal(20, 6)
+  unitPrice      Decimal @db.Decimal(20, 6)
+  taxId          String?
+  taxAmount      Decimal @default(0) @db.Decimal(20, 6)
+  subtotal       Decimal @default(0) @db.Decimal(20, 6)
+  total          Decimal @default(0) @db.Decimal(20, 6)
+  lineNumber     Int     @default(0)
+  notes          String?
 
   debitNote DebitNote @relation(fields: [debitNoteId], references: [id], onDelete: Cascade)
 
@@ -2749,16 +2955,16 @@ model DebitNoteLine {
 // =============================================================================
 
 model PushSubscription {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   userId         String
   /// Web Push endpoint URL (from PushSubscription.endpoint).
-  endpoint       String   @unique
+  endpoint       String    @unique
   p256dh         String
   auth           String
   userAgent      String?
-  createdAt      DateTime @default(now())
-  lastSeenAt     DateTime @default(now())
+  createdAt      DateTime  @default(now())
+  lastSeenAt     DateTime  @default(now())
   revokedAt      DateTime?
 
   @@index([organizationId, userId])
@@ -2818,22 +3024,22 @@ enum TaskStatus {
 /// A deal in the sales pipeline. Linked to a customer Partner; optional PO/Invoice
 /// links can be added later via customFields.
 model Deal {
-  id             String     @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   name           String
   partnerId      String
-  ownerId        String?    // User.id of the salesperson
-  stage          DealStage  @default(lead)
-  amount         Decimal    @default(0) @db.Decimal(20, 6)
-  currencyCode   String     @default("USD")
+  ownerId        String? // User.id of the salesperson
+  stage          DealStage @default(lead)
+  amount         Decimal   @default(0) @db.Decimal(20, 6)
+  currencyCode   String    @default("USD")
   expectedClose  DateTime?
   notes          String?
-  customFields   Json       @default("{}")
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  customFields   Json      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  partner Partner?     @relation("PartnerDeals", fields: [partnerId], references: [id], onDelete: Restrict)
+  partner    Partner?   @relation("PartnerDeals", fields: [partnerId], references: [id], onDelete: Restrict)
   activities Activity[] @relation("DealActivities")
 
   @@index([organizationId, stage])
@@ -2854,7 +3060,7 @@ model Activity {
   partnerId      String?
   /// When this activity happened (user-entered for past activities).
   occurredAt     DateTime     @default(now())
-  duration       Int?         // minutes (for calls/meetings)
+  duration       Int? // minutes (for calls/meetings)
   title          String
   body           String?
   completed      Boolean      @default(false)
@@ -2867,7 +3073,7 @@ model Activity {
   updatedAt      DateTime     @updatedAt
   deletedAt      DateTime?
 
-  deal Deal? @relation("DealActivities", fields: [dealId], references: [id], onDelete: Cascade)
+  deal    Deal?    @relation("DealActivities", fields: [dealId], references: [id], onDelete: Cascade)
   partner Partner? @relation("PartnerActivities", fields: [partnerId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, subjectType, subjectId])
@@ -2927,45 +3133,45 @@ enum PosReservationStatus {
 /// Soft-archive via `active=false`; rows are NEVER hard-deleted (FK from
 /// PosTableOrder / PosTableReservation is `onDelete: Restrict`).
 model PosTable {
-  id                  String         @id @default(uuid())
-  organizationId      String
+  id               String         @id @default(uuid())
+  organizationId   String
   /// Human display label, e.g. "Table 1", "VIP 01", "Patio 3".
-  name                String
+  name             String
   /// Stable, cashier-readable identifier. Unique per org — the server uses
   /// this for "T<n>" badges in the terminal UI.
-  number              Int
+  number           Int
   /// Number of seats (chairs). 0 = standing / counter spot.
-  seats               Int            @default(2)
+  seats            Int            @default(2)
   /// Where the table sits. `customZone` is filled in only when zone='custom'.
-  zone                PosTableZone   @default(indoor)
-  customZone          String?
+  zone             PosTableZone   @default(indoor)
+  customZone       String?
   /// Floor-plan geometry. Persisted so the layout survives a reload; the
   /// visual editor (next iteration) reads + writes these columns.
-  shape               PosTableShape  @default(square)
-  posX                Int            @default(40)
-  posY                Int            @default(40)
-  width               Int            @default(120)
-  height              Int            @default(120)
+  shape            PosTableShape  @default(square)
+  posX             Int            @default(40)
+  posY             Int            @default(40)
+  width            Int            @default(120)
+  height           Int            @default(120)
   /// Current lifecycle state. Driven by PosTablesService; auto-flipped by
   /// reservations (pending → reserved) and by payment (occupied → dirty).
-  status              PosTableStatus @default(available)
-  notes               String?
-  active              Boolean        @default(true)
+  status           PosTableStatus @default(available)
+  notes            String?
+  active           Boolean        @default(true)
   /// Waiter responsible for this table (free-form assignment; null = pool).
-  assignedWaiterId    String?
+  assignedWaiterId String?
   /// Self-FK: when this table was merged into another, points to the target
   /// table. `null` when not merged.
-  mergedIntoId        String?
-  mergedAt            DateTime?
-  mergedById          String?
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
-  createdBy           String?
-  updatedBy           String?
+  mergedIntoId     String?
+  mergedAt         DateTime?
+  mergedById       String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  createdBy        String?
+  updatedBy        String?
 
-  mergedInto PosTable?            @relation("PosTableMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
-  mergedFrom PosTable[]           @relation("PosTableMerge")
-  orders     PosTableOrder[]
+  mergedInto   PosTable?             @relation("PosTableMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom   PosTable[]            @relation("PosTableMerge")
+  orders       PosTableOrder[]
   reservations PosTableReservation[]
 
   @@unique([organizationId, number])
@@ -2980,24 +3186,24 @@ model PosTable {
 /// reports can compute occupancy time. `@@unique([tableId, documentId])`
 /// guarantees we can't double-link the same invoice.
 model PosTableOrder {
-  id              String    @id @default(uuid())
-  organizationId  String
-  tableId         String
-  documentId      String
+  id             String    @id @default(uuid())
+  organizationId String
+  tableId        String
+  documentId     String
   /// Snapshot of customer info shown in the table picker (e.g. "Sarah, 4 pax").
   /// Not a hard FK — the customer may be a walk-in (no Partner record).
-  customerName    String?
-  guestCount      Int?
+  customerName   String?
+  guestCount     Int?
   /// Wall-clock the table was opened (first item rang). Used by reports for
   /// "average dining time".
-  openedAt        DateTime  @default(now())
-  closedAt        DateTime?
+  openedAt       DateTime  @default(now())
+  closedAt       DateTime?
   /// Free-form waiter / cashier note shown in the order panel.
-  notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  createdBy       String?
-  updatedBy       String?
+  notes          String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
 
   table    PosTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
   document Document @relation(fields: [documentId], references: [id], onDelete: Restrict)
@@ -3013,31 +3219,31 @@ model PosTableOrder {
 /// an empty Document is opened (no lines yet) so the cashier can start ringing.
 /// The reservation worker flips `pending → no_show` after a 30-minute grace.
 model PosTableReservation {
-  id                String              @id @default(uuid())
-  organizationId    String
-  tableId           String
-  customerName      String
-  phone             String?
-  email             String?
-  partySize         Int                 @default(2)
+  id               String               @id @default(uuid())
+  organizationId   String
+  tableId          String
+  customerName     String
+  phone            String?
+  email            String?
+  partySize        Int                  @default(2)
   /// Reservation start (guests expected to arrive).
-  startAt           DateTime
+  startAt          DateTime
   /// Reservation end (table must be freed for the next booking).
-  endAt             DateTime
-  status            PosReservationStatus @default(pending)
-  notes             String?
+  endAt            DateTime
+  status           PosReservationStatus @default(pending)
+  notes            String?
   /// When the guest was seated; null until then.
-  seatedAt          DateTime?
+  seatedAt         DateTime?
   /// Set when the guest is flagged as no-show by the worker.
-  noShowAt          DateTime?
-  cancelledAt       DateTime?
+  noShowAt         DateTime?
+  cancelledAt      DateTime?
   /// Optional FK to the Document that was opened when the reservation was seated.
   /// Lets the cashier jump from the reservation list straight to the open ticket.
-  seatedDocumentId  String?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
-  createdBy         String?
-  updatedBy         String?
+  seatedDocumentId String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  createdBy        String?
+  updatedBy        String?
 
   table PosTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
 
@@ -3045,4 +3251,214 @@ model PosTableReservation {
   @@index([organizationId, tableId])
   @@index([organizationId, status, startAt])
   @@index([organizationId, startAt])
+}
+
+// ============================================================================
+// POS — Order → Invoice → Receipt domain (DDD split).
+//
+// The operational Order is separate from the financial Invoice (Document):
+//   Order   — what the customer is ordering (draft/open lifecycle, KOT,
+//             table/waiter assignment). No GL/stock/cash effect while editing.
+//   Invoice — the Document (sales_invoice) generated at bill time; inventory is
+//             deducted and GL (AR) is posted then.
+//   Receipt — typed print/issue log generated from a paid or credit invoice.
+//
+// Order numbers (ORD-YYYYMMDD-NNNNNN) are assigned at creation; Invoice numbers
+// (INV-YYYY-NNNNNN) only at bill generation.
+// ============================================================================
+
+enum OrderType {
+  dine_in
+  takeaway
+  delivery
+}
+
+enum OrderStatus {
+  draft
+  open
+  preparing
+  ready
+  served
+  closed
+  cancelled
+}
+
+enum OrderItemKitchenStatus {
+  pending
+  sent
+  preparing
+  ready
+  served
+}
+
+/// How an Invoice (Document) is/was settled. `credit` = postpaid house account.
+enum InvoicePaymentMode {
+  cash
+  card
+  mobile_money
+  mixed
+  credit
+}
+
+/// Settlement lifecycle, independent of the cash balance. For credit invoices
+/// this is driven by accounting (AR), not by payment.
+enum InvoiceSettlementStatus {
+  unsettled
+  partially_settled
+  settled
+  written_off
+}
+
+/// Receipt kind. A single invoice can produce several receipts over its life
+/// (e.g. a credit-issue receipt at bill time, then a settlement receipt later).
+enum ReceiptType {
+  payment_receipt
+  partial_payment_receipt
+  credit_issue_receipt
+  settlement_receipt
+  merchant_copy
+  reprint
+}
+
+/// Operational order — the restaurant-ops aggregate root. Created immediately
+/// when the customer starts ordering; carries the kitchen + table lifecycle.
+/// Billing is deferred: `invoiceId` is set only when the bill is generated.
+/// `version` enables optimistic locking against concurrent edits.
+model Order {
+  id                         String      @id @default(uuid())
+  organizationId             String
+  orderNumber                String
+  orderType                  OrderType   @default(dine_in)
+  status                     OrderStatus @default(open)
+  /// Loose refs (no FK) to keep the aggregate decoupled — mirrors the existing
+  /// PosHold / Document.tableId pattern. Integrity enforced in the service layer.
+  tableId                    String?
+  partnerId                  String?
+  waiterId                   String?
+  branchId                   String?
+  cashSessionId              String?
+  guestCount                 Int?
+  notes                      String?
+  /// Set at bill generation. 1:1 with the financial Document (the Invoice).
+  invoiceId                  String?     @unique
+  /// Optimistic-lock token. Every item mutation bumps this; writers pass the
+  /// expected value so two waiters can't clobber each other.
+  version                    Int         @default(0)
+  /// Running snapshot of the order total (recomputed on each item change) so
+  /// the table picker / order panel render without re-pricing.
+  subtotal                   Decimal     @default(0) @db.Decimal(20, 6)
+  discountTotal              Decimal     @default(0) @db.Decimal(20, 6)
+  taxAmount                  Decimal     @default(0) @db.Decimal(20, 6)
+  totalAmount                Decimal     @default(0) @db.Decimal(20, 6)
+  /// Order-level discount (%) applied on top of line discounts at bill time.
+  transactionDiscountPercent Decimal     @default(0) @db.Decimal(9, 4)
+  openedAt                   DateTime    @default(now())
+  closedAt                   DateTime?
+  cancelledAt                DateTime?
+  cancelReason               String?
+  createdAt                  DateTime    @default(now())
+  updatedAt                  DateTime    @updatedAt
+  createdBy                  String?
+  updatedBy                  String?
+
+  items   OrderItem[]
+  invoice Document?   @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, orderNumber])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, tableId, status])
+  @@index([organizationId, cashSessionId])
+}
+
+/// A line on an Order. Carries its own kitchen lifecycle (each item can be
+/// pending → sent → preparing → ready → served independently) and cancellation
+/// flag (items can be voided before billing). Pricing mirrors DocumentLine.
+model OrderItem {
+  id                     String                 @id @default(uuid())
+  organizationId         String
+  orderId                String
+  productId              String?
+  menuItemId             String?
+  comboId                String?
+  variantId              String?
+  description            String
+  quantity               Decimal                @default(1) @db.Decimal(20, 6)
+  unitPrice              Decimal                @default(0) @db.Decimal(20, 6)
+  discountPercent        Decimal                @default(0) @db.Decimal(9, 4)
+  taxId                  String?
+  taxInclusive           Boolean                @default(false)
+  note                   String?
+  /// Per-item kitchen state for the KDS / order panel.
+  kitchenStatus          OrderItemKitchenStatus @default(pending)
+  cancelled              Boolean                @default(false)
+  cancelledAt            DateTime?
+  cancelReason           String?
+  lineNumber             Int                    @default(0)
+  /// Free-text snapshot of selected accompaniments (display + KOT).
+  accompanimentNames     String[]               @default([])
+  /// Kitchen print lifecycle (the order owns the kitchen flow now). Delta KOT
+  /// logic compares printed vs current qty.
+  kitchenPrintCount      Int                    @default(0)
+  kitchenLastPrintedAt   DateTime?
+  kitchenPrintedQty      Decimal?               @db.Decimal(20, 6)
+  cancelPrintCount       Int                    @default(0)
+  cancelLastPrintedAt    DateTime?
+  lastKitchenPrintedById String?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+
+  order     Order               @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  modifiers OrderItemModifier[]
+
+  @@index([organizationId])
+  @@index([orderId])
+  @@index([menuItemId])
+  @@index([productId])
+}
+
+/// Structured per-item modifier selection (queryable for reporting), in
+/// addition to the priceDelta already folded into OrderItem.unitPrice.
+model OrderItemModifier {
+  id             String   @id @default(uuid())
+  organizationId String
+  orderItemId    String
+  modifierId     String?
+  name           String
+  priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
+  createdAt      DateTime @default(now())
+
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([orderItemId])
+  @@index([modifierId])
+}
+
+/// A printed/issued receipt generated FROM an Invoice (Document). Non-financial:
+/// it records WHAT was printed and WHEN, not money (money lives on Payment).
+/// `type` distinguishes a normal payment receipt from a credit-issue receipt
+/// (postpaid sale, no cash yet) or a later settlement receipt.
+model Receipt {
+  id             String      @id @default(uuid())
+  organizationId String
+  invoiceId      String
+  receiptNumber  String
+  type           ReceiptType @default(payment_receipt)
+  /// The payment this receipt acknowledges (null for credit-issue receipts).
+  paymentId      String?
+  copies         Int         @default(1)
+  printedById    String?
+  /// Required for reprints.
+  reason         String?
+  /// Printer host / station label at print time.
+  printer        String?
+  createdAt      DateTime    @default(now())
+
+  invoice Document @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, invoiceId])
+  @@index([organizationId, type])
+  @@index([receiptNumber])
 }

@@ -15,6 +15,52 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 
+export interface MenuItemBundle {
+  product: {
+    id: string;
+    name: string;
+    unitPrice: number;
+    sku: string | null;
+    productType: string;
+  };
+  variants: Array<{
+    id: string;
+    name: string;
+    price: number;
+    sortOrder: number;
+  }>;
+  accompanimentGroups: Array<{
+    id: string;
+    name: string;
+    isRequired: boolean;
+    minSelect: number;
+    maxSelect: number;
+    sortOrder: number;
+    options: Array<{
+      id: string;
+      name: string;
+      priceImpact: number;
+      isDefault: boolean;
+      sortOrder: number;
+    }>;
+  }>;
+  groups: Array<{
+    id: string;
+    name: string;
+    groupType: 'ADD_ON' | 'MODIFIER';
+    minSelect: number;
+    maxSelect: number;
+    sortOrder: number;
+    modifiers: Array<{
+      id: string;
+      name: string;
+      priceDelta: number;
+      isDefault: boolean;
+      sortOrder: number;
+    }>;
+  }>;
+}
+
 @Injectable()
 export class PosMenuService {
   constructor(
@@ -199,5 +245,101 @@ export class PosMenuService {
       where: { id },
       data: { isAvailable: false },
     });
+  }
+
+  /* ====================== Full bundle (POS terminal) ====================== */
+
+  /**
+   * Returns the complete configuration for a menu item: variants, accompaniment
+   * groups, and modifier groups (add-ons + modifiers). The POS terminal uses
+   * this single response to drive the full 4-step order flow.
+   */
+  async getFullBundle(menuItemId: string): Promise<MenuItemBundle | null> {
+    const orgId = this.tenant.organizationId;
+    const item = await this.prisma.client.menuItem.findFirst({
+      where: { id: menuItemId, organizationId: orgId },
+    });
+    if (!item) return null;
+
+    // Variants
+    const variants = await this.prisma.client.menuItemVariant.findMany({
+      where: { organizationId: orgId, menuItemId, isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+
+    // Accompaniment groups + options (via join table)
+    const accLinks = await this.prisma.client.menuItemAccompanimentGroup.findMany({
+      where: { menuItemId, menuItem: { organizationId: orgId } },
+      orderBy: { sortOrder: 'asc' },
+      include: {
+        accompanimentGroup: {
+          include: { options: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } },
+        },
+      },
+    });
+    const accGroups = (accLinks as any[])
+      .filter((l: any) => l.accompanimentGroup && l.accompanimentGroup.isActive)
+      .map((l: any) => l.accompanimentGroup);
+
+    // Modifier groups + modifiers
+    const links = await this.prisma.client.menuItemModifierGroup.findMany({
+      where: { menuItemId, organizationId: orgId },
+      orderBy: { sortOrder: 'asc' },
+      include: {
+        modifierGroup: {
+          include: { modifiers: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } },
+        },
+      },
+    });
+
+    const groups = (links as any[])
+      .filter((l: any) => l.modifierGroup && l.modifierGroup.isActive)
+      .map((l: any) => ({
+        id: l.modifierGroup.id,
+        name: l.modifierGroup.name,
+        groupType: (l.modifierGroup.groupType ?? 'ADD_ON') as 'ADD_ON' | 'MODIFIER',
+        minSelect: l.modifierGroup.minSelect,
+        maxSelect: l.modifierGroup.maxSelect,
+        sortOrder: l.sortOrder,
+        modifiers: l.modifierGroup.modifiers.map((m: any) => ({
+          id: m.id,
+          name: m.name,
+          priceDelta: Number(m.priceDelta),
+          isDefault: m.isDefault,
+          sortOrder: m.sortOrder,
+        })),
+      }));
+
+    return {
+      product: {
+        id: (item as any).id,
+        name: (item as any).name,
+        unitPrice: Number((item as any).basePrice ?? 0),
+        sku: (item as any).code ?? null,
+        productType: 'menu',
+      },
+      variants: (variants as any[]).map((v) => ({
+        id: v.id,
+        name: v.name,
+        price: Number(v.price),
+        sortOrder: v.sortOrder,
+      })),
+      accompanimentGroups: (accGroups as any[]).map((g) => ({
+        id: g.id,
+        name: g.name,
+        isRequired: g.isRequired,
+        minSelect: g.minSelect,
+        maxSelect: g.maxSelect,
+        sortOrder: g.sortOrder,
+        options: g.options.map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          priceImpact: Number(o.priceImpact),
+          isDefault: o.isDefault,
+          sortOrder: o.sortOrder,
+        })),
+      })),
+      groups,
+    };
   }
 }

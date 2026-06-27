@@ -43,11 +43,17 @@ import { DigitalMenuController } from './digital-menu.controller';
 import { DigitalMenuPublicController } from './digital-menu-public.controller';
 import { PosMenuService } from './pos-menu.service';
 import { PosMenuController } from './pos-menu.controller';
+import { PosVariantService } from './pos-variant.service';
+import { PosAccompanimentService } from './pos-accompaniment.service';
 import { PosTablesService } from './pos-tables.service';
 import { PosTablesController } from './pos-tables.controller';
 import { PosReservationsService } from './pos-reservations.service';
 import { PosReservationsController } from './pos-reservations.controller';
 import { PosTableReportsService } from './pos-table-reports.service';
+import { PosPrintLifecycleService } from './pos-print-lifecycle.service';
+import { PosOrdersService } from './order/pos-orders.service';
+import { PosOrdersController, PosBillingController } from './order/pos-orders.controller';
+import { PosBillingService } from './billing/pos-billing.service';
 import {
   PosTableReportsController,
   PosReservationReportsController,
@@ -101,9 +107,13 @@ export const POS_PERMISSIONS = {
     PosReservationsController,
     PosTableReportsController,
     PosReservationReportsController,
+    PosOrdersController,
+    PosBillingController,
   ],
   providers: [
     PosService,
+    PosOrdersService,
+    PosBillingService,
     PosWorkflowsInitializer,
     PosShiftService,
     PosHoldsService,
@@ -116,14 +126,18 @@ export const POS_PERMISSIONS = {
     PosLoyaltyService,
     DigitalMenuService,
     PosMenuService,
+    PosVariantService,
+    PosAccompanimentService,
     PosTablesService,
     PosReservationsService,
     PosTableReportsService,
     ReservationWorker,
+    PosPrintLifecycleService,
   ],
   exports: [
-    PosService, PosHoldsService, PosOverridesService, PosReportsService,
-    PosReceiptsService, PosModifiersService, PosKdsService,
+    PosService, PosOrdersService, PosBillingService,
+    PosHoldsService, PosOverridesService, PosReportsService,
+    PosReceiptsService, PosModifiersService, PosVariantService, PosAccompanimentService, PosKdsService,
     PosLoyaltyService, DigitalMenuService,
     PosTablesService, PosReservationsService, PosTableReportsService,
   ],

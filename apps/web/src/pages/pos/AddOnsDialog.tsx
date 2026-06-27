@@ -9,6 +9,8 @@ import { useMenuItemBundle, type ModifierGroupFE } from './pos-features-api';
 interface Props {
   open: boolean;
   productId: string | null;
+  /** Override base price (variant price + accompaniment impact). Falls back to bundle.product.unitPrice. */
+  basePrice?: number;
   onClose: () => void;
   /** Resolves to the selected modifiers (with names + price deltas), the
    *  quantity, and the free-form note. */
@@ -27,7 +29,7 @@ interface Props {
 
 const fmt = (n: number) => `UGX ${Number(n || 0).toLocaleString()}`;
 
-export const AddOnsDialog: React.FC<Props> = ({ open, productId, onClose, onAdd }) => {
+export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onClose, onAdd }) => {
   // `productId` here is the catalog item id — a MenuItem id in the menu-based POS.
   const { data: bundle, isLoading } = useMenuItemBundle(open ? productId : null);
   // selection[groupId] = Set<modifierId>
@@ -96,6 +98,47 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, onClose, onAdd 
     return total;
   }, [bundle, selection]);
 
+  const effectiveBasePrice = basePrice ?? bundle?.product.unitPrice ?? 0;
+
+  const renderGroup = (g: ModifierGroupFE) => (
+    <div key={g.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-bold text-sm">{g.name}</div>
+        <div className="text-[11px] text-slate-500">
+          {g.minSelect > 0 ? `Choose at least ${g.minSelect}` : 'Optional'}
+          {' · '}
+          {g.maxSelect === 1 ? 'Pick one' : `Up to ${g.maxSelect}`}
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-1.5">
+        {g.modifiers.map((m) => {
+          const selected = selection[g.id]?.has(m.id) ?? false;
+          return (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => toggle(g, m.id)}
+              className={
+                'px-2.5 py-1.5 rounded-md text-xs font-semibold border-2 text-left flex items-center justify-between ' +
+                (selected
+                  ? 'border-amber-500 bg-amber-50 text-amber-900'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300')
+              }
+            >
+              <span className="flex items-center gap-1.5">
+                {selected && <Check className="h-3 w-3" />}
+                {m.name}
+              </span>
+              <span className="text-[11px] font-mono">
+                {m.priceDelta === 0 ? '—' : (m.priceDelta > 0 ? '+' : '') + fmt(m.priceDelta)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
   if (!bundle && !isLoading) return null;
 
   return (
@@ -127,46 +170,21 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, onClose, onAdd 
               <div className="text-sm text-slate-500 italic text-center py-4">
                 No options for this product.
               </div>
-            ) : null}
+            ) : (
+              <>
+                {/* Add-ons (products) */}
+                {bundle.groups.filter((g) => g.groupType === 'ADD_ON').length > 0 && (
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Add-ons</div>
+                )}
+                {bundle.groups.filter((g) => g.groupType === 'ADD_ON').map((g) => renderGroup(g))}
 
-            {bundle.groups.map((g) => (
-              <div key={g.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-bold text-sm">{g.name}</div>
-                  <div className="text-[11px] text-slate-500">
-                    {g.minSelect > 0 ? `Choose at least ${g.minSelect}` : 'Optional'}
-                    {' · '}
-                    {g.maxSelect === 1 ? 'Pick one' : `Up to ${g.maxSelect}`}
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {g.modifiers.map((m) => {
-                    const selected = selection[g.id]?.has(m.id) ?? false;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => toggle(g, m.id)}
-                        className={
-                          'px-2.5 py-1.5 rounded-md text-xs font-semibold border-2 text-left flex items-center justify-between ' +
-                          (selected
-                            ? 'border-amber-500 bg-amber-50 text-amber-900'
-                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300')
-                        }
-                      >
-                        <span className="flex items-center gap-1.5">
-                          {selected && <Check className="h-3 w-3" />}
-                          {m.name}
-                        </span>
-                        <span className="text-[11px] font-mono">
-                          {m.priceDelta === 0 ? '—' : (m.priceDelta > 0 ? '+' : '') + fmt(m.priceDelta)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
+                {/* Modifiers (prep instructions) */}
+                {bundle.groups.filter((g) => g.groupType === 'MODIFIER').length > 0 && (
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1 pt-2">Modifiers</div>
+                )}
+                {bundle.groups.filter((g) => g.groupType === 'MODIFIER').map((g) => renderGroup(g))}
+              </>
+            )}
 
             <div>
               <div className="text-xs font-semibold text-slate-500 mb-1">Note for kitchen</div>
@@ -180,7 +198,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, onClose, onAdd 
 
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 flex items-center justify-between">
               <span className="text-sm font-semibold text-amber-900">Base price</span>
-              <span className="font-mono font-bold text-amber-900">{fmt(bundle.product.unitPrice)}</span>
+              <span className="font-mono font-bold text-amber-900">{fmt(effectiveBasePrice)}</span>
             </div>
             {extraPrice !== 0 ? (
               <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 flex items-center justify-between">
@@ -190,7 +208,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, onClose, onAdd 
             ) : null}
             <div className="rounded-lg bg-slate-900 text-white px-3 py-3 flex items-center justify-between">
               <span className="text-sm font-semibold">Line total{quantity > 1 ? ` (×${quantity})` : ''}</span>
-              <span className="font-mono font-bold text-lg">{fmt((bundle.product.unitPrice + extraPrice) * quantity)}</span>
+              <span className="font-mono font-bold text-lg">{fmt((effectiveBasePrice + extraPrice) * quantity)}</span>
             </div>
 
             {validation.missing.length > 0 ? (
@@ -219,7 +237,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, onClose, onAdd 
               onAdd({
                 productId: bundle.product.id,
                 productName: bundle.product.name,
-                unitPrice: bundle.product.unitPrice + extraPrice,
+                unitPrice: effectiveBasePrice + extraPrice,
                 sku: bundle.product.sku,
                 modifiers,
                 quantity,

@@ -125,7 +125,7 @@ export function MenuPage() {
     <div className="space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="space-y-1">
+        <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
           <h1 className="text-3xl font-bold tracking-tight text-gray-900">Menu</h1>
           <p className="text-sm text-gray-500">
             Build your cafe menu from existing products. Menu items are what customers order;
@@ -138,7 +138,7 @@ export function MenuPage() {
         {/* Categories Sidebar */}
         {canViewCat && (
           <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-            <div className="bg-[#0066aa] text-white p-4">
+            <div className="bg-[#3b82f6] text-white p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="p-1.5 bg-white/10 rounded-lg">
@@ -166,7 +166,7 @@ export function MenuPage() {
                 className={
                   'w-full text-left rounded-lg px-3 py-2.5 text-sm transition-all ' +
                   (selectedCat === null
-                    ? 'bg-[#0066aa]/10 text-[#0066aa] border border-[#0066aa]/20'
+                    ? 'bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/20'
                     : 'bg-gray-50 text-gray-700')
                 }
               >
@@ -200,9 +200,9 @@ export function MenuPage() {
                       type="button"
                       onClick={() => setSelectedCat(c.id)}
                       className={
-                        'flex-1 text-left rounded-lg px-3 py-2.5 text-sm transition-all ' +
+                        'flex-1 text-left rounded-lg px-3 py-2.5 text-sm transition-all bg-gray-50 ' +
                         (selectedCat === c.id
-                          ? 'bg-[#0066aa]/10 text-[#0066aa] border border-[#0066aa]/20'
+                          ? 'bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/20'
                           : 'hover:bg-gray-50 text-gray-700')
                       }
                     >
@@ -213,18 +213,18 @@ export function MenuPage() {
                         </div>
                         <Badge 
                           variant="secondary" 
-                          className={selectedCat === c.id ? 'bg-[#0066aa]/20 text-[#0066aa]' : 'bg-gray-100 text-gray-700'}
+                          className={selectedCat === c.id ? 'bg-[#3b82f6]/20 text-[#3b82f6]' : 'bg-gray-100 text-gray-700'}
                         >
                           {count}
                         </Badge>
                       </div>
                     </button>
-                    <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex gap-0.5 opacity-100 transition-opacity">
                       {canEditCat && (
                         <Button
                           size="sm" 
                           variant="ghost" 
-                          className="h-7 w-7 p-0 hover:bg-blue-50 hover:text-blue-600"
+                          className="h-7 w-7 p-0 bg-blue-50 text-blue-600"
                           onClick={() => setCatDialog({ open: true, category: c })}
                         >
                           <Edit className="h-3.5 w-3.5" />
@@ -234,7 +234,7 @@ export function MenuPage() {
                         <Button
                           size="sm" 
                           variant="ghost" 
-                          className="h-7 w-7 p-0 hover:bg-red-50 hover:text-red-600"
+                          className="h-7 w-7 p-0 bg-red-50 text-red-600"
                           onClick={() => setDeleteTarget({ type: 'category', id: c.id, name: c.name })}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -253,8 +253,8 @@ export function MenuPage() {
           <div className="border-b border-gray-200 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <div className="p-2 bg-[#0066aa]/10 rounded-lg">
-                  <Coffee className="h-5 w-5 text-[#0066aa]" />
+                <div className="p-2 bg-[#3b82f6]/10 rounded-lg">
+                  <Coffee className="h-5 w-5 text-[#3b82f6]" />
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900">
@@ -272,13 +272,13 @@ export function MenuPage() {
                     placeholder="Search items..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="w-56 pl-9 h-10 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                    className="w-56 pl-9 h-10 border-gray-200 rounded-lg focus:border-[#3b82f6] focus:ring-[#3b82f6]/20"
                   />
                 </div>
                 {canCreateMenu && (
                   <Button 
                     onClick={() => setItemDialog({ open: true })}
-                    className="gap-2 bg-[#0066aa] hover:bg-[#005599] text-white"
+                    className="gap-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white"
                   >
                     <Plus className="h-4 w-4" /> 
                     Add menu item
@@ -309,7 +309,7 @@ export function MenuPage() {
                 {!search && canCreateMenu && (
                   <Button 
                     onClick={() => setItemDialog({ open: true })} 
-                    className="mt-4 bg-[#0066aa] hover:bg-[#005599] text-white"
+                    className="mt-4 bg-[#3b82f6] hover:bg-[#2563eb] text-white"
                   >
                     <Plus className="mr-2 h-4 w-4" />
                     Add Menu Item
@@ -392,7 +392,7 @@ export function MenuPage() {
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <AlertDialogContent className="p-0 gap-0">
-          <AlertDialogHeader className="bg-[#0066aa] text-white p-6 rounded-t-lg">
+          <AlertDialogHeader className="bg-[#3b82f6] text-white p-6 rounded-t-lg">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10">
                 <Trash2 className="h-5 w-5 text-white" />
@@ -444,7 +444,7 @@ function ItemRow({
 
   return (
     <div
-      className="flex items-center gap-4 rounded-lg border border-gray-200 p-4 hover:border-[#0066aa]/30 hover:bg-[#0066aa]/5 cursor-pointer transition-all group"
+      className="flex items-center gap-4 rounded-lg border border-gray-200 p-4 hover:border-[#3b82f6]/30 hover:bg-[#3b82f6]/5 cursor-pointer transition-all group"
       onClick={canEdit ? onEdit : undefined}
     >
       <div
@@ -453,7 +453,7 @@ function ItemRow({
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-gray-900 truncate group-hover:text-[#0066aa] transition-colors">
+          <span className="font-semibold text-gray-900 truncate group-hover:text-[#3b82f6] transition-colors">
             {item.name}
           </span>
           {item.code && (

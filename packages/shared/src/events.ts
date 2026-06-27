@@ -75,6 +75,15 @@ export const EVENTS = {
   PosOverrideApproved: 'pos.override.approved',
   PosVoidCompleted: 'pos.void.completed',
   PosReportGenerated: 'pos.report.generated',
+  // POS Order → Invoice → Receipt domain (DDD split)
+  PosOrderCreated: 'pos.order.created',
+  PosOrderUpdated: 'pos.order.updated',
+  PosOrderInvoiced: 'pos.order.invoiced',
+  PosOrderClosed: 'pos.order.closed',
+  PosOrderCancelled: 'pos.order.cancelled',
+  PosInvoiceSettled: 'pos.invoice.settled',
+  PosInvoiceCredited: 'pos.invoice.credited',
+  PosInvoiceWrittenOff: 'pos.invoice.written_off',
   // POS Phase T1 — Tables Management (ADR-012)
   PosTableCreated: 'pos.table.created',
   PosTableUpdated: 'pos.table.updated',
@@ -229,6 +238,14 @@ export interface DomainEventMap {
   'pos.override.approved': { organizationId: string; approverId: string; overrideKind: 'discount' | 'void' | 'manual_refund'; referenceId?: string; amount?: string };
   'pos.void.completed': { organizationId: string; invoiceId?: string; documentLineId?: string; voidedById: string; reason?: string };
   'pos.report.generated': { organizationId: string; reportKind: 'x' | 'z' | 'hourly' | 'top_items' | 'variance'; cashSessionId?: string; asOf: string };
+  'pos.order.created': { organizationId: string; orderId: string; orderNumber: string; tableId?: string };
+  'pos.order.updated': { organizationId: string; orderId: string; version: number };
+  'pos.order.invoiced': { organizationId: string; orderId: string; invoiceId: string; invoiceNumber: string };
+  'pos.order.closed': { organizationId: string; orderId: string; invoiceId?: string };
+  'pos.order.cancelled': { organizationId: string; orderId: string; reason?: string };
+  'pos.invoice.settled': { organizationId: string; invoiceId: string; invoiceNumber: string; paymentMode: string };
+  'pos.invoice.credited': { organizationId: string; invoiceId: string; invoiceNumber: string; partnerId: string; amount: string };
+  'pos.invoice.written_off': { organizationId: string; invoiceId: string; invoiceNumber: string; amount: string };
   'pos.table.created': { organizationId: string; tableId: string; number: number; name: string };
   'pos.table.updated': { organizationId: string; tableId: string; changes: Record<string, unknown> };
   'pos.table.deleted': { organizationId: string; tableId: string };

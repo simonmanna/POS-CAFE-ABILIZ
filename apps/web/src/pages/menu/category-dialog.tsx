@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,12 +33,15 @@ export function CategoryDialog({ open, category, onOpenChange, onSubmit }: Props
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{isEdit ? 'Edit category' : 'Add category'}</DialogTitle>
-        </DialogHeader>
+      <DialogContent className="sm:max-w-md p-0 gap-0 overflow-hidden">
+        <div className="bg-[#3b82f6] text-white px-6 py-4">
+          <h2 className="text-base font-semibold">{isEdit ? 'Edit Category' : 'Add New Category'}</h2>
+          <p className="text-white/75 text-xs mt-0.5">
+            {isEdit ? 'Update category details below.' : 'Fill in the details to create a new category.'}
+          </p>
+        </div>
         <form
-          className="space-y-3"
+          className="p-5 space-y-4"
           onSubmit={async (e) => {
             e.preventDefault();
             if (!name.trim()) return;
@@ -55,7 +58,7 @@ export function CategoryDialog({ open, category, onOpenChange, onSubmit }: Props
           }}
         >
           <div>
-            <Label htmlFor="cat-name">Name</Label>
+            <Label htmlFor="cat-name" className="text-sm font-medium text-slate-700 mb-1.5">Name</Label>
             <Input
               id="cat-name"
               autoFocus
@@ -66,7 +69,7 @@ export function CategoryDialog({ open, category, onOpenChange, onSubmit }: Props
             />
           </div>
           <div>
-            <Label htmlFor="cat-order">Display order (optional)</Label>
+            <Label htmlFor="cat-order" className="text-sm font-medium text-slate-700 mb-1.5">Display order (optional)</Label>
             <Input
               id="cat-order"
               type="number"
@@ -75,11 +78,11 @@ export function CategoryDialog({ open, category, onOpenChange, onSubmit }: Props
               onChange={(e) => setDisplayOrder(e.target.value)}
             />
           </div>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
+          <DialogFooter className="px-5 py-3 border-t bg-slate-50 gap-2">
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting} className="rounded-lg border-gray-300 hover:bg-gray-100">
               Cancel
             </Button>
-            <Button type="submit" disabled={submitting || !name.trim()}>
+            <Button type="submit" disabled={submitting || !name.trim()} className="rounded-lg bg-[#3b82f6] hover:bg-[#2563eb] text-white">
               {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Create category'}
             </Button>
           </DialogFooter>

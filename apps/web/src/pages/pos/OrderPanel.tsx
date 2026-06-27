@@ -11,13 +11,12 @@ import {
   Tag,
   CreditCard,
   Receipt,
+  MoveRight,
   Scissors,
   User,
   Hash,
   AlertTriangle,
   Printer,
-  Send,
-  Coffee,
   ArrowRightLeft,
   CheckSquare,
   Square,
@@ -51,15 +50,15 @@ interface Props {
   onCloseOrder: () => void;
   onPrintKot: () => void;
   onVoidItem?: (line: CartLine) => void;
-  onSplitBill?: () => void;
-  /** Dine-in: fire the table's saved order to the kitchen (KOT / KDS). */
-  onSendToKitchen?: () => void;
+  onMoveItems?: () => void;
   /** Dine-in: settle (pay) the table's order. */
   onSettleTab?: () => void;
   /** Dine-in: transfer selected items (partial qty allowed) to another table. */
   onTransferItems?: (
     selection: Array<{ lineId: string; quantity: number }>,
   ) => void;
+  billAlreadyPrinted?: boolean;
+  onPrintAdditionalBill?: () => void;
 }
 
 const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
@@ -83,10 +82,11 @@ export const OrderPanel: React.FC<Props> = ({
   onCloseOrder,
   onPrintKot,
   onVoidItem,
-  onSplitBill,
-  onSendToKitchen,
+  onMoveItems,
   onSettleTab,
   onTransferItems,
+  billAlreadyPrinted = false,
+  onPrintAdditionalBill,
 }) => {
   const lines = useCartStore((s) => s.lines);
   const transactionDiscountPercent = useCartStore(
@@ -257,6 +257,12 @@ export const OrderPanel: React.FC<Props> = ({
                   </div>
                   <div className="pos-card-price">{fmt(lineSub)}</div>
                 </div>
+                {it.variantName && (
+                  <div className="text-[11px] font-semibold text-slate-700 px-1 truncate">{it.variantName}</div>
+                )}
+                {it.accompanimentNames && it.accompanimentNames.length > 0 && (
+                  <div className="text-[11px] text-slate-600 px-1 truncate">+ {it.accompanimentNames.join(", ")}</div>
+                )}
                 {it.modifiers && it.modifiers.length > 0 ? (
                   <div className="text-[11px] text-amber-700 px-1 truncate">
                     {it.modifiers
@@ -405,11 +411,12 @@ export const OrderPanel: React.FC<Props> = ({
             <button
               type="button"
               className="pos-action-btn-pro bg-purple"
-              onClick={onPrintBill}
+              onClick={billAlreadyPrinted ? onPrintAdditionalBill : onPrintBill}
               disabled={empty}
+              title={billAlreadyPrinted ? 'Print additional bill for new items' : 'Print bill (F8)'}
             >
-              <Receipt className="pos-action-icon" /> Bill{" "}
-              <span className="pos-kbd">F8</span>
+              <Receipt className="pos-action-icon" /> {billAlreadyPrinted ? 'Additional Bill' : 'Bill'}{' '}
+              {!billAlreadyPrinted && <span className="pos-kbd">F8</span>}
             </button>
             <button
               type="button"
@@ -463,14 +470,15 @@ export const OrderPanel: React.FC<Props> = ({
                 <ArrowRightLeft className="pos-action-icon" /> Transfer
               </button>
             ) : null}
-            {onSplitBill ? (
+            {onMoveItems ? (
               <button
                 type="button"
                 className="pos-action-btn-pro bg-pink"
-                onClick={onSplitBill}
+                onClick={onMoveItems}
                 disabled={empty}
+                title="Move selected items to another table"
               >
-                <Scissors className="pos-action-icon" /> Split Bill
+                <MoveRight className="pos-action-icon" /> Move Items
               </button>
             ) : (
               <button

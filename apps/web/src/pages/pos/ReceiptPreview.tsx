@@ -1,5 +1,5 @@
 import { Printer, X } from 'lucide-react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
 export interface ReceiptLine {
@@ -10,6 +10,8 @@ export interface ReceiptLine {
   note?: string;
   /** Selected modifier names, e.g. ["Large", "Extra shot"]. Printed under the item. */
   modifiers?: string[];
+  variantName?: string;
+  accompanimentNames?: string[];
 }
 
 interface Props {
@@ -24,6 +26,12 @@ interface Props {
   orderTypeLabel?: string;
   tableLabel?: string;
   customerName?: string;
+  subtitle?: string;
+  /** For additional bills: previous subtotal already billed */
+  previousSubtotal?: number;
+  /** For additional bills: grand total including all items */
+  grandTotal?: number;
+  onPrint?: () => void;
 }
 
 const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
@@ -36,21 +44,31 @@ const now = () => {
 export const ReceiptPreview: React.FC<Props> = ({
   open, onClose, type, title, lines, total,
   discountPercent, discountAmount, orderTypeLabel, tableLabel, customerName,
+  subtitle, previousSubtotal, grandTotal, onPrint,
 }) => {
   const empty = lines.length === 0;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="!max-w-[400px] p-0 overflow-hidden" onOpenAutoFocus={(e) => e.preventDefault()}>
+        <DialogHeader className="bg-slate-800 text-white p-0 m-0">
+          <DialogTitle className="text-white text-xs font-semibold uppercase tracking-wider px-3 pt-2">
+            {title}
+          </DialogTitle>
+          {subtitle && (
+            <DialogDescription className="text-sky-300 text-[10px] font-bold px-3 pb-2">
+              {subtitle}
+            </DialogDescription>
+          )}
+        </DialogHeader>
         {/* Toolbar */}
         <div className="flex items-center justify-between bg-slate-800 px-3 py-2 text-white">
-          <span className="text-xs font-semibold uppercase tracking-wider">{title}</span>
           <div className="flex items-center gap-1">
             <Button
               size="sm"
               variant="ghost"
               className="h-7 text-white hover:bg-white/20"
-              onClick={() => window.print()}
+              onClick={() => { onPrint?.(); window.print(); }}
             >
               <Printer className="h-3.5 w-3.5 mr-1" /> Print
             </Button>
@@ -77,6 +95,9 @@ export const ReceiptPreview: React.FC<Props> = ({
               {customerName && (
                 <div className="text-[10px] text-slate-700">Customer: {customerName}</div>
               )}
+              {subtitle && (
+                <div className="text-[10px] font-bold text-sky-700 mt-1">{subtitle}</div>
+              )}
               {type === 'kot' && (
                 <div className="text-[10px] font-bold text-amber-700 mt-1">** KITCHEN ORDER TICKET **</div>
               )}
@@ -101,6 +122,12 @@ export const ReceiptPreview: React.FC<Props> = ({
                       <span className="w-10 text-right">{it.quantity}</span>
                       <span className="w-16 text-right">{fmt(it.unitPrice * it.quantity)}</span>
                     </div>
+                    {it.variantName && (
+                      <div className="text-[9px] text-slate-600 pl-1 -mt-0.5">{it.variantName}</div>
+                    )}
+                    {it.accompanimentNames && it.accompanimentNames.length > 0 && (
+                      <div className="text-[9px] text-slate-600 pl-1 -mt-0.5">+ {it.accompanimentNames.join(', ')}</div>
+                    )}
                     {it.modifiers && it.modifiers.length > 0 && (
                       <div className="text-[9px] text-slate-600 pl-1 -mt-0.5">+ {it.modifiers.join(', ')}</div>
                     )}
@@ -134,10 +161,27 @@ export const ReceiptPreview: React.FC<Props> = ({
                     <span>-{fmt(discountAmount ?? 0)}</span>
                   </div>
                 ) : null}
-                <div className="flex justify-between py-0.5 text-sm font-bold border-t border-dashed border-slate-300 pt-1 mt-1">
-                  <span>TOTAL</span>
-                  <span>{fmt(total)}</span>
-                </div>
+                {subtitle && previousSubtotal != null && grandTotal != null ? (
+                  <>
+                    <div className="flex justify-between py-0.5 mt-1">
+                      <span className="text-slate-500">Previous Total</span>
+                      <span className="text-slate-500">{fmt(previousSubtotal)}</span>
+                    </div>
+                    <div className="flex justify-between py-0.5 text-slate-700">
+                      <span>Additional Total</span>
+                      <span>{fmt(total)}</span>
+                    </div>
+                    <div className="flex justify-between py-0.5 text-sm font-bold border-t-2 border-slate-400 pt-1 mt-1">
+                      <span>Grand Total Due</span>
+                      <span>{fmt(grandTotal)}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex justify-between py-0.5 text-sm font-bold border-t border-dashed border-slate-300 pt-1 mt-1">
+                    <span>TOTAL</span>
+                    <span>{fmt(total)}</span>
+                  </div>
+                )}
               </div>
             )}
 

@@ -116,6 +116,11 @@ const ORG_SCOPED = new Set<string>([
   'PosTable',
   'PosTableOrder',
   'PosTableReservation',
+  // POS Order → Invoice → Receipt domain (DDD split)
+  'Order',
+  'OrderItem',
+  'OrderItemModifier',
+  'Receipt',
 ]);
 
 /** Models with a `deletedAt` column → soft-delete filtering on reads/writes. */

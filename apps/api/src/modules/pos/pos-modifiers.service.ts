@@ -22,6 +22,7 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 export interface ModifierGroupWithModifiers {
   id: string;
   name: string;
+  groupType: 'ADD_ON' | 'MODIFIER';
   minSelect: number;
   maxSelect: number;
   sortOrder: number;
@@ -72,6 +73,7 @@ export class PosModifiersService {
     return (groups as any[]).map((g) => ({
       id: g.id,
       name: g.name,
+      groupType: g.groupType ?? 'ADD_ON',
       minSelect: g.minSelect,
       maxSelect: g.maxSelect,
       sortOrder: g.sortOrder,
@@ -81,13 +83,17 @@ export class PosModifiersService {
     }));
   }
 
-  async createGroup(dto: { name: string; minSelect?: number; maxSelect?: number; sortOrder?: number }): Promise<any> {
+  async createGroup(dto: { name: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; sortOrder?: number }): Promise<any> {
     const orgId = this.tenant.organizationId;
     if (!dto.name?.trim()) throw new BadRequestException('Group name is required');
+    if (dto.groupType && !['ADD_ON', 'MODIFIER'].includes(dto.groupType)) {
+      throw new BadRequestException('groupType must be ADD_ON or MODIFIER');
+    }
     return this.prisma.client.modifierGroup.create({
       data: {
         organizationId: orgId,
         name: dto.name.trim(),
+        groupType: dto.groupType ?? 'ADD_ON',
         minSelect: dto.minSelect ?? 0,
         maxSelect: dto.maxSelect ?? 1,
         sortOrder: dto.sortOrder ?? 0,
@@ -136,6 +142,7 @@ export class PosModifiersService {
       .map((l) => ({
         id: l.modifierGroup.id,
         name: l.modifierGroup.name,
+        groupType: l.modifierGroup.groupType ?? 'ADD_ON',
         minSelect: l.modifierGroup.minSelect,
         maxSelect: l.modifierGroup.maxSelect,
         sortOrder: l.sortOrder,
@@ -174,6 +181,7 @@ export class PosModifiersService {
       .map((l) => ({
         id: l.modifierGroup.id,
         name: l.modifierGroup.name,
+        groupType: l.modifierGroup.groupType ?? 'ADD_ON',
         minSelect: l.modifierGroup.minSelect,
         maxSelect: l.modifierGroup.maxSelect,
         sortOrder: l.sortOrder,
@@ -271,14 +279,18 @@ export class PosModifiersService {
 
   /* ====================== Edit / delete (M-E) ====================== */
 
-  async updateGroup(id: string, dto: { name?: string; minSelect?: number; maxSelect?: number; isActive?: boolean }): Promise<any> {
+  async updateGroup(id: string, dto: { name?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; isActive?: boolean }): Promise<any> {
     const orgId = this.tenant.organizationId;
     const existing = await this.prisma.client.modifierGroup.findFirst({ where: { id, organizationId: orgId } });
     if (!existing) throw new NotFoundException('Modifier group not found');
+    if (dto.groupType && !['ADD_ON', 'MODIFIER'].includes(dto.groupType)) {
+      throw new BadRequestException('groupType must be ADD_ON or MODIFIER');
+    }
     return this.prisma.client.modifierGroup.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.groupType !== undefined ? { groupType: dto.groupType } : {}),
         ...(dto.minSelect !== undefined ? { minSelect: dto.minSelect } : {}),
         ...(dto.maxSelect !== undefined ? { maxSelect: dto.maxSelect } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),

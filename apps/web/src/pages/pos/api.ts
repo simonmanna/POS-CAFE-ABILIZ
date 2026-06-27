@@ -22,7 +22,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { PaginatedResult } from '@erp/shared';
-import type { CashRegister, CashSession, Category, Customer, Product, MovementsResponse } from './types';
+import type {
+  CashRegister, CashSession, Category, Customer, Product, MovementsResponse,
+  Order, InvoiceResult, PaymentResult, PaymentTender,
+} from './types';
 
 /* ============== Catalog ============== */
 
@@ -108,6 +111,8 @@ export function useOpenSession() {
     // Open session is stable; rely on mutation invalidation, not polling.
     // Long staleTime prevents flicker; no refetchInterval needed.
     staleTime: 5 * 60_000,
+    refetchOnMount: true,
+    refetchOnReconnect: true,
     refetchOnWindowFocus: false,
     retry: 1,
   });
@@ -311,6 +316,9 @@ export function useCheckout() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-holds'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['cash-session'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
     },
   });
 }
@@ -368,12 +376,16 @@ export function useSettleTab() {
       tenders?: CheckoutBody['tenders'];
       paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
       amountTendered?: number;
+      transactionDiscountPercent?: number;
       cashSessionId?: string;
     }) => (await api.post(`/pos/tabs/${tableId}/settle`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-tab', v.tableId] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['cash-session'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
     },
   });
 }
@@ -401,6 +413,38 @@ export function useFireKitchen() {
   return useMutation({
     mutationFn: async (body: { tableId: string }) =>
       (await api.post<{ count: number }>(`/pos/tabs/${body.tableId}/fire-kitchen`, {})).data,
+  });
+}
+
+/** Print a pre-payment bill for a table's draft order. */
+export function usePrintBill() {
+  return useMutation({
+    mutationFn: async (body: { invoiceId: string }) =>
+      (await api.post(`/pos/receipts/${body.invoiceId}/print-bill`, {})).data,
+  });
+}
+
+/** Print only the items not yet included on any previous bill print. */
+export function usePrintAdditionalBill() {
+  return useMutation({
+    mutationFn: async (body: { invoiceId: string }) =>
+      (await api.post(`/pos/receipts/${body.invoiceId}/print-additional-bill`, {})).data,
+  });
+}
+
+/** Print the KOT (delta items only) to the thermal kitchen printer. */
+export function usePrintKot() {
+  return useMutation({
+    mutationFn: async (body: { invoiceId: string }) =>
+      (await api.post(`/pos/receipts/${body.invoiceId}/print-kot`, {})).data,
+  });
+}
+
+/** Reprint a receipt (admin-only, requires reason for reprint). */
+export function useReprintReceipt() {
+  return useMutation({
+    mutationFn: async (body: { invoiceId: string; reason?: string }) =>
+      (await api.post(`/pos/receipts/${body.invoiceId}/reprint`, { reason: body.reason })).data,
   });
 }
 
@@ -502,5 +546,190 @@ export function useTopItems(fromDate: string, toDate: string, limit = 20) {
     queryKey: ['pos-reports', 'top-items', fromDate, toDate, limit],
     queryFn: async () => (await api.get('/pos/reports/top-items', { params: { fromDate, toDate, limit } })).data,
     enabled: !!fromDate && !!toDate,
+  });
+}
+
+/* ============================================================================
+ * Orders → Invoices → Receipts (DDD split).
+ *
+ * The operational Order is created up-front and edited freely (no GL/stock).
+ * "Generate Bill" mints the Invoice (deducts stock, posts AR); payment settles
+ * it and emits a typed Receipt. IDs travel in the URL (never the body — the API
+ * uses forbidNonWhitelisted), matching the existing tab hooks.
+ * ==========================================================================*/
+
+export interface OrderLineBody {
+  productId?: string;
+  menuItemId?: string;
+  sku?: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxId?: string;
+  discountPercent?: number;
+  note?: string;
+  modifiers?: Array<{ modifierId: string; name: string; priceDelta: number }>;
+  variantId?: string;
+  accompanimentOptionIds?: string[];
+  comboId?: string;
+  taxInclusive?: boolean;
+}
+
+/** Fetch a single order with its (non-cancelled) items. */
+export function useOrder(orderId?: string) {
+  return useQuery({
+    queryKey: ['pos-order', orderId],
+    enabled: !!orderId,
+    queryFn: async () => (await api.get<Order>(`/pos/orders/${orderId}`)).data,
+  });
+}
+
+/** The current open (un-billed) order on a table, or null. */
+export function useOrderByTable(tableId?: string) {
+  return useQuery({
+    queryKey: ['pos-order', 'by-table', tableId],
+    enabled: !!tableId,
+    queryFn: async () => (await api.get<Order | null>(`/pos/orders/by-table/${tableId}`)).data,
+  });
+}
+
+export function useCreateOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: {
+      orderType?: 'dine_in' | 'takeaway' | 'delivery';
+      tableId?: string; partnerId?: string; waiterId?: string; branchId?: string;
+      cashSessionId?: string; guestCount?: number; notes?: string; lines?: OrderLineBody[];
+    }) => (await api.post<Order>('/pos/orders', body)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+      qc.invalidateQueries({ queryKey: ['pos-orders'] });
+    },
+  });
+}
+
+/** Auto-save: replace the order's whole item set (optimistic-lock via expectedVersion). */
+export function useSaveOrderItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, ...body }: {
+      orderId: string; lines: OrderLineBody[]; expectedVersion?: number;
+      guestCount?: number; partnerId?: string; transactionDiscountPercent?: number;
+    }) => (await api.put<Order>(`/pos/orders/${orderId}/items`, body)).data,
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] }),
+  });
+}
+
+/** Append a round of items (optionally fire to kitchen). */
+export function useAddOrderItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, ...body }: {
+      orderId: string; lines: OrderLineBody[]; sendToKitchen?: boolean;
+      guestCount?: number; overrideById?: string; transactionDiscountPercent?: number;
+    }) => (await api.post<Order>(`/pos/orders/${orderId}/items`, body)).data,
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] });
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+    },
+  });
+}
+
+export function useFireOrderKitchen() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { orderId: string }) =>
+      (await api.post<{ count: number }>(`/pos/orders/${body.orderId}/fire-kitchen`, {})).data,
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] }),
+  });
+}
+
+export function useMoveOrderTable() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, targetTableId }: { orderId: string; targetTableId: string }) =>
+      (await api.post(`/pos/orders/${orderId}/move`, { targetTableId })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-tables'] }),
+  });
+}
+
+export function useMergeOrders() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, sourceOrderId }: { orderId: string; sourceOrderId: string }) =>
+      (await api.post(`/pos/orders/${orderId}/merge`, { sourceOrderId })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-tables'] }),
+  });
+}
+
+export function useCancelOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, reason }: { orderId: string; reason?: string }) =>
+      (await api.post(`/pos/orders/${orderId}/cancel`, { reason })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-tables'] }),
+  });
+}
+
+export function useReopenOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { orderId: string }) =>
+      (await api.post(`/pos/orders/${body.orderId}/reopen`, {})).data,
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] }),
+  });
+}
+
+/** Generate the bill/invoice from an order (deducts stock, posts AR). */
+export function useGenerateInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, ...body }: {
+      orderId: string;
+      paymentMode?: 'cash' | 'card' | 'mobile_money' | 'mixed' | 'credit';
+      transactionDiscountPercent?: number; branchId?: string;
+    }) => (await api.post<InvoiceResult>(`/pos/orders/${orderId}/invoice`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] });
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+    },
+  });
+}
+
+/** Receive one or more payments and settle the invoice. */
+export function useReceivePayment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ invoiceId, ...body }: {
+      invoiceId: string;
+      tenders?: PaymentTender[];
+      paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
+      amountTendered?: number; cashSessionId?: string;
+    }) => (await api.post<PaymentResult>(`/pos/invoices/${invoiceId}/payments`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+      qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['cash-session'] });
+    },
+  });
+}
+
+/** Settle an invoice on credit (postpaid house account). */
+export function useSettleCredit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ invoiceId, ...body }: { invoiceId: string; partnerId?: string; notes?: string }) =>
+      (await api.post<PaymentResult>(`/pos/invoices/${invoiceId}/credit`, body)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-tables'] }),
+  });
+}
+
+/** Write off an invoice's outstanding balance (admin/manager). */
+export function useWriteOffInvoice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ invoiceId, reason }: { invoiceId: string; reason: string }) =>
+      (await api.post(`/pos/invoices/${invoiceId}/write-off`, { reason })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
   });
 }

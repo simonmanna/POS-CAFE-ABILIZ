@@ -14,10 +14,7 @@ import {
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
-  DialogHeader,
-  DialogTitle,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -169,9 +166,9 @@ export function ProductsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Products</h1>
-          <p className="text-sm text-muted-foreground">Goods, services, fees and subscriptions.</p>
+        <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Products</h1>
+          <p className="text-sm text-gray-500">Goods, services, fees and subscriptions.</p>
         </div>
         {canCreate && (
           <Button onClick={openCreate}>
@@ -181,9 +178,9 @@ export function ProductsPage() {
       </div>
 
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
         <Input
-          className="pl-9"
+          className="pl-9 h-10 border-gray-200 rounded-lg focus:border-[#3b82f6] focus:ring-[#3b82f6]/20"
           placeholder="Search products..."
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
@@ -214,35 +211,35 @@ export function ProductsPage() {
         </div>
       )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editing ? 'Edit Product' : 'New Product'}</DialogTitle>
-            <DialogDescription>{editing ? 'Update product details.' : 'Create a new product.'}</DialogDescription>
-          </DialogHeader>
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="sm:max-w-[650px] p-0 gap-0 overflow-hidden">
+        <div className="bg-[#3b82f6] text-white px-6 py-4">
+          <h2 className="text-base font-semibold">{editing ? 'Edit Product' : 'New Product'}</h2>
+          <p className="text-white/75 text-xs mt-0.5">{editing ? 'Update product details below.' : 'Fill in the details to create a new product.'}</p>
+        </div>
+        <form onSubmit={onSubmit} className="p-5 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="code">Code *</Label>
+                <Label htmlFor="code" className="text-sm font-medium text-slate-700 mb-1.5">Code *</Label>
                 <Input id="code" placeholder="PRD-001" {...form.register('code')} />
                 {form.formState.errors.code && (
                   <p className="text-sm text-destructive">{form.formState.errors.code.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sku">SKU</Label>
+                <Label htmlFor="sku" className="text-sm font-medium text-slate-700 mb-1.5">SKU</Label>
                 <Input id="sku" placeholder="SKU-001" {...form.register('sku')} />
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Name *</Label>
+              <Label htmlFor="name" className="text-sm font-medium text-slate-700 mb-1.5">Name *</Label>
               <Input id="name" placeholder="Product name" {...form.register('name')} />
               {form.formState.errors.name && (
                 <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="productType">Type</Label>
+              <Label htmlFor="productType" className="text-sm font-medium text-slate-700 mb-1.5">Type</Label>
               <Select
                 value={form.watch('productType')}
                 onValueChange={(v) => form.setValue('productType', v)}
@@ -257,21 +254,21 @@ export function ProductsPage() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="salesPrice">Sales price</Label>
+                <Label htmlFor="salesPrice" className="text-sm font-medium text-slate-700 mb-1.5">Sales price</Label>
                 <Input id="salesPrice" type="number" step="0.01" min="0" placeholder="0.00" {...form.register('salesPrice')} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="costPrice">Cost price</Label>
+                <Label htmlFor="costPrice" className="text-sm font-medium text-slate-700 mb-1.5">Cost price</Label>
                 <Input id="costPrice" type="number" step="0.01" min="0" placeholder="0.00" {...form.register('costPrice')} />
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" {...form.register('trackInventory')} /> Track inventory
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" {...form.register('trackInventory')} className="rounded" /> Track inventory
             </label>
-            <DialogFooter>
-              <Button type="submit" disabled={createProduct.isPending || updateProduct.isPending}>
+            <DialogFooter className="px-5 py-3 border-t bg-slate-50 gap-2">
+              <Button type="submit" disabled={createProduct.isPending || updateProduct.isPending} className="rounded-lg bg-[#3b82f6] hover:bg-[#2563eb] text-white">
                 {createProduct.isPending || updateProduct.isPending ? 'Saving...' : 'Save'}
               </Button>
             </DialogFooter>
@@ -280,16 +277,16 @@ export function ProductsPage() {
       </Dialog>
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
+        <AlertDialogContent className="p-0 gap-0 overflow-hidden">
+          <AlertDialogHeader className="bg-[#3b82f6] text-white p-5 rounded-t-lg">
             <AlertDialogTitle>Delete Product</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete <strong>{deleting?.name}</strong> ({deleting?.code})? This action cannot be undone.
+            <AlertDialogDescription className="text-white/75 mt-1">
+              Are you sure you want to delete <strong className="text-white">{deleting?.name}</strong> ({deleting?.code})? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+          <AlertDialogFooter className="px-5 py-3 border-t bg-slate-50 gap-2">
+            <AlertDialogCancel className="rounded-lg border-gray-300 hover:bg-gray-100">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="rounded-lg bg-red-600 hover:bg-red-700 text-white">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -11,8 +11,12 @@ import { CreditNoteService } from '../invoicing/credit-note/credit-note.service'
 import { StockService } from '../inventory/stock.service';
 import { PosOverridesService } from './pos-overrides.service';
 import { PosModifiersService } from './pos-modifiers.service';
+import { PosVariantService } from './pos-variant.service';
+import { PosAccompanimentService } from './pos-accompaniment.service';
 import { PosKdsService } from './pos-kds.service';
 import { PosLoyaltyService } from './pos-loyalty.service';
+import { PosPrintLifecycleService } from './pos-print-lifecycle.service';
+import { PosReceiptsService } from './pos-receipts.service';
 import { dec } from '../../kernel/common/money';
 import { EVENTS } from '@erp/shared';
 import { NotificationsService } from '../../kernel/notifications/notifications.service';
@@ -38,6 +42,10 @@ export interface CheckoutLine {
   note?: string;
   /** P4: modifier add-ons. Their priceDeltas are baked into unitPrice. */
   modifiers?: CheckoutLineModifier[];
+  /** Selected variant id. Variant price replaces basePrice. */
+  variantId?: string;
+  /** Selected accompaniment option ids (one per group). */
+  accompanimentOptionIds?: string[];
   /** P4: if set, this line is a combo. Backend expands it on checkout. */
   comboId?: string;
   /** P10: override the product's taxInclusive flag for this line. */
@@ -94,13 +102,27 @@ export class PosService {
     private readonly overrides: PosOverridesService,
     private readonly notifications: NotificationsService,
     private readonly modifiers: PosModifiersService,
+    private readonly variants: PosVariantService,
+    private readonly accompaniments: PosAccompanimentService,
     private readonly kds: PosKdsService,
     private readonly loyalty: PosLoyaltyService,
+    private readonly printLifecycle: PosPrintLifecycleService,
+    private readonly receipts: PosReceiptsService,
     private readonly tables: PosTablesService,
   ) {}
 
   async checkout(input: CheckoutInput) {
     if (!input.lines?.length) throw new BadRequestException('Cart is empty');
+
+    // Validate variant + accompaniments per line before modifier rules.
+    for (const ln of input.lines) {
+      if (ln.variantId && ln.menuItemId) {
+        await this.variants.validateVariant(ln.menuItemId, ln.variantId);
+      }
+      // Accompaniment validation is deferred to expandCheckoutLines where it
+      // also returns price impact and names.
+    }
+
     // M-B: enforce required / min / max modifier rules server-side.
     await this.modifiers.validateSelections(input.lines);
     const orgId = this.tenant.organizationId;
@@ -145,6 +167,27 @@ export class PosService {
     // M-D: persist the selected modifiers per line for reporting (best-effort).
     await this.persistLineModifiers(this.prisma.client, (doc as any).lines ?? [], expanded);
 
+    // P-TX: apply the transaction-level discount to the document total so the
+    // amount due matches what the frontend shows (post-line-discount subtotal
+    // minus transaction discount, plus tax).  Only the overall total is adjusted;
+    // individual line records stay unchanged.
+    if (input.transactionDiscountPercent != null && input.transactionDiscountPercent > 0) {
+      const pct = dec(input.transactionDiscountPercent).dividedBy(100);
+      const txDisc = dec(doc.totalAmount).times(pct);
+      const adjustedTotal = dec(doc.totalAmount).minus(txDisc);
+      const adjustedDiscountTotal = dec(doc.discountTotal ?? 0).plus(txDisc);
+      await this.prisma.client.document.update({
+        where: { id: doc.id },
+        data: {
+          totalAmount: adjustedTotal,
+          amountResidual: adjustedTotal,
+          discountTotal: adjustedDiscountTotal,
+        },
+      });
+      doc.totalAmount = adjustedTotal;
+      doc.discountTotal = adjustedDiscountTotal;
+    }
+
     // 4) Validate tenders against the computed total BEFORE any GL effect, so a
     //    tender/total mismatch fails while the document is still an un-posted
     //    draft (no GL, no stock, no cash to unwind).
@@ -161,7 +204,7 @@ export class PosService {
     //    commit; executeSaleEffects compensates (void payments, restock, cancel
     //    invoice) if any step throws — a failed checkout never leaves a posted
     //    invoice, phantom stock, or orphan cash behind.
-    const { lowStock, paymentIds } = await this.executeSaleEffects({
+    const { paymentIds } = await this.executeSaleEffects({
       doc,
       expanded,
       warehouse,
@@ -224,6 +267,8 @@ export class PosService {
           modifiers: ln.modifiers ?? [],
           notes: ln.note,
           station: (product as any).station ?? 'cafe',
+          variantName: ln.variantName,
+          accompanimentNames: ln.accompanimentNames,
         });
       }
       if (kdsItems.length > 0) {
@@ -232,9 +277,25 @@ export class PosService {
           label: (doc as any).documentNumber,
           items: kdsItems,
         });
+        const lineIds = expanded.filter((ln: any) => ln.productId).map((ln: any) => ln.id);
+        const qtyMap = new Map<string, number>(expanded.filter((ln: any) => ln.productId).map((ln: any) => [ln.id, Number(ln.quantity)]));
+        await this.printLifecycle.markKitchenPrinted(this.prisma.client, lineIds, qtyMap, this.tenant.userId ?? undefined);
+        await this.printLifecycle.recordPrintLog(this.prisma.client, {
+          organizationId: orgId,
+          documentId: doc.id,
+          type: 'KOT',
+          printedById: this.tenant.userId ?? undefined,
+        });
       }
     } catch {
       // KDS is a "nice to have" — don't fail the sale if it errors.
+    }
+
+    // P5: auto-print receipt once after successful payment (non-fatal).
+    try {
+      await this.receipts.printReceipt(doc.id, this.tenant.userId ?? undefined);
+    } catch (e: any) {
+      this.logger?.warn(`Auto-print receipt failed for ${doc.id}: ${String(e?.message ?? e)}`);
     }
 
     // POS Tables (T1): if the cashier attached a tableId to the sale, link
@@ -263,7 +324,6 @@ export class PosService {
       paymentIds,
       total: Number(doc.totalAmount),
       change: Math.max(0, tendered - Number(doc.totalAmount)),
-      lowStock, // P9: populated when any warn-policy line is below on-hand
     };
   }
 
@@ -286,12 +346,10 @@ export class PosService {
     cashSessionId?: string;
     reference?: string;
   }): Promise<{
-    lowStock: Array<{ productId: string; productName: string; onHand: number; requested: number }>;
     paymentIds: string[];
   }> {
     const { doc, expanded, warehouse, tenders, partnerId, cashSessionId, reference } = args;
     const orgId = this.tenant.organizationId;
-    const lowStock: Array<{ productId: string; productName: string; onHand: number; requested: number }> = [];
     const issuedLines: Array<{ productId: string; locationId: string; quantity: number }> = [];
     const paymentIds: string[] = [];
     // Track store credit drawn down so a failed sale can re-issue it (saga unwind).
@@ -314,10 +372,7 @@ export class PosService {
 
       await this.invoices.post(doc.id);
 
-      // Stock-out for stockable lines — honors Product.stockPolicy (P9):
-      //   block  — refuse the sale if any line exceeds on-hand stock.
-      //   warn   — allow the sale, return `lowStock` in the response.
-      //   silent — allow the sale, ignore shortage (back-compat default).
+      // Stock-out for every stockable line — unconditional reduction (allows negative stock).
       for (const ln of expanded) {
         if (!warehouse) continue;
         // MENU: a menu-item line decrements its recipe ingredients, not a product.
@@ -330,54 +385,13 @@ export class PosService {
         if (!product?.trackInventory) continue;
         if (product.productType !== 'stockable' && product.productType !== 'consumable') continue;
 
-        const stockItem = await this.prisma.client.stockItem.findFirst({
-          where: { organizationId: orgId, productId: ln.productId, locationId: warehouse.id },
-        });
-        const onHand = Number(stockItem?.quantity ?? 0);
-        const requested = Number(ln.quantity);
-        const shortage = requested - onHand;
-        const policy = (product as any).stockPolicy ?? 'silent';
-
-        if (shortage > 0 && policy === 'block') {
-          throw new BadRequestException(
-            `Insufficient stock for "${product.name}": have ${onHand}, need ${requested}. Either restock or reduce the quantity.`,
-          );
-        }
-        if (shortage > 0 && policy === 'warn') {
-          lowStock.push({ productId: ln.productId, productName: product.name, onHand, requested });
-        }
-
-        try {
-          await this.stock.issue({
-            productId: ln.productId,
-            locationId: warehouse.id,
-            quantity: requested,
-            reference: `POS sale ${doc.documentNumber}`,
-          } as any);
-          issuedLines.push({ productId: ln.productId, locationId: warehouse.id, quantity: requested });
-        } catch (e: any) {
-          if (policy === 'block') throw e; // already handled above, just be defensive
-          // silent (default) and warn: shortage is recorded in the inventory dashboard.
-        }
-
-        // After the issue, check the new on-hand against minQuantity. If it
-        // crossed below the threshold, fire a low-stock alert (P9.C).
-        if (product.minQuantity != null) {
-          const after = await this.prisma.client.stockItem.findFirst({
-            where: { organizationId: orgId, productId: ln.productId, locationId: warehouse.id },
-          });
-          const afterQty = Number(after?.quantity ?? 0);
-          const min = Number(product.minQuantity);
-          if (afterQty <= min) {
-            await this.publishLowStockAlert({
-              productId: ln.productId,
-              productName: product.name,
-              onHand: afterQty,
-              minQuantity: min,
-              invoiceId: doc.id,
-            });
-          }
-        }
+        await this.stock.issue({
+          productId: ln.productId,
+          locationId: warehouse.id,
+          quantity: Number(ln.quantity),
+          reference: `POS sale ${doc.documentNumber}`,
+        } as any);
+        issuedLines.push({ productId: ln.productId, locationId: warehouse.id, quantity: Number(ln.quantity) });
       }
 
       // Record payment(s). Tenders were validated against the total by the caller.
@@ -404,7 +418,7 @@ export class PosService {
         if ((payment as any)?.id) paymentIds.push((payment as any).id);
       }
 
-      return { lowStock, paymentIds };
+      return { paymentIds };
     } catch (err: any) {
       await this.compensateFailedCheckout(doc.id, issuedLines, paymentIds);
       // Re-issue any store credit we drew down before the failure.
@@ -826,6 +840,12 @@ export class PosService {
     transactionDiscountPercent?: number;
   }) {
     if (!input.lines?.length) throw new BadRequestException('No items to add');
+    // Validate variants per line.
+    for (const ln of input.lines) {
+      if (ln.variantId && ln.menuItemId) {
+        await this.variants.validateVariant(ln.menuItemId, ln.variantId);
+      }
+    }
     await this.modifiers.validateSelections(input.lines); // M-B
     const orgId = this.tenant.organizationId;
     const partnerId = input.partnerId ?? (await this.ensureWalkInCustomer(orgId));
@@ -958,13 +978,25 @@ export class PosService {
             modifiers: ln.modifiers ?? [],
             notes: ln.note,
             station: (product as any).station ?? 'cafe',
+            variantName: ln.variantName,
+            accompanimentNames: ln.accompanimentNames,
           });
         }
         if (kdsItems.length > 0) {
+          const docId = (result as any)?.id;
           await this.kds.createTicketsForSale({
-            invoiceId: (result as any)?.id,
+            invoiceId: docId,
             label: (result as any)?.documentNumber ?? 'Tab',
             items: kdsItems,
+          });
+          const lineIds = expanded.filter((ln: any) => ln.productId).map((ln: any) => ln.id);
+          const qtyMap = new Map<string, number>(expanded.filter((ln: any) => ln.productId).map((ln: any) => [ln.id as string, Number(ln.quantity)]));
+          await this.printLifecycle.markKitchenPrinted(this.prisma.client, lineIds, qtyMap, this.tenant.userId ?? undefined);
+          await this.printLifecycle.recordPrintLog(this.prisma.client, {
+            organizationId: orgId,
+            documentId: docId,
+            type: 'KOT',
+            printedById: this.tenant.userId ?? undefined,
           });
         }
       } catch {
@@ -995,7 +1027,15 @@ export class PosService {
     guestCount?: number;
   }) {
     const orgId = this.tenant.organizationId;
-    if (input.lines?.length) await this.modifiers.validateSelections(input.lines); // M-B
+    if (input.lines?.length) {
+      // Validate variants per line.
+      for (const ln of input.lines) {
+        if (ln.variantId && ln.menuItemId) {
+          await this.variants.validateVariant(ln.menuItemId, ln.variantId);
+        }
+      }
+      await this.modifiers.validateSelections(input.lines); // M-B
+    }
     const expanded = input.lines?.length ? await this.expandCheckoutLines(input.lines) : [];
     const lineInputs = expanded.map((l) => ({
       productId: l.productId ?? undefined,
@@ -1043,9 +1083,25 @@ export class PosService {
       let documentId: string;
       if (draftId && open) {
         documentId = draftId;
+        const oldLines: any[] = await tx.documentLine.findMany({
+          where: { documentId },
+          select: {
+            id: true,
+            productId: true,
+            kitchenPrintCount: true,
+            kitchenLastPrintedAt: true,
+            kitchenPrintedQty: true,
+            cancelPrintCount: true,
+            cancelLastPrintedAt: true,
+            lastKitchenPrintedById: true,
+            billPrintedAt: true,
+          },
+        });
+        const lifecycleByPid = new Map(oldLines.filter((l: any) => l.productId).map((l: any) => [l.productId, l]));
         const totals = await this.builder.prepareLines(tx, lineInputs);
         await tx.documentLine.deleteMany({ where: { documentId } });
         for (const p of totals.prepared) {
+          const lc: any = p.productId ? lifecycleByPid.get(p.productId) : null;
           await tx.documentLine.create({
             data: {
               organizationId: orgId,
@@ -1063,6 +1119,13 @@ export class PosService {
               total: p.total,
               lineNumber: p.lineNumber,
               taxInclusive: p.taxInclusive,
+              kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
+              kitchenLastPrintedAt: lc?.kitchenLastPrintedAt ?? null,
+              kitchenPrintedQty: lc?.kitchenPrintedQty ?? null,
+              cancelPrintCount: lc?.cancelPrintCount ?? 0,
+              cancelLastPrintedAt: lc?.cancelLastPrintedAt ?? null,
+              lastKitchenPrintedById: lc?.lastKitchenPrintedById ?? null,
+              billPrintedAt: lc?.billPrintedAt ?? null,
             },
           });
         }
@@ -1122,25 +1185,90 @@ export class PosService {
       throw new BadRequestException('No open order to send to the kitchen');
     }
     const doc = order.document;
-    const items: any[] = [];
-    for (const ln of doc.lines as any[]) {
-      if (!ln.productId) continue;
-      const product = await this.prisma.client.product.findFirst({ where: { id: ln.productId } });
-      items.push({
-        productId: ln.productId,
-        productName: ln.description,
-        quantity: Number(ln.quantity),
-        modifiers: [],
-        notes: ln.note ?? null,
-        station: (product as any)?.station ?? 'cafe',
+    const userId = this.tenant.userId ?? undefined;
+
+    // Compute deltas vs. last printed state.
+    const deltas = await this.printLifecycle.getKitchenDeltas(this.prisma.client, doc.id);
+
+    // Phase T5: no changes since last print — return early without duplicate KOT.
+    if (deltas.addLines.length === 0 && deltas.removeLines.length === 0) {
+      return { ticketIds: [], count: 0, message: 'No changes since last kitchen fire' };
+    }
+
+    // Send only new / increased qty to KDS.
+    let ticketIds: string[] = [];
+    if (deltas.addLines.length > 0) {
+      const kdsItems = [];
+      for (const { line, delta } of deltas.addLines) {
+        if (!line.productId) continue;
+        const product = await this.prisma.client.product.findFirst({ where: { id: line.productId } });
+        kdsItems.push({
+          productId: line.productId,
+          productName: line.description,
+          quantity: delta,
+          modifiers: line.modifiers ?? [],
+          notes: line.note ?? null,
+          station: (product as any)?.station ?? 'cafe',
+        });
+      }
+      if (kdsItems.length > 0) {
+        ticketIds = await this.kds.createTicketsForSale({
+          invoiceId: doc.id,
+          label: (doc as any).documentNumber,
+          items: kdsItems,
+        });
+      }
+    }
+
+    // Handle decreases as cancellation tickets.
+    if (deltas.removeLines.length > 0) {
+      const cancelItems = [];
+      for (const { line, delta } of deltas.removeLines) {
+        if (!line.productId) continue;
+        const product = await this.prisma.client.product.findFirst({ where: { id: line.productId } });
+        cancelItems.push({
+          productId: line.productId,
+          productName: `[CANCEL] ${line.description}`,
+          quantity: delta,
+          modifiers: [],
+          notes: line.note ?? null,
+          station: (product as any)?.station ?? 'cafe',
+        });
+      }
+      if (cancelItems.length > 0) {
+        const cancelIds = await this.kds.createTicketsForSale({
+          invoiceId: doc.id,
+          label: `[CANCEL] ${(doc as any).documentNumber}`,
+          items: cancelItems,
+        });
+        ticketIds = [...ticketIds, ...cancelIds];
+      }
+    }
+
+    // Update lifecycle counters.
+    const addedLineIds = deltas.addLines.filter((l: any) => l.line.productId).map((l: any) => l.line.id);
+    const addedQtyMap = new Map(deltas.addLines.filter((l: any) => l.line.productId).map((l: any) => [l.line.id, Number(l.line.quantity)]));
+    const removedLineIds = deltas.removeLines.filter((l: any) => l.line.productId).map((l: any) => l.line.id);
+
+    if (addedLineIds.length > 0) {
+      await this.printLifecycle.markKitchenPrinted(this.prisma.client, addedLineIds, addedQtyMap, userId);
+      await this.printLifecycle.recordPrintLog(this.prisma.client, {
+        organizationId: orgId,
+        documentId: doc.id,
+        type: 'KOT',
+        printedById: userId,
       });
     }
-    if (items.length === 0) throw new BadRequestException('Order has no kitchen items');
-    const ticketIds = await this.kds.createTicketsForSale({
-      invoiceId: doc.id,
-      label: (doc as any).documentNumber,
-      items,
-    });
+    if (removedLineIds.length > 0) {
+      await this.printLifecycle.markCancelPrinted(this.prisma.client, removedLineIds, userId);
+      await this.printLifecycle.recordPrintLog(this.prisma.client, {
+        organizationId: orgId,
+        documentId: doc.id,
+        type: 'CANCEL',
+        printedById: userId,
+      });
+    }
+
     return { ticketIds, count: ticketIds.length };
   }
 
@@ -1154,13 +1282,23 @@ export class PosService {
     tenders?: PaymentTender[];
     paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
     amountTendered?: number;
+    transactionDiscountPercent?: number;
     cashSessionId?: string;
   }) {
     const orgId = this.tenant.organizationId;
-    const order = await this.prisma.client.posTableOrder.findFirst({
-      where: { tableId: input.tableId, closedAt: null },
-      orderBy: { openedAt: 'desc' },
-      include: { document: { include: { lines: { orderBy: { lineNumber: 'asc' } } } } },
+    // T-LOCK: lock the table row so two cashiers cannot settle the same tab concurrently.
+    const [order] = await this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM "PosTable" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
+        input.tableId,
+        orgId,
+      );
+      return tx.posTableOrder.findMany({
+        where: { tableId: input.tableId, closedAt: null },
+        orderBy: { openedAt: 'desc' },
+        take: 1,
+        include: { document: { include: { lines: { orderBy: { lineNumber: 'asc' } } } } },
+      });
     });
     if (!order?.document || order.document.status !== 'draft') {
       throw new BadRequestException('No open tab to settle on this table');
@@ -1169,14 +1307,36 @@ export class PosService {
     if (!doc.lines.length) throw new BadRequestException('The tab is empty');
 
     const expanded = doc.lines.map((l: any) => ({
+      id: l.id,
       productId: l.productId ?? null,
       menuItemId: l.menuItemId ?? null,
       description: l.description,
       quantity: Number(l.quantity),
       unitPrice: Number(l.unitPrice),
-      modifiers: undefined as CheckoutLineModifier[] | undefined,
+      discountPercent: Number(l.discountPercent ?? 0),
+      modifiers: l.modifiers ?? (undefined as CheckoutLineModifier[] | undefined),
       note: l.note ?? null,
+      taxId: l.taxId ?? null,
+      taxInclusive: (l as any).taxInclusive,
     }));
+
+    // P-TX: apply transaction-level discount to the document total before posting.
+    if (input.transactionDiscountPercent != null && input.transactionDiscountPercent > 0) {
+      const pct = dec(input.transactionDiscountPercent).dividedBy(100);
+      const txDisc = dec(doc.totalAmount).times(pct);
+      const adjustedTotal = dec(doc.totalAmount).minus(txDisc);
+      const adjustedDiscountTotal = dec(doc.discountTotal ?? 0).plus(txDisc);
+      await this.prisma.client.document.update({
+        where: { id: doc.id },
+        data: {
+          totalAmount: adjustedTotal,
+          amountResidual: adjustedTotal,
+          discountTotal: adjustedDiscountTotal,
+        },
+      });
+      doc.totalAmount = adjustedTotal;
+      doc.discountTotal = adjustedDiscountTotal;
+    }
 
     const warehouse = await this.prisma.client.inventoryLocation.findFirst({
       where: { organizationId: orgId, type: 'warehouse', isActive: true },
@@ -1188,7 +1348,7 @@ export class PosService {
       doc.totalAmount,
     );
 
-    const { lowStock, paymentIds } = await this.executeSaleEffects({
+    const { paymentIds } = await this.executeSaleEffects({
       doc,
       expanded,
       warehouse,
@@ -1205,24 +1365,44 @@ export class PosService {
       const already = await this.prisma.client.kitchenTicket.count({ where: { invoiceId: doc.id } });
       if (already === 0) {
         const kdsItems: any[] = [];
-        for (const ln of doc.lines as any[]) {
+        const modsCache = new Map<string, CheckoutLineModifier[]>();
+        for (const ln of expanded) {
           if (!ln.productId) continue;
           const product = await this.prisma.client.product.findFirst({ where: { id: ln.productId } });
+          modsCache.set(ln.productId, ln.modifiers ?? []);
           kdsItems.push({
             productId: ln.productId,
             productName: ln.description,
             quantity: Number(ln.quantity),
-            modifiers: [],
+            modifiers: ln.modifiers ?? [],
             notes: ln.note ?? null,
             station: (product as any)?.station ?? 'cafe',
+            variantName: ln.variantName,
+            accompanimentNames: ln.accompanimentNames,
           });
         }
         if (kdsItems.length > 0) {
           await this.kds.createTicketsForSale({ invoiceId: doc.id, label: (doc as any).documentNumber, items: kdsItems });
+          const lineIds = expanded.filter((ln: any) => ln.productId).map((ln: any) => ln.id);
+          const qtyMap = new Map<string, number>(expanded.filter((ln: any) => ln.productId).map((ln: any) => [ln.id as string, Number(ln.quantity)]));
+          await this.printLifecycle.markKitchenPrinted(this.prisma.client, lineIds, qtyMap, this.tenant.userId ?? undefined);
+          await this.printLifecycle.recordPrintLog(this.prisma.client, {
+            organizationId: orgId,
+            documentId: doc.id,
+            type: 'KOT',
+            printedById: this.tenant.userId ?? undefined,
+          });
         }
       }
     } catch {
       // KDS is non-fatal.
+    }
+
+    // Phase T5: auto-print receipt once after successful tab settlement (non-fatal).
+    try {
+      await this.receipts.printReceipt(doc.id, this.tenant.userId ?? undefined);
+    } catch (e: any) {
+      this.logger?.warn(`Auto-print receipt failed for tab ${doc.id}: ${String(e?.message ?? e)}`);
     }
 
     // Close the table order and sync status (available if no open orders)
@@ -1268,7 +1448,6 @@ export class PosService {
       paymentIds,
       total: Number(doc.totalAmount),
       change: Math.max(0, tendered - Number(doc.totalAmount)),
-      lowStock,
       tableStatus: closeResult.tableStatus,
     };
   }
@@ -1322,26 +1501,77 @@ export class PosService {
    */
   private async expandCheckoutLines(inputLines: CheckoutLine[]) {
     const skuMap = await this.resolveSkus(inputLines);
-    const lines = inputLines.map((l) => {
+    const lines: Array<{
+      productId: string | null;
+      menuItemId: string | null;
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      taxId: string | null;
+      discountPercent: number;
+      note: string | null;
+      modifiers: CheckoutLineModifier[] | undefined;
+      comboId: string | undefined;
+      comboPrice: number | undefined;
+      taxInclusive: boolean | undefined;
+      variantName?: string;
+      accompanimentNames?: string[];
+    }> = [];
+
+    for (const l of inputLines) {
       const modifierDelta = (l.modifiers ?? []).reduce((s, m) => s + Number(m.priceDelta), 0);
-      return {
+
+      // Resolve variant price (variant price REPLACES basePrice).
+      let variantName: string | undefined;
+      let variantPrice = 0;
+      let hasVariant = false;
+      if (l.variantId && l.menuItemId) {
+        const v = await this.variants.validateVariant(l.menuItemId, l.variantId);
+        variantName = v.name;
+        variantPrice = v.price;
+        hasVariant = true;
+      }
+
+      // Resolve accompaniment price impact (stacks on top).
+      let accompanimentImpact = 0;
+      let accompanimentNames: string[] = [];
+      if (l.accompanimentOptionIds && l.accompanimentOptionIds.length > 0 && l.menuItemId) {
+        const result = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds);
+        accompanimentImpact = result.priceImpact;
+        accompanimentNames = result.names;
+      }
+
+      // unitPrice = variantPrice (if variant) OR original unitPrice, + accompaniment impact + modifier deltas
+      const baseUnitPrice = hasVariant ? variantPrice : l.unitPrice;
+      const finalUnitPrice = baseUnitPrice + accompanimentImpact + modifierDelta;
+
+      // Build note with accompaniments + modifiers appended.
+      const noteParts: string[] = [];
+      if (l.note) noteParts.push(l.note);
+      if (accompanimentNames.length > 0) {
+        noteParts.push(...accompanimentNames.map((n) => `+ ${n}`));
+      }
+      if (l.modifiers && l.modifiers.length > 0) {
+        noteParts.push(...l.modifiers.map((m) => `+ ${m.name}`));
+      }
+
+      lines.push({
         productId: l.productId ?? skuMap.get(l.sku?.toLowerCase() ?? '') ?? null,
         menuItemId: l.menuItemId ?? null,
         description: l.description,
         quantity: l.quantity,
-        unitPrice: l.unitPrice + modifierDelta,
+        unitPrice: finalUnitPrice,
         taxId: l.taxId ?? null,
         discountPercent: l.discountPercent ?? 0,
-        note: [
-          l.note,
-          ...(l.modifiers ?? []).map((m) => `+ ${m.name}`),
-        ].filter(Boolean).join(' | ') || null,
+        note: noteParts.length > 0 ? noteParts.join(' | ') : null,
         modifiers: l.modifiers,
         comboId: l.comboId,
-        comboPrice: undefined as number | undefined,
+        comboPrice: undefined,
         taxInclusive: l.taxInclusive,
-      };
-    });
+        variantName,
+        accompanimentNames: accompanimentNames.length > 0 ? accompanimentNames : undefined,
+      });
+    }
 
     const expanded: typeof lines = [];
     for (const ln of lines) {

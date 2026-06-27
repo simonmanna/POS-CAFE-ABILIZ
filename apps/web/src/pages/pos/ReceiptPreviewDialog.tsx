@@ -12,9 +12,10 @@ interface Props {
   invoiceNumber?: string;
   onClose: () => void;
   onVoid?: (invoiceId: string, invoiceNumber: string) => void;
+  canReprint?: boolean;
 }
 
-export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoiceNumber, onClose, onVoid }) => {
+export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoiceNumber, onClose, onVoid, canReprint = false }) => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<'print' | 'email' | null>(null);
 
@@ -126,9 +127,11 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
             <Button variant="outline" onClick={onEmail} disabled={busy !== null}>
               <Mail className="h-4 w-4 mr-1" /> {busy === 'email' ? 'Emailing…' : 'Email'}
             </Button>
-            <Button variant="outline" onClick={onReprint} disabled={busy !== null}>
-              <RefreshCw className="h-4 w-4 mr-1" /> Reprint
-            </Button>
+            {canReprint && (
+              <Button variant="outline" onClick={onReprint} disabled={busy !== null}>
+                <RefreshCw className="h-4 w-4 mr-1" /> Reprint
+              </Button>
+            )}
             <Button onClick={onPrint} disabled={busy !== null} style={{ background: '#16a34a' }}>
               <Printer className="h-4 w-4 mr-1" /> {busy === 'print' ? 'Printing…' : 'Print'}
             </Button>
