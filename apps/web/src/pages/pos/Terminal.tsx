@@ -43,6 +43,7 @@ import { OverrideDialog } from './OverrideDialog';
 import { ShiftOpenDialog } from './ShiftOpenDialog';
 import { ShiftCloseDialog } from './ShiftCloseDialog';
 import { ReceiptPreview, type ReceiptLine } from './ReceiptPreview';
+import { ReceiptPreviewDialog } from './ReceiptPreviewDialog';
 import { TableSelectorDialog } from './TableSelectorDialog';
 import { MoveItemsDialog } from './MoveItemsDialog';
 import { TransferItemsDialog } from './TransferItemsDialog';
@@ -952,6 +953,18 @@ const TerminalPage: React.FC = () => {
           cashSessionId: session?.id,
         });
         toast.success(`Order settled — change ${fmt((res as any).change ?? 0)}`);
+        // Pop the settlement receipt so the cashier can print it.
+        setLastCompleted({
+          lines: cartToReceiptLines(lines),
+          total,
+          invoiceNumber: (res as any).invoiceNumber,
+          invoiceId: (res as any).invoiceId,
+          discountPercent: effectiveTxPct,
+          discountAmount: 0,
+          orderTypeLabel: orderTypeLabel ?? undefined,
+          tableLabel: activeTableLabel ?? undefined,
+          customerName: customer?.name,
+        });
         finishSettle();
       } catch (e: any) {
         // E4: queue the settle ONLY when the network is genuinely down (no
@@ -1541,12 +1554,24 @@ const TerminalPage: React.FC = () => {
         }}
       />
 
-      {lastCompleted && (
+      {/* After settle: pop the settlement receipt so the cashier can print it.
+          Server-rendered PDF when we have an invoiceId; the client snapshot is a
+          fallback only for offline-queued sales (no invoiceId yet). */}
+      {lastCompleted?.invoiceId ? (
+        <ReceiptPreviewDialog
+          open
+          invoiceId={lastCompleted.invoiceId}
+          invoiceNumber={lastCompleted.invoiceNumber}
+          canReprint={false}
+          onClose={() => setLastCompleted(null)}
+        />
+      ) : lastCompleted ? (
         <ReceiptPreview
           open
           onClose={() => setLastCompleted(null)}
           type="bill"
           title={`Receipt ${lastCompleted.invoiceNumber ?? ''}`}
+          subtitle="Offline — sync pending"
           lines={lastCompleted.lines}
           total={lastCompleted.total}
           discountPercent={lastCompleted.discountPercent}
@@ -1554,19 +1579,8 @@ const TerminalPage: React.FC = () => {
           orderTypeLabel={lastCompleted.orderTypeLabel}
           tableLabel={lastCompleted.tableLabel}
           customerName={lastCompleted.customerName}
-          onPrint={async () => {
-            if (lastCompleted.invoiceId) {
-              const openOrder = selectedTable?.orders?.find((o) => !o.closedAt);
-              const alreadyPrinted = openOrder ? Number(openOrder.document?.billPrintCount ?? 0) > 0 : false;
-              if (alreadyPrinted) {
-                toast.error('Bill already printed. Only Admin/Manager can reprint.');
-                return;
-              }
-              try { await printBill.mutateAsync({ invoiceId: lastCompleted.invoiceId }); } catch { /* non-fatal */ }
-            }
-          }}
         />
-      )}
+      ) : null}
       {canReprint && (
         <>
           {lastCompleted?.invoiceId && (

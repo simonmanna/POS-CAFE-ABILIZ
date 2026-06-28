@@ -1,5 +1,5 @@
 // Receipt preview + print / reprint / email actions.
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Printer, Mail, Download, RefreshCw, Ban, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,16 @@ interface Props {
 export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoiceNumber, onClose, onVoid, canReprint = false }) => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<'print' | 'email' | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  /** Universal print: opens the OS print dialog for the receipt PDF (works with
+   *  any printer the workstation has — no networked thermal printer required). */
+  const printPdf = () => {
+    const win = iframeRef.current?.contentWindow;
+    if (!win) { toast.error('Receipt still loading — try again'); return; }
+    win.focus();
+    win.print();
+  };
 
   // (Re)load the PDF blob URL when the dialog opens or invoiceId changes.
   React.useEffect(() => {
@@ -103,7 +113,7 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
 
         <div className="bg-slate-200 p-4 flex justify-center min-h-[500px]">
           {pdfUrl ? (
-            <iframe src={pdfUrl} title="Receipt preview" className="bg-white shadow-md" style={{ width: 340, height: 600 }} />
+            <iframe ref={iframeRef} src={pdfUrl} title="Receipt preview" className="bg-white shadow-md" style={{ width: 340, height: 600 }} />
           ) : (
             <div className="flex items-center justify-center text-slate-500 text-sm">
               <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Loading receipt…
@@ -132,8 +142,11 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
                 <RefreshCw className="h-4 w-4 mr-1" /> Reprint
               </Button>
             )}
-            <Button onClick={onPrint} disabled={busy !== null} style={{ background: '#16a34a' }}>
-              <Printer className="h-4 w-4 mr-1" /> {busy === 'print' ? 'Printing…' : 'Print'}
+            <Button variant="outline" onClick={onPrint} disabled={busy !== null} title="Send to networked thermal printer">
+              <Printer className="h-4 w-4 mr-1" /> {busy === 'print' ? 'Sending…' : 'Thermal'}
+            </Button>
+            <Button onClick={printPdf} disabled={!pdfUrl} style={{ background: '#16a34a' }} title="Open the print dialog for any printer">
+              <Printer className="h-4 w-4 mr-1" /> Print Receipt
             </Button>
           </div>
         </DialogFooter>
