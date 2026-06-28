@@ -32,6 +32,7 @@ export interface MenuCategory {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
+  deletedAt: string | null;
 }
 
 export interface MenuIngredientProduct {
@@ -176,6 +177,18 @@ export function useDeleteCategory() {
   });
 }
 
+export function useRestoreCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.patch(`/pos/menu/categories/${id}/restore`, {})).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['menu-categories'] });
+      qc.invalidateQueries({ queryKey: ['menu-items-available'] });
+    },
+  });
+}
+
 // ─── Items ────────────────────────────────────────────────────────────────
 
 export function useMenuItemsAvailable() {
@@ -185,10 +198,10 @@ export function useMenuItemsAvailable() {
   });
 }
 
-export function useMenuItems() {
+export function useMenuItems(params: { page: number; pageSize: number; search?: string }) {
   return useQuery({
-    queryKey: ['menu-items-all'],
-    queryFn: async () => (await api.get<MenuItem[]>('/pos/menu/items')).data,
+    queryKey: ['menu-items-all', params],
+    queryFn: async () => (await api.get<{ data: MenuItem[]; meta: { page: number; pageSize: number; total: number; totalPages: number } }>('/pos/menu/items', { params })).data,
   });
 }
 
@@ -257,20 +270,17 @@ export function useDisableMenuItem() {
 
 // ─── Ingredient picker ────────────────────────────────────────────────────
 
-/** Tiny product picker — pages/products.tsx has the full paginated version.
- *  For the menu dialog we just need a searchable list of products. We
- *  piggyback on /products with a large pageSize; if the catalogue grows past
- *  a few hundred SKUs this should switch to a typeahead endpoint. */
+/** Dedicated search endpoint — avoids fetching 200 rows on every keystroke. */
 export function useProductPicker(search?: string) {
   return useQuery({
     queryKey: ['product-picker', search],
     queryFn: async () => {
-      const res = await api.get<{ data: ProductMini[] }>('/products', {
-        params: { page: 1, pageSize: 200, search: search || undefined },
+      if (!search || search.length < 2) return [];
+      const res = await api.get<{ data: ProductMini[] }>('/products/search', {
+        params: { q: search, pageSize: 20 },
       });
-      // Backend returns active products by default; if a future flag includes
-      // inactive ones, we hide them here so the picker stays clean.
       return (res.data.data ?? []).filter((p) => p.productType !== 'service');
     },
+    enabled: !!search && search.length >= 2,
   });
 }

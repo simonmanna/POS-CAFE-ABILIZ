@@ -75,9 +75,10 @@ export function useLookupSku(sku: string | null) {
 export function useCustomers(q?: string) {
   return useQuery({
     queryKey: ['pos-customers', q ?? ''],
-    queryFn: async () =>
-      (await api.get<PaginatedResult<Customer>>('/partners', { params: { pageSize: 50, search: q || undefined } })).data?.data ?? [],
-    enabled: q !== undefined,
+    queryFn: async () => {
+      const res = await api.get<PaginatedResult<any>>('/partners', { params: { pageSize: 50, search: q || undefined } });
+      return (res.data?.data ?? []).filter((p: any) => p.isCustomer) as Customer[];
+    },
   });
 }
 

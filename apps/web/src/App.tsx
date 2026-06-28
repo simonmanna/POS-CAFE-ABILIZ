@@ -9,6 +9,7 @@ import { MenuPage } from '@/pages/menu';
 import ModifiersPage from '@/pages/menu/ModifiersPage';
 import AccompanimentGroupsPage from '@/pages/menu/AccompanimentGroupsPage';
 import { SettingsPage } from '@/pages/settings';
+import { ReceiptSettingsPage } from '@/pages/pos/ReceiptSettingsPage';
 import { ApprovalsPage } from '@/pages/approvals';
 import { RecurringPage } from '@/pages/recurring';
 import { WebhooksPage } from '@/pages/webhooks';
@@ -111,6 +112,7 @@ export function App() {
           <Route path="/files" element={<FilesPage />} />
           <Route path="/modules" element={<ModulesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/receipt" element={<ReceiptSettingsPage />} />
           <Route path="/inventory" element={<InventoryItemsPage />} />
           <Route path="/inventory/items" element={<InventoryItemsPage />} />
           <Route path="/inventory/adjustments" element={<StockAdjustmentsPage />} />

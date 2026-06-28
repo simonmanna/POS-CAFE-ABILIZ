@@ -16,7 +16,7 @@
  * Auth: global JWT guard is mounted in main.ts (no @UseGuards here). Endpoints
  * are gated by the `@RequirePermissions` decorator where write operations live.
  */
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiProperty } from '@nestjs/swagger';
 import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, IsUUID, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -24,6 +24,7 @@ import { RequirePermissions } from '../../kernel/auth/decorators/require-permiss
 import { PosMenuService } from './pos-menu.service';
 import { PosVariantService } from './pos-variant.service';
 import { PosAccompanimentService } from './pos-accompaniment.service';
+import { PaginationDto } from '../../kernel/common/pagination.dto';
 
 /* ====================== DTOs ====================== */
 
@@ -145,12 +146,20 @@ export class PosMenuController {
   @RequirePermissions('product:delete')
   deleteCategory(@Param('id') id: string) { return this.svc.deleteCategory(id); }
 
+  @Get('categories/deleted')
+  @RequirePermissions('menuCategories.view')
+  listDeletedCategories() { return this.svc.listDeletedCategories(); }
+
+  @Patch('categories/:id/restore')
+  @RequirePermissions('menuCategories.edit')
+  restoreCategory(@Param('id') id: string) { return this.svc.restoreCategory(id); }
+
   // ─── Items ───
   @Get('items/available')
   available() { return this.svc.listAvailable(); }
 
   @Get('items')
-  list() { return this.svc.listAll(); }
+  list(@Query() query: PaginationDto) { return this.svc.listAll(query); }
 
   @Get('items/:id')
   getOne(@Param('id') id: string) { return this.svc.getOne(id); }

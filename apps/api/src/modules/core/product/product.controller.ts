@@ -26,6 +26,12 @@ export class ProductController {
     return this.products.list(query);
   }
 
+  @Get('search')
+  @RequirePermissions(PERMISSIONS.product.read)
+  search(@Query('q') q: string, @Query('pageSize') pageSize?: string) {
+    return this.products.search(q, pageSize ? Number(pageSize) : 20);
+  }
+
   @Get(':id')
   @RequirePermissions(PERMISSIONS.product.read)
   findOne(@Param('id') id: string) {

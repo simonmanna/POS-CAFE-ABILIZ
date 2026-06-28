@@ -134,6 +134,74 @@ export class PosOrdersService {
     });
   }
 
+  /**
+   * Bridge: create an order from already-resolved/priced lines — no modifier
+   * re-validation or price folding (the unitPrice is taken as-is). Used to
+   * migrate a legacy draft-`Document` tab into the Order→Invoice pipeline at
+   * settle time, where the lines were already validated when added to the tab.
+   */
+  async createOrderFromResolved(input: {
+    orderType?: 'dine_in' | 'takeaway' | 'delivery';
+    tableId?: string;
+    partnerId?: string;
+    cashSessionId?: string;
+    branchId?: string;
+    guestCount?: number;
+    lines: Array<{
+      productId?: string | null;
+      menuItemId?: string | null;
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      taxId?: string | null;
+      discountPercent?: number;
+      taxInclusive?: boolean;
+      note?: string | null;
+      accompanimentNames?: string[];
+      modifiers?: Array<{ modifierId: string; name: string; priceDelta: number }>;
+    }>;
+  }) {
+    const orgId = this.tenant.organizationId;
+    const partnerId = input.partnerId ?? (await this.ensureWalkInCustomer(orgId));
+    const resolved: ResolvedLine[] = input.lines.map((l) => ({
+      productId: l.productId ?? null,
+      menuItemId: l.menuItemId ?? null,
+      description: l.description,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      taxId: l.taxId ?? null,
+      discountPercent: l.discountPercent ?? 0,
+      note: l.note ?? null,
+      taxInclusive: l.taxInclusive,
+      modifiers: l.modifiers ?? [],
+      accompanimentNames: l.accompanimentNames ?? [],
+      station: 'cafe',
+    }));
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const orderNumber = await this.nextOrderNumber(tx);
+      const order = await tx.order.create({
+        data: {
+          organizationId: orgId,
+          orderNumber,
+          orderType: input.orderType ?? 'dine_in',
+          status: 'open',
+          tableId: input.tableId ?? null,
+          partnerId,
+          waiterId: this.tenant.userId ?? null,
+          branchId: input.branchId ?? null,
+          cashSessionId: input.cashSessionId ?? null,
+          guestCount: input.guestCount ?? null,
+          createdBy: this.tenant.userId ?? null,
+        },
+      });
+      if (resolved.length) await this.writeItems(tx, order.id, resolved);
+      await this.syncTableOnOpen(tx, input.tableId);
+      const fresh = await this.reload(tx, order.id);
+      this.events.publish(EVENTS.PosOrderCreated, { organizationId: orgId, orderId: order.id, orderNumber, tableId: input.tableId });
+      return fresh;
+    });
+  }
+
   /** Auto-save: replace the order's item set with EXACTLY these lines. */
   async saveItems(orderId: string, dto: SaveOrderItemsDto) {
     const orgId = this.tenant.organizationId;

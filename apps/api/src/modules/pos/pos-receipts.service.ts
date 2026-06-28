@@ -1,40 +1,33 @@
 /**
  * POS Phase B — Receipts (Sprint P3).
  *
- *   - PdfBackend     → generates a PDF receipt via pdfkit (already used in the
- *                      school vertical for report cards). Always available;
- *                      no external service needed.
- *   - EmailBackend   → sends the PDF to the customer's email via the existing
- *                      NotificationService.
- *   - EscPosBackend  → prints to a thermal ESC/POS printer over the network
- *                      (default 9100). Configured per org via Setting rows.
- *                      Stubs to a console-log fallback if `node-thermal-printer`
- *                      is not installed — the cashier still sees a "printed"
- *                      event so the receipt flow is never blocked on hardware.
+ *   - PdfBackend     → generates a PDF receipt via pdfkit.
+ *   - EmailBackend   → sends the PDF to the customer's email via NotificationService.
+ *   - EscPosBackend  → prints to a thermal ESC/POS printer over the network.
  *
  * Endpoints exposed by PosReceiptsController:
- *   GET  /pos/receipts/:invoiceId/pdf       → PDF stream (pdfkit)
- *   GET  /pos/receipts/:invoiceId/text      → plain-text receipt (for ESC/POS)
- *   POST /pos/receipts/:invoiceId/print     → ESC/POS print (or fallback)
- *   POST /pos/receipts/:invoiceId/email     → email PDF to the invoice's partner
- *   POST /pos/receipts/:invoiceId/reprint   → alias of /print + audit row
+ *   GET  /pos/receipts/:invoiceId/pdf                         → PDF stream (pdfkit)
+ *   GET  /pos/receipts/:invoiceId/text                        → plain-text receipt
+ *   POST /pos/receipts/:invoiceId/print                       → ESC/POS print
+ *   POST /pos/receipts/:invoiceId/email                       → email PDF
+ *   POST /pos/receipts/:invoiceId/reprint                     → alias of /print + audit
+ *   POST /pos/receipts/:invoiceId/print-bill                  → print bill
+ *   POST /pos/receipts/:invoiceId/print-additional-bill       → print additional bill
+ *   POST /pos/receipts/:invoiceId/reprint-bill                → reprint bill
+ *   POST /pos/receipts/:invoiceId/print-kot                   → print kitchen ticket
+ *   PATCH /pos/receipts/:invoiceId/settings/receipt          → save receipt settings
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   BadRequestException, Body, Controller, ForbiddenException, Get, Header, NotFoundException,
-  Param, Post, Query, Res,
+  Param, Patch, Post, Query, Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
-import { Prisma } from '@prisma/client';
+import { IsString } from 'class-validator';
 import type { Response } from 'express';
 import PDFDocument = require('pdfkit');
 import { Injectable, Module } from '@nestjs/common';
 
-class ReprintDto {
-  @IsString()
-  reason!: string;  // REQUIRED: Admin/Manager must provide a reason for reprint
-}
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../kernel/audit/audit.service';
@@ -42,10 +35,16 @@ import { NotificationsService } from '../../kernel/notifications/notifications.s
 import { SettingsService } from '../../kernel/settings/settings.service';
 import { PosPrintLifecycleService } from './pos-print-lifecycle.service';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
-import { dec, round, ZERO } from '../../kernel/common/money';
+import { ReceiptSettingsDto } from './receipt-settings.dto';
+import { Prisma } from '@prisma/client';
 
 const fmt = (n: number | string | Prisma.Decimal | null | undefined) =>
   `UGX ${Number(n || 0).toLocaleString()}`;
+
+class ReprintDto {
+  @IsString()
+  reason!: string;
+}
 
 /* ============================== SERVICE ============================== */
 
@@ -73,7 +72,6 @@ export class PosReceiptsService {
         where: { documentId: invoiceId },
         orderBy: { lineNumber: 'asc' },
       }),
-      // Resolve products for receipt display.
       this.resolveProductsForLines(invoiceId),
     ]);
     const linesWithProducts = lines.map((ln: any) => ({
@@ -97,11 +95,45 @@ export class PosReceiptsService {
     return new Map((products as any[]).map((p) => [p.id, p]));
   }
 
-  /** Resolve the org name + address for the receipt header. */
+  /** Resolve the org + per-organization receipt customization settings for the receipt header. */
   async resolveOrg() {
     const orgId = this.tenant.organizationId;
     const org = await this.prisma.raw.organization.findUnique({ where: { id: orgId } });
-    return org;
+    const [headerSetting, footerSetting] = await Promise.all([
+      this.settings.get('receipt.header'),
+      this.settings.get('receipt.footer'),
+    ]);
+    const header = (headerSetting as any)?.value as Record<string, string> | undefined;
+    const footer = (footerSetting as any)?.value as Record<string, string> | undefined;
+    return {
+      ...org,
+      receiptHeader: header ?? null,
+      receiptFooter: footer ?? null,
+    };
+  }
+
+  /** Save per-organization receipt customization settings. */
+  async saveReceiptSettings(dto: {
+    businessName?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    phone?: string;
+    taxId?: string;
+    footerMessage?: string;
+  }) {
+    const headerValue: Record<string, string> = {
+      businessName: dto.businessName ?? '',
+      addressLine1: dto.addressLine1 ?? '',
+      addressLine2: dto.addressLine2 ?? '',
+      phone: dto.phone ?? '',
+      taxId: dto.taxId ?? '',
+    };
+    const footerValue: Record<string, string> = { message: dto.footerMessage ?? '' };
+    await Promise.all([
+      this.settings.set('receipt.header', headerValue),
+      this.settings.set('receipt.footer', footerValue),
+    ]);
+    return { ok: true };
   }
 
   /** Plain-text receipt — used for ESC/POS printers and a "download .txt" option. */
@@ -109,13 +141,18 @@ export class PosReceiptsService {
     const inv = await this.resolveInvoice(invoiceId);
     const org = await this.resolveOrg();
     const lines: string[] = [];
+    const header = (org as any).receiptHeader as Record<string, string> | null;
+    const footer = (org as any).receiptFooter as Record<string, string> | null;
     if (isReprint) lines.push('*** REPRINT COPY ***');
-    lines.push((org?.name ?? 'Cafe').toUpperCase());
-    lines.push(org?.code ?? '');
+    lines.push((header?.businessName ?? org?.name ?? 'Cafe POS').toUpperCase());
+    if (header?.addressLine1) lines.push(header.addressLine1);
+    if (header?.addressLine2) lines.push(header.addressLine2);
+    if (header?.phone) lines.push(`Tel: ${header.phone}`);
+    if (header?.taxId) lines.push(`TIN: ${header.taxId}`);
     lines.push('--------------------------------');
     lines.push(`Receipt: ${(inv as any).documentNumber}`);
     lines.push(`Date:    ${new Date(inv.issueDate).toLocaleString()}`);
-    lines.push(`Cashier: ${(inv as any).createdBy ?? '—'}`);
+    lines.push(`Cashier: ${(inv as any).createdBy ?? '-'}`);
     if ((inv as any).partner?.name) lines.push(`Customer: ${(inv as any).partner.name}`);
     lines.push('--------------------------------');
     for (const ln of inv.lines) {
@@ -123,7 +160,6 @@ export class PosReceiptsService {
       const price = Number(ln.unitPrice);
       const disc = Number(ln.discountPercent ?? 0);
       const lineTotal = qty * price * (1 - disc / 100);
-      const label = `${qty} × ${fmt(price)}`;
       const inclTag = (ln as any).taxInclusive ? ' (incl)' : '';
       lines.push(`${(ln.description + inclTag).padEnd(20).slice(0, 20)} ${fmt(lineTotal).padStart(10)}`);
       if (disc > 0) lines.push(`  (discount ${disc}%)`);
@@ -137,7 +173,7 @@ export class PosReceiptsService {
     lines.push(`Paid:     ${fmt(inv.amountPaid)}`);
     if (Number(inv.amountResidual) > 0) lines.push(`Due:      ${fmt(inv.amountResidual)}`);
     lines.push('--------------------------------');
-    lines.push('Thank you!');
+    lines.push(footer?.message ?? 'Thank you!');
     return lines.join('\n');
   }
 
@@ -145,22 +181,26 @@ export class PosReceiptsService {
   async buildPdfReceipt(invoiceId: string, isReprint = false): Promise<Buffer> {
     const inv = await this.resolveInvoice(invoiceId);
     const org = await this.resolveOrg();
+    const header = (org as any).receiptHeader as Record<string, string> | null;
+    const footer = (org as any).receiptFooter as Record<string, string> | null;
     return new Promise<Buffer>((resolve, reject) => {
-      const doc = new PDFDocument({ size: [226, 600], margin: 8 }); // 80mm thermal
+      const doc = new PDFDocument({ size: [226, 600], margin: 8 });
       const chunks: Buffer[] = [];
       doc.on('data', (c: Buffer) => chunks.push(c));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Header
       if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***', { align: 'center' });
-      doc.font('Helvetica-Bold').fontSize(14).text(org?.name ?? 'Cafe', { align: 'center' });
-      doc.font('Helvetica').fontSize(8).text(org?.code ?? '', { align: 'center' });
+      doc.font('Helvetica-Bold').fontSize(14).text(header?.businessName ?? org?.name ?? 'Cafe POS', { align: 'center' });
+      if (header?.addressLine1) doc.font('Helvetica').fontSize(8).text(header.addressLine1, { align: 'center' });
+      if (header?.addressLine2) doc.font('Helvetica').fontSize(8).text(header.addressLine2, { align: 'center' });
+      if (header?.phone) doc.font('Helvetica').fontSize(8).text(`Tel: ${header.phone}`, { align: 'center' });
+      if (header?.taxId) doc.font('Helvetica').fontSize(8).text(`TIN: ${header.taxId}`, { align: 'center' });
       doc.moveDown(0.5);
       doc.fontSize(9).text('--------------------------------');
       doc.text(`Receipt: ${(inv as any).documentNumber}`);
       doc.text(`Date:    ${new Date(inv.issueDate).toLocaleString()}`);
-      doc.text(`Cashier: ${(inv as any).createdBy ?? '—'}`);
+      doc.text(`Cashier: ${(inv as any).createdBy ?? '-'}`);
       if (inv.partner?.name) doc.text(`Customer: ${inv.partner.name}`);
       doc.text('--------------------------------');
       doc.moveDown(0.3);
@@ -170,11 +210,9 @@ export class PosReceiptsService {
         const price = Number(ln.unitPrice);
         const disc = Number(ln.discountPercent ?? 0);
         const lineTotal = qty * price * (1 - disc / 100);
-        // P10: tag tax-inclusive lines so the customer can see why the
-        // sub-total already includes VAT.
         const inclTag = (ln as any).taxInclusive ? '  (incl. tax)' : '';
         doc.font('Helvetica').text(`${ln.description}${inclTag}`);
-        doc.font('Helvetica').fontSize(8).text(`  ${qty} × ${fmt(price)}${disc > 0 ? ` (-${disc}%)` : ''}`, { continued: true });
+        doc.font('Helvetica').fontSize(8).text(`  ${qty} x ${fmt(price)}${disc > 0 ? ` (-${disc}%)` : ''}`, { continued: true });
         doc.text(fmt(lineTotal), { align: 'right' });
         if ((ln as any).note) doc.font('Helvetica-Oblique').fontSize(7).text(`  ! ${(ln as any).note}`);
       }
@@ -188,15 +226,12 @@ export class PosReceiptsService {
       if (Number(inv.amountResidual) > 0) doc.text(`Due:       ${fmt(inv.amountResidual)}`, { align: 'right' });
       doc.moveDown(0.5);
       doc.text('--------------------------------');
-      doc.fontSize(10).text('Thank you!', { align: 'center' });
+      doc.fontSize(10).text(footer?.message ?? 'Thank you!', { align: 'center' });
       doc.end();
     });
   }
 
-  /**
-   * Send the receipt to the customer's email via the existing NotificationService.
-   * Returns { ok: true, sentTo } on success.
-   */
+  /** Send the receipt to the customer's email. Returns { ok: true, sentTo } on success. */
   async emailReceipt(invoiceId: string): Promise<{ ok: boolean; sentTo?: string; message?: string }> {
     const inv = await this.resolveInvoice(invoiceId);
     const customerEmail = (inv as any).partner?.email;
@@ -240,10 +275,7 @@ export class PosReceiptsService {
     return { ok: true, sentTo: customerEmail };
   }
 
-  /**
-   * Pre-payment bill preview (text). Same format as a receipt but labelled BILL.
-   * Used for dine-in tables before settling.
-   */
+  /** Pre-payment bill preview (text). */
   async buildTextBill(invoiceId: string, isReprint = false): Promise<string> {
     const inv = await this.resolveInvoice(invoiceId);
     const org = await this.resolveOrg();
@@ -259,7 +291,6 @@ export class PosReceiptsService {
       const price = Number(ln.unitPrice);
       const disc = Number(ln.discountPercent ?? 0);
       const lineTotal = qty * price * (1 - disc / 100);
-      const label = `${qty} × ${fmt(price)}`;
       lines.push(`${(ln.description).padEnd(20).slice(0, 20)} ${fmt(lineTotal).padStart(10)}`);
       if (disc > 0) lines.push(`  (discount ${disc}%)`);
       if (ln.note) lines.push(`  ! ${ln.note}`);
@@ -273,11 +304,7 @@ export class PosReceiptsService {
     return lines.join('\n');
   }
 
-  /**
-   * Assert the current user has an Admin or Manager role — required for
-   * reprinting bills and receipts. Cashiers and other roles are forbidden.
-   * Throws ForbiddenException if the check fails.
-   */
+  /** Assert the current user has an Admin or Manager role. */
   private async assertCanReprint(userId: string | undefined): Promise<void> {
     if (!userId) throw new ForbiddenException('Authentication required for reprint');
     const user = await this.prisma.client.user.findFirst({
@@ -286,9 +313,7 @@ export class PosReceiptsService {
     });
     if (!user) throw new ForbiddenException('User not found');
     const roleNames = user.roles.map((r: any) => (r.name ?? '').toLowerCase());
-    const isAdminOrManager = roleNames.some(
-      (n: string) => n.includes('admin') || n.includes('manager'),
-    );
+    const isAdminOrManager = roleNames.some((n: string) => n.includes('admin') || n.includes('manager'));
     if (!isAdminOrManager) {
       throw new ForbiddenException(
         'Only Admin/Manager can reprint bills and receipts. Record a reason in the audit log.',
@@ -296,10 +321,7 @@ export class PosReceiptsService {
     }
   }
 
-  /**
-   * Print a pre-payment bill (ESC/POS). Updates bill lifecycle counters.
-   * First print is free; reprints require Admin/Manager via the reprint-bill endpoint.
-   */
+  /** Print a pre-payment bill (ESC/POS). */
   async printBill(invoiceId: string, userId?: string, isReprint = false): Promise<{ ok: boolean; backend: string; message?: string }> {
     if (!isReprint) {
       const doc = await this.prisma.client.document.findFirst({
@@ -307,19 +329,13 @@ export class PosReceiptsService {
         select: { billPrintCount: true },
       });
       if (doc && (doc.billPrintCount ?? 0) > 0) {
-        throw new ForbiddenException(
-          'Bill already printed. Use the reprint endpoint (Admin/Manager only, with a reason).',
-        );
+        throw new ForbiddenException('Bill already printed. Use the reprint endpoint (Admin/Manager only, with a reason).');
       }
     }
 
     const text = await this.buildTextBill(invoiceId, isReprint);
     const orgId = this.tenant.organizationId;
-
     await this.printLifecycle.markBillPrinted(this.prisma.client, invoiceId, userId);
-
-    // Mark every current line as included on this bill so additional-bill
-    // logic can later identify which items are genuinely new.
     await this.printLifecycle.markLinesBilled(this.prisma.client, invoiceId, userId);
 
     const hostSetting = await this.settings.get('pos.printerHost');
@@ -330,16 +346,12 @@ export class PosReceiptsService {
     if (!host) {
       console.log('[POS] No printer configured; bill text:\n' + text);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId,
-        documentId: invoiceId,
-        type: 'BILL',
-        printedById: userId,
+        organizationId: orgId, documentId: invoiceId, type: 'BILL', printedById: userId,
       });
       return { ok: true, backend: 'console', message: 'No printer configured; bill logged to server console.' };
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const net = require('net');
       await new Promise<void>((resolve, reject) => {
         const client = net.connect({ host, port, timeout: 5000 }, () => {
@@ -351,10 +363,7 @@ export class PosReceiptsService {
         client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
       });
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId,
-        documentId: invoiceId,
-        type: 'BILL',
-        printedById: userId,
+        organizationId: orgId, documentId: invoiceId, type: 'BILL', printedById: userId,
       });
       return { ok: true, backend: 'escpos' };
     } catch (e: any) {
@@ -374,11 +383,6 @@ export class PosReceiptsService {
 
   /**
    * Build text for a kitchen order ticket (KOT) — delta only.
-   *
-   * @param invoiceId   The document to print for.
-   * @param kotNumber   Sequential KOT copy number (1 = initial, 2+ = additional).
-   * @param addLines    Items to add (new or increased qty).
-   * @param removeLines Items to cancel (decreased qty).
    */
   async buildTextKot(
     invoiceId: string,
@@ -456,15 +460,8 @@ export class PosReceiptsService {
   }
 
   /**
-   * Build text for an additional bill — only items that have never appeared
-   * on a previously-printed bill. Designed for the "Print Additional Bill"
-   * flow: customer adds more items after the initial bill was already printed.
-   *
-   * Output includes:
-   *   - Only the newly-added (unbilled) items
-   *   - Additional subtotal
-   *   - Previous subtotal (from already-billed lines)
-   *   - Grand Total Due (full document total with tax/discounts applied)
+   * Build text for an additional bill — only items that have not yet appeared
+   * on a previously-printed bill.
    */
   async buildTextAdditionalBill(invoiceId: string, copyNumber = 1): Promise<{ text: string; grandTotal: number; additionalSubtotal: number; previousSubtotal: number }> {
     const inv = await this.resolveInvoice(invoiceId);
@@ -508,15 +505,10 @@ export class PosReceiptsService {
     return { text: lines.join('\n'), grandTotal, additionalSubtotal, previousSubtotal };
   }
 
-  /**
-   * Print an Additional Bill — only items not yet included on any previous
-   * bill print. Marks those items as billed so subsequent additional-bill
-   * calls only surface genuinely new additions.
-   */
+  /** Print an Additional Bill — only items not yet included on any previous bill print. */
   async printAdditionalBill(invoiceId: string, userId?: string): Promise<{ ok: boolean; backend: string; message?: string; copyNumber: number; grandTotal: number; additionalSubtotal: number; previousSubtotal: number }> {
     const orgId = this.tenant.organizationId;
 
-    // Determine next copy number before anything else.
     const doc = await this.prisma.client.document.findFirst({
       where: { id: invoiceId, organizationId: orgId },
       select: { billPrintCount: true },
@@ -528,11 +520,10 @@ export class PosReceiptsService {
       throw new BadRequestException('No additional items to bill. All items have already appeared on a previous bill.');
     }
 
-    const { text: additionalBillText, grandTotal, additionalSubtotal, previousSubtotal } = await this.buildTextAdditionalBill(invoiceId, copyNumber);
+    const { text: additionalBillText, grandTotal, additionalSubtotal, previousSubtotal } =
+      await this.buildTextAdditionalBill(invoiceId, copyNumber);
 
-    // Increment the document-level bill counter and timestamp.
     await this.printLifecycle.markBillPrinted(this.prisma.client, invoiceId, userId);
-    // Mark only the newly-billed lines so they are excluded next time.
     await this.printLifecycle.markLinesBilled(this.prisma.client, invoiceId, userId);
 
     const hostSetting = await this.settings.get('pos.printerHost');
@@ -543,18 +534,12 @@ export class PosReceiptsService {
     if (!host) {
       console.log('[POS] No printer configured; additional bill text:\n' + additionalBillText);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId,
-        documentId: invoiceId,
-        type: 'BILL',
-        action: 'PRINT',
-        copies: 1,
-        printedById: userId,
+        organizationId: orgId, documentId: invoiceId, type: 'BILL', action: 'PRINT', copies: 1, printedById: userId,
       });
       return { ok: true, backend: 'console', message: 'No printer configured; additional bill logged to server console.', copyNumber, grandTotal, additionalSubtotal, previousSubtotal };
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const net = require('net');
       await new Promise<void>((resolve, reject) => {
         const client = net.connect({ host, port, timeout: 5000 }, () => {
@@ -566,12 +551,7 @@ export class PosReceiptsService {
         client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
       });
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId,
-        documentId: invoiceId,
-        type: 'BILL',
-        action: 'PRINT',
-        copies: 1,
-        printedById: userId,
+        organizationId: orgId, documentId: invoiceId, type: 'BILL', action: 'PRINT', copies: 1, printedById: userId,
       });
       return { ok: true, backend: 'escpos', copyNumber, grandTotal, additionalSubtotal, previousSubtotal };
     } catch (e: any) {
@@ -582,19 +562,14 @@ export class PosReceiptsService {
 
   /**
    * Print the receipt to a thermal ESC/POS printer.
-   *
-   * Looks up printer IP from settings (`pos.printerHost`, `pos.printerPort`).
-   * Falls back to logging the text receipt if no printer is configured or
-   * if the `node-thermal-printer` package isn't installed.
+   * Looks up printer IP from settings (pos.printerHost, pos.printerPort).
    */
   async printReceipt(invoiceId: string, userId?: string, isReprint = false): Promise<{ ok: boolean; backend: string; message?: string }> {
     const inv = await this.resolveInvoice(invoiceId);
     const text = await this.buildTextReceipt(invoiceId, isReprint);
 
-    // Record lifecycle before print attempt.
     await this.printLifecycle.markReceiptPrinted(this.prisma.client, invoiceId, userId);
 
-    // Read printer settings.
     const orgId = this.tenant.organizationId;
     const hostSetting = await this.settings.get('pos.printerHost');
     const portSetting = await this.settings.get('pos.printerPort');
@@ -604,19 +579,15 @@ export class PosReceiptsService {
     if (!host) {
       console.log('[POS] No printer configured; receipt text:\n' + text);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId,
-        documentId: invoiceId,
-        type: 'RECEIPT',
-        printedById: userId,
+        organizationId: orgId, documentId: invoiceId, type: 'RECEIPT', printedById: userId,
       });
       return { ok: true, backend: 'console', message: 'No printer configured; receipt logged to server console.' };
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const net = require('net');
-      const settings = await this.settings.get('pos.kickDrawerOnPrint');
-      const shouldKick = settings?.value !== 'false';
+      const kickSetting = await this.settings.get('pos.kickDrawerOnPrint');
+      const shouldKick = kickSetting?.value !== 'false';
       await new Promise<void>((resolve, reject) => {
         const client = net.connect({ host, port, timeout: 5000 }, () => {
           client.write(text + '\n\n\n\n\n');
@@ -630,10 +601,7 @@ export class PosReceiptsService {
         client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
       });
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId,
-        documentId: invoiceId,
-        type: 'RECEIPT',
-        printedById: userId,
+        organizationId: orgId, documentId: invoiceId, type: 'RECEIPT', printedById: userId,
       });
       return { ok: true, backend: 'escpos' };
     } catch (e: any) {
@@ -641,6 +609,12 @@ export class PosReceiptsService {
       return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error; receipt logged to console' };
     }
   }
+
+  // -- Receipt lifecycle helpers exposed for the controller (same file, so accessor bypasses TS privacy) --
+
+  public lifecycle() { return this.printLifecycle; }
+  public prismaSvc() { return this.prisma; }
+  public tenantSvc() { return this.tenant; }
 }
 
 /* ============================== CONTROLLER ============================== */
@@ -670,7 +644,7 @@ export class PosReceiptsController {
   @Post(':invoiceId/print')
   @RequirePermissions('pos:checkout')
   async print(@Param('invoiceId') id: string) {
-    return this.svc.printReceipt(id, this.svc['tenant'].userId ?? undefined, false);
+    return this.svc.printReceipt(id, this.svc.tenantSvc().userId ?? undefined, false);
   }
 
   @Post(':invoiceId/email')
@@ -684,11 +658,11 @@ export class PosReceiptsController {
   @Post(':invoiceId/reprint')
   @RequirePermissions('pos:reports')
   async reprint(@Param('invoiceId') id: string, @Body() dto: ReprintDto) {
-    const userId = this.svc['tenant'].userId ?? undefined;
+    const userId = this.svc.tenantSvc().userId ?? undefined;
     await this.svc['assertCanReprint'](userId);
     const r = await this.svc.printReceipt(id, userId, true);
-    await this.svc['printLifecycle'].recordPrintLog(this.svc['prisma'].client, {
-      organizationId: this.svc['tenant'].organizationId,
+    await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
+      organizationId: this.svc.tenantSvc().organizationId,
       documentId: id,
       type: 'RECEIPT',
       action: 'REPRINT',
@@ -707,25 +681,23 @@ export class PosReceiptsController {
   @Post(':invoiceId/print-bill')
   @RequirePermissions('pos:checkout')
   async printBill(@Param('invoiceId') id: string) {
-    return this.svc.printBill(id, this.svc['tenant'].userId ?? undefined, false);
+    return this.svc.printBill(id, this.svc.tenantSvc().userId ?? undefined, false);
   }
 
-  /** Print only the items not yet included on any previous bill. */
   @Post(':invoiceId/print-additional-bill')
   @RequirePermissions('pos:checkout')
   async printAdditionalBill(@Param('invoiceId') id: string) {
-    return this.svc.printAdditionalBill(id, this.svc['tenant'].userId ?? undefined);
+    return this.svc.printAdditionalBill(id, this.svc.tenantSvc().userId ?? undefined);
   }
 
-  /** Admin/Manager reprint of a bill (not cashier). Reason is mandatory. */
   @Post(':invoiceId/reprint-bill')
   @RequirePermissions('pos:reports')
   async reprintBill(@Param('invoiceId') id: string, @Body() dto: ReprintDto) {
-    const userId = this.svc['tenant'].userId ?? undefined;
+    const userId = this.svc.tenantSvc().userId ?? undefined;
     await this.svc['assertCanReprint'](userId);
     const r = await this.svc.printBill(id, userId, true);
-    await this.svc['printLifecycle'].recordPrintLog(this.svc['prisma'].client, {
-      organizationId: this.svc['tenant'].organizationId,
+    await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
+      organizationId: this.svc.tenantSvc().organizationId,
       documentId: id,
       type: 'BILL',
       action: 'REPRINT',
@@ -744,11 +716,11 @@ export class PosReceiptsController {
   @Post(':invoiceId/print-kot')
   @RequirePermissions('pos:checkout')
   async printKot(@Param('invoiceId') id: string) {
-    const userId = this.svc['tenant'].userId ?? undefined;
-    const orgId = this.svc['tenant'].organizationId;
-    const kotNumber = await this.svc['printLifecycle'].getKotCopyNumber(this.svc['prisma'].client, id);
+    const userId = this.svc.tenantSvc().userId ?? undefined;
+    const orgId = this.svc.tenantSvc().organizationId;
+    const kotNumber = await this.svc.lifecycle().getKotCopyNumber(this.svc.prismaSvc().client, id);
 
-    const deltas = await this.svc['printLifecycle'].getKitchenDeltas(this.svc['prisma'].client, id);
+    const deltas = await this.svc.lifecycle().getKitchenDeltas(this.svc.prismaSvc().client, id);
     const hasChanges = deltas.addLines.length > 0 || deltas.removeLines.length > 0;
     if (!hasChanges) {
       return { ok: true, backend: 'none', message: 'No changes since last KOT', kotNumber } as any;
@@ -763,15 +735,15 @@ export class PosReceiptsController {
 
     const logType = removeLines.length > 0 && addLines.length === 0 ? 'CANCEL' : 'KOT';
 
-    await this.svc['printLifecycle'].markKotPrinted(this.svc['prisma'].client, id, userId);
+    await this.svc.lifecycle().markKotPrinted(this.svc.prismaSvc().client, id, userId);
     if (addLines.length > 0) {
       const lineIds = addLines.map((a: any) => a.line.id);
       const qtyMap = new Map(addLines.map((a: any) => [a.line.id, a.delta]));
-      await this.svc['printLifecycle'].markKitchenPrinted(this.svc['prisma'].client, lineIds, qtyMap, userId);
+      await this.svc.lifecycle().markKitchenPrinted(this.svc.prismaSvc().client, lineIds, qtyMap, userId);
     }
     if (removeLines.length > 0) {
       const lineIds = removeLines.map((r: any) => r.line.id);
-      await this.svc['printLifecycle'].markCancelPrinted(this.svc['prisma'].client, lineIds, userId);
+      await this.svc.lifecycle().markCancelPrinted(this.svc.prismaSvc().client, lineIds, userId);
     }
 
     const hostSetting = await this.svc['settings'].get('pos.printerHost');
@@ -781,14 +753,13 @@ export class PosReceiptsController {
 
     if (!host) {
       console.log(`[POS] No printer configured; KOT #${kotNumber} text:\n` + text);
-      await this.svc['printLifecycle'].recordPrintLog(this.svc['prisma'].client, {
+      await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
         organizationId: orgId, documentId: id, type: logType, printedById: userId,
       });
       return { ok: true, backend: 'console', message: 'No printer; KOT logged to server console.', kotNumber, text } as any;
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const net = require('net');
       await new Promise<void>((resolve, reject) => {
         const client = net.connect({ host, port, timeout: 5000 }, () => {
@@ -799,7 +770,7 @@ export class PosReceiptsController {
         client.on('error', reject);
         client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
       });
-      await this.svc['printLifecycle'].recordPrintLog(this.svc['prisma'].client, {
+      await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
         organizationId: orgId, documentId: id, type: logType, printedById: userId,
       });
       return { ok: true, backend: 'escpos', kotNumber, text } as any;
@@ -807,6 +778,12 @@ export class PosReceiptsController {
       console.log(`[POS] Printer unreachable; KOT #${kotNumber} fallback:\n` + text);
       return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error; KOT logged to console', kotNumber, text } as any;
     }
+  }
+
+  @Patch(':invoiceId/settings/receipt')
+  @RequirePermissions('pos:reports')
+  async updateReceiptSettings(@Param('invoiceId') _id: string, @Body() dto: ReceiptSettingsDto) {
+    return this.svc.saveReceiptSettings(dto);
   }
 }
 

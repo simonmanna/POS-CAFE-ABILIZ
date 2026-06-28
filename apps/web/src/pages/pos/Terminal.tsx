@@ -194,7 +194,10 @@ const TerminalPage: React.FC = () => {
         id: it.id,
         name: it.name,
         sku: it.code,
-        salesPrice: it.basePrice,
+        // basePrice is stored in MINOR units (×100) by the menu admin; the rest
+        // of the POS (products catalog, variants, modifiers, accompaniments,
+        // checkout) works in MAJOR units. Normalize here so prices/totals match.
+        salesPrice: it.basePrice != null ? Number(it.basePrice) / 100 : 0,
         categoryId: it.categoryId,
         category: it.categoryId ? { name: catName.get(it.categoryId) ?? '' } : null,
       }));
@@ -550,6 +553,28 @@ const TerminalPage: React.FC = () => {
       return () => { saveCurrentTableCart(); };
     }
   }, [tableView, saveCurrentTableCart]);
+
+  /* Switch between Tables (dine-in) and Counter (quick takeaway) mode.
+   * Counter mode renders the menu directly (no table grid). Flush any
+   * in-progress dine-in cart to its table, then start a clean cart so the two
+   * modes never cross-contaminate (counter sales must not auto-save onto a
+   * table, and a table cart must not leak into a counter checkout). */
+  const handleChangeMode = useCallback((mode: 'tables' | 'counter') => {
+    if (mode === posMode) return;
+    const cart = useCartStore.getState();
+    if (cart.tableId && orderSig(cart.lines) !== tabSyncSig.current) {
+      saveTab
+        .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id })
+        .catch(() => { /* best effort — server keeps the last good save */ });
+    }
+    setSelectedTableId(null);
+    setTableView('grid');
+    clearCart();
+    useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined, sentToKitchen: false });
+    setOrderType(mode === 'counter' ? 'takeaway' : undefined);
+    tabSyncSig.current = orderSig([]);
+    setPosMode(mode);
+  }, [posMode, clearCart, setOrderType, saveTab, customer?.id]);
 
   /* ============== Mutations ============== */
   const checkout = useCheckout();
@@ -1202,7 +1227,7 @@ const TerminalPage: React.FC = () => {
         onUserChanged={handleUserChanged}
         rightExtras={<OfflineIndicator />}
         posMode={posMode}
-        onChangeMode={setPosMode}
+        onChangeMode={handleChangeMode}
       />
 
       <div className="pos-body-pro" style={
@@ -1224,7 +1249,7 @@ const TerminalPage: React.FC = () => {
               <Coffee className="pos-action-icon" /> Open shift
             </button>
           </div>
-        ) : tableView === 'grid' ? (
+        ) : posMode === 'tables' && tableView === 'grid' ? (
           <div className="flex flex-col h-full">
             <div className="flex-1 overflow-y-auto p-6">
               {tablesLoading ? (
@@ -1295,7 +1320,7 @@ const TerminalPage: React.FC = () => {
               )}
             </div>
           </div>
-        ) : tableView === 'detail' && selectedTable ? (
+        ) : posMode === 'tables' && tableView === 'detail' && selectedTable ? (
           <TableDetailView
             table={selectedTable}
             onBack={handleGoBackToGrid}

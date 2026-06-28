@@ -15,7 +15,7 @@
  * ComboItem so inventory still decrements per-component.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 
@@ -279,23 +279,32 @@ export class PosModifiersService {
 
   /* ====================== Edit / delete (M-E) ====================== */
 
-  async updateGroup(id: string, dto: { name?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; isActive?: boolean }): Promise<any> {
+  async updateGroup(id: string, dto: { name?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; isActive?: boolean; expectedVersion?: number }): Promise<any> {
     const orgId = this.tenant.organizationId;
     const existing = await this.prisma.client.modifierGroup.findFirst({ where: { id, organizationId: orgId } });
     if (!existing) throw new NotFoundException('Modifier group not found');
     if (dto.groupType && !['ADD_ON', 'MODIFIER'].includes(dto.groupType)) {
       throw new BadRequestException('groupType must be ADD_ON or MODIFIER');
     }
-    return this.prisma.client.modifierGroup.update({
-      where: { id },
-      data: {
-        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.groupType !== undefined ? { groupType: dto.groupType } : {}),
-        ...(dto.minSelect !== undefined ? { minSelect: dto.minSelect } : {}),
-        ...(dto.maxSelect !== undefined ? { maxSelect: dto.maxSelect } : {}),
-        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
-      },
-    });
+    const data: any = {
+      ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+      ...(dto.groupType !== undefined ? { groupType: dto.groupType } : {}),
+      ...(dto.minSelect !== undefined ? { minSelect: dto.minSelect } : {}),
+      ...(dto.maxSelect !== undefined ? { maxSelect: dto.maxSelect } : {}),
+      ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      version: { increment: 1 },
+    };
+    if (dto.expectedVersion !== undefined) {
+      const result = await this.prisma.client.modifierGroup.updateMany({
+        where: { id, version: dto.expectedVersion, organizationId: orgId },
+        data,
+      });
+      if (result.count === 0) {
+        throw new ConflictException('This modifier group was modified by another user. Please reload and try again.');
+      }
+      return this.prisma.client.modifierGroup.findFirst({ where: { id, organizationId: orgId } });
+    }
+    return this.prisma.client.modifierGroup.update({ where: { id }, data });
   }
 
   async deleteGroup(id: string): Promise<void> {

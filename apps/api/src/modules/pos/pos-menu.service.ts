@@ -14,6 +14,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
+import type { PaginatedResult, PaginationQuery } from '@erp/shared';
 
 export interface MenuItemBundle {
   product: {
@@ -72,8 +73,8 @@ export class PosMenuService {
 
   listCategories() {
     return this.prisma.client.menuCategory.findMany({
+      where: { isActive: true, deletedAt: null },
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-      where: { isActive: true },
     });
   }
 
@@ -97,15 +98,28 @@ export class PosMenuService {
   }
 
   async updateCategory(id: string, data: { name?: string; displayOrder?: number; image?: string; icon?: string }) {
-    const existing = await this.prisma.client.menuCategory.findUnique({ where: { id } });
+    const existing = await this.prisma.client.menuCategory.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new NotFoundException(`MenuCategory ${id} not found`);
     return this.prisma.client.menuCategory.update({ where: { id }, data });
   }
 
   async deleteCategory(id: string) {
-    const existing = await this.prisma.client.menuCategory.findUnique({ where: { id } });
+    const existing = await this.prisma.client.menuCategory.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new NotFoundException(`MenuCategory ${id} not found`);
-    return this.prisma.client.menuCategory.update({ where: { id }, data: { isActive: false } });
+    return this.prisma.client.menuCategory.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+  }
+
+  async restoreCategory(id: string) {
+    const existing = await this.prisma.client.menuCategory.findFirst({ where: { id, deletedAt: { not: null } } });
+    if (!existing) throw new NotFoundException(`Deleted MenuCategory ${id} not found`);
+    return this.prisma.client.menuCategory.update({ where: { id }, data: { deletedAt: null, isActive: true } });
+  }
+
+  listDeletedCategories() {
+    return this.prisma.client.menuCategory.findMany({
+      where: { deletedAt: { not: null } },
+      orderBy: [{ deletedAt: 'desc' }],
+    });
   }
 
   // ─────────────────────────── Items ────────────────────────────
@@ -115,7 +129,7 @@ export class PosMenuService {
    *  KDS can show "uses: Espresso, Milk" and the cashier can show stock hint. */
   async listAvailable() {
     const cats = await this.prisma.client.menuCategory.findMany({
-      where: { isActive: true },
+      where: { isActive: true, deletedAt: null },
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
     });
     const items = await this.prisma.client.menuItem.findMany({
@@ -131,11 +145,34 @@ export class PosMenuService {
     };
   }
 
-  async listAll() {
-    return this.prisma.client.menuItem.findMany({
-      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-      include: { ingredients: true, category: true },
-    });
+  async listAll(query: PaginationQuery): Promise<PaginatedResult<any>> {
+    const page = Math.max(1, Number(query.page ?? 1));
+    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
+    const where: any = {};
+    if (query.search) {
+      where.OR = [
+        { name: { contains: query.search, mode: 'insensitive' } },
+        { code: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+    const orderBy = query.sortBy
+      ? { [query.sortBy]: query.sortOrder ?? 'asc' as const }
+      : [{ displayOrder: 'asc' as const }, { name: 'asc' as const }];
+    const [data, total] = await Promise.all([
+      this.prisma.client.menuItem.findMany({
+        where, orderBy, skip: (page - 1) * pageSize, take: pageSize,
+        include: {
+          category: true,
+          ingredients: { include: { product: { select: { id: true, code: true, name: true, station: true } } } },
+        },
+      }),
+      this.prisma.client.menuItem.count({ where }),
+    ]);
+    return {
+      data,
+      meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    };
   }
 
   async getOne(id: string) {
@@ -314,7 +351,9 @@ export class PosMenuService {
       product: {
         id: (item as any).id,
         name: (item as any).name,
-        unitPrice: Number((item as any).basePrice ?? 0),
+        // basePrice is persisted in MINOR units (×100); the POS works in MAJOR
+        // units, so normalize here to match variant/modifier/accompaniment prices.
+        unitPrice: Number((item as any).basePrice ?? 0) / 100,
         sku: (item as any).code ?? null,
         productType: 'menu',
       },

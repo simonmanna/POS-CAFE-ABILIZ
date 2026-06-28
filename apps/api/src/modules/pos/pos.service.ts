@@ -21,6 +21,9 @@ import { dec } from '../../kernel/common/money';
 import { EVENTS } from '@erp/shared';
 import { NotificationsService } from '../../kernel/notifications/notifications.service';
 import { PosTablesService } from './pos-tables.service';
+import { PosOrdersService } from './order/pos-orders.service';
+import { PosInvoiceService } from './billing/pos-invoice.service';
+import type { CreateOrderDto } from './order/dto/order.dto';
 
 export interface CheckoutLineModifier {
   modifierId: string;
@@ -109,221 +112,117 @@ export class PosService {
     private readonly printLifecycle: PosPrintLifecycleService,
     private readonly receipts: PosReceiptsService,
     private readonly tables: PosTablesService,
+    private readonly orders: PosOrdersService,
+    private readonly billing: PosInvoiceService,
   ) {}
 
+  /**
+   * Counter sale — the canonical Order → Invoice → Receipt pipeline. Creates an
+   * Order from the cart, fires the kitchen, generates the Invoice (which posts
+   * its own GL + deducts stock), then takes payment (which writes the Receipt +
+   * ReceiptItems and closes the order). Every counter sale now persists into the
+   * Order/Invoice/InvoiceItem/Receipt/ReceiptItem tables — NOT Document.
+   */
   async checkout(input: CheckoutInput) {
     if (!input.lines?.length) throw new BadRequestException('Cart is empty');
-
-    // Validate variant + accompaniments per line before modifier rules.
-    for (const ln of input.lines) {
-      if (ln.variantId && ln.menuItemId) {
-        await this.variants.validateVariant(ln.menuItemId, ln.variantId);
-      }
-      // Accompaniment validation is deferred to expandCheckoutLines where it
-      // also returns price impact and names.
-    }
-
-    // M-B: enforce required / min / max modifier rules server-side.
-    await this.modifiers.validateSelections(input.lines);
     const orgId = this.tenant.organizationId;
-    const partnerId = input.partnerId ?? (await this.ensureWalkInCustomer(orgId));
+
+    // Manager-override guard for high discounts (validates line + tx discount).
     const effectiveDiscount = await this.assertDiscountAuthority(input);
 
-    // 1) Resolve lines (sku → id, modifier folding, combo expansion). Shared
-    //    with the open-tab flow so a tab and a counter sale price identically.
-    const expanded = await this.expandCheckoutLines(input.lines);
+    // 1) Operational Order from the cart. resolveLines folds variants /
+    //    accompaniments / modifiers and expands combos, and validates rules.
+    const order = await this.orders.createOrder({
+      orderType: input.tableId ? 'dine_in' : 'takeaway',
+      tableId: input.tableId,
+      partnerId: input.partnerId,
+      branchId: input.branchId,
+      cashSessionId: input.cashSessionId,
+      guestCount: input.guestCount,
+      notes: input.notes,
+      lines: input.lines.map((l) => this.toOrderLine(l)),
+    } as CreateOrderDto);
 
-    // 2) Pick the main warehouse.
-    const warehouse = await this.prisma.client.inventoryLocation.findFirst({
-      where: { organizationId: orgId, type: 'warehouse', isActive: true },
-    });
+    // 2) Fire the new items to the kitchen (best-effort — never fails the sale).
+    try { await this.orders.fireKitchen(order.id); } catch { /* KDS non-fatal */ }
 
-    // 3) Create + post the sales invoice. transactionDiscountPercent is
-    //    stored on the invoice's notes / referenced via a single line-level
-    //    discount by storing the percent in the document reference field.
-    const doc = await this.builder.createDocument(
-      this.prisma.client,
-      'sales_invoice',
-      {
-        partnerId,
-        branchId: input.branchId,
-        reference: input.reference ?? (effectiveDiscount > 0 ? `Discount ${effectiveDiscount}%` : undefined),
-        notes: input.notes,
-        issueDate: new Date().toISOString(),
-        sourceType: 'pos',
-      } as any,
-      expanded.map((l) => ({
-        productId: l.productId ?? undefined,
-        menuItemId: l.menuItemId ?? undefined,
-        description: l.description,
-        quantity: l.quantity,
-        unitPrice: l.unitPrice,
-        taxId: l.taxId ?? undefined,
-        discountPercent: l.discountPercent ?? 0,
-        // P10: per-line taxInclusive override (or undefined → builder reads product.taxInclusive).
-        taxInclusive: l.taxInclusive,
-      })),
-    );
-    // M-D: persist the selected modifiers per line for reporting (best-effort).
-    await this.persistLineModifiers(this.prisma.client, (doc as any).lines ?? [], expanded);
-
-    // P-TX: apply the transaction-level discount to the document total so the
-    // amount due matches what the frontend shows (post-line-discount subtotal
-    // minus transaction discount, plus tax).  Only the overall total is adjusted;
-    // individual line records stay unchanged.
-    if (input.transactionDiscountPercent != null && input.transactionDiscountPercent > 0) {
-      const pct = dec(input.transactionDiscountPercent).dividedBy(100);
-      const txDisc = dec(doc.totalAmount).times(pct);
-      const adjustedTotal = dec(doc.totalAmount).minus(txDisc);
-      const adjustedDiscountTotal = dec(doc.discountTotal ?? 0).plus(txDisc);
-      await this.prisma.client.document.update({
-        where: { id: doc.id },
-        data: {
-          totalAmount: adjustedTotal,
-          amountResidual: adjustedTotal,
-          discountTotal: adjustedDiscountTotal,
-        },
-      });
-      doc.totalAmount = adjustedTotal;
-      doc.discountTotal = adjustedDiscountTotal;
-    }
-
-    // 4) Validate tenders against the computed total BEFORE any GL effect, so a
-    //    tender/total mismatch fails while the document is still an un-posted
-    //    draft (no GL, no stock, no cash to unwind).
-    let tenders: PaymentTender[];
+    // 3) Generate the Invoice: posts Dr AR / Cr Revenue+Tax to the GL and
+    //    deducts inventory at bill time. Roll the order back on failure.
+    let invoice: any;
     try {
-      tenders = this.normalizeTenders(input, doc.totalAmount);
+      invoice = await this.billing.generateInvoice(order.id, {
+        transactionDiscountPercent: input.transactionDiscountPercent,
+        branchId: input.branchId,
+      });
     } catch (e) {
-      await this.invoices.cancel(doc.id).catch(() => undefined);
+      await this.orders.cancelOrder(order.id, 'checkout: invoice generation failed').catch(() => undefined);
       throw e;
     }
 
-    // 5) Post the invoice, issue stock, and take payment. The three core
-    //    services each own their DB transaction, so this is not one atomic
-    //    commit; executeSaleEffects compensates (void payments, restock, cancel
-    //    invoice) if any step throws — a failed checkout never leaves a posted
-    //    invoice, phantom stock, or orphan cash behind.
-    const { paymentIds } = await this.executeSaleEffects({
-      doc,
-      expanded,
-      warehouse,
-      tenders,
-      partnerId,
-      cashSessionId: input.cashSessionId,
-      reference: input.reference,
-    });
-
-    const tendered = input.amountTendered ?? Number(doc.totalAmount);
-
-    // 6) Audit + event.
-    await this.audit.record({
-      entity: 'Document',
-      entityId: doc.id,
-      action: 'post' as any,
-      newValues: { kind: 'pos_sale', totalAmount: doc.totalAmount.toString(), discountPercent: effectiveDiscount, overrideById: input.overrideById ?? null },
-    });
-    this.events.publish(EVENTS.PosSaleCompleted, {
-      organizationId: orgId,
-      invoiceId: doc.id,
-      invoiceNumber: (doc as any).documentNumber,
-      cashSessionId: input.cashSessionId,
-      total: doc.totalAmount.toString(),
-    });
-
-    // P7: auto-earn loyalty points for the partner (skip the walk-in).
+    // 4) Take payment + settle: writes Payment + allocation, the Receipt +
+    //    ReceiptItems, marks the invoice settled and closes the order. On
+    //    failure, refund (reverse GL + restock) so the books stay clean.
+    let pay: any;
     try {
-      const WALKIN_CODE = 'WALKIN';
-      if (partnerId) {
-        const partner = await this.prisma.client.partner.findFirst({
-          where: { id: partnerId, organizationId: orgId },
-        });
-        if (partner && partner.code !== WALKIN_CODE) {
-          await this.loyalty.earnPoints({
-            partnerId,
-            documentId: doc.id,
-            amount: Number(doc.totalAmount),
-            reason: 'sale',
-          });
+      pay = await this.billing.receivePayment(invoice.id, {
+        tenders: input.tenders,
+        paymentMethod: input.paymentMethod,
+        amountTendered: input.amountTendered,
+        cashSessionId: input.cashSessionId,
+      });
+    } catch (e) {
+      await this.billing.refund(invoice.id, 'checkout: payment failed').catch(() => undefined);
+      throw e;
+    }
+
+    // 5) Loyalty (best-effort, skip the walk-in).
+    try {
+      if (invoice.partnerId) {
+        const partner = await this.prisma.client.partner.findFirst({ where: { id: invoice.partnerId, organizationId: orgId } });
+        if (partner && partner.code !== 'WALKIN') {
+          await this.loyalty.earnPoints({ partnerId: invoice.partnerId, documentId: invoice.id, amount: Number(invoice.totalAmount), reason: 'sale' });
         }
       }
-    } catch {
-      // Loyalty is a "nice to have" — don't fail the sale if it errors.
-    }
+    } catch { /* loyalty non-fatal */ }
 
-    // P5: create KDS tickets (one per station) so the kitchen/bar/cafe
-    // screens get a new ticket as soon as the sale settles. Items are
-    // denormalised so the KDS renders without N+1 joins.
-    try {
-      const kdsItems: any[] = [];
-      for (const ln of expanded) {
-        if (!ln.productId) continue;
-        const product = await this.prisma.client.product.findFirst({ where: { id: ln.productId } });
-        if (!product) continue;
-        kdsItems.push({
-          productId: ln.productId,
-          productName: ln.description,
-          quantity: Number(ln.quantity),
-          modifiers: ln.modifiers ?? [],
-          notes: ln.note,
-          station: (product as any).station ?? 'cafe',
-          variantName: ln.variantName,
-          accompanimentNames: ln.accompanimentNames,
-        });
-      }
-      if (kdsItems.length > 0) {
-        await this.kds.createTicketsForSale({
-          invoiceId: doc.id,
-          label: (doc as any).documentNumber,
-          items: kdsItems,
-        });
-        const lineIds = expanded.filter((ln: any) => ln.productId).map((ln: any) => ln.id);
-        const qtyMap = new Map<string, number>(expanded.filter((ln: any) => ln.productId).map((ln: any) => [ln.id, Number(ln.quantity)]));
-        await this.printLifecycle.markKitchenPrinted(this.prisma.client, lineIds, qtyMap, this.tenant.userId ?? undefined);
-        await this.printLifecycle.recordPrintLog(this.prisma.client, {
-          organizationId: orgId,
-          documentId: doc.id,
-          type: 'KOT',
-          printedById: this.tenant.userId ?? undefined,
-        });
-      }
-    } catch {
-      // KDS is a "nice to have" — don't fail the sale if it errors.
-    }
+    this.events.publish(EVENTS.PosSaleCompleted, {
+      organizationId: orgId,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      cashSessionId: input.cashSessionId,
+      total: invoice.totalAmount.toString(),
+    });
 
-    // P5: auto-print receipt once after successful payment (non-fatal).
-    try {
-      await this.receipts.printReceipt(doc.id, this.tenant.userId ?? undefined);
-    } catch (e: any) {
-      this.logger?.warn(`Auto-print receipt failed for ${doc.id}: ${String(e?.message ?? e)}`);
-    }
-
-    // POS Tables (T1): if the cashier attached a tableId to the sale, link
-    // the freshly-posted invoice to that table. For counter sales with a table,
-    // the order is immediately paid so we close the table order and sync status.
-    if (input.tableId) {
-      try {
-        await this.tables.attachSaleToTable({
-          tableId: input.tableId,
-          documentId: doc.id,
-          guestCount: input.guestCount,
-        });
-        // Close the table order immediately since payment is complete
-        await this.tables.closeTableOrder({
-          tableId: input.tableId,
-          documentId: doc.id,
-        });
-      } catch (e: any) {
-        this.logger?.warn(`attachSaleToTable/closeTableOrder failed for ${input.tableId}: ${String(e?.message ?? e)}`);
-      }
-    }
-
+    const tendered = input.amountTendered ?? Number(invoice.totalAmount);
     return {
-      invoiceId: doc.id,
-      invoiceNumber: (doc as any).documentNumber,
-      paymentIds,
-      total: Number(doc.totalAmount),
-      change: Math.max(0, tendered - Number(doc.totalAmount)),
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      paymentIds: [] as string[],
+      total: Number(invoice.totalAmount),
+      change: pay?.change ?? Math.max(0, tendered - Number(invoice.totalAmount)),
+      discountPercent: effectiveDiscount,
+    };
+  }
+
+  /** Map a POS cart line to the Order DTO (raw — server-side folding/pricing). */
+  private toOrderLine(l: CheckoutLine): any {
+    return {
+      productId: l.productId,
+      menuItemId: l.menuItemId,
+      sku: l.sku,
+      description: l.description,
+      quantity: l.quantity,
+      unitPrice: l.unitPrice,
+      taxId: l.taxId,
+      discountPercent: l.discountPercent,
+      note: l.note,
+      modifiers: l.modifiers,
+      variantId: l.variantId,
+      accompanimentOptionIds: l.accompanimentOptionIds,
+      comboId: l.comboId,
+      taxInclusive: l.taxInclusive,
     };
   }
 
@@ -1287,7 +1186,7 @@ export class PosService {
   }) {
     const orgId = this.tenant.organizationId;
     // T-LOCK: lock the table row so two cashiers cannot settle the same tab concurrently.
-    const [order] = await this.prisma.client.$transaction(async (tx: any) => {
+    const [tabOrder] = await this.prisma.client.$transaction(async (tx: any) => {
       await tx.$queryRawUnsafe(
         `SELECT id FROM "PosTable" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
         input.tableId,
@@ -1300,155 +1199,97 @@ export class PosService {
         include: { document: { include: { lines: { orderBy: { lineNumber: 'asc' } } } } },
       });
     });
-    if (!order?.document || order.document.status !== 'draft') {
+    if (!tabOrder?.document || tabOrder.document.status !== 'draft') {
       throw new BadRequestException('No open tab to settle on this table');
     }
-    const doc = order.document;
+    const doc = tabOrder.document;
     if (!doc.lines.length) throw new BadRequestException('The tab is empty');
 
-    const expanded = doc.lines.map((l: any) => ({
-      id: l.id,
-      productId: l.productId ?? null,
-      menuItemId: l.menuItemId ?? null,
-      description: l.description,
-      quantity: Number(l.quantity),
-      unitPrice: Number(l.unitPrice),
-      discountPercent: Number(l.discountPercent ?? 0),
-      modifiers: l.modifiers ?? (undefined as CheckoutLineModifier[] | undefined),
-      note: l.note ?? null,
-      taxId: l.taxId ?? null,
-      taxInclusive: (l as any).taxInclusive,
-    }));
+    // Bridge the legacy draft tab into the Order→Invoice→Receipt pipeline. The
+    // draft lines are already priced (modifiers folded into unitPrice), so the
+    // order is created from resolved lines (no re-validation / re-folding).
+    const order = await this.orders.createOrderFromResolved({
+      orderType: 'dine_in',
+      tableId: input.tableId,
+      partnerId: doc.partnerId ?? undefined,
+      cashSessionId: input.cashSessionId,
+      branchId: doc.branchId ?? undefined,
+      lines: doc.lines.map((l: any) => ({
+        productId: l.productId ?? null,
+        menuItemId: l.menuItemId ?? null,
+        description: l.description,
+        quantity: Number(l.quantity),
+        unitPrice: Number(l.unitPrice),
+        taxId: l.taxId ?? null,
+        discountPercent: Number(l.discountPercent ?? 0),
+        taxInclusive: (l as any).taxInclusive,
+        note: l.note ?? null,
+      })),
+    });
 
-    // P-TX: apply transaction-level discount to the document total before posting.
-    if (input.transactionDiscountPercent != null && input.transactionDiscountPercent > 0) {
-      const pct = dec(input.transactionDiscountPercent).dividedBy(100);
-      const txDisc = dec(doc.totalAmount).times(pct);
-      const adjustedTotal = dec(doc.totalAmount).minus(txDisc);
-      const adjustedDiscountTotal = dec(doc.discountTotal ?? 0).plus(txDisc);
+    // Generate the Invoice (own GL + stock at bill time) then take payment
+    // (writes the Receipt + ReceiptItems and closes the order).
+    let invoice: any;
+    try {
+      invoice = await this.billing.generateInvoice(order.id, { transactionDiscountPercent: input.transactionDiscountPercent });
+    } catch (e) {
+      await this.orders.cancelOrder(order.id, 'settle: invoice generation failed').catch(() => undefined);
+      throw e;
+    }
+    let pay: any;
+    try {
+      pay = await this.billing.receivePayment(invoice.id, {
+        tenders: input.tenders,
+        paymentMethod: input.paymentMethod,
+        amountTendered: input.amountTendered,
+        cashSessionId: input.cashSessionId,
+      });
+    } catch (e) {
+      await this.billing.refund(invoice.id, 'settle: payment failed').catch(() => undefined);
+      throw e;
+    }
+
+    // Retire the legacy draft tab: cancel the draft Document + close its
+    // PosTableOrder so the table frees and the old draft isn't left dangling.
+    try {
       await this.prisma.client.document.update({
         where: { id: doc.id },
-        data: {
-          totalAmount: adjustedTotal,
-          amountResidual: adjustedTotal,
-          discountTotal: adjustedDiscountTotal,
-        },
+        data: { status: 'cancelled', notes: `Migrated to invoice ${invoice.invoiceNumber}` },
       });
-      doc.totalAmount = adjustedTotal;
-      doc.discountTotal = adjustedDiscountTotal;
-    }
-
-    const warehouse = await this.prisma.client.inventoryLocation.findFirst({
-      where: { organizationId: orgId, type: 'warehouse', isActive: true },
-    });
-
-    // Validate tenders against the tab total before any GL effect.
-    const tenders = this.normalizeTenders(
-      { tenders: input.tenders, paymentMethod: input.paymentMethod, amountTendered: input.amountTendered } as CheckoutInput,
-      doc.totalAmount,
-    );
-
-    const { paymentIds } = await this.executeSaleEffects({
-      doc,
-      expanded,
-      warehouse,
-      tenders,
-      partnerId: doc.partnerId!,
-      cashSessionId: input.cashSessionId,
-      reference: undefined,
-    });
-
-    // E2: make sure the kitchen sees this order even if it was never explicitly
-    // "Sent to Kitchen" — fire tickets at settle, but only if none exist yet for
-    // this document (so an already-fired tab isn't double-ticketed). Non-fatal.
+    } catch { /* best effort */ }
+    let tableStatus: string | undefined;
     try {
-      const already = await this.prisma.client.kitchenTicket.count({ where: { invoiceId: doc.id } });
-      if (already === 0) {
-        const kdsItems: any[] = [];
-        const modsCache = new Map<string, CheckoutLineModifier[]>();
-        for (const ln of expanded) {
-          if (!ln.productId) continue;
-          const product = await this.prisma.client.product.findFirst({ where: { id: ln.productId } });
-          modsCache.set(ln.productId, ln.modifiers ?? []);
-          kdsItems.push({
-            productId: ln.productId,
-            productName: ln.description,
-            quantity: Number(ln.quantity),
-            modifiers: ln.modifiers ?? [],
-            notes: ln.note ?? null,
-            station: (product as any)?.station ?? 'cafe',
-            variantName: ln.variantName,
-            accompanimentNames: ln.accompanimentNames,
-          });
-        }
-        if (kdsItems.length > 0) {
-          await this.kds.createTicketsForSale({ invoiceId: doc.id, label: (doc as any).documentNumber, items: kdsItems });
-          const lineIds = expanded.filter((ln: any) => ln.productId).map((ln: any) => ln.id);
-          const qtyMap = new Map<string, number>(expanded.filter((ln: any) => ln.productId).map((ln: any) => [ln.id as string, Number(ln.quantity)]));
-          await this.printLifecycle.markKitchenPrinted(this.prisma.client, lineIds, qtyMap, this.tenant.userId ?? undefined);
-          await this.printLifecycle.recordPrintLog(this.prisma.client, {
-            organizationId: orgId,
-            documentId: doc.id,
-            type: 'KOT',
-            printedById: this.tenant.userId ?? undefined,
-          });
+      const closeResult = await this.tables.closeTableOrder({ tableId: input.tableId, documentId: doc.id });
+      tableStatus = (closeResult as any)?.tableStatus;
+    } catch { /* best effort */ }
+
+    // Loyalty (best-effort, skip the walk-in).
+    try {
+      if (invoice.partnerId) {
+        const partner = await this.prisma.client.partner.findFirst({ where: { id: invoice.partnerId, organizationId: orgId } });
+        if (partner && partner.code !== 'WALKIN') {
+          await this.loyalty.earnPoints({ partnerId: invoice.partnerId, documentId: invoice.id, amount: Number(invoice.totalAmount), reason: 'sale' });
         }
       }
-    } catch {
-      // KDS is non-fatal.
-    }
+    } catch { /* non-fatal */ }
 
-    // Phase T5: auto-print receipt once after successful tab settlement (non-fatal).
-    try {
-      await this.receipts.printReceipt(doc.id, this.tenant.userId ?? undefined);
-    } catch (e: any) {
-      this.logger?.warn(`Auto-print receipt failed for tab ${doc.id}: ${String(e?.message ?? e)}`);
-    }
-
-    // Close the table order and sync status (available if no open orders)
-    const closeResult = await this.tables.closeTableOrder({ tableId: input.tableId, documentId: doc.id });
-
-    const tendered = input.amountTendered ?? Number(doc.totalAmount);
-    await this.audit.record({
-      entity: 'Document',
-      entityId: doc.id,
-      action: 'post' as any,
-      newValues: { kind: 'tab_settled', tableId: input.tableId, total: doc.totalAmount.toString() },
-    });
     this.events.publish(EVENTS.PosSaleCompleted, {
       organizationId: orgId,
-      invoiceId: doc.id,
-      invoiceNumber: (doc as any).documentNumber,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
       cashSessionId: input.cashSessionId,
-      total: doc.totalAmount.toString(),
+      total: invoice.totalAmount.toString(),
     });
 
-    // Loyalty (skip the walk-in).
-    try {
-      if (doc.partnerId) {
-        const partner = await this.prisma.client.partner.findFirst({
-          where: { id: doc.partnerId, organizationId: orgId },
-        });
-        if (partner && partner.code !== 'WALKIN') {
-          await this.loyalty.earnPoints({
-            partnerId: doc.partnerId,
-            documentId: doc.id,
-            amount: Number(doc.totalAmount),
-            reason: 'sale',
-          });
-        }
-      }
-    } catch {
-      // Loyalty is non-fatal.
-    }
-
+    const tendered = input.amountTendered ?? Number(invoice.totalAmount);
     return {
-      invoiceId: doc.id,
-      invoiceNumber: (doc as any).documentNumber,
-      paymentIds,
-      total: Number(doc.totalAmount),
-      change: Math.max(0, tendered - Number(doc.totalAmount)),
-      tableStatus: closeResult.tableStatus,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      orderId: order.id,
+      paymentIds: [] as string[],
+      total: Number(invoice.totalAmount),
+      change: pay?.change ?? Math.max(0, tendered - Number(invoice.totalAmount)),
+      tableStatus,
     };
   }
 

@@ -1194,6 +1194,7 @@ model ModifierGroup {
   maxSelect      Int               @default(1)
   sortOrder      Int               @default(0)
   isActive       Boolean           @default(true)
+  version        Int               @default(0)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
@@ -1317,6 +1318,9 @@ model MenuCategory {
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   parent   MenuCategory?  @relation("MenuCategoryTree", fields: [parentId], references: [id])
   children MenuCategory[] @relation("MenuCategoryTree")

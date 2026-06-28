@@ -61,4 +61,22 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
     });
     await this.audit.record({ entity: 'Product', entityId: id, action: 'delete' });
   }
+
+  async search(q: string, pageSize = 20) {
+    const orgId = this.tenant.organizationId;
+    const where: any = { organizationId: orgId, isActive: true };
+    if (q) {
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { code: { contains: q, mode: 'insensitive' } },
+        { sku: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+    return this.prisma.client.product.findMany({
+      where,
+      take: pageSize,
+      orderBy: { name: 'asc' },
+      select: { id: true, code: true, name: true, salesPrice: true, productType: true, station: true, categoryId: true },
+    });
+  }
 }

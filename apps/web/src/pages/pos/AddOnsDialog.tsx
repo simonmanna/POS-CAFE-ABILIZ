@@ -1,7 +1,7 @@
 // P4 — Modifier picker dialog. Opens when a cashier taps a product that
 // has required modifier groups (e.g. "Latte" → "Choose size + milk").
 import React, { useEffect, useMemo, useState } from 'react';
-import { Coffee, X, Check } from 'lucide-react';
+import { Coffee, X, Check, Minus, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useMenuItemBundle, type ModifierGroupFE } from './pos-features-api';
@@ -29,33 +29,50 @@ interface Props {
 
 const fmt = (n: number) => `UGX ${Number(n || 0).toLocaleString()}`;
 
+/** All modifier selections are detached when the dialog closes — reset to
+ *  defaults when the bundle changes or the dialog re-opens. */
 export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onClose, onAdd }) => {
-  // `productId` here is the catalog item id — a MenuItem id in the menu-based POS.
   const { data: bundle, isLoading } = useMenuItemBundle(open ? productId : null);
-  // selection[groupId] = Set<modifierId>
-  const [selection, setSelection] = useState<Record<string, Set<string>>>({});
+  const [modifierSelection, setModifierSelection] = useState<Record<string, Set<string>>>({});
+  const [addonQty, setAddonQty] = useState<Record<string, Record<string, number>>>({});
   const [note, setNote] = useState('');
   const [quantity, setQuantity] = useState(1);
 
   useEffect(() => {
-    if (!open || !bundle) { setSelection({}); setNote(''); setQuantity(1); return; }
-    // Pre-check default modifiers (radio groups: only one; checkbox: all defaults).
-    const init: Record<string, Set<string>> = {};
+    if (!open || !bundle) {
+      setModifierSelection({});
+      setAddonQty({});
+      setNote('');
+      setQuantity(1);
+      return;
+    }
+    const modSel: Record<string, Set<string>> = {};
+    const addQty: Record<string, Record<string, number>> = {};
     for (const g of bundle.groups) {
-      const defaults = g.modifiers.filter((m) => m.isDefault);
-      if (defaults.length > 0) {
-        init[g.id] = new Set(defaults.map((m) => m.id).slice(0, g.maxSelect));
+      if (g.groupType === 'MODIFIER') {
+        const defaults = g.modifiers.filter((m) => m.isDefault);
+        if (defaults.length > 0) {
+          modSel[g.id] = new Set(defaults.map((m) => m.id).slice(0, g.maxSelect));
+        } else {
+          modSel[g.id] = new Set();
+        }
       } else {
-        init[g.id] = new Set();
+        const qtyMap: Record<string, number> = {};
+        for (const m of g.modifiers) {
+          if (m.isDefault) qtyMap[m.id] = 1;
+          else qtyMap[m.id] = 0;
+        }
+        addQty[g.id] = qtyMap;
       }
     }
-    setSelection(init);
+    setModifierSelection(modSel);
+    setAddonQty(addQty);
     setNote('');
     setQuantity(1);
   }, [open, bundle?.product.id]);
 
-  const toggle = (g: ModifierGroupFE, modifierId: string) => {
-    setSelection((prev) => {
+  const toggleModifier = (g: ModifierGroupFE, modifierId: string) => {
+    setModifierSelection((prev) => {
       const cur = new Set(prev[g.id] ?? []);
       if (cur.has(modifierId)) {
         cur.delete(modifierId);
@@ -64,7 +81,6 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
           cur.clear();
           cur.add(modifierId);
         } else if (cur.size >= g.maxSelect) {
-          // Already at max — replace the oldest by removing then adding.
           const first = cur.values().next().value;
           if (first) cur.delete(first);
           cur.add(modifierId);
@@ -76,68 +92,139 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
     });
   };
 
+  const setAddonQuantity = (groupId: string, modifierId: string, qty: number) => {
+    setAddonQty((prev) => ({
+      ...prev,
+      [groupId]: {
+        ...(prev[groupId] ?? {}),
+        [modifierId]: Math.max(0, Math.min(qty, 99)),
+      },
+    }));
+  };
+
+  const incAddon = (g: ModifierGroupFE, mId: string) => {
+    const cur = addonQty[g.id]?.[mId] ?? 0;
+    if (cur < g.maxSelect) setAddonQuantity(g.id, mId, cur + 1);
+  };
+  const decAddon = (g: ModifierGroupFE, mId: string) => {
+    const cur = addonQty[g.id]?.[mId] ?? 0;
+    if (cur > 0) setAddonQuantity(g.id, mId, cur - 1);
+  };
+
   const validation = useMemo(() => {
     if (!bundle) return { ok: false, missing: [] as string[] };
     const missing: string[] = [];
     for (const g of bundle.groups) {
-      if (g.minSelect > 0 && (selection[g.id]?.size ?? 0) < g.minSelect) {
-        missing.push(g.name);
+      if (g.groupType === 'MODIFIER') {
+        const selected = modifierSelection[g.id]?.size ?? 0;
+        if (g.minSelect > 0 && selected < g.minSelect) missing.push(g.name);
+      } else {
+        const totalQty = Object.values(addonQty[g.id] ?? {}).reduce((s, q) => s + q, 0);
+        if (g.minSelect > 0 && totalQty < g.minSelect) missing.push(g.name);
       }
     }
     return { ok: missing.length === 0, missing };
-  }, [bundle, selection]);
+  }, [bundle, modifierSelection, addonQty]);
 
   const extraPrice = useMemo(() => {
     if (!bundle) return 0;
     let total = 0;
     for (const g of bundle.groups) {
       for (const m of g.modifiers) {
-        if (selection[g.id]?.has(m.id)) total += Number(m.priceDelta);
+        if (g.groupType === 'MODIFIER') {
+          if (modifierSelection[g.id]?.has(m.id)) total += Number(m.priceDelta);
+        } else {
+          const qty = addonQty[g.id]?.[m.id] ?? 0;
+          total += Number(m.priceDelta) * qty;
+        }
       }
     }
     return total;
-  }, [bundle, selection]);
+  }, [bundle, modifierSelection, addonQty]);
 
   const effectiveBasePrice = basePrice ?? bundle?.product.unitPrice ?? 0;
 
-  const renderGroup = (g: ModifierGroupFE) => (
-    <div key={g.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="font-bold text-sm">{g.name}</div>
-        <div className="text-[11px] text-slate-500">
-          {g.minSelect > 0 ? `Choose at least ${g.minSelect}` : 'Optional'}
-          {' · '}
-          {g.maxSelect === 1 ? 'Pick one' : `Up to ${g.maxSelect}`}
+  const renderStepper = (g: ModifierGroupFE, m: typeof g.modifiers[0]) => {
+    const qty = addonQty[g.id]?.[m.id] ?? 0;
+    const lineTotal = qty * Number(m.priceDelta);
+    return (
+      <div
+        key={m.id}
+        className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-2.5 py-2"
+      >
+        <span className="text-xs font-semibold text-slate-700 truncate flex-1">{m.name}</span>
+        <div className="flex items-center gap-1.5 ml-2">
+          <span className="text-[11px] font-mono text-slate-500 w-16 text-right">
+            {lineTotal === 0 ? '—' : (lineTotal > 0 ? '+' : '') + fmt(lineTotal)}
+          </span>
+          <button
+            type="button"
+            aria-label={`decrease ${m.name}`}
+            disabled={qty === 0}
+            onClick={() => decAddon(g, m.id)}
+            className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50"
+          >
+            <Minus className="h-3 w-3" />
+          </button>
+          <span className="w-6 text-center font-mono font-bold text-sm">{qty}</span>
+          <button
+            type="button"
+            aria-label={`increase ${m.name}`}
+            disabled={qty >= g.maxSelect}
+            onClick={() => incAddon(g, m.id)}
+            className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-1.5">
-        {g.modifiers.map((m) => {
-          const selected = selection[g.id]?.has(m.id) ?? false;
-          return (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => toggle(g, m.id)}
-              className={
-                'px-2.5 py-1.5 rounded-md text-xs font-semibold border-2 text-left flex items-center justify-between ' +
-                (selected
-                  ? 'border-amber-500 bg-amber-50 text-amber-900'
-                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300')
-              }
-            >
-              <span className="flex items-center gap-1.5">
-                {selected && <Check className="h-3 w-3" />}
-                {m.name}
-              </span>
-              <span className="text-[11px] font-mono">
-                {m.priceDelta === 0 ? '—' : (m.priceDelta > 0 ? '+' : '') + fmt(m.priceDelta)}
-              </span>
-            </button>
-          );
-        })}
+    );
+  };
+
+  const renderToggle = (g: ModifierGroupFE, m: typeof g.modifiers[0]) => {
+    const selected = modifierSelection[g.id]?.has(m.id) ?? false;
+    return (
+      <button
+        key={m.id}
+        type="button"
+        onClick={() => toggleModifier(g, m.id)}
+        className={
+          'px-2.5 py-1.5 rounded-md text-xs font-semibold border-2 text-left flex items-center justify-between ' +
+          (selected
+            ? 'border-amber-500 bg-amber-50 text-amber-900'
+            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300')
+        }
+      >
+        <span className="flex items-center gap-1.5">
+          {selected && <Check className="h-3 w-3" />}
+          {m.name}
+        </span>
+        <span className="text-[11px] font-mono">
+          {m.priceDelta === 0 ? '—' : (m.priceDelta > 0 ? '+' : '') + fmt(m.priceDelta)}
+        </span>
+      </button>
+    );
+  };
+
+  const renderGroup = (g: ModifierGroupFE) => {
+    const renderItem = (m: typeof g.modifiers[0]) =>
+      g.groupType === 'ADD_ON' ? renderStepper(g, m) : renderToggle(g, m);
+    return (
+      <div key={g.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-bold text-sm">{g.name}</div>
+          <div className="text-[11px] text-slate-500">
+            {g.groupType === 'ADD_ON'
+              ? `${g.minSelect > 0 ? `Choose at least ${g.minSelect}` : 'Optional'} · up to ${g.maxSelect}`
+              : `${g.minSelect > 0 ? `Choose at least ${g.minSelect}` : 'Optional'} · ${g.maxSelect === 1 ? 'Pick one' : `Up to ${g.maxSelect}`}`}
+          </div>
+        </div>
+        <div className={g.groupType === 'ADD_ON' ? 'space-y-1.5' : 'grid grid-cols-2 gap-1.5'}>
+          {g.modifiers.map(renderItem)}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   if (!bundle && !isLoading) return null;
 
@@ -150,7 +237,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
             {isLoading ? 'Loading…' : bundle?.product.name}
           </DialogTitle>
           <DialogDescription>
-            Choose your options. Selected modifiers add to the line price.
+            Choose your options. For add-ons use the +/− to set quantity.
           </DialogDescription>
         </DialogHeader>
 
@@ -158,7 +245,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
             {/* Quantity — the waiter sets it here before adding. */}
             <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2">
-              <span className="text-sm font-bold text-slate-700">Quantity</span>
+              <span className="text-sm font-bold text-slate-700">Items ×</span>
               <div className="flex items-center gap-3">
                 <button type="button" aria-label="decrease quantity" onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="w-9 h-9 rounded-md border border-slate-300 font-bold text-xl leading-none">−</button>
                 <span className="w-8 text-center font-mono font-bold text-lg">{quantity}</span>
@@ -172,13 +259,11 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
               </div>
             ) : (
               <>
-                {/* Add-ons (products) */}
                 {bundle.groups.filter((g) => g.groupType === 'ADD_ON').length > 0 && (
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Add-ons</div>
                 )}
                 {bundle.groups.filter((g) => g.groupType === 'ADD_ON').map((g) => renderGroup(g))}
 
-                {/* Modifiers (prep instructions) */}
                 {bundle.groups.filter((g) => g.groupType === 'MODIFIER').length > 0 && (
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1 pt-2">Modifiers</div>
                 )}
@@ -202,7 +287,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
             </div>
             {extraPrice !== 0 ? (
               <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 flex items-center justify-between">
-                <span className="text-sm font-semibold text-emerald-900">+ Modifiers</span>
+                <span className="text-sm font-semibold text-emerald-900">+ Modifiers / add-ons</span>
                 <span className="font-mono font-bold text-emerald-900">+{fmt(extraPrice)}</span>
               </div>
             ) : null}
@@ -228,9 +313,18 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
               if (!bundle || !validation.ok) return;
               const modifiers: Array<{ modifierId: string; name: string; priceDelta: number }> = [];
               for (const g of bundle.groups) {
-                for (const m of g.modifiers) {
-                  if (selection[g.id]?.has(m.id)) {
-                    modifiers.push({ modifierId: m.id, name: m.name, priceDelta: Number(m.priceDelta) });
+                if (g.groupType === 'MODIFIER') {
+                  for (const m of g.modifiers) {
+                    if (modifierSelection[g.id]?.has(m.id)) {
+                      modifiers.push({ modifierId: m.id, name: m.name, priceDelta: Number(m.priceDelta) });
+                    }
+                  }
+                } else {
+                  for (const m of g.modifiers) {
+                    const qty = addonQty[g.id]?.[m.id] ?? 0;
+                    for (let i = 0; i < qty; i++) {
+                      modifiers.push({ modifierId: m.id, name: m.name, priceDelta: Number(m.priceDelta) });
+                    }
                   }
                 }
               }

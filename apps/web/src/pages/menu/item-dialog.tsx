@@ -10,9 +10,10 @@
  *   - variants: size/type options with absolute prices (edit only)
  *   - accompaniments: side-dish groups (edit only)
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, PlusCircle, X, Check, Trash2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
+import { api } from '@/lib/api';
 import {
   Dialog, DialogContent, DialogFooter,
 } from '@/components/ui/dialog';
@@ -69,6 +70,8 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
   const [categoryId, setCategoryId] = useState<string>('');
   const [basePrice, setBasePrice] = useState('');
   const [image, setImage] = useState('');
+  const [uploadingImg, setUploadingImg] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [prepTime, setPrepTime] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
   const [ingredients, setIngredients] = useState<DraftIngredient[]>([newIngredient()]);
@@ -121,6 +124,27 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
   }, [open, item]);
 
   const valid = name.trim() && ingredients.every((i) => i.productId);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImg(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('ownerType', 'menu_item');
+      if (item?.id) form.append('ownerId', item.id);
+      const { data } = await api.post('/files/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setImage(data.downloadUrl ?? data.url ?? '');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? 'Image upload failed');
+    } finally {
+      setUploadingImg(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -193,22 +217,59 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                 onChange={(e) => setPrepTime(e.target.value)} />
             </div>
             <div className="md:col-span-2">
-              <Label htmlFor="mi-img" className="text-sm font-medium text-slate-700 mb-1.5">Image URL</Label>
-              <Input id="mi-img" placeholder="https://..." value={image} onChange={(e) => setImage(e.target.value)} />
+              <Label htmlFor="mi-img" className="text-sm font-medium text-slate-700 mb-1.5">Image</Label>
+              <div className="flex items-start gap-3">
+                {image && (
+                  <img
+                    src={image}
+                    alt="Item preview"
+                    className="w-16 h-16 rounded-md border border-slate-200 object-cover shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+                <div className="flex-1 space-y-1.5">
+                  <Input
+                    id="mi-img"
+                    placeholder="https://... or upload"
+                    value={image}
+                    onChange={(e) => setImage(e.target.value)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                    <Button type="button" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadingImg}>
+                      {uploadingImg ? 'Uploading…' : 'Upload image'}
+                    </Button>
+                    {image && (
+                      <Button type="button" size="sm" variant="ghost" onClick={() => setImage('')}>
+                        <X className="h-3 w-3 mr-1" /> Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="md:col-span-2">
               <Label htmlFor="mi-desc" className="text-sm font-medium text-slate-700 mb-1.5">Description</Label>
               <Textarea id="mi-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
             </div>
-            <div className="md:col-span-2 flex items-center gap-2">
+            <div className="md:col-span-2 flex items-center gap-3 rounded-lg border p-3 bg-slate-50">
               <input
                 id="mi-avail"
                 type="checkbox"
                 checked={isAvailable}
                 onChange={(e) => setIsAvailable(e.target.checked)}
-                className="h-4 w-4"
+                className="h-5 w-5"
               />
-              <Label htmlFor="mi-avail"                className="cursor-pointer text-sm font-medium text-slate-700">Available on the POS menu</Label>
+              <div>
+                <Label htmlFor="mi-avail" className="cursor-pointer text-sm font-semibold text-slate-700">
+                  {isAvailable ? 'Active on the POS menu' : 'Unavailable on the POS menu'}
+                </Label>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {isAvailable
+                    ? 'Customers can see and order this item from the POS terminal.'
+                    : 'This item is hidden from the POS terminal. Uncheck to re-activate.'}
+                </p>
+              </div>
             </div>
           </div>
 

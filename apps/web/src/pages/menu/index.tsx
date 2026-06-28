@@ -1,18 +1,7 @@
-import { useMemo, useState } from 'react';
-import { 
-  Coffee, 
-  Edit, 
-  Eye, 
-  EyeOff, 
-  Plus, 
-  Trash2, 
-  Search,
-  Tag,
-  FolderOpen,
-  List,
-  DollarSign,
-  Clock,
-  Layers
+import { useEffect, useMemo, useState } from 'react';
+import {
+  Coffee, Edit, Plus, Trash2, Search,
+  Tag, FolderOpen, List, DollarSign, Clock, Layers, RotateCcw,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
@@ -38,9 +27,9 @@ import {
   useCreateCategory,
   useUpdateCategory,
   useDeleteCategory,
+  useRestoreCategory,
   useCreateMenuItem,
   useUpdateMenuItem,
-  useToggleAvailability,
   useDisableMenuItem,
   type MenuCategory,
   type MenuItem,
@@ -51,11 +40,13 @@ import { ItemDialog } from './item-dialog';
 export function MenuPage() {
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const debounced = useDebouncedValue(search, 250);
 
   const [catDialog, setCatDialog] = useState<{ open: boolean; category?: MenuCategory | null }>({ open: false });
   const [itemDialog, setItemDialog] = useState<{ open: boolean; item?: MenuItem }>({ open: false });
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'category' | 'item'; id: string; name: string } | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
 
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canViewMenu = hasPermission(PERMISSIONS.menu.view);
@@ -68,37 +59,32 @@ export function MenuPage() {
   const canDeleteCat = hasPermission(PERMISSIONS.menuCategories.delete);
 
   const cats = useMenuCategories();
-  const items = useMenuItems();
+  const items = useMenuItems({ page, pageSize: 20, search: debounced || undefined });
+  const restoreCategory = useRestoreCategory();
+
   const createCategory = useCreateCategory();
   const updateCategory = useUpdateCategory();
   const deleteCategory = useDeleteCategory();
   const createItem = useCreateMenuItem();
   const updateItem = useUpdateMenuItem();
-  const toggleAvail = useToggleAvailability();
   const disableItem = useDisableMenuItem();
 
-  const filteredItems = useMemo(() => {
-    const all = items.data ?? [];
-    return all.filter((it) => {
+  const allPaginatedItems = items.data?.data ?? [];
+  const activeItems = useMemo(() => {
+    return allPaginatedItems.filter((it) => {
       if (selectedCat && it.categoryId !== selectedCat) return false;
-      if (!debounced) return true;
-      const q = debounced.toLowerCase();
-      return (
-        it.name.toLowerCase().includes(q) ||
-        (it.code ?? '').toLowerCase().includes(q) ||
-        (it.description ?? '').toLowerCase().includes(q)
-      );
+      return true;
     });
-  }, [items.data, selectedCat, debounced]);
+  }, [allPaginatedItems, selectedCat]);
 
-  const selectedCatName = cats.data?.find((c) => c.id === selectedCat)?.name;
+  useEffect(() => { setPage(1); }, [debounced]);
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
     try {
       if (deleteTarget.type === 'category') {
         await deleteCategory.mutateAsync(deleteTarget.id);
-        notify.success('Category deleted successfully');
+        notify.success('Category moved to Recently deleted');
         if (selectedCat === deleteTarget.id) setSelectedCat(null);
       } else {
         await disableItem.mutateAsync(deleteTarget.id);
@@ -109,6 +95,17 @@ export function MenuPage() {
     }
     setDeleteTarget(null);
   };
+
+  const handleRestore = async (c: MenuCategory) => {
+    try {
+      await restoreCategory.mutateAsync(c.id);
+      notify.success(`Category "${c.name}" restored`);
+    } catch {
+      notify.error('Could not restore category');
+    }
+  };
+
+  const meta = items.data?.meta;
 
   if (!canViewMenu && !canViewCat) {
     return (
@@ -147,9 +144,9 @@ export function MenuPage() {
                   <h3 className="font-semibold text-sm">Categories</h3>
                 </div>
                 {canCreateCat && (
-                  <Button 
-                    size="sm" 
-                    variant="ghost" 
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     onClick={() => setCatDialog({ open: true })}
                     className="h-8 w-8 p-0 text-white hover:bg-white/20"
                   >
@@ -158,7 +155,7 @@ export function MenuPage() {
                 )}
               </div>
             </div>
-            
+
             <div className="p-3 space-y-1 max-h-[600px] overflow-y-auto">
               <button
                 type="button"
@@ -176,7 +173,7 @@ export function MenuPage() {
                     <span className="font-medium">All items</span>
                   </div>
                   <Badge variant="secondary" className="bg-gray-100 text-gray-700">
-                    {items.data?.length ?? 0}
+                    {activeItems.length}
                   </Badge>
                 </div>
               </button>
@@ -190,12 +187,9 @@ export function MenuPage() {
               )}
 
               {cats.data?.map((c) => {
-                const count = (items.data ?? []).filter((it) => it.categoryId === c.id).length;
+                const count = activeItems.filter((it) => it.categoryId === c.id).length;
                 return (
-                  <div
-                    key={c.id}
-                    className="group flex items-center gap-1"
-                  >
+                  <div key={c.id} className="group flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => setSelectedCat(c.id)}
@@ -211,8 +205,8 @@ export function MenuPage() {
                           <Tag className="h-4 w-4" />
                           <span className="font-medium truncate">{c.name}</span>
                         </div>
-                        <Badge 
-                          variant="secondary" 
+                        <Badge
+                          variant="secondary"
                           className={selectedCat === c.id ? 'bg-[#3b82f6]/20 text-[#3b82f6]' : 'bg-gray-100 text-gray-700'}
                         >
                           {count}
@@ -222,8 +216,8 @@ export function MenuPage() {
                     <div className="flex gap-0.5 opacity-100 transition-opacity">
                       {canEditCat && (
                         <Button
-                          size="sm" 
-                          variant="ghost" 
+                          size="sm"
+                          variant="ghost"
                           className="h-7 w-7 p-0 bg-blue-50 text-blue-600"
                           onClick={() => setCatDialog({ open: true, category: c })}
                         >
@@ -232,10 +226,11 @@ export function MenuPage() {
                       )}
                       {canDeleteCat && (
                         <Button
-                          size="sm" 
-                          variant="ghost" 
+                          size="sm"
+                          variant="ghost"
                           className="h-7 w-7 p-0 bg-red-50 text-red-600"
                           onClick={() => setDeleteTarget({ type: 'category', id: c.id, name: c.name })}
+                          title="Soft-delete (move to bin)"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -245,6 +240,42 @@ export function MenuPage() {
                 );
               })}
             </div>
+
+            {/* Deleted categories — restore bin */}
+            {canDeleteCat && (
+              <div className="p-3 pt-0">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleted((v) => !v)}
+                  className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Recently deleted
+                </button>
+                {showDeleted && (
+                  <div className="mt-1 space-y-1">
+                    {cats.data?.filter((c) => (c as any).deletedAt).length === 0 && (
+                      <p className="text-xs text-gray-400 px-3 py-2">No deleted categories.</p>
+                    )}
+                    {(cats.data?.filter((c) => (c as any).deletedAt) ?? []).map((c) => (
+                      <div key={c.id} className="flex items-center justify-between rounded-lg px-3 py-2 bg-gray-50 opacity-60">
+                        <span className="text-sm text-gray-600 truncate">{c.name}</span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-50"
+                          onClick={() => handleRestore(c)}
+                          disabled={restoreCategory.isPending}
+                          title="Restore category"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -258,10 +289,11 @@ export function MenuPage() {
                 </div>
                 <div>
                   <h3 className="font-semibold text-gray-900">
-                    {selectedCatName ?? 'All items'}
+                    {cats.data?.find((c) => c.id === selectedCat)?.name ?? 'All items'}
                   </h3>
                   <p className="text-xs text-gray-500">
-                    {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
+                    {meta?.total ?? 0} item{(meta?.total ?? 0) !== 1 ? 's' : ''}
+                    {debounced ? ' (filtered)' : ''}
                   </p>
                 </div>
               </div>
@@ -276,11 +308,11 @@ export function MenuPage() {
                   />
                 </div>
                 {canCreateMenu && (
-                  <Button 
+                  <Button
                     onClick={() => setItemDialog({ open: true })}
                     className="gap-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white"
                   >
-                    <Plus className="h-4 w-4" /> 
+                    <Plus className="h-4 w-4" />
                     Add menu item
                   </Button>
                 )}
@@ -289,15 +321,13 @@ export function MenuPage() {
           </div>
 
           <div className="p-4">
-            {items.isLoading && (
+            {items.isLoading ? (
               <div className="space-y-3">
                 {[0, 1, 2].map((i) => (
                   <Skeleton key={i} className="h-20 w-full rounded-lg" />
                 ))}
               </div>
-            )}
-
-            {!items.isLoading && filteredItems.length === 0 && (
+            ) : activeItems.length === 0 ? (
               <div className="text-center py-12">
                 <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 mx-auto">
                   <Coffee className="h-8 w-8 text-gray-400" />
@@ -307,8 +337,8 @@ export function MenuPage() {
                   {search ? 'Try adjusting your search terms' : 'Add one to make it available on the POS terminal'}
                 </p>
                 {!search && canCreateMenu && (
-                  <Button 
-                    onClick={() => setItemDialog({ open: true })} 
+                  <Button
+                    onClick={() => setItemDialog({ open: true })}
                     className="mt-4 bg-[#3b82f6] hover:bg-[#2563eb] text-white"
                   >
                     <Plus className="mr-2 h-4 w-4" />
@@ -316,31 +346,38 @@ export function MenuPage() {
                   </Button>
                 )}
               </div>
+            ) : (
+              <div className="space-y-2">
+                {activeItems.map((it) => (
+                  <ItemRow
+                    key={it.id}
+                    item={it}
+                    canEdit={canEditMenu}
+                    canDelete={canDeleteMenu}
+                    onEdit={() => setItemDialog({ open: true, item: it })}
+                    onDelete={() => setDeleteTarget({ type: 'item', id: it.id, name: it.name })}
+                  />
+                ))}
+              </div>
             )}
-
-            <div className="space-y-2">
-              {filteredItems.map((it) => (
-                <ItemRow
-                  key={it.id}
-                  item={it}
-                  canEdit={canEditMenu}
-                  canDelete={canDeleteMenu}
-                  onEdit={() => setItemDialog({ open: true, item: it })}
-                  onToggleAvail={() =>
-                    toggleAvail.mutate(
-                      { id: it.id, isAvailable: !it.isAvailable },
-                      {
-                        onSuccess: () =>
-                          notify.success(it.isAvailable ? "Item marked unavailable" : 'Item re-enabled'),
-                        onError: () => notify.error('Could not update availability'),
-                      },
-                    )
-                  }
-                  onDelete={() => setDeleteTarget({ type: 'item', id: it.id, name: it.name })}
-                />
-              ))}
-            </div>
           </div>
+
+          {/* Pagination */}
+          {meta && meta.totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50/50">
+              <span className="text-sm text-gray-500">
+                Page {meta.page} of {meta.totalPages} · {meta.total} total
+              </span>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                  Previous
+                </Button>
+                <Button variant="outline" size="sm" disabled={page >= meta.totalPages} onClick={() => setPage((p) => p + 1)}>
+                  Next
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -402,7 +439,7 @@ export function MenuPage() {
                   {deleteTarget?.type === 'category' ? 'Delete Category' : 'Disable Menu Item'}
                 </AlertDialogTitle>
                 <AlertDialogDescription className="text-white/80 mt-1">
-                  This action cannot be undone.
+                  This action can be undone from the Recently deleted bin.
                 </AlertDialogDescription>
               </div>
             </div>
@@ -410,7 +447,7 @@ export function MenuPage() {
           <div className="p-6">
             <p className="text-sm text-gray-600">
               {deleteTarget?.type === 'category'
-                ? <>Are you sure you want to delete <span className="font-semibold text-gray-800">{deleteTarget?.name}</span>? Items in this category will not be deleted.</>
+                ? <>Are you sure you want to delete <span className="font-semibold text-gray-800">{deleteTarget?.name}</span>? Items in this category will not be deleted and the category can be restored later.</>
                 : <>Are you sure you want to disable <span className="font-semibold text-gray-800">{deleteTarget?.name}</span>? It will disappear from the POS menu but stay in the database.</>}
             </p>
           </div>
@@ -430,13 +467,12 @@ export function MenuPage() {
 }
 
 function ItemRow({
-  item, canEdit, canDelete, onEdit, onToggleAvail, onDelete,
+  item, canEdit, canDelete, onEdit, onDelete,
 }: {
   item: MenuItem;
   canEdit: boolean;
   canDelete: boolean;
   onEdit: () => void;
-  onToggleAvail: () => void;
   onDelete: () => void;
 }) {
   const priceMajor = item.basePrice != null ? Number(item.basePrice) / 100 : null;
@@ -497,21 +533,23 @@ function ItemRow({
       </div>
 
       <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-        <Button 
-          size="sm" 
-          variant="ghost" 
-          onClick={onToggleAvail} 
-          className="h-9 w-9 p-0 hover:bg-amber-50 hover:text-amber-600" 
-          title={item.isAvailable ? 'Mark unavailable' : 'Re-enable'}
-        >
-          {item.isAvailable ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-        </Button>
+        {canEdit && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onEdit}
+            className="h-9 w-9 p-0 bg-blue-50 text-blue-600 hover:bg-blue-100"
+            title="Edit item"
+          >
+            <Edit className="h-4 w-4" />
+          </Button>
+        )}
         {canDelete && (
-          <Button 
-            size="sm" 
-            variant="ghost" 
-            onClick={onDelete} 
-            className="h-9 w-9 p-0 hover:bg-red-50 hover:text-red-600" 
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onDelete}
+            className="h-9 w-9 p-0 hover:bg-red-50 hover:text-red-600"
             title="Disable item"
           >
             <Trash2 className="h-4 w-4" />

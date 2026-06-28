@@ -349,7 +349,7 @@ function invalidateGroups(qc: ReturnType<typeof useQueryClient>) {
 export function useUpdateModifierGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { id: string; name?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; isActive?: boolean }) =>
+    mutationFn: async (body: { id: string; name?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; isActive?: boolean; expectedVersion?: number }) =>
       (await api.patch(`/pos/modifiers/groups/${body.id}`, body)).data,
     onSuccess: () => invalidateGroups(qc),
   });

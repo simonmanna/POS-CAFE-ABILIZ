@@ -1,7 +1,5 @@
-// M-C — Menu modifier admin. Create modifier groups (size, milk, extras) with
-// single/multi + required + min/max, add priced options, and assign groups to
-// products. Uses the existing /pos/modifiers endpoints.
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Plus, Tag, Star, Link2, Check, Trash2, Pencil, BarChart3, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +27,9 @@ const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
 const selectCls = 'w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm';
 
 export default function ModifiersPage() {
+  const qc = useQueryClient();
   const { data: groups = [] } = useModifierGroups();
+  const [groupVersions, setGroupVersions] = useState<Record<string, number>>({});
   const createGroup = useCreateModifierGroup();
   const createModifier = useCreateModifier();
   const updateGroup = useUpdateModifierGroup();
@@ -37,27 +37,42 @@ export default function ModifiersPage() {
   const deleteModifier = useDeleteModifier();
   const { data: report = [] } = useModifierSalesReport();
 
+  useEffect(() => {
+    const next: Record<string, number> = {};
+    for (const g of groups) { next[g.id] = (g as any).version ?? 0; }
+    setGroupVersions(next);
+  }, [groups]);
+
+  const handleConflict = (e: any) => {
+    if (e?.response?.status === 409) {
+      toast.error('This group was modified by another user. The page has been reloaded.');
+      qc.invalidateQueries({ queryKey: ['pos-modifier-groups'] });
+    } else {
+      toast.error(e?.response?.data?.message || 'Operation failed');
+    }
+  };
+
   const removeGroup = async (id: string, name: string) => {
     if (!window.confirm(`Delete group "${name}" and all its options?`)) return;
     try { await deleteGroup.mutateAsync(id); toast.success('Group deleted'); }
-    catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to delete'); }
+    catch (e: any) { handleConflict(e); }
   };
   const removeOption = async (id: string) => {
     try { await deleteModifier.mutateAsync(id); toast.success('Option removed'); }
-    catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to remove'); }
+    catch (e: any) { handleConflict(e); }
   };
   const renameGroup = async (id: string, current: string) => {
     const name = window.prompt('Rename group', current);
     if (!name || !name.trim() || name.trim() === current) return;
-    try { await updateGroup.mutateAsync({ id, name: name.trim() }); toast.success('Group renamed'); }
-    catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to rename'); }
+    try { await updateGroup.mutateAsync({ id, name: name.trim(), expectedVersion: groupVersions[id] }); toast.success('Group renamed'); }
+    catch (e: any) { handleConflict(e); }
   };
 
   const toggleGroupType = async (id: string, current: 'ADD_ON' | 'MODIFIER') => {
     const next = current === 'ADD_ON' ? 'MODIFIER' : 'ADD_ON';
     const label = next === 'ADD_ON' ? 'Add-on' : 'Modifier';
-    try { await updateGroup.mutateAsync({ id, groupType: next }); toast.success(`Type changed to ${label}`); }
-    catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to change type'); }
+    try { await updateGroup.mutateAsync({ id, groupType: next, expectedVersion: groupVersions[id] }); toast.success(`Type changed to ${label}`); }
+    catch (e: any) { handleConflict(e); }
   };
 
   // New-group dialog
@@ -80,7 +95,8 @@ export default function ModifiersPage() {
   const { data: menuItemBundle } = useMenuItemBundle(assignMenuItem || null);
   const assignToMenuItem = useAssignModifierGroupToMenuItem();
   const unassignFromMenuItem = useUnassignModifierGroupFromMenuItem();
-  const { data: menuItems = [] } = useMenuItems();
+  const { data: menuItemsRsp } = useMenuItems({ page: 1, pageSize: 100, search: '' });
+  const menuItems = menuItemsRsp?.data ?? [];
 
   const submitGroup = async () => {
     if (!gName.trim()) { toast.error('Group name is required'); return; }
@@ -222,7 +238,7 @@ export default function ModifiersPage() {
                 <Label className="text-[11px]">Menu item</Label>
                 <select className={selectCls} value={assignMenuItem} onChange={(e) => setAssignMenuItem(e.target.value)}>
                   <option value="">Select a menu item…</option>
-                  {(menuItems as any[]).filter((m: any) => m.isAvailable).map((m: any) => (
+                  {menuItems.filter((m) => m.isAvailable).map((m) => (
                     <option key={m.id} value={m.id}>{m.name}</option>
                   ))}
                 </select>

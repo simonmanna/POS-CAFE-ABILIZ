@@ -26,7 +26,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   constructor(tenant: TenantContextService) {
     this.base = new PrismaClient();
     const extended = this.base.$extends(tenancyExtension(tenant)) as unknown as PrismaClient;
-    this.client = this.base.$extends({
+    this.client = extended.$extends({
       name: 'rls-tenant-context',
       query: {
         $allModels: {
