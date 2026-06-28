@@ -193,8 +193,16 @@ export interface XReport {
   totals: {
     saleCount: number;
     salesTotal: string;
+    /** Gross sales incl. tax, all tenders. */
+    grossSales: string;
+    /** Net revenue, ex-tax. */
+    netRevenue: string;
+    taxTotal: string;
+    discountTotal: string;
     refundsTotal: string;
     netSales: string;
+    /** Cash actually collected into the drawer. */
+    cashCollected: string;
     overridesTotal: string;
     payInsTotal: string;
     payOutsTotal: string;
@@ -206,7 +214,10 @@ export interface XReport {
 
 export interface SalesSummaryPeriod {
   periodKey: string;
+  /** NET of tax. */
   revenue: string;
+  grossSales: string;
+  refunds: string;
   orders: number;
   avgOrderValue: string;
   discounts: string;
@@ -218,7 +229,11 @@ export interface SalesSummaryReport {
   toDate: string;
   groupBy: 'day' | 'week' | 'month';
   totals: {
+    /** NET of tax. */
     revenue: string;
+    grossSales: string;
+    netSales: string;
+    refunds: string;
     orders: number;
     avgOrderValue: string;
     discounts: string;

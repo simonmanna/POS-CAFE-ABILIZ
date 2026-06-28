@@ -1,14 +1,21 @@
 /**
- * POS Phase A — X / Z reports and sales analytics.
+ * POS — X / Z reports and sales analytics (financial-grade).
  *
  *   X-report: mid-shift snapshot (live, recomputed on each call).
- *   Z-report: end-of-shift frozen snapshot — same data as X, but stamped to
- *             a single `ReportSnapshot` row at the moment the cash session
- *             is closed so it can be re-printed/emailed later.
+ *   Z-report: end-of-shift frozen snapshot — same data as X, stamped to a
+ *             `PosReportSnapshot` row when the cash session is closed.
  *
- * Sales by hour / top items are derived from posted sales_invoice documents
- * with sourceType='pos' so they only count POS sales (not retail invoices
- * raised through the /invoicing module).
+ * Design rules (audit-hardened):
+ *   • SALES figures are derived from the POS `Invoice` pipeline (all tenders),
+ *     NOT from cash movements — so card / mobile / credit sales are included.
+ *   • CASH-DRAWER figures (expectedCash) come from `CashMovement` rows (cash
+ *     only) — that is what actually hits the till.
+ *   • "Revenue" means NET of tax (Invoice.subtotal). Gross, tax, discount and
+ *     refunds are reported as separate lines so totals reconcile.
+ *   • Only POS sales are counted: the `Invoice` table is POS-native; legacy
+ *     `Document` rows are included only when `sourceType = 'pos'`.
+ *   • Money is summed with Decimal (`dec`) — never floating-point — to avoid
+ *     rounding drift on large sums.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
@@ -18,6 +25,8 @@ import { AuditService } from '../../kernel/audit/audit.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { EVENTS } from '@erp/shared';
 import { dec } from '../../kernel/common/money';
+
+type Money = ReturnType<typeof dec>;
 
 export interface XReport {
   asOf: string;
@@ -30,9 +39,18 @@ export interface XReport {
   } | null;
   totals: {
     saleCount: number;
+    /** Gross sales incl. tax, all tenders (kept key for back-compat). */
     salesTotal: string;
+    grossSales: string;
+    /** Net revenue, ex-tax (Invoice.subtotal). */
+    netRevenue: string;
+    taxTotal: string;
+    discountTotal: string;
     refundsTotal: string;
+    /** Gross − refunds. */
     netSales: string;
+    /** Cash actually collected into the drawer (cash tenders only). */
+    cashCollected: string;
     overridesTotal: string;
     payInsTotal: string;
     payOutsTotal: string;
@@ -57,15 +75,29 @@ export class PosReportsService {
     const session = await this.resolveSession(organizationId, cashSessionId);
     if (!session) throw new NotFoundException('No cash session found');
 
-    // Cash-session link is via CashMovement (not a Payment column). Pull
-    // all movements for the session, then resolve the matching payments.
+    // ── Cash drawer: derive collected / refunded / pay-in / pay-out straight
+    //    from CashMovement (cash only — this is what hits the till). ──────────
     const movements = await this.prisma.client.cashMovement.findMany({
       where: { cashSessionId: session.id },
-      include: { payment: true },
     });
-    const payments = movements
-      .filter((m: any) => m.payment)
-      .map((m: any) => m.payment);
+    let cashCollected = dec(0);
+    let cashRefunds = dec(0);
+    let payInsTotal = dec(0);
+    let payOutsTotal = dec(0);
+    for (const m of movements as any[]) {
+      const amt = dec(m.amount);
+      if (m.movementType === 'sale') cashCollected = cashCollected.plus(amt);
+      else if (m.movementType === 'refund') cashRefunds = cashRefunds.plus(amt);
+      else if (m.movementType === 'pay_in') payInsTotal = payInsTotal.plus(amt);
+      else if (m.movementType === 'pay_out') payOutsTotal = payOutsTotal.plus(amt);
+    }
+
+    // ── Sales: ALL tenders for this session, from the POS Invoice pipeline. ──
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: { organizationId, cashSessionId: session.id },
+      include: { items: true },
+    });
+
     const overrides = await this.prisma.client.auditLog.findMany({
       where: {
         organizationId,
@@ -74,100 +106,75 @@ export class PosReportsService {
       },
     });
 
-    // Bucket payments by method
-    const byMethodMap = new Map<string, { method: string; count: number; total: number }>();
     let saleCount = 0;
-    let salesTotal = 0;
-    let refundsTotal = 0;
-    let payInsTotal = 0;
-    let payOutsTotal = 0;
-    for (const p of payments) {
-      const amt = Number(p.amount);
-      const isRefund = (p as any).direction === 'outbound';
-      const key = isRefund ? `${p.paymentMethod} (refund)` : p.paymentMethod;
-      const bucket = byMethodMap.get(key) ?? { method: key, count: 0, total: 0 };
-      bucket.count += 1;
-      bucket.total += amt;
-      byMethodMap.set(key, bucket);
-      if (isRefund) refundsTotal += amt;
-      else { saleCount += 1; salesTotal += amt; }
-    }
-    for (const m of movements) {
-      // Manual movements (not linked to a payment) — pay-in / pay-out / adjustment.
-      if (!m.paymentId) {
-        const amt = Number(m.amount);
-        if (m.movementType === 'pay_in') payInsTotal += amt;
-        else if (m.movementType === 'pay_out') payOutsTotal += amt;
+    let grossSales = dec(0);
+    let netRevenue = dec(0);
+    let taxTotal = dec(0);
+    let discountTotal = dec(0);
+    let refundsTotal = dec(0);
+    const byMethodMap = new Map<string, { method: string; count: number; total: Money }>();
+    const saleItems: any[] = [];
+    const productIds = new Set<string>();
+
+    for (const inv of invoices as any[]) {
+      if (inv.status === 'refunded') {
+        refundsTotal = refundsTotal.plus(dec(inv.totalAmount));
+        continue;
+      }
+      if (inv.status !== 'posted' && inv.status !== 'paid') continue; // skip draft/cancelled
+      saleCount += 1;
+      grossSales = grossSales.plus(dec(inv.totalAmount));
+      netRevenue = netRevenue.plus(dec(inv.subtotal));
+      taxTotal = taxTotal.plus(dec(inv.taxAmount));
+      discountTotal = discountTotal.plus(dec(inv.discountTotal));
+
+      const method = inv.paymentMode ?? 'unpaid';
+      const b = byMethodMap.get(method) ?? { method, count: 0, total: dec(0) };
+      b.count += 1;
+      b.total = b.total.plus(dec(inv.totalAmount));
+      byMethodMap.set(method, b);
+
+      for (const it of inv.items ?? []) {
+        saleItems.push(it);
+        if (it.productId) productIds.add(it.productId);
       }
     }
-    const expectedCash =
-      Number(session.openingFloat) + salesTotal - refundsTotal + payInsTotal - payOutsTotal;
-    const overridesTotal = overrides.reduce((s, o) => {
-      const v = (o as any).newValues;
-      return s + (v && v.amount ? Number(v.amount) : 0);
-    }, 0);
 
-    // Sales by product category — union Document + Invoice allocations.
-    const paymentIds = payments.map((p: any) => p.id);
-    const allocations = await this.prisma.client.paymentAllocation.findMany({
-      where: { paymentId: { in: paymentIds } },
-    });
-    const docIds = Array.from(new Set(allocations.map((a: any) => a.documentId).filter(Boolean)));
-    const docs = docIds.length
-      ? await this.prisma.client.document.findMany({
-          where: { id: { in: docIds }, documentType: 'sales_invoice' },
-          include: { lines: true },
-        })
-      : [];
-    const invIds = Array.from(new Set(allocations.map((a: any) => a.invoiceId).filter(Boolean)));
-    const invoiceItems = invIds.length
-      ? await this.prisma.client.invoiceItem.findMany({ where: { invoiceId: { in: invIds } } })
-      : [];
-    const allProductIds = Array.from(
-      new Set([
-        ...docs.flatMap((d: any) => d.lines.map((l: any) => l.productId).filter(Boolean)),
-        ...invoiceItems.map((i: any) => i.productId).filter(Boolean),
-      ]),
-    );
-    const products = allProductIds.length
+    // Category breakdown from the sale lines.
+    const products = productIds.size
       ? await this.prisma.client.product.findMany({
-          where: { id: { in: allProductIds as string[] } },
+          where: { id: { in: Array.from(productIds) } },
           include: { category: true },
         })
       : [];
     const productMap = new Map(products.map((p: any) => [p.id, p]));
-
-    const byCategoryMap = new Map<string, { categoryId: string | null; categoryName: string; count: number; total: number }>();
-    for (const doc of docs) {
-      for (const ln of (doc as any).lines) {
-        const product = ln.productId ? productMap.get(ln.productId) : null;
-        const cat = (product as any)?.category;
-        const key = cat?.id ?? 'uncategorised';
-        const bucket = byCategoryMap.get(key) ?? {
-          categoryId: cat?.id ?? null,
-          categoryName: cat?.name ?? 'Uncategorised',
-          count: 0,
-          total: 0,
-        };
-        bucket.count += Number(ln.quantity);
-        bucket.total += Number(ln.total ?? ln.subtotal ?? 0);
-        byCategoryMap.set(key, bucket);
-      }
-    }
-    for (const item of invoiceItems) {
-      const product = item.productId ? productMap.get(item.productId) : null;
+    const byCategoryMap = new Map<string, { categoryId: string | null; categoryName: string; count: number; total: Money }>();
+    for (const it of saleItems) {
+      const product = it.productId ? productMap.get(it.productId) : null;
       const cat = (product as any)?.category;
       const key = cat?.id ?? 'uncategorised';
       const bucket = byCategoryMap.get(key) ?? {
         categoryId: cat?.id ?? null,
         categoryName: cat?.name ?? 'Uncategorised',
         count: 0,
-        total: 0,
+        total: dec(0),
       };
-      bucket.count += Number(item.quantity);
-      bucket.total += Number(item.total);
+      bucket.count += Number(it.quantity);
+      bucket.total = bucket.total.plus(dec(it.total ?? 0));
       byCategoryMap.set(key, bucket);
     }
+
+    const overridesTotal = overrides.reduce((s, o) => {
+      const v = (o as any).newValues;
+      return s.plus(v && v.amount ? dec(v.amount) : dec(0));
+    }, dec(0));
+
+    const expectedCash = dec(session.openingFloat)
+      .plus(cashCollected)
+      .minus(cashRefunds)
+      .plus(payInsTotal)
+      .minus(payOutsTotal);
+    const netSales = grossSales.minus(refundsTotal);
 
     this.events.publish(EVENTS.PosReportGenerated, {
       organizationId,
@@ -187,9 +194,14 @@ export class PosReportsService {
       },
       totals: {
         saleCount,
-        salesTotal: salesTotal.toFixed(2),
+        salesTotal: grossSales.toFixed(2),
+        grossSales: grossSales.toFixed(2),
+        netRevenue: netRevenue.toFixed(2),
+        taxTotal: taxTotal.toFixed(2),
+        discountTotal: discountTotal.toFixed(2),
         refundsTotal: refundsTotal.toFixed(2),
-        netSales: (salesTotal - refundsTotal).toFixed(2),
+        netSales: netSales.toFixed(2),
+        cashCollected: cashCollected.toFixed(2),
         overridesTotal: overridesTotal.toFixed(2),
         payInsTotal: payInsTotal.toFixed(2),
         payOutsTotal: payOutsTotal.toFixed(2),
@@ -209,13 +221,12 @@ export class PosReportsService {
     };
   }
 
-  /** Z-report: same shape as X but the cash session should be closed. */
+  /** Z-report: same shape as X but the cash session must be closed. */
   async zReport(cashSessionId?: string): Promise<XReport> {
     const report = await this.xReport(cashSessionId);
     if (report.cashSession && (await this.sessionStatus(report.cashSession.id)) !== 'closed') {
       throw new BadRequestException('Z-report requires the cash session to be closed');
     }
-    // Persist frozen snapshot so the report can be reprinted later
     if (report.cashSession?.id) {
       const organizationId = this.tenant.organizationId;
       await this.prisma.client.posReportSnapshot.upsert({
@@ -247,7 +258,7 @@ export class PosReportsService {
     return report;
   }
 
-  /** Hourly buckets for a given day. */
+  /** Hourly buckets for a given day (POS sales only, gross). */
   async salesByHour(date: string) {
     const organizationId = this.tenant.organizationId;
     const start = new Date(date);
@@ -255,37 +266,33 @@ export class PosReportsService {
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
     end.setDate(end.getDate() + 1);
-    const docs = await this.prisma.client.document.findMany({
-      where: {
-        organizationId,
-        documentType: 'sales_invoice',
-        status: { in: ['posted', 'paid'] },
-        createdAt: { gte: start, lt: end },
-      },
-      select: { id: true, totalAmount: true, createdAt: true },
-    });
-    const invoices = await this.prisma.client.invoice.findMany({
-      where: {
-        organizationId,
-        status: { in: ['posted', 'paid'] },
-        createdAt: { gte: start, lt: end },
-      },
-      select: { id: true, totalAmount: true, createdAt: true },
-    });
-    const buckets = new Array(24).fill(0).map((_, hour) => ({
-      hour,
-      count: 0,
-      total: 0,
-    }));
-    for (const d of docs) {
+
+    const [docs, invoices] = await Promise.all([
+      this.prisma.client.document.findMany({
+        where: {
+          organizationId,
+          documentType: 'sales_invoice',
+          sourceType: 'pos', // POS-only — exclude /invoicing retail invoices
+          status: { in: ['posted', 'paid'] },
+          createdAt: { gte: start, lt: end },
+        },
+        select: { totalAmount: true, createdAt: true },
+      }),
+      this.prisma.client.invoice.findMany({
+        where: {
+          organizationId,
+          status: { in: ['posted', 'paid'] },
+          createdAt: { gte: start, lt: end },
+        },
+        select: { totalAmount: true, createdAt: true },
+      }),
+    ]);
+
+    const buckets = new Array(24).fill(0).map((_, hour) => ({ hour, count: 0, total: dec(0) }));
+    for (const d of [...docs, ...invoices] as any[]) {
       const hour = new Date(d.createdAt).getHours();
       buckets[hour].count += 1;
-      buckets[hour].total += Number(d.totalAmount);
-    }
-    for (const inv of invoices) {
-      const hour = new Date(inv.createdAt).getHours();
-      buckets[hour].count += 1;
-      buckets[hour].total += Number(inv.totalAmount);
+      buckets[hour].total = buckets[hour].total.plus(dec(d.totalAmount));
     }
     return {
       date: start.toISOString().slice(0, 10),
@@ -294,8 +301,9 @@ export class PosReportsService {
   }
 
   /**
-   * Sales summary — period-aggregated revenue, orders, discounts, taxes.
-   * Groups by day / week / month and includes a payment-method breakdown.
+   * Sales summary — period-aggregated revenue (NET of tax), gross, tax,
+   * discounts and refunds, grouped by day / week / month, with a
+   * payment-method breakdown derived from actual allocations.
    */
   async salesSummary(fromDate: string, toDate: string, groupBy: 'day' | 'week' | 'month') {
     const organizationId = this.tenant.organizationId;
@@ -306,105 +314,119 @@ export class PosReportsService {
     }
     end.setHours(23, 59, 59, 999);
 
-    // Fetch all posted/paid sales invoices (Document + Invoice) in the range
-    const docs = await this.prisma.client.document.findMany({
-      where: {
-        organizationId,
-        documentType: 'sales_invoice',
-        status: { in: ['posted', 'paid'] },
-        createdAt: { gte: start, lte: end },
-      },
-      select: { id: true, totalAmount: true, discountTotal: true, taxAmount: true, createdAt: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    const invoices = await this.prisma.client.invoice.findMany({
-      where: {
-        organizationId,
-        status: { in: ['posted', 'paid'] },
-        createdAt: { gte: start, lte: end },
-      },
-      select: { id: true, totalAmount: true, discountTotal: true, taxAmount: true, createdAt: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    const [invoices, docs] = await Promise.all([
+      this.prisma.client.invoice.findMany({
+        where: {
+          organizationId,
+          status: { in: ['posted', 'paid', 'refunded'] },
+          createdAt: { gte: start, lte: end },
+        },
+        select: { id: true, subtotal: true, totalAmount: true, discountTotal: true, taxAmount: true, status: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.client.document.findMany({
+        where: {
+          organizationId,
+          documentType: 'sales_invoice',
+          sourceType: 'pos', // POS-only
+          status: { in: ['posted', 'paid'] },
+          createdAt: { gte: start, lte: end },
+        },
+        select: { id: true, subtotal: true, totalAmount: true, discountTotal: true, taxAmount: true, status: true, createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+
+    const rows = [
+      ...invoices.map((i: any) => ({ ...i, refunded: i.status === 'refunded' })),
+      ...docs.map((d: any) => ({ ...d, refunded: false })),
+    ];
 
     const periodKey = (d: Date): string => {
       if (groupBy === 'day') return d.toISOString().slice(0, 10);
       if (groupBy === 'week') {
-        const dow = d.getDay();
-        const diff = d.getDate() - dow + (dow === 0 ? -6 : 1);
+        const dow = d.getUTCDay();
         const mon = new Date(d);
-        mon.setDate(diff);
+        mon.setUTCDate(d.getUTCDate() - dow + (dow === 0 ? -6 : 1));
         return mon.toISOString().slice(0, 10);
       }
       return d.toISOString().slice(0, 7);
     };
 
-    // Group by period in JS
-    const grouped = new Map<string, { revenue: number; orders: number; discounts: number; taxes: number }>();
-    for (const doc of docs) {
-      const key = periodKey(new Date(doc.createdAt));
-      const cur = grouped.get(key) ?? { revenue: 0, orders: 0, discounts: 0, taxes: 0 };
-      cur.revenue += Number(doc.totalAmount);
-      cur.orders += 1;
-      cur.discounts += Number(doc.discountTotal);
-      cur.taxes += Number(doc.taxAmount);
-      grouped.set(key, cur);
-    }
-    for (const inv of invoices) {
-      const key = periodKey(new Date(inv.createdAt));
-      const cur = grouped.get(key) ?? { revenue: 0, orders: 0, discounts: 0, taxes: 0 };
-      cur.revenue += Number(inv.totalAmount);
-      cur.orders += 1;
-      cur.discounts += Number(inv.discountTotal);
-      cur.taxes += Number(inv.taxAmount);
+    type Bucket = { gross: Money; net: Money; tax: Money; discount: Money; refunds: Money; orders: number };
+    const fresh = (): Bucket => ({ gross: dec(0), net: dec(0), tax: dec(0), discount: dec(0), refunds: dec(0), orders: 0 });
+    const grouped = new Map<string, Bucket>();
+    const overall = fresh();
+
+    for (const r of rows as any[]) {
+      const key = periodKey(new Date(r.createdAt));
+      const cur = grouped.get(key) ?? fresh();
+      if (r.refunded) {
+        cur.refunds = cur.refunds.plus(dec(r.totalAmount));
+        overall.refunds = overall.refunds.plus(dec(r.totalAmount));
+      } else {
+        cur.gross = cur.gross.plus(dec(r.totalAmount));
+        cur.net = cur.net.plus(dec(r.subtotal));
+        cur.tax = cur.tax.plus(dec(r.taxAmount));
+        cur.discount = cur.discount.plus(dec(r.discountTotal));
+        cur.orders += 1;
+        overall.gross = overall.gross.plus(dec(r.totalAmount));
+        overall.net = overall.net.plus(dec(r.subtotal));
+        overall.tax = overall.tax.plus(dec(r.taxAmount));
+        overall.discount = overall.discount.plus(dec(r.discountTotal));
+        overall.orders += 1;
+      }
       grouped.set(key, cur);
     }
 
-    // Payment-method breakdown for the whole range (union Document + Invoice)
-    const docIds = docs.map((d) => d.id);
-    const invIds = invoices.map((i) => i.id);
-    const allocations = await this.prisma.client.paymentAllocation.findMany({
-      where: { OR: [{ documentId: { in: docIds } }, { invoiceId: { in: invIds } }] },
-      include: { payment: { select: { paymentMethod: true, amount: true } } },
-    });
-    const byMethodMap = new Map<string, { method: string; count: number; total: number }>();
-    for (const a of allocations) {
+    // Payment-method breakdown — actual money received, by allocation amount,
+    // inbound only (refunds excluded so methods aren't inflated).
+    const invIds = invoices.map((i: any) => i.id);
+    const docIds = docs.map((d: any) => d.id);
+    const allocations = (invIds.length || docIds.length)
+      ? await this.prisma.client.paymentAllocation.findMany({
+          where: { OR: [{ invoiceId: { in: invIds } }, { documentId: { in: docIds } }] },
+          include: { payment: { select: { paymentMethod: true, direction: true } } },
+        })
+      : [];
+    const byMethodMap = new Map<string, { method: string; count: number; total: Money }>();
+    for (const a of allocations as any[]) {
+      if (a.payment?.direction !== 'inbound') continue;
       const method = a.payment.paymentMethod;
-      const cur = byMethodMap.get(method) ?? { method, count: 0, total: 0 };
+      const cur = byMethodMap.get(method) ?? { method, count: 0, total: dec(0) };
       cur.count += 1;
-      cur.total += Number(a.payment.amount);
+      cur.total = cur.total.plus(dec(a.amount));
       byMethodMap.set(method, cur);
     }
 
-    const overall = Array.from(grouped.values()).reduce(
-      (acc, p) => ({
-        revenue: acc.revenue + p.revenue,
-        orders: acc.orders + p.orders,
-        discounts: acc.discounts + p.discounts,
-        taxes: acc.taxes + p.taxes,
-      }),
-      { revenue: 0, orders: 0, discounts: 0, taxes: 0 },
-    );
+    const aov = (gross: Money, orders: number) => (orders > 0 ? gross.dividedBy(orders).toFixed(2) : '0.00');
 
     return {
       fromDate: start.toISOString().slice(0, 10),
       toDate: end.toISOString().slice(0, 10),
       groupBy,
       totals: {
-        revenue: overall.revenue.toFixed(2),
+        revenue: overall.net.toFixed(2), // NET of tax
+        grossSales: overall.gross.toFixed(2),
+        netSales: overall.gross.minus(overall.refunds).toFixed(2),
+        refunds: overall.refunds.toFixed(2),
         orders: overall.orders,
-        avgOrderValue: overall.orders > 0 ? (overall.revenue / overall.orders).toFixed(2) : '0.00',
-        discounts: overall.discounts.toFixed(2),
-        taxes: overall.taxes.toFixed(2),
+        avgOrderValue: aov(overall.gross, overall.orders),
+        discounts: overall.discount.toFixed(2),
+        taxes: overall.tax.toFixed(2),
       },
-      periods: Array.from(grouped.entries()).map(([periodKey, p]) => ({
-        periodKey,
-        revenue: p.revenue.toFixed(2),
-        orders: p.orders,
-        avgOrderValue: p.orders > 0 ? (p.revenue / p.orders).toFixed(2) : '0.00',
-        discounts: p.discounts.toFixed(2),
-        taxes: p.taxes.toFixed(2),
-      })),
+      periods: Array.from(grouped.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([key, p]) => ({
+          periodKey: key,
+          revenue: p.net.toFixed(2), // NET
+          grossSales: p.gross.toFixed(2),
+          refunds: p.refunds.toFixed(2),
+          orders: p.orders,
+          avgOrderValue: aov(p.gross, p.orders),
+          discounts: p.discount.toFixed(2),
+          taxes: p.tax.toFixed(2),
+        })),
       byMethod: Array.from(byMethodMap.values()).map((m) => ({
         method: m.method,
         count: m.count,
@@ -413,7 +435,10 @@ export class PosReportsService {
     };
   }
 
-  /** Top N items sold in a date range (inclusive of both ends). */
+  /**
+   * Top N items sold in a date range (POS only, gross line total). Aggregated
+   * in SQL via groupBy so it scales without loading every line into memory.
+   */
   async topItems(fromDate: string, toDate: string, limit = 20) {
     const organizationId = this.tenant.organizationId;
     const start = new Date(fromDate);
@@ -422,73 +447,52 @@ export class PosReportsService {
       throw new BadRequestException('Invalid fromDate/toDate');
     }
     end.setHours(23, 59, 59, 999);
-    // Document-based lines
-    const docLines = await this.prisma.client.documentLine.findMany({
-      where: {
-        organizationId,
-        document: {
-          documentType: 'sales_invoice',
-          status: { in: ['posted', 'paid'] },
-          createdAt: { gte: start, lte: end },
-        },
-      },
-    });
-    // Invoice-based items
-    const invoiceItems = await this.prisma.client.invoiceItem.findMany({
-      where: {
-        organizationId,
-        invoice: {
-          status: { in: ['posted', 'paid'] },
-          createdAt: { gte: start, lte: end },
-        },
-      },
-    });
+    const cap = Math.min(200, Math.max(1, Math.trunc(limit) || 20));
 
-    const allProductIds = Array.from(
-      new Set([
-        ...docLines.map((l: any) => l.productId).filter(Boolean),
-        ...invoiceItems.map((i: any) => i.productId).filter(Boolean),
-      ]),
-    );
-    const products = allProductIds.length
-      ? await this.prisma.client.product.findMany({
-          where: { id: { in: allProductIds as string[] } },
-        })
+    const [invGroups, docGroups] = await Promise.all([
+      this.prisma.client.invoiceItem.groupBy({
+        by: ['productId'],
+        where: { organizationId, invoice: { status: { in: ['posted', 'paid'] }, createdAt: { gte: start, lte: end } } },
+        _sum: { quantity: true, total: true },
+      }),
+      this.prisma.client.documentLine.groupBy({
+        by: ['productId'],
+        where: {
+          organizationId,
+          document: { documentType: 'sales_invoice', sourceType: 'pos', status: { in: ['posted', 'paid'] }, createdAt: { gte: start, lte: end } },
+        },
+        _sum: { quantity: true, total: true },
+      }),
+    ]);
+
+    const merged = new Map<string, { productId: string; quantity: Money; total: Money }>();
+    for (const g of [...invGroups, ...docGroups] as any[]) {
+      const pid = g.productId;
+      if (!pid) continue; // skip free-text (non-product) lines
+      const cur = merged.get(pid) ?? { productId: pid, quantity: dec(0), total: dec(0) };
+      cur.quantity = cur.quantity.plus(dec(g._sum?.quantity ?? 0));
+      cur.total = cur.total.plus(dec(g._sum?.total ?? 0));
+      merged.set(pid, cur);
+    }
+
+    const products = merged.size
+      ? await this.prisma.client.product.findMany({ where: { id: { in: Array.from(merged.keys()) } }, select: { id: true, name: true, sku: true } })
       : [];
     const productMap = new Map(products.map((p: any) => [p.id, p]));
 
-    const grouped = new Map<string, { productId: string; name: string; sku: string | null; quantity: number; total: number }>();
-    for (const ln of docLines) {
-      const product = ln.productId ? productMap.get(ln.productId) : null;
-      const key = ln.productId ?? `_desc:${ln.description}`;
-      const cur = grouped.get(key) ?? {
-        productId: ln.productId ?? '',
-        name: product?.name ?? ln.description,
-        sku: product?.sku ?? null,
-        quantity: 0,
-        total: 0,
-      };
-      cur.quantity += Number(ln.quantity);
-      cur.total += Number(ln.total ?? ln.subtotal ?? 0);
-      grouped.set(key, cur);
-    }
-    for (const item of invoiceItems) {
-      const product = item.productId ? productMap.get(item.productId) : null;
-      const key = item.productId ?? `_desc:${item.description}`;
-      const cur = grouped.get(key) ?? {
-        productId: item.productId ?? '',
-        name: product?.name ?? item.description,
-        sku: product?.sku ?? null,
-        quantity: 0,
-        total: 0,
-      };
-      cur.quantity += Number(item.quantity);
-      cur.total += Number(item.total);
-      grouped.set(key, cur);
-    }
-    return Array.from(grouped.values())
-      .sort((a, b) => b.total - a.total)
-      .slice(0, limit)
+    return Array.from(merged.values())
+      .map((r) => {
+        const p = productMap.get(r.productId);
+        return {
+          productId: r.productId,
+          name: p?.name ?? '(deleted product)',
+          sku: p?.sku ?? null,
+          quantity: Number(r.quantity),
+          total: r.total,
+        };
+      })
+      .sort((a, b) => b.total.minus(a.total).toNumber())
+      .slice(0, cap)
       .map((r) => ({ ...r, total: r.total.toFixed(2) }));
   }
 

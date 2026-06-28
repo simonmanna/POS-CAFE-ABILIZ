@@ -201,9 +201,13 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
       </div>
 
       <div className="pos-report-grid">
-        <ReportCard title="Net sales" value={fmt(t.netSales)} sub={`${t.saleCount} sale${t.saleCount === 1 ? '' : 's'}`} />
-        <ReportCard title="Refunds" value={fmt(t.refundsTotal)} sub={`${fmt(t.salesTotal)} gross`} />
-        <ReportCard title="Expected cash" value={fmt(t.expectedCash)} sub={`opening + sales − refunds + pay-ins − pay-outs`} accent />
+        <ReportCard title="Net revenue" value={fmt(t.netRevenue)} sub={`ex-tax · ${t.saleCount} sale${t.saleCount === 1 ? '' : 's'}`} accent />
+        <ReportCard title="Gross sales" value={fmt(t.grossSales)} sub={`incl. tax · all tenders`} />
+        <ReportCard title="Tax" value={fmt(t.taxTotal)} sub="output tax collected" />
+        <ReportCard title="Discounts" value={fmt(t.discountTotal)} sub="given this shift" />
+        <ReportCard title="Refunds" value={fmt(t.refundsTotal)} sub={`net sales ${fmt(t.netSales)}`} />
+        <ReportCard title="Cash collected" value={fmt(t.cashCollected)} sub="cash tenders into drawer" />
+        <ReportCard title="Expected cash" value={fmt(t.expectedCash)} sub={`float + cash − refunds + in − out`} accent />
         <ReportCard title="Overrides" value={fmt(t.overridesTotal)} sub="manager overrides" />
         <ReportCard title="Pay-ins" value={fmt(t.payInsTotal)} sub="cash added during shift" />
         <ReportCard title="Pay-outs" value={fmt(t.payOutsTotal)} sub="cash removed during shift" />
@@ -211,7 +215,7 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="pos-report-card">
-          <h3>By payment method</h3>
+          <h3>By payment method <span className="text-xs font-normal text-slate-400">(all tenders, gross)</span></h3>
           {report.byMethod.length === 0 ? (
             <p className="text-sm text-slate-500">No sales yet this shift.</p>
           ) : (
@@ -477,10 +481,12 @@ const DailySalesView: React.FC<{
       ) : (
         <>
           <div className="pos-report-grid">
-            <ReportCard title="Revenue" value={fmt(t!.revenue)} sub={`${t!.orders} order${t!.orders === 1 ? '' : 's'}`} />
+            <ReportCard title="Net revenue" value={fmt(t!.revenue)} sub={`ex-tax · ${t!.orders} order${t!.orders === 1 ? '' : 's'}`} accent />
+            <ReportCard title="Gross sales" value={fmt(t!.grossSales)} sub="incl. tax" />
             <ReportCard title="Avg order value" value={fmt(t!.avgOrderValue)} />
             <ReportCard title="Discounts" value={fmt(t!.discounts)} />
             <ReportCard title="Taxes" value={fmt(t!.taxes)} />
+            <ReportCard title="Refunds" value={fmt(t!.refunds)} sub={`net sales ${fmt(t!.netSales)}`} />
           </div>
           <MethodBar byMethod={report.byMethod} />
         </>
@@ -521,10 +527,12 @@ const WeeklySalesView: React.FC<{
       ) : (
         <>
           <div className="pos-report-grid">
-            <ReportCard title="Revenue" value={fmt(t!.revenue)} sub={`${t!.orders} order${t!.orders === 1 ? '' : 's'}`} />
+            <ReportCard title="Net revenue" value={fmt(t!.revenue)} sub={`ex-tax · ${t!.orders} order${t!.orders === 1 ? '' : 's'}`} accent />
+            <ReportCard title="Gross sales" value={fmt(t!.grossSales)} sub="incl. tax" />
             <ReportCard title="Avg order value" value={fmt(t!.avgOrderValue)} />
             <ReportCard title="Discounts" value={fmt(t!.discounts)} />
             <ReportCard title="Taxes" value={fmt(t!.taxes)} />
+            <ReportCard title="Refunds" value={fmt(t!.refunds)} sub={`net sales ${fmt(t!.netSales)}`} />
           </div>
           <PeriodTable periods={report.periods} periodLabel="Day" />
           <MethodBar byMethod={report.byMethod} />
@@ -564,10 +572,12 @@ const MonthlySalesView: React.FC<{
       ) : (
         <>
           <div className="pos-report-grid">
-            <ReportCard title="Revenue" value={fmt(t!.revenue)} sub={`${t!.orders} order${t!.orders === 1 ? '' : 's'}`} />
+            <ReportCard title="Net revenue" value={fmt(t!.revenue)} sub={`ex-tax · ${t!.orders} order${t!.orders === 1 ? '' : 's'}`} accent />
+            <ReportCard title="Gross sales" value={fmt(t!.grossSales)} sub="incl. tax" />
             <ReportCard title="Avg order value" value={fmt(t!.avgOrderValue)} />
             <ReportCard title="Discounts" value={fmt(t!.discounts)} />
             <ReportCard title="Taxes" value={fmt(t!.taxes)} />
+            <ReportCard title="Refunds" value={fmt(t!.refunds)} sub={`net sales ${fmt(t!.netSales)}`} />
           </div>
           <PeriodTable periods={report.periods} periodLabel="Day" />
           <MethodBar byMethod={report.byMethod} />

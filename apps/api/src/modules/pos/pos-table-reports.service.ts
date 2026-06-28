@@ -98,21 +98,36 @@ export class PosTableReportsService {
     }
     end.setHours(23, 59, 59, 999);
 
-    const docs = await this.prisma.client.document.findMany({
-      where: {
-        organizationId,
-        tableId: { not: null },
-        documentType: 'sales_invoice',
-        status: { in: ['posted', 'paid'] },
-        createdAt: { gte: start, lte: end },
-      },
-      select: { tableId: true, totalAmount: true },
-    });
+    // POS sales now live on the `Invoice` table (with its own `tableId`); legacy
+    // POS sales are `Document` rows tagged sourceType='pos'. Union both so the
+    // report doesn't silently read zero after the Order→Invoice split.
+    const [invoices, docs] = await Promise.all([
+      this.prisma.client.invoice.findMany({
+        where: {
+          organizationId,
+          tableId: { not: null },
+          status: { in: ['posted', 'paid'] },
+          createdAt: { gte: start, lte: end },
+        },
+        select: { tableId: true, totalAmount: true },
+      }),
+      this.prisma.client.document.findMany({
+        where: {
+          organizationId,
+          tableId: { not: null },
+          documentType: 'sales_invoice',
+          sourceType: 'pos',
+          status: { in: ['posted', 'paid'] },
+          createdAt: { gte: start, lte: end },
+        },
+        select: { tableId: true, totalAmount: true },
+      }),
+    ]);
 
     const perTable = new Map<string, { tableId: string; orders: number; revenue: number }>();
     let totalRevenue = 0;
     let totalOrders = 0;
-    for (const d of docs) {
+    for (const d of [...invoices, ...docs] as any[]) {
       if (!d.tableId) continue;
       const cur = perTable.get(d.tableId) ?? { tableId: d.tableId, orders: 0, revenue: 0 };
       cur.orders += 1;
