@@ -162,13 +162,15 @@ export class PosReceiptsService {
   }
 
   /** Plain-text receipt — used for ESC/POS printers and a "download .txt" option. */
-  async buildTextReceipt(invoiceId: string, isReprint = false): Promise<string> {
+  async buildTextReceipt(invoiceId: string, isReprint = false, copyLabel?: string): Promise<string> {
     const inv = await this.resolveInvoice(invoiceId);
     const org = await this.resolveOrg();
     const lines: string[] = [];
     const header = (org as any).receiptHeader as Record<string, string> | null;
     const footer = (org as any).receiptFooter as Record<string, string> | null;
+    const isMerchant = !!copyLabel && /CASHIER|MERCHANT/i.test(copyLabel);
     if (isReprint) lines.push('*** REPRINT COPY ***');
+    if (copyLabel) lines.push(`*** ${copyLabel} ***`);
     lines.push((header?.businessName ?? org?.name ?? 'Cafe POS').toUpperCase());
     if (header?.addressLine1) lines.push(header.addressLine1);
     if (header?.addressLine2) lines.push(header.addressLine2);
@@ -197,8 +199,15 @@ export class PosReceiptsService {
     lines.push(`TOTAL:    ${fmt(inv.totalAmount)}`);
     lines.push(`Paid:     ${fmt(inv.amountPaid)}`);
     if (Number(inv.amountResidual) > 0) lines.push(`Due:      ${fmt(inv.amountResidual)}`);
+    if ((inv as any).paymentMode) lines.push(`Mode:     ${String((inv as any).paymentMode).toUpperCase()}`);
     lines.push('--------------------------------');
-    lines.push(footer?.message ?? 'Thank you!');
+    if (isMerchant) {
+      lines.push('CASHIER COPY — keep for records');
+      lines.push('');
+      lines.push('Signature: ____________________');
+    } else {
+      lines.push(footer?.message ?? 'Thank you!');
+    }
     return lines.join('\n');
   }
 
@@ -223,6 +232,8 @@ export class PosReceiptsService {
     const org = await this.resolveOrg();
     const header = (org as any).receiptHeader as Record<string, string> | null;
     const footer = (org as any).receiptFooter as Record<string, string> | null;
+    const cashierSetting = await this.settings.get('pos.printCashierCopy');
+    const includeCashier = cashierSetting?.value !== 'false';
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({ size: [226, 600], margin: 8 });
       const chunks: Buffer[] = [];
@@ -230,43 +241,60 @@ export class PosReceiptsService {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***', { align: 'center' });
-      doc.font('Helvetica-Bold').fontSize(14).text(header?.businessName ?? org?.name ?? 'Cafe POS', { align: 'center' });
-      if (header?.addressLine1) doc.font('Helvetica').fontSize(8).text(header.addressLine1, { align: 'center' });
-      if (header?.addressLine2) doc.font('Helvetica').fontSize(8).text(header.addressLine2, { align: 'center' });
-      if (header?.phone) doc.font('Helvetica').fontSize(8).text(`Tel: ${header.phone}`, { align: 'center' });
-      if (header?.taxId) doc.font('Helvetica').fontSize(8).text(`TIN: ${header.taxId}`, { align: 'center' });
-      doc.moveDown(0.5);
-      doc.fontSize(9).text('--------------------------------');
-      doc.text(`Receipt: ${(inv as any).documentNumber}`);
-      doc.text(`Date:    ${new Date(inv.issueDate).toLocaleString()}`);
-      doc.text(`Cashier: ${(inv as any).createdBy ?? '-'}`);
-      if (inv.partner?.name) doc.text(`Customer: ${inv.partner.name}`);
-      doc.text('--------------------------------');
-      doc.moveDown(0.3);
+      const drawPage = (copyLabel: string) => {
+        const isMerchant = /CASHIER|MERCHANT/i.test(copyLabel);
+        if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***', { align: 'center' });
+        doc.font('Helvetica-Bold').fontSize(10).text(`*** ${copyLabel} ***`, { align: 'center' });
+        doc.font('Helvetica-Bold').fontSize(14).text(header?.businessName ?? org?.name ?? 'Cafe POS', { align: 'center' });
+        if (header?.addressLine1) doc.font('Helvetica').fontSize(8).text(header.addressLine1, { align: 'center' });
+        if (header?.addressLine2) doc.font('Helvetica').fontSize(8).text(header.addressLine2, { align: 'center' });
+        if (header?.phone) doc.font('Helvetica').fontSize(8).text(`Tel: ${header.phone}`, { align: 'center' });
+        if (header?.taxId) doc.font('Helvetica').fontSize(8).text(`TIN: ${header.taxId}`, { align: 'center' });
+        doc.moveDown(0.5);
+        doc.fontSize(9).text('--------------------------------');
+        doc.text(`Receipt: ${(inv as any).documentNumber}`);
+        doc.text(`Date:    ${new Date(inv.issueDate).toLocaleString()}`);
+        doc.text(`Cashier: ${(inv as any).createdBy ?? '-'}`);
+        if (inv.partner?.name) doc.text(`Customer: ${inv.partner.name}`);
+        doc.text('--------------------------------');
+        doc.moveDown(0.3);
 
-      for (const ln of inv.lines) {
-        const qty = Number(ln.quantity);
-        const price = Number(ln.unitPrice);
-        const disc = Number(ln.discountPercent ?? 0);
-        const lineTotal = qty * price * (1 - disc / 100);
-        const inclTag = (ln as any).taxInclusive ? '  (incl. tax)' : '';
-        doc.font('Helvetica').text(`${ln.description}${inclTag}`);
-        doc.font('Helvetica').fontSize(8).text(`  ${qty} x ${fmt(price)}${disc > 0 ? ` (-${disc}%)` : ''}`, { continued: true });
-        doc.text(fmt(lineTotal), { align: 'right' });
-        if ((ln as any).note) doc.font('Helvetica-Oblique').fontSize(7).text(`  ! ${(ln as any).note}`);
+        for (const ln of inv.lines) {
+          const qty = Number(ln.quantity);
+          const price = Number(ln.unitPrice);
+          const disc = Number(ln.discountPercent ?? 0);
+          const lineTotal = qty * price * (1 - disc / 100);
+          const inclTag = (ln as any).taxInclusive ? '  (incl. tax)' : '';
+          doc.font('Helvetica').text(`${ln.description}${inclTag}`);
+          doc.font('Helvetica').fontSize(8).text(`  ${qty} x ${fmt(price)}${disc > 0 ? ` (-${disc}%)` : ''}`, { continued: true });
+          doc.text(fmt(lineTotal), { align: 'right' });
+          if ((ln as any).note) doc.font('Helvetica-Oblique').fontSize(7).text(`  ! ${(ln as any).note}`);
+        }
+
+        doc.font('Helvetica').fontSize(9).text('--------------------------------');
+        doc.text(`Subtotal:  ${fmt(inv.subtotal)}`, { align: 'right' });
+        if (Number(inv.discountTotal) > 0) doc.text(`Discount: -${fmt(inv.discountTotal)}`, { align: 'right' });
+        doc.text(`Tax:       ${fmt(inv.taxAmount)}`, { align: 'right' });
+        doc.font('Helvetica-Bold').fontSize(12).text(`TOTAL:     ${fmt(inv.totalAmount)}`, { align: 'right' });
+        doc.font('Helvetica').fontSize(9).text(`Paid:      ${fmt(inv.amountPaid)}`, { align: 'right' });
+        if (Number(inv.amountResidual) > 0) doc.text(`Due:       ${fmt(inv.amountResidual)}`, { align: 'right' });
+        if ((inv as any).paymentMode) doc.text(`Mode:      ${String((inv as any).paymentMode).toUpperCase()}`, { align: 'right' });
+        doc.moveDown(0.5);
+        doc.text('--------------------------------');
+        if (isMerchant) {
+          doc.fontSize(9).text('CASHIER COPY — keep for records', { align: 'center' });
+          doc.moveDown(1.2);
+          doc.text('Signature: ____________________', { align: 'center' });
+        } else {
+          doc.fontSize(10).text(footer?.message ?? 'Thank you!', { align: 'center' });
+        }
+      };
+
+      drawPage('CUSTOMER COPY');
+      if (includeCashier) {
+        doc.addPage();
+        drawPage('CASHIER COPY');
       }
-
-      doc.font('Helvetica').fontSize(9).text('--------------------------------');
-      doc.text(`Subtotal:  ${fmt(inv.subtotal)}`, { align: 'right' });
-      if (Number(inv.discountTotal) > 0) doc.text(`Discount: -${fmt(inv.discountTotal)}`, { align: 'right' });
-      doc.text(`Tax:       ${fmt(inv.taxAmount)}`, { align: 'right' });
-      doc.font('Helvetica-Bold').fontSize(12).text(`TOTAL:     ${fmt(inv.totalAmount)}`, { align: 'right' });
-      doc.font('Helvetica').fontSize(9).text(`Paid:      ${fmt(inv.amountPaid)}`, { align: 'right' });
-      if (Number(inv.amountResidual) > 0) doc.text(`Due:       ${fmt(inv.amountResidual)}`, { align: 'right' });
-      doc.moveDown(0.5);
-      doc.text('--------------------------------');
-      doc.fontSize(10).text(footer?.message ?? 'Thank you!', { align: 'center' });
       doc.end();
     });
   }
@@ -618,34 +646,46 @@ export class PosReceiptsService {
    * Looks up printer IP from settings (pos.printerHost, pos.printerPort).
    */
   async printReceipt(invoiceId: string, userId?: string, isReprint = false): Promise<{ ok: boolean; backend: string; message?: string }> {
-    const inv = await this.resolveInvoice(invoiceId);
-    const text = await this.buildTextReceipt(invoiceId, isReprint);
+    const orgId = this.tenant.organizationId;
+    const customerText = await this.buildTextReceipt(invoiceId, isReprint, 'CUSTOMER COPY');
 
     await this.printLifecycle.markReceiptPrinted(this.prisma.client, invoiceId, userId);
 
-    const orgId = this.tenant.organizationId;
+    // Cashier/settlement copy printed right after the customer copy (default on).
+    const cashierSetting = await this.settings.get('pos.printCashierCopy');
+    const printCashierCopy = cashierSetting?.value !== 'false';
+    const merchantText = printCashierCopy ? await this.buildTextReceipt(invoiceId, isReprint, 'CASHIER COPY') : null;
+    const copies = merchantText ? 2 : 1;
+
     const hostSetting = await this.settings.get('pos.printerHost');
     const portSetting = await this.settings.get('pos.printerPort');
     const host = hostSetting?.value;
     const port = portSetting?.value ? Number(portSetting.value) : 9100;
 
     if (!host) {
-      this.logger.warn(`[POS] No printer configured; receipt:\n${text}`);
+      this.logger.warn(`[POS] No printer configured; receipt (customer):\n${customerText}`);
+      if (merchantText) this.logger.warn(`[POS] No printer configured; receipt (cashier copy):\n${merchantText}`);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId, documentId: invoiceId, type: 'RECEIPT', printedById: userId,
+        organizationId: orgId, documentId: invoiceId, type: 'RECEIPT', copies, printedById: userId,
       });
-      return { ok: true, backend: 'console', message: 'No printer configured; receipt logged to server console.' };
+      return { ok: true, backend: 'console', message: `No printer configured; ${copies} receipt cop${copies > 1 ? 'ies' : 'y'} logged to server console.` };
     }
 
     try {
       const net = require('net');
       const kickSetting = await this.settings.get('pos.kickDrawerOnPrint');
       const shouldKick = kickSetting?.value !== 'false';
+      const CUT = Buffer.from([0x1D, 0x56, 0x00]); // GS V 0 — full cut between copies
       await new Promise<void>((resolve, reject) => {
         const client = net.connect({ host, port, timeout: 5000 }, () => {
-          client.write(text + '\n\n\n\n\n');
-          if (shouldKick) {
-            client.write(Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]));
+          // Customer copy.
+          client.write(customerText + '\n\n\n');
+          if (shouldKick) client.write(Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]));
+          client.write(CUT);
+          // Cashier/settlement copy, immediately after.
+          if (merchantText) {
+            client.write(merchantText + '\n\n\n');
+            client.write(CUT);
           }
           client.end();
         });
@@ -654,9 +694,9 @@ export class PosReceiptsService {
         client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
       });
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId, documentId: invoiceId, type: 'RECEIPT', printedById: userId,
+        organizationId: orgId, documentId: invoiceId, type: 'RECEIPT', copies, printedById: userId,
       });
-      return { ok: true, backend: 'escpos' };
+      return { ok: true, backend: 'escpos', message: merchantText ? 'Customer + cashier copies printed' : undefined };
     } catch (e: any) {
       this.logger.warn(`[POS] Printer unreachable; receipt fallback: ${e?.message}`);
       return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error' };

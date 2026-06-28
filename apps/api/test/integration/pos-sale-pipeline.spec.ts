@@ -142,5 +142,14 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     const pdf = await tenant.run({ organizationId }, () => receiptsSvc.buildPdfReceipt(invoice.id));
     expect(pdf.length).toBeGreaterThan(500);
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
+
+    // Two papers: a cashier/settlement copy is recorded and renders with a signature line.
+    const merchantReceipt = await prisma.receipt.findFirst({ where: { invoiceId: invoice.id, type: 'merchant_copy' } });
+    expect(merchantReceipt).toBeTruthy();
+    const cashierText = await tenant.run({ organizationId }, () => receiptsSvc.buildTextReceipt(invoice.id, false, 'CASHIER COPY'));
+    expect(cashierText).toContain('CASHIER COPY');
+    expect(cashierText).toContain('Signature');
+    // The PDF carries both copies (2 thermal pages).
+    expect(pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g)?.length).toBe(2);
   }, 60_000);
 });

@@ -208,6 +208,8 @@ export class PosInvoiceService {
 
     const receiptType = wasCredit ? 'settlement_receipt' : (settled ? 'payment_receipt' : 'partial_payment_receipt');
     const receipt = await this.createReceipt(invoice, receiptType, lastPaymentId);
+    // Record the cashier/settlement copy that is printed right after the customer one.
+    if (settled) await this.createReceipt(invoice, 'merchant_copy', lastPaymentId).catch(() => undefined);
     await this.printReceiptSafe(invoiceId);
 
     if (settled) {
