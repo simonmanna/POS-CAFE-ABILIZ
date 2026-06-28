@@ -144,7 +144,7 @@ export class PosService {
     } as CreateOrderDto);
 
     // 2) Fire the new items to the kitchen (best-effort — never fails the sale).
-    try { await this.orders.fireKitchen(order.id); } catch { /* KDS non-fatal */ }
+    try { await this.orders.fireKitchen(order.id); } catch (e: any) { this.logger.warn(`fireKitchen failed: ${e?.message}`); }
 
     // 3) Generate the Invoice: posts Dr AR / Cr Revenue+Tax to the GL and
     //    deducts inventory at bill time. Roll the order back on failure.
@@ -153,6 +153,9 @@ export class PosService {
       invoice = await this.billing.generateInvoice(order.id, {
         transactionDiscountPercent: input.transactionDiscountPercent,
         branchId: input.branchId,
+        paymentMode: input.tenders?.length
+          ? this.resolvePaymentMode(input.tenders)
+          : input.paymentMethod === 'bank' ? 'cash' : (input.paymentMethod ?? 'cash'),
       });
     } catch (e) {
       await this.orders.cancelOrder(order.id, 'checkout: invoice generation failed').catch(() => undefined);
@@ -183,7 +186,7 @@ export class PosService {
           await this.loyalty.earnPoints({ partnerId: invoice.partnerId, documentId: invoice.id, amount: Number(invoice.totalAmount), reason: 'sale' });
         }
       }
-    } catch { /* loyalty non-fatal */ }
+    } catch (e: any) { this.logger.error(`loyalty earnPoints failed: ${e?.message}`); }
 
     this.events.publish(EVENTS.PosSaleCompleted, {
       organizationId: orgId,
@@ -194,15 +197,27 @@ export class PosService {
     });
 
     const tendered = input.amountTendered ?? Number(invoice.totalAmount);
+
+    // Resolve receipt data so the frontend can display/print immediately.
+    let receiptText: string | undefined;
+    let receiptHtml: string | undefined;
+    try {
+      receiptText = await this.receipts.buildTextReceipt(invoice.id);
+      receiptHtml = await this.receipts.buildHtmlReceipt(invoice.id);
+    } catch { /* non-fatal */ }
+
     return {
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
       orderId: order.id,
       orderNumber: order.orderNumber,
-      paymentIds: [] as string[],
+      paymentIds: (pay?.paymentIds as string[]) ?? [],
       total: Number(invoice.totalAmount),
       change: pay?.change ?? Math.max(0, tendered - Number(invoice.totalAmount)),
       discountPercent: effectiveDiscount,
+      receiptId: pay?.receiptId,
+      receiptText,
+      receiptHtml,
     };
   }
 
@@ -331,6 +346,11 @@ export class PosService {
           });
         } catch (e: any) {
           this.logger.error(`store-credit reversal failed: ${String(e?.message ?? e)}`);
+          this.events.publish(EVENTS.StoreCreditReversalFailed, {
+            organizationId: this.tenant.organizationId,
+            invoiceId: doc.id,
+            amount: redeemedCredit,
+          });
         }
       }
       throw err;
@@ -364,11 +384,13 @@ export class PosService {
     issuedLines: Array<{ productId: string; locationId: string; quantity: number }>,
     paymentIds: string[],
   ): Promise<void> {
+    let hasErrors = false;
     for (const pid of paymentIds) {
       try {
         await this.payments.void(pid);
       } catch (e: any) {
         this.logger.error(`compensateFailedCheckout: void payment ${pid} failed: ${String(e?.message ?? e)}`);
+        hasErrors = true;
       }
     }
     for (const ln of issuedLines) {
@@ -381,12 +403,21 @@ export class PosService {
         } as any);
       } catch (e: any) {
         this.logger.error(`compensateFailedCheckout: restock ${ln.productId} failed: ${String(e?.message ?? e)}`);
+        hasErrors = true;
       }
     }
     try {
       await this.invoices.cancel(invoiceId);
     } catch (e: any) {
       this.logger.error(`compensateFailedCheckout: cancel invoice ${invoiceId} failed: ${String(e?.message ?? e)}`);
+      hasErrors = true;
+    }
+    if (hasErrors) {
+      this.events.publish(EVENTS.CheckoutCompensationFailed, {
+        organizationId: this.tenant.organizationId,
+        invoiceId,
+        paymentIds,
+      });
     }
   }
 
@@ -410,9 +441,7 @@ export class PosService {
       try {
         await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any);
         issuedLines.push({ productId: ing.productId, locationId: warehouseId, quantity: qty });
-      } catch {
-        // Ingredient shortage surfaces on the inventory dashboard; don't fail the sale.
-      }
+      } catch (e: any) { this.logger.warn(`Ingredient stock shortage: ${e?.message}`); }
     }
   }
 
@@ -615,7 +644,7 @@ export class PosService {
             quantity,
             reference: `Refund of ${(original as any).documentNumber}`,
           } as any);
-        } catch { /* stock count adjustment surfaces on dashboard */ }
+        } catch (e: any) { this.logger.warn(`Stock restock failed: ${e?.message}`); }
       }
     }
 
@@ -898,9 +927,7 @@ export class PosService {
             printedById: this.tenant.userId ?? undefined,
           });
         }
-      } catch {
-        // KDS is non-fatal.
-      }
+      } catch (e: any) { this.logger.warn(`KDS push failed: ${e?.message}`); }
     }
 
     await this.audit.record({
@@ -1256,12 +1283,12 @@ export class PosService {
         where: { id: doc.id },
         data: { status: 'cancelled', notes: `Migrated to invoice ${invoice.invoiceNumber}` },
       });
-    } catch { /* best effort */ }
+    } catch (e: any) { this.logger.warn(`Legacy doc cancel failed: ${e?.message}`); }
     let tableStatus: string | undefined;
     try {
       const closeResult = await this.tables.closeTableOrder({ tableId: input.tableId, documentId: doc.id });
       tableStatus = (closeResult as any)?.tableStatus;
-    } catch { /* best effort */ }
+    } catch (e: any) { this.logger.warn(`Close table failed: ${e?.message}`); }
 
     // Loyalty (best-effort, skip the walk-in).
     try {
@@ -1271,7 +1298,7 @@ export class PosService {
           await this.loyalty.earnPoints({ partnerId: invoice.partnerId, documentId: invoice.id, amount: Number(invoice.totalAmount), reason: 'sale' });
         }
       }
-    } catch { /* non-fatal */ }
+    } catch (e: any) { this.logger.error(`loyalty earnPoints failed: ${e?.message}`); }
 
     this.events.publish(EVENTS.PosSaleCompleted, {
       organizationId: orgId,
@@ -1282,14 +1309,25 @@ export class PosService {
     });
 
     const tendered = input.amountTendered ?? Number(invoice.totalAmount);
+
+    let receiptText: string | undefined;
+    let receiptHtml: string | undefined;
+    try {
+      receiptText = await this.receipts.buildTextReceipt(invoice.id);
+      receiptHtml = await this.receipts.buildHtmlReceipt(invoice.id);
+    } catch { /* non-fatal */ }
+
     return {
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
       orderId: order.id,
-      paymentIds: [] as string[],
+      paymentIds: (pay?.paymentIds as string[]) ?? [],
       total: Number(invoice.totalAmount),
       change: pay?.change ?? Math.max(0, tendered - Number(invoice.totalAmount)),
       tableStatus,
+      receiptId: pay?.receiptId,
+      receiptText,
+      receiptHtml,
     };
   }
 
@@ -1447,6 +1485,20 @@ export class PosService {
     }
     await this.overrides.assertCanOverride(input.overrideById, 'discount');
     return effective;
+  }
+
+  /** Derive the invoice's payment mode from a multi-tender array. */
+  private resolvePaymentMode(tenders: PaymentTender[]): 'cash' | 'card' | 'mobile_money' | 'mixed' | 'credit' {
+    const methods = new Set(tenders.map((t) => t.method));
+    if (methods.size === 1) {
+      const m = methods.values().next().value;
+      if (m === 'cash') return 'cash' as const;
+      if (m === 'card') return 'card' as const;
+      if (m === 'mobile_money') return 'mobile_money' as const;
+      if (m === 'bank') return 'cash' as const;
+      if (m === 'store_credit') return 'credit' as const;
+    }
+    return 'mixed' as const;
   }
 
   private normalizeTenders(input: CheckoutInput, totalAmount: any): PaymentTender[] {

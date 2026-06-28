@@ -47,21 +47,11 @@ export function validateEnv(): EnvValidationResult {
     errors.push('DATABASE_URL is not set');
   }
 
-  // In production-like environments, fail loud.
-  const isProduction = (process.env.NODE_ENV ?? 'development') === 'production';
-
   if (errors.length > 0) {
     for (const err of errors) {
       logger.error(err);
     }
-    if (isProduction) {
-      return { ok: false, errors };
-    }
-    // In dev, allow with a strong warning so engineers can iterate.
-    logger.warn(
-      `Env validation produced ${errors.length} warning(s); proceeding in non-production mode. Set NODE_ENV=production to enforce.`,
-    );
-    return { ok: true, errors };
+    return { ok: false, errors };
   }
 
   return { ok: true, errors: [] };

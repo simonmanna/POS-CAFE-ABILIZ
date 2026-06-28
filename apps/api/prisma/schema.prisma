@@ -1026,7 +1026,10 @@ model DocumentLine {
 model DocumentPrintLog {
   id             String   @id @default(uuid())
   organizationId String
-  documentId     String
+  /// One of documentId / invoiceId is set (R2: POS prints reference the
+  /// separate Invoice; legacy/manual prints reference the generic Document).
+  documentId     String?
+  invoiceId      String?
   /// Null when the print is at document level (bill, receipt).
   documentLineId String?
   /// KOT | BILL | RECEIPT | CANCEL
@@ -1043,11 +1046,12 @@ model DocumentPrintLog {
   idempotencyKey String?  @unique
   createdAt      DateTime @default(now())
 
-  document     Document      @relation(fields: [documentId], references: [id])
+  document     Document?     @relation(fields: [documentId], references: [id])
   documentLine DocumentLine? @relation(fields: [documentLineId], references: [id])
 
   @@index([organizationId])
   @@index([documentId])
+  @@index([invoiceId])
   @@index([documentLineId])
   @@index([type])
   @@index([idempotencyKey])
@@ -1307,17 +1311,17 @@ model ComboItem {
 /// Optional sub-category for menu items. Independent from ProductCategory so
 /// the menu presentation can be re-shaped without touching inventory/accounting.
 model MenuCategory {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   name           String
   /// Self-referencing tree so menu sections can nest (Drinks → Hot → Espresso-based).
   parentId       String?
   image          String?
   icon           String?
-  displayOrder   Int      @default(0)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  displayOrder   Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   createdBy      String?
   updatedBy      String?
   deletedAt      DateTime?
@@ -3515,6 +3519,7 @@ model Invoice {
   billLastPrintedAt    DateTime?
   receiptPrintCount    Int                     @default(0)
   receiptLastPrintedAt DateTime?
+  kotPrintCount        Int                     @default(0)
   lastPrintedById      String?
   postedAt             DateTime?
   postedBy             String?

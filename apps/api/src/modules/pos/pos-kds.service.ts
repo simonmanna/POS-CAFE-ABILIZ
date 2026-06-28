@@ -18,7 +18,7 @@
  * KDS renders without N+1 joins.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { Response } from 'express';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
@@ -52,6 +52,8 @@ export interface KdsTicket {
 
 @Injectable()
 export class PosKdsService {
+  private readonly logger = new Logger(PosKdsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
@@ -256,7 +258,7 @@ export class PosKdsService {
       try {
         const tickets = await this.listTickets(station);
         res.write(`data: ${JSON.stringify({ type: 'snapshot', tickets })}\n\n`);
-      } catch { /* noop */ }
+      } catch (e: any) { this.logger.warn(`KDS stream ticket fetch failed: ${e?.message}`); }
     };
     await send();
     const id = setInterval(send, 1_000);

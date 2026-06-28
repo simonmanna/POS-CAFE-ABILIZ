@@ -16,6 +16,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -56,6 +57,8 @@ const SEATABLE_GRACE_MS = 30 * 60 * 1000; // 30 minutes
 
 @Injectable()
 export class PosReservationsService {
+  private readonly logger = new Logger(PosReservationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
@@ -387,7 +390,7 @@ export class PosReservationsService {
       select: { id: true },
     });
     for (const s of stale) {
-      try { await this.markNoShow(s.id); } catch { /* ignore — already moved on */ }
+      try { await this.markNoShow(s.id); } catch (e: any) { this.logger.warn(`No-show mark failed: ${e?.message}`); }
     }
     return stale.length;
   }

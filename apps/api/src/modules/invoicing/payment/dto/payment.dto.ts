@@ -65,4 +65,13 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsString()
   cashSessionId?: string;
+
+  /**
+   * When true, the payment is recorded in the Payment and Allocation tables
+   * but does NOT post a journal entry. Used when the invoice's GL was already
+   * posted with a non-AR counter-account (e.g. cash sale posted directly
+   * Dr Cash / Cr Revenue), making a second GL entry a duplicate.
+   */
+  @IsOptional()
+  skipGlPosting?: boolean;
 }

@@ -141,12 +141,14 @@ export class PosInvoiceService {
         where: { id: inv.id },
         data: { journalEntryId, status: 'posted', postedAt: new Date(), postedBy: this.tenant.userId ?? null },
       });
+
+      // Deduct inventory inside the same transaction (audit finding: was
+      // previously outside, causing drift on failure). Nested Prisma
+      // $transaction calls within stock.issue() join this outer tx.
+      await this.issueStockForItems(items, inv.invoiceNumber);
+
       return tx.invoice.findFirst({ where: { id: inv.id }, include: { items: { orderBy: { lineNumber: 'asc' } } } });
     });
-
-    // Deduct inventory (best-effort; shortages surface on the dashboard).
-    try { await this.issueStockForItems(items, invoice.invoiceNumber); }
-    catch (e: any) { this.logger.warn(`stock issue failed for ${invoice.invoiceNumber}: ${String(e?.message ?? e)}`); }
 
     await this.prisma.client.order.update({ where: { id: orderId }, data: { invoiceId: invoice.id, status: 'served' } });
 
@@ -166,16 +168,28 @@ export class PosInvoiceService {
     const residual = Number(invoice.amountResidual);
     if (residual <= 0.001) throw new BadRequestException('Invoice is already fully paid');
 
+    // Determine if the invoice GL was already posted with a cash/bank
+    // counter-account (pre-settled). In that case, payments skip GL posting
+    // to avoid double-counting the cash entry.
+    const preSettledModes = new Set(['cash', 'card', 'mobile_money']);
+    const skipGl = invoice.paymentMode && preSettledModes.has(invoice.paymentMode);
+
     const tenders = this.normalizeTenders(dto, residual);
     let lastPaymentId: string | null = null;
     for (const tender of tenders) {
+      let accountId: string | undefined;
+      if (tender.method === 'store_credit') {
+        accountId = await this.storeCreditAccountId();
+      }
       const payment = await this.payments.createReceipt({
         partnerId: invoice.partnerId,
         paymentDate: new Date().toISOString(),
-        paymentMethod: tender.method === 'store_credit' ? 'cash' : tender.method,
+        paymentMethod: tender.method,
         amount: tender.amount,
         reference: tender.reference,
+        accountId,
         cashSessionId: tender.method === 'cash' ? dto.cashSessionId : undefined,
+        skipGlPosting: skipGl,
         // R2: allocate against the Invoice (not a Document).
         allocations: [{ invoiceId: invoice.id, amount: tender.amount }],
       } as any);
@@ -275,7 +289,7 @@ export class PosInvoiceService {
       for (const it of invoice.items as any[]) {
         if (it.menuItemId) { await this.receiveMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, `Refund ${invoice.invoiceNumber}`); continue; }
         if (!it.productId) continue;
-        try { await this.stock.receive({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `Refund ${invoice.invoiceNumber}` } as any); } catch { /* dashboard */ }
+        try { await this.stock.receive({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `Refund ${invoice.invoiceNumber}` } as any); } catch (e: any) { this.logger.warn(`Stock operation failed: ${e?.message}`); }
       }
     }
     await this.prisma.client.invoice.update({ where: { id: invoiceId }, data: { status: 'refunded', settlementStatus: 'settled', amountResidual: 0 } });
@@ -300,10 +314,35 @@ export class PosInvoiceService {
     return this.sequence.next(`invoice:${year}`, { prefix: `INV-${year}-`, padding: 6 });
   }
 
-  /** Post Dr AR (total) / Cr Revenue (per account) / Cr Tax (per account). */
+  /**
+   * Post GL entry for the invoice. The counter account is payment-mode-aware:
+   *   • credit / mixed / null → Accounts Receivable (deferred settlement)
+   *   • cash                → Cash account (immediate settlement)
+   *   • card                → Bank account (card settlement)
+   *   • mobile_money        → Cash account (treated as cash-equivalent)
+   *
+   * When the debit side is a cash/bank account (not AR), the caller should
+   * pass `skipGlPosting: true` to the subsequent payment call to avoid
+   * double-posting the cash entry.
+   */
   private async postInvoiceGl(tx: any, invoice: any, items: any[]): Promise<string> {
     const fullLike = { partnerId: invoice.partnerId, lines: items };
-    const { counterAccount, itemByAccount, taxByAccount } = await this.builder.groupForPosting(tx, fullLike, 'sales');
+    const { counterAccount: defaultCounter, itemByAccount, taxByAccount } = await this.builder.groupForPosting(tx, fullLike, 'sales');
+
+    const mode = invoice.paymentMode;
+    const mappingKey: Record<string, string> = {
+      cash: 'default_cash',
+      card: 'default_bank',
+      mobile_money: 'default_cash',
+    };
+    let counterAccount = defaultCounter;
+    if (mode && mode !== 'credit' && mode !== 'mixed') {
+      const key = mappingKey[mode as string];
+      if (key) {
+        try { counterAccount = await this.determination.mapped(key, tx); } catch { /* fallback to AR */ }
+      }
+    }
+
     const lines: any[] = [
       { accountId: counterAccount, debit: invoice.totalAmount.toString(), partnerId: invoice.partnerId, description: `Invoice ${invoice.invoiceNumber}` },
     ];
@@ -350,7 +389,7 @@ export class PosInvoiceService {
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
-      try { await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any); } catch { /* dashboard */ }
+      try { await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any); } catch (e: any) { this.logger.warn(`Stock operation failed: ${e?.message}`); }
     }
   }
 
@@ -359,7 +398,7 @@ export class PosInvoiceService {
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
-      try { await this.stock.receive({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any); } catch { /* dashboard */ }
+      try { await this.stock.receive({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any); } catch (e: any) { this.logger.warn(`Stock operation failed: ${e?.message}`); }
     }
   }
 
@@ -398,6 +437,16 @@ export class PosInvoiceService {
     const table = await this.prisma.client.posTable.findFirst({ where: { id: tableId } });
     if (!table || table.status === 'out_of_service' || table.status === 'reserved') return;
     if (table.status !== 'available') await this.prisma.client.posTable.update({ where: { id: tableId }, data: { status: 'available' } });
+  }
+
+  private async storeCreditAccountId(): Promise<string> {
+    const mapping = await this.prisma.client.accountMapping.findFirst({ where: { key: 'store_credit' } });
+    if (!mapping) {
+      throw new BadRequestException(
+        "Store-credit payments need the 'store_credit' account mapping. Configure it under Accounting > Account Mapping.",
+      );
+    }
+    return mapping.accountId;
   }
 
   private async assertCreditAllowed(partnerId: string, amount: number): Promise<void> {

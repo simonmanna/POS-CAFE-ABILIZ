@@ -13,6 +13,7 @@ import { describeDb } from './_setup';
 import { KernelModule } from '../../src/kernel/kernel.module';
 import { PosModule } from '../../src/modules/pos/pos.module';
 import { PosService } from '../../src/modules/pos/pos.service';
+import { PosReceiptsService } from '../../src/modules/pos/pos-receipts.service';
 import { TenantContextService } from '../../src/kernel/tenancy/tenant-context.service';
 
 /**
@@ -55,6 +56,7 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
 
   afterAll(async () => {
     if (organizationId) {
+      await prisma.documentPrintLog.deleteMany({ where: { organizationId } });
       await prisma.receiptItem.deleteMany({ where: { organizationId } });
       await prisma.receipt.deleteMany({ where: { organizationId } });
       await prisma.paymentAllocation.deleteMany({ where: { organizationId } });
@@ -124,5 +126,21 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     expect(Math.abs(dr - cr)).toBeLessThan(0.001);
     const alloc = await prisma.paymentAllocation.findFirst({ where: { invoiceId: invoice.id } });
     expect(alloc).toBeTruthy();
+
+    // Receipt printing fired (counter incremented + a print-log row keyed to the Invoice).
+    const printedInvoice = await prisma.invoice.findFirstOrThrow({ where: { id: invoice.id } });
+    expect(printedInvoice.receiptPrintCount).toBeGreaterThanOrEqual(1);
+    const printLog = await prisma.documentPrintLog.findFirst({ where: { invoiceId: invoice.id, type: 'RECEIPT' } });
+    expect(printLog).toBeTruthy();
+    expect(printLog!.documentId).toBeNull();
+
+    // Thermal/PDF printout actually renders from the Invoice.
+    const receiptsSvc = moduleRef.get(PosReceiptsService);
+    const text = await tenant.run({ organizationId }, () => receiptsSvc.buildTextReceipt(invoice.id));
+    expect(text).toContain('TOTAL');
+    expect(text).toContain(invoice.invoiceNumber);
+    const pdf = await tenant.run({ organizationId }, () => receiptsSvc.buildPdfReceipt(invoice.id));
+    expect(pdf.length).toBeGreaterThan(500);
+    expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
   }, 60_000);
 });

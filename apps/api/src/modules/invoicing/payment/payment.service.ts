@@ -109,7 +109,7 @@ export class PaymentService {
         counterType === 'receivable'
           ? await this.determination.receivableAccount(partner, tx)
           : await this.determination.payableAccount(partner, tx);
-      const journalCode = method === 'bank' ? 'BANK' : 'CASH';
+      const journalCode = method === 'bank' ? 'BANK' : (method as string) === 'store_credit' ? 'GEN' : 'CASH';
 
       const year = new Date(dto.paymentDate).getUTCFullYear();
       const seq =
@@ -135,30 +135,34 @@ export class PaymentService {
         },
       });
 
-      const lines =
-        direction === 'inbound'
-          ? [
-              { accountId: cashAccount, debit: amount.toString() },
-              { accountId: counterAccount, credit: amount.toString(), partnerId: dto.partnerId },
-            ]
-          : [
-              { accountId: counterAccount, debit: amount.toString(), partnerId: dto.partnerId },
-              { accountId: cashAccount, credit: amount.toString() },
-            ];
+      let journalEntryId: string | null = null;
+      if (!dto.skipGlPosting) {
+        const lines =
+          direction === 'inbound'
+            ? [
+                { accountId: cashAccount, debit: amount.toString() },
+                { accountId: counterAccount, credit: amount.toString(), partnerId: dto.partnerId },
+              ]
+            : [
+                { accountId: counterAccount, debit: amount.toString(), partnerId: dto.partnerId },
+                { accountId: cashAccount, credit: amount.toString() },
+              ];
 
-      const verb = direction === 'inbound' ? 'Receipt' : 'Payment';
-      const entry = await this.posting.post(
-        {
-          journalCode,
-          date: dto.paymentDate,
-          description: `${verb} ${paymentNumber} · ${partner.name}`,
-          sourceType: 'payment',
-          sourceId: payment.id,
-          lines,
-        },
-        tx,
-      );
-      await tx.payment.updateMany({ where: { id: payment.id }, data: { journalEntryId: entry.id } });
+        const verb = direction === 'inbound' ? 'Receipt' : 'Payment';
+        const entry = await this.posting.post(
+          {
+            journalCode,
+            date: dto.paymentDate,
+            description: `${verb} ${paymentNumber} · ${partner.name}`,
+            sourceType: 'payment',
+            sourceId: payment.id,
+            lines,
+          },
+          tx,
+        );
+        journalEntryId = entry.id;
+      }
+      await tx.payment.updateMany({ where: { id: payment.id }, data: { journalEntryId } });
 
       let allocatedTotal = ZERO;
       for (const alloc of dto.allocations ?? []) {
@@ -235,8 +239,8 @@ export class PaymentService {
 
       // Cash-session link: when method=cash and a session is provided, write
       // a CashMovement row inside the same transaction so the session's
-      // Z-report reconciles with the ledger.
-      if (method === 'cash' && dto.cashSessionId) {
+      // Z-report reconciles with the ledger. Store credit is not cash.
+      if (method === 'cash' && dto.cashSessionId && !dto.accountId) {
         const session = await tx.cashSession.findFirst({
           where: { id: dto.cashSessionId, organizationId },
         });

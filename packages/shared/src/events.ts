@@ -84,6 +84,8 @@ export const EVENTS = {
   PosInvoiceSettled: 'pos.invoice.settled',
   PosInvoiceCredited: 'pos.invoice.credited',
   PosInvoiceWrittenOff: 'pos.invoice.written_off',
+  CheckoutCompensationFailed: 'pos.checkout.compensation_failed',
+  StoreCreditReversalFailed: 'pos.store_credit.reversal_failed',
   // POS Phase T1 — Tables Management (ADR-012)
   PosTableCreated: 'pos.table.created',
   PosTableUpdated: 'pos.table.updated',
@@ -246,6 +248,8 @@ export interface DomainEventMap {
   'pos.invoice.settled': { organizationId: string; invoiceId: string; invoiceNumber: string; paymentMode: string };
   'pos.invoice.credited': { organizationId: string; invoiceId: string; invoiceNumber: string; partnerId: string; amount: string };
   'pos.invoice.written_off': { organizationId: string; invoiceId: string; invoiceNumber: string; amount: string };
+  'pos.checkout.compensation_failed': { organizationId: string; invoiceId: string; paymentIds: string[] };
+  'pos.store_credit.reversal_failed': { organizationId: string; invoiceId: string; amount: number };
   'pos.table.created': { organizationId: string; tableId: string; number: number; name: string };
   'pos.table.updated': { organizationId: string; tableId: string; changes: Record<string, unknown> };
   'pos.table.deleted': { organizationId: string; tableId: string };

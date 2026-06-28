@@ -26,7 +26,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { IsString } from 'class-validator';
 import type { Response } from 'express';
 import PDFDocument = require('pdfkit');
-import { Injectable, Module } from '@nestjs/common';
+import { Injectable, Logger, Module } from '@nestjs/common';
 
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
@@ -50,6 +50,8 @@ class ReprintDto {
 
 @Injectable()
 export class PosReceiptsService {
+  private readonly logger = new Logger(PosReceiptsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
@@ -59,38 +61,61 @@ export class PosReceiptsService {
     private readonly printLifecycle: PosPrintLifecycleService,
   ) {}
 
-  /** Resolve the invoice + lines + partner for a receipt, scoped to the tenant. */
+  /**
+   * Resolve the invoice + lines + partner for a receipt, scoped to the tenant.
+   * Queries the `Invoice` table first (new POS flow); falls back to `Document`
+   * (legacy ERP flow) for backward compatibility. Lines are normalised to a
+   * compat shape so downstream methods work without change.
+   */
   async resolveInvoice(invoiceId: string) {
     const orgId = this.tenant.organizationId;
-    const invoice = await this.prisma.client.document.findFirst({
+
+    // Try the POS Invoice table first.
+    const inv = await this.prisma.client.invoice.findFirst({
+      where: { id: invoiceId, organizationId: orgId },
+      include: { items: { orderBy: { lineNumber: 'asc' } } },
+    });
+    if (inv) {
+      const [partner, productMap] = await Promise.all([
+        this.prisma.client.partner.findFirst({ where: { id: inv.partnerId } }),
+        this.resolveProductsForLines(inv.items.map((i: any) => i.productId).filter(Boolean)),
+      ]);
+      const linesWithProducts = inv.items.map((ln: any) => ({
+        ...ln,
+        product: ln.productId ? productMap.get(ln.productId) : null,
+      }));
+      return { ...inv, documentNumber: inv.invoiceNumber, partner, lines: linesWithProducts };
+    }
+
+    // Fallback to generic Document (legacy tab flow).
+    const doc = await this.prisma.client.document.findFirst({
       where: { id: invoiceId, organizationId: orgId, documentType: 'sales_invoice' },
     });
-    if (!invoice) throw new NotFoundException('Invoice not found');
+    if (!doc) throw new NotFoundException('Invoice not found');
     const [partner, lines, productMap] = await Promise.all([
-      this.prisma.client.partner.findFirst({ where: { id: invoice.partnerId } }),
+      this.prisma.client.partner.findFirst({ where: { id: doc.partnerId } }),
       this.prisma.client.documentLine.findMany({
         where: { documentId: invoiceId },
         orderBy: { lineNumber: 'asc' },
       }),
-      this.resolveProductsForLines(invoiceId),
+      this.resolveProductsForLines(
+        (await this.prisma.client.documentLine.findMany({ where: { documentId: invoiceId }, select: { productId: true } }))
+          .map((l: any) => l.productId).filter(Boolean),
+      ),
     ]);
     const linesWithProducts = lines.map((ln: any) => ({
       ...ln,
       product: ln.productId ? productMap.get(ln.productId) : null,
     }));
-    return { ...invoice, partner, lines: linesWithProducts };
+    return { ...doc, partner, lines: linesWithProducts };
   }
 
-  private async resolveProductsForLines(invoiceId: string): Promise<Map<string, any>> {
+  private async resolveProductsForLines(productIds: string[]): Promise<Map<string, any>> {
     const orgId = this.tenant.organizationId;
-    const lines = await this.prisma.client.documentLine.findMany({
-      where: { documentId: invoiceId },
-      select: { productId: true },
-    });
-    const productIds = Array.from(new Set(lines.map((l: any) => l.productId).filter(Boolean))) as string[];
-    if (productIds.length === 0) return new Map();
+    const ids = Array.from(new Set(productIds)) as string[];
+    if (!ids.length) return new Map();
     const products = await this.prisma.client.product.findMany({
-      where: { id: { in: productIds }, organizationId: orgId },
+      where: { id: { in: ids }, organizationId: orgId },
     });
     return new Map((products as any[]).map((p) => [p.id, p]));
   }
@@ -175,6 +200,21 @@ export class PosReceiptsService {
     lines.push('--------------------------------');
     lines.push(footer?.message ?? 'Thank you!');
     return lines.join('\n');
+  }
+
+  /** HTML receipt — opens browser print dialog when loaded. */
+  async buildHtmlReceipt(invoiceId: string, isReprint = false): Promise<string> {
+    const text = await this.buildTextReceipt(invoiceId, isReprint);
+    const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const escaped = escape(text);
+    return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Receipt</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'Courier New',Courier,monospace; font-size:13px; white-space:pre; padding:20px; width:300px; margin:0 auto; }
+  @media print { body { padding:0; } }
+</style></head><body>${escaped.replace(/\n/g, '<br>')}
+<script>window.onload=function(){window.print();};</script></body></html>`;
   }
 
   /** PDF receipt — pdfkit stream. */
@@ -324,11 +364,18 @@ export class PosReceiptsService {
   /** Print a pre-payment bill (ESC/POS). */
   async printBill(invoiceId: string, userId?: string, isReprint = false): Promise<{ ok: boolean; backend: string; message?: string }> {
     if (!isReprint) {
-      const doc = await this.prisma.client.document.findFirst({
+      // Check both Invoice and Document tables for prior bill prints.
+      const inv = await this.prisma.client.invoice.findFirst({
         where: { id: invoiceId, organizationId: this.tenant.organizationId },
         select: { billPrintCount: true },
       });
-      if (doc && (doc.billPrintCount ?? 0) > 0) {
+      const prior = inv?.billPrintCount ?? (
+        await this.prisma.client.document.findFirst({
+          where: { id: invoiceId, organizationId: this.tenant.organizationId },
+          select: { billPrintCount: true },
+        })
+      )?.billPrintCount ?? 0;
+      if (prior > 0) {
         throw new ForbiddenException('Bill already printed. Use the reprint endpoint (Admin/Manager only, with a reason).');
       }
     }
@@ -344,7 +391,7 @@ export class PosReceiptsService {
     const port = portSetting?.value ? Number(portSetting.value) : 9100;
 
     if (!host) {
-      console.log('[POS] No printer configured; bill text:\n' + text);
+      this.logger.warn(`[POS] No printer configured; bill:\n${text}`);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'BILL', printedById: userId,
       });
@@ -367,8 +414,8 @@ export class PosReceiptsService {
       });
       return { ok: true, backend: 'escpos' };
     } catch (e: any) {
-      console.log('[POS] Printer unreachable; falling back to console. Bill:\n' + text);
-      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error; bill logged to console' };
+      this.logger.warn(`[POS] Printer unreachable; bill fallback: ${e?.message}`);
+      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error; bill fallback' };
     }
   }
 
@@ -509,11 +556,17 @@ export class PosReceiptsService {
   async printAdditionalBill(invoiceId: string, userId?: string): Promise<{ ok: boolean; backend: string; message?: string; copyNumber: number; grandTotal: number; additionalSubtotal: number; previousSubtotal: number }> {
     const orgId = this.tenant.organizationId;
 
-    const doc = await this.prisma.client.document.findFirst({
+    // Get print count from Invoice or Document.
+    const invPrint = await this.prisma.client.invoice.findFirst({
       where: { id: invoiceId, organizationId: orgId },
       select: { billPrintCount: true },
     });
-    const copyNumber = (doc?.billPrintCount ?? 0) + 1;
+    const docPrint = invPrint ? null : await this.prisma.client.document.findFirst({
+      where: { id: invoiceId, organizationId: orgId },
+      select: { billPrintCount: true },
+    });
+    const billPrintCount = invPrint?.billPrintCount ?? docPrint?.billPrintCount ?? 0;
+    const copyNumber = billPrintCount + 1;
 
     const unbilled = await this.getUnbilledLines(invoiceId);
     if (unbilled.length === 0) {
@@ -532,7 +585,7 @@ export class PosReceiptsService {
     const port = portSetting?.value ? Number(portSetting.value) : 9100;
 
     if (!host) {
-      console.log('[POS] No printer configured; additional bill text:\n' + additionalBillText);
+      this.logger.warn(`[POS] No printer configured; additional bill:\n${additionalBillText}`);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'BILL', action: 'PRINT', copies: 1, printedById: userId,
       });
@@ -555,8 +608,8 @@ export class PosReceiptsService {
       });
       return { ok: true, backend: 'escpos', copyNumber, grandTotal, additionalSubtotal, previousSubtotal };
     } catch (e: any) {
-      console.log('[POS] Printer unreachable; falling back to console. Additional bill:\n' + additionalBillText);
-      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error; additional bill logged to console', copyNumber, grandTotal, additionalSubtotal, previousSubtotal };
+      this.logger.warn(`[POS] Printer unreachable; additional bill fallback: ${e?.message}`);
+      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error', copyNumber, grandTotal, additionalSubtotal, previousSubtotal };
     }
   }
 
@@ -577,7 +630,7 @@ export class PosReceiptsService {
     const port = portSetting?.value ? Number(portSetting.value) : 9100;
 
     if (!host) {
-      console.log('[POS] No printer configured; receipt text:\n' + text);
+      this.logger.warn(`[POS] No printer configured; receipt:\n${text}`);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'RECEIPT', printedById: userId,
       });
@@ -605,8 +658,8 @@ export class PosReceiptsService {
       });
       return { ok: true, backend: 'escpos' };
     } catch (e: any) {
-      console.log('[POS] Printer unreachable; falling back to console. Receipt:\n' + text);
-      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error; receipt logged to console' };
+      this.logger.warn(`[POS] Printer unreachable; receipt fallback: ${e?.message}`);
+      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error' };
     }
   }
 
@@ -623,6 +676,8 @@ export class PosReceiptsService {
 @ApiBearerAuth()
 @Controller('pos/receipts')
 export class PosReceiptsController {
+  private readonly logger = new Logger(PosReceiptsController.name);
+
   constructor(private readonly svc: PosReceiptsService) {}
 
   @Get(':invoiceId/pdf')
@@ -752,7 +807,7 @@ export class PosReceiptsController {
     const port = portSetting?.value ? Number(portSetting.value) : 9100;
 
     if (!host) {
-      console.log(`[POS] No printer configured; KOT #${kotNumber} text:\n` + text);
+      this.logger.warn(`[POS] No printer configured; KOT #${kotNumber}:\n${text}`);
       await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
         organizationId: orgId, documentId: id, type: logType, printedById: userId,
       });
@@ -775,8 +830,8 @@ export class PosReceiptsController {
       });
       return { ok: true, backend: 'escpos', kotNumber, text } as any;
     } catch (e: any) {
-      console.log(`[POS] Printer unreachable; KOT #${kotNumber} fallback:\n` + text);
-      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error; KOT logged to console', kotNumber, text } as any;
+      this.logger.warn(`[POS] Printer unreachable; KOT #${kotNumber} fallback: ${e?.message}`);
+      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error', kotNumber, text } as any;
     }
   }
 

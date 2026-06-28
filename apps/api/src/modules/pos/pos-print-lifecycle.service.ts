@@ -137,40 +137,77 @@ export class PosPrintLifecycleService {
     return { addLines, removeLines, unchangedLines };
   }
 
+  /* ──── Target detection ──── */
+
+  /**
+   * Return the table name ('invoice' | 'document') for a given record,
+   * so print-lifecycle methods can target the correct model.
+   */
+  private async resolvePrintTarget(
+    tx: any,
+    recordId: string,
+  ): Promise<'invoice' | 'document'> {
+    const inv = await tx.invoice.findFirst({ where: { id: recordId }, select: { id: true } });
+    if (inv) return 'invoice';
+    return 'document';
+  }
+
   /* ─────────── Bill helpers ─────────── */
 
   async markBillPrinted(
     tx: any,
-    documentId: string,
+    recordId: string,
     userId?: string,
   ): Promise<void> {
-    await tx.document.update({
-      where: { id: documentId },
-      data: {
-        billPrintCount: { increment: 1 },
-        billLastPrintedAt: new Date(),
-        lastPrintedById: userId ?? null,
-      },
-    });
+    const target = await this.resolvePrintTarget(tx, recordId);
+    if (target === 'invoice') {
+      await tx.invoice.update({
+        where: { id: recordId },
+        data: {
+          billPrintCount: { increment: 1 },
+          billLastPrintedAt: new Date(),
+          lastPrintedById: userId ?? null,
+        },
+      });
+    } else {
+      await tx.document.update({
+        where: { id: recordId },
+        data: {
+          billPrintCount: { increment: 1 },
+          billLastPrintedAt: new Date(),
+          lastPrintedById: userId ?? null,
+        },
+      });
+    }
   }
 
   async markLinesBilled(
     tx: any,
-    documentId: string,
+    recordId: string,
     userId?: string,
   ): Promise<void> {
+    const target = await this.resolvePrintTarget(tx, recordId);
+    if (target === 'invoice') {
+      // Invoice items have no bill-printed-at field; skip for Invoice model.
+      return;
+    }
     await tx.documentLine.updateMany({
-      where: { documentId, billPrintedAt: null },
+      where: { documentId: recordId, billPrintedAt: null },
       data: { billPrintedAt: new Date() },
     });
   }
 
   async getBillCopyNumber(
     tx: any,
-    documentId: string,
+    recordId: string,
   ): Promise<number> {
+    const target = await this.resolvePrintTarget(tx, recordId);
+    if (target === 'invoice') {
+      const inv = await tx.invoice.findUnique({ where: { id: recordId }, select: { billPrintCount: true } });
+      return (inv?.billPrintCount ?? 0) + 1;
+    }
     const doc = await tx.document.findUnique({
-      where: { id: documentId },
+      where: { id: recordId },
       select: { billPrintCount: true },
     });
     return (doc?.billPrintCount ?? 0) + 1;
@@ -180,26 +217,43 @@ export class PosPrintLifecycleService {
 
   async markReceiptPrinted(
     tx: any,
-    documentId: string,
+    recordId: string,
     userId?: string,
     idempotencyKey?: string,
   ): Promise<void> {
-    await tx.document.update({
-      where: { id: documentId },
-      data: {
-        receiptPrintCount: { increment: 1 },
-        receiptLastPrintedAt: new Date(),
-        lastPrintedById: userId ?? null,
-      },
-    });
+    const target = await this.resolvePrintTarget(tx, recordId);
+    if (target === 'invoice') {
+      await tx.invoice.update({
+        where: { id: recordId },
+        data: {
+          receiptPrintCount: { increment: 1 },
+          receiptLastPrintedAt: new Date(),
+          lastPrintedById: userId ?? null,
+        },
+      });
+    } else {
+      await tx.document.update({
+        where: { id: recordId },
+        data: {
+          receiptPrintCount: { increment: 1 },
+          receiptLastPrintedAt: new Date(),
+          lastPrintedById: userId ?? null,
+        },
+      });
+    }
   }
 
   async getReceiptCopyNumber(
     tx: any,
-    documentId: string,
+    recordId: string,
   ): Promise<number> {
+    const target = await this.resolvePrintTarget(tx, recordId);
+    if (target === 'invoice') {
+      const inv = await tx.invoice.findUnique({ where: { id: recordId }, select: { receiptPrintCount: true } });
+      return (inv?.receiptPrintCount ?? 0) + 1;
+    }
     const doc = await tx.document.findUnique({
-      where: { id: documentId },
+      where: { id: recordId },
       select: { receiptPrintCount: true },
     });
     return (doc?.receiptPrintCount ?? 0) + 1;
@@ -207,10 +261,15 @@ export class PosPrintLifecycleService {
 
   async getKotCopyNumber(
     tx: any,
-    documentId: string,
+    recordId: string,
   ): Promise<number> {
+    const target = await this.resolvePrintTarget(tx, recordId);
+    if (target === 'invoice') {
+      const inv = await tx.invoice.findUnique({ where: { id: recordId }, select: { kotPrintCount: true } });
+      return (inv?.kotPrintCount ?? 0) + 1;
+    }
     const doc = await tx.document.findUnique({
-      where: { id: documentId },
+      where: { id: recordId },
       select: { kotPrintCount: true },
     });
     return (doc?.kotPrintCount ?? 0) + 1;
@@ -218,25 +277,41 @@ export class PosPrintLifecycleService {
 
   async markKotPrinted(
     tx: any,
-    documentId: string,
+    recordId: string,
     userId?: string,
   ): Promise<void> {
-    await tx.document.update({
-      where: { id: documentId },
-      data: {
-        kotPrintCount: { increment: 1 },
-        lastPrintedById: userId ?? null,
-      },
-    });
+    const target = await this.resolvePrintTarget(tx, recordId);
+    if (target === 'invoice') {
+      await tx.invoice.update({
+        where: { id: recordId },
+        data: {
+          kotPrintCount: { increment: 1 },
+          lastPrintedById: userId ?? null,
+        },
+      });
+    } else {
+      await tx.document.update({
+        where: { id: recordId },
+        data: {
+          kotPrintCount: { increment: 1 },
+          lastPrintedById: userId ?? null,
+        },
+      });
+    }
   }
 
   /* ─────────── Print log ─────────── */
 
   async recordPrintLog(tx: any, input: PrintLogInput): Promise<void> {
+    // R2: the print log's documentId FK is required-by-history but POS prints
+    // reference the separate Invoice. Route the id to the right column so the
+    // log row is written without violating the Document FK.
+    const target = await this.resolvePrintTarget(tx, input.documentId);
     await tx.documentPrintLog.create({
       data: {
         organizationId: input.organizationId,
-        documentId: input.documentId,
+        documentId: target === 'document' ? input.documentId : null,
+        invoiceId: target === 'invoice' ? input.documentId : null,
         documentLineId: input.documentLineId ?? null,
         type: input.type,
         action: input.action ?? 'PRINT',

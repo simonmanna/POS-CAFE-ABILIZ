@@ -107,7 +107,7 @@ export class PosReportsService {
       return s + (v && v.amount ? Number(v.amount) : 0);
     }, 0);
 
-    // Sales by product category — go via PaymentAllocation → Document → lines.
+    // Sales by product category — union Document + Invoice allocations.
     const paymentIds = payments.map((p: any) => p.id);
     const allocations = await this.prisma.client.paymentAllocation.findMany({
       where: { paymentId: { in: paymentIds } },
@@ -119,8 +119,15 @@ export class PosReportsService {
           include: { lines: true },
         })
       : [];
+    const invIds = Array.from(new Set(allocations.map((a: any) => a.invoiceId).filter(Boolean)));
+    const invoiceItems = invIds.length
+      ? await this.prisma.client.invoiceItem.findMany({ where: { invoiceId: { in: invIds } } })
+      : [];
     const allProductIds = Array.from(
-      new Set(docs.flatMap((d: any) => d.lines.map((l: any) => l.productId).filter(Boolean))),
+      new Set([
+        ...docs.flatMap((d: any) => d.lines.map((l: any) => l.productId).filter(Boolean)),
+        ...invoiceItems.map((i: any) => i.productId).filter(Boolean),
+      ]),
     );
     const products = allProductIds.length
       ? await this.prisma.client.product.findMany({
@@ -146,6 +153,20 @@ export class PosReportsService {
         bucket.total += Number(ln.total ?? ln.subtotal ?? 0);
         byCategoryMap.set(key, bucket);
       }
+    }
+    for (const item of invoiceItems) {
+      const product = item.productId ? productMap.get(item.productId) : null;
+      const cat = (product as any)?.category;
+      const key = cat?.id ?? 'uncategorised';
+      const bucket = byCategoryMap.get(key) ?? {
+        categoryId: cat?.id ?? null,
+        categoryName: cat?.name ?? 'Uncategorised',
+        count: 0,
+        total: 0,
+      };
+      bucket.count += Number(item.quantity);
+      bucket.total += Number(item.total);
+      byCategoryMap.set(key, bucket);
     }
 
     this.events.publish(EVENTS.PosReportGenerated, {
@@ -243,6 +264,14 @@ export class PosReportsService {
       },
       select: { id: true, totalAmount: true, createdAt: true },
     });
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: {
+        organizationId,
+        status: { in: ['posted', 'paid'] },
+        createdAt: { gte: start, lt: end },
+      },
+      select: { id: true, totalAmount: true, createdAt: true },
+    });
     const buckets = new Array(24).fill(0).map((_, hour) => ({
       hour,
       count: 0,
@@ -252,6 +281,11 @@ export class PosReportsService {
       const hour = new Date(d.createdAt).getHours();
       buckets[hour].count += 1;
       buckets[hour].total += Number(d.totalAmount);
+    }
+    for (const inv of invoices) {
+      const hour = new Date(inv.createdAt).getHours();
+      buckets[hour].count += 1;
+      buckets[hour].total += Number(inv.totalAmount);
     }
     return {
       date: start.toISOString().slice(0, 10),
@@ -272,7 +306,7 @@ export class PosReportsService {
     }
     end.setHours(23, 59, 59, 999);
 
-    // Fetch all posted/paid sales invoices in the range
+    // Fetch all posted/paid sales invoices (Document + Invoice) in the range
     const docs = await this.prisma.client.document.findMany({
       where: {
         organizationId,
@@ -283,24 +317,32 @@ export class PosReportsService {
       select: { id: true, totalAmount: true, discountTotal: true, taxAmount: true, createdAt: true },
       orderBy: { createdAt: 'asc' },
     });
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: {
+        organizationId,
+        status: { in: ['posted', 'paid'] },
+        createdAt: { gte: start, lte: end },
+      },
+      select: { id: true, totalAmount: true, discountTotal: true, taxAmount: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
 
-    // Group by period in JS
-    const grouped = new Map<string, { revenue: number; orders: number; discounts: number; taxes: number }>();
-    for (const doc of docs) {
-      const d = new Date(doc.createdAt);
-      let key: string;
-      if (groupBy === 'day') {
-        key = d.toISOString().slice(0, 10);
-      } else if (groupBy === 'week') {
-        // Monday-start week
+    const periodKey = (d: Date): string => {
+      if (groupBy === 'day') return d.toISOString().slice(0, 10);
+      if (groupBy === 'week') {
         const dow = d.getDay();
         const diff = d.getDate() - dow + (dow === 0 ? -6 : 1);
         const mon = new Date(d);
         mon.setDate(diff);
-        key = mon.toISOString().slice(0, 10);
-      } else {
-        key = d.toISOString().slice(0, 7); // YYYY-MM
+        return mon.toISOString().slice(0, 10);
       }
+      return d.toISOString().slice(0, 7);
+    };
+
+    // Group by period in JS
+    const grouped = new Map<string, { revenue: number; orders: number; discounts: number; taxes: number }>();
+    for (const doc of docs) {
+      const key = periodKey(new Date(doc.createdAt));
       const cur = grouped.get(key) ?? { revenue: 0, orders: 0, discounts: 0, taxes: 0 };
       cur.revenue += Number(doc.totalAmount);
       cur.orders += 1;
@@ -308,15 +350,23 @@ export class PosReportsService {
       cur.taxes += Number(doc.taxAmount);
       grouped.set(key, cur);
     }
+    for (const inv of invoices) {
+      const key = periodKey(new Date(inv.createdAt));
+      const cur = grouped.get(key) ?? { revenue: 0, orders: 0, discounts: 0, taxes: 0 };
+      cur.revenue += Number(inv.totalAmount);
+      cur.orders += 1;
+      cur.discounts += Number(inv.discountTotal);
+      cur.taxes += Number(inv.taxAmount);
+      grouped.set(key, cur);
+    }
 
-    // Payment-method breakdown for the whole range
+    // Payment-method breakdown for the whole range (union Document + Invoice)
     const docIds = docs.map((d) => d.id);
-    const allocations = docIds.length
-      ? await this.prisma.client.paymentAllocation.findMany({
-          where: { documentId: { in: docIds } },
-          include: { payment: { select: { paymentMethod: true, amount: true } } },
-        })
-      : [];
+    const invIds = invoices.map((i) => i.id);
+    const allocations = await this.prisma.client.paymentAllocation.findMany({
+      where: { OR: [{ documentId: { in: docIds } }, { invoiceId: { in: invIds } }] },
+      include: { payment: { select: { paymentMethod: true, amount: true } } },
+    });
     const byMethodMap = new Map<string, { method: string; count: number; total: number }>();
     for (const a of allocations) {
       const method = a.payment.paymentMethod;
@@ -372,7 +422,8 @@ export class PosReportsService {
       throw new BadRequestException('Invalid fromDate/toDate');
     }
     end.setHours(23, 59, 59, 999);
-    const lines = await this.prisma.client.documentLine.findMany({
+    // Document-based lines
+    const docLines = await this.prisma.client.documentLine.findMany({
       where: {
         organizationId,
         document: {
@@ -382,18 +433,32 @@ export class PosReportsService {
         },
       },
     });
-    const productIds = Array.from(
-      new Set(lines.map((l: any) => l.productId).filter(Boolean)),
+    // Invoice-based items
+    const invoiceItems = await this.prisma.client.invoiceItem.findMany({
+      where: {
+        organizationId,
+        invoice: {
+          status: { in: ['posted', 'paid'] },
+          createdAt: { gte: start, lte: end },
+        },
+      },
+    });
+
+    const allProductIds = Array.from(
+      new Set([
+        ...docLines.map((l: any) => l.productId).filter(Boolean),
+        ...invoiceItems.map((i: any) => i.productId).filter(Boolean),
+      ]),
     );
-    const products = productIds.length
+    const products = allProductIds.length
       ? await this.prisma.client.product.findMany({
-          where: { id: { in: productIds as string[] } },
+          where: { id: { in: allProductIds as string[] } },
         })
       : [];
     const productMap = new Map(products.map((p: any) => [p.id, p]));
 
     const grouped = new Map<string, { productId: string; name: string; sku: string | null; quantity: number; total: number }>();
-    for (const ln of lines) {
+    for (const ln of docLines) {
       const product = ln.productId ? productMap.get(ln.productId) : null;
       const key = ln.productId ?? `_desc:${ln.description}`;
       const cur = grouped.get(key) ?? {
@@ -405,6 +470,20 @@ export class PosReportsService {
       };
       cur.quantity += Number(ln.quantity);
       cur.total += Number(ln.total ?? ln.subtotal ?? 0);
+      grouped.set(key, cur);
+    }
+    for (const item of invoiceItems) {
+      const product = item.productId ? productMap.get(item.productId) : null;
+      const key = item.productId ?? `_desc:${item.description}`;
+      const cur = grouped.get(key) ?? {
+        productId: item.productId ?? '',
+        name: product?.name ?? item.description,
+        sku: product?.sku ?? null,
+        quantity: 0,
+        total: 0,
+      };
+      cur.quantity += Number(item.quantity);
+      cur.total += Number(item.total);
       grouped.set(key, cur);
     }
     return Array.from(grouped.values())
