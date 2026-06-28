@@ -14,6 +14,14 @@ interface Props {
 
 const fmt = (n: number) => `UGX ${Number(n || 0).toLocaleString()}`;
 
+const StepDots = ({ current, total }: { current: number; total: number }) => (
+  <div className="flex items-center gap-1">
+    {Array.from({ length: total }, (_, i) => (
+      <span key={i} className={`h-1.5 rounded-full transition-all ${i < current ? 'w-4 bg-amber-500' : i === current ? 'w-6 bg-amber-600' : 'w-1.5 bg-slate-300'}`} />
+    ))}
+  </div>
+);
+
 export const VariantPicker: React.FC<Props> = ({ open, productName, variants, onClose, onConfirm }) => {
   const [selected, setSelected] = useState('');
 
@@ -31,11 +39,16 @@ export const VariantPicker: React.FC<Props> = ({ open, productName, variants, on
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-[420px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Coffee className="h-4 w-4" />
-            {productName} — Choose size
-          </DialogTitle>
-          <DialogDescription>Select a variant to set the base price.</DialogDescription>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="flex items-center gap-2">
+              <Coffee className="h-4 w-4" />
+              {productName}
+            </DialogTitle>
+            <StepDots current={0} total={3} />
+          </div>
+          <DialogDescription>
+            <span className="text-amber-600 font-semibold text-xs uppercase tracking-wide">Step 1 of 3</span> — Choose a size
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-2 py-2">
           {variants.map((v) => (
@@ -43,17 +56,19 @@ export const VariantPicker: React.FC<Props> = ({ open, productName, variants, on
               key={v.id}
               type="button"
               onClick={() => setSelected(v.id)}
-              className={`w-full px-4 py-3 rounded-lg border-2 text-left flex items-center justify-between transition-colors ${
+              className={`w-full px-4 py-3 rounded-lg border-2 text-left flex items-center justify-between transition-all duration-150 ${
                 selected === v.id
-                  ? 'border-amber-500 bg-amber-50 text-amber-900'
-                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                  ? 'border-amber-500 bg-amber-50 text-amber-900 shadow-sm'
+                  : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:shadow-sm'
               }`}
             >
               <span className="flex items-center gap-2">
-                {selected === v.id && <Check className="h-4 w-4 text-amber-600" />}
+                <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${selected === v.id ? 'border-amber-500 bg-amber-500' : 'border-slate-300'}`}>
+                  {selected === v.id && <Check className="h-3 w-3 text-white" />}
+                </span>
                 <span className="font-semibold">{v.name}</span>
               </span>
-              <span className="font-mono text-sm">{fmt(v.price)}</span>
+              <span className="font-mono text-sm font-bold">{fmt(v.price)}</span>
             </button>
           ))}
         </div>

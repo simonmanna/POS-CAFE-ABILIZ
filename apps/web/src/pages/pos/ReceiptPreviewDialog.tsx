@@ -10,29 +10,31 @@ interface Props {
   open: boolean;
   invoiceId: string | null;
   invoiceNumber?: string;
+  receiptHtml?: string;
   onClose: () => void;
   onVoid?: (invoiceId: string, invoiceNumber: string) => void;
   canReprint?: boolean;
 }
 
-export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoiceNumber, onClose, onVoid, canReprint = false }) => {
+export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoiceNumber, receiptHtml, onClose, onVoid, canReprint = false }) => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<'print' | 'email' | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  /** Universal print: opens the OS print dialog for the receipt PDF (works with
+  /** Universal print: opens the OS print dialog for the receipt (works with
    *  any printer the workstation has — no networked thermal printer required). */
-  const printPdf = () => {
+  const printReceipt = () => {
     const win = iframeRef.current?.contentWindow;
     if (!win) { toast.error('Receipt still loading — try again'); return; }
     win.focus();
     win.print();
   };
 
-  // (Re)load the PDF blob URL when the dialog opens or invoiceId changes.
+  // (Re)load the PDF blob URL when the dialog opens or invoiceId changes (fallback
+  // when receiptHtml isn't available).
   React.useEffect(() => {
-    if (!open || !invoiceId) {
-      setPdfUrl(null);
+    if (!open || !invoiceId || receiptHtml) {
+      if (!receiptHtml) setPdfUrl(null);
       return;
     }
     let cancelled = false;
@@ -51,7 +53,7 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [open, invoiceId]);
+  }, [open, invoiceId, receiptHtml]);
 
   const onPrint = async () => {
     if (!invoiceId) return;
@@ -81,6 +83,16 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
   };
 
   const onDownload = () => {
+    if (receiptHtml && invoiceNumber) {
+      const blob = new Blob([receiptHtml], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `receipt-${invoiceNumber}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
     if (!pdfUrl || !invoiceNumber) return;
     const a = document.createElement('a');
     a.href = pdfUrl;
@@ -112,7 +124,9 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
         </DialogHeader>
 
         <div className="bg-slate-200 p-4 flex justify-center min-h-[500px]">
-          {pdfUrl ? (
+          {receiptHtml ? (
+            <iframe ref={iframeRef} srcDoc={receiptHtml} title="Receipt preview" className="bg-white shadow-md" style={{ width: 340, height: 600 }} />
+          ) : pdfUrl ? (
             <iframe ref={iframeRef} src={pdfUrl} title="Receipt preview" className="bg-white shadow-md" style={{ width: 340, height: 600 }} />
           ) : (
             <div className="flex items-center justify-center text-slate-500 text-sm">
@@ -131,8 +145,8 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
                 <Ban className="h-4 w-4 mr-1" /> Void Sale
               </Button>
             ) : null}
-            <Button variant="outline" onClick={onDownload} disabled={!pdfUrl}>
-              <Download className="h-4 w-4 mr-1" /> Download PDF
+            <Button variant="outline" onClick={onDownload} disabled={!pdfUrl && !receiptHtml}>
+              <Download className="h-4 w-4 mr-1" /> {receiptHtml ? 'Download HTML' : 'Download PDF'}
             </Button>
             <Button variant="outline" onClick={onEmail} disabled={busy !== null}>
               <Mail className="h-4 w-4 mr-1" /> {busy === 'email' ? 'Emailing…' : 'Email'}
@@ -145,7 +159,7 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
             <Button variant="outline" onClick={onPrint} disabled={busy !== null} title="Send to networked thermal printer">
               <Printer className="h-4 w-4 mr-1" /> {busy === 'print' ? 'Sending…' : 'Thermal'}
             </Button>
-            <Button onClick={printPdf} disabled={!pdfUrl} style={{ background: '#16a34a' }} title="Open the print dialog for any printer">
+            <Button onClick={printReceipt} disabled={!pdfUrl && !receiptHtml} style={{ background: '#16a34a' }} title="Open the print dialog for any printer">
               <Printer className="h-4 w-4 mr-1" /> Print Receipt
             </Button>
           </div>

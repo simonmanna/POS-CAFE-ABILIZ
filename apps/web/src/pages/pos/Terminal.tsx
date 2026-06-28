@@ -46,7 +46,7 @@ import { ReceiptPreview, type ReceiptLine } from './ReceiptPreview';
 import { ReceiptPreviewDialog } from './ReceiptPreviewDialog';
 import { TableSelectorDialog } from './TableSelectorDialog';
 import { MoveItemsDialog } from './MoveItemsDialog';
-import { TransferItemsDialog } from './TransferItemsDialog';
+
 import { VoidItemDialog } from './VoidItemDialog';
 import { CancelOrderDialog } from './CancelOrderDialog';
 import { ReprintDialog } from './ReprintDialog';
@@ -226,9 +226,7 @@ const TerminalPage: React.FC = () => {
   /* ============== Move Items ============== */
   const [showMoveItems, setShowMoveItems] = useState(false);
 
-  /* ============== Transfer items ============== */
-  /* Holds the OrderPanel selection while the destination-table dialog is open. */
-  const [transferSelection, setTransferSelection] = useState<Array<{ lineId: string; quantity: number }> | null>(null);
+  /* ============== Move items ============== */
   const [transferBusy, setTransferBusy] = useState(false);
 
   /* ============== Cancel order ============== */
@@ -254,14 +252,13 @@ const TerminalPage: React.FC = () => {
   const [lastCompleted, setLastCompleted] = useState<{
     lines: ReceiptLine[]; total: number; discountPercent: number; discountAmount: number;
     orderTypeLabel?: string; tableLabel?: string; customerName?: string;
-    invoiceNumber?: string; invoiceId?: string;
+    invoiceNumber?: string; invoiceId?: string; receiptHtml?: string;
   } | null>(null);
   const permissions = useAuthStore((s) => s.permissions);
   const canReprint = permissions?.includes('pos:reports');
   const [showReprint, setShowReprint] = useState<{ invoiceId: string; title: string } | null>(null);
 
-  /* ============== POS Mode (Tables vs Counter) ============== */
-  const [posMode, setPosMode] = useState<'tables' | 'counter'>('tables');
+  /* ============== Order type (Dine In / Takeaway / Delivery) ============== */
   /* selectedTableId � the table being worked on (null = grid view). */
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
   /* tableView: 'grid' | 'detail' | 'ordering' � sub-state within tables mode. */
@@ -489,7 +486,6 @@ const TerminalPage: React.FC = () => {
     tabSyncSig.current = '__loading__';
     setSelectedTableId(t.id);
     setTableView('ordering');
-    setPosMode('tables');
     void loadTableOrder(t.id);
   }, [saveTab, customer?.id, loadTableOrder]);
 
@@ -499,14 +495,12 @@ const TerminalPage: React.FC = () => {
     currentSentLineIds.current = new Set();
     setSelectedTableId(t.id);
     setTableView('ordering');
-    setPosMode('tables');
   }, [loadTableCart]);
 
   const handleContinueDraft = useCallback((t: PosTable) => {
     loadTableCart(t.id);
     setSelectedTableId(t.id);
     setTableView('ordering');
-    setPosMode('tables');
   }, [loadTableCart]);
 
   const handleGoBackToGrid = useCallback(async () => {
@@ -544,9 +538,8 @@ const TerminalPage: React.FC = () => {
     setTableView('grid');
     clearCart();
     setCustomer(null);
-    setOrderType(undefined);
     useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined, sentToKitchen: false });
-  }, [saveTab, customer?.id, clearCart, setOrderType]);
+  }, [saveTab, customer?.id, clearCart]);
 
   /* Auto-save cart to tableCartsRef when leaving the OrderPanel view. */
   useEffect(() => {
@@ -555,37 +548,34 @@ const TerminalPage: React.FC = () => {
     }
   }, [tableView, saveCurrentTableCart]);
 
-  /* Switch between Tables (dine-in) and Counter (quick takeaway) mode.
-   * Counter mode renders the menu directly (no table grid). Flush any
-   * in-progress dine-in cart to its table, then start a clean cart so the two
-   * modes never cross-contaminate (counter sales must not auto-save onto a
-   * table, and a table cart must not leak into a counter checkout). */
-  const handleChangeMode = useCallback((mode: 'tables' | 'counter') => {
-    if (mode === posMode) return;
+  /* Switch order type: dine-in, takeaway, or delivery. When leaving dine-in
+   * (table mode), flush any in-progress table cart and show menu directly. */
+  const handleChangeOrderType = useCallback((type: 'dine-in' | 'takeaway' | 'delivery') => {
     const cart = useCartStore.getState();
-    if (cart.tableId && orderSig(cart.lines) !== tabSyncSig.current) {
-      saveTab
-        .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id })
-        .catch(() => { /* best effort — server keeps the last good save */ });
+    if (cart.tableId) {
+      if (orderSig(cart.lines) !== tabSyncSig.current) {
+        saveTab
+          .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id })
+          .catch(() => { /* best effort */ });
+      }
+      setSelectedTableId(null);
+      clearCart();
+      useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined, sentToKitchen: false });
+      tabSyncSig.current = orderSig([]);
     }
+    setOrderType(type);
+    setTableView(type === 'dine-in' ? 'grid' : 'ordering');
     setSelectedTableId(null);
-    setTableView('grid');
-    clearCart();
-    useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined, sentToKitchen: false });
-    setOrderType(mode === 'counter' ? 'takeaway' : undefined);
-    tabSyncSig.current = orderSig([]);
-    setPosMode(mode);
-  }, [posMode, clearCart, setOrderType, saveTab, customer?.id]);
+  }, [clearCart, setOrderType, saveTab, customer?.id]);
 
   /* ============== Mutations ============== */
   const checkout = useCheckout();
 
-  /* On mount, baseline the sync signature to whatever the cart rehydrated to
-   * (sessionStorage persists the cart across reloads). Without this, a stale
-   * persisted cart looks like an unsaved change and the auto-save below would
-   * clobber the bound table's real order with stale items on first render. */
+  /* On mount, baseline the sync signature and default order type. */
   useEffect(() => {
-    tabSyncSig.current = orderSig(useCartStore.getState().lines);
+    const state = useCartStore.getState();
+    tabSyncSig.current = orderSig(state.lines);
+    if (!state.orderType) useCartStore.getState().setOrderType('dine-in');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -619,7 +609,9 @@ const TerminalPage: React.FC = () => {
   }, []);
 
   const locked = !sessionLoading && !session && !sessionFetching;
-  const orderTypeLabel = posMode === 'counter' ? 'Takeaway' : 'Dine In';
+  const orderTypeFromStore = useCartStore((s) => s.orderType);
+  const ORDER_TYPE_LABELS: Record<string, string> = { 'dine-in': 'Dine In', takeaway: 'Takeaway', delivery: 'Delivery' };
+  const orderTypeLabel = orderTypeFromStore ? ORDER_TYPE_LABELS[orderTypeFromStore] ?? 'Dine In' : 'Dine In';
   const activeTableLabel = selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : null;
   const [showTableSelector, setShowTableSelector] = useState(false);
 
@@ -787,39 +779,6 @@ const TerminalPage: React.FC = () => {
    * server draft's line ids line up 1:1 with the on-screen order, then map our
    * selection (made against cart lineIds) onto the canonical server line ids
    * before moving them. Finally we reload THIS table to show the remainder. */
-  const doTransferItems = useCallback(async (targetId: string) => {
-    if (!tableId || !transferSelection?.length) return;
-    setTransferBusy(true);
-    try {
-      const currentLines = useCartStore.getState().lines;
-      const saved = await saveTab.mutateAsync({ tableId, lines: currentLines.map(cartLineToPayload), partnerId: customer?.id });
-      tabSyncSig.current = orderSig(currentLines);
-      const serverLines: any[] = (saved as any)?.lines ?? [];
-      // saveTabItems rebuilds lines in cart order → index i maps cart[i] ↔ server[i].
-      const items = transferSelection
-        .map((s) => {
-          const idx = currentLines.findIndex((l) => l.lineId === s.lineId);
-          const srv = idx >= 0 ? serverLines[idx] : undefined;
-          return srv ? { lineId: srv.id as string, quantity: s.quantity } : null;
-        })
-        .filter((x): x is { lineId: string; quantity: number } => x != null);
-      if (items.length === 0) { toast.error('Could not match the selected items to the saved order'); return; }
-      const res = await transferItemsMut.mutateAsync({ sourceId: tableId, targetId, items });
-      const moved = ((res as any)?.movedSummary ?? []).reduce((s: number, i: any) => s + Number(i.quantity), 0);
-      const dest = tables.find((t) => t.id === targetId);
-      toast.success(`Transferred ${moved} item(s) to T${dest?.number ?? ''}`);
-      setTransferSelection(null);
-      // Refresh the source cart to its remaining lines (deterministic reload).
-      setPendingTableLoad(tableId);
-      tabSyncSig.current = '__loading__';
-      await loadTableOrder(tableId);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Transfer failed');
-    } finally {
-      setTransferBusy(false);
-    }
-  }, [tableId, transferSelection, saveTab, customer?.id, transferItemsMut, tables, loadTableOrder]);
-
   /* Move Items — invoked by MoveItemsDialog after step 2 (destination + selection). */
   const doMoveItems = useCallback(async (targetId: string, selection: Array<{ lineId: string; quantity: number }>) => {
     if (!tableId || !selection.length) return;
@@ -885,7 +844,7 @@ const TerminalPage: React.FC = () => {
     });
     try {
       const order = await createOrderMut.mutateAsync({
-        orderType: tableId ? 'dine_in' : 'takeaway',
+        orderType: orderTypeFromStore === 'dine-in' ? 'dine_in' : orderTypeFromStore === 'takeaway' ? 'takeaway' : 'delivery',
         tableId: tableId || undefined,
         partnerId: customer.id,
         cashSessionId: session?.id,
@@ -903,6 +862,7 @@ const TerminalPage: React.FC = () => {
         total,
         invoiceNumber: (invoice as any).documentNumber,
         invoiceId: (invoice as any).id,
+        receiptHtml: (invoice as any).receiptHtml,
         discountPercent: effectiveTxPct,
         discountAmount: 0,
         orderTypeLabel: orderTypeLabel ?? undefined,
@@ -959,6 +919,7 @@ const TerminalPage: React.FC = () => {
           total,
           invoiceNumber: (res as any).invoiceNumber,
           invoiceId: (res as any).invoiceId,
+          receiptHtml: (res as any).receiptHtml,
           discountPercent: effectiveTxPct,
           discountAmount: 0,
           orderTypeLabel: orderTypeLabel ?? undefined,
@@ -1028,6 +989,7 @@ const TerminalPage: React.FC = () => {
       partnerId: customer?.id,
       // Tables (ADR-012): tie the sale to the active table when present.
       tableId: tableId || undefined,
+      orderType: orderTypeFromStore === 'dine-in' ? 'dine_in' : orderTypeFromStore === 'takeaway' ? 'takeaway' : 'delivery',
       guestCount: undefined as number | undefined,
     } as any;
     try {
@@ -1037,6 +999,7 @@ const TerminalPage: React.FC = () => {
       setLastCompleted({
         lines: cartToReceiptLines(lines),
         total, invoiceNumber: res.invoiceNumber, invoiceId: res.invoiceId,
+        receiptHtml: res.receiptHtml,
         discountPercent: effectiveTxPct,
         discountAmount: effectiveTxPct > 0 ? total - lines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0) : 0,
         orderTypeLabel: orderTypeLabel ?? undefined,
@@ -1239,15 +1202,10 @@ const TerminalPage: React.FC = () => {
         onLogout={logout}
         onUserChanged={handleUserChanged}
         rightExtras={<OfflineIndicator />}
-        posMode={posMode}
-        onChangeMode={handleChangeMode}
+        orderType={orderTypeFromStore ?? 'dine-in'}
       />
 
-      <div className="pos-body-pro" style={
-        tableView === 'grid' || tableView === 'detail'
-          ? { gridTemplateColumns: '1fr' }
-          : undefined
-      }>
+      <div className="pos-body-pro">
         {locked ? (
           <div className="pos-lock-overlay-pro">
             <div className="pos-lock-icon"><LockIcon className="h-10 w-10" /></div>
@@ -1262,86 +1220,80 @@ const TerminalPage: React.FC = () => {
               <Coffee className="pos-action-icon" /> Open shift
             </button>
           </div>
-        ) : posMode === 'tables' && tableView === 'grid' ? (
-          <div className="flex flex-col h-full">
-            <div className="flex-1 overflow-y-auto p-6">
-              {tablesLoading ? (
-                <div className="text-center text-slate-400 py-12">Loading tables...</div>
-              ) : tables.length === 0 ? (
-                <div className="text-center text-slate-400 py-12">
-                  <LayoutGrid className="h-10 w-10 mx-auto mb-3 opacity-50" />
-                  <p className="font-semibold">No tables configured</p>
-                  <p className="text-xs mt-1">Create tables in the Tables admin page first.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                  {tables.map((t) => {
-                    const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
-                    const backendTotal = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
-                    const statusColors: Record<string, string> = {
-                      available: 'bg-emerald-400',
-                      occupied: 'bg-amber-400',
-                      reserved: 'bg-sky-400',
-                      out_of_service: 'bg-slate-400',
-                    };
-                    // Trust server status (auto-synced via open orders)
-                    const status = t.status;
-                    const dotClass = statusColors[status] ?? 'bg-slate-300';
-                    const statusLabel = status === 'occupied' ? 'Occupied' : status === 'out_of_service' ? 'Out of service' : status === 'reserved' ? 'Reserved' : 'Available';
-                    const hasLocal = tableHasLocalCart(t.id);
-                    const local = localCartTotal(t.id);
-                    const combinedTotal = backendTotal + local;
-                    const combinedCount = openOrders.length + (hasLocal ? 1 : 0);
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => handleTableClick(t)}
-                        className="relative rounded-xl p-4 border-2 border-slate-200 bg-white hover:border-indigo-400 hover:shadow-lg transition-all text-left group min-h-[120px]"
-                      >
-                        <span className={`absolute top-3 right-3 w-3 h-3 rounded-full ${dotClass} shadow-sm`} />
-                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                          T{t.number}
-                        </div>
-                        <div className="text-sm font-bold text-slate-800 leading-tight pr-6 mb-2">
-                          {t.name}
-                        </div>
-                        <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-1">
-                          <Users className="w-3 h-3" /> {t.seats}
-                          <span className={'ml-auto text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ' + (status === 'occupied' ? 'bg-amber-100 text-amber-700' : status === 'out_of_service' ? 'bg-slate-100 text-slate-500' : status === 'reserved' ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700')}>
-                            {statusLabel}
-                          </span>
-                        </div>
-                        {combinedCount > 0 ? (
-                          <>
-                            <div className="text-[10px] font-semibold text-slate-600 mb-0.5">
-                              {combinedCount} order{combinedCount !== 1 ? 's' : ''} · UGX {combinedTotal.toLocaleString()}
-                            </div>
-                            {hasLocal && (
-                              <div className="text-[9px] text-amber-600 font-semibold">
-                                ⚡ Draft cart ({tableCartsRef.current.get(t.id)?.lines.length ?? 0} items)
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <div className="text-[10px] text-slate-400 font-semibold mt-1">Tap to open</div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+        ) : (orderTypeFromStore === 'dine-in' || !orderTypeFromStore) && !selectedTableId && tableView !== 'ordering' ? (
+          /* Dine-in table grid (left) + OrderPanel (right) */
+          <div className="pos-menus-pro">
+            <div className="flex flex-col h-full">
+              <div className="flex-1 overflow-y-auto p-6">
+                {tablesLoading ? (
+                  <div className="text-center text-slate-400 py-12">Loading tables...</div>
+                ) : tables.length === 0 ? (
+                  <div className="text-center text-slate-400 py-12">
+                    <LayoutGrid className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                    <p className="font-semibold">No tables configured</p>
+                    <p className="text-xs mt-1">Create tables in the Tables admin page first.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+                    {tables.map((t) => {
+                      const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
+                      const backendTotal = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
+                      const statusColors: Record<string, string> = {
+                        available: 'bg-emerald-400',
+                        occupied: 'bg-amber-400',
+                        reserved: 'bg-sky-400',
+                        out_of_service: 'bg-slate-400',
+                      };
+                      const status = t.status;
+                      const dotClass = statusColors[status] ?? 'bg-slate-300';
+                      const statusLabel = status === 'occupied' ? 'Occupied' : status === 'out_of_service' ? 'Out of service' : status === 'reserved' ? 'Reserved' : 'Available';
+                      const hasLocal = tableHasLocalCart(t.id);
+                      const local = localCartTotal(t.id);
+                      const combinedTotal = backendTotal + local;
+                      const combinedCount = openOrders.length + (hasLocal ? 1 : 0);
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => handleTableClick(t)}
+                          className="relative rounded-xl p-4 border-2 border-slate-200 bg-white hover:border-indigo-400 hover:shadow-lg transition-all text-left group min-h-[120px]"
+                        >
+                          <span className={`absolute top-3 right-3 w-3 h-3 rounded-full ${dotClass} shadow-sm`} />
+                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">T{t.number}</div>
+                          <div className="text-sm font-bold text-slate-800 leading-tight pr-6 mb-2">{t.name}</div>
+                          <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-1">
+                            <Users className="w-3 h-3" /> {t.seats}
+                            <span className={'ml-auto text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ' + (status === 'occupied' ? 'bg-amber-100 text-amber-700' : status === 'out_of_service' ? 'bg-slate-100 text-slate-500' : status === 'reserved' ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700')}>{statusLabel}</span>
+                          </div>
+                          {combinedCount > 0 ? (
+                            <>
+                              <div className="text-[10px] font-semibold text-slate-600 mb-0.5">{combinedCount} order{combinedCount !== 1 ? 's' : ''} · UGX {combinedTotal.toLocaleString()}</div>
+                              {hasLocal && <div className="text-[9px] text-amber-600 font-semibold">⚡ Draft cart ({tableCartsRef.current.get(t.id)?.lines.length ?? 0} items)</div>}
+                            </>
+                          ) : (
+                            <div className="text-[10px] text-slate-400 font-semibold mt-1">Tap to open</div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-        ) : posMode === 'tables' && tableView === 'detail' && selectedTable ? (
-          <TableDetailView
-            table={selectedTable}
-            onBack={handleGoBackToGrid}
-            onStartOrder={handleNewOrder}
-            onContinueDraft={handleContinueDraft}
-            hasLocalCart={tableHasLocalCart(selectedTable.id)}
-          />
+        ) : (orderTypeFromStore === 'dine-in' || !orderTypeFromStore) && selectedTableId && tableView === 'detail' && selectedTable ? (
+          /* Dine-in table detail view (left) + OrderPanel (right) */
+          <div className="pos-menus-pro">
+            <TableDetailView
+              table={selectedTable}
+              onBack={handleGoBackToGrid}
+              onStartOrder={handleNewOrder}
+              onContinueDraft={handleContinueDraft}
+              hasLocalCart={tableHasLocalCart(selectedTable.id)}
+            />
+          </div>
         ) : (
+          /* Menu (left) + OrderPanel (right) — ordering, takeaway, delivery */
           <>
             <div className="pos-menus-pro">
               <CategoryStrip
@@ -1353,55 +1305,52 @@ const TerminalPage: React.FC = () => {
                 <MenuGrid products={products as any} locked={locked} onPick={onPickProduct} />
               </div>
             </div>
-
-            <OrderPanel
-              customerName={customer?.name}
-              orderTypeLabel={orderTypeLabel ?? undefined}
-              tableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : undefined}
-              tableId={tableId}
-              billAlreadyPrinted={!!selectedTable?.orders?.find((o) => !o.closedAt && (o.document?.billPrintCount ?? 0) > 0)}
-              onPrintAdditionalBill={onPrintAdditionalBill}
-              onInc={onInc}
-              onDec={onDec}
-              onRemove={onRemove}
-              onNote={onLineNote}
-              onLineDiscount={onLineDiscount}
-              onPrintBill={onPrintBill}
-              onCharge={onCharge}
-              onSplit={onSplit}
-              onAddCustomer={() => setShowCustomer(true)}
-              onAddDiscount={() => setShowDiscount(true)}
-              onAddTax={onAddTax}
-              onCloseOrder={handleCloseOrder}
-              onPrintKot={async () => {
-                if (lines.length === 0) { toast.error('Cart is empty'); return; }
-                let printedLineIds = new Set<string>();
-                if (tableId) {
-                  try {
-                    await fireKitchen.mutateAsync({ tableId });
-                    const refreshed = await api.get(`/pos/tabs/${tableId}`).then((r: any) => r.data);
-                    const srvLines = (refreshed?.lines ?? []) as any[];
-                    printedLineIds = new Set(
-                      srvLines
-                        .filter((l: any) => l.kitchenLastPrintedAt != null)
-                        .map((l: any) => l.id),
-                    );
-                  } catch { /* KDS/KOT non-fatal */ }
-                }
-                const unprinted = lines.filter((l) => !printedLineIds.has(l.lineId));
-                if (unprinted.length === 0) {
-                  toast.info('All items already sent to kitchen');
-                  return;
-                }
-                setKotLines(unprinted);
-                setShowKotPreview(true);
-              }}
-              onVoidItem={(line) => setVoidLine(line)}
-              onMoveItems={() => setShowMoveItems(true)}
-              onSettleTab={tableId ? handleSettleTab : undefined}
-              onTransferItems={tableId ? setTransferSelection : undefined}
-            />
           </>
+        )}
+
+        {/* OrderPanel — always visible (right column) when not locked */}
+        {!locked && (
+          <OrderPanel
+            customerName={customer?.name}
+            orderTypeLabel={orderTypeLabel}
+            orderType={orderTypeFromStore ?? 'dine-in'}
+            onChangeOrderType={handleChangeOrderType}
+            tableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : undefined}
+            tableId={tableId}
+            billAlreadyPrinted={!!selectedTable?.orders?.find((o) => !o.closedAt && (o.document?.billPrintCount ?? 0) > 0)}
+            onPrintAdditionalBill={onPrintAdditionalBill}
+            onInc={onInc}
+            onDec={onDec}
+            onRemove={onRemove}
+            onNote={onLineNote}
+            onLineDiscount={onLineDiscount}
+            onPrintBill={onPrintBill}
+            onCharge={onCharge}
+            onSplit={onSplit}
+            onAddCustomer={() => setShowCustomer(true)}
+            onAddDiscount={() => setShowDiscount(true)}
+            onAddTax={onAddTax}
+            onCloseOrder={handleCloseOrder}
+            onPrintKot={async () => {
+              if (lines.length === 0) { toast.error('Cart is empty'); return; }
+              let printedLineIds = new Set<string>();
+              if (tableId) {
+                try {
+                  await fireKitchen.mutateAsync({ tableId });
+                  const refreshed = await api.get(`/pos/tabs/${tableId}`).then((r: any) => r.data);
+                  const srvLines = (refreshed?.lines ?? []) as any[];
+                  printedLineIds = new Set(srvLines.filter((l: any) => l.kitchenLastPrintedAt != null).map((l: any) => l.id));
+                } catch { /* KDS/KOT non-fatal */ }
+              }
+              const unprinted = lines.filter((l) => !printedLineIds.has(l.lineId));
+              if (unprinted.length === 0) { toast.info('All items already sent to kitchen'); return; }
+              setKotLines(unprinted);
+              setShowKotPreview(true);
+            }}
+            onVoidItem={(line) => setVoidLine(line)}
+            onMoveItems={() => setShowMoveItems(true)}
+            onSettleTab={tableId ? handleSettleTab : undefined}
+          />
         )}
       </div>
 
@@ -1482,16 +1431,6 @@ const TerminalPage: React.FC = () => {
         />
       ) : null}
 
-      {/* Transfer items — destination picker */}
-      <TransferItemsDialog
-        open={!!transferSelection}
-        onClose={() => setTransferSelection(null)}
-        sourceTableId={tableId ?? null}
-        itemCount={transferSelection?.length ?? 0}
-        onConfirm={doTransferItems}
-        busy={transferBusy}
-      />
-
       {/* Cancel order dialog */}
       <CancelOrderDialog
         open={showCancelOrder}
@@ -1562,6 +1501,7 @@ const TerminalPage: React.FC = () => {
           open
           invoiceId={lastCompleted.invoiceId}
           invoiceNumber={lastCompleted.invoiceNumber}
+          receiptHtml={lastCompleted.receiptHtml}
           canReprint={false}
           onClose={() => setLastCompleted(null)}
         />
@@ -1618,6 +1558,7 @@ const TerminalPage: React.FC = () => {
         productName={pendingItem?.productName ?? ''}
         groups={pendingBundle?.accompanimentGroups ?? []}
         onClose={cancelOrderFlow}
+        onBack={() => setPendingItem((prev) => prev ? { ...prev, variantId: undefined, variantName: undefined, variantPrice: undefined } : prev)}
         onConfirm={onAccompanimentConfirm}
       />
       <AddOnsDialog
@@ -1625,6 +1566,7 @@ const TerminalPage: React.FC = () => {
         productId={pendingItem?.productId ?? null}
         basePrice={effectiveBasePrice > 0 ? effectiveBasePrice : undefined}
         onClose={cancelOrderFlow}
+        onBack={() => setPendingItem((prev) => prev ? { ...prev, accompanimentOptionIds: undefined, accompanimentNames: undefined, accompanimentPriceImpact: undefined } : prev)}
         onAdd={onAddAddOnsConfirm}
       />
 

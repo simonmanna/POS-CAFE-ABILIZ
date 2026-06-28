@@ -1,7 +1,5 @@
-// P4 — Modifier picker dialog. Opens when a cashier taps a product that
-// has required modifier groups (e.g. "Latte" → "Choose size + milk").
 import React, { useEffect, useMemo, useState } from 'react';
-import { Coffee, X, Check, Minus, Plus } from 'lucide-react';
+import { Coffee, X, Check, Minus, Plus, ArrowLeft } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useMenuItemBundle, type ModifierGroupFE } from './pos-features-api';
@@ -9,15 +7,12 @@ import { useMenuItemBundle, type ModifierGroupFE } from './pos-features-api';
 interface Props {
   open: boolean;
   productId: string | null;
-  /** Override base price (variant price + accompaniment impact). Falls back to bundle.product.unitPrice. */
   basePrice?: number;
   onClose: () => void;
-  /** Resolves to the selected modifiers (with names + price deltas), the
-   *  quantity, and the free-form note. */
+  onBack?: () => void;
   onAdd: (input: {
     productId: string;
     productName: string;
-    /** Per-unit price = base + selected modifier deltas. */
     unitPrice: number;
     sku: string | null;
     modifiers: Array<{ modifierId: string; name: string; priceDelta: number }>;
@@ -29,9 +24,15 @@ interface Props {
 
 const fmt = (n: number) => `UGX ${Number(n || 0).toLocaleString()}`;
 
-/** All modifier selections are detached when the dialog closes — reset to
- *  defaults when the bundle changes or the dialog re-opens. */
-export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onClose, onAdd }) => {
+const StepDots = ({ current, total }: { current: number; total: number }) => (
+  <div className="flex items-center gap-1">
+    {Array.from({ length: total }, (_, i) => (
+      <span key={i} className={`h-1.5 rounded-full transition-all ${i < current ? 'w-4 bg-amber-500' : i === current ? 'w-6 bg-amber-600' : 'w-1.5 bg-slate-300'}`} />
+    ))}
+  </div>
+);
+
+export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onClose, onBack, onAdd }) => {
   const { data: bundle, isLoading } = useMenuItemBundle(open ? productId : null);
   const [modifierSelection, setModifierSelection] = useState<Record<string, Set<string>>>({});
   const [addonQty, setAddonQty] = useState<Record<string, Record<string, number>>>({});
@@ -51,16 +52,13 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
     for (const g of bundle.groups) {
       if (g.groupType === 'MODIFIER') {
         const defaults = g.modifiers.filter((m) => m.isDefault);
-        if (defaults.length > 0) {
-          modSel[g.id] = new Set(defaults.map((m) => m.id).slice(0, g.maxSelect));
-        } else {
-          modSel[g.id] = new Set();
-        }
+        modSel[g.id] = defaults.length > 0
+          ? new Set(defaults.map((m) => m.id).slice(0, g.maxSelect))
+          : new Set();
       } else {
         const qtyMap: Record<string, number> = {};
         for (const m of g.modifiers) {
-          if (m.isDefault) qtyMap[m.id] = 1;
-          else qtyMap[m.id] = 0;
+          qtyMap[m.id] = m.isDefault ? 1 : 0;
         }
         addQty[g.id] = qtyMap;
       }
@@ -144,6 +142,9 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
 
   const effectiveBasePrice = basePrice ?? bundle?.product.unitPrice ?? 0;
 
+  const hasAddOns = bundle?.groups.some((g) => g.groupType === 'ADD_ON') ?? false;
+  const hasModifiers = bundle?.groups.some((g) => g.groupType === 'MODIFIER') ?? false;
+
   const renderStepper = (g: ModifierGroupFE, m: typeof g.modifiers[0]) => {
     const qty = addonQty[g.id]?.[m.id] ?? 0;
     const lineTotal = qty * Number(m.priceDelta);
@@ -162,7 +163,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
             aria-label={`decrease ${m.name}`}
             disabled={qty === 0}
             onClick={() => decAddon(g, m.id)}
-            className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50"
+            className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50 transition-colors"
           >
             <Minus className="h-3 w-3" />
           </button>
@@ -172,7 +173,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
             aria-label={`increase ${m.name}`}
             disabled={qty >= g.maxSelect}
             onClick={() => incAddon(g, m.id)}
-            className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50"
+            className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50 transition-colors"
           >
             <Plus className="h-3 w-3" />
           </button>
@@ -188,15 +189,16 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
         key={m.id}
         type="button"
         onClick={() => toggleModifier(g, m.id)}
-        className={
-          'px-2.5 py-1.5 rounded-md text-xs font-semibold border-2 text-left flex items-center justify-between ' +
-          (selected
-            ? 'border-amber-500 bg-amber-50 text-amber-900'
-            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300')
-        }
+        className={`px-2.5 py-2 rounded-md text-xs font-semibold border-2 text-left flex items-center justify-between transition-all duration-150 ${
+          selected
+            ? 'border-amber-500 bg-amber-50 text-amber-900 shadow-sm'
+            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:shadow-sm'
+        }`}
       >
         <span className="flex items-center gap-1.5">
-          {selected && <Check className="h-3 w-3" />}
+          <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${selected ? 'border-amber-500 bg-amber-500' : 'border-slate-300'}`}>
+            {selected && <Check className="h-2.5 w-2.5 text-white" />}
+          </span>
           {m.name}
         </span>
         <span className="text-[11px] font-mono">
@@ -209,17 +211,19 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
   const renderGroup = (g: ModifierGroupFE) => {
     const renderItem = (m: typeof g.modifiers[0]) =>
       g.groupType === 'ADD_ON' ? renderStepper(g, m) : renderToggle(g, m);
+    const isAddOn = g.groupType === 'ADD_ON';
+
     return (
       <div key={g.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
         <div className="flex items-center justify-between mb-2">
           <div className="font-bold text-sm">{g.name}</div>
           <div className="text-[11px] text-slate-500">
-            {g.groupType === 'ADD_ON'
-              ? `${g.minSelect > 0 ? `Choose at least ${g.minSelect}` : 'Optional'} · up to ${g.maxSelect}`
-              : `${g.minSelect > 0 ? `Choose at least ${g.minSelect}` : 'Optional'} · ${g.maxSelect === 1 ? 'Pick one' : `Up to ${g.maxSelect}`}`}
+            {isAddOn
+              ? `${g.minSelect > 0 ? 'Required' : 'Optional'} · up to ${g.maxSelect}`
+              : `${g.minSelect > 0 ? 'Required' : 'Optional'} · ${g.maxSelect === 1 ? 'Pick one' : `Up to ${g.maxSelect}`}`}
           </div>
         </div>
-        <div className={g.groupType === 'ADD_ON' ? 'space-y-1.5' : 'grid grid-cols-2 gap-1.5'}>
+        <div className={isAddOn ? 'space-y-1.5 max-h-48 overflow-y-auto pr-0.5' : 'grid grid-cols-2 gap-1.5'}>
           {g.modifiers.map(renderItem)}
         </div>
       </div>
@@ -232,24 +236,27 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Coffee className="h-4 w-4" />
-            {isLoading ? 'Loading…' : bundle?.product.name}
-          </DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="flex items-center gap-2">
+              <Coffee className="h-4 w-4" />
+              {isLoading ? 'Loading…' : bundle?.product.name}
+            </DialogTitle>
+            <StepDots current={2} total={3} />
+          </div>
           <DialogDescription>
-            Choose your options. For add-ons use the +/− to set quantity.
+            <span className="text-amber-600 font-semibold text-xs uppercase tracking-wide">Step 3 of 3</span> — Add-ons, modifiers & notes
           </DialogDescription>
         </DialogHeader>
 
         {bundle ? (
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-            {/* Quantity — the waiter sets it here before adding. */}
+            {/* Line quantity */}
             <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2">
-              <span className="text-sm font-bold text-slate-700">Items ×</span>
+              <span className="text-sm font-bold text-slate-700">Quantity</span>
               <div className="flex items-center gap-3">
-                <button type="button" aria-label="decrease quantity" onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="w-9 h-9 rounded-md border border-slate-300 font-bold text-xl leading-none">−</button>
+                <button type="button" aria-label="decrease quantity" onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="w-9 h-9 rounded-md border border-slate-300 font-bold text-xl leading-none hover:bg-slate-50 transition-colors">−</button>
                 <span className="w-8 text-center font-mono font-bold text-lg">{quantity}</span>
-                <button type="button" aria-label="increase quantity" onClick={() => setQuantity((q) => q + 1)} className="w-9 h-9 rounded-md border border-slate-300 font-bold text-xl leading-none">+</button>
+                <button type="button" aria-label="increase quantity" onClick={() => setQuantity((q) => q + 1)} className="w-9 h-9 rounded-md border border-slate-300 font-bold text-xl leading-none hover:bg-slate-50 transition-colors">+</button>
               </div>
             </div>
 
@@ -259,28 +266,30 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
               </div>
             ) : (
               <>
-                {bundle.groups.filter((g) => g.groupType === 'ADD_ON').length > 0 && (
+                {hasAddOns && (
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Add-ons</div>
                 )}
-                {bundle.groups.filter((g) => g.groupType === 'ADD_ON').map((g) => renderGroup(g))}
+                {bundle.groups.filter((g) => g.groupType === 'ADD_ON').map(renderGroup)}
 
-                {bundle.groups.filter((g) => g.groupType === 'MODIFIER').length > 0 && (
+                {hasModifiers && (
                   <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1 pt-2">Modifiers</div>
                 )}
-                {bundle.groups.filter((g) => g.groupType === 'MODIFIER').map((g) => renderGroup(g))}
+                {bundle.groups.filter((g) => g.groupType === 'MODIFIER').map(renderGroup)}
               </>
             )}
 
+            {/* Kitchen note */}
             <div>
               <div className="text-xs font-semibold text-slate-500 mb-1">Note for kitchen</div>
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder="e.g. extra hot, no sugar"
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400"
               />
             </div>
 
+            {/* Price breakdown */}
             <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 flex items-center justify-between">
               <span className="text-sm font-semibold text-amber-900">Base price</span>
               <span className="font-mono font-bold text-amber-900">{fmt(effectiveBasePrice)}</span>
@@ -305,9 +314,16 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
         ) : null}
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            <X className="h-4 w-4 mr-1" /> Cancel
-          </Button>
+          <div className="flex gap-2">
+            {onBack && (
+              <Button variant="ghost" onClick={onBack}>
+                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+              </Button>
+            )}
+            <Button variant="ghost" onClick={onClose}>
+              <X className="h-4 w-4 mr-1" /> Cancel
+            </Button>
+          </div>
           <Button
             onClick={() => {
               if (!bundle || !validation.ok) return;

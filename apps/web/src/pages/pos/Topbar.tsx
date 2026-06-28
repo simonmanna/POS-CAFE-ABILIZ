@@ -6,11 +6,11 @@ import {
   Minimize2,
   LogOut,
   BarChart3,
-  Power,
   PowerOff,
   User as UserIcon,
   LayoutGrid,
   ClipboardList,
+  PowerCircle,
 } from 'lucide-react';
 import type { CashSession } from './types';
 import { UserSwitcher } from './UserSwitcher';
@@ -31,9 +31,8 @@ interface Props {
   onLogout: () => void;
   onUserChanged: () => void;
   onOpenHeldOrders?: () => void;
-  /** Tables vs counter mode toggle (omit to hide the toggle). */
-  posMode?: 'tables' | 'counter';
-  onChangeMode?: (mode: 'tables' | 'counter') => void;
+  /** Dine-in: show the table-selector button; takeaway/delivery: hide it. */
+  orderType?: 'dine-in' | 'takeaway' | 'delivery';
   /** Extra nodes pinned to the right cluster (e.g. the offline indicator). */
   rightExtras?: React.ReactNode;
 }
@@ -60,8 +59,7 @@ export const Topbar: React.FC<Props> = ({
   onLogout,
   onUserChanged,
   onOpenHeldOrders,
-  posMode,
-  onChangeMode,
+  orderType,
   rightExtras,
 }) => {
   const shiftOpen = !!session && session.status === 'open';
@@ -84,14 +82,14 @@ export const Topbar: React.FC<Props> = ({
           borderColor: shiftOpen ? 'rgba(34, 197, 94, .5)' : 'rgba(239, 68, 68, .5)',
         }}
       >
-        {shiftOpen ? <Power className="h-3.5 w-3.5" /> : <PowerOff className="h-3.5 w-3.5" />}
+        {shiftOpen ? <PowerCircle className="h-3.5 w-3.5 text-red-500 " /> : <PowerOff className="h-3.5 w-3.5" />}
         {shiftOpen ? (
           <>
-            <span>Shift open</span>
+            <span>Shift Close</span>
             <span className="pos-active-dot" />
           </>
         ) : (
-          <span>Shift closed</span>
+          <span>Open Shift</span>
         )}
       </button>
 
@@ -108,8 +106,9 @@ export const Topbar: React.FC<Props> = ({
         </button>
       )}
 
-      {/* Table selector */}
-      {onOpenTableSelector && (
+      {/* Table selector (dine-in only) */}
+      {onOpenTableSelector && orderType === 'dine-in' && (
+        <>
         <button
           type="button"
           className="pos-tbl-pill"
@@ -121,42 +120,12 @@ export const Topbar: React.FC<Props> = ({
           }}
         >
           <LayoutGrid className="h-3.5 w-3.5" />
-          <span>{activeTableLabel ?? 'Tables'}</span>
+          <span>{'Tables'}</span>
           {activeTableLabel ? <span className="pos-active-dot" /> : null}
         </button>
+        <span>{activeTableLabel}</span>
+                  </>
       )}
-
-      {/* Tables / Counter mode toggle */}
-      {onChangeMode ? (
-        <div className="flex items-center gap-1 ml-1">
-          <button
-            type="button"
-            className="pos-tbl-pill"
-            onClick={() => onChangeMode('tables')}
-            title="Dine-in / tables mode"
-            style={{
-              background: posMode === 'tables' ? 'rgba(99, 102, 241, .25)' : undefined,
-              borderColor: posMode === 'tables' ? 'rgba(99, 102, 241, .6)' : undefined,
-            }}
-          >
-            <LayoutGrid className="h-3.5 w-3.5" />
-            <span>Tables</span>
-          </button>
-          <button
-            type="button"
-            className="pos-tbl-pill"
-            onClick={() => onChangeMode('counter')}
-            title="Counter / takeaway mode"
-            style={{
-              background: posMode === 'counter' ? 'rgba(99, 102, 241, .25)' : undefined,
-              borderColor: posMode === 'counter' ? 'rgba(99, 102, 241, .6)' : undefined,
-            }}
-          >
-            <Coffee className="h-3.5 w-3.5" />
-            <span>Counter</span>
-          </button>
-        </div>
-      ) : null}
 
       {/* Reports */}
       <button type="button" className="pos-tbl-pill" onClick={onOpenReports} title="X / Z reports + sales analytics">

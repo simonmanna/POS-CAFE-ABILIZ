@@ -1,6 +1,6 @@
 // Order panel — cart lines + qty steppers + line discount + totals + action grid.
 // Pure presentation: reads from the zustand cart store + emits events up.
-import React, { useState } from "react";
+import React from "react";
 import {
   ShoppingCart,
   Plus,
@@ -17,9 +17,6 @@ import {
   Hash,
   AlertTriangle,
   Printer,
-  ArrowRightLeft,
-  CheckSquare,
-  Square,
 } from "lucide-react";
 import { getFoodEmoji } from "./food-images";
 import {
@@ -31,9 +28,13 @@ import {
 } from "@/features/pos/cart.store";
 import type { CartLine } from "@/features/pos/types";
 
+export type OrderTypeOption = 'dine-in' | 'takeaway' | 'delivery';
+
 interface Props {
   customerName?: string;
   orderTypeLabel?: string;
+  orderType: OrderTypeOption;
+  onChangeOrderType: (t: OrderTypeOption) => void;
   tableLabel?: string;
   tableId?: string;
   onInc: (line: CartLine) => void;
@@ -53,19 +54,23 @@ interface Props {
   onMoveItems?: () => void;
   /** Dine-in: settle (pay) the table's order. */
   onSettleTab?: () => void;
-  /** Dine-in: transfer selected items (partial qty allowed) to another table. */
-  onTransferItems?: (
-    selection: Array<{ lineId: string; quantity: number }>,
-  ) => void;
   billAlreadyPrinted?: boolean;
   onPrintAdditionalBill?: () => void;
 }
 
 const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
 
+const ORDER_TYPES: Array<{ key: 'dine-in' | 'takeaway' | 'delivery'; label: string }> = [
+  { key: 'dine-in', label: 'Dine In' },
+  { key: 'takeaway', label: 'Takeaway' },
+  { key: 'delivery', label: 'Delivery' },
+];
+
 export const OrderPanel: React.FC<Props> = ({
   customerName,
   orderTypeLabel,
+  orderType,
+  onChangeOrderType,
   tableLabel,
   tableId,
   onInc,
@@ -84,7 +89,6 @@ export const OrderPanel: React.FC<Props> = ({
   onVoidItem,
   onMoveItems,
   onSettleTab,
-  onTransferItems,
   billAlreadyPrinted = false,
   onPrintAdditionalBill,
 }) => {
@@ -98,59 +102,27 @@ export const OrderPanel: React.FC<Props> = ({
   const itemCount = useCartStore(selectItemCount);
   const empty = lines.length === 0;
 
-  /* Transfer-items selection state (dine-in). `sel` maps lineId → qty to move. */
-  const [selectMode, setSelectMode] = useState(false);
-  const [sel, setSel] = useState<Record<string, number>>({});
-  const selCount = Object.keys(sel).length;
-  const exitSelect = () => {
-    setSelectMode(false);
-    setSel({});
-  };
-  const toggleLine = (l: CartLine) =>
-    setSel((p) => {
-      const n = { ...p };
-      if (n[l.lineId] != null) delete n[l.lineId];
-      else n[l.lineId] = l.quantity;
-      return n;
-    });
-  const setSelQty = (l: CartLine, q: number) =>
-    setSel((p) => ({
-      ...p,
-      [l.lineId]: Math.max(1, Math.min(l.quantity, Math.floor(q) || 1)),
-    }));
-  const confirmTransfer = () => {
-    const selection = Object.entries(sel).map(([lineId, quantity]) => ({
-      lineId,
-      quantity,
-    }));
-    if (selection.length === 0) return;
-    onTransferItems?.(selection);
-    exitSelect();
-  };
-
   return (
-    <div className="pos-order-pro flex flex-col h-full">
+    <div className="pos-order-pro">
       {/* Header */}
-      <div className="pos-order-head shrink-0">
-        <div className="flex flex-col leading-tight">
-          <div className="pos-ord-num">
-            {empty
-              ? "No items"
-              : `${itemCount} item${itemCount === 1 ? "" : "s"}`}
+      <div className="pos-order-head">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="pos-ord-num shrink-0">
+            {empty ? "No items" : `${itemCount} item${itemCount === 1 ? "" : "s"}`}
           </div>
-          <div className="pos-ord-table">
-            {orderTypeLabel ? (
-              <span className="text-amber-600 font-semibold mr-2">
-                {orderTypeLabel}
-              </span>
-            ) : null}
-            {tableLabel ? (
-              <span className="text-sky-600">{tableLabel}</span>
-            ) : null}
-            {!orderTypeLabel && !tableLabel
-              ? "Tap a category, scan a barcode, or search"
-              : null}
-          </div>
+          {orderTypeLabel ? (
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-white/20 text-white/90 shrink-0">
+              {orderTypeLabel}
+            </span>
+          ) : null}
+          {tableLabel ? (
+            <span className="text-[10px] font-semibold text-white/70 truncate min-w-0">
+              · {tableLabel}
+            </span>
+          ) : null}
+          {!orderTypeLabel && !tableLabel ? (
+            <span className="text-[11px] text-white/60 truncate">Tap a category, scan a barcode, or search</span>
+          ) : null}
         </div>
         {customerName ? (
           <div className="pos-ord-customer ml-2">
@@ -159,6 +131,20 @@ export const OrderPanel: React.FC<Props> = ({
           </div>
         ) : null}
         <div className="pos-ord-actions">
+          {/* Order type dropdown */}
+          <div className="mr-1 pr-1.5 flex items-center">
+            <select
+              className="text-[11px] font-bold cursor-pointer appearance-none bg-white/15 text-white rounded-md px-2 py-1 pr-5 border border-white/20"
+              value={orderType}
+              onChange={(e) => onChangeOrderType(e.target.value as OrderTypeOption)}
+              title="Order type"
+              style={{ backgroundImage: 'url("data:image/svg+xml,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3e%3cpath fill=%27%23fff%27 d=%27M5 6l3 3 3-3%27/%3e%3c/svg%3e")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 4px center', backgroundSize: '10px' }}
+            >
+              {ORDER_TYPES.map((ot) => (
+                <option key={ot.key} value={ot.key} className="text-slate-800">{ot.label}</option>
+              ))}
+            </select>
+          </div>
           <button
             type="button"
             className="pos-ord-action"
@@ -212,40 +198,15 @@ export const OrderPanel: React.FC<Props> = ({
           </p>
         </div>
       ) : (
-<div className="pos-order-list flex-shrink-0 max-h-66 overflow-y-auto min-h-0">
+<div className="pos-order-list min-h-0">
           {lines.map((it) => {
             const emoji = getFoodEmoji(it.name);
             const lineSub =
               it.quantity * it.unitPrice * (1 - it.discountPercent / 100);
             return (
-              <div
-                key={it.lineId}
-                className={
-                  "pos-order-card" +
-                  (selectMode && sel[it.lineId] != null
-                    ? " ring-2 ring-indigo-400"
-                    : "")
-                }
-              >
+              <div key={it.lineId} className="pos-order-card">
                 <div className="pos-card-row">
-                  {selectMode ? (
-                    <button
-                      type="button"
-                      onClick={() => toggleLine(it)}
-                      className="shrink-0 text-indigo-600"
-                      aria-label={
-                        sel[it.lineId] != null ? "deselect item" : "select item"
-                      }
-                    >
-                      {sel[it.lineId] != null ? (
-                        <CheckSquare className="h-5 w-5" />
-                      ) : (
-                        <Square className="h-5 w-5 text-slate-300" />
-                      )}
-                    </button>
-                  ) : (
-                    <div className="pos-card-emoji">{emoji}</div>
-                  )}
+                  <div className="pos-card-emoji">{emoji}</div>
                   <div className="flex-1 min-w-0">
                     <div className="pos-card-name truncate">{it.name}</div>
                     <div className="pos-card-line">
@@ -274,91 +235,19 @@ export const OrderPanel: React.FC<Props> = ({
                 {it.note ? (
                   <div className="pos-card-notes">! {it.note}</div>
                 ) : null}
-                {selectMode ? (
-                  sel[it.lineId] != null && it.quantity > 1 ? (
-                    <div className="flex items-center gap-2 px-1 pt-1 text-[11px] font-semibold text-slate-600">
-                      <span>Move</span>
-                      <div className="pos-qty">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelQty(it, (sel[it.lineId] ?? 1) - 1)
-                          }
-                          aria-label="decrease"
-                        >
-                          <Minus className="h-3 w-3" />
-                        </button>
-                        <div className="pos-qty-val">{sel[it.lineId]}</div>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSelQty(it, (sel[it.lineId] ?? 1) + 1)
-                          }
-                          aria-label="increase"
-                        >
-                          <Plus className="h-3 w-3" />
-                        </button>
-                      </div>
-                      <span className="text-slate-400">of {it.quantity}</span>
-                    </div>
-                  ) : null
-                ) : (
-                  <div className="pos-card-footer">
-                    <div className="pos-qty">
-                      <button
-                        type="button"
-                        onClick={() => onDec(it)}
-                        aria-label="decrease"
-                      >
-                        <Minus className="h-3 w-3" />
-                      </button>
-                      <div className="pos-qty-val">{it.quantity}</div>
-                      <button
-                        type="button"
-                        onClick={() => onInc(it)}
-                        aria-label="increase"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
-                    </div>
-                    <div className="pos-card-actions">
-                      <button
-                        type="button"
-                        className="pos-card-action"
-                        onClick={() => onNote(it)}
-                        title="Add note"
-                      >
-                        <StickyNote className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className="pos-card-action"
-                        onClick={() => onLineDiscount(it)}
-                        title="Line discount"
-                      >
-                        <Tag className="h-3.5 w-3.5" />
-                      </button>
-                      {onVoidItem ? (
-                        <button
-                          type="button"
-                          className="pos-card-action text-rose-500"
-                          onClick={() => onVoidItem(it)}
-                          title="Void item"
-                        >
-                          <AlertTriangle className="h-3.5 w-3.5" />
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="pos-card-action danger"
-                        onClick={() => onRemove(it)}
-                        title="Remove"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                <div className="pos-card-footer">
+                  <div className="pos-qty">
+                    <button type="button" onClick={() => onDec(it)} aria-label="decrease"><Minus className="h-3 w-3" /></button>
+                    <div className="pos-qty-val">{it.quantity}</div>
+                    <button type="button" onClick={() => onInc(it)} aria-label="increase"><Plus className="h-3 w-3" /></button>
                   </div>
-                )}
+                  <div className="pos-card-actions">
+                    <button type="button" className="pos-card-action" onClick={() => onNote(it)} title="Add note"><StickyNote className="h-3.5 w-3.5" /></button>
+                    <button type="button" className="pos-card-action" onClick={() => onLineDiscount(it)} title="Line discount"><Tag className="h-3.5 w-3.5" /></button>
+                    {onVoidItem ? <button type="button" className="pos-card-action text-rose-500" onClick={() => onVoidItem(it)} title="Void item"><AlertTriangle className="h-3.5 w-3.5" /></button> : null}
+                    <button type="button" className="pos-card-action danger" onClick={() => onRemove(it)} title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                </div>
               </div>
             );
           })}
@@ -383,129 +272,80 @@ export const OrderPanel: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Transfer-items selection bar (replaces the action grid while active). */}
-      {selectMode ? (
-        <div className="pos-order-actions">
+      {/* Actions */}
+      <div className="pos-order-actions">
+        <button
+          type="button"
+          className="pos-action-btn-pro bg-purple"
+          onClick={billAlreadyPrinted ? onPrintAdditionalBill : onPrintBill}
+          disabled={empty}
+          title={billAlreadyPrinted ? 'Print additional bill for new items' : 'Print bill (F8)'}
+        >
+          <Receipt className="pos-action-icon" /> {billAlreadyPrinted ? 'Additional Bill' : 'Bill'}{' '}
+          {!billAlreadyPrinted && <span className="pos-kbd">F8</span>}
+        </button>
+        <button
+          type="button"
+          className="pos-action-btn-pro bg-sky-600"
+          onClick={onPrintKot}
+          disabled={empty}
+        >
+          <Printer className="pos-action-icon" /> Print KOT
+        </button>
+
+        {tableId && onSettleTab ? (
           <button
             type="button"
-            className="pos-action-btn-pro bg-slate-400"
-            onClick={exitSelect}
+            className="pos-action-btn-pro bg-emerald"
+            onClick={onSettleTab}
+            disabled={empty}
+            title="Settle (pay) this table's order"
           >
-            <X className="pos-action-icon" /> Cancel
+           <CreditCard className="pos-action-icon" />Settle Bill
           </button>
+        ) : (
+          <button
+            type="button"
+            className="pos-action-btn-pro bg-emerald"
+            onClick={onCharge}
+            disabled={empty}
+          >
+            <CreditCard className="pos-action-icon" /> CheckOut{" "}
+            <span className="pos-kbd">F2</span>
+          </button>
+        )}
+
+        <button
+          type="button"
+          className="pos-action-btn-pro bg-amber"
+          onClick={onAddDiscount}
+          disabled={empty}
+        >
+          <Tag className="pos-action-icon" /> Discount
+        </button>
+
+        {onMoveItems ? (
           <button
             type="button"
             className="pos-action-btn-pro bg-pink"
-            onClick={confirmTransfer}
-            disabled={selCount === 0}
-            title="Choose a destination table for the selected items"
+            onClick={onMoveItems}
+            disabled={empty}
+            title="Move selected items to another table"
           >
-            <ArrowRightLeft className="pos-action-icon" /> Transfer Items
-            {selCount > 0 ? ` (${selCount})` : ""}
+            <MoveRight className="pos-action-icon" /> Move Items
           </button>
-        </div>
-      ) : (
-        <>
-          {/* Actions */}
-          <div className="pos-order-actions">
-            <button
-              type="button"
-              className="pos-action-btn-pro bg-purple"
-              onClick={billAlreadyPrinted ? onPrintAdditionalBill : onPrintBill}
-              disabled={empty}
-              title={billAlreadyPrinted ? 'Print additional bill for new items' : 'Print bill (F8)'}
-            >
-              <Receipt className="pos-action-icon" /> {billAlreadyPrinted ? 'Additional Bill' : 'Bill'}{' '}
-              {!billAlreadyPrinted && <span className="pos-kbd">F8</span>}
-            </button>
-            <button
-              type="button"
-              className="pos-action-btn-pro bg-sky-600"
-              onClick={onPrintKot}
-              disabled={empty}
-            >
-              <Printer className="pos-action-icon" /> Print KOT
-            </button>
-
-                        {tableId && onSettleTab ? (
-              <button
-                type="button"
-                className="pos-action-btn-pro bg-emerald"
-                onClick={onSettleTab}
-                disabled={empty}
-                title="Settle (pay) this table's order"
-              >
-               <CreditCard className="pos-action-icon" />Settle Bill
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="pos-action-btn-pro bg-emerald"
-                onClick={onCharge}
-                disabled={empty}
-              >
-                <CreditCard className="pos-action-icon" /> CheckOut{" "}
-                <span className="pos-kbd">F2</span>
-              </button>
-            )}
-
-
-            <button
-              type="button"
-              className="pos-action-btn-pro bg-amber"
-              onClick={onAddDiscount}
-              disabled={empty}
-            >
-              <Tag className="pos-action-icon" /> Discount
-            </button>
-
-            {onTransferItems && tableId ? (
-              <button
-                type="button"
-                className="pos-action-btn-pro bg-indigo-500"
-                onClick={() => setSelectMode(true)}
-                disabled={empty}
-                title="Select items to move to another table"
-              >
-                <ArrowRightLeft className="pos-action-icon" /> Transfer
-              </button>
-            ) : null}
-            {onMoveItems ? (
-              <button
-                type="button"
-                className="pos-action-btn-pro bg-pink"
-                onClick={onMoveItems}
-                disabled={empty}
-                title="Move selected items to another table"
-              >
-                <MoveRight className="pos-action-icon" /> Move Items
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="pos-action-btn-pro bg-pink"
-                onClick={onSplit}
-                disabled={empty}
-              >
-                <Scissors className="pos-action-icon" /> Split{" "}
-                <span className="pos-kbd">F4</span>
-              </button>
-            )}
-            {/* Dine-in: fire kitchen + settle. Counter: single CheckOut. */}
-            {/* {tableId && onSendToKitchen ? (
-              <button
-                type="button"
-                className="pos-action-btn-pro bg-teal-600"
-                onClick={onSendToKitchen}
-                disabled={empty}
-                title="Send the saved order to the kitchen"
-              >
-                <Send className="pos-action-icon" />Send Kitchen
-              </button>
-            ) : null} */}
-          </div>
-        </>
-      )}
+        ) : (
+          <button
+            type="button"
+            className="pos-action-btn-pro bg-pink"
+            onClick={onSplit}
+            disabled={empty}
+          >
+            <Scissors className="pos-action-icon" /> Split{" "}
+            <span className="pos-kbd">F4</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 };

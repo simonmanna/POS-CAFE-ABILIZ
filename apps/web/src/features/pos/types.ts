@@ -86,6 +86,9 @@ export interface CheckoutResult {
   paymentIds: string[];
   total: number;
   change: number;
+  receiptHtml?: string;
+  receiptText?: string;
+  receiptId?: string;
 }
 
 export interface XReport {

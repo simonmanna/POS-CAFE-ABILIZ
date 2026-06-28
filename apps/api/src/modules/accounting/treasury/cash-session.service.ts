@@ -86,6 +86,14 @@ export class CashSessionService {
       const register = await tx.cashRegister.findFirst({ where: { id: dto.cashRegisterId, organizationId } });
       if (!register) throw new NotFoundException('Cash register not found');
 
+      // Lock the register row (always exists) to serialize concurrent open()
+      // calls for this register. Prevents two requests from both seeing
+      // "no open session" and creating duplicate sessions.
+      await tx.$queryRawUnsafe(
+        'SELECT id FROM "CashRegister" WHERE "id" = $1 AND "organizationId" = $2 FOR UPDATE',
+        dto.cashRegisterId, organizationId,
+      );
+
       const existing = await tx.cashSession.findFirst({
         where: { organizationId, cashRegisterId: dto.cashRegisterId, status: 'open' },
       });

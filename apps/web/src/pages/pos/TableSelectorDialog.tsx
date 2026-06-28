@@ -1,14 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner';
 import {
   LayoutGrid,
   RefreshCw,
   Sparkles,
-  Link2,
-  ArrowRightLeft,
-  Users,
   Clock,
-  X,
 } from 'lucide-react';
 import {
   Dialog,
@@ -20,11 +15,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  useMergeTables,
   useTableStats,
   useTables,
-  useTransferTable,
-  useUnmergeTable,
 } from '@/features/tables/api';
 import type { PosTable, PosTableStatus } from '@/features/tables/types';
 import { STATUS_META, ZONE_LABEL, fmtMoney, minutesBetween } from '@/features/tables/utils';
@@ -51,24 +43,12 @@ export const TableSelectorDialog: React.FC<Props> = ({
 }) => {
   const { data: tables = [], refetch, isLoading } = useTables({ active: true });
   const { data: stats } = useTableStats();
-  const merge = useMergeTables();
-  const transfer = useTransferTable();
-  const unmerge = useUnmergeTable();
 
   const [filter, setFilter] = useState<'all' | PosTableStatus>('all');
   const [search, setSearch] = useState('');
-  const [actionTable, setActionTable] = useState<PosTable | null>(null);
-  const [target, setTarget] = useState<PosTable | null>(null);
-  const [mode, setMode] = useState<'merge' | 'transfer' | 'unmerge' | null>(null);
-  /* Which table survives a merge: the action table or the chosen target. */
-  const [mergeMaster, setMergeMaster] = useState<'action' | 'target'>('target');
 
   useEffect(() => {
     if (!open) {
-      setActionTable(null);
-      setTarget(null);
-      setMode(null);
-      setMergeMaster('target');
       setSearch('');
       setFilter('all');
     }
@@ -94,44 +74,6 @@ export const TableSelectorDialog: React.FC<Props> = ({
     for (const arr of map.values()) arr.sort((a, b) => a.number - b.number);
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [tables, filter, search]);
-
-  async function doUnmerge(t: PosTable) {
-    try {
-      await unmerge.mutateAsync(t.id);
-      toast.success(`T${t.number} unmerged`);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Failed to unmerge');
-    }
-  }
-
-  async function doConfirm() {
-    if (!actionTable || !target || !mode) return;
-    try {
-      if (mode === 'merge') {
-        // The master (kept) table is the merge target; the loser drains into it.
-        const master = mergeMaster === 'action' ? actionTable : target;
-        const loser = mergeMaster === 'action' ? target : actionTable;
-        await merge.mutateAsync({ sourceId: loser.id, targetId: master.id });
-        toast.success(`Merged T${loser.number} into T${master.number} (kept T${master.number})`);
-      } else {
-        await transfer.mutateAsync({ sourceId: actionTable.id, targetId: target.id });
-        toast.success(`Transferred orders to T${target.number}`);
-      }
-      setActionTable(null);
-      setTarget(null);
-      setMode(null);
-      setMergeMaster('target');
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Action failed');
-    }
-  }
-
-  const closeActionMode = () => {
-    setActionTable(null);
-    setTarget(null);
-    setMode(null);
-    setMergeMaster('target');
-  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -225,12 +167,6 @@ export const TableSelectorDialog: React.FC<Props> = ({
                       table={t}
                       selected={t.id === selectedId}
                       onPick={() => onPick(t)}
-                      onAction={(m) => {
-                        setActionTable(t);
-                        setMode(m);
-                        setTarget(null);
-                      }}
-                      onUnmerge={() => doUnmerge(t)}
                     />
                   ))}
                 </div>
@@ -255,93 +191,6 @@ export const TableSelectorDialog: React.FC<Props> = ({
             </Button>
           </DialogFooter>
         </div>
-
-        {/* Target picker (bottom sheet inside dialog) */}
-        {actionTable && mode && (
-          <div className="border-t border-slate-200 bg-white px-6 py-5 rounded-b-2xl animate-in slide-in-from-bottom">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="font-bold text-slate-800 text-sm">
-                  {mode === 'merge' ? 'Merge' : 'Transfer'} T{actionTable.number}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {mode === 'merge'
-                    ? 'Select a table to merge into.'
-                    : 'Select an available table to receive the orders.'}
-                </p>
-              </div>
-              <button
-                onClick={closeActionMode}
-                className="text-slate-400 hover:text-slate-600 p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="grid grid-cols-5 sm:grid-cols-6 lg:grid-cols-8 gap-2 max-h-36 overflow-y-auto">
-              {tables
-                .filter((x) => {
-                  if (x.id === actionTable.id || x.mergedIntoId) return false;
-                  // Merge allows an OCCUPIED target (Occupied + Occupied is a valid
-                  // combine per the epic); only out-of-service / archived are barred.
-                  if (mode === 'merge') return x.status !== 'out_of_service';
-                  return x.status === 'available';
-                })
-                .map((x) => (
-                  <button
-                    key={x.id}
-                    onClick={() => setTarget(x)}
-                    className={`py-2 px-1 text-xs font-semibold rounded-lg border-2 transition ${
-                      target?.id === x.id
-                        ? 'border-slate-800 bg-slate-800 text-white'
-                        : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                    }`}
-                  >
-                    T{x.number}
-                  </button>
-                ))}
-            </div>
-            {/* Master selection — which table survives the merge (User Story 2). */}
-            {mode === 'merge' && target ? (
-              <div className="mt-4 flex items-center gap-3 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2">
-                <span className="text-xs font-bold text-slate-600">Keep which table?</span>
-                {([
-                  { key: 'target' as const, tbl: target },
-                  { key: 'action' as const, tbl: actionTable },
-                ]).map(({ key, tbl }) => (
-                  <label key={key} className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 cursor-pointer">
-                    <input
-                      type="radio"
-                      name="merge-master"
-                      checked={mergeMaster === key}
-                      onChange={() => setMergeMaster(key)}
-                    />
-                    T{tbl.number}
-                  </label>
-                ))}
-                <span className="ml-auto text-[10px] text-slate-400">
-                  Orders combine onto the kept table; the other becomes Available.
-                </span>
-              </div>
-            ) : null}
-            <div className="flex justify-end gap-2 mt-4">
-              <Button variant="ghost" size="sm" onClick={closeActionMode}>
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                disabled={!target || merge.isPending || transfer.isPending}
-                onClick={doConfirm}
-                className={`${
-                  mode === 'merge'
-                    ? 'bg-indigo-600 hover:bg-indigo-700'
-                    : 'bg-pink-600 hover:bg-pink-700'
-                } text-white rounded-lg`}
-              >
-                {mode === 'merge' ? 'Merge' : 'Transfer'}
-              </Button>
-            </div>
-          </div>
-        )}
       </DialogContent>
     </Dialog>
   );
@@ -351,33 +200,31 @@ const TableCard: React.FC<{
   table: PosTable;
   selected: boolean;
   onPick: () => void;
-  onAction: (m: 'merge' | 'transfer' | 'unmerge') => void;
-  onUnmerge: () => void;
-}> = ({ table, selected, onPick, onAction, onUnmerge }) => {
+}> = ({ table, selected, onPick }) => {
   const meta = STATUS_META[table.status];
   const openOrders = (table.orders ?? []).filter((o) => !o.closedAt);
   const total = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
 
   return (
-    <div
+      <div
       onClick={onPick}
-      className={`relative rounded-2xl p-4 border cursor-pointer transition-all duration-200 
+      className={`relative rounded-xl p-3 border cursor-pointer transition-all duration-200 
         bg-white shadow-sm hover:shadow-md hover:scale-[1.01]
         ${selected ? 'ring-2 ring-indigo-500 ring-offset-2 shadow-md' : ''}
       `}
     >
       {/* Status badge top-right */}
       <span
-        className={`absolute top-3 right-3 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold border 
+        className={`absolute top-2 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border 
           ${meta.pill} bg-white`}
       >
-        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+        <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
         {meta.label}
       </span>
 
       {/* Table number & name */}
-      <div className="mb-3">
-        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+      <div className="mb-2">
+        <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
           T{table.number}
         </div>
         <div className="text-sm font-bold text-slate-800 leading-tight pr-14">
@@ -385,62 +232,23 @@ const TableCard: React.FC<{
         </div>
       </div>
 
-      {/* Seats */}
-      <div className="flex items-center text-[11px] text-slate-500 gap-1 mb-1">
-        <Users className="w-3 h-3" /> {table.seats}
-      </div>
-
-      {/* Open order info */}
+      {/* Open order info — time & price on one line */}
       {table.mergedIntoId && (
-        <div className="text-[10px] text-orange-600 font-semibold mt-1">
+        <div className="text-[11px] text-orange-600 font-semibold mt-1">
           Merged · orders on T{table.mergedInto?.number ?? '?'}
         </div>
       )}
-      {openOrders.length > 0 && (
-        <>
-          <div className="flex items-center text-[11px] text-slate-500 gap-1 mt-1">
+      {openOrders.length > 0 ? (
+        <div className="flex items-center justify-between mt-1 text-xs font-semibold text-slate-600">
+          <span className="flex items-center gap-1">
             <Clock className="w-3 h-3" />
             {minutesBetween(openOrders[0].openedAt, null)}m
-          </div>
-          <div className="mt-1 text-right font-bold text-slate-700 text-xs">
-            {fmtMoney(total)}
-          </div>
-        </>
+          </span>
+          <span>{fmtMoney(total)}</span>
+        </div>
+      ) : (
+        <div className="mt-1 text-xs text-slate-400 font-medium">Available</div>
       )}
-
-      {/* Action buttons */}
-      <div
-        className="mt-3 flex flex-wrap gap-1.5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {table.mergedIntoId ? (
-          <button
-            type="button"
-            className="text-[10px] px-2 py-1 rounded-md bg-orange-50 text-orange-700 hover:bg-orange-100 font-semibold flex items-center gap-1 transition"
-            onClick={onUnmerge}
-          >
-            <X className="w-3 h-3" /> Unmerge
-          </button>
-        ) : null}
-        {openOrders.length > 0 && !table.mergedIntoId && (
-          <>
-            <button
-              type="button"
-              className="text-[10px] px-2 py-1 rounded-md bg-pink-50 text-pink-700 hover:bg-pink-100 font-semibold flex items-center gap-1 transition"
-              onClick={() => onAction('transfer')}
-            >
-              <ArrowRightLeft className="w-3 h-3" /> Transfer
-            </button>
-            <button
-              type="button"
-              className="text-[10px] px-2 py-1 rounded-md bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-semibold flex items-center gap-1 transition"
-              onClick={() => onAction('merge')}
-            >
-              <Link2 className="w-3 h-3" /> Merge
-            </button>
-          </>
-        )}
-      </div>
     </div>
   );
 };

@@ -46,8 +46,8 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-weight: 700;
-  font-size: 1.25rem;
+  font-weight: 600;
+  font-size: 1rem;
   padding-right: 0.4rem;
   border-right: 1px solid rgba(255, 255, 255, 0.15);
   white-space: nowrap;
@@ -56,8 +56,8 @@
 .pos-tbl-pill {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.35rem 0.7rem;
+  gap: 0.6rem;
+  padding: 0.1rem 0.5rem;
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
@@ -66,6 +66,7 @@
   cursor: pointer;
   transition: all 0.15s ease;
   color: inherit;
+  margin-inline: 1rem;
 }
 .pos-tbl-pill:hover {
   background: rgba(255, 255, 255, 0.16);
@@ -202,6 +203,7 @@
   gap: 0;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 @media (min-width: 1280px) {
   .pos-body-pro { grid-template-columns: minmax(0, 1fr) 400px; }
@@ -234,12 +236,12 @@
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  padding: 0.25rem 1rem;
+  padding: 0.1rem 0.5rem;
   background: #fff;
-  border: 1.5px solid #e2e8f0;
+  border: 1.5px solid #bcc2ca;
   border-radius: 999px;
-  font-size: 1.1rem;
-  font-weight: 700;
+  font-size: 1rem;
+  font-weight: 600;
   color: #475569;
   cursor: pointer;
   white-space: nowrap;
@@ -396,10 +398,11 @@
 
 /* ============== Order panel ============== */
 .pos-order-pro {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
   background: #fff;
   border-left: 1px solid #e2e8f0;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -454,12 +457,12 @@
 }
 
 .pos-order-list {
-  flex: 1;
   overflow-y: auto;
   padding: 0.35rem;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-height: 0;
 }
 
 .pos-order-empty {
@@ -626,7 +629,7 @@
   justify-content: space-between;
   align-items: baseline;
   font-size: 0.78rem;
-  padding: 4px 0;
+  padding: 4px 1rem;
   color: #475569;
 }
 .pos-totals-row.big {

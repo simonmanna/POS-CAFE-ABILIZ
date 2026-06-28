@@ -3,16 +3,24 @@
  *
  * Verifies a cashier's POS PIN (stored in User.pinHash, bcrypt).
  * Returns user info + aggregated permissions for the frontend store.
+ *
+ * Rate-limits failed attempts and locks the account after MAX_FAILED_ATTEMPTS
+ * to prevent brute-force attacks on the 4-8 digit PIN.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { PasswordService } from '../../kernel/auth/password.service';
 import { AuditService } from '../../kernel/audit/audit.service';
 
+const MAX_FAILED_ATTEMPTS = 10;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 min
+
 @Injectable()
 export class PosAuthService {
+  private readonly logger = new Logger(PosAuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
@@ -54,12 +62,29 @@ export class PosAuthService {
     });
     if (!user) throw new NotFoundException('Staff not found');
 
+    // Check if account is temporarily locked
+    if (user.lockedUntil && new Date() < user.lockedUntil) {
+      const remaining = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 1000 / 60);
+      throw new UnauthorizedException(`Account locked. Try again in ${remaining} min`);
+    }
+
     // Verify PIN
     if (!user.pinHash) {
       throw new UnauthorizedException('No POS PIN set. Ask a manager to set one.');
     }
     const ok = await this.password.compare(pin, user.pinHash);
-    if (!ok) throw new UnauthorizedException('Invalid PIN');
+    if (!ok) {
+      await this.recordFailedAttempt(user);
+      throw new UnauthorizedException('Invalid PIN');
+    }
+
+    // Successful login — reset counter
+    await this.prisma.client.user.update({
+      where: { id: user.id },
+      data: { failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() },
+    });
+
+    await this.recordAttempt(user.organizationId, user.email, true, null);
 
     // Aggregate permissions from all roles
     const permissions = [...new Set<string>(user.roles.flatMap((r: any) => r.permissions ?? []))];
@@ -72,12 +97,6 @@ export class PosAuthService {
       newValues: { posLogin: true },
     });
 
-    // Update last POS login
-    await this.prisma.client.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
-
     return {
       userId: user.id,
       firstName: user.firstName,
@@ -85,5 +104,34 @@ export class PosAuthService {
       email: user.email,
       permissions,
     };
+  }
+
+  // ─── private helpers ──────────────────────────────────────────────────────
+
+  private async recordFailedAttempt(user: any): Promise<void> {
+    const next = (user.failedLoginCount ?? 0) + 1;
+    const locked = next >= MAX_FAILED_ATTEMPTS;
+    await this.prisma.client.user.update({
+      where: { id: user.id },
+      data: {
+        failedLoginCount: next,
+        lockedUntil: locked ? new Date(Date.now() + LOCKOUT_DURATION_MS) : undefined,
+      },
+    });
+    const reason = locked ? 'account_locked' : 'invalid_pin';
+    await this.recordAttempt(user.organizationId, user.email, false, reason);
+    if (locked) {
+      this.logger.warn(`User ${user.email} POS PIN locked after ${next} failed attempts`);
+    }
+  }
+
+  private async recordAttempt(organizationId: string, email: string, success: boolean, reason: string | null): Promise<void> {
+    try {
+      await this.prisma.client.loginAttempt.create({
+        data: { organizationId, email, success, reason, createdAt: new Date() },
+      });
+    } catch {
+      // Don't fail the login request because of a logging failure.
+    }
   }
 }
