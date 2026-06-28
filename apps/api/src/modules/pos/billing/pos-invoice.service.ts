@@ -142,10 +142,12 @@ export class PosInvoiceService {
         data: { journalEntryId, status: 'posted', postedAt: new Date(), postedBy: this.tenant.userId ?? null },
       });
 
-      // Deduct inventory inside the same transaction (audit finding: was
-      // previously outside, causing drift on failure). Nested Prisma
-      // $transaction calls within stock.issue() join this outer tx.
-      await this.issueStockForItems(items, inv.invoiceNumber);
+      // Deduct inventory inside the SAME transaction by threading `tx` into the
+      // stock service (audit P0-1: previously stock.issue opened its own
+      // transaction on a separate connection, so an invoice rollback left the
+      // stock decremented — permanent drift). Now it joins this tx and rolls
+      // back atomically. Recipe errors are no longer swallowed.
+      await this.issueStockForItems(tx, items, inv.invoiceNumber);
 
       return tx.invoice.findFirst({ where: { id: inv.id }, include: { items: { orderBy: { lineNumber: 'asc' } } } });
     });
@@ -159,66 +161,83 @@ export class PosInvoiceService {
     return invoice;
   }
 
-  /** Receive one or more payments against an Invoice and settle it. */
+  /**
+   * Receive one or more payments against an Invoice and settle it.
+   *
+   * P0-2: the whole settlement is one transaction guarded by a `FOR UPDATE` row
+   * lock on the invoice. Two terminals settling the same invoice are serialised:
+   * the second blocks until the first commits, then re-reads a zero residual and
+   * is rejected below — no double-charge, no negative residual, no double close.
+   * The `version` column is bumped on every settlement for optimistic callers.
+   * Side effects (printing, events) run only AFTER the tx commits.
+   */
   async receivePayment(invoiceId: string, dto: ReceivePaymentDto) {
     const orgId = this.tenant.organizationId;
-    const invoice = await this.prisma.client.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId } });
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    if (invoice.status === 'cancelled' || invoice.status === 'refunded') throw new BadRequestException(`Invoice is ${invoice.status}`);
-    const residual = Number(invoice.amountResidual);
-    if (residual <= 0.001) throw new BadRequestException('Invoice is already fully paid');
 
-    // Determine if the invoice GL was already posted with a cash/bank
-    // counter-account (pre-settled). In that case, payments skip GL posting
-    // to avoid double-counting the cash entry.
-    const preSettledModes = new Set(['cash', 'card', 'mobile_money']);
-    const skipGl = invoice.paymentMode && preSettledModes.has(invoice.paymentMode);
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
+      // Serialise concurrent settlements of THIS invoice.
+      await tx.$queryRawUnsafe(`SELECT id FROM "Invoice" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, invoiceId, orgId);
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId } });
+      if (!invoice) throw new NotFoundException('Invoice not found');
+      if (invoice.status === 'cancelled' || invoice.status === 'refunded') throw new BadRequestException(`Invoice is ${invoice.status}`);
+      const residual = Number(invoice.amountResidual);
+      if (residual <= 0.001) throw new BadRequestException('Invoice is already fully paid');
 
-    const tenders = this.normalizeTenders(dto, residual);
-    let lastPaymentId: string | null = null;
-    for (const tender of tenders) {
-      let accountId: string | undefined;
-      if (tender.method === 'store_credit') {
-        accountId = await this.storeCreditAccountId();
+      // If the invoice GL was posted with a cash/bank counter-account
+      // (pre-settled), payments skip GL posting to avoid double-counting cash.
+      const preSettledModes = new Set(['cash', 'card', 'mobile_money']);
+      const skipGl = !!invoice.paymentMode && preSettledModes.has(invoice.paymentMode);
+
+      const tenders = this.normalizeTenders(dto, residual);
+      let lastPaymentId: string | null = null;
+      for (const tender of tenders) {
+        let accountId: string | undefined;
+        if (tender.method === 'store_credit') {
+          accountId = await this.storeCreditAccountId();
+        }
+        const payment = await this.payments.createReceipt({
+          partnerId: invoice.partnerId,
+          paymentDate: new Date().toISOString(),
+          paymentMethod: tender.method,
+          amount: tender.amount,
+          reference: tender.reference,
+          accountId,
+          cashSessionId: tender.method === 'cash' ? dto.cashSessionId : undefined,
+          skipGlPosting: skipGl,
+          // R2: allocate against the Invoice (not a Document).
+          allocations: [{ invoiceId: invoice.id, amount: tender.amount }],
+        } as any, tx);
+        if ((payment as any)?.id) lastPaymentId = (payment as any).id;
       }
-      const payment = await this.payments.createReceipt({
-        partnerId: invoice.partnerId,
-        paymentDate: new Date().toISOString(),
-        paymentMethod: tender.method,
-        amount: tender.amount,
-        reference: tender.reference,
-        accountId,
-        cashSessionId: tender.method === 'cash' ? dto.cashSessionId : undefined,
-        skipGlPosting: skipGl,
-        // R2: allocate against the Invoice (not a Document).
-        allocations: [{ invoiceId: invoice.id, amount: tender.amount }],
-      } as any);
-      if ((payment as any)?.id) lastPaymentId = (payment as any).id;
-    }
 
-    const fresh = await this.prisma.client.invoice.findFirst({ where: { id: invoiceId } });
-    const settled = Number(fresh!.amountResidual) <= 0.001;
-    const wasCredit = invoice.paymentMode === 'credit';
-    const paymentMode = wasCredit ? 'credit' : (tenders.length > 1 ? 'mixed' : MODE_FROM_METHOD[tenders[0].method] ?? 'cash');
-    const settlementStatus = settled ? 'settled' : 'partially_settled';
-    await this.prisma.client.invoice.update({
-      where: { id: invoiceId },
-      data: { paymentMode, settlementStatus, status: settled ? 'paid' : invoice.status },
+      const fresh = await tx.invoice.findFirst({ where: { id: invoiceId } });
+      const settled = Number(fresh!.amountResidual) <= 0.001;
+      const wasCredit = invoice.paymentMode === 'credit';
+      const paymentMode = wasCredit ? 'credit' : (tenders.length > 1 ? 'mixed' : MODE_FROM_METHOD[tenders[0].method] ?? 'cash');
+      const settlementStatus = settled ? 'settled' : 'partially_settled';
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: { paymentMode, settlementStatus, status: settled ? 'paid' : invoice.status, version: { increment: 1 } },
+      });
+
+      const receiptType = wasCredit ? 'settlement_receipt' : (settled ? 'payment_receipt' : 'partial_payment_receipt');
+      const receipt = await this.createReceipt(tx, invoice, receiptType, lastPaymentId);
+      // The cashier/settlement copy printed right after the customer one.
+      if (settled) await this.createReceipt(tx, invoice, 'merchant_copy', lastPaymentId);
+      const closed = settled ? await this.closeOrderForInvoice(tx, invoiceId) : null;
+
+      return { residual, settled, paymentMode, settlementStatus, receiptId: receipt.id, closed, invoiceNumber: invoice.invoiceNumber };
     });
 
-    const receiptType = wasCredit ? 'settlement_receipt' : (settled ? 'payment_receipt' : 'partial_payment_receipt');
-    const receipt = await this.createReceipt(invoice, receiptType, lastPaymentId);
-    // Record the cashier/settlement copy that is printed right after the customer one.
-    if (settled) await this.createReceipt(invoice, 'merchant_copy', lastPaymentId).catch(() => undefined);
+    // Side effects AFTER commit — never on a rolled-back tx.
     await this.printReceiptSafe(invoiceId);
-
-    if (settled) {
-      await this.closeOrderForInvoice(invoiceId);
-      this.events.publish(EVENTS.PosInvoiceSettled, { organizationId: orgId, invoiceId, invoiceNumber: invoice.invoiceNumber, paymentMode });
+    if (result.settled) {
+      if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
+      this.events.publish(EVENTS.PosInvoiceSettled, { organizationId: orgId, invoiceId, invoiceNumber: result.invoiceNumber, paymentMode: result.paymentMode });
     }
 
-    const tendered = dto.amountTendered ?? tenders.reduce((s, t) => s + t.amount, 0);
-    return { invoiceId, settlementStatus, paymentMode, receiptId: receipt.id, change: Math.max(0, tendered - residual) };
+    const tendered = dto.amountTendered ?? result.residual;
+    return { invoiceId, settlementStatus: result.settlementStatus, paymentMode: result.paymentMode, receiptId: result.receiptId, change: Math.max(0, tendered - result.residual) };
   }
 
   /** Settle on credit (postpaid house account). AR already booked at generation. */
@@ -230,9 +249,10 @@ export class PosInvoiceService {
     if (Number(invoice.amountResidual) <= 0.001) throw new BadRequestException('Invoice is already settled');
 
     await this.assertCreditAllowed(invoice.partnerId, Number(invoice.amountResidual));
-    await this.prisma.client.invoice.update({ where: { id: invoiceId }, data: { paymentMode: 'credit', settlementStatus: 'unsettled' } });
-    const receipt = await this.createReceipt(invoice, 'credit_issue_receipt', null);
-    await this.closeOrderForInvoice(invoiceId);
+    await this.prisma.client.invoice.update({ where: { id: invoiceId }, data: { paymentMode: 'credit', settlementStatus: 'unsettled', version: { increment: 1 } } });
+    const receipt = await this.createReceipt(this.prisma.client, invoice, 'credit_issue_receipt', null);
+    const closed = await this.closeOrderForInvoice(this.prisma.client, invoiceId);
+    if (closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: closed.orderId, invoiceId });
 
     this.events.publish(EVENTS.PosInvoiceCredited, {
       organizationId: orgId, invoiceId, invoiceNumber: invoice.invoiceNumber, partnerId: invoice.partnerId, amount: String(invoice.amountResidual),
@@ -276,29 +296,71 @@ export class PosInvoiceService {
     });
   }
 
-  /** Full refund/void: reverse the invoice GL, restock, mark refunded. */
+  /**
+   * Full refund/void: reverse the invoice GL, restock, return cash, mark refunded.
+   *
+   * P0-3: the whole thing is ONE transaction (GL reversal + restock + cash-out +
+   * status), so a partial failure can't leave reversed revenue with un-restored
+   * stock (or vice-versa). For a cash-settled sale the GL cash leg is reversed in
+   * step 1, and an outbound cash refund Payment (GL-skipped) is recorded so the
+   * cash-session Z-report reconciles with the money physically leaving the drawer.
+   */
   async refund(invoiceId: string, reason?: string) {
     const orgId = this.tenant.organizationId;
-    const invoice = await this.prisma.client.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: true } });
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    if (invoice.status === 'refunded') throw new BadRequestException('Invoice already refunded');
-    if (invoice.journalEntryId) {
-      await this.posting.reverse(invoice.journalEntryId, { description: `Refund of ${invoice.invoiceNumber}${reason ? ` — ${reason}` : ''}` });
-    }
-    // Restock the sold items.
-    const warehouse = await this.prisma.client.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
-    if (warehouse) {
-      for (const it of invoice.items as any[]) {
-        if (it.menuItemId) { await this.receiveMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, `Refund ${invoice.invoiceNumber}`); continue; }
-        if (!it.productId) continue;
-        try { await this.stock.receive({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `Refund ${invoice.invoiceNumber}` } as any); } catch (e: any) { this.logger.warn(`Stock operation failed: ${e?.message}`); }
+
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: true } });
+      if (!invoice) throw new NotFoundException('Invoice not found');
+      if (invoice.status === 'refunded') throw new BadRequestException('Invoice already refunded');
+
+      // 1) Reverse the invoice GL (Dr Revenue+Tax / Cr counter). For the canonical
+      //    pre-settled cash/card sale the counter was Cash/Bank, so the cash leg
+      //    is reversed here at the GL level.
+      if (invoice.journalEntryId) {
+        await this.posting.reverse(invoice.journalEntryId, { description: `Refund of ${invoice.invoiceNumber}${reason ? ` — ${reason}` : ''}` }, tx);
       }
-    }
-    await this.prisma.client.invoice.update({ where: { id: invoiceId }, data: { status: 'refunded', settlementStatus: 'settled', amountResidual: 0 } });
-    await this.createReceipt(invoice, 'merchant_copy', null);
+
+      // 2) Restock the sold items (recipe-aware) in the same tx.
+      const warehouse = await tx.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
+      if (warehouse) {
+        for (const it of invoice.items as any[]) {
+          if (it.menuItemId) { await this.receiveMenuItemRecipe(tx, it.menuItemId, Number(it.quantity), warehouse.id, `Refund ${invoice.invoiceNumber}`); continue; }
+          if (!it.productId) continue;
+          await this.stock.receive({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `Refund ${invoice.invoiceNumber}` } as any, tx);
+        }
+      }
+
+      // 3) Return cash to the drawer. GL cash was already reversed in (1), so this
+      //    outbound payment skips GL — it exists to write the CashMovement('refund')
+      //    that reconciles the session and to leave an auditable money-out trail.
+      //    Only for cash actually collected, on the same cashier's open session.
+      const cashPaid = Number(invoice.amountPaid);
+      if (cashPaid > 0.001 && invoice.cashSessionId) {
+        const session = await tx.cashSession.findFirst({ where: { id: invoice.cashSessionId, organizationId: orgId } });
+        if (session && session.status === 'open' && session.userId === this.tenant.userId) {
+          await this.payments.createCustomerRefund({
+            partnerId: invoice.partnerId,
+            paymentDate: new Date().toISOString(),
+            paymentMethod: 'cash',
+            amount: cashPaid,
+            reference: `Refund ${invoice.invoiceNumber}`,
+            cashSessionId: invoice.cashSessionId,
+            skipGlPosting: true,
+          } as any, tx);
+        }
+      }
+
+      // 4) Mark refunded + close the order (release the table).
+      await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'refunded', settlementStatus: 'settled', amountResidual: 0, version: { increment: 1 } } });
+      const closed = await this.closeOrderForInvoice(tx, invoiceId);
+      await this.createReceipt(tx, invoice, 'merchant_copy', null);
+      return { total: invoice.totalAmount.toString(), closed };
+    });
+
     await this.audit.record({ entity: 'Invoice', entityId: invoiceId, action: 'cancel' as any, newValues: { kind: 'refund', reason: reason ?? null } });
-    this.events.publish(EVENTS.PosRefundCompleted, { organizationId: orgId, invoiceId, creditNoteId: '', total: invoice.totalAmount.toString() } as any);
-    return { invoiceId, status: 'refunded', amount: invoice.totalAmount.toString() };
+    if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
+    this.events.publish(EVENTS.PosRefundCompleted, { organizationId: orgId, invoiceId, creditNoteId: '', total: result.total } as any);
+    return { invoiceId, status: 'refunded', amount: result.total };
   }
 
   /** Read an invoice with items (public — used by controllers). */
@@ -372,46 +434,49 @@ export class PosInvoiceService {
     return [{ method: dto.paymentMethod ?? 'cash', amount: residual } as TenderDto];
   }
 
-  private async issueStockForItems(items: any[], reference: string): Promise<void> {
+  private async issueStockForItems(tx: any, items: any[], reference: string): Promise<void> {
     const orgId = this.tenant.organizationId;
-    const warehouse = await this.prisma.client.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
+    const warehouse = await tx.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
     if (!warehouse) return;
     for (const it of items) {
-      if (it.menuItemId) { await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, `POS bill ${reference}`); continue; }
+      if (it.menuItemId) { await this.issueMenuItemRecipe(tx, it.menuItemId, Number(it.quantity), warehouse.id, `POS bill ${reference}`); continue; }
       if (!it.productId) continue;
-      const product = await this.prisma.client.product.findFirst({ where: { id: it.productId } });
+      const product = await tx.product.findFirst({ where: { id: it.productId } });
       if (!product?.trackInventory) continue;
       if (product.productType !== 'stockable' && product.productType !== 'consumable') continue;
-      await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `POS bill ${reference}` } as any);
+      await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `POS bill ${reference}` } as any, tx);
     }
   }
 
-  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
-    const recipe = await this.prisma.client.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
+  // P0-1: errors are NOT swallowed — a stock failure must roll back the invoice
+  // (atomic) instead of silently corrupting on-hand quantities.
+  private async issueMenuItemRecipe(tx: any, menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
+    const recipe = await tx.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
-      try { await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any); } catch (e: any) { this.logger.warn(`Stock operation failed: ${e?.message}`); }
+      await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any, tx);
     }
   }
 
-  private async receiveMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
-    const recipe = await this.prisma.client.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
+  private async receiveMenuItemRecipe(tx: any, menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
+    const recipe = await tx.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
-      try { await this.stock.receive({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any); } catch (e: any) { this.logger.warn(`Stock operation failed: ${e?.message}`); }
+      await this.stock.receive({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any, tx);
     }
   }
 
-  private async createReceipt(invoice: any, type: string, paymentId: string | null) {
+  /** Create a Receipt + ReceiptItems on the given executor (a tx, or the base client). */
+  private async createReceipt(db: any, invoice: any, type: string, paymentId: string | null) {
     const orgId = this.tenant.organizationId;
-    const receipt = await this.prisma.client.receipt.create({
+    const receipt = await db.receipt.create({
       data: { organizationId: orgId, invoiceId: invoice.id, receiptNumber: invoice.invoiceNumber, type: type as any, paymentId: paymentId ?? null, printedById: this.tenant.userId ?? null },
     });
-    const items = await this.prisma.client.invoiceItem.findMany({ where: { invoiceId: invoice.id }, orderBy: { lineNumber: 'asc' } });
+    const items = await db.invoiceItem.findMany({ where: { invoiceId: invoice.id }, orderBy: { lineNumber: 'asc' } });
     if (items.length) {
-      await this.prisma.client.receiptItem.createMany({
+      await db.receiptItem.createMany({
         data: items.map((it: any) => ({ organizationId: orgId, receiptId: receipt.id, invoiceItemId: it.id, description: it.description, quantity: it.quantity, unitPrice: it.unitPrice, total: it.total, lineNumber: it.lineNumber })),
       });
     }
@@ -423,22 +488,27 @@ export class PosInvoiceService {
     catch (e: any) { this.logger.warn(`auto-print receipt failed for ${invoiceId}: ${String(e?.message ?? e)}`); }
   }
 
-  private async closeOrderForInvoice(invoiceId: string): Promise<void> {
+  /**
+   * Close the order linked to an invoice and free its table, on the given
+   * executor. Returns the order/table touched so the caller can publish the
+   * PosOrderClosed event AFTER the tx commits (no events on a rolled-back tx).
+   */
+  private async closeOrderForInvoice(db: any, invoiceId: string): Promise<{ orderId: string; tableId: string | null } | null> {
     const orgId = this.tenant.organizationId;
-    const order = await this.prisma.client.order.findFirst({ where: { invoiceId, organizationId: orgId } });
-    if (!order) return;
-    await this.prisma.client.order.update({ where: { id: order.id }, data: { status: 'closed', closedAt: new Date() } });
-    this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: order.id, invoiceId });
-    await this.freeTableIfEmpty(order.tableId);
+    const order = await db.order.findFirst({ where: { invoiceId, organizationId: orgId } });
+    if (!order) return null;
+    await db.order.update({ where: { id: order.id }, data: { status: 'closed', closedAt: new Date() } });
+    await this.freeTableIfEmpty(db, order.tableId);
+    return { orderId: order.id, tableId: order.tableId };
   }
 
-  private async freeTableIfEmpty(tableId?: string | null): Promise<void> {
+  private async freeTableIfEmpty(db: any, tableId?: string | null): Promise<void> {
     if (!tableId) return;
-    const open = await this.prisma.client.order.count({ where: { tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] }, invoiceId: null } });
+    const open = await db.order.count({ where: { tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] }, invoiceId: null } });
     if (open > 0) return;
-    const table = await this.prisma.client.posTable.findFirst({ where: { id: tableId } });
+    const table = await db.posTable.findFirst({ where: { id: tableId } });
     if (!table || table.status === 'out_of_service' || table.status === 'reserved') return;
-    if (table.status !== 'available') await this.prisma.client.posTable.update({ where: { id: tableId }, data: { status: 'available' } });
+    if (table.status !== 'available') await db.posTable.update({ where: { id: tableId }, data: { status: 'available' } });
   }
 
   private async storeCreditAccountId(): Promise<string> {

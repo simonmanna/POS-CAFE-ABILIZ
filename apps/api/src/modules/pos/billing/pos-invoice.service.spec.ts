@@ -3,18 +3,25 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PosInvoiceService } from './pos-invoice.service';
 
 function mockPrisma(): any {
-  return {
-    client: {
-      $transaction: jest.fn((cb: any) => cb({ invoice: { create: jest.fn(), update: jest.fn(), findFirst: jest.fn() }, invoiceItem: { create: jest.fn(), findMany: jest.fn() }, invoiceItemModifier: { createMany: jest.fn() } })),
-      order: { findFirst: jest.fn(), update: jest.fn() },
-      orderItem: { findMany: jest.fn() },
-      invoice: { findFirst: jest.fn(), update: jest.fn() },
-      invoiceItem: { findMany: jest.fn().mockResolvedValue([]) },
-      receipt: { create: jest.fn().mockResolvedValue({ id: 'rcpt-1' }) },
-      receiptItem: { createMany: jest.fn() },
-      accountMapping: { findFirst: jest.fn() },
-    },
+  // One shared `client` object doubles as the interactive-tx handle: $transaction
+  // passes the same object back, so a test that stubs `client.invoice.findFirst`
+  // also stubs what the code reads via `tx.invoice.findFirst`. $queryRawUnsafe is
+  // the FOR UPDATE row lock used by the atomic receivePayment (P0-2).
+  const client: any = {
+    $queryRawUnsafe: jest.fn(),
+    order: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn(), updateMany: jest.fn(), count: jest.fn().mockResolvedValue(0) },
+    orderItem: { findMany: jest.fn().mockResolvedValue([]) },
+    invoice: { findFirst: jest.fn(), update: jest.fn(), create: jest.fn() },
+    invoiceItem: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() },
+    invoiceItemModifier: { createMany: jest.fn() },
+    receipt: { create: jest.fn().mockResolvedValue({ id: 'rcpt-1' }) },
+    receiptItem: { createMany: jest.fn() },
+    accountMapping: { findFirst: jest.fn() },
+    posTable: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
+    cashSession: { findFirst: jest.fn().mockResolvedValue(null) },
   };
+  client.$transaction = jest.fn((cb: any) => cb(client));
+  return { client };
 }
 
 describe('PosInvoiceService', () => {
@@ -130,6 +137,7 @@ describe('PosInvoiceService', () => {
       await svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100 });
       expect(mockPayments.createReceipt).toHaveBeenCalledWith(
         expect.objectContaining({ skipGlPosting: true, paymentMethod: 'cash' }),
+        expect.anything(), // tx — payment joins the settlement transaction (P0-2)
       );
     });
 
@@ -138,6 +146,7 @@ describe('PosInvoiceService', () => {
       await svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100 });
       expect(mockPayments.createReceipt).toHaveBeenCalledWith(
         expect.objectContaining({ skipGlPosting: false }),
+        expect.anything(),
       );
     });
 
@@ -147,7 +156,16 @@ describe('PosInvoiceService', () => {
       });
       expect(mockPayments.createReceipt).toHaveBeenCalledWith(
         expect.objectContaining({ accountId: 'sc-acc' }),
+        expect.anything(),
       );
+    });
+
+    it('rejects a second settlement once the invoice is fully paid (P0-2 lock)', async () => {
+      prisma.client.invoice.findFirst.mockResolvedValue({ ...mockInvoice, amountResidual: 0 });
+      await expect(
+        svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100 }),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPayments.createReceipt).not.toHaveBeenCalled();
     });
   });
 });

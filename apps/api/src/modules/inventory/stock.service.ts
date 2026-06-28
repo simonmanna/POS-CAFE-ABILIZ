@@ -34,8 +34,8 @@ export class StockService {
    * For stockable receipts with a vendor bill, use receiveFromBill() instead
    * — it integrates the GL effect (Dr Stock / Cr GRNI-Accrued) in one transaction.
    */
-  async receive(dto: ReceiveStockDto) {
-    return this.receiveCore(dto, null);
+  async receive(dto: ReceiveStockDto, externalTx?: any) {
+    return this.receiveCore(dto, null, externalTx);
   }
 
   /**
@@ -53,6 +53,7 @@ export class StockService {
   private async receiveCore(
     dto: ReceiveStockDto,
     billCtx: { billId: string; billDate: Date } | null,
+    externalTx?: any,
   ) {
     const organizationId = this.tenant.organizationId;
     const product = await this.prisma.client.product.findFirst({ where: { id: dto.productId } });
@@ -74,7 +75,7 @@ export class StockService {
     const qty = dec(dto.quantity);
     const unitCost = dto.unitCost != null ? dec(dto.unitCost) : ZERO;
 
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const run = async (tx: any) => {
       const ledgerCode = await this.seq.next('stock_move', { prefix: 'STK/', padding: 6 }, tx);
 
       // Recompute AVCO before writing the ledger row.
@@ -179,10 +180,11 @@ export class StockService {
         unitCost: unitCost.toString(),
         runningAverageCost: costResolution.newRunningAverage?.toString() ?? stockItem.runningAverageCost.toString(),
       };
-    });
+    };
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
   }
 
-  async issue(dto: IssueStockDto) {
+  async issue(dto: IssueStockDto, externalTx?: any) {
     const organizationId = this.tenant.organizationId;
     const product = await this.prisma.client.product.findFirst({ where: { id: dto.productId } });
     if (!product) throw new NotFoundException('Product not found');
@@ -193,7 +195,7 @@ export class StockService {
     const qty = dec(dto.quantity);
     if (qty.lte(ZERO)) throw new BadRequestException('Quantity must be positive');
 
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const run = async (tx: any) => {
       let stockItem = await tx.stockItem.findFirst({
         where: { organizationId, productId: dto.productId, locationId: dto.locationId },
       });
@@ -349,7 +351,8 @@ export class StockService {
       });
 
       return { ledgerCode, quantity: dto.quantity, unitCost: unitCost.toString(), totalValue: totalValue.toString() };
-    });
+    };
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
   }
 
   async adjust(dto: AdjustStockDto) {

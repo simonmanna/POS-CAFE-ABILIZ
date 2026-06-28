@@ -3510,6 +3510,9 @@ model Invoice {
   paymentStatus        PaymentStatus           @default(not_paid)
   paymentMode          InvoicePaymentMode?
   settlementStatus     InvoiceSettlementStatus @default(unsettled)
+  /// Optimistic-lock token. Bumped on every settlement/refund mutation so two
+  /// terminals can't double-settle the same invoice (see PosInvoiceService).
+  version              Int                     @default(0)
   /// GL link — the journal entry posted when this invoice was finalised.
   journalEntryId       String?
   reference            String?

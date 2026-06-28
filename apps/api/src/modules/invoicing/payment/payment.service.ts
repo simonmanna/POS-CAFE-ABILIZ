@@ -70,12 +70,12 @@ export class PaymentService {
     });
   }
 
-  createReceipt(dto: CreatePaymentDto) {
-    return this.record(dto, 'inbound');
+  createReceipt(dto: CreatePaymentDto, tx?: any) {
+    return this.record(dto, 'inbound', {}, tx);
   }
 
-  createSupplierPayment(dto: CreatePaymentDto) {
-    return this.record(dto, 'outbound');
+  createSupplierPayment(dto: CreatePaymentDto, tx?: any) {
+    return this.record(dto, 'outbound', {}, tx);
   }
 
   /**
@@ -86,17 +86,19 @@ export class PaymentService {
    * Cr Receivable) the net effect is Dr Revenue+Tax / Cr Cash — the sale is
    * reversed against AR instead of booking a phantom payable.
    */
-  createCustomerRefund(dto: CreatePaymentDto) {
-    return this.record(dto, 'outbound', { counterAccount: 'receivable' });
+  createCustomerRefund(dto: CreatePaymentDto, tx?: any) {
+    return this.record(dto, 'outbound', { counterAccount: 'receivable' }, tx);
   }
 
   private async record(
     dto: CreatePaymentDto,
     direction: PaymentDirection,
     opts: { counterAccount?: 'receivable' | 'payable' } = {},
+    externalTx?: any,
   ) {
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const run = async (tx: any) => {
       const organizationId = this.tenant.organizationId;
+      const userId = this.tenant.userId;
       const partner = await tx.partner.findFirst({ where: { id: dto.partnerId } });
       if (!partner) throw new BadRequestException('Partner not found');
 
@@ -246,6 +248,7 @@ export class PaymentService {
         });
         if (!session) throw new BadRequestException('Cash session not found');
         if (session.status !== 'open') throw new BadRequestException('Cash session is not open');
+        if (session.userId !== userId) throw new BadRequestException('Cash session belongs to a different cashier');
         await this.cashSessions.recordSaleOrRefund(
           tx,
           dto.cashSessionId,
@@ -276,7 +279,8 @@ export class PaymentService {
         where: { id: payment.id },
         include: { partner: true, allocations: { include: { document: true } } },
       });
-    });
+    };
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
   }
 
   /** Void a posted payment: reverse its journal entry and restore every residual. */
