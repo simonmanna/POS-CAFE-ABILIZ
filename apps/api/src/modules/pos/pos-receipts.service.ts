@@ -195,13 +195,13 @@ export class PosReceiptsService {
     const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
 
     lines.push(rule);
-    lines.push(bizName.padStart(R));
-    lines.push(tagline.padStart(R));
+    lines.push(bizName);
+    lines.push(tagline);
     lines.push(rule);
     lines.push('');
-    lines.push(addr1.padStart(R));
-    lines.push(addr2.padStart(R));
-    lines.push(`Telephone: ${phone}`.padStart(R));
+    lines.push(addr1);
+    lines.push(addr2);
+    lines.push(`Telephone: ${phone}`);
     lines.push('');
     lines.push(`Receipt #${(inv as any).documentNumber}`);
     lines.push('');
@@ -297,23 +297,23 @@ export class PosReceiptsService {
 
       const drawPage = (copyLabel: string) => {
         const isMerchant = /CASHIER|MERCHANT/i.test(copyLabel);
-        if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***', { align: 'center' });
-        doc.font('Helvetica-Bold').fontSize(10).text(`*** ${copyLabel} ***`, { align: 'center' });
+        if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***');
+        doc.font('Helvetica-Bold').fontSize(10).text(`*** ${copyLabel} ***`);
         doc.moveDown(0.5);
 
         const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
-        doc.font('Helvetica-Bold').fontSize(16).text(bizName, { align: 'center' });
+        doc.font('Helvetica-Bold').fontSize(16).text(bizName);
         doc.moveDown(0.15);
-        doc.font('Helvetica').fontSize(10).text('Coffee \u2022 Cake \u2022 Meals', { align: 'center' });
+        doc.font('Helvetica').fontSize(10).text('Coffee \u2022 Cake \u2022 Meals');
         doc.moveDown(0.3);
-        doc.font('Courier-Bold').fontSize(9).text('='.repeat(42), { align: 'center' });
+        doc.font('Courier-Bold').fontSize(9).text('='.repeat(42));
         doc.moveDown(0.5);
 
         doc.font('Helvetica').fontSize(9);
-        doc.text(header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA', { align: 'center' });
-        doc.text(header?.addressLine2 ?? 'Kampala, Uganda', { align: 'center' });
+        doc.text(header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA');
+        doc.text(header?.addressLine2 ?? 'Kampala, Uganda');
         doc.moveDown(0.15);
-        doc.text(`Telephone: ${header?.phone ?? '+256757920771'}`, { align: 'center' });
+        doc.text(`Telephone: ${header?.phone ?? '+256757920771'}`);
         doc.moveDown(0.7);
 
         doc.text(`Receipt #${(inv as any).documentNumber}`);
@@ -379,7 +379,7 @@ export class PosReceiptsService {
         doc.moveDown(0.5);
         doc.moveDown(0.5);
         doc.font('Helvetica').fontSize(9);
-        doc.text((footer?.message ?? 'Thank you!'), { align: 'center' });
+        doc.text((footer?.message ?? 'Thank you!'));
       };
 
       drawPage('CUSTOMER COPY');
