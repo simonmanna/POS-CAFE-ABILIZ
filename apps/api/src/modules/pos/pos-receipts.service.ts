@@ -73,7 +73,7 @@ export class PosReceiptsService {
     // Try the POS Invoice table first.
     const inv = await this.prisma.client.invoice.findFirst({
       where: { id: invoiceId, organizationId: orgId },
-      include: { items: { orderBy: { lineNumber: 'asc' } } },
+      include: { items: { orderBy: { lineNumber: 'asc' }, include: { modifiers: true } } },
     });
     if (inv) {
       const [partner, productMap, cashierName] = await Promise.all([
@@ -185,42 +185,76 @@ export class PosReceiptsService {
     const isMerchant = !!copyLabel && /CASHIER|MERCHANT/i.test(copyLabel);
     if (isReprint) lines.push('*** REPRINT COPY ***');
     if (copyLabel) lines.push(`*** ${copyLabel} ***`);
-    lines.push((header?.businessName ?? org?.name ?? 'Cafe POS').toUpperCase());
-    if (header?.addressLine1) lines.push(header.addressLine1);
-    if (header?.addressLine2) lines.push(header.addressLine2);
-    if (header?.phone) lines.push(`Tel: ${header.phone}`);
-    if (header?.taxId) lines.push(`TIN: ${header.taxId}`);
-    lines.push('--------------------------------');
-    lines.push(`Receipt: ${(inv as any).documentNumber}`);
-    lines.push(`Date:    ${new Date(inv.issueDate).toLocaleString()}`);
+
+    const R = 42;
+    const rule = '='.repeat(R);
+    const addr1 = header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA';
+    const addr2 = header?.addressLine2 ?? 'Kampala, Uganda';
+    const phone = header?.phone ?? '+256757920771';
+    const tagline = 'Coffee \u2022 Cake \u2022 Meals';
+    const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
+
+    lines.push('');
+    lines.push(rule);
+    lines.push(bizName.padStart(R));
+    lines.push(tagline.padStart(R));
+    lines.push(rule);
+    lines.push('');
+    lines.push(addr1.padStart(R));
+    lines.push(addr2.padStart(R));
+    lines.push(`Telephone: ${phone}`.padStart(R));
+    lines.push('');
+    lines.push(`Receipt #${(inv as any).documentNumber}`);
+    lines.push('');
+    const d = new Date(inv.issueDate);
+    const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    lines.push(`${datePart}${' '.repeat(5)}${timePart}`);
+    lines.push('');
     lines.push(`Cashier: ${(inv as any).cashierName ?? '-'}`);
-    if ((inv as any).partner?.name) lines.push(`Customer: ${(inv as any).partner.name}`);
-    lines.push('--------------------------------');
+    lines.push('');
+    lines.push('Qty  Item.................. Price....... Total');
+    lines.push('-'.repeat(R));
+
     for (const ln of inv.lines) {
       const qty = Number(ln.quantity);
       const price = Number(ln.unitPrice);
       const disc = Number(ln.discountPercent ?? 0);
       const lineTotal = qty * price * (1 - disc / 100);
       const inclTag = (ln as any).taxInclusive ? ' (incl)' : '';
-      lines.push(`${(ln.description + inclTag).padEnd(20).slice(0, 20)} ${fmt(lineTotal).padStart(10)}`);
-      if (disc > 0) lines.push(`  (discount ${disc}%)`);
-      if (ln.note) lines.push(`  ! ${ln.note}`);
+      const desc = (ln.description + inclTag).slice(0, 20).padEnd(20);
+      const qtyStr = String(qty).padStart(3);
+      const priceStr = fmt(price).padStart(8);
+      const totalStr = fmt(lineTotal).padStart(10);
+      lines.push(` ${qtyStr} ${desc} ${priceStr} ${totalStr}`);
+      const mods: any[] = (ln as any).modifiers ?? [];
+      for (const m of mods) {
+        const mName = (m.name ?? '').slice(0, 15).padEnd(15);
+        lines.push(`      + ${mName} ${fmt(m.priceDelta).padStart(8)}`);
+      }
+      if (ln.note) {
+        lines.push(`      ${ln.note.slice(0, 30).padEnd(30)}`);
+      }
     }
-    lines.push('--------------------------------');
-    lines.push(`Subtotal: ${fmt(inv.subtotal)}`);
-    if (Number(inv.discountTotal) > 0) lines.push(`Discount: -${fmt(inv.discountTotal)}`);
-    lines.push(`Tax:      ${fmt(inv.taxAmount)}`);
-    lines.push(`TOTAL:    ${fmt(inv.totalAmount)}`);
-    lines.push(`Paid:     ${fmt(inv.amountPaid)}`);
-    if (Number(inv.amountResidual) > 0) lines.push(`Due:      ${fmt(inv.amountResidual)}`);
-    if ((inv as any).paymentMode) lines.push(`Mode:     ${String((inv as any).paymentMode).toUpperCase()}`);
-    lines.push('--------------------------------');
+
+    lines.push('');
+    lines.push('');
+    lines.push('-'.repeat(R));
+    lines.push(`Subtotal:`.padEnd(R - 10) + fmt(inv.subtotal).padStart(10));
+    lines.push(`TOTAL:`.padEnd(R - 10) + fmt(inv.totalAmount).padStart(10));
+    lines.push(`Paid:`.padEnd(R - 10) + fmt(inv.amountPaid).padStart(10));
+    const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
+    lines.push(`Change:`.padEnd(R - 10) + fmt(change).padStart(10));
+    lines.push(`Mode:`.padEnd(R - 10) + ((inv as any).paymentMode || 'CASH').toUpperCase().padStart(10));
+    lines.push('-'.repeat(R));
+    lines.push('');
+    lines.push('');
     if (isMerchant) {
-      lines.push('CASHIER COPY — keep for records');
+      lines.push('CASHIER COPY — keep for records'.padStart(R));
       lines.push('');
-      lines.push('Signature: ____________________');
+      lines.push('Signature: ____________________'.padStart(R));
     } else {
-      lines.push(footer?.message ?? 'Thank you!');
+      lines.push((footer?.message ?? 'Thank you!').padStart(R));
     }
     return lines.join('\n');
   }
@@ -259,49 +293,87 @@ export class PosReceiptsService {
         const isMerchant = /CASHIER|MERCHANT/i.test(copyLabel);
         if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***', { align: 'center' });
         doc.font('Helvetica-Bold').fontSize(10).text(`*** ${copyLabel} ***`, { align: 'center' });
-        doc.font('Helvetica-Bold').fontSize(14).text(header?.businessName ?? org?.name ?? 'Cafe POS', { align: 'center' });
-        if (header?.addressLine1) doc.font('Helvetica').fontSize(8).text(header.addressLine1, { align: 'center' });
-        if (header?.addressLine2) doc.font('Helvetica').fontSize(8).text(header.addressLine2, { align: 'center' });
-        if (header?.phone) doc.font('Helvetica').fontSize(8).text(`Tel: ${header.phone}`, { align: 'center' });
-        if (header?.taxId) doc.font('Helvetica').fontSize(8).text(`TIN: ${header.taxId}`, { align: 'center' });
         doc.moveDown(0.5);
-        doc.fontSize(9).text('--------------------------------');
-        doc.text(`Receipt: ${(inv as any).documentNumber}`);
-        doc.text(`Date:    ${new Date(inv.issueDate).toLocaleString()}`);
-        doc.text(`Cashier: ${(inv as any).cashierName ?? '-'}`);
-        if (inv.partner?.name) doc.text(`Customer: ${inv.partner.name}`);
-        doc.text('--------------------------------');
+
+        const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
+        doc.font('Helvetica-Bold').fontSize(16).text(bizName, { align: 'center' });
+        doc.moveDown(0.15);
+        doc.font('Helvetica').fontSize(10).text('Coffee \u2022 Cake \u2022 Meals', { align: 'center' });
         doc.moveDown(0.3);
+        doc.font('Courier-Bold').fontSize(9).text('='.repeat(42), { align: 'center' });
+        doc.moveDown(0.5);
+
+        doc.font('Helvetica').fontSize(9);
+        doc.text(header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA', { align: 'center' });
+        doc.text(header?.addressLine2 ?? 'Kampala, Uganda', { align: 'center' });
+        doc.moveDown(0.15);
+        doc.text(`Telephone: ${header?.phone ?? '+256757920771'}`, { align: 'center' });
+        doc.moveDown(0.7);
+
+        doc.text(`Receipt #${(inv as any).documentNumber}`);
+        doc.moveDown(0.3);
+        const d = new Date(inv.issueDate);
+        const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+        const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        doc.text(`${datePart}${'     '.repeat(1)}${timePart}`);
+        doc.moveDown(0.3);
+        doc.text(`Cashier: ${(inv as any).cashierName ?? '-'}`);
+        doc.moveDown(0.5);
+
+        doc.font('Courier-Bold').fontSize(8);
+        doc.text('Qty  Item.................. Price....... Total', 8, doc.y, { width: 210 });
+        doc.moveDown(0.2);
+        doc.font('Courier').fontSize(8);
+        doc.text('-'.repeat(42), 8, doc.y, { width: 210 });
+        doc.moveDown(0.2);
 
         for (const ln of inv.lines) {
           const qty = Number(ln.quantity);
           const price = Number(ln.unitPrice);
-          const disc = Number(ln.discountPercent ?? 0);
-          const lineTotal = qty * price * (1 - disc / 100);
-          const inclTag = (ln as any).taxInclusive ? '  (incl. tax)' : '';
-          doc.font('Helvetica').text(`${ln.description}${inclTag}`);
-          doc.font('Helvetica').fontSize(8).text(`  ${qty} x ${fmt(price)}${disc > 0 ? ` (-${disc}%)` : ''}`, { continued: true });
-          doc.text(fmt(lineTotal), { align: 'right' });
-          if ((ln as any).note) doc.font('Helvetica-Oblique').fontSize(7).text(`  ! ${(ln as any).note}`);
+          const lineTotal = qty * price;
+          const qtyStr = String(qty).padStart(2);
+          const desc = (ln.description).slice(0, 18).padEnd(18);
+          const priceStr = fmt(price).padStart(8);
+          const totalStr = fmt(lineTotal).padStart(9);
+          doc.text(` ${qtyStr} ${desc} ${priceStr} ${totalStr}`, 8, doc.y, { width: 210 });
+          doc.moveDown(0.25);
+          const mods: any[] = (ln as any).modifiers ?? [];
+          for (const m of mods) {
+            const mName = (m.name ?? '').slice(0, 15).padEnd(15);
+            doc.font('Courier-Oblique').fontSize(7);
+            doc.text(`      + ${mName} ${fmt(m.priceDelta).padStart(8)}`, 8, doc.y, { width: 210 });
+            doc.moveDown(0.2);
+          }
+          if (ln.note) {
+            doc.font('Courier-Oblique').fontSize(7);
+            doc.text(`      ${ln.note.slice(0, 32).padEnd(32)}`, 8, doc.y, { width: 210 });
+            doc.moveDown(0.2);
+          }
+          doc.font('Courier').fontSize(8);
         }
 
-        doc.font('Helvetica').fontSize(9).text('--------------------------------');
-        doc.text(`Subtotal:  ${fmt(inv.subtotal)}`, { align: 'right' });
-        if (Number(inv.discountTotal) > 0) doc.text(`Discount: -${fmt(inv.discountTotal)}`, { align: 'right' });
-        doc.text(`Tax:       ${fmt(inv.taxAmount)}`, { align: 'right' });
-        doc.font('Helvetica-Bold').fontSize(12).text(`TOTAL:     ${fmt(inv.totalAmount)}`, { align: 'right' });
-        doc.font('Helvetica').fontSize(9).text(`Paid:      ${fmt(inv.amountPaid)}`, { align: 'right' });
-        if (Number(inv.amountResidual) > 0) doc.text(`Due:       ${fmt(inv.amountResidual)}`, { align: 'right' });
-        if ((inv as any).paymentMode) doc.text(`Mode:      ${String((inv as any).paymentMode).toUpperCase()}`, { align: 'right' });
-        doc.moveDown(0.5);
-        doc.text('--------------------------------');
-        if (isMerchant) {
-          doc.fontSize(9).text('CASHIER COPY — keep for records', { align: 'center' });
-          doc.moveDown(1.2);
-          doc.text('Signature: ____________________', { align: 'center' });
-        } else {
-          doc.fontSize(10).text(footer?.message ?? 'Thank you!', { align: 'center' });
-        }
+        doc.moveDown(0.2);
+        doc.moveDown(0.2);
+        doc.font('Courier').fontSize(8);
+        doc.text('-'.repeat(42), 8, doc.y, { width: 210 });
+        doc.moveDown(0.2);
+        doc.text(`Subtotal:`.padEnd(33) + fmt(inv.subtotal).padStart(9), 8, doc.y, { width: 210 });
+        doc.moveDown(0.2);
+        doc.text(`Total:`.padEnd(33) + fmt(inv.totalAmount).padStart(9), 8, doc.y, { width: 210 });
+        doc.moveDown(0.2);
+        doc.text(`Paid:`.padEnd(33) + fmt(inv.amountPaid).padStart(9), 8, doc.y, { width: 210 });
+        doc.moveDown(0.2);
+        const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
+        doc.text(`Change:`.padEnd(33) + fmt(change).padStart(9), 8, doc.y, { width: 210 });
+        doc.moveDown(0.2);
+        doc.text(`Mode:`.padEnd(33) + ((inv as any).paymentMode || 'CASH').toUpperCase().padStart(9), 8, doc.y, { width: 210 });
+        doc.moveDown(0.2);
+        doc.font('Courier').fontSize(8);
+        doc.text('-'.repeat(42), 8, doc.y, { width: 210 });
+        doc.moveDown(0.4);
+        doc.moveDown(0.4);
+        doc.font('Helvetica').fontSize(9);
+        doc.text((footer?.message ?? 'Thank you!'), { align: 'center' });
       };
 
       drawPage('CUSTOMER COPY');

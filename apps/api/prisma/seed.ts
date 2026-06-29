@@ -38,7 +38,21 @@ async function main(): Promise<void> {
   const org = await prisma.organization.upsert({
     where: { code: 'DEMO' },
     update: {},
-    create: { code: 'DEMO', name: 'Demo Organization', currencyCode: 'USD', timezone: 'UTC' },
+    create: {
+      code: 'DEMO',
+      name: 'Demo Organization',
+      currencyCode: 'USD',
+      timezone: 'UTC',
+      receiptHeader: {
+        businessName: 'Abiliz Cafe',
+        addressLine1: 'AFEE COMPLEX, KASANGA',
+        addressLine2: 'Kampala, Uganda',
+        phone: '+256757920771',
+      },
+      receiptFooter: {
+        message: 'Thank you!',
+      },
+    },
   });
 
   // --- Administrator role (all permissions) --------------------------------
