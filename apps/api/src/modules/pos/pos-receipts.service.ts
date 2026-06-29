@@ -311,8 +311,8 @@ export class PosReceiptsService {
 
         const logoPath = path.join(__dirname, '../../../../../web/public/abiliz-logo.png');
         try {
-          const imgWidth = 160;
-          const imgHeight = 160;
+          const imgWidth = 60;
+          const imgHeight = 60;
           const x = (226 - imgWidth) / 2;
           doc.image(logoPath, x, doc.y, { width: imgWidth, height: imgHeight });
           doc.y += imgHeight + 10;
