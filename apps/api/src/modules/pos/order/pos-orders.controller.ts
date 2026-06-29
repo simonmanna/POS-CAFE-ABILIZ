@@ -1,12 +1,23 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Post, Put, Query, UseInterceptors } from '@nestjs/common';
+import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
+import { IsOptional, IsString } from 'class-validator';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
+import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
+import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
 import { PosOrdersService } from './pos-orders.service';
 import { PosInvoiceService } from '../billing/pos-invoice.service';
 import {
   AddOrderItemsDto, CancelOrderDto, CreateOrderDto, GenerateInvoiceDto, MergeOrderDto,
   MoveTableDto, ReceivePaymentDto, SaveOrderItemsDto, SettleCreditDto, WriteOffDto,
 } from './dto/order.dto';
+
+class RefundInvoiceDto {
+  @ApiProperty({ required: false }) @IsOptional() @IsString() reason?: string;
+  @ApiProperty({ description: 'Manager user id; a void/refund of a settled sale requires an override.' })
+  @IsString() overrideById!: string;
+  @ApiProperty({ required: false, description: "Cashier's current open cash session, so the refund's cash-out reconciles on this shift." })
+  @IsOptional() @IsString() cashSessionId?: string;
+}
 
 @ApiTags('pos/orders')
 @ApiBearerAuth()
@@ -111,6 +122,23 @@ export class PosBillingController {
   @RequirePermissions('pos:checkout')
   settleCredit(@Param('id') id: string, @Body() dto: SettleCreditDto) {
     return this.billing.settleCredit(id, dto);
+  }
+
+  /**
+   * Void / refund a settled invoice (the new Order→Invoice→Receipt pipeline).
+   * Reverses the GL, restocks, returns cash, marks the invoice refunded — all in
+   * one transaction. Manager override is mandatory.
+   */
+  @Post(':id/refund')
+  @RequirePermissions('pos:refund')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent()
+  refund(@Param('id') id: string, @Body() dto: RefundInvoiceDto) {
+    return this.billing.refund(id, dto.reason, {
+      overrideById: dto.overrideById,
+      cashSessionId: dto.cashSessionId,
+      requireOverride: true,
+    });
   }
 
   /** Write off the outstanding balance of a credit invoice. */

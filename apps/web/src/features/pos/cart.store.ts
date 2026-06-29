@@ -24,6 +24,13 @@ interface CartState {
   tableNumber?: number;
   tableName?: string;
   sentToKitchen: boolean;
+  /**
+   * Idempotency-Key for THIS cart's checkout/settle. Generated once when the
+   * cart is created and reused across every settle attempt (online retries AND
+   * offline replay) so a lost response can never double-charge. A fresh key is
+   * minted on clear()/load() — i.e. once the previous sale is done.
+   */
+  idempotencyKey: string;
   /** Add a product line, merging by (productId or sku) + taxInclusive flag. */
   addLine: (line: Omit<CartLine, 'lineId' | 'discountPercent'> & { discountPercent?: number }) => void;
   setQuantity: (lineId: string, qty: number) => void;
@@ -75,6 +82,7 @@ export const useCartStore = create<CartState>()(
       tableNumber: undefined,
       tableName: undefined,
       sentToKitchen: false,
+      idempotencyKey: newLineId(),
       addLine: (line) => {
         set((state) => {
           // Key on (product|sku) + taxInclusive + selected modifiers + note so a
@@ -161,12 +169,16 @@ export const useCartStore = create<CartState>()(
           transactionDiscountType: opts?.transactionDiscountType ?? 'percentage',
           transactionDiscountAmount: opts?.transactionDiscountAmount ?? 0,
           overrideById: opts?.overrideById,
+          // New order loaded → new sale → fresh idempotency key.
+          idempotencyKey: newLineId(),
         }),
       clear: () => set({
         lines: [], transactionDiscountPercent: 0, transactionDiscountType: 'percentage',
         transactionDiscountAmount: 0, overrideById: undefined,
         orderType: undefined, tableId: undefined, tableNumber: undefined, tableName: undefined,
         sentToKitchen: false,
+        // Previous sale finished → mint a key for the next cart.
+        idempotencyKey: newLineId(),
       }),
     }),
     {

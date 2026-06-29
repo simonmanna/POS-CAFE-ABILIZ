@@ -1,5 +1,6 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
+import { getPosToken } from '@/features/pos/pos-session';
 import { notify } from '@/lib/notify';
 
 const baseURL = import.meta.env.VITE_API_URL
@@ -18,6 +19,13 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Attribute POS requests to the cashier who PINned in (the backend overrides
+  // the request identity from this token; the bearer JWT still bounds the org).
+  const posToken = getPosToken();
+  if (posToken) {
+    config.headers = config.headers ?? {};
+    config.headers['X-Pos-User'] = posToken;
   }
   return config;
 });

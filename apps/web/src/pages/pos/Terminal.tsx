@@ -892,6 +892,10 @@ const TerminalPage: React.FC = () => {
     const effectiveTxPct = transactionDiscountType === 'fixed' && transactionDiscountAmount > 0
       ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
       : transactionDiscountPercent;
+    /* One stable Idempotency-Key per cart — reused across every settle attempt
+     * (online retries + offline replay) so a lost response never double-charges.
+     * clear()/load() mint a fresh key once this sale is done. */
+    const idemKey = useCartStore.getState().idempotencyKey;
     /* M4: settle the accumulated server tab instead of cart-checkout */
     if (isTabSettle && tableId) {
       const finishSettle = () => {
@@ -911,6 +915,7 @@ const TerminalPage: React.FC = () => {
           tenders: input.tenders,
           transactionDiscountPercent: effectiveTxPct,
           cashSessionId: session?.id,
+          _idemKey: idemKey,
         });
         toast.success(`Order settled — change ${fmt((res as any).change ?? 0)}`);
         // Pop the settlement receipt so the cashier can print it.
@@ -938,7 +943,7 @@ const TerminalPage: React.FC = () => {
           try {
             const queued = await enqueueSale(
               { tenders: input.tenders, cashSessionId: session?.id },
-              { endpoint: `/pos/tabs/${tableId}/settle` },
+              { endpoint: `/pos/tabs/${tableId}/settle`, idempotencyKey: idemKey },
             );
             toast.warning(
               `Network down — settle queued (${queued.idempotencyKey.slice(0, 8)}). It will sync when you're back online.`,
@@ -993,7 +998,7 @@ const TerminalPage: React.FC = () => {
       guestCount: undefined as number | undefined,
     } as any;
     try {
-      const res = await checkout.mutateAsync(payload);
+      const res = await checkout.mutateAsync({ ...payload, _idemKey: idemKey });
       toast.success(`Sale ${res.invoiceNumber} settled — change ${fmt(res.change)}`);
 
       setLastCompleted({
@@ -1021,7 +1026,7 @@ const TerminalPage: React.FC = () => {
       const networkDown = typeof navigator !== 'undefined' && !navigator.onLine;
       if (isOffline || networkDown) {
         try {
-          const queued = await enqueueSale(payload);
+          const queued = await enqueueSale(payload, { idempotencyKey: idemKey });
           toast.warning(
             `Network down — sale queued (${queued.idempotencyKey.slice(0, 8)}). It will sync automatically when you're back online.`,
             { duration: 12000 },
@@ -1503,6 +1508,11 @@ const TerminalPage: React.FC = () => {
           invoiceNumber={lastCompleted.invoiceNumber}
           receiptHtml={lastCompleted.receiptHtml}
           canReprint={false}
+          onVoid={(id, num) => {
+            setLastCompleted(null);
+            setCancelInvoice({ id, number: num });
+            setShowCancelOrder(true);
+          }}
           onClose={() => setLastCompleted(null)}
         />
       ) : lastCompleted ? (

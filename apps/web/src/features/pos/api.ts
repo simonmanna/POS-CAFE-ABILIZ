@@ -13,6 +13,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { useCartStore } from './cart.store';
 import type {
   CartLine,
   CheckoutResult,
@@ -115,11 +116,23 @@ export function useCheckout() {
   });
 }
 
+/**
+ * Void / refund a settled sale. Targets the new Order→Invoice→Receipt pipeline
+ * (`POST /pos/invoices/:id/refund`) — the id is the Invoice id returned at
+ * checkout. `invoiceId` travels in the URL only; the body carries just the
+ * whitelisted fields (forbidNonWhitelisted would 400 on extras). The cashier's
+ * current open cash session is attached so the refund cash-out reconciles.
+ */
 export function useRefundSale() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: { invoiceId: string; reason?: string; cashSessionId?: string; overrideById?: string }) => {
-      const res = await api.post('/pos/refund', body, { headers: { 'Idempotency-Key': uuid() } });
+      const cashSessionId = body.cashSessionId ?? useCartStore.getState().cashSessionId;
+      const res = await api.post(
+        `/pos/invoices/${body.invoiceId}/refund`,
+        { reason: body.reason, overrideById: body.overrideById, cashSessionId },
+        { headers: { 'Idempotency-Key': uuid() } },
+      );
       return res.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
@@ -130,9 +143,12 @@ export function useVoidSale() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: { invoiceId: string; reason: string; overrideById: string }) => {
-      const res = await api.post(`/pos/sales/${body.invoiceId}/void`, body, {
-        headers: { 'Idempotency-Key': uuid() },
-      });
+      const cashSessionId = useCartStore.getState().cashSessionId;
+      const res = await api.post(
+        `/pos/invoices/${body.invoiceId}/refund`,
+        { reason: body.reason, overrideById: body.overrideById, cashSessionId },
+        { headers: { 'Idempotency-Key': uuid() } },
+      );
       return res.data;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),

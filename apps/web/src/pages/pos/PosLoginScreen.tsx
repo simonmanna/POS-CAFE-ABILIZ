@@ -58,14 +58,16 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
     setStep('pin');
   };
 
+  const MIN_PIN = 4;
+  const MAX_PIN = 8;
+
   const handlePinDigit = (digit: string) => {
-    if (pin.length >= 4) return;
-    const newPin = pin + digit;
-    setPin(newPin);
+    // Support 4–8 digit PINs (matches the API's @Length(4, 8)). No auto-submit:
+    // a manager may set any length in that range, so the cashier confirms with
+    // the Sign-in button (or Enter) once they've entered their full PIN.
+    if (pin.length >= MAX_PIN) return;
+    setPin(pin + digit);
     setLocalError(null);
-    if (newPin.length >= 4) {
-      submitLogin(selectedUserId, newPin);
-    }
   };
 
   const handleClearPin = () => {
@@ -84,8 +86,8 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
   };
 
   const submitLogin = async (userId: string, pinValue: string) => {
-    if (!userId || pinValue.length < 4) {
-      setLocalError('Enter at least 4 digits');
+    if (!userId || pinValue.length < MIN_PIN) {
+      setLocalError(`Enter at least ${MIN_PIN} digits`);
       return;
     }
     try {
@@ -96,6 +98,19 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
       setPin('');
     }
   };
+
+  // Physical keyboard: type the PIN, Backspace to correct, Enter to sign in.
+  useEffect(() => {
+    if (step !== 'pin') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key >= '0' && e.key <= '9') { e.preventDefault(); handlePinDigit(e.key); }
+      else if (e.key === 'Backspace') { e.preventDefault(); handleBackspace(); }
+      else if (e.key === 'Enter') { e.preventDefault(); submitLogin(selectedUserId, pin); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, pin, selectedUserId, loading]);
 
   const displayError = localError || error;
 
@@ -162,9 +177,9 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
         <p className="text-slate-400 text-sm mt-1">Enter your POS PIN</p>
       </div>
 
-      {/* PIN dots */}
+      {/* PIN dots — grow from MIN_PIN up to MAX_PIN as the cashier types */}
       <div className="flex gap-3 mb-6">
-        {[0, 1, 2, 3].map((i) => (
+        {Array.from({ length: Math.min(MAX_PIN, Math.max(MIN_PIN, pin.length)) }).map((_, i) => (
           <div
             key={i}
             className={`w-4 h-4 rounded-full border-2 transition-all ${
@@ -216,6 +231,15 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
           ⌫
         </button>
       </div>
+
+      {/* Explicit submit — supports any 4–8 digit PIN (no premature auto-submit). */}
+      <button
+        onClick={() => submitLogin(selectedUserId, pin)}
+        disabled={loading || pin.length < MIN_PIN}
+        className="mt-5 w-full max-w-[260px] h-14 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-lg font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        Sign in
+      </button>
 
       {loading && (
         <div className="mt-4 flex items-center gap-2 text-slate-400">

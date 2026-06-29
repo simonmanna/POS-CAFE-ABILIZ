@@ -13,6 +13,7 @@ import { PostingService } from '../../accounting/posting/posting.service';
 import { AccountDeterminationService } from '../../accounting/posting/account-determination.service';
 import { StockService } from '../../inventory/stock.service';
 import { PosReceiptsService } from '../pos-receipts.service';
+import { PosOverridesService } from '../pos-overrides.service';
 import type { GenerateInvoiceDto, ReceivePaymentDto, SettleCreditDto, WriteOffDto, TenderDto } from '../order/dto/order.dto';
 
 const MODE_FROM_METHOD: Record<string, 'cash' | 'card' | 'mobile_money'> = {
@@ -42,6 +43,7 @@ export class PosInvoiceService {
     private readonly determination: AccountDeterminationService,
     private readonly stock: StockService,
     private readonly receipts: PosReceiptsService,
+    private readonly overrides: PosOverridesService,
   ) {}
 
   /**
@@ -305,8 +307,21 @@ export class PosInvoiceService {
    * step 1, and an outbound cash refund Payment (GL-skipped) is recorded so the
    * cash-session Z-report reconciles with the money physically leaving the drawer.
    */
-  async refund(invoiceId: string, reason?: string) {
+  async refund(
+    invoiceId: string,
+    reason?: string,
+    opts?: { overrideById?: string; cashSessionId?: string; requireOverride?: boolean },
+  ) {
     const orgId = this.tenant.organizationId;
+
+    // Manual void/refund of a settled sale needs a manager sign-off. Internal
+    // compensation calls (failed checkout/settle) pass no opts and skip this.
+    if (opts?.requireOverride && !opts.overrideById) {
+      throw new BadRequestException('Refunding a settled sale requires a manager override');
+    }
+    if (opts?.overrideById) {
+      await this.overrides.assertCanOverride(opts.overrideById, 'manual_refund');
+    }
 
     const result = await this.prisma.client.$transaction(async (tx: any) => {
       const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: true } });
@@ -335,8 +350,12 @@ export class PosInvoiceService {
       //    that reconciles the session and to leave an auditable money-out trail.
       //    Only for cash actually collected, on the same cashier's open session.
       const cashPaid = Number(invoice.amountPaid);
-      if (cashPaid > 0.001 && invoice.cashSessionId) {
-        const session = await tx.cashSession.findFirst({ where: { id: invoice.cashSessionId, organizationId: orgId } });
+      // Prefer the cashier's CURRENT open session (passed by the refund endpoint)
+      // so a void rung up after the original shift still records the cash leaving
+      // the drawer; fall back to the session the sale was rung on.
+      const refundSessionId = opts?.cashSessionId ?? invoice.cashSessionId;
+      if (cashPaid > 0.001 && refundSessionId) {
+        const session = await tx.cashSession.findFirst({ where: { id: refundSessionId, organizationId: orgId } });
         if (session && session.status === 'open' && session.userId === this.tenant.userId) {
           await this.payments.createCustomerRefund({
             partnerId: invoice.partnerId,
@@ -344,7 +363,7 @@ export class PosInvoiceService {
             paymentMethod: 'cash',
             amount: cashPaid,
             reference: `Refund ${invoice.invoiceNumber}`,
-            cashSessionId: invoice.cashSessionId,
+            cashSessionId: refundSessionId,
             skipGlPosting: true,
           } as any, tx);
         }
@@ -357,7 +376,7 @@ export class PosInvoiceService {
       return { total: invoice.totalAmount.toString(), closed };
     });
 
-    await this.audit.record({ entity: 'Invoice', entityId: invoiceId, action: 'cancel' as any, newValues: { kind: 'refund', reason: reason ?? null } });
+    await this.audit.record({ entity: 'Invoice', entityId: invoiceId, action: 'cancel' as any, newValues: { kind: 'refund', reason: reason ?? null, overrideById: opts?.overrideById ?? null } });
     if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
     this.events.publish(EVENTS.PosRefundCompleted, { organizationId: orgId, invoiceId, creditNoteId: '', total: result.total } as any);
     return { invoiceId, status: 'refunded', amount: result.total };

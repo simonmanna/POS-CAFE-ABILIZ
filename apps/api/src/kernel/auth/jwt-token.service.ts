@@ -14,6 +14,19 @@ export interface RefreshTokenPayload {
   type: 'refresh';
 }
 
+/**
+ * Short-lived POS cashier token. Minted by `pinLogin` and sent on the
+ * `X-Pos-User` header so the server can attribute POS writes to the cashier who
+ * PINned in — distinct from the back-office user whose JWT opened the terminal.
+ */
+export interface PosTokenPayload {
+  sub: string; // cashier user id
+  organizationId: string;
+  email: string;
+  permissions: string[];
+  type: 'pos';
+}
+
 /** The shape attached to `req.auth` and returned by the @CurrentUser decorator. */
 export type AuthUser = AccessTokenPayload;
 
@@ -23,6 +36,8 @@ export class JwtTokenService {
   private readonly refreshSecret!: string;
   private readonly accessTtl = process.env.JWT_ACCESS_TTL ?? '15m';
   private readonly refreshTtl = process.env.JWT_REFRESH_TTL ?? '7d';
+  // A POS shift fits comfortably inside 12h; re-PIN is required after.
+  private readonly posTtl = process.env.JWT_POS_TTL ?? '12h';
 
   constructor() {
     if (!process.env.JWT_ACCESS_SECRET) throw new Error('JWT_ACCESS_SECRET env var is required');
@@ -57,5 +72,19 @@ export class JwtTokenService {
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
+  }
+
+  /** Sign a POS cashier token (signed with the access secret, `type: 'pos'`). */
+  signPos(payload: Omit<PosTokenPayload, 'type'>): string {
+    return jwt.sign({ ...payload, type: 'pos' }, this.accessSecret, {
+      expiresIn: this.posTtl as never,
+    });
+  }
+
+  /** Verify a POS cashier token. Throws on an invalid/expired/wrong-type token. */
+  verifyPos(token: string): PosTokenPayload {
+    const decoded = jwt.verify(token, this.accessSecret) as PosTokenPayload;
+    if (decoded.type !== 'pos') throw new Error('wrong token type');
+    return decoded;
   }
 }

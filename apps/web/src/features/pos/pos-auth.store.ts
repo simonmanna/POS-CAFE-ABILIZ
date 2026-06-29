@@ -8,6 +8,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { api } from '@/lib/api';
+import { setPosToken } from './pos-session';
 
 export interface PosAuthUser {
   userId: string;
@@ -15,6 +16,8 @@ export interface PosAuthUser {
   lastName: string | null;
   email: string;
   permissions: string[];
+  /** Short-lived POS token sent on `X-Pos-User` for server-side attribution. */
+  posToken?: string;
 }
 
 interface PosAuthState {
@@ -43,6 +46,9 @@ export const usePosAuthStore = create<PosAuthState>()(
         try {
           const res = await api.post('/pos/auth/pin-login', { userId, pin });
           const user = res.data as PosAuthUser;
+          // Make the cashier token available to the axios interceptor BEFORE any
+          // subsequent POS request fires, so every write is attributed correctly.
+          setPosToken(user.posToken ?? null);
           set({ user, loading: false, error: null });
           return user;
         } catch (e: any) {
@@ -52,7 +58,7 @@ export const usePosAuthStore = create<PosAuthState>()(
         }
       },
 
-      logout: () => set({ user: null, error: null }),
+      logout: () => { setPosToken(null); set({ user: null, error: null }); },
 
       hasPermission: (perm: string) => {
         const { user } = get();

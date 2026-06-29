@@ -76,15 +76,16 @@ export class PosReceiptsService {
       include: { items: { orderBy: { lineNumber: 'asc' } } },
     });
     if (inv) {
-      const [partner, productMap] = await Promise.all([
+      const [partner, productMap, cashierName] = await Promise.all([
         this.prisma.client.partner.findFirst({ where: { id: inv.partnerId } }),
         this.resolveProductsForLines(inv.items.map((i: any) => i.productId).filter(Boolean)),
+        this.resolveUserName((inv as any).createdBy ?? (inv as any).postedBy),
       ]);
       const linesWithProducts = inv.items.map((ln: any) => ({
         ...ln,
         product: ln.productId ? productMap.get(ln.productId) : null,
       }));
-      return { ...inv, documentNumber: inv.invoiceNumber, partner, lines: linesWithProducts };
+      return { ...inv, documentNumber: inv.invoiceNumber, partner, cashierName, lines: linesWithProducts };
     }
 
     // Fallback to generic Document (legacy tab flow).
@@ -107,7 +108,20 @@ export class PosReceiptsService {
       ...ln,
       product: ln.productId ? productMap.get(ln.productId) : null,
     }));
-    return { ...doc, partner, lines: linesWithProducts };
+    const cashierName = await this.resolveUserName((doc as any).createdBy);
+    return { ...doc, partner, cashierName, lines: linesWithProducts };
+  }
+
+  /** Resolve a user id into a printable "First Last" (or email) for the receipt. */
+  private async resolveUserName(userId?: string | null): Promise<string | null> {
+    if (!userId) return null;
+    const user = await this.prisma.client.user.findFirst({
+      where: { id: userId, organizationId: this.tenant.organizationId },
+      select: { firstName: true, lastName: true, email: true },
+    });
+    if (!user) return null;
+    const name = `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim();
+    return name || user.email || null;
   }
 
   private async resolveProductsForLines(productIds: string[]): Promise<Map<string, any>> {
@@ -179,7 +193,7 @@ export class PosReceiptsService {
     lines.push('--------------------------------');
     lines.push(`Receipt: ${(inv as any).documentNumber}`);
     lines.push(`Date:    ${new Date(inv.issueDate).toLocaleString()}`);
-    lines.push(`Cashier: ${(inv as any).createdBy ?? '-'}`);
+    lines.push(`Cashier: ${(inv as any).cashierName ?? '-'}`);
     if ((inv as any).partner?.name) lines.push(`Customer: ${(inv as any).partner.name}`);
     lines.push('--------------------------------');
     for (const ln of inv.lines) {
@@ -254,7 +268,7 @@ export class PosReceiptsService {
         doc.fontSize(9).text('--------------------------------');
         doc.text(`Receipt: ${(inv as any).documentNumber}`);
         doc.text(`Date:    ${new Date(inv.issueDate).toLocaleString()}`);
-        doc.text(`Cashier: ${(inv as any).createdBy ?? '-'}`);
+        doc.text(`Cashier: ${(inv as any).cashierName ?? '-'}`);
         if (inv.partner?.name) doc.text(`Customer: ${inv.partner.name}`);
         doc.text('--------------------------------');
         doc.moveDown(0.3);

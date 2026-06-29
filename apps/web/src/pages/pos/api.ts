@@ -307,13 +307,16 @@ export interface CheckoutBody {
   partnerId?: string;
   tableId?: string;
   guestCount?: number;
+  /** Client-only: the cart's stable Idempotency-Key. Stripped before POST so it
+   *  never reaches the (forbidNonWhitelisted) DTO; sent as the header instead. */
+  _idemKey?: string;
 }
 
 export function useCheckout() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: CheckoutBody) =>
-      (await api.post('/pos/checkout', body, { headers: { 'Idempotency-Key': uuid() } })).data,
+    mutationFn: async ({ _idemKey, ...body }: CheckoutBody) =>
+      (await api.post('/pos/checkout', body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-holds'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
@@ -372,14 +375,15 @@ export function useAddToTab() {
 export function useSettleTab() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ tableId, ...body }: {
+    mutationFn: async ({ tableId, _idemKey, ...body }: {
       tableId: string;
       tenders?: CheckoutBody['tenders'];
       paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
       amountTendered?: number;
       transactionDiscountPercent?: number;
       cashSessionId?: string;
-    }) => (await api.post(`/pos/tabs/${tableId}/settle`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
+      _idemKey?: string;
+    }) => (await api.post(`/pos/tabs/${tableId}/settle`, body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-tab', v.tableId] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
@@ -452,8 +456,14 @@ export function useReprintReceipt() {
 export function useRefundSale() {
   const qc = useQueryClient();
   return useMutation({
+    // New pipeline: refund targets the Invoice id (URL); body carries only the
+    // whitelisted fields. See features/pos/api.ts for the primary copy.
     mutationFn: async (body: { invoiceId: string; reason?: string; cashSessionId?: string; overrideById?: string }) =>
-      (await api.post('/pos/refund', body, { headers: { 'Idempotency-Key': uuid() } })).data,
+      (await api.post(
+        `/pos/invoices/${body.invoiceId}/refund`,
+        { reason: body.reason, overrideById: body.overrideById, cashSessionId: body.cashSessionId },
+        { headers: { 'Idempotency-Key': uuid() } },
+      )).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
   });
 }
@@ -462,7 +472,11 @@ export function useVoidSale() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: { invoiceId: string; reason: string; overrideById: string }) =>
-      (await api.post(`/pos/sales/${body.invoiceId}/void`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
+      (await api.post(
+        `/pos/invoices/${body.invoiceId}/refund`,
+        { reason: body.reason, overrideById: body.overrideById },
+        { headers: { 'Idempotency-Key': uuid() } },
+      )).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
   });
 }
@@ -526,11 +540,11 @@ export function useZReport(cashSessionId?: string) {
   });
 }
 
-export function useSalesByHour(date: string) {
+export function useSalesByHour(fromDate: string, toDate: string, hours?: string) {
   return useQuery({
-    queryKey: ['pos-reports', 'hourly', date],
-    queryFn: async () => (await api.get('/pos/reports/sales-by-hour', { params: { date } })).data,
-    enabled: !!date,
+    queryKey: ['pos-reports', 'hourly', fromDate, toDate, hours ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/sales-by-hour', { params: { fromDate, toDate, hours: hours || undefined } })).data,
+    enabled: !!fromDate && !!toDate,
   });
 }
 
@@ -546,6 +560,54 @@ export function useTopItems(fromDate: string, toDate: string, limit = 20) {
   return useQuery({
     queryKey: ['pos-reports', 'top-items', fromDate, toDate, limit],
     queryFn: async () => (await api.get('/pos/reports/top-items', { params: { fromDate, toDate, limit } })).data,
+    enabled: !!fromDate && !!toDate,
+  });
+}
+
+export function useSalesReport(fromDate: string, toDate: string) {
+  return useQuery({
+    queryKey: ['pos-reports', 'sales-report', fromDate, toDate],
+    queryFn: async () => (await api.get('/pos/reports/sales-report', { params: { fromDate, toDate } })).data,
+    enabled: !!fromDate && !!toDate,
+  });
+}
+
+export function useWaiterReport(fromDate: string, toDate: string) {
+  return useQuery({
+    queryKey: ['pos-reports', 'waiter-report', fromDate, toDate],
+    queryFn: async () => (await api.get('/pos/reports/waiter-report', { params: { fromDate, toDate } })).data,
+    enabled: !!fromDate && !!toDate,
+  });
+}
+
+export function useCashierShiftSummary(fromDate: string, toDate: string) {
+  return useQuery({
+    queryKey: ['pos-reports', 'cashier-shift-summary', fromDate, toDate],
+    queryFn: async () => (await api.get('/pos/reports/cashier-shift-summary', { params: { fromDate, toDate } })).data,
+    enabled: !!fromDate && !!toDate,
+  });
+}
+
+export function useCashierReport(fromDate: string, toDate: string) {
+  return useQuery({
+    queryKey: ['pos-reports', 'cashier-report', fromDate, toDate],
+    queryFn: async () => (await api.get('/pos/reports/cashier-report', { params: { fromDate, toDate } })).data,
+    enabled: !!fromDate && !!toDate,
+  });
+}
+
+export function useOrderReport(fromDate: string, toDate: string) {
+  return useQuery({
+    queryKey: ['pos-reports', 'order-report', fromDate, toDate],
+    queryFn: async () => (await api.get('/pos/reports/order-report', { params: { fromDate, toDate } })).data,
+    enabled: !!fromDate && !!toDate,
+  });
+}
+
+export function useSoldItems(fromDate: string, toDate: string, categoryId?: string) {
+  return useQuery({
+    queryKey: ['pos-reports', 'sold-items', fromDate, toDate, categoryId ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/sold-items', { params: { fromDate, toDate, categoryId: categoryId || undefined } })).data,
     enabled: !!fromDate && !!toDate,
   });
 }

@@ -67,7 +67,7 @@ async function bootstrap(): Promise<void> {
     origin: origins.length > 0 ? origins : false,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Idempotency-Key', 'X-Device-Label'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Idempotency-Key', 'X-Device-Label', 'X-Pos-User'],
     exposedHeaders: ['X-Request-Id', 'X-Total-Count'],
     maxAge: 86_400,
   });
@@ -84,12 +84,40 @@ async function bootstrap(): Promise<void> {
     if (header?.startsWith('Bearer ')) {
       try {
         const payload = jwt.verifyAccess(header.slice('Bearer '.length));
-        req.auth = payload;
+
+        // POS cashier identity (ADR — PIN attribution): when a valid `X-Pos-User`
+        // token is present and belongs to the SAME organization as the bearer
+        // JWT, the request is attributed to the cashier who PINned in — not the
+        // back-office user whose JWT opened the terminal. This makes per-cashier
+        // X/Z, audit trails, override authority and `createdBy`/`printedById`
+        // correct on a shared terminal. The bearer JWT still establishes the org
+        // boundary and transport auth; the POS token only narrows the identity.
+        let effective = payload;
+        const posHeaderRaw = req.headers['x-pos-user'];
+        const posHeader = Array.isArray(posHeaderRaw) ? posHeaderRaw[0] : posHeaderRaw;
+        if (posHeader) {
+          try {
+            const pos = jwt.verifyPos(String(posHeader));
+            if (pos.organizationId === payload.organizationId) {
+              effective = {
+                sub: pos.sub,
+                organizationId: payload.organizationId,
+                email: pos.email,
+                permissions: pos.permissions,
+              };
+            }
+            // org mismatch → ignore the POS token, fall back to the JWT identity.
+          } catch {
+            // invalid/expired POS token → fall back to the JWT identity.
+          }
+        }
+
+        req.auth = effective;
         return tenant.run(
           {
-            organizationId: payload.organizationId,
-            userId: payload.sub,
-            permissions: payload.permissions,
+            organizationId: effective.organizationId,
+            userId: effective.sub,
+            permissions: effective.permissions,
           },
           () => next(),
         );

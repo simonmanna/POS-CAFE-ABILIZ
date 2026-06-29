@@ -58,6 +58,7 @@ describe('PosInvoiceService', () => {
       mockDetermination as any,
       mockStock as any,
       {} as any, // receipts
+      { assertCanOverride: jest.fn() } as any, // overrides
     );
   });
 

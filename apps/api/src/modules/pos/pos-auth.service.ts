@@ -13,6 +13,7 @@ import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { PasswordService } from '../../kernel/auth/password.service';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { JwtTokenService } from '../../kernel/auth/jwt-token.service';
 
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 min
@@ -26,6 +27,7 @@ export class PosAuthService {
     private readonly tenant: TenantContextService,
     private readonly password: PasswordService,
     private readonly audit: AuditService,
+    private readonly jwt: JwtTokenService,
   ) {}
 
   /** List active staff in this org for POS PIN login. */
@@ -89,6 +91,16 @@ export class PosAuthService {
     // Aggregate permissions from all roles
     const permissions = [...new Set<string>(user.roles.flatMap((r: any) => r.permissions ?? []))];
 
+    // Mint a short-lived POS token. The terminal sends it on the `X-Pos-User`
+    // header so the server attributes POS writes (sales, receipts, cash, audit)
+    // to THIS cashier rather than the back-office user who opened the terminal.
+    const posToken = this.jwt.signPos({
+      sub: user.id,
+      organizationId: user.organizationId,
+      email: user.email,
+      permissions,
+    });
+
     // Audit login
     await this.audit.record({
       entity: 'User',
@@ -103,6 +115,7 @@ export class PosAuthService {
       lastName: user.lastName,
       email: user.email,
       permissions,
+      posToken,
     };
   }
 

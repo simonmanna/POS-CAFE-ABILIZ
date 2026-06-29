@@ -104,10 +104,14 @@ async function idbClear(): Promise<void> {
 
 /* ====================== Public API ====================== */
 
-export async function enqueueSale(payload: any, opts?: { endpoint?: string }): Promise<QueuedSale> {
-  const idempotencyKey = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-    ? (crypto as any).randomUUID()
-    : Math.random().toString(36).slice(2) + Date.now().toString(36);
+export async function enqueueSale(payload: any, opts?: { endpoint?: string; idempotencyKey?: string }): Promise<QueuedSale> {
+  // Reuse the cart's key when provided: if an online attempt actually committed
+  // but the response was lost, the offline replay sends the SAME key and the
+  // backend returns the original result instead of charging twice.
+  const idempotencyKey = opts?.idempotencyKey
+    ?? ((typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+      ? (crypto as any).randomUUID()
+      : Math.random().toString(36).slice(2) + Date.now().toString(36));
   const sale: QueuedSale = {
     idempotencyKey,
     createdAt: Date.now(),
