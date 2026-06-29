@@ -1142,7 +1142,7 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Tax / SC (placeholder) ============== */
   const onAddTax = () => {
-    toast.info('Tax is set per-product via the Tax catalog. All seeded products carry 18% VAT.');
+    toast.info('Tax is set per-product via the Tax catalog. Tax is currently 0% on all items.');
   };
 
   /* ============== Fullscreen toggle ============== */
