@@ -194,7 +194,6 @@ export class PosReceiptsService {
     const tagline = 'Coffee \u2022 Cake \u2022 Meals';
     const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
 
-    lines.push('');
     lines.push(rule);
     lines.push(bizName.padStart(R));
     lines.push(tagline.padStart(R));
@@ -273,7 +272,7 @@ export class PosReceiptsService {
   .receipt-end { height:160px; }
   @media print {
     @page { margin: 0; size: 80mm auto; }
-    body { padding: 28px 4px 28px; }
+    body { padding: 4px 4px 28px; }
   }
 </style></head><body>${escaped.replace(/\n/g, '<br>')}
 <div class="receipt-end"></div>
