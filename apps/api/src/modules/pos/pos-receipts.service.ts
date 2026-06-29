@@ -194,17 +194,18 @@ export class PosReceiptsService {
     const tagline = 'Coffee \u2022 Cake \u2022 Meals';
     const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
 
+    lines.push(rule);
     lines.push('');
-    lines.push(rule);
-    lines.push(rule);
+    lines.push('');
     lines.push(bizName);
     lines.push(tagline);
-    lines.push(rule);
+    lines.push('');
+    lines.push('');
     lines.push(rule);
     lines.push('');
-    lines.push(addr1);
-    lines.push(addr2);
-    lines.push(`Telephone: ${phone}`);
+    lines.push(header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA');
+    lines.push(header?.addressLine2 ?? 'Kampala, Uganda');
+    lines.push(`Telephone: ${header?.phone ?? '+256757920771'}`);
     lines.push('');
     lines.push(`Receipt #${(inv as any).documentNumber}`);
     lines.push('');
