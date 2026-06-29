@@ -203,14 +203,14 @@ export class PosReceiptsService {
     lines.push(addr2.padStart(R));
     lines.push(`Telephone: ${phone}`.padStart(R));
     lines.push('');
-    lines.push(`Receipt #${(inv as any).documentNumber}`.padStart(R));
+    lines.push(`Receipt #${(inv as any).documentNumber}`);
     lines.push('');
     const d = new Date(inv.issueDate);
     const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    lines.push(`${datePart}${' '.repeat(5)}${timePart}`.padStart(R));
+    lines.push(`${datePart}${' '.repeat(5)}${timePart}`);
     lines.push('');
-    lines.push(`Cashier: ${(inv as any).cashierName ?? '-'}`.padStart(R));
+    lines.push(`Cashier: ${(inv as any).cashierName ?? '-'}`);
     lines.push('');
     lines.push('Qty  Item.................. Price....... Total');
     lines.push('-'.repeat(R));
@@ -316,14 +316,14 @@ export class PosReceiptsService {
         doc.text(`Telephone: ${header?.phone ?? '+256757920771'}`, { align: 'center' });
         doc.moveDown(0.7);
 
-        doc.text(`Receipt #${(inv as any).documentNumber}`, { align: 'center' });
+        doc.text(`Receipt #${(inv as any).documentNumber}`);
         doc.moveDown(0.3);
         const d = new Date(inv.issueDate);
         const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-        doc.text(`${datePart}${'     '.repeat(1)}${timePart}`, { align: 'center' });
+        doc.text(`${datePart}${'     '.repeat(1)}${timePart}`);
         doc.moveDown(0.3);
-        doc.text(`Cashier: ${(inv as any).cashierName ?? '-'}`, { align: 'center' });
+        doc.text(`Cashier: ${(inv as any).cashierName ?? '-'}`);
         doc.moveDown(0.5);
 
         doc.font('Courier-Bold').fontSize(8);
