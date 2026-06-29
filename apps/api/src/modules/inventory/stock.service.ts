@@ -287,14 +287,24 @@ export class StockService {
         }
         unitCost = totalValue.gt(ZERO) ? totalValue.dividedBy(qty) : ZERO;
       } else {
-        // AVCO / STANDARD: unconditional decrement (allows negative stock).
-        const resolution = this.costResolver.resolveIssueCost(
-          { costingMethod: product.costingMethod, costPrice: product.costPrice },
-          { quantity: dec(stockItem.quantity), runningAverageCost: dec(stockItem.runningAverageCost) },
-          qty,
-        );
-        unitCost = resolution.unitCost;
-        totalValue = resolution.totalValue;
+        // AVCO / STANDARD: unconditional decrement (allows negative stock) so a
+        // sale is NEVER blocked at bill time — overselling surfaces as a negative
+        // on-hand that signals "restock", not a 500 to the cashier. The pure cost
+        // resolver intentionally THROWS for AVCO with zero/negative on-hand, so we
+        // bypass it for AVCO and value the issue at the running average directly
+        // (identical result when stock is positive). STANDARD never throws.
+        if (product.costingMethod === 'AVCO') {
+          unitCost = dec(stockItem.runningAverageCost);
+          totalValue = unitCost.times(qty);
+        } else {
+          const resolution = this.costResolver.resolveIssueCost(
+            { costingMethod: product.costingMethod, costPrice: product.costPrice },
+            { quantity: dec(stockItem.quantity), runningAverageCost: dec(stockItem.runningAverageCost) },
+            qty,
+          );
+          unitCost = resolution.unitCost;
+          totalValue = resolution.totalValue;
+        }
 
         const updated = await tx.stockItem.update({
           where: { id: stockItem.id },

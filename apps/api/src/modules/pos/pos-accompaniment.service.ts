@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 
@@ -34,6 +34,8 @@ export interface AccompanimentAssignment {
 
 @Injectable()
 export class PosAccompanimentService {
+  private readonly logger = new Logger('PosAccompanimentService');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
@@ -305,7 +307,11 @@ export class PosAccompanimentService {
   ): Promise<{ names: string[]; priceImpact: number }> {
     const orgId = this.tenant.organizationId;
     const assignments = await this.prisma.client.menuItemAccompanimentGroup.findMany({
-      where: { menuItemId, menuItem: { organizationId: orgId } },
+      // Only enforce groups the terminal can actually see. The menu read filters
+      // out inactive accompaniment groups, so enforcing a *deactivated* group
+      // here would create an unsatisfiable requirement (cashier never sees the
+      // selector → every add of the item 400s). Keep both paths in lock-step.
+      where: { menuItemId, menuItem: { organizationId: orgId }, accompanimentGroup: { isActive: true } },
       include: {
         accompanimentGroup: {
           include: { options: { where: { isActive: true } } },
@@ -320,19 +326,18 @@ export class PosAccompanimentService {
     let totalPriceImpact = 0;
     const names: string[] = [];
 
+    // NON-BLOCKING (on-site POS): never reject a sale over accompaniment rules.
+    // A missing "required" selection or an over-max pick is logged and the sale
+    // proceeds; we only price what was actually (and validly) selected.
     for (const g of groups) {
       const inGroup = g.options.filter((o: any) => selected.has(o.id));
       const count = inGroup.length;
 
       if (count < g.minSelect) {
-        throw new BadRequestException(
-          `"${g.name}" requires at least ${g.minSelect} selection(s), got ${count}.`,
-        );
+        this.logger.warn(`[accompaniment] "${g.name}" min ${g.minSelect}, got ${count} — allowed through.`);
       }
       if (g.maxSelect > 0 && count > g.maxSelect) {
-        throw new BadRequestException(
-          `"${g.name}" allows at most ${g.maxSelect} selection(s), got ${count}.`,
-        );
+        this.logger.warn(`[accompaniment] "${g.name}" max ${g.maxSelect}, got ${count} — allowed through.`);
       }
 
       for (const o of inGroup) {
@@ -342,9 +347,11 @@ export class PosAccompanimentService {
       }
     }
 
+    // Unknown option ids are dropped (not charged) rather than rejected, so a
+    // stale cart referencing a since-deleted option still rings up.
     for (const optId of selectedOptionIds) {
       const valid = groups.some((g: any) => g.options.some((o: any) => o.id === optId));
-      if (!valid) throw new BadRequestException(`AccompanimentOption ${optId} not found for this menu item`);
+      if (!valid) this.logger.warn(`[accompaniment] option ${optId} not on this item — ignored.`);
     }
 
     return { names, priceImpact: totalPriceImpact };

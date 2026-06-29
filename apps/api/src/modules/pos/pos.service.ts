@@ -1074,7 +1074,8 @@ export class PosService {
     let invoice: any;
     try {
       invoice = await this.billing.generateInvoice(order.id, { transactionDiscountPercent: input.transactionDiscountPercent });
-    } catch (e) {
+    } catch (e: any) {
+      this.logger.error(`[settle] invoice generation failed for table ${input.tableId} / order ${order.id}: ${e?.message ?? e}`);
       await this.orders.cancelOrder(order.id, 'settle: invoice generation failed').catch(() => undefined);
       throw e;
     }
@@ -1086,7 +1087,8 @@ export class PosService {
         amountTendered: input.amountTendered,
         cashSessionId: input.cashSessionId,
       });
-    } catch (e) {
+    } catch (e: any) {
+      this.logger.error(`[settle] payment failed for invoice ${invoice.invoiceNumber} (${invoice.id}): ${e?.message ?? e}`);
       await this.billing.refund(invoice.id, 'settle: payment failed').catch(() => undefined);
       throw e;
     }

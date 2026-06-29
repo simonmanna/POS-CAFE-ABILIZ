@@ -81,6 +81,14 @@ export class StockPostingService {
           receivedAt: b.receivedAt,
         })),
       );
+    } else if (product.costingMethod === 'AVCO') {
+      // Mirror StockService.issue: AVCO issues at the running average and must
+      // tolerate negative on-hand (oversell) without throwing. By the time the
+      // GL leg runs the on-hand has already been decremented (possibly below
+      // zero), and the pure resolver refuses zero/negative stock — so resolve
+      // the cost directly here instead of calling it.
+      const unitCost = stockItem ? dec(stockItem.runningAverageCost) : dec(product.costPrice ?? 0);
+      resolution = { unitCost, totalValue: unitCost.times(qty) };
     } else {
       resolution = this.costResolver.resolveIssueCost(
         { costingMethod: product.costingMethod, costPrice: product.costPrice ?? null },

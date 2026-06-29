@@ -15,7 +15,7 @@
  * ComboItem so inventory still decrements per-component.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 
@@ -51,6 +51,8 @@ export interface ComboWithItems {
 
 @Injectable()
 export class PosModifiersService {
+  private readonly logger = new Logger('PosModifiersService');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
@@ -224,30 +226,30 @@ export class PosModifiersService {
   async validateMenuItemModifiers(menuItemId: string, selectedModifierIds: string[]): Promise<void> {
     const bundle = await this.getMenuItemBundle(menuItemId);
     if (!bundle || bundle.groups.length === 0) return;
-    const selected = new Set(selectedModifierIds);
-    for (const g of bundle.groups) {
-      const inGroup = g.modifiers.reduce((n, m) => (selected.has(m.id) ? n + 1 : n), 0);
-      if (inGroup < g.minSelect) throw new BadRequestException(`"${bundle.product.name}" needs at least ${g.minSelect} selection in "${g.name}".`);
-      if (g.maxSelect > 0 && inGroup > g.maxSelect) throw new BadRequestException(`"${bundle.product.name}" allows at most ${g.maxSelect} in "${g.name}".`);
-    }
+    this.warnOnModifierRules(bundle, selectedModifierIds);
   }
 
   /**
-   * M-B — server-side enforcement of a product's modifier rules. Throws when a
-   * required group has too few selections, or any group exceeds its max. Called
-   * from the sell path so a direct API call can't bypass the dialog's checks.
+   * M-B — server-side check of a product's modifier rules. NON-BLOCKING: an
+   * unmet "required" group or an over-max pick is logged, never thrown, so the
+   * sale is never stopped (on-site POS rule). Price/anti-tamper is still
+   * enforced separately in `resolveSelectedModifiers`.
    */
   async validateProductModifiers(productId: string, selectedModifierIds: string[]): Promise<void> {
     const bundle = await this.getProductBundle(productId);
     if (!bundle || bundle.groups.length === 0) return;
+    this.warnOnModifierRules(bundle, selectedModifierIds);
+  }
+
+  private warnOnModifierRules(bundle: any, selectedModifierIds: string[]): void {
     const selected = new Set(selectedModifierIds);
     for (const g of bundle.groups) {
-      const inGroup = g.modifiers.reduce((n, m) => (selected.has(m.id) ? n + 1 : n), 0);
+      const inGroup = g.modifiers.reduce((n: number, m: any) => (selected.has(m.id) ? n + 1 : n), 0);
       if (inGroup < g.minSelect) {
-        throw new BadRequestException(`"${bundle.product.name}" needs at least ${g.minSelect} selection in "${g.name}".`);
+        this.logger.warn(`[modifier] "${bundle.product.name}" group "${g.name}" min ${g.minSelect}, got ${inGroup} — allowed through.`);
       }
       if (g.maxSelect > 0 && inGroup > g.maxSelect) {
-        throw new BadRequestException(`"${bundle.product.name}" allows at most ${g.maxSelect} in "${g.name}".`);
+        this.logger.warn(`[modifier] "${bundle.product.name}" group "${g.name}" max ${g.maxSelect}, got ${inGroup} — allowed through.`);
       }
     }
   }
@@ -283,17 +285,25 @@ export class PosModifiersService {
         ? await this.getProductBundle(opts.productId)
         : null;
     if (!bundle) {
-      throw new BadRequestException('Cannot resolve modifiers: the item has no modifier configuration.');
+      // No modifier config (e.g. item changed since the cart was built) — drop
+      // the add-ons rather than block the sale. Prices are never client-trusted.
+      this.logger.warn(`[modifier] no config for item; ignoring ${opts.modifierIds.length} selected modifier(s).`);
+      return [];
     }
     const allowed = new Map<string, { name: string; priceDelta: number }>();
     for (const g of bundle.groups) {
       for (const m of g.modifiers) allowed.set(m.id, { name: m.name, priceDelta: Number(m.priceDelta) });
     }
-    return opts.modifierIds.map((id) => {
-      const m = allowed.get(id);
-      if (!m) throw new BadRequestException(`Modifier "${id}" is not available for "${bundle.product.name}".`);
-      return { modifierId: id, name: m.name, priceDelta: m.priceDelta };
-    });
+    // Anti-tamper: prices come from the DB, never the client. Unknown / deleted
+    // / deactivated ids are dropped (logged) instead of rejected so a stale cart
+    // still rings up — they simply aren't charged.
+    return opts.modifierIds
+      .map((id) => {
+        const m = allowed.get(id);
+        if (!m) { this.logger.warn(`[modifier] "${id}" not available for "${bundle.product.name}" — ignored.`); return null; }
+        return { modifierId: id, name: m.name, priceDelta: m.priceDelta };
+      })
+      .filter((m): m is { modifierId: string; name: string; priceDelta: number } => m !== null);
   }
 
   async assignGroupToProduct(productId: string, modifierGroupId: string, sortOrder = 0): Promise<void> {

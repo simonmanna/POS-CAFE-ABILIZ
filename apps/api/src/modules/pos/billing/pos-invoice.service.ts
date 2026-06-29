@@ -144,17 +144,21 @@ export class PosInvoiceService {
         data: { journalEntryId, status: 'posted', postedAt: new Date(), postedBy: this.tenant.userId ?? null },
       });
 
-      // Deduct inventory inside the SAME transaction by threading `tx` into the
-      // stock service (audit P0-1: previously stock.issue opened its own
-      // transaction on a separate connection, so an invoice rollback left the
-      // stock decremented — permanent drift). Now it joins this tx and rolls
-      // back atomically. Recipe errors are no longer swallowed.
-      await this.issueStockForItems(tx, items, inv.invoiceNumber);
-
       return tx.invoice.findFirst({ where: { id: inv.id }, include: { items: { orderBy: { lineNumber: 'asc' } } } });
     });
 
     await this.prisma.client.order.update({ where: { id: orderId }, data: { invoiceId: invoice.id, status: 'served' } });
+
+    // Inventory deduction is BEST-EFFORT and runs AFTER the invoice commits.
+    // Business rule (on-site POS): a sale is NEVER blocked by stock. If an
+    // ingredient is missing, untracked, or at zero we still invoice and let the
+    // on-hand go negative (a restock signal). Any failure is logged, not thrown,
+    // so a costing / account-mapping / stock problem can't 500 a completed sale.
+    try {
+      await this.issueStockForItems(items, invoice.invoiceNumber);
+    } catch (e: any) {
+      this.logger.error(`[stock] deduction skipped for invoice ${invoice.invoiceNumber} (sale kept): ${e?.message ?? e}`);
+    }
 
     this.events.publish(EVENTS.PosOrderInvoiced, {
       organizationId: orgId, orderId, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
@@ -453,28 +457,37 @@ export class PosInvoiceService {
     return [{ method: dto.paymentMethod ?? 'cash', amount: residual } as TenderDto];
   }
 
-  private async issueStockForItems(tx: any, items: any[], reference: string): Promise<void> {
+  // Best-effort, post-commit (NOT inside the invoice tx). Each line is isolated
+  // in its own try/catch so one un-stocked ingredient can't stop the rest, and
+  // nothing here ever throws to the caller — the sale is already final.
+  private async issueStockForItems(items: any[], reference: string): Promise<void> {
     const orgId = this.tenant.organizationId;
-    const warehouse = await tx.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
-    if (!warehouse) return;
+    const warehouse = await this.prisma.client.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
+    if (!warehouse) { this.logger.warn(`[stock] no active warehouse; skipping deduction for ${reference}`); return; }
     for (const it of items) {
-      if (it.menuItemId) { await this.issueMenuItemRecipe(tx, it.menuItemId, Number(it.quantity), warehouse.id, `POS bill ${reference}`); continue; }
-      if (!it.productId) continue;
-      const product = await tx.product.findFirst({ where: { id: it.productId } });
-      if (!product?.trackInventory) continue;
-      if (product.productType !== 'stockable' && product.productType !== 'consumable') continue;
-      await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `POS bill ${reference}` } as any, tx);
+      try {
+        if (it.menuItemId) { await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, `POS bill ${reference}`); continue; }
+        if (!it.productId) continue;
+        const product = await this.prisma.client.product.findFirst({ where: { id: it.productId } });
+        if (!product?.trackInventory) continue;
+        if (product.productType !== 'stockable' && product.productType !== 'consumable') continue;
+        await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `POS bill ${reference}` } as any);
+      } catch (e: any) {
+        this.logger.error(`[stock] issue failed for "${it.description ?? it.productId ?? it.menuItemId}" on ${reference} (sale kept): ${e?.message ?? e}`);
+      }
     }
   }
 
-  // P0-1: errors are NOT swallowed — a stock failure must roll back the invoice
-  // (atomic) instead of silently corrupting on-hand quantities.
-  private async issueMenuItemRecipe(tx: any, menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
-    const recipe = await tx.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
+  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
+    const recipe = await this.prisma.client.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
-      await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any, tx);
+      try {
+        await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any);
+      } catch (e: any) {
+        this.logger.error(`[stock] recipe issue failed (menuItem ${menuItemId}, product ${ing.productId}) on ${reference} (sale kept): ${e?.message ?? e}`);
+      }
     }
   }
 
