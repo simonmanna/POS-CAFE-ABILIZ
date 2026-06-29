@@ -918,6 +918,24 @@ export class PosService {
       return { ticketIds: [], count: 0, message: 'No changes since last kitchen fire' };
     }
 
+    // Load structured modifiers for the lines being fired so the KDS shows the
+    // add-ons/modifiers (a DocumentLine has no `modifiers` relation — they live in
+    // DocumentLineModifier, so the previous `line.modifiers` was always empty and
+    // the kitchen never saw them for dine-in tabs).
+    const addLineIds = deltas.addLines.map((d: any) => d.line.id).filter(Boolean);
+    const modRows = addLineIds.length
+      ? await this.prisma.client.documentLineModifier.findMany({
+          where: { organizationId: orgId, documentLineId: { in: addLineIds } },
+          select: { documentLineId: true, name: true, priceDelta: true },
+        }).catch(() => [] as any[])
+      : [];
+    const modsByLine = new Map<string, Array<{ name: string; priceDelta: number }>>();
+    for (const m of modRows as any[]) {
+      const arr = modsByLine.get(m.documentLineId) ?? [];
+      arr.push({ name: m.name, priceDelta: Number(m.priceDelta) });
+      modsByLine.set(m.documentLineId, arr);
+    }
+
     // Send only new / increased qty to KDS.
     let ticketIds: string[] = [];
     if (deltas.addLines.length > 0) {
@@ -929,7 +947,7 @@ export class PosService {
           productId: line.productId,
           productName: line.description,
           quantity: delta,
-          modifiers: line.modifiers ?? [],
+          modifiers: modsByLine.get(line.id) ?? [],
           notes: line.note ?? null,
           station: (product as any)?.station ?? 'cafe',
         });
@@ -1195,7 +1213,15 @@ export class PosService {
     }> = [];
 
     for (const l of inputLines) {
-      const modifierDelta = (l.modifiers ?? []).reduce((s, m) => s + Number(m.priceDelta), 0);
+      // SECURITY: re-resolve modifier prices from the DB (reject unknown ids)
+      // instead of trusting the client priceDelta — same hole the counter path
+      // closes in PosOrdersService.resolveLines.
+      const resolvedMods = l.modifiers?.length
+        ? await this.modifiers.resolveSelectedModifiers({
+            menuItemId: l.menuItemId, productId: l.productId, modifierIds: l.modifiers.map((m) => m.modifierId),
+          })
+        : [];
+      const modifierDelta = resolvedMods.reduce((s, m) => s + m.priceDelta, 0);
 
       // Resolve variant price (variant price REPLACES basePrice).
       let variantName: string | undefined;
@@ -1208,11 +1234,12 @@ export class PosService {
         hasVariant = true;
       }
 
-      // Resolve accompaniment price impact (stacks on top).
+      // Resolve accompaniment price impact (stacks on top). Always validate for a
+      // menu item — passing [] enforces required groups even when the client omits them.
       let accompanimentImpact = 0;
       let accompanimentNames: string[] = [];
-      if (l.accompanimentOptionIds && l.accompanimentOptionIds.length > 0 && l.menuItemId) {
-        const result = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds);
+      if (l.menuItemId) {
+        const result = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds ?? []);
         accompanimentImpact = result.priceImpact;
         accompanimentNames = result.names;
       }
@@ -1227,8 +1254,8 @@ export class PosService {
       if (accompanimentNames.length > 0) {
         noteParts.push(...accompanimentNames.map((n) => `+ ${n}`));
       }
-      if (l.modifiers && l.modifiers.length > 0) {
-        noteParts.push(...l.modifiers.map((m) => `+ ${m.name}`));
+      if (resolvedMods.length > 0) {
+        noteParts.push(...resolvedMods.map((m) => `+ ${m.name}`));
       }
 
       lines.push({
@@ -1240,7 +1267,7 @@ export class PosService {
         taxId: l.taxId ?? null,
         discountPercent: l.discountPercent ?? 0,
         note: noteParts.length > 0 ? noteParts.join(' | ') : null,
-        modifiers: l.modifiers,
+        modifiers: resolvedMods,
         comboId: l.comboId,
         comboPrice: undefined,
         taxInclusive: l.taxInclusive,

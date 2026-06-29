@@ -394,10 +394,13 @@ export class PosOrdersService {
     return this.sequence.next(`order:${ymd}`, { prefix: `ORD-${ymd}-`, padding: 6 }, tx);
   }
 
-  /** Validate variant + modifier rules server-side before pricing. */
+  /** Validate variant + accompaniment + modifier rules server-side before pricing. */
   private async validateLines(lines: OrderLineDto[]): Promise<void> {
     for (const ln of lines) {
       if (ln.variantId && ln.menuItemId) await this.variants.validateVariant(ln.menuItemId, ln.variantId);
+      // Enforce required accompaniment groups even when the client omits the
+      // field entirely (a direct API call must not skip a mandatory choice).
+      if (ln.menuItemId) await this.accompaniments.validateSelections(ln.menuItemId, ln.accompanimentOptionIds ?? []);
     }
     await this.modifiers.validateSelections(lines as any);
   }
@@ -418,7 +421,15 @@ export class PosOrdersService {
 
     const lines: ResolvedLine[] = [];
     for (const l of inputLines) {
-      const modifierDelta = (l.modifiers ?? []).reduce((s, m) => s + Number(m.priceDelta), 0);
+      // SECURITY: re-resolve each modifier's price from the DB (reject unknown
+      // ids) rather than trusting the client-sent priceDelta. Mirrors how
+      // variants/accompaniments are already server-resolved below.
+      const resolvedMods = l.modifiers?.length
+        ? await this.modifiers.resolveSelectedModifiers({
+            menuItemId: l.menuItemId, productId: l.productId, modifierIds: l.modifiers.map((m) => m.modifierId),
+          })
+        : [];
+      const modifierDelta = resolvedMods.reduce((s, m) => s + m.priceDelta, 0);
       let variantName: string | undefined;
       let variantPrice = 0;
       let hasVariant = false;
@@ -437,7 +448,7 @@ export class PosOrdersService {
       const noteParts: string[] = [];
       if (l.note) noteParts.push(l.note);
       if (accompanimentNames.length) noteParts.push(...accompanimentNames.map((n) => `+ ${n}`));
-      if (l.modifiers?.length) noteParts.push(...l.modifiers.map((m) => `+ ${m.name}`));
+      if (resolvedMods.length) noteParts.push(...resolvedMods.map((m) => `+ ${m.name}`));
       const productId = l.productId ?? skuMap.get(l.sku?.toLowerCase() ?? '') ?? null;
       lines.push({
         productId,
@@ -449,7 +460,7 @@ export class PosOrdersService {
         discountPercent: l.discountPercent ?? 0,
         note: noteParts.length ? noteParts.join(' | ') : null,
         taxInclusive: l.taxInclusive,
-        modifiers: l.modifiers ?? [],
+        modifiers: resolvedMods,
         variantName,
         accompanimentNames,
         station: await stationFor(productId),

@@ -263,6 +263,39 @@ export class PosModifiersService {
     }
   }
 
+  /**
+   * Resolve a line's selected modifiers to DB-authoritative {name, priceDelta},
+   * rejecting any id that isn't an active modifier on this item's groups. The
+   * sell path MUST use this instead of trusting the client-sent priceDelta —
+   * otherwise a crafted request could book an arbitrary add-on price to the GL,
+   * and an admin price change wouldn't apply to a stale cart. Input order +
+   * duplicates (one entry per add-on unit) are preserved so qty math holds.
+   */
+  async resolveSelectedModifiers(opts: {
+    menuItemId?: string | null;
+    productId?: string | null;
+    modifierIds: string[];
+  }): Promise<Array<{ modifierId: string; name: string; priceDelta: number }>> {
+    if (!opts.modifierIds?.length) return [];
+    const bundle = opts.menuItemId
+      ? await this.getMenuItemBundle(opts.menuItemId)
+      : opts.productId
+        ? await this.getProductBundle(opts.productId)
+        : null;
+    if (!bundle) {
+      throw new BadRequestException('Cannot resolve modifiers: the item has no modifier configuration.');
+    }
+    const allowed = new Map<string, { name: string; priceDelta: number }>();
+    for (const g of bundle.groups) {
+      for (const m of g.modifiers) allowed.set(m.id, { name: m.name, priceDelta: Number(m.priceDelta) });
+    }
+    return opts.modifierIds.map((id) => {
+      const m = allowed.get(id);
+      if (!m) throw new BadRequestException(`Modifier "${id}" is not available for "${bundle.product.name}".`);
+      return { modifierId: id, name: m.name, priceDelta: m.priceDelta };
+    });
+  }
+
   async assignGroupToProduct(productId: string, modifierGroupId: string, sortOrder = 0): Promise<void> {
     const orgId = this.tenant.organizationId;
     const [p, g] = await Promise.all([
