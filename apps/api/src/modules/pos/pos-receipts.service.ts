@@ -269,7 +269,10 @@ export class PosReceiptsService {
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:'Courier New',Courier,monospace; font-size:13px; white-space:pre; padding:20px; width:300px; margin:0 auto; }
-  @media print { body { padding:0; } }
+  @media print {
+    @page { margin: 0; size: 58mm auto; }
+    body { padding: 0; }
+  }
 </style></head><body>${escaped.replace(/\n/g, '<br>')}
 <script>window.onload=function(){window.print();};</script></body></html>`;
   }
