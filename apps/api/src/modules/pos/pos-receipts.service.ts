@@ -256,6 +256,7 @@ export class PosReceiptsService {
     } else {
       lines.push((footer?.message ?? 'Thank you!').padStart(R));
     }
+    for (let i = 0; i < 8; i++) lines.push('');
     return lines.join('\n');
   }
 
@@ -269,11 +270,13 @@ export class PosReceiptsService {
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   body { font-family:'Courier New',Courier,monospace; font-size:13px; white-space:pre; padding:20px; width:300px; margin:0 auto; }
+  .receipt-end { height:160px; }
   @media print {
-    @page { margin: 0; size: 58mm auto; }
-    body { padding: 0; }
+    @page { margin: 0; size: 80mm auto; }
+    body { padding: 28px 4px 28px; }
   }
 </style></head><body>${escaped.replace(/\n/g, '<br>')}
+<div class="receipt-end"></div>
 <script>window.onload=function(){window.print();};</script></body></html>`;
   }
 
@@ -373,8 +376,8 @@ export class PosReceiptsService {
         doc.moveDown(0.2);
         doc.font('Courier').fontSize(8);
         doc.text('-'.repeat(42), 8, doc.y, { width: 210 });
-        doc.moveDown(0.4);
-        doc.moveDown(0.4);
+        doc.moveDown(0.5);
+        doc.moveDown(0.5);
         doc.font('Helvetica').fontSize(9);
         doc.text((footer?.message ?? 'Thank you!'), { align: 'center' });
       };
