@@ -194,9 +194,12 @@ export class PosReceiptsService {
     const tagline = 'Coffee \u2022 Cake \u2022 Meals';
     const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
 
+    lines.push('');
+    lines.push(rule);
     lines.push(rule);
     lines.push(bizName);
     lines.push(tagline);
+    lines.push(rule);
     lines.push(rule);
     lines.push('');
     lines.push(addr1);
@@ -299,13 +302,13 @@ export class PosReceiptsService {
         const isMerchant = /CASHIER|MERCHANT/i.test(copyLabel);
         if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***');
         doc.font('Helvetica-Bold').fontSize(10).text(`*** ${copyLabel} ***`);
-        doc.moveDown(0.5);
+        doc.moveDown(0.6);
 
         const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
-        doc.font('Helvetica-Bold').fontSize(16).text(bizName);
-        doc.moveDown(0.15);
-        doc.font('Helvetica').fontSize(10).text('Coffee \u2022 Cake \u2022 Meals');
-        doc.moveDown(0.3);
+        doc.font('Helvetica-Bold').fontSize(20).text(bizName);
+        doc.moveDown(0.2);
+        doc.font('Helvetica-Bold').fontSize(12).text('Coffee \u2022 Cake \u2022 Meals');
+        doc.moveDown(0.35);
         doc.font('Courier-Bold').fontSize(9).text('='.repeat(42));
         doc.moveDown(0.5);
 
