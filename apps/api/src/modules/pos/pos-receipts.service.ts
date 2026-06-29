@@ -265,14 +265,15 @@ export class PosReceiptsService {
     const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const escaped = escape(text);
     return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Receipt</title>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=80mm"><title>Receipt</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:'Courier New',Courier,monospace; font-size:13px; white-space:pre; padding:20px; width:300px; margin:0 auto; }
+  body { font-family:'Courier New',Courier,monospace; font-size:13px; white-space:pre; padding:4px; margin:0; }
   .receipt-end { height:160px; }
   @media print {
     @page { margin: 0; size: 80mm auto; }
-    body { padding: 4px 4px 28px; }
+    body { padding: 4px; }
+    .receipt-end { height: 160px; page-break-inside: avoid; }
   }
 </style></head><body>${escaped.replace(/\n/g, '<br>')}
 <div class="receipt-end"></div>
