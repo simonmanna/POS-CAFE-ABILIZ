@@ -27,6 +27,7 @@ import { IsString } from 'class-validator';
 import type { Response } from 'express';
 import PDFDocument = require('pdfkit');
 import { Injectable, Logger, Module } from '@nestjs/common';
+import path from 'path';
 
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
@@ -279,7 +280,10 @@ export class PosReceiptsService {
     body { padding: 4px; }
     .receipt-end { height: 160px; page-break-inside: avoid; }
   }
-</style></head><body>${escaped.replace(/\n/g, '<br>')}
+</style></head>
+<body>
+  <img src="/abiliz-logo.png" style="width:80mm;max-width:100%;display:block;margin:0 auto 8px auto;">
+  ${escaped.replace(/\n/g, '<br>')}
 <div class="receipt-end"></div>
 <script>window.onload=function(){window.print();};</script></body></html>`;
   }
@@ -304,6 +308,18 @@ export class PosReceiptsService {
         if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***');
         doc.font('Helvetica-Bold').fontSize(10).text(`*** ${copyLabel} ***`);
         doc.moveDown(0.6);
+
+        const logoPath = path.join(__dirname, '../../../../../web/public/abiliz-logo.png');
+        try {
+          const imgWidth = 160;
+          const imgHeight = 160;
+          const x = (226 - imgWidth) / 2;
+          doc.image(logoPath, x, doc.y, { width: imgWidth, height: imgHeight });
+          doc.y += imgHeight + 10;
+        } catch {
+          doc.font('Helvetica-Bold').fontSize(8).text('[logo]', { align: 'center' });
+        }
+        doc.moveDown(0.2);
 
         const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
         doc.font('Helvetica-Bold').fontSize(20).text(bizName);
