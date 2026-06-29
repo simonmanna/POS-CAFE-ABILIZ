@@ -86,10 +86,12 @@ async function main(): Promise<void> {
   }
 
   // --- Tax ------------------------------------------------------------------
+    // Client directive: 0% tax everywhere. Keep the row (products link to it via
+    // taxId) but at rate 0, and force existing rows to 0 on every reseed.
     const tax = await prisma.tax.upsert({
       where: { organizationId_name: { organizationId: org.id, name: 'VAT 18%' } },
-      update: {},
-      create: { organizationId: org.id, name: 'VAT 18%', code: 'VAT18', type: 'vat', rate: 18 },
+      update: { rate: 0, name: 'No Tax', code: 'NOTAX' },
+      create: { organizationId: org.id, name: 'No Tax', code: 'NOTAX', type: 'vat', rate: 0 },
     });
 
     // --- Categories -----------------------------------------------------------
@@ -247,8 +249,8 @@ async function main(): Promise<void> {
     where: { id: productCategory.id },
     data: { incomeAccountId: accountIds['4100'], expenseAccountId: accountIds['5100'] },
   });
-  await prisma.tax.updateMany({
-    where: { organizationId: org.id, name: 'VAT 18%' },
+  await prisma.tax.update({
+    where: { id: tax.id },
     data: { accountId: accountIds['2200'] },
   });
 
