@@ -334,17 +334,18 @@ export const OrderPanel: React.FC<Props> = ({
           >
             <MoveRight className="pos-action-icon" /> Move Items
           </button>
-        ) : (
-          <button
-            type="button"
-            className="pos-action-btn-pro bg-pink"
-            onClick={onSplit}
-            disabled={empty}
-          >
-            <Scissors className="pos-action-icon" /> Split{" "}
-            <span className="pos-kbd">F4</span>
-          </button>
-        )}
+        ) : null}
+
+        <button
+          type="button"
+          className="pos-action-btn-pro bg-pink"
+          onClick={onSplit}
+          disabled={empty}
+          title={tableId ? "Split this table's bill into separate payments" : 'Split payment across tenders'}
+        >
+          <Scissors className="pos-action-icon" /> Split{" "}
+          <span className="pos-kbd">F4</span>
+        </button>
       </div>
     </div>
   );
