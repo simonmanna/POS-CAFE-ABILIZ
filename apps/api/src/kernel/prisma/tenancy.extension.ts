@@ -94,8 +94,14 @@ const ORG_SCOPED = new Set<string>([
   'ModifierGroup',
   'Modifier',
   'ProductModifierGroup',
+  'MenuItemModifierGroup',
   'Combo',
   'ComboItem',
+  // POS Phase D — Variants + Accompaniments
+  'MenuItemVariant',
+  'AccompanimentGroup',
+  'AccompanimentOption',
+  'MenuItemAccompanimentGroup',
   // POS Phase D — KDS (P5)
   'KitchenTicket',
   // POS Phase E — Loyalty + Store Credit + Customer Tabs (P7)
@@ -126,6 +132,13 @@ const ORG_SCOPED = new Set<string>([
   'Invoice',
   'InvoiceItem',
   'InvoiceItemModifier',
+  // POS — Split bills (dine-in bill splitting)
+  'SplitBill',
+  'SplitBillItem',
+  // Standalone expenses (petty-cash / operating expenses)
+  'Expense',
+  'ExpenseCategory',
+  'ExpensePayment',
 ]);
 
 /** Models with a `deletedAt` column → soft-delete filtering on reads/writes. */
@@ -161,6 +174,19 @@ const SOFT_DELETE = new Set<string>([
   'DebitNote',
   // F.7 — Deals are config (transactional records use status)
   'Deal',
+  // Standalone expenses — Expense + ExpenseCategory carry deletedAt
+  // (ExpensePayment uses a status column, not soft delete).
+  'Expense',
+  'ExpenseCategory',
+  // POS — Menu Configuration (variants, accompaniments, modifiers)
+  'MenuItemVariant',
+  'AccompanimentGroup',
+  'AccompanimentOption',
+  'ModifierGroup',
+  'Modifier',
+  'ProductModifierGroup',
+  'MenuItemModifierGroup',
+  'MenuItemAccompanimentGroup',
 ]);
 
 const WHERE_OPS = new Set<string>([

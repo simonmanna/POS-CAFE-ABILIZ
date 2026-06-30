@@ -46,12 +46,13 @@ import { ReceiptPreview, type ReceiptLine } from './ReceiptPreview';
 import { ReceiptPreviewDialog } from './ReceiptPreviewDialog';
 import { TableSelectorDialog } from './TableSelectorDialog';
 import { MoveItemsDialog } from './MoveItemsDialog';
+import { SplitBillDialog } from './SplitBillDialog';
 
 import { VoidItemDialog } from './VoidItemDialog';
 import { CancelOrderDialog } from './CancelOrderDialog';
 import { ReprintDialog } from './ReprintDialog';
 import type { PosTable } from '@/features/tables/types';
-import { useTables, useTransferItems } from '@/features/tables/api';
+import { useTables, useTransferItems, usePosTablesStream } from '@/features/tables/api';
 
 import {
   useOpenSession,
@@ -115,6 +116,12 @@ function serverLineToCart(l: any): CartLine {
     taxId: l.taxId ?? undefined,
     note: l.note ?? undefined,
     taxInclusive: l.taxInclusive ?? undefined,
+    // Restore per-line modifiers so the reloaded cart/KOT shows them. unitPrice
+    // is already modifier-folded (so the display total is unchanged); cartLineToPayload
+    // un-bakes the id-bearing deltas on the way back out, keeping the money exact.
+    modifiers: Array.isArray(l.modifiers) && l.modifiers.length > 0
+      ? l.modifiers.map((m: any) => ({ modifierId: m.modifierId ?? '', name: m.name, priceDelta: Number(m.priceDelta ?? 0) }))
+      : undefined,
     variantId: l.variantId ?? undefined,
     variantName: l.variantName ?? undefined,
     variantPrice: l.variantPrice !== undefined ? Number(l.variantPrice) : undefined,
@@ -146,13 +153,26 @@ function cartLineToPayload(l: CartLine) {
   const computedPct = l.discountType === 'fixed' && l.discountAmount
     ? base > 0 ? Math.min(100, (l.discountAmount / base) * 100) : 0
     : l.discountPercent;
+  // The cart's unitPrice is DISPLAY-baked: base menu price + accompaniment impact
+  // + modifier deltas (see AddOnsDialog / effectiveBasePrice). The API re-resolves
+  // accompaniment/modifier prices from the DB and folds them into unitPrice ITSELF,
+  // so we must send the *un-baked* base here — otherwise add-ons are counted twice
+  // (e.g. settle 400: tender 2080 ≠ amount due 4080). Variant lines are unaffected:
+  // the API uses variantPrice (not this) as the base, so the subtraction is a no-op
+  // for the charged price there.
+  // Only un-bake deltas the API will re-fold — i.e. modifiers it can re-resolve by
+  // id. A modifier whose source row was deleted (no id) is dropped server-side, so
+  // leaving its delta in keeps the charged total exact.
+  const modifierDelta = (l.modifiers ?? []).reduce((s, m) => s + (m.modifierId ? Number(m.priceDelta || 0) : 0), 0);
+  const accImpact = Number(l.accompanimentPriceImpact || 0);
+  const baseUnitPrice = l.unitPrice - modifierDelta - accImpact;
   return {
     productId: l.productId,
     menuItemId: l.menuItemId,
     sku: l.sku,
     description: l.name,
     quantity: l.quantity,
-    unitPrice: l.unitPrice,
+    unitPrice: baseUnitPrice,
     taxId: l.taxId,
     discountPercent: computedPct > 0 ? computedPct : undefined,
     note: l.note,
@@ -225,6 +245,9 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Move Items ============== */
   const [showMoveItems, setShowMoveItems] = useState(false);
+
+  /* ============== Split Bill ============== */
+  const [showSplit, setShowSplit] = useState(false);
 
   /* ============== Move items ============== */
   const [transferBusy, setTransferBusy] = useState(false);
@@ -376,7 +399,8 @@ const TerminalPage: React.FC = () => {
   const setOrderType = useCartStore((s) => s.setOrderType);
   const clearCart = useCartStore((s) => s.clear);
 
-  /* ============== Tables (auto-polling, 8s) ============== */
+  /* ============== Tables (live via SSE, fallback poll 20s) ============== */
+  usePosTablesStream();
   const { data: tables = [], isLoading: tablesLoading } = useTables({ active: true, status: undefined });
 
   /* Derived selected table � derived from selectedTableId + tables list */
@@ -1134,10 +1158,25 @@ const TerminalPage: React.FC = () => {
     }
   };
 
-  /* ============== Split (placeholder — full split comes with P3 splits) ============== */
-  const onSplit = () => {
-    toast.info('Split-bill UI uses the multi-tender PaymentDialog. Add multiple tenders with different methods.');
-    setShowPayment(true);
+  /* ============== Split Bill ============== */
+  /* Dine-in: open the split workspace (divide the tab into independent bills).
+   * Flush the cart first so server DocumentLine ids match the on-screen order —
+   * the split references those ids. Counter sales fall back to multi-tender. */
+  const onSplit = async () => {
+    if (!tableId) {
+      toast.info('Split bill is for dine-in tables. For counter sales, add multiple tenders at payment.');
+      setShowPayment(true);
+      return;
+    }
+    if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    try {
+      await saveTab.mutateAsync({ tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id });
+      tabSyncSig.current = orderSig(lines);
+    } catch {
+      toast.error('Could not save the order before splitting');
+      return;
+    }
+    setShowSplit(true);
   };
 
   /* ============== Tax / SC (placeholder) ============== */
@@ -1435,6 +1474,25 @@ const TerminalPage: React.FC = () => {
           busy={transferBusy}
         />
       ) : null}
+
+      {/* Split bill — divide the tab into independently-payable bills */}
+      <SplitBillDialog
+        open={showSplit}
+        tableId={tableId ?? null}
+        tableLabel={activeTableLabel ?? undefined}
+        cashSessionId={session?.id}
+        onClose={() => setShowSplit(false)}
+        onTableClosed={() => {
+          setShowSplit(false);
+          tabSyncSig.current = '';
+          clearCart();
+          setCustomer(null);
+          setSelectedTableId(null);
+          setTableView('grid');
+          refetchSession();
+          currentSentLineIds.current.clear();
+        }}
+      />
 
       {/* Cancel order dialog */}
       <CancelOrderDialog

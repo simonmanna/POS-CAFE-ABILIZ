@@ -307,6 +307,7 @@ export interface CheckoutBody {
   partnerId?: string;
   tableId?: string;
   guestCount?: number;
+  orderType?: 'dine_in' | 'takeaway' | 'delivery';
   /** Client-only: the cart's stable Idempotency-Key. Stripped before POST so it
    *  never reaches the (forbidNonWhitelisted) DTO; sent as the header instead. */
   _idemKey?: string;
@@ -337,7 +338,10 @@ export interface TabDocument {
   discountTotal: string;
   taxAmount: string;
   totalAmount: string;
-  lines: Array<{ id: string; description: string; quantity: string; unitPrice: string; total: string }>;
+  lines: Array<{
+    id: string; description: string; quantity: string; unitPrice: string; total: string;
+    modifiers?: Array<{ modifierId: string | null; name: string; priceDelta: string }>;
+  }>;
 }
 
 /** The running bill for a table's open tab (null when none is open). */
@@ -556,58 +560,58 @@ export function useSalesSummary(fromDate: string, toDate: string, groupBy: 'day'
   });
 }
 
-export function useTopItems(fromDate: string, toDate: string, limit = 20) {
+export function useTopItems(fromDate: string, toDate: string, limit = 20, categoryId?: string) {
   return useQuery({
-    queryKey: ['pos-reports', 'top-items', fromDate, toDate, limit],
-    queryFn: async () => (await api.get('/pos/reports/top-items', { params: { fromDate, toDate, limit } })).data,
+    queryKey: ['pos-reports', 'top-items', fromDate, toDate, limit, categoryId ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/top-items', { params: { fromDate, toDate, limit, categoryId: categoryId || undefined } })).data,
     enabled: !!fromDate && !!toDate,
   });
 }
 
-export function useSalesReport(fromDate: string, toDate: string) {
+export function useSalesReport(fromDate: string, toDate: string, waiterId?: string, search?: string, paymentMethod?: string, orderType?: string) {
   return useQuery({
-    queryKey: ['pos-reports', 'sales-report', fromDate, toDate],
-    queryFn: async () => (await api.get('/pos/reports/sales-report', { params: { fromDate, toDate } })).data,
+    queryKey: ['pos-reports', 'sales-report', fromDate, toDate, waiterId ?? 'all', search ?? '', paymentMethod ?? 'all', orderType ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/sales-report', { params: { fromDate, toDate, waiterId, search: search || undefined, paymentMethod, orderType } })).data,
     enabled: !!fromDate && !!toDate,
   });
 }
 
-export function useWaiterReport(fromDate: string, toDate: string) {
+export function useWaiterReport(fromDate: string, toDate: string, waiterId?: string, orderType?: string) {
   return useQuery({
-    queryKey: ['pos-reports', 'waiter-report', fromDate, toDate],
-    queryFn: async () => (await api.get('/pos/reports/waiter-report', { params: { fromDate, toDate } })).data,
+    queryKey: ['pos-reports', 'waiter-report', fromDate, toDate, waiterId ?? 'all', orderType ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/waiter-report', { params: { fromDate, toDate, waiterId, orderType } })).data,
     enabled: !!fromDate && !!toDate,
   });
 }
 
-export function useCashierShiftSummary(fromDate: string, toDate: string) {
+export function useCashierShiftSummary(fromDate: string, toDate: string, cashierId?: string) {
   return useQuery({
-    queryKey: ['pos-reports', 'cashier-shift-summary', fromDate, toDate],
-    queryFn: async () => (await api.get('/pos/reports/cashier-shift-summary', { params: { fromDate, toDate } })).data,
+    queryKey: ['pos-reports', 'cashier-shift-summary', fromDate, toDate, cashierId ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/cashier-shift-summary', { params: { fromDate, toDate, cashierId } })).data,
     enabled: !!fromDate && !!toDate,
   });
 }
 
-export function useCashierReport(fromDate: string, toDate: string) {
+export function useCashierReport(fromDate: string, toDate: string, waiterId?: string, search?: string, paymentMethod?: string, orderType?: string) {
   return useQuery({
-    queryKey: ['pos-reports', 'cashier-report', fromDate, toDate],
-    queryFn: async () => (await api.get('/pos/reports/cashier-report', { params: { fromDate, toDate } })).data,
+    queryKey: ['pos-reports', 'cashier-report', fromDate, toDate, waiterId ?? 'all', search ?? '', paymentMethod ?? 'all', orderType ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/cashier-report', { params: { fromDate, toDate, waiterId, search: search || undefined, paymentMethod, orderType } })).data,
     enabled: !!fromDate && !!toDate,
   });
 }
 
-export function useOrderReport(fromDate: string, toDate: string) {
+export function useOrderReport(fromDate: string, toDate: string, orderType?: string, status?: string) {
   return useQuery({
-    queryKey: ['pos-reports', 'order-report', fromDate, toDate],
-    queryFn: async () => (await api.get('/pos/reports/order-report', { params: { fromDate, toDate } })).data,
+    queryKey: ['pos-reports', 'order-report', fromDate, toDate, orderType ?? 'all', status ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/order-report', { params: { fromDate, toDate, orderType, status: status && status !== 'draft' ? status : undefined } })).data,
     enabled: !!fromDate && !!toDate,
   });
 }
 
-export function useSoldItems(fromDate: string, toDate: string, categoryId?: string) {
+export function useSoldItems(fromDate: string, toDate: string, categoryId?: string, waiterId?: string, orderType?: string) {
   return useQuery({
-    queryKey: ['pos-reports', 'sold-items', fromDate, toDate, categoryId ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/sold-items', { params: { fromDate, toDate, categoryId: categoryId || undefined } })).data,
+    queryKey: ['pos-reports', 'sold-items', fromDate, toDate, categoryId ?? 'all', waiterId ?? 'all', orderType ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/sold-items', { params: { fromDate, toDate, categoryId: categoryId || undefined, waiterId, orderType } })).data,
     enabled: !!fromDate && !!toDate,
   });
 }
@@ -794,5 +798,167 @@ export function useWriteOffInvoice() {
     mutationFn: async ({ invoiceId, reason }: { invoiceId: string; reason: string }) =>
       (await api.post(`/pos/invoices/${invoiceId}/write-off`, { reason })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
+  });
+}
+
+/* ============================================================================
+ * Split bills — divide one table's open tab into independently-payable bills.
+ * Item/bill ids travel in the URL (never the body — forbidNonWhitelisted). Every
+ * mutation returns the full refreshed SplitState so the dialog stays in sync.
+ * ==========================================================================*/
+
+export interface SplitLine {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  discountPercent: number;
+  lineTotal: number;
+  assignedQty: number;
+  unassignedQty: number;
+  modifiers: string[];
+}
+
+export interface SplitBillItem {
+  sourceLineId: string;
+  description: string;
+  quantity: number;
+  lineTotal: number;
+}
+
+export interface SplitBill {
+  id: string;
+  label: string;
+  status: 'open' | 'settled' | 'void';
+  splitType: 'item' | 'even' | 'percent';
+  partnerId: string | null;
+  invoiceId: string | null;
+  totalAmount: number;
+  amountPaid: number;
+  items: SplitBillItem[];
+}
+
+export interface SplitState {
+  tableId: string;
+  sourceDocumentId: string | null;
+  lines: SplitLine[];
+  bills: SplitBill[];
+  summary: {
+    tableTotal: number;
+    assignedTotal: number;
+    unassignedTotal: number;
+    paidTotal: number;
+    outstandingTotal: number;
+    fullyAssigned: boolean;
+    openBills: number;
+  };
+  splitActive: boolean;
+}
+
+export interface SettleSplitResult {
+  billId: string;
+  invoiceId: string;
+  invoiceNumber?: string;
+  settlementStatus: string;
+  change: number;
+  tableClosed: boolean;
+  alreadySettled?: boolean;
+}
+
+type AssignItem = { sourceLineId: string; quantity: number };
+
+/** The split workspace for a table (lines + bills + running balance). */
+export function useSplitState(tableId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['pos-split', tableId],
+    enabled: !!tableId && enabled,
+    queryFn: async () => (await api.get<SplitState>(`/pos/tabs/${tableId}/split`)).data,
+  });
+}
+
+export function useAddSplitBills() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ tableId, count }: { tableId: string; count?: number }) =>
+      (await api.post<SplitState>(`/pos/tabs/${tableId}/split/bills`, { count })).data,
+    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['pos-split', v.tableId] }),
+  });
+}
+
+export function useCancelSplit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ tableId }: { tableId: string }) =>
+      (await api.post<SplitState>(`/pos/tabs/${tableId}/split/cancel`, {})).data,
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['pos-split', v.tableId] });
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+    },
+  });
+}
+
+export function useAssignSplitItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ billId, items }: { billId: string; tableId?: string; items: AssignItem[] }) =>
+      (await api.post<SplitState>(`/pos/split-bills/${billId}/assign`, { items })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-split'] }),
+  });
+}
+
+export function useUnassignSplitItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ billId, items }: { billId: string; tableId?: string; items: AssignItem[] }) =>
+      (await api.post<SplitState>(`/pos/split-bills/${billId}/unassign`, { items })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-split'] }),
+  });
+}
+
+export function useMoveSplitItems() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ billId, targetBillId, items }: { billId: string; targetBillId: string; items: AssignItem[] }) =>
+      (await api.post<SplitState>(`/pos/split-bills/${billId}/move/${targetBillId}`, { items })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-split'] }),
+  });
+}
+
+export function useMergeSplitBills() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ billId, targetBillId }: { billId: string; targetBillId: string }) =>
+      (await api.post<SplitState>(`/pos/split-bills/${billId}/merge/${targetBillId}`, {})).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-split'] }),
+  });
+}
+
+export function useDeleteSplitBill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ billId }: { billId: string }) =>
+      (await api.delete<SplitState>(`/pos/split-bills/${billId}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-split'] }),
+  });
+}
+
+export function useSettleSplitBill() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ billId, _idemKey, ...body }: {
+      billId: string;
+      tableId?: string;
+      tenders?: PaymentTender[];
+      paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
+      amountTendered?: number;
+      cashSessionId?: string;
+      _idemKey?: string;
+    }) => (await api.post<SettleSplitResult>(`/pos/split-bills/${billId}/settle`, body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pos-split'] });
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+      qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['cash-session'] });
+    },
   });
 }

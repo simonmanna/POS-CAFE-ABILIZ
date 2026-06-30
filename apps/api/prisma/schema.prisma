@@ -96,11 +96,14 @@ enum AuditAction {
   issue
   adjust
   transfer
+  reconcile
   // POS Tables Management (ADR-012)
   merge
   clean
   reserve
   reprint
+  assign
+  unassign
 }
 
 // ------------------------- System / global tables ---------------------------
@@ -117,6 +120,9 @@ model Organization {
   baseCurrency Currency?          @relation("OrgBaseCurrency", fields: [currencyCode], references: [code])
   status       OrganizationStatus @default(active)
   settings     Json               @default("{}")
+  /// Receipt header/footer overrides (businessName, addressLine1, phone, taxId, message)
+  receiptHeader Json?
+  receiptFooter Json?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   deletedAt    DateTime?
@@ -426,6 +432,8 @@ model Partner {
   phone               String?
   website             String?
   taxNumber           String?
+  membershipLevel     String?
+  gender              String?
   receivableAccountId String?
   payableAccountId    String?
   status              PartnerStatus @default(active)
@@ -1201,6 +1209,9 @@ model ModifierGroup {
   version        Int               @default(0)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   modifiers Modifier[]
   products  ProductModifierGroup[]
@@ -1208,6 +1219,7 @@ model ModifierGroup {
 
   @@unique([organizationId, name])
   @@index([organizationId])
+  @@index([organizationId, deletedAt])
 }
 
 model Modifier {
@@ -1219,16 +1231,20 @@ model Modifier {
   /// Signed UGX added to the line price when this modifier is selected.
   /// Negative for "discount" modifiers (e.g. "No syrup" = -500).
   priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
-  isDefault      Boolean  @default(false)
-  sortOrder      Int      @default(0)
-  isActive       Boolean  @default(true)
+  isDefault      Boolean @default(false)
+  sortOrder      Int     @default(0)
+  isActive       Boolean @default(true)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   group ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
   @@index([groupId])
+  @@index([organizationId, deletedAt])
 }
 
 /// M-N: which modifier groups are available on a product. `sortOrder`
@@ -1239,12 +1255,14 @@ model ProductModifierGroup {
   productId       String
   modifierGroupId String
   sortOrder       Int    @default(0)
+  deletedAt       DateTime?
 
   product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
   modifierGroup ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
 
   @@unique([productId, modifierGroupId])
   @@index([organizationId])
+  @@index([organizationId, deletedAt])
 }
 
 /// A combo meal: a fixed set of products sold together for one price.
@@ -1383,6 +1401,7 @@ model MenuItemModifierGroup {
   menuItemId      String
   modifierGroupId String
   sortOrder       Int    @default(0)
+  deletedAt       DateTime?
 
   menuItem      MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   modifierGroup ModifierGroup @relation(fields: [modifierGroupId], references: [id], onDelete: Cascade)
@@ -1390,6 +1409,7 @@ model MenuItemModifierGroup {
   @@unique([menuItemId, modifierGroupId])
   @@index([organizationId])
   @@index([menuItemId])
+  @@index([organizationId, deletedAt])
 }
 
 /// Join: how much of which Product goes into a MenuItem. One MenuItem can be
@@ -1446,15 +1466,19 @@ model MenuItemVariant {
   /// the MenuItem.basePrice when selected.
   price          Decimal  @db.Decimal(20, 6)
   sortOrder      Int      @default(0)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, menuItemId, name])
   @@index([organizationId])
   @@index([menuItemId])
+  @@index([organizationId, deletedAt])
 }
 
 /// A group of mutually-exclusive options the customer picks from.
@@ -1479,15 +1503,19 @@ model AccompanimentGroup {
   /// Maximum selections allowed. 1 = radio, 2+ = checkbox.
   maxSelect      Int      @default(1)
   sortOrder      Int      @default(0)
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   options   AccompanimentOption[]
   menuItems MenuItemAccompanimentGroup[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
+  @@index([organizationId, deletedAt])
 }
 
 /// Join table: which AccompanimentGroups are attached to which MenuItems.
@@ -1497,6 +1525,7 @@ model MenuItemAccompanimentGroup {
   menuItemId           String
   accompanimentGroupId String
   sortOrder            Int    @default(0)
+  deletedAt            DateTime?
 
   menuItem           MenuItem           @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
   accompanimentGroup AccompanimentGroup @relation(fields: [accompanimentGroupId], references: [id], onDelete: Cascade)
@@ -1504,6 +1533,7 @@ model MenuItemAccompanimentGroup {
   @@unique([menuItemId, accompanimentGroupId])
   @@index([organizationId])
   @@index([menuItemId])
+  @@index([organizationId, deletedAt])
 }
 
 /// One selectable option within an AccompanimentGroup. Each option either is
@@ -1523,12 +1553,16 @@ model AccompanimentOption {
   isActive        Boolean @default(true)
   /// Optional: links this accompaniment to a Product for BOM / stock tracking.
   inventoryItemId String?
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
 
   group AccompanimentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, groupId, name])
   @@index([organizationId])
   @@index([groupId])
+  @@index([organizationId, deletedAt])
 }
 
 // ============================================================================
@@ -2636,6 +2670,13 @@ enum PurchaseOrderStatus {
   billed
   closed
   cancelled
+  /// Simplified flow: PO is live and awaiting receipt.
+  active
+}
+
+enum PaymentType {
+  cash
+  credit
 }
 
 enum GoodsReceiptStatus {
@@ -2732,10 +2773,18 @@ model PurchaseOrder {
   subtotal             Decimal             @default(0) @db.Decimal(20, 6)
   taxAmount            Decimal             @default(0) @db.Decimal(20, 6)
   totalAmount          Decimal             @default(0) @db.Decimal(20, 6)
-  status               PurchaseOrderStatus @default(draft)
+  status               PurchaseOrderStatus @default(active)
   approvedAt           DateTime?
   approvedById         String?
   sentAt               DateTime?
+  /// Simple flow: how this PO will be paid.
+  paymentType          PaymentType          @default(cash)
+  /// Tracks credit-purchase payment status.
+  paymentStatus        PaymentStatus?       @default(not_paid)
+  totalPaid            Decimal              @default(0) @db.Decimal(20, 6)
+  /// Optimistic lock version — incremented on every write. Used by the
+  /// service layer to detect concurrent edits and prevent lost updates.
+  version              Int                  @default(0)
   notes                String?
   terms                String?
   /// Free-form snapshot at approve/send for audit.
@@ -2752,6 +2801,7 @@ model PurchaseOrder {
   receipts      GoodsReceiptNote[]
   bills         VendorBillLink[] // via join table to support multiple partial bills
   matchStatuses ThreeWayMatch[]
+  payments      PurchasePayment[]
   createdBy     String?
   updatedBy     String?
 
@@ -2764,6 +2814,26 @@ model PurchaseOrder {
   @@index([organizationId, partnerId])
   @@index([organizationId, status])
   @@index([organizationId, orderDate])
+}
+
+/// A payment recorded against a purchase order (for credit purchases). Each
+/// payment partially or fully settles the PO's outstanding balance.
+model PurchasePayment {
+  id              String   @id @default(uuid())
+  organizationId  String
+  purchaseOrderId String
+  amount          Decimal  @db.Decimal(20, 6)
+  paidAt          DateTime @default(now())
+  paidById        String?
+  reference       String?  // e.g. transaction ID, cheque number
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  order PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+
+  @@index([organizationId, purchaseOrderId])
+  @@index([organizationId, paidAt])
 }
 
 model PurchaseOrderLine {
@@ -2782,6 +2852,8 @@ model PurchaseOrderLine {
   subtotal         Decimal @default(0) @db.Decimal(20, 6)
   lineNumber       Int     @default(0)
   notes            String?
+  /// Optimistic lock version.
+  version          Int     @default(0)
 
   order    PurchaseOrder      @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   receipts GoodsReceiptLine[]
@@ -3390,6 +3462,7 @@ model OrderItem {
   menuItemId             String?
   comboId                String?
   variantId              String?
+  variantName            String?
   description            String
   quantity               Decimal                @default(1) @db.Decimal(20, 6)
   unitPrice              Decimal                @default(0) @db.Decimal(20, 6)
@@ -3552,6 +3625,8 @@ model InvoiceItem {
   invoiceId       String
   productId       String?
   menuItemId      String?
+  variantId       String?
+  variantName     String?
   /// Revenue account resolved at posting time (for the GL credit).
   accountId       String?
   description     String
@@ -3608,4 +3683,179 @@ model ReceiptItem {
 
   @@index([organizationId])
   @@index([receiptId])
+}
+
+// ─── Split Bills (dine-in bill splitting) ───────────────────────────────────
+// Divide one table's open tab (a draft Document) into multiple independently-
+// payable bills WITHOUT duplicating the order or re-firing the kitchen. A
+// SplitBillItem references a source DocumentLine + a PARTIAL quantity; the sum
+// of assigned quantities across non-void bills can never exceed the line qty.
+// Each item-split bill settles into its OWN Invoice (reusing the Order→Invoice→
+// Receipt bridge used by settleTab); the table closes only once every line is
+// fully assigned to a settled bill. Loose refs (no FK) mirror Order.tableId.
+
+enum SplitBillStatus {
+  open
+  settled
+  void
+}
+
+enum SplitType {
+  item
+  even
+  percent
+}
+
+model SplitBill {
+  id               String          @id @default(uuid())
+  organizationId   String
+  /// Loose ref to PosTable (integrity enforced in the service layer).
+  tableId          String
+  /// The draft tab Document being split (its lines are the source items).
+  sourceDocumentId String
+  label            String
+  splitType        SplitType       @default(item)
+  /// Percent splits only — the share of the table total this bill owes.
+  sharePercent     Decimal?        @db.Decimal(9, 4)
+  partnerId        String?
+  /// Set when the bill is paid: the Invoice this bill settled into (1:1).
+  invoiceId        String?         @unique
+  status           SplitBillStatus @default(open)
+  subtotal         Decimal         @default(0) @db.Decimal(20, 6)
+  totalAmount      Decimal         @default(0) @db.Decimal(20, 6)
+  amountPaid       Decimal         @default(0) @db.Decimal(20, 6)
+  settledAt        DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  createdBy        String?
+
+  items SplitBillItem[]
+
+  @@index([organizationId])
+  @@index([organizationId, tableId])
+  @@index([organizationId, sourceDocumentId])
+}
+
+/// One assignment of a source DocumentLine (whole or partial qty) to a SplitBill.
+model SplitBillItem {
+  id             String   @id @default(uuid())
+  organizationId String
+  splitBillId    String
+  /// The DocumentLine on the source tab this slice was taken from.
+  sourceLineId   String
+  quantity       Decimal  @db.Decimal(20, 6)
+  createdAt      DateTime @default(now())
+
+  splitBill SplitBill @relation(fields: [splitBillId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, splitBillId])
+  @@index([sourceLineId])
+}
+
+// ─── Standalone Expenses (petty-cash / operating expenses) ───────────────────
+// A lightweight expense tracker that is SEPARATE from vendor bills (AP). Used
+// for rent, utilities, salaries, ad-hoc cash-outs, etc. Posts its OWN cash
+// journal entry on payment (Dr expense account / Cr cash-or-bank account) via
+// PostingService, so it reconciles into the GL without double-counting bills.
+
+enum ExpenseStatus {
+  DRAFT
+  APPROVED
+  POSTED
+  REJECTED
+  CANCELLED
+  VOID
+}
+
+enum ExpensePaymentStatus {
+  UNPAID
+  PARTIALLY_PAID
+  PAID
+}
+
+enum ExpensePaymentType {
+  CASH
+  CREDIT
+}
+
+model ExpenseCategory {
+  id              String    @id @default(uuid())
+  organizationId  String
+  name            String
+  icon            String?
+  description     String?
+  /// Optional GL expense account this category debits when an expense is paid.
+  /// Plain id (no relation) so the Account model needs no back-reference.
+  ledgerAccountId String?
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?
+  deletedAt       DateTime?
+
+  expenses Expense[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Expense {
+  id             String               @id @default(uuid())
+  organizationId String
+  expenseCode    String
+  title          String
+  description    String?
+  amount         Decimal              @db.Decimal(20, 6)
+  status         ExpenseStatus        @default(APPROVED)
+  paymentStatus  ExpensePaymentStatus @default(UNPAID)
+  paymentType    ExpensePaymentType   @default(CREDIT)
+  expenseDate    DateTime
+  paidAt         DateTime?
+  notes          String?
+  approvalNotes  String?
+  categoryId     String?
+  /// Permanent snapshot of the category name (history-safe if the category is
+  /// later renamed/deleted).
+  categoryName   String?
+  /// Plain ids (no relations) → no back-references on Partner / User / Account.
+  supplierId     String?
+  createdById    String?
+  approvedById   String?
+  amountPaid     Decimal              @default(0) @db.Decimal(20, 6)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  deletedAt      DateTime?
+
+  category ExpenseCategory? @relation(fields: [categoryId], references: [id])
+  payments ExpensePayment[]
+
+  @@unique([organizationId, expenseCode])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, expenseDate])
+}
+
+model ExpensePayment {
+  id             String   @id @default(uuid())
+  organizationId String
+  expenseId      String
+  amount         Decimal  @db.Decimal(20, 6)
+  paymentMethod  String
+  reference      String?
+  paymentNotes   String?
+  /// Cash/bank GL account that was credited (plain id).
+  accountId      String?
+  paidById       String?
+  /// The GL journal entry this payment posted (null if GL was skipped because
+  /// no postable accounts were resolvable). Used to reverse on void.
+  journalEntryId String?
+  status         String   @default("posted") // posted | void
+  voidReason     String?
+  createdAt      DateTime @default(now())
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([expenseId])
 }

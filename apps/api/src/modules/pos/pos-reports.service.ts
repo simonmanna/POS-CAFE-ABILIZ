@@ -258,23 +258,30 @@ export class PosReportsService {
     return report;
   }
 
-  /** Hourly buckets for a given day (POS sales only, gross). */
-  async salesByHour(date: string) {
+  /** Hourly buckets across a date range (POS sales only, gross). */
+  async salesByHour(fromDate: string, toDate: string, hours?: string) {
     const organizationId = this.tenant.organizationId;
-    const start = new Date(date);
-    if (Number.isNaN(start.getTime())) throw new BadRequestException('Invalid date');
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid fromDate/toDate');
+    }
+    end.setHours(23, 59, 59, 999);
     start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
+
+    // Parse optional hour filter
+    const hourFilter: Set<number> | null = hours
+      ? new Set(hours.split(',').map((h) => parseInt(h, 10)).filter((n) => !isNaN(n) && n >= 0 && n <= 23))
+      : null;
 
     const [docs, invoices] = await Promise.all([
       this.prisma.client.document.findMany({
         where: {
           organizationId,
           documentType: 'sales_invoice',
-          sourceType: 'pos', // POS-only — exclude /invoicing retail invoices
+          sourceType: 'pos',
           status: { in: ['posted', 'paid'] },
-          createdAt: { gte: start, lt: end },
+          createdAt: { gte: start, lte: end },
         },
         select: { totalAmount: true, createdAt: true },
       }),
@@ -282,7 +289,7 @@ export class PosReportsService {
         where: {
           organizationId,
           status: { in: ['posted', 'paid'] },
-          createdAt: { gte: start, lt: end },
+          createdAt: { gte: start, lte: end },
         },
         select: { totalAmount: true, createdAt: true },
       }),
@@ -291,11 +298,13 @@ export class PosReportsService {
     const buckets = new Array(24).fill(0).map((_, hour) => ({ hour, count: 0, total: dec(0) }));
     for (const d of [...docs, ...invoices] as any[]) {
       const hour = new Date(d.createdAt).getHours();
+      if (hourFilter && !hourFilter.has(hour)) continue;
       buckets[hour].count += 1;
       buckets[hour].total = buckets[hour].total.plus(dec(d.totalAmount));
     }
     return {
-      date: start.toISOString().slice(0, 10),
+      fromDate: start.toISOString().slice(0, 10),
+      toDate: end.toISOString().slice(0, 10),
       buckets: buckets.map((b) => ({ hour: b.hour, count: b.count, total: b.total.toFixed(2) })),
     };
   }
@@ -494,6 +503,470 @@ export class PosReportsService {
       .sort((a, b) => b.total.minus(a.total).toNumber())
       .slice(0, cap)
       .map((r) => ({ ...r, total: r.total.toFixed(2) }));
+  }
+
+  /**
+   * Sales report — one row per invoice in a date range.
+   * Columns: order number, invoice number, sale date, subtotal, discount,
+   * total amount, waiter.
+   *
+   * @param waiterId - optional filter by waiter (cashier) user ID.
+   * @param search - optional text search on invoice or order number.
+   * @param paymentMethod - optional filter by primary payment mode.
+   */
+  async salesReport(fromDate: string, toDate: string, waiterId?: string, search?: string, paymentMethod?: string, orderType?: string) {
+    const organizationId = this.tenant.organizationId;
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid fromDate/toDate');
+    }
+    end.setHours(23, 59, 59, 999);
+
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: {
+        organizationId,
+        status: { in: ['posted', 'paid'] },
+        createdAt: { gte: start, lte: end },
+        ...(waiterId ? { waiterId } : {}),
+        ...(paymentMethod ? { paymentMode: paymentMethod as any } : {}),
+        ...(orderType ? { order: { orderType: orderType as any } } : {}),
+        ...(search
+          ? {
+              OR: [
+                { invoiceNumber: { contains: search } },
+                { order: { orderNumber: { contains: search } } },
+              ],
+            }
+          : {}),
+      },
+      include: {
+        order: { select: { orderNumber: true, orderType: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const waiterIds = new Set<string>();
+    for (const inv of invoices as any[]) {
+      if (inv.waiterId) waiterIds.add(inv.waiterId);
+    }
+
+    const waiters = waiterIds.size
+      ? await this.prisma.client.user.findMany({
+          where: { id: { in: Array.from(waiterIds) } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : [];
+    const waiterMap = new Map(waiters.map((w: any) => [w.id, `${w.firstName}${w.lastName ? ' ' + w.lastName : ''}`]));
+
+    return (invoices as any[]).map((inv) => ({
+      orderNumber: inv.order?.orderNumber ?? '—',
+      orderType: inv.order?.orderType ?? null,
+      invoiceNumber: inv.invoiceNumber,
+      saleDate: inv.createdAt?.toISOString() ?? '',
+      subtotal: dec(inv.subtotal).toFixed(2),
+      discount: dec(inv.discountTotal).toFixed(2),
+      totalAmount: dec(inv.totalAmount).toFixed(2),
+      waiterName: inv.waiterId ? (waiterMap.get(inv.waiterId) ?? null) : null,
+    }));
+  }
+
+  /**
+   * Cashier report — one row per invoice showing cashier sales.
+   * Columns: cashier, order #, invoice #, sales amount, payment method, received.
+   *
+   * @param waiterId - optional filter by cashier user ID.
+   * @param search - optional text search on invoice or order number.
+   * @param paymentMethod - optional filter by payment mode.
+   */
+  async cashierReport(fromDate: string, toDate: string, waiterId?: string, search?: string, paymentMethod?: string, orderType?: string) {
+    const organizationId = this.tenant.organizationId;
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid fromDate/toDate');
+    }
+    end.setHours(23, 59, 59, 999);
+
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: {
+        organizationId,
+        status: { in: ['posted', 'paid'] },
+        createdAt: { gte: start, lte: end },
+        ...(waiterId ? { waiterId } : {}),
+        ...(paymentMethod ? { paymentMode: paymentMethod as any } : {}),
+        ...(orderType ? { order: { orderType: orderType as any } } : {}),
+        ...(search
+          ? {
+              OR: [
+                { invoiceNumber: { contains: search } },
+                { order: { orderNumber: { contains: search } } },
+              ],
+            }
+          : {}),
+      },
+      include: {
+        order: { select: { orderNumber: true, orderType: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const cashierIds
+    for (const inv of invoices as any[]) {
+      if (inv.waiterId) cashierIds.add(inv.waiterId);
+    }
+
+    const cashiers = cashierIds.size
+      ? await this.prisma.client.user.findMany({
+          where: { id: { in: Array.from(cashierIds) } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : [];
+    const cashierMap = new Map(cashiers.map((c: any) => [c.id, `${c.firstName}${c.lastName ? ' ' + c.lastName : ''}`]));
+
+    return (invoices as any[]).map((inv) => ({
+      cashierName: inv.waiterId ? (cashierMap.get(inv.waiterId) ?? null) : null,
+      orderNumber: inv.order?.orderNumber ?? '—',
+      orderType: inv.order?.orderType ?? null,
+      invoiceNumber: inv.invoiceNumber,
+      salesAmount: dec(inv.totalAmount).toFixed(2),
+      paymentMethod: inv.paymentMode ?? null,
+      received: dec(inv.amountPaid).toFixed(2),
+    }));
+  }
+
+  /**
+   * Cashier shift summary — one row per cash session in a date range.
+   * Columns: shift (register + opened), cashier, opening cash, sales,
+   * expected cash, actual cash, difference.
+   *
+   * @param cashierId - optional user ID to filter sessions by cashier.
+   */
+  async cashierShiftSummary(fromDate: string, toDate: string, cashierId?: string) {
+    const organizationId = this.tenant.organizationId;
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid fromDate/toDate');
+    }
+    end.setHours(23, 59, 59, 999);
+
+    const sessions = await this.prisma.client.cashSession.findMany({
+      where: {
+        organizationId,
+        openedAt: { gte: start, lte: end },
+        ...(cashierId ? { userId: cashierId } : {}),
+      },
+      include: {
+        cashRegister: { select: { code: true, name: true } },
+        movements: true,
+      },
+      orderBy: { openedAt: 'desc' },
+    });
+
+    // Resolve cashier names
+    const userIds = new Set(sessions.map((s: any) => s.userId).filter(Boolean));
+    const users = userIds.size
+      ? await this.prisma.client.user.findMany({
+          where: { id: { in: Array.from(userIds) } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : [];
+    const userMap = new Map(users.map((u: any) => [u.id, `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}`]));
+
+    return (sessions as any[]).map((s) => {
+      const registerLabel = s.cashRegister ? `${s.cashRegister.code} - ${s.cashRegister.name}` : s.cashRegisterId;
+      const shift = `${registerLabel} · ${new Date(s.openedAt).toLocaleDateString()} ${new Date(s.openedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+      let cashCollected = dec(0);
+      let cashRefunds = dec(0);
+      let payIns = dec(0);
+      let payOuts = dec(0);
+      for (const m of s.movements ?? []) {
+        const amt = dec(m.amount);
+        if (m.movementType === 'sale') cashCollected = cashCollected.plus(amt);
+        else if (m.movementType === 'refund') cashRefunds = cashRefunds.plus(amt);
+        else if (m.movementType === 'pay_in') payIns = payIns.plus(amt);
+        else if (m.movementType === 'pay_out') payOuts = payOuts.plus(amt);
+      }
+
+      const openingCash = dec(s.openingFloat);
+      const expectedCash = openingCash.plus(cashCollected).minus(cashRefunds).plus(payIns).minus(payOuts);
+      const actualCash = s.closingCounted != null ? dec(s.closingCounted) : null;
+      const difference = actualCash != null ? actualCash.minus(expectedCash) : null;
+
+      return {
+        shift,
+        cashierName: userMap.get(s.userId) ?? null,
+        openingCash: openingCash.toFixed(2),
+        sales: cashCollected.toFixed(2),
+        expectedCash: expectedCash.toFixed(2),
+        actualCash: actualCash?.toFixed(2) ?? null,
+        difference: difference?.toFixed(2) ?? null,
+      };
+    });
+  }
+
+  /**
+   * Waiter report — one row per line item grouped by waiter.
+   * Columns: waiter, order #, table, item, qty, unit price, discount, total, date.
+   *
+   * @param waiterId - optional filter by waiter user ID.
+   */
+  async waiterReport(fromDate: string, toDate: string, waiterId?: string, orderType?: string) {
+    const organizationId = this.tenant.organizationId;
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid fromDate/toDate');
+    }
+    end.setHours(23, 59, 59, 999);
+
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: {
+        organizationId,
+        status: { in: ['posted', 'paid'] },
+        createdAt: { gte: start, lte: end },
+        ...(waiterId ? { waiterId } : {}),
+        ...(orderType ? { order: { orderType: orderType as any } } : {}),
+      },
+      include: {
+        items: true,
+        order: { select: { orderNumber: true, tableId: true, orderType: true } },
+      },
+    });
+
+    // Collect IDs for lookup
+    const waiterIds = new Set<string>();
+    const tableIds = new Set<string>();
+    for (const inv of invoices as any[]) {
+      if (inv.waiterId) waiterIds.add(inv.waiterId);
+      if (inv.order?.tableId) tableIds.add(inv.order.tableId);
+    }
+
+    // Resolve waiter names
+    const waiters = waiterIds.size
+      ? await this.prisma.client.user.findMany({
+          where: { id: { in: Array.from(waiterIds) } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : [];
+    const waiterMap = new Map(waiters.map((w: any) => [w.id, `${w.firstName}${w.lastName ? ' ' + w.lastName : ''}`]));
+
+    // Resolve table names
+    const tables = tableIds.size
+      ? await this.prisma.client.posTable.findMany({ where: { id: { in: Array.from(tableIds) } }, select: { id: true, name: true } })
+      : [];
+    const tableMap = new Map(tables.map((t: any) => [t.id, t.name]));
+
+    const rows: Array<{
+      waiterName: string | null;
+      orderNumber: string;
+      tableName: string | null;
+      item: string;
+      quantity: string;
+      unitPrice: string;
+      discountPercent: string;
+      total: string;
+      date: string;
+      orderType: string | null;
+    }> = [];
+
+    for (const inv of invoices as any[]) {
+      const orderNumber = inv.order?.orderNumber ?? '—';
+      const orderType = inv.order?.orderType ?? null;
+      const tableName = inv.order?.tableId ? (tableMap.get(inv.order.tableId) ?? null) : null;
+      const waiterName = inv.waiterId ? (waiterMap.get(inv.waiterId) ?? null) : null;
+      for (const it of inv.items ?? []) {
+        rows.push({
+          waiterName,
+          orderNumber,
+          orderType,
+          tableName,
+          item: it.description,
+          quantity: dec(it.quantity).toFixed(2),
+          unitPrice: dec(it.unitPrice).toFixed(2),
+          discountPercent: dec(it.discountPercent).toFixed(2),
+          total: dec(it.subtotal).toFixed(2),
+          date: inv.createdAt?.toISOString() ?? '',
+        });
+      }
+    }
+
+    return rows;
+  }
+
+  /**
+   * Order report — one row per order in a date range.
+   * Columns: order number, date, table, waiter, customer, status, total.
+   *
+   * @param orderType - optional filter: 'dine_in' | 'takeaway' | 'delivery'
+   * @param status - optional filter for order status (defaults to all non-cancelled)
+   */
+  async orderReport(fromDate: string, toDate: string, orderType?: string, status?: string) {
+    const organizationId = this.tenant.organizationId;
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid fromDate/toDate');
+    }
+    end.setHours(23, 59, 59, 999);
+
+    const orderStatus = status ?? 'draft';
+    const orders = await this.prisma.client.order.findMany({
+      where: {
+        organizationId,
+        status: { not: 'cancelled' },
+        ...(orderType ? { orderType: orderType as any } : {}),
+        ...(status && status !== 'draft' ? { status: status as any } : {}),
+        createdAt: { gte: start, lte: end },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Resolve table names
+    const tableIds = new Set(orders.map((o: any) => o.tableId).filter(Boolean));
+    const tables = tableIds.size
+      ? await this.prisma.client.posTable.findMany({ where: { id: { in: Array.from(tableIds) } }, select: { id: true, name: true } })
+      : [];
+    const tableMap = new Map(tables.map((t: any) => [t.id, t.name]));
+
+    // Resolve waiter names
+    const waiterIds = new Set(orders.map((o: any) => o.waiterId).filter(Boolean));
+    const waiters = waiterIds.size
+      ? await this.prisma.client.user.findMany({ where: { id: { in: Array.from(waiterIds) } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const waiterMap = new Map(waiters.map((w: any) => [w.id, `${w.firstName}${w.lastName ? ' ' + w.lastName : ''}`]));
+
+    // Resolve customer (partner) names
+    const partnerIds = new Set(orders.map((o: any) => o.partnerId).filter(Boolean));
+    const partners = partnerIds.size
+      ? await this.prisma.client.partner.findMany({ where: { id: { in: Array.from(partnerIds) } }, select: { id: true, name: true } })
+      : [];
+    const partnerMap = new Map(partners.map((p: any) => [p.id, p.name]));
+
+    return (orders as any[]).map((o) => ({
+      orderNumber: o.orderNumber,
+      orderType: o.orderType ?? null,
+      date: o.createdAt?.toISOString() ?? '',
+      tableName: o.tableId ? (tableMap.get(o.tableId) ?? null) : null,
+      waiterName: o.waiterId ? (waiterMap.get(o.waiterId) ?? null) : null,
+      customerName: o.partnerId ? (partnerMap.get(o.partnerId) ?? null) : null,
+      status: o.status,
+      totalAmount: dec(o.totalAmount).toFixed(2),
+    }));
+  }
+
+  /**
+   * Sold items detail report — every line item in a date range.
+   * Columns: order number, invoice number, sale date, item, unit price,
+   * discount, quantity, total amount, waiter.
+   *
+   * @param categoryId - optional filter by category.
+   * @param waiterId - optional filter by waiter user ID.
+   */
+  async soldItems(fromDate: string, toDate: string, categoryId?: string, waiterId?: string, orderType?: string) {
+    const organizationId = this.tenant.organizationId;
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+      throw new BadRequestException('Invalid fromDate/toDate');
+    }
+    end.setHours(23, 59, 59, 999);
+
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: {
+        organizationId,
+        status: { in: ['posted', 'paid'] },
+        createdAt: { gte: start, lte: end },
+        ...(waiterId ? { waiterId } : {}),
+        ...(orderType ? { order: { orderType: orderType as any } } : {}),
+      },
+      include: {
+        items: true,
+        order: { select: { orderNumber: true, orderType: true } },
+      },
+    });
+
+    // Collect unique waiter IDs
+    const waiterIds = new Set<string>();
+    for (const inv of invoices as any[]) {
+      if (inv.waiterId) waiterIds.add(inv.waiterId);
+    }
+
+    const waiters = waiterIds.size
+      ? await this.prisma.client.user.findMany({
+          where: { id: { in: Array.from(waiterIds) } },
+          select: { id: true, firstName: true, lastName: true },
+        })
+      : [];
+    const waiterMap = new Map(waiters.map((w: any) => [w.id, `${w.firstName}${w.lastName ? ' ' + w.lastName : ''}`]));
+
+    // Collect all product IDs from invoice items
+    const productIds = new Set<string>();
+    for (const inv of invoices as any[]) {
+      for (const it of inv.items ?? []) {
+        if (it.productId) productIds.add(it.productId);
+      }
+    }
+
+    // Build product → category lookup
+    const products = productIds.size
+      ? await this.prisma.client.product.findMany({
+          where: { id: { in: Array.from(productIds) } },
+          include: { category: true },
+        })
+      : [];
+    const productMap = new Map(
+      products.map((p: any) => [p.id, { name: p.name, categoryName: p.category?.name ?? 'Uncategorised', categoryId: p.category?.id ?? null }]),
+    );
+
+    // If category filter is active, resolve allowed product IDs
+    const allowedProductIds = categoryId
+      ? new Set(products.filter((p: any) => p.categoryId === categoryId).map((p: any) => p.id))
+      : null;
+
+    const rows: Array<{
+      orderNumber: string;
+      invoiceNumber: string;
+      saleDate: string;
+      item: string;
+      unitPrice: string;
+      discountPercent: string;
+      quantity: string;
+      totalAmount: string;
+      waiterName: string | null;
+      categoryName: string | null;
+      orderType: string | null;
+    }> = [];
+
+    for (const inv of invoices as any[]) {
+      const orderNumber = inv.order?.orderNumber ?? '—';
+      const orderType = inv.order?.orderType ?? null;
+      for (const it of inv.items ?? []) {
+        const prod = it.productId ? productMap.get(it.productId) : null;
+        const categoryName = prod?.categoryName ?? null;
+
+        // Apply category filter — skip items whose product doesn't match
+        if (allowedProductIds && (!it.productId || !allowedProductIds.has(it.productId))) continue;
+
+        rows.push({
+          orderNumber,
+          orderType,
+          invoiceNumber: inv.invoiceNumber,
+          saleDate: inv.createdAt?.toISOString() ?? '',
+          item: it.description,
+          unitPrice: dec(it.unitPrice).toFixed(2),
+          discountPercent: dec(it.discountPercent).toFixed(2),
+          quantity: dec(it.quantity).toFixed(2),
+          totalAmount: dec(it.total).toFixed(2),
+          waiterName: inv.waiterId ? (waiterMap.get(inv.waiterId) ?? null) : null,
+          categoryName,
+        });
+      }
+    }
+
+    return rows;
   }
 
   /** Retrieve a frozen Z-report snapshot for reprint. */

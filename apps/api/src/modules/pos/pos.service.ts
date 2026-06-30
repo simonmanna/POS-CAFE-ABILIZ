@@ -84,6 +84,9 @@ export interface CheckoutInput {
   tableId?: string;
   /** POS Tables (T1): party size (display only on the table card). */
   guestCount?: number;
+  /** Order type: dine-in, takeaway, or delivery. When omitted, inferred
+   *  from tableId (table → dine_in, no table → takeaway). */
+  orderType?: 'dine_in' | 'takeaway' | 'delivery';
 }
 
 const DEFAULT_MAX_DISCOUNT_WITHOUT_OVERRIDE = 10; // %
@@ -133,7 +136,7 @@ export class PosService {
     // 1) Operational Order from the cart. resolveLines folds variants /
     //    accompaniments / modifiers and expands combos, and validates rules.
     const order = await this.orders.createOrder({
-      orderType: input.tableId ? 'dine_in' : 'takeaway',
+      orderType: input.orderType ?? (input.tableId ? 'dine_in' : 'takeaway'),
       tableId: input.tableId,
       partnerId: input.partnerId,
       branchId: input.branchId,
@@ -542,7 +545,7 @@ export class PosService {
       where: { tableId, closedAt: null },
       orderBy: { openedAt: 'desc' },
       include: {
-        document: { include: { lines: { orderBy: { lineNumber: 'asc' } }, partner: true } },
+        document: { include: { lines: { orderBy: { lineNumber: 'asc' }, include: { modifiers: true } }, partner: true } },
       },
     });
     if (!order?.document || order.document.status !== 'draft') return null;
@@ -785,6 +788,16 @@ export class PosService {
         include: { document: true },
       });
       const draftId = open?.document && open.document.status === 'draft' ? open.documentId : null;
+
+      // A split in progress pins the tab's lines (SplitBillItems reference them by
+      // id). Rewriting them here would orphan those refs, so block edits until the
+      // split is settled or cancelled.
+      if (draftId) {
+        const activeSplit = await tx.splitBill.count({ where: { sourceDocumentId: draftId, status: { not: 'void' } } });
+        if (activeSplit > 0) {
+          throw new BadRequestException('Split in progress — settle or cancel the split before changing this order.');
+        }
+      }
 
       // Empty order → cancel the draft and free the table.
       if (lineInputs.length === 0) {
@@ -1046,6 +1059,13 @@ export class PosService {
     }
     const doc = tabOrder.document;
     if (!doc.lines.length) throw new BadRequestException('The tab is empty');
+
+    // A split in progress owns settlement of this tab — settling the whole tab
+    // here would double-charge items already assigned to (and paid on) bills.
+    const activeSplit = await this.prisma.client.splitBill.count({ where: { sourceDocumentId: doc.id, status: { not: 'void' } } });
+    if (activeSplit > 0) {
+      throw new BadRequestException('This table has a split in progress — settle each split bill instead.');
+    }
 
     // Bridge the legacy draft tab into the Order→Invoice→Receipt pipeline. The
     // draft lines are already priced (modifiers folded into unitPrice), so the
