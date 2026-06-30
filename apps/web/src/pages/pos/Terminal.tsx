@@ -215,10 +215,8 @@ const TerminalPage: React.FC = () => {
         id: it.id,
         name: it.name,
         sku: it.code,
-        // basePrice is stored in MINOR units (×100) by the menu admin; the rest
-        // of the POS (products catalog, variants, modifiers, accompaniments,
-        // checkout) works in MAJOR units. Normalize here so prices/totals match.
-        salesPrice: it.basePrice != null ? Number(it.basePrice) / 100 : 0,
+        // basePrice is stored in whole currency units (UGX).
+        salesPrice: it.basePrice != null ? Number(it.basePrice) : 0,
         categoryId: it.categoryId,
         category: it.categoryId ? { name: catName.get(it.categoryId) ?? '' } : null,
       }));
@@ -1169,12 +1167,20 @@ const TerminalPage: React.FC = () => {
       return;
     }
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    // If a split is already in progress the tab's lines are pinned server-side —
+    // flushing the cart would 400 ("Split in progress"), so just reopen the
+    // workspace and let it drive from server state.
+    try {
+      const st = (await api.get(`/pos/tabs/${tableId}/split`)).data as any;
+      if (st?.splitActive) { setShowSplit(true); return; }
+    } catch { /* fall through to the normal flush */ }
     try {
       await saveTab.mutateAsync({ tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id });
       tabSyncSig.current = orderSig(lines);
     } catch {
-      toast.error('Could not save the order before splitting');
-      return;
+      // Never trap the cashier — open the workspace anyway (the dialog reads the
+      // authoritative server state and can still cancel/continue the split).
+      toast.error('Could not sync the latest items before splitting — showing the saved order.');
     }
     setShowSplit(true);
   };
