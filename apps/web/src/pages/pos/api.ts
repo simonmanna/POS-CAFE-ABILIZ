@@ -945,7 +945,9 @@ export function useDeleteSplitBill() {
 export function useSettleSplitBill() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ billId, _idemKey, ...body }: {
+    // `billId` is in the URL and `tableId` is client-only (invalidation) — send
+    // ONLY whitelisted fields in the body (the DTO is forbidNonWhitelisted).
+    mutationFn: async (vars: {
       billId: string;
       tableId?: string;
       tenders?: PaymentTender[];
@@ -953,7 +955,15 @@ export function useSettleSplitBill() {
       amountTendered?: number;
       cashSessionId?: string;
       _idemKey?: string;
-    }) => (await api.post<SettleSplitResult>(`/pos/split-bills/${billId}/settle`, body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
+    }) => {
+      const body = {
+        tenders: vars.tenders,
+        paymentMethod: vars.paymentMethod,
+        amountTendered: vars.amountTendered,
+        cashSessionId: vars.cashSessionId,
+      };
+      return (await api.post<SettleSplitResult>(`/pos/split-bills/${vars.billId}/settle`, body, { headers: { 'Idempotency-Key': vars._idemKey ?? uuid() } })).data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-split'] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
