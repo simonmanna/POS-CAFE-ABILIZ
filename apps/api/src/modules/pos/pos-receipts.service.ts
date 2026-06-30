@@ -99,6 +99,7 @@ export class PosReceiptsService {
       this.prisma.client.documentLine.findMany({
         where: { documentId: invoiceId },
         orderBy: { lineNumber: 'asc' },
+        include: { modifiers: true },
       }),
       this.resolveProductsForLines(
         (await this.prisma.client.documentLine.findMany({ where: { documentId: invoiceId }, select: { productId: true } }))
@@ -192,29 +193,21 @@ export class PosReceiptsService {
     const addr1 = header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA';
     const addr2 = header?.addressLine2 ?? 'Kampala, Uganda';
     const phone = header?.phone ?? '+256757920771';
-    const tagline = 'Coffee \u2022 Cake \u2022 Meals';
     const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
 
     lines.push(rule);
-    lines.push('');
-    lines.push('');
     lines.push(bizName);
-    lines.push(tagline);
-    lines.push('');
-    lines.push('');
-    lines.push(rule);
     lines.push('');
     lines.push(header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA');
     lines.push(header?.addressLine2 ?? 'Kampala, Uganda');
     lines.push(`Telephone: ${header?.phone ?? '+256757920771'}`);
     lines.push('');
-    lines.push(`Receipt #${(inv as any).documentNumber}`);
-    lines.push('');
+    lines.push(`Receipt: #${(inv as any).documentNumber}`);
     const d = new Date(inv.issueDate);
     const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    lines.push(`${datePart}${' '.repeat(5)}${timePart}`);
-    lines.push('');
+    lines.push(`Date ${datePart}${' '.repeat(3)}${timePart}`);
+    lines.push(`Mode: ${((inv as any).paymentMode || 'CASH').toUpperCase()}`);
     lines.push(`Cashier: ${(inv as any).cashierName ?? '-'}`);
     lines.push('');
     lines.push('Qty  Item.................. Price....... Total');
@@ -226,7 +219,8 @@ export class PosReceiptsService {
       const disc = Number(ln.discountPercent ?? 0);
       const lineTotal = qty * price * (1 - disc / 100);
       const inclTag = (ln as any).taxInclusive ? ' (incl)' : '';
-      const desc = (ln.description + inclTag).slice(0, 20).padEnd(20);
+      const variantTag = (ln as any).variantName ? `${ln.variantName} ` : '';
+      const desc = (variantTag + ln.description + inclTag).slice(0, 20).padEnd(20);
       const qtyStr = String(qty).padStart(3);
       const priceStr = fmt(price).padStart(8);
       const totalStr = fmt(lineTotal).padStart(10);
@@ -248,8 +242,7 @@ export class PosReceiptsService {
     lines.push(`TOTAL:`.padEnd(R - 10) + fmt(inv.totalAmount).padStart(10));
     lines.push(`Paid:`.padEnd(R - 10) + fmt(inv.amountPaid).padStart(10));
     const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
-    lines.push(`Change:`.padEnd(R - 10) + fmt(change).padStart(10));
-    lines.push(`Mode:`.padEnd(R - 10) + ((inv as any).paymentMode || 'CASH').toUpperCase().padStart(10));
+    if (change > 0) lines.push(`Change:`.padEnd(R - 10) + fmt(change).padStart(10));
     lines.push('-'.repeat(R));
     lines.push('');
     lines.push('');
@@ -265,15 +258,112 @@ export class PosReceiptsService {
   }
 
   /** HTML receipt — opens browser print dialog when loaded. */
-  async buildHtmlReceipt(invoiceId: string, isReprint = false): Promise<string> {
-    const text = await this.buildTextReceipt(invoiceId, isReprint);
-    const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const escaped = escape(text);
+  async buildHtmlReceipt(invoiceId: string, isReprint = false, copyLabel?: string): Promise<string> {
+    const inv = await this.resolveInvoice(invoiceId);
+    const org = await this.resolveOrg();
+    const lines: string[] = [];
+    const header = (org as any).receiptHeader as Record<string, string> | null;
+    const footer = (org as any).receiptFooter as Record<string, string> | null;
+    const isMerchant = !!copyLabel && /CASHIER|MERCHANT/i.test(copyLabel);
+    if (isReprint) lines.push('*** REPRINT COPY ***');
+    if (copyLabel) lines.push(`*** ${copyLabel} ***`);
+
+    const R = 42;
+    const rule = '='.repeat(R);
+    const addr1 = header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA';
+    const addr2 = header?.addressLine2 ?? 'Kampala, Uganda';
+    const phone = header?.phone ?? '+256757920771';
+    const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
+
+    lines.push(rule);
+    lines.push(bizName);
+    lines.push('');
+    lines.push(addr1);
+    lines.push(addr2);
+    lines.push(`Telephone: ${phone}`);
+    lines.push('');
+    lines.push(`Receipt: #${(inv as any).documentNumber}`);
+    const d = new Date(inv.issueDate);
+    const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    lines.push(`Date ${datePart}${' '.repeat(3)}${timePart}`);
+    lines.push(`Mode: ${((inv as any).paymentMode || 'CASH').toUpperCase()}`);
+    lines.push(`Cashier: ${(inv as any).cashierName ?? '-'}`);
+    lines.push('');
+
+    // Improved column widths
+    const qtyW = 4;
+    const descW = 22;
+    const priceW = 12;
+    const totalW = 12;
+    const totalWidth = qtyW + descW + priceW + totalW;
+
+    // Header line
+    const headerQty = 'Qty'.padStart(qtyW);
+    const headerDesc = 'Item'.padEnd(descW);
+    const headerPrice = 'Price'.padStart(priceW);
+    const headerTotal = 'Total'.padStart(totalW);
+    lines.push(`${headerQty}  ${headerDesc}${headerPrice}${headerTotal}`);
+
+    // Separator line
+    lines.push('-'.repeat(totalWidth + 2));
+
+    for (const ln of inv.lines) {
+      const qty = Number(ln.quantity);
+      const price = Number(ln.unitPrice);
+      const disc = Number(ln.discountPercent ?? 0);
+      const lineTotal = qty * price * (1 - disc / 100);
+      const inclTag = (ln as any).taxInclusive ? ' (incl)' : '';
+      const variantTag = (ln as any).variantName ? `${ln.variantName} ` : '';
+
+      const qtyStr = String(qty).padStart(qtyW);
+      const descRaw = variantTag + ln.description + inclTag;
+      const desc = descRaw.slice(0, descW).padEnd(descW);
+      const priceStr = fmt(price).padStart(priceW);
+      const totalStr = fmt(lineTotal).padStart(totalW);
+      lines.push(`${qtyStr}  ${desc}${priceStr}${totalStr}`);
+
+      // Modifiers (same indentation but keep monospace)
+      const mods: any[] = (ln as any).modifiers ?? [];
+      for (const m of mods) {
+        const mName = (m.name ?? '').slice(0, 15).padEnd(15);
+        lines.push(`      + ${mName} ${fmt(m.priceDelta).padStart(8)}`);
+      }
+      if (ln.note) {
+        lines.push(`      ${ln.note.slice(0, 30).padEnd(30)}`);
+      }
+    }
+
+    lines.push('');
+    lines.push('');
+    lines.push('-'.repeat(R));
+    lines.push(`Subtotal:`.padEnd(R - 10) + fmt(inv.subtotal).padStart(10));
+    lines.push(`TOTAL:`.padEnd(R - 10) + fmt(inv.totalAmount).padStart(10));
+    lines.push(`Paid:`.padEnd(R - 10) + fmt(inv.amountPaid).padStart(10));
+    const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
+    if (change > 0) lines.push(`Change:`.padEnd(R - 10) + fmt(change).padStart(10));
+    lines.push('-'.repeat(R));
+    lines.push('');
+    lines.push('');
+    if (isMerchant) {
+      lines.push('CASHIER COPY — keep for records'.padStart(R));
+      lines.push('');
+      lines.push('Signature: ____________________'.padStart(R));
+    } else {
+      lines.push((footer?.message ?? 'Thank you!').padStart(R));
+    }
+    for (let i = 0; i < 8; i++) lines.push('');
+    // Wrap the monospace text in an HTML envelope: white-space:pre + a fixed
+    // monospace font preserve the column alignment (returning bare text makes the
+    // browser collapse the newlines/spaces → "dispersed" layout).
+    const text = lines.join('\n');
+    const escape = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=80mm"><title>Receipt</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:'Courier New',Courier,monospace; font-size:13px; white-space:pre; padding:4px; margin:0; }
+  body { font-family:'Courier New',Courier,monospace; font-size:13px; line-height:1.25; white-space:pre; padding:4px; margin:0; }
   .receipt-end { height:160px; }
   @media print {
     @page { margin: 0; size: 80mm auto; }
@@ -282,10 +372,10 @@ export class PosReceiptsService {
   }
 </style></head>
 <body>
-  <img src="/abiliz-logo.png" style="width:80mm;max-width:100%;display:block;margin:0 auto 8px auto;">
-  ${escaped.replace(/\n/g, '<br>')}
+  <img src="/abiliz-logo.png" style="width:80mm;max-width:100%;display:block;margin:0 auto 8px auto;" onerror="this.style.display='none'">
+  ${escape(text).replace(/\n/g, '<br>')}
 <div class="receipt-end"></div>
-<script>window.onload=function(){window.print();};</script></body></html>`;
+<script>window.onload=function(){try{window.print();}catch(e){}};</script></body></html>`;
   }
 
   /** PDF receipt — pdfkit stream. */
@@ -311,21 +401,18 @@ export class PosReceiptsService {
 
         const logoPath = path.join(__dirname, '../../../../../web/public/abiliz-logo.png');
         try {
-          const imgWidth = 60;
-          const imgHeight = 60;
+          const imgWidth = 40;
+          const imgHeight = 40;
           const x = (226 - imgWidth) / 2;
           doc.image(logoPath, x, doc.y, { width: imgWidth, height: imgHeight });
           doc.y += imgHeight + 10;
         } catch {
           doc.font('Helvetica-Bold').fontSize(8).text('[logo]', { align: 'center' });
         }
-        doc.moveDown(0.2);
+        doc.moveDown(0.1);
 
         const bizName = (header?.businessName ?? 'ABILIZ CAFE').toUpperCase();
-        doc.font('Helvetica-Bold').fontSize(20).text(bizName);
-        doc.moveDown(0.2);
-        doc.font('Helvetica-Bold').fontSize(12).text('Coffee \u2022 Cake \u2022 Meals');
-        doc.moveDown(0.35);
+        doc.font('Helvetica-Bold').fontSize(28).text(bizName);
         doc.font('Courier-Bold').fontSize(9).text('='.repeat(42));
         doc.moveDown(0.5);
 
@@ -334,7 +421,7 @@ export class PosReceiptsService {
         doc.text(header?.addressLine2 ?? 'Kampala, Uganda');
         doc.moveDown(0.15);
         doc.text(`Telephone: ${header?.phone ?? '+256757920771'}`);
-        doc.moveDown(0.7);
+        doc.moveDown(0.4);
 
         doc.text(`Receipt #${(inv as any).documentNumber}`);
         doc.moveDown(0.3);
@@ -342,12 +429,11 @@ export class PosReceiptsService {
         const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
         const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
         doc.text(`${datePart}${'     '.repeat(1)}${timePart}`);
-        doc.moveDown(0.3);
         doc.text(`Cashier: ${(inv as any).cashierName ?? '-'}`);
         doc.moveDown(0.5);
 
         doc.font('Courier-Bold').fontSize(8);
-        doc.text('Qty  Item.................. Price....... Total', 8, doc.y, { width: 210 });
+        doc.text('Qty...Item............... Price....... Total', 8, doc.y, { width: 210 });
         doc.moveDown(0.2);
         doc.font('Courier').fontSize(8);
         doc.text('-'.repeat(42), 8, doc.y, { width: 210 });
@@ -357,11 +443,12 @@ export class PosReceiptsService {
           const qty = Number(ln.quantity);
           const price = Number(ln.unitPrice);
           const lineTotal = qty * price;
-          const qtyStr = String(qty).padStart(2);
-          const desc = (ln.description).slice(0, 18).padEnd(18);
+          const qtyStr = String(qty).padStart(1);
+          const variantTag = (ln as any).variantName ? `${ln.variantName} ` : '';
+          const desc = (variantTag + ln.description).slice(0, 18).padEnd(18);
           const priceStr = fmt(price).padStart(8);
           const totalStr = fmt(lineTotal).padStart(9);
-          doc.text(` ${qtyStr} ${desc} ${priceStr} ${totalStr}`, 8, doc.y, { width: 210 });
+          doc.text(`${qtyStr} ${desc} ${priceStr} ${totalStr}`, 8, doc.y, { width: 210 });
           doc.moveDown(0.25);
           const mods: any[] = (ln as any).modifiers ?? [];
           for (const m of mods) {
@@ -455,6 +542,8 @@ export class PosReceiptsService {
     return { ok: true, sentTo: customerEmail };
   }
 
+  // ... (rest of the service methods unchanged) ...
+
   /** Pre-payment bill preview (text). */
   async buildTextBill(invoiceId: string, isReprint = false): Promise<string> {
     const inv = await this.resolveInvoice(invoiceId);
@@ -484,6 +573,8 @@ export class PosReceiptsService {
     return lines.join('\n');
   }
 
+  // ... (remaining methods unchanged – assertCanReprint, printBill, getUnbilledLines, buildTextKot, etc.) ...
+
   /** Assert the current user has an Admin or Manager role. */
   private async assertCanReprint(userId: string | undefined): Promise<void> {
     if (!userId) throw new ForbiddenException('Authentication required for reprint');
@@ -504,7 +595,6 @@ export class PosReceiptsService {
   /** Print a pre-payment bill (ESC/POS). */
   async printBill(invoiceId: string, userId?: string, isReprint = false): Promise<{ ok: boolean; backend: string; message?: string }> {
     if (!isReprint) {
-      // Check both Invoice and Document tables for prior bill prints.
       const inv = await this.prisma.client.invoice.findFirst({
         where: { id: invoiceId, organizationId: this.tenant.organizationId },
         select: { billPrintCount: true },
@@ -567,6 +657,8 @@ export class PosReceiptsService {
       orderBy: { lineNumber: 'asc' },
     });
   }
+
+  // ... (KOT, additional bill, printReceipt methods remain exactly as original) ...
 
   /**
    * Build text for a kitchen order ticket (KOT) — delta only.
@@ -696,7 +788,6 @@ export class PosReceiptsService {
   async printAdditionalBill(invoiceId: string, userId?: string): Promise<{ ok: boolean; backend: string; message?: string; copyNumber: number; grandTotal: number; additionalSubtotal: number; previousSubtotal: number }> {
     const orgId = this.tenant.organizationId;
 
-    // Get print count from Invoice or Document.
     const invPrint = await this.prisma.client.invoice.findFirst({
       where: { id: invoiceId, organizationId: orgId },
       select: { billPrintCount: true },
@@ -763,7 +854,6 @@ export class PosReceiptsService {
 
     await this.printLifecycle.markReceiptPrinted(this.prisma.client, invoiceId, userId);
 
-    // Cashier/settlement copy printed right after the customer copy (default on).
     const cashierSetting = await this.settings.get('pos.printCashierCopy');
     const printCashierCopy = cashierSetting?.value !== 'false';
     const merchantText = printCashierCopy ? await this.buildTextReceipt(invoiceId, isReprint, 'CASHIER COPY') : null;
@@ -787,14 +877,12 @@ export class PosReceiptsService {
       const net = require('net');
       const kickSetting = await this.settings.get('pos.kickDrawerOnPrint');
       const shouldKick = kickSetting?.value !== 'false';
-      const CUT = Buffer.from([0x1D, 0x56, 0x00]); // GS V 0 — full cut between copies
+      const CUT = Buffer.from([0x1D, 0x56, 0x00]);
       await new Promise<void>((resolve, reject) => {
         const client = net.connect({ host, port, timeout: 5000 }, () => {
-          // Customer copy.
           client.write(customerText + '\n\n\n');
           if (shouldKick) client.write(Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]));
           client.write(CUT);
-          // Cashier/settlement copy, immediately after.
           if (merchantText) {
             client.write(merchantText + '\n\n\n');
             client.write(CUT);
@@ -814,8 +902,6 @@ export class PosReceiptsService {
       return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error' };
     }
   }
-
-  // -- Receipt lifecycle helpers exposed for the controller (same file, so accessor bypasses TS privacy) --
 
   public lifecycle() { return this.printLifecycle; }
   public prismaSvc() { return this.prisma; }
