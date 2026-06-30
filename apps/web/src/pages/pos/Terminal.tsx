@@ -67,6 +67,7 @@ import {
   useCreateOrder,
   useGenerateInvoice,
   useSettleCredit,
+  useSplitState,
 } from './api';
 import { useMenuItemsAvailable } from '@/features/menu/api';
 import { useMenuItemBundle } from './pos-features-api';
@@ -458,6 +459,10 @@ const TerminalPage: React.FC = () => {
   const createOrderMut = useCreateOrder();
   const generateInvoiceMut = useGenerateInvoice();
   const settleCreditMut = useSettleCredit();
+  /* When a split is active on this table, the tab's lines are pinned server-side
+   * (saveTab 400s). Used to suppress auto-save + redirect settle to the split. */
+  const { data: splitState } = useSplitState(tableId ?? undefined, !!tableId);
+  const splitActive = !!splitState?.splitActive;
   /* True while we're fetching+loading a table's order — gates auto-save so the
    * cleared/loading cart isn't pushed back to the server. */
   const [pendingTableLoad, setPendingTableLoad] = useState<string | null>(null);
@@ -604,7 +609,8 @@ const TerminalPage: React.FC = () => {
   /* Auto-save: persist the cart back to the table's order whenever it changes
    * (debounced). No table selected = counter mode, no auto-save. */
   useEffect(() => {
-    if (!tableId || pendingTableLoad) return;
+    // While a split is active the tab is pinned (saveTab 400s) — never auto-save.
+    if (!tableId || pendingTableLoad || splitActive) return;
     const currentSig = orderSig(lines);
     if (currentSig === tabSyncSig.current) return;
     const h = setTimeout(() => {
@@ -615,7 +621,7 @@ const TerminalPage: React.FC = () => {
     }, 700);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines, tableId, pendingTableLoad, customer?.id]);
+  }, [lines, tableId, pendingTableLoad, customer?.id, splitActive]);
   const [isTabSettle, setIsTabSettle] = useState(false);
 
   /* Keep cart's cashSessionId in sync with the active shift. */
@@ -786,6 +792,10 @@ const TerminalPage: React.FC = () => {
   /* Settle (pay) the table's order. Flush any pending edit, then open payment. */
   const handleSettleTab = async () => {
     if (!tableId || lines.length === 0) { toast.error('Nothing to settle'); return; }
+    // A split owns settlement — go straight to the Split screen (no saveTab, which
+    // the guard would 400). The catch below is just a fallback for the race where
+    // splitActive hasn't loaded yet.
+    if (splitActive) { setShowSplit(true); return; }
     try {
       await saveTab.mutateAsync({ tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id });
       tabSyncSig.current = orderSig(lines);
