@@ -789,7 +789,15 @@ const TerminalPage: React.FC = () => {
     try {
       await saveTab.mutateAsync({ tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id });
       tabSyncSig.current = orderSig(lines);
-    } catch {
+    } catch (e: any) {
+      // A split owns settlement of this tab — guide the cashier to the Split
+      // screen instead of dead-ending on the guard's 400.
+      const msg = e?.response?.data?.message || '';
+      if (/split in progress/i.test(msg)) {
+        toast.info('A split is in progress — settle each bill in the Split screen.');
+        setShowSplit(true);
+        return;
+      }
       toast.error('Could not save the order before settling');
       return;
     }
