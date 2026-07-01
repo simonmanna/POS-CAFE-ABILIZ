@@ -4,6 +4,9 @@ on:
   push:
     tags: ['v*']
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build web dist + create release
@@ -32,7 +35,7 @@ jobs:
         run: pnpm --filter @erp/web build
 
       - name: Package web dist
-        run: cd apps/web/dist && zip -r ../../pos-web.zip .
+        run: cd apps/web/dist && zip -r ${{ github.workspace }}/pos-web.zip .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
