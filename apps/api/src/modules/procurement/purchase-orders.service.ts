@@ -131,20 +131,41 @@ export class PurchaseOrdersService {
 
   // ── Listing & detail ───────────────────────────────────────────────────
 
-  list(query: { status?: string; partnerId?: string }) {
+  async list(query: {
+    status?: string;
+    paymentType?: string;
+    paymentStatus?: string;
+    partnerId?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 25));
     const where: any = { organizationId: this.tenant.organizationId };
     if (query.status) where.status = query.status;
+    if (query.paymentType) where.paymentType = query.paymentType;
+    if (query.paymentStatus) where.paymentStatus = query.paymentStatus;
     if (query.partnerId) where.partnerId = query.partnerId;
-    return this.prisma.client.purchaseOrder.findMany({
-      where,
-      include: {
-        lines: true,
-        receipts: true,
-        payments: true,
-      },
-      orderBy: { orderDate: 'desc' },
-      take: 200,
-    });
+    if (query.search) {
+      where.OR = [
+        { orderNumber: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
+        { paymentType: { contains: query.search, mode: 'insensitive' } },
+        { paymentStatus: { contains: query.search, mode: 'insensitive' } },
+        { status: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+    const [data, total] = await Promise.all([
+      this.prisma.client.purchaseOrder.findMany({
+        where,
+        orderBy: { orderDate: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.client.purchaseOrder.count({ where }),
+    ]);
+    return { data, meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } };
   }
 
   findOne(id: string) {

@@ -1,16 +1,21 @@
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Plus, Truck, CreditCard, X, Receipt } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Link, useNavigate } from 'react-router-dom';
+import { Plus, Search, Truck, CreditCard, X, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { DataTable, type Column } from '@/components/data-table';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
-import { formatMoney } from '@/lib/format';
-import { Link, useNavigate } from 'react-router-dom';
+import { useDebouncedValue } from '@/lib/use-debounced-value';
+import { money, date } from '@/lib/format';
+import type { PaginatedResult } from '@erp/shared';
 
 interface PurchaseOrder {
   id: string;
@@ -43,21 +48,32 @@ const PAYMENT_STATUS_LABELS: Record<string, string> = {
   partial: 'Partial',
 };
 
+const STATUS_FILTERS = ['all', 'active', 'partially_received', 'received', 'cancelled'] as const;
+
 export function PurchaseOrdersPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const org = useAuthStore((s) => s.organization);
   const [status, setStatus] = useState<string>('all');
+  const [paymentType, setPaymentType] = useState<string>('all');
+  const [paymentStatus, setPaymentStatus] = useState<string>('all');
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebouncedValue(searchInput, 300);
 
-  const list = useQuery<PurchaseOrder[]>({
-    queryKey: ['purchase-orders', status],
+  useEffect(() => setPage(1), [search]);
+
+  const queryParams: Record<string, string | number> = { page, pageSize: 25 };
+  if (status !== 'all') queryParams.status = status;
+  if (paymentType !== 'all') queryParams.paymentType = paymentType;
+  if (paymentStatus !== 'all') queryParams.paymentStatus = paymentStatus;
+  if (search) queryParams.search = search;
+
+  const { data, isLoading } = useQuery<PaginatedResult<PurchaseOrder>>({
+    queryKey: ['purchase-orders', queryParams],
     queryFn: async () =>
-      (
-        await api.get<PurchaseOrder[]>(
-          `/procurement/purchase-orders${status !== 'all' ? `?status=${status}` : ''}`,
-        )
-      ).data,
+      (await api.get<PaginatedResult<PurchaseOrder>>('/procurement/purchase-orders', { params: queryParams })).data,
   });
 
   const cancelMut = useMutation({
@@ -69,6 +85,117 @@ export function PurchaseOrdersPage() {
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
   });
+
+  const columns: Column<PurchaseOrder>[] = [
+    {
+      key: 'orderNumber',
+      header: 'Order #',
+      render: (po) => (
+        <Link to={`/procurement/purchase-orders/${po.id}`} className="font-medium text-primary hover:underline">
+          {po.orderNumber}
+        </Link>
+      ),
+    },
+    {
+      key: 'orderDate',
+      header: 'Date',
+      render: (po) => <span className="text-sm text-muted-foreground">{date(po.orderDate)}</span>,
+    },
+    {
+      key: 'paymentType',
+      header: 'Type',
+      render: (po) => (
+        <span className="text-xs text-muted-foreground">{PAYMENT_TYPE_LABELS[po.paymentType] ?? po.paymentType}</span>
+      ),
+    },
+    {
+      key: 'totalAmount',
+      header: 'Total',
+      className: 'text-right',
+      render: (po) => (
+        <span className="font-medium">{money(po.totalAmount, po.currencyCode ?? org?.currencyCode)}</span>
+      ),
+    },
+    {
+      key: 'paymentStatus',
+      header: 'Payment',
+      render: (po) =>
+        po.paymentType === 'credit' ? (
+          <Badge variant="outline" className="text-xs">
+            {PAYMENT_STATUS_LABELS[po.paymentStatus ?? 'not_paid']}
+          </Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">&mdash;</span>
+        ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (po) => (
+        <Badge
+          variant={
+            po.status === 'cancelled' ? 'destructive' : po.status === 'received' ? 'default' : 'secondary'
+          }
+        >
+          {STATUS_LABELS[po.status] ?? po.status}
+        </Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      className: 'text-right',
+      render: (po) => (
+        <div className="flex justify-end gap-1">
+          {(po.status === 'active' || po.status === 'partially_received') && (
+            <Button
+              size="sm"
+              variant="default"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/procurement/purchase-orders/${po.id}/receive`);
+              }}
+            >
+              <Truck className="mr-1 h-3 w-3" />
+              Receive
+            </Button>
+          )}
+          {po.status === 'received' && po.paymentType === 'credit' && po.paymentStatus !== 'paid' && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/procurement/purchase-orders/${po.id}/pay`);
+              }}
+            >
+              <CreditCard className="h-3 w-3" />
+            </Button>
+          )}
+          {po.status === 'received' && po.paymentType === 'cash' && (
+            <Badge variant="secondary" className="text-xs">
+              <Receipt className="h-3 w-3" />
+            </Badge>
+          )}
+          {!['received', 'cancelled'].includes(po.status) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (confirm('Cancel this purchase order?')) cancelMut.mutate(po.id);
+              }}
+            >
+              <X className="h-3 w-3 text-destructive" />
+            </Button>
+          )}
+        </div>
+      ),
+    },
+  ];
+
+  const meta = data?.meta;
+  const rows = data?.data ?? [];
 
   return (
     <div className="space-y-4">
@@ -85,140 +212,100 @@ export function PurchaseOrdersPage() {
         </Button>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {['all', 'active', 'partially_received', 'received', 'cancelled'].map((s) => (
-          <Button
-            key={s}
-            variant={status === s ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setStatus(s)}
-          >
-            {s === 'all' ? 'All' : STATUS_LABELS[s] ?? s}
-          </Button>
-        ))}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search orders..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </div>
+
+        <Select
+          value={paymentType}
+          onValueChange={(v) => { setPaymentType(v); setPage(1); }}
+        >
+          <SelectTrigger className="w-[130px]">
+            <SelectValue placeholder="All types" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All types</SelectItem>
+            <SelectItem value="cash">Cash</SelectItem>
+            <SelectItem value="credit">Credit</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={paymentStatus}
+          onValueChange={(v) => { setPaymentStatus(v); setPage(1); }}
+        >
+          <SelectTrigger className="w-[150px]">
+            <SelectValue placeholder="All payments" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All payments</SelectItem>
+            <SelectItem value="not_paid">Unpaid</SelectItem>
+            <SelectItem value="partial">Partial</SelectItem>
+            <SelectItem value="paid">Paid</SelectItem>
+          </SelectContent>
+        </Select>
+
+        <div className="flex flex-wrap gap-2">
+          {STATUS_FILTERS.map((s) => (
+            <Button
+              key={s}
+              variant={status === s ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => {
+                setStatus(s);
+                setPage(1);
+              }}
+            >
+              {s === 'all' ? 'All' : STATUS_LABELS[s] ?? s}
+            </Button>
+          ))}
+        </div>
       </div>
 
-      {list.isLoading && <Skeleton className="h-32 w-full" />}
-
-      {list.data && list.data.length === 0 && (
-        <Card>
-          <CardContent className="p-8 text-center text-sm text-muted-foreground">
+      <DataTable
+        columns={columns}
+        data={rows}
+        loading={isLoading}
+        getRowId={(po) => po.id}
+        emptyMessage={
+          <span>
             {t('procurement.purchaseOrders.noData')}{' '}
             <Link to="/procurement/purchase-orders/new" className="text-primary underline">
               Create one
             </Link>
             .
-          </CardContent>
-        </Card>
+          </span>
+        }
+      />
+
+      {meta && (
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>{meta.total} order(s)</span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              Previous
+            </Button>
+            <span>
+              Page {meta.page} of {meta.totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={page >= meta.totalPages}
+              onClick={() => setPage((p) => p + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
       )}
-
-      <div className="grid gap-3 md:grid-cols-2">
-        {list.data?.map((po) => (
-          <Card
-            key={po.id}
-            className="cursor-pointer hover:border-primary/50 transition-colors"
-            onClick={() => navigate(`/procurement/purchase-orders/${po.id}`)}
-          >
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div>
-                  <CardTitle className="text-base">{po.orderNumber}</CardTitle>
-                  <CardDescription>
-                    {new Date(po.orderDate).toLocaleDateString()}
-                    {' · '}
-                    {PAYMENT_TYPE_LABELS[po.paymentType] ?? po.paymentType}
-                  </CardDescription>
-                </div>
-                <Badge
-                  variant={
-                    po.status === 'cancelled'
-                      ? 'destructive'
-                      : po.status === 'received'
-                        ? 'default'
-                        : 'secondary'
-                  }
-                >
-                  {STATUS_LABELS[po.status] ?? po.status}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total</span>
-                <span className="font-semibold">
-                  {formatMoney(po.totalAmount, po.currencyCode ?? org?.currencyCode)}
-                </span>
-              </div>
-
-              {po.paymentType === 'credit' && (
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Payment</span>
-                  <Badge variant="outline" className="text-xs">
-                    {PAYMENT_STATUS_LABELS[po.paymentStatus ?? 'not_paid']}
-                  </Badge>
-                </div>
-              )}
-
-              <div className="flex flex-wrap gap-1 border-t pt-2">
-                {/* Active PO -> Receive */}
-                {(po.status === 'active' || po.status === 'partially_received') && (
-                  <Button
-                    size="sm"
-                    variant="default"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/procurement/purchase-orders/${po.id}/receive`);
-                    }}
-                  >
-                    <Truck className="mr-1 h-3 w-3" />
-                    Receive
-                  </Button>
-                )}
-
-                {/* Received credit PO still unpaid -> Pay */}
-                {po.status === 'received' &&
-                  po.paymentType === 'credit' &&
-                  po.paymentStatus !== 'paid' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        navigate(`/procurement/purchase-orders/${po.id}/pay`);
-                      }}
-                    >
-                      <CreditCard className="mr-1 h-3 w-3" />
-                      Pay
-                    </Button>
-                  )}
-
-                {/* Cash purchases are auto-settled on receive */}
-                {po.status === 'received' && po.paymentType === 'cash' && (
-                  <Badge variant="secondary" className="text-xs">
-                    <Receipt className="mr-1 h-3 w-3" />
-                    Paid
-                  </Badge>
-                )}
-
-                {/* Cancel */}
-                {!['received', 'cancelled'].includes(po.status) && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm('Cancel this purchase order?')) cancelMut.mutate(po.id);
-                    }}
-                  >
-                    <X className="mr-1 h-3 w-3 text-destructive" />
-                    Cancel
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }

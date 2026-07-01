@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/table';
 import { money, date, dateTime } from '@/lib/format';
 import { api } from '@/lib/api';
+import type { PaginatedResult } from '@erp/shared';
 import { useNavigate, useParams } from 'react-router-dom';
 import { usePartner, type Partner } from '@/features/partners/api';
 import { useSupplierLedger } from '@/features/invoicing/api';
@@ -283,7 +284,7 @@ function TabPurchaseOrders({ partnerId }: { partnerId: string }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    api.get<{ data: PORow[] }>('/procurement/purchase-orders', { params: { partnerId, pageSize: 10 } })
+    api.get<PaginatedResult<PORow>>('/procurement/purchase-orders', { params: { partnerId, pageSize: 10 } })
       .then((r) => setOrders(r.data.data))
       .catch(() => {})
       .finally(() => setLoading(false));

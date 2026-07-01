@@ -2,9 +2,11 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Query,
@@ -27,10 +29,15 @@ export class PurchaseOrdersController {
   @Get()
   @RequirePermissions('purchase_order:read')
   list(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
+    @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('paymentType') paymentType?: string,
+    @Query('paymentStatus') paymentStatus?: string,
     @Query('partnerId') partnerId?: string,
   ) {
-    return this.svc.list({ status, partnerId });
+    return this.svc.list({ status, paymentType, paymentStatus, partnerId, search, page, pageSize });
   }
 
   @Get(':id')
