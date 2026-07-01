@@ -26,6 +26,7 @@ import {
   BarChart3,
   UserCog,
   Shield,
+  ClipboardList,
   PanelLeftClose,
   PanelLeft,
 } from 'lucide-react';
@@ -109,6 +110,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'Inventory',
     items: [
       { to: '/inventory', label: 'Stock Levels', icon: Package, permission: 'inventory:read' },
+      { to: '/inventory/count', label: 'Stock Count', icon: ClipboardList, permission: 'inventory_count:read' },
       { to: '/inventory/adjustments', label: 'Stock Adjustments', icon: Scale, permission: 'inventory:move' },
     ],
   },
@@ -438,7 +440,7 @@ export function AppShell() {
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
             <span className="hidden text-sm text-muted-foreground sm:inline">
-              {user?.firstName} {user?.lastName}
+              {user?.firstName}{user?.lastName ? ` ${user.lastName}` : ''}
             </span>
             <Button variant="outline" size="sm" onClick={logout}>
               <LogOut className="h-4 w-4" />

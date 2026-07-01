@@ -2063,6 +2063,7 @@ model InventoryLocation {
   adjustments   StockAdjustment[]
   transfersFrom StockTransfer[]   @relation("StockTransferFrom")
   transfersTo   StockTransfer[]   @relation("StockTransferTo")
+  countSessions InventoryCountSession[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -2348,6 +2349,79 @@ model StockTransferItem {
   transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, transferId])
+}
+
+// =============================================================================
+// Inventory Count Sessions — guided physical stock count (opening / closing).
+// A supervisor counts all items; on submit the variance lines are turned into a
+// StockAdjustment which posts ADJUSTMENT_IN/OUT to the ledger. Stock is NEVER
+// overwritten directly — the count is the immutable "what we physically found",
+// the adjustment is the audited correction it produces.
+// =============================================================================
+
+enum InventoryCountType {
+  opening
+  closing
+}
+
+enum InventoryCountStatus {
+  draft
+  submitted
+  cancelled
+}
+
+/// Header for one physical count. Resumable while `draft`; terminal once
+/// `submitted` (links to the generated StockAdjustment) or `cancelled`.
+model InventoryCountSession {
+  id             String               @id @default(uuid())
+  organizationId String
+  countCode      String
+  locationId     String
+  countType      InventoryCountType   @default(opening)
+  status         InventoryCountStatus @default(draft)
+  notes          String?
+  startedById    String?
+  startedAt      DateTime             @default(now())
+  submittedById  String?
+  submittedAt    DateTime?
+  /// StockAdjustment generated on submit (audit link). Null until submitted, or
+  /// when the count had no variances to post.
+  adjustmentId   String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
+
+  location InventoryLocation    @relation(fields: [locationId], references: [id])
+  lines    InventoryCountLine[]
+
+  @@unique([organizationId, countCode])
+  @@index([organizationId, status])
+  @@index([organizationId, locationId])
+}
+
+/// One product row in a count — the physical count vs the system snapshot taken
+/// when the session started. `countedQty` is null until the supervisor enters it.
+model InventoryCountLine {
+  id             String    @id @default(uuid())
+  organizationId String
+  sessionId      String
+  productId      String
+  variantId      String?
+  productName    String
+  unit           String?
+  systemQty      Decimal   @db.Decimal(20, 6)
+  countedQty     Decimal?  @db.Decimal(20, 6)
+  variance       Decimal   @default(0) @db.Decimal(20, 6)
+  reason         String?
+  countedById    String?
+  countedAt      DateTime?
+
+  session InventoryCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, sessionId])
+  @@index([sessionId])
 }
 
 // =============================================================================

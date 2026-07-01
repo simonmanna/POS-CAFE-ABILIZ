@@ -7,14 +7,16 @@ import { StockService } from './stock.service';
 import { StockDocService } from './stock-doc.service';
 import { InventoryQueryService } from './inventory-query.service';
 import { InventoryController } from './inventory.controller';
+import { InventoryCountService } from './inventory-count.service';
+import { InventoryCountController } from './inventory-count.controller';
 import { CostResolverService } from './costing/cost-resolver.service';
 import { StockPostingService } from './posting/stock-posting.service';
 
 @Module({
   imports: [AccountingModule],
-  controllers: [InventoryController],
-  providers: [LocationService, StockService, StockDocService, InventoryQueryService, CostResolverService, StockPostingService],
-  exports: [LocationService, StockService, StockDocService, InventoryQueryService, CostResolverService, StockPostingService],
+  controllers: [InventoryController, InventoryCountController],
+  providers: [LocationService, StockService, StockDocService, InventoryQueryService, InventoryCountService, CostResolverService, StockPostingService],
+  exports: [LocationService, StockService, StockDocService, InventoryQueryService, InventoryCountService, CostResolverService, StockPostingService],
 })
 export class InventoryModule implements OnModuleInit {
   constructor(private readonly registry: ModuleRegistry) {}
@@ -28,6 +30,7 @@ export class InventoryModule implements OnModuleInit {
         ...Object.values(PERMISSIONS.inventoryLocation),
         ...Object.values(PERMISSIONS.inventory),
         ...Object.values(PERMISSIONS.inventoryDoc),
+        ...Object.values(PERMISSIONS.inventoryCount),
       ],
     });
   }

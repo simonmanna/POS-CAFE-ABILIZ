@@ -1,5 +1,6 @@
-import { Printer, X } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { useMemo, useRef } from 'react';
+import { Printer, Download, X } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
 export interface ReceiptLine {
@@ -35,167 +36,192 @@ interface Props {
 }
 
 const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const money = (n: number | string) => Number(n || 0).toLocaleString();
 
 const now = () => {
   const d = new Date();
   return d.toLocaleDateString('en-UG', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
+/**
+ * Build a standalone 80mm monospace thermal document for the bill / KOT and
+ * print it through a hidden iframe — the same isolated-print mechanism the
+ * settlement receipt uses. `window.print()` on the app page pulls in the whole
+ * UI; this prints only the ticket.
+ */
+function buildThermalHtml(p: {
+  type: 'bill' | 'kot';
+  lines: ReceiptLine[];
+  total: number;
+  discountPercent?: number;
+  discountAmount?: number;
+  orderTypeLabel?: string;
+  tableLabel?: string;
+  customerName?: string;
+  subtitle?: string;
+  previousSubtotal?: number;
+  grandTotal?: number;
+}): string {
+  const W = 40;
+  const out: string[] = [];
+  const center = (s: string) => {
+    const pad = Math.max(0, Math.floor((W - s.length) / 2));
+    return ' '.repeat(pad) + s;
+  };
+  const two = (l: string, r: string) => {
+    const gap = Math.max(1, W - l.length - r.length);
+    return l + ' '.repeat(gap) + r;
+  };
+
+  out.push('='.repeat(W));
+  out.push(center('CAFE POS'));
+  out.push(center('Point of Sale'));
+  out.push(center(now()));
+  if (p.orderTypeLabel) out.push(center(p.orderTypeLabel));
+  if (p.tableLabel) out.push(center(p.tableLabel));
+  if (p.customerName) out.push(center('Customer: ' + p.customerName));
+  if (p.subtitle) out.push(center(p.subtitle));
+  if (p.type === 'kot') out.push(center('** KITCHEN ORDER TICKET **'));
+  out.push('-'.repeat(W));
+
+  if (p.type === 'kot') {
+    // Kitchen ticket: quantity + item + modifiers/notes, no prices.
+    if (p.lines.length === 0) out.push(center('No items'));
+    for (const it of p.lines) {
+      out.push(`${('x' + it.quantity).padStart(4)}  ${it.name.slice(0, W - 6)}`);
+      if (it.variantName) out.push(`       ${it.variantName}`);
+      if (it.accompanimentNames?.length) out.push(`       + ${it.accompanimentNames.join(', ')}`);
+      if (it.modifiers?.length) out.push(`       + ${it.modifiers.join(', ')}`);
+      if (it.note) out.push(`       Note: ${it.note}`);
+    }
+    out.push('-'.repeat(W));
+    out.push(center('Prepare and serve with care'));
+  } else {
+    const descW = 20;
+    const qtyW = 4;
+    const priceW = W - descW - qtyW;
+    out.push(`${'Item'.padEnd(descW)}${'Qty'.padStart(qtyW)}${'Price'.padStart(priceW)}`);
+    out.push('-'.repeat(W));
+    if (p.lines.length === 0) out.push(center('No items'));
+    let subtotal = 0;
+    for (const it of p.lines) {
+      const lineTotal = it.unitPrice * it.quantity;
+      subtotal += lineTotal;
+      out.push(
+        `${it.name.slice(0, descW).padEnd(descW)}${String(it.quantity).padStart(qtyW)}${money(lineTotal).padStart(priceW)}`,
+      );
+      if (it.variantName) out.push(`  ${it.variantName}`);
+      if (it.accompanimentNames?.length) out.push(`  + ${it.accompanimentNames.join(', ')}`);
+      if (it.modifiers?.length) out.push(`  + ${it.modifiers.join(', ')}`);
+      if (it.discountPercent > 0) out.push(`  -${it.discountPercent}% disc`);
+      if (it.note) out.push(`  Note: ${it.note}`);
+    }
+    out.push('-'.repeat(W));
+    out.push(two('Subtotal', fmt(subtotal)));
+    if (p.discountPercent && p.discountPercent > 0) {
+      out.push(two(`Discount (${p.discountPercent}%)`, '-' + fmt(p.discountAmount ?? 0)));
+    }
+    if (p.subtitle && p.previousSubtotal != null && p.grandTotal != null) {
+      out.push(two('Previous Total', fmt(p.previousSubtotal)));
+      out.push(two('Additional Total', fmt(p.total)));
+      out.push('='.repeat(W));
+      out.push(two('Grand Total Due', fmt(p.grandTotal)));
+    } else {
+      out.push('='.repeat(W));
+      out.push(two('TOTAL', fmt(p.total)));
+    }
+    out.push('-'.repeat(W));
+    out.push(center('Thank you for your visit!'));
+  }
+
+  const text = out.join('\n');
+  const esc = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=80mm"><title>Print</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { margin:0; padding:0; width:80mm; height:auto; }
+  body { font-family:'Courier New',Courier,monospace; font-size:12px; line-height:1.15; white-space:pre; padding:1px 4px 2px; }
+  @media print { @page { margin:0; size:80mm auto; } html,body { width:80mm; height:auto; } }
+</style></head>
+<body>${esc(text).replace(/\n/g, '<br>')}</body></html>`;
+}
+
+
 export const ReceiptPreview: React.FC<Props> = ({
   open, onClose, type, title, lines, total,
   discountPercent, discountAmount, orderTypeLabel, tableLabel, customerName,
   subtitle, previousSubtotal, grandTotal, onPrint,
 }) => {
-  const empty = lines.length === 0;
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Same isolated-print flow the settlement receipt uses — only the content differs.
+  const html = useMemo(
+    () => buildThermalHtml({
+      type, lines, total, discountPercent, discountAmount,
+      orderTypeLabel, tableLabel, customerName, subtitle, previousSubtotal, grandTotal,
+    }),
+    [type, lines, total, discountPercent, discountAmount, orderTypeLabel, tableLabel, customerName, subtitle, previousSubtotal, grandTotal],
+  );
+
+  const doPrint = () => {
+    onPrint?.();
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.focus();
+    win.print();
+  };
+
+  const doDownload = () => {
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${type}-${(title.replace(/\s+/g, '-').toLowerCase() || type)}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="!max-w-[400px] p-0 overflow-hidden" onOpenAutoFocus={(e) => e.preventDefault()}>
-        <DialogHeader className="bg-slate-800 text-white p-0 m-0">
-          <DialogTitle className="text-white text-xs font-semibold uppercase tracking-wider px-3 pt-2">
-            {title}
+      <DialogContent className="sm:max-w-[560px] p-0 overflow-hidden">
+        <DialogHeader className="bg-gradient-to-r from-slate-700 to-slate-900 text-white p-4">
+          <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
+            <Printer className="h-4 w-4" /> {title}
           </DialogTitle>
-          {subtitle && (
-            <DialogDescription className="text-sky-300 text-[10px] font-bold px-3 pb-2">
-              {subtitle}
-            </DialogDescription>
-          )}
+          <DialogDescription className="text-slate-300 text-xs">
+            {subtitle
+              ? subtitle
+              : type === 'kot'
+                ? 'Kitchen order ticket — preview and print.'
+                : 'Preview and print the bill.'}
+          </DialogDescription>
         </DialogHeader>
-        {/* Toolbar */}
-        <div className="flex items-center justify-between bg-slate-800 px-3 py-2 text-white">
-          <div className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 text-white hover:bg-white/20"
-              onClick={() => { onPrint?.(); window.print(); }}
-            >
-              <Printer className="h-3.5 w-3.5 mr-1" /> Print
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7 text-white hover:bg-white/20" onClick={onClose}>
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+
+        <div className="bg-slate-200 p-4 flex justify-center min-h-[500px]">
+          <iframe
+            ref={iframeRef}
+            srcDoc={html}
+            title={`${type} preview`}
+            className="bg-white shadow-md"
+            style={{ width: 340, height: 600 }}
+          />
         </div>
 
-        {/* Receipt body — thermal printer width */}
-        <div className="flex justify-center bg-slate-100 p-4">
-          <div className="bg-white shadow-sm" style={{ width: 300, fontFamily: "'Courier New', Courier, monospace", fontSize: 11, lineHeight: 1.4 }}>
-            {/* Logo */}
-            <div className="px-3 pt-3 pb-1 text-center border-b border-dashed border-slate-300">
-              <img src="/abiliz-logo.png" alt="Logo" className="mx-auto max-w-full" style={{ maxHeight: 60 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-            </div>
-
-            {/* Header */}
-            <div className="px-3 pt-2 pb-2 text-center border-b border-dashed border-slate-300">
-              <div className="text-sm font-bold uppercase tracking-wider">Cafe POS</div>
-              <div className="text-[10px] text-slate-500">Point of Sale</div>
-              <div className="text-[10px] text-slate-500 mt-1">{now()}</div>
-              {orderTypeLabel && (
-                <div className="text-[10px] font-semibold text-slate-700 mt-1">{orderTypeLabel}</div>
-              )}
-              {tableLabel && (
-                <div className="text-[10px] text-slate-700">{tableLabel}</div>
-              )}
-              {customerName && (
-                <div className="text-[10px] text-slate-700">Customer: {customerName}</div>
-              )}
-              {subtitle && (
-                <div className="text-[10px] font-bold text-sky-700 mt-1">{subtitle}</div>
-              )}
-              {type === 'kot' && (
-                <div className="text-[10px] font-bold text-amber-700 mt-1">** KITCHEN ORDER TICKET **</div>
-              )}
-            </div>
-
-            {/* Items header */}
-            <div className="px-3 py-1.5 border-b border-dashed border-slate-300 text-[10px] font-bold uppercase text-slate-500 flex">
-              <span className="flex-1">Item</span>
-              <span className="w-10 text-right">Qty</span>
-              <span className="w-16 text-right">Price</span>
-            </div>
-
-            {/* Items */}
-            {empty ? (
-              <div className="px-3 py-6 text-center text-slate-400 text-[10px]">No items</div>
-            ) : (
-              <div className="px-3 py-1">
-                {lines.map((it, i) => (
-                  <div key={i}>
-                    <div className="flex items-start py-0.5">
-                      <span className="flex-1 truncate">{it.name}</span>
-                      <span className="w-10 text-right">{it.quantity}</span>
-                      <span className="w-16 text-right">{fmt(it.unitPrice * it.quantity)}</span>
-                    </div>
-                    {it.variantName && (
-                      <div className="text-[9px] text-slate-600 pl-1 -mt-0.5">{it.variantName}</div>
-                    )}
-                    {it.accompanimentNames && it.accompanimentNames.length > 0 && (
-                      <div className="text-[9px] text-slate-600 pl-1 -mt-0.5">+ {it.accompanimentNames.join(', ')}</div>
-                    )}
-                    {it.modifiers && it.modifiers.length > 0 && (
-                      <div className="text-[9px] text-slate-600 pl-1 -mt-0.5">+ {it.modifiers.join(', ')}</div>
-                    )}
-                    {it.discountPercent > 0 && (
-                      <div className="text-[9px] text-emerald-600 pl-1 -mt-0.5">-{it.discountPercent}% disc</div>
-                    )}
-                    {it.note && (
-                      <div className="text-[9px] text-slate-500 pl-1 -mt-0.5 italic">Note: {it.note}</div>
-                    )}
-                    {type === 'kot' && (
-                      <div className="text-[9px] text-slate-500 pl-1 -mt-0.5">@ {fmt(it.unitPrice)} ea</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Divider */}
-            <div className="border-t border-dashed border-slate-300 mx-3" />
-
-            {/* Totals */}
-            {type === 'bill' && (
-              <div className="px-3 py-2 text-[10px]">
-                <div className="flex justify-between py-0.5">
-                  <span>Subtotal</span>
-                  <span>{fmt(lines.reduce((s, it) => s + it.unitPrice * it.quantity, 0))}</span>
-                </div>
-                {discountPercent && discountPercent > 0 ? (
-                  <div className="flex justify-between py-0.5 text-emerald-600">
-                    <span>Discount ({discountPercent}%)</span>
-                    <span>-{fmt(discountAmount ?? 0)}</span>
-                  </div>
-                ) : null}
-                {subtitle && previousSubtotal != null && grandTotal != null ? (
-                  <>
-                    <div className="flex justify-between py-0.5 mt-1">
-                      <span className="text-slate-500">Previous Total</span>
-                      <span className="text-slate-500">{fmt(previousSubtotal)}</span>
-                    </div>
-                    <div className="flex justify-between py-0.5 text-slate-700">
-                      <span>Additional Total</span>
-                      <span>{fmt(total)}</span>
-                    </div>
-                    <div className="flex justify-between py-0.5 text-sm font-bold border-t-2 border-slate-400 pt-1 mt-1">
-                      <span>Grand Total Due</span>
-                      <span>{fmt(grandTotal)}</span>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex justify-between py-0.5 text-sm font-bold border-t border-dashed border-slate-300 pt-1 mt-1">
-                    <span>TOTAL</span>
-                    <span>{fmt(total)}</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Footer */}
-            <div className="px-3 pb-3 pt-2 text-center border-t border-dashed border-slate-300 text-[9px] text-slate-400">
-              {type === 'bill' ? 'Thank you for your visit!' : 'Prepare and serve with care'}
-            </div>
+        <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 flex gap-2 justify-between">
+          <Button variant="ghost" onClick={onClose}>
+            <X className="h-4 w-4 mr-1" /> Close
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={doDownload}>
+              <Download className="h-4 w-4 mr-1" /> Download HTML
+            </Button>
+            <Button onClick={doPrint} style={{ background: '#16a34a' }}>
+              <Printer className="h-4 w-4 mr-1" /> Print {type === 'kot' ? 'KOT' : 'Bill'}
+            </Button>
           </div>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

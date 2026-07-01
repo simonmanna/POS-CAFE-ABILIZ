@@ -255,7 +255,6 @@ export class PosReceiptsService {
     } else {
       lines.push((footer?.message ?? 'Thank you!').padStart(R));
     }
-    for (let i = 0; i < 3; i++) lines.push('');
     return lines.join('\n');
   }
 
@@ -270,45 +269,48 @@ export class PosReceiptsService {
     if (isReprint) lines.push('*** REPRINT COPY ***');
     if (copyLabel) lines.push(`*** ${copyLabel} ***`);
 
-    const R = 42;
-    const rule = '='.repeat(R);
+    // Compact thermal width — kept tight so 80mm paper isn't overrun and there's
+    // no big side/top/bottom whitespace.
+    const W = 40;
+    const money = (n: number | string | Prisma.Decimal | null | undefined) =>
+      Number(n || 0).toLocaleString();
+    const center = (s: string) => {
+      const pad = Math.max(0, Math.floor((W - s.length) / 2));
+      return ' '.repeat(pad) + s;
+    };
+    const two = (l: string, r: string) => {
+      const gap = Math.max(1, W - l.length - r.length);
+      return l + ' '.repeat(gap) + r;
+    };
     const addr1 = header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA';
     const addr2 = header?.addressLine2 ?? 'Kampala, Uganda';
     const phone = header?.phone ?? '+256757920771';
     const bizName = (header?.businessName ?? 'Abiliz Cafe and Patisserie').toUpperCase();
 
-    lines.push(rule);
-    lines.push(bizName);
-    lines.push('');
-    lines.push(addr1);
-    lines.push(addr2);
-    lines.push(`Telephone: ${phone}`);
-    lines.push('');
-    lines.push(`Receipt: #${(inv as any).documentNumber}`);
+    lines.push('='.repeat(W));
+    lines.push(center(bizName));
+    lines.push(center(addr1));
+    lines.push(center(addr2));
+    lines.push(center(`Tel: ${phone}`));
+    lines.push('-'.repeat(W));
+    lines.push(`Receipt #${(inv as any).documentNumber}`);
     const d = new Date(inv.issueDate);
     const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
     const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    lines.push(`Date ${datePart}${' '.repeat(3)}${timePart}`);
+    lines.push(`${datePart}  ${timePart}`);
     lines.push(`Mode: ${((inv as any).paymentMode || 'CASH').toUpperCase()}`);
     lines.push(`Cashier: ${(inv as any).cashierName ?? '-'}`);
-    lines.push('');
+    lines.push('-'.repeat(W));
 
-    // Improved column widths
-    const qtyW = 4;
-    const descW = 22;
-    const priceW = 12;
-    const totalW = 12;
-    const totalWidth = qtyW + descW + priceW + totalW;
-
-    // Header line
-    const headerQty = 'Qty'.padStart(qtyW);
-    const headerDesc = 'Item'.padEnd(descW);
-    const headerPrice = 'Price'.padStart(priceW);
-    const headerTotal = 'Total'.padStart(totalW);
-    lines.push(`${headerQty}  ${headerDesc}${headerPrice}${headerTotal}`);
-
-    // Separator line
-    lines.push('-'.repeat(totalWidth + 2));
+    // Compact item columns — no currency prefix in the item table.
+    const qtyW = 3;
+    const descW = 18;
+    const priceW = 8;
+    const totalW = W - qtyW - 1 - descW - priceW;
+    lines.push(
+      `${'Qty'.padStart(qtyW)} ${'Item'.padEnd(descW)}${'Price'.padStart(priceW)}${'Total'.padStart(totalW)}`,
+    );
+    lines.push('-'.repeat(W));
 
     for (const ln of inv.lines) {
       const qty = Number(ln.quantity);
@@ -319,42 +321,35 @@ export class PosReceiptsService {
       const variantTag = (ln as any).variantName ? `${ln.variantName} ` : '';
 
       const qtyStr = String(qty).padStart(qtyW);
-      const descRaw = variantTag + ln.description + inclTag;
-      const desc = descRaw.slice(0, descW).padEnd(descW);
-      const priceStr = fmt(price).padStart(priceW);
-      const totalStr = fmt(lineTotal).padStart(totalW);
-      lines.push(`${qtyStr}  ${desc}${priceStr}${totalStr}`);
+      const desc = (variantTag + ln.description + inclTag).slice(0, descW).padEnd(descW);
+      const priceStr = money(price).padStart(priceW);
+      const totalStr = money(lineTotal).padStart(totalW);
+      lines.push(`${qtyStr} ${desc}${priceStr}${totalStr}`);
 
-      // Modifiers (same indentation but keep monospace)
       const mods: any[] = (ln as any).modifiers ?? [];
       for (const m of mods) {
         const mName = (m.name ?? '').slice(0, 15).padEnd(15);
-        lines.push(`      + ${mName} ${fmt(m.priceDelta).padStart(8)}`);
+        lines.push(`     + ${mName}${money(m.priceDelta).padStart(8)}`);
       }
       if (ln.note) {
-        lines.push(`      ${ln.note.slice(0, 30).padEnd(30)}`);
+        lines.push(`     ${ln.note.slice(0, W - 6)}`);
       }
     }
 
-    lines.push('');
-    lines.push('');
-    lines.push('-'.repeat(R));
-    lines.push(`Subtotal:`.padEnd(R - 10) + fmt(inv.subtotal).padStart(10));
-    lines.push(`TOTAL:`.padEnd(R - 10) + fmt(inv.totalAmount).padStart(10));
-    lines.push(`Paid:`.padEnd(R - 10) + fmt(inv.amountPaid).padStart(10));
+    lines.push('-'.repeat(W));
+    lines.push(two('Subtotal:', fmt(inv.subtotal)));
+    lines.push(two('TOTAL:', fmt(inv.totalAmount)));
+    lines.push(two('Paid:', fmt(inv.amountPaid)));
     const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
-    if (change > 0) lines.push(`Change:`.padEnd(R - 10) + fmt(change).padStart(10));
-    lines.push('-'.repeat(R));
-    lines.push('');
-    lines.push('');
+    if (change > 0) lines.push(two('Change:', fmt(change)));
+    lines.push('-'.repeat(W));
     if (isMerchant) {
-      lines.push('CASHIER COPY — keep for records'.padStart(R));
+      lines.push(center('CASHIER COPY — keep for records'));
       lines.push('');
-      lines.push('Signature: ____________________'.padStart(R));
+      lines.push(center('Signature: ____________________'));
     } else {
-      lines.push((footer?.message ?? 'Thank you!').padStart(R));
+      lines.push(center(footer?.message ?? 'Thank you!'));
     }
-    for (let i = 0; i < 3; i++) lines.push('');
     // Wrap the monospace text in an HTML envelope: white-space:pre + a fixed
     // monospace font preserve the column alignment (returning bare text makes the
     // browser collapse the newlines/spaces → "dispersed" layout).
@@ -365,19 +360,14 @@ export class PosReceiptsService {
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=80mm"><title>Receipt</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:'Courier New',Courier,monospace; font-size:13px; line-height:1.25; white-space:pre; padding:4px; margin:0; }
-  .receipt-end { height:50px; }
+  html,body { margin:0; padding:0; width:80mm; height:auto; }
+  body { font-family:'Courier New',Courier,monospace; font-size:12px; line-height:1.15; white-space:pre; padding:1px 4px 2px; }
   @media print {
-    @page { margin: 0; size: 80mm auto; }
-    body { padding: 4px; }
-    .receipt-end { height: 50px; page-break-inside: avoid; }
+    @page { margin:0; size:80mm auto; }
+    html,body { width:80mm; height:auto; }
   }
 </style></head>
-<body>
-  <img src="/abiliz-logo.png" style="width:80mm;max-width:100%;display:block;margin:0 auto 8px auto;" onerror="this.style.display='none'">
-  ${escape(text).replace(/\n/g, '<br>')}
-<div class="receipt-end"></div>
-<script>window.onload=function(){try{window.print();}catch(e){}};</script></body></html>`;
+<body>${escape(text).replace(/\n/g, '<br>')}<script>window.onload=function(){try{window.print();}catch(e){}};</script></body></html>`;
   }
 
   /** PDF receipt — pdfkit stream. */
@@ -400,18 +390,6 @@ export class PosReceiptsService {
         if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***');
         doc.font('Helvetica-Bold').fontSize(10).text(`*** ${copyLabel} ***`);
         doc.moveDown(0.35);
-
-        const logoPath = path.join(__dirname, '../../../../../web/public/abiliz-logo.png');
-        try {
-          const imgWidth = 40;
-          const imgHeight = 40;
-          const x = (226 - imgWidth) / 2;
-          doc.image(logoPath, x, doc.y, { width: imgWidth, height: imgHeight });
-          doc.y += imgHeight + 10;
-        } catch {
-          doc.font('Helvetica-Bold').fontSize(8).text('[logo]', { align: 'center' });
-        }
-        doc.moveDown(0.1);
 
         const bizName = (header?.businessName ?? 'Abiliz Cafe and Patisserie').toUpperCase();
         doc.font('Helvetica-Bold').fontSize(20).text(bizName);
@@ -946,10 +924,8 @@ export class PosReceiptsService {
       const kickSetting = await this.settings.get('pos.kickDrawerOnPrint');
       const shouldKick = kickSetting?.value !== 'false';
       const CUT = Buffer.from([0x1D, 0x56, 0x00]);
-      const logoBuf = this.getEscposLogo();
       await new Promise<void>((resolve, reject) => {
         const client = net.connect({ host, port, timeout: 5000 }, () => {
-          if (logoBuf) client.write(logoBuf);
           client.write(customerText + '\n\n\n');
           if (shouldKick) client.write(Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]));
           client.write(CUT);

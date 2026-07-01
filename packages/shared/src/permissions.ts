@@ -163,6 +163,12 @@ export const PERMISSIONS = {
     approve: 'inventory_doc:approve',
     delete: 'inventory_doc:delete',
   },
+  // ---- Inventory count sessions (opening/closing physical counts) ----
+  inventoryCount: {
+    read: 'inventory_count:read',
+    count: 'inventory_count:count',
+    submit: 'inventory_count:submit',
+  },
 
   // ---- M5: Cash registers / sessions (foundation) ----
   cashRegister: {

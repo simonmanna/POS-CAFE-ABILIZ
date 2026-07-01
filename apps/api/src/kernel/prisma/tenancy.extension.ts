@@ -49,6 +49,9 @@ const ORG_SCOPED = new Set<string>([
   'StockAdjustmentItem',
   'StockTransfer',
   'StockTransferItem',
+  // Inventory count sessions (opening/closing physical counts)
+  'InventoryCountSession',
+  'InventoryCountLine',
   // M5 — cash sessions (CashRegister is config, sessions/movements are transactional)
   'CashRegister',
   'CashSession',
@@ -176,6 +179,8 @@ const SOFT_DELETE = new Set<string>([
   'BankAccount',
   // Phase 4 — inventory (locations are config; quants/batches/ledger are not soft-deleted)
   'InventoryLocation',
+  // Count session header carries deletedAt (lines cascade with the session)
+  'InventoryCountSession',
   // M5 — cash register is config; sessions/movements use status, not soft-delete
   'CashRegister',
   // F.5 — Webhook endpoints are config; deliveries are immutable.

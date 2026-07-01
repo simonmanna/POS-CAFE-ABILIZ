@@ -72,13 +72,13 @@ async function main(): Promise<void> {
   const passwordHash = await bcrypt.hash('Admin@123', 10);
   await prisma.user.upsert({
     where: { organizationId_email: { organizationId: org.id, email: 'admin@demo.test' } },
-    update: { roles: { set: [{ id: adminRole.id }] } },
+    update: { roles: { set: [{ id: adminRole.id }] }, lastName: null },
     create: {
       organizationId: org.id,
       email: 'admin@demo.test',
       passwordHash,
       firstName: 'Admin',
-      lastName: 'User',
+      lastName: null,
       roles: { connect: [{ id: adminRole.id }] },
     },
   });
@@ -514,6 +514,25 @@ async function main(): Promise<void> {
       },
     });
 
+    const supervisorPerms = [
+      'inventory_count:read', 'inventory_count:count', 'inventory_count:submit',
+      'inventory:read', 'inventory:move', 'inventory_location:read',
+      'inventory_doc:read', 'inventory_doc:create', 'inventory_doc:approve',
+      'product:read', 'products.view', 'partner:read',
+      'pos:read', 'pos:reports',
+    ];
+    await prisma.role.upsert({
+      where: { organizationId_name: { organizationId: orgId, name: 'Supervisor' } },
+      update: { permissions: supervisorPerms },
+      create: {
+        organizationId: orgId,
+        name: 'Supervisor',
+        description: 'Runs stock counts and inventory adjustments',
+        isSystem: true,
+        permissions: supervisorPerms,
+      },
+    });
+
     // --- Staff users ---------------------------------------------------------
     const staffDefs: Array<{
       email: string; firstName: string; lastName: string; roleName: string;
@@ -521,6 +540,7 @@ async function main(): Promise<void> {
     }> = [
       { email: 'sarah@demo.test', firstName: 'Sarah', lastName: 'Cashier', roleName: 'Cashier', password: 'Demo@123', pin: '1111' },
       { email: 'john@demo.test', firstName: 'John', lastName: 'Waiter', roleName: 'Waiter', password: 'Demo@123', pin: '2222' },
+      { email: 'mary@demo.test', firstName: 'Mary', lastName: 'Supervisor', roleName: 'Supervisor', password: 'Demo@123', pin: '3333' },
     ];
 
     for (const s of staffDefs) {
