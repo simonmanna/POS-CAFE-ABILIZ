@@ -1,6 +1,6 @@
 // Receipt preview + print / reprint / email actions.
 import React, { useRef, useState } from 'react';
-import { Printer, Mail, Download, RefreshCw, Ban, X } from 'lucide-react';
+import { Printer, Download, RefreshCw, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
@@ -16,7 +16,7 @@ interface Props {
   canReprint?: boolean;
 }
 
-export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoiceNumber, receiptHtml, onClose, onVoid, canReprint = false }) => {
+export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoiceNumber, receiptHtml, onClose, onVoid: _onVoid, canReprint = false }) => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<'print' | 'email' | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -67,18 +67,6 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
       }
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Print failed');
-    } finally { setBusy(null); }
-  };
-
-  const onEmail = async () => {
-    if (!invoiceId) return;
-    setBusy('email');
-    try {
-      const r = await api.post<{ ok: boolean; sentTo?: string; message?: string }>(`/pos/receipts/${invoiceId}/email`);
-      if (r.data.ok) toast.success(`Receipt emailed to ${r.data.sentTo}`);
-      else toast.warning(r.data.message ?? 'Email failed');
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Email failed');
     } finally { setBusy(null); }
   };
 
