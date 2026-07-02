@@ -23,32 +23,99 @@ export class InvoiceService {
   async list(query: PaginationQuery, partnerId?: string) {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 25));
-    const where: any = { documentType: 'sales_invoice' };
-    if (partnerId) where.partnerId = partnerId;
-    if (query.search) {
-      where.OR = [
-        { documentNumber: { contains: query.search, mode: 'insensitive' } },
-        { reference: { contains: query.search, mode: 'insensitive' } },
+    const search = query.search?.trim();
+
+    // Sales invoices live in TWO tables: manual invoices in `Document`
+    // (documentType=sales_invoice) and POS sales in the separate `Invoice` table.
+    // They never overlap, so union both, normalise the POS rows to the Document
+    // shape the page renders, sort by createdAt, and paginate the merged set.
+    const docWhere: any = { documentType: 'sales_invoice' };
+    const invWhere: any = {};
+    if (partnerId) {
+      docWhere.partnerId = partnerId;
+      invWhere.partnerId = partnerId;
+    }
+    if (search) {
+      docWhere.OR = [
+        { documentNumber: { contains: search, mode: 'insensitive' } },
+        { reference: { contains: search, mode: 'insensitive' } },
+      ];
+      invWhere.OR = [
+        { invoiceNumber: { contains: search, mode: 'insensitive' } },
+        { reference: { contains: search, mode: 'insensitive' } },
       ];
     }
-    const [data, total] = await Promise.all([
+
+    const take = page * pageSize; // enough of each to cover the requested page after merge
+    const [docs, invs, docCount, invCount] = await Promise.all([
       this.prisma.client.document.findMany({
-        where,
+        where: docWhere,
         include: { partner: true, _count: { select: { lines: true } } },
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        take,
       }),
-      this.prisma.client.document.count({ where }),
+      this.prisma.client.invoice.findMany({
+        where: invWhere,
+        include: { _count: { select: { items: true } } },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.client.document.count({ where: docWhere }),
+      this.prisma.client.invoice.count({ where: invWhere }),
     ]);
+
+    // `Invoice` has no partner relation — resolve display names in one query.
+    const partnerIds = [...new Set((invs as any[]).map((i) => i.partnerId))];
+    const partners = partnerIds.length
+      ? await this.prisma.client.partner.findMany({ where: { id: { in: partnerIds } }, select: { id: true, name: true } })
+      : [];
+    const nameById = new Map(partners.map((p: any) => [p.id, p.name]));
+
+    const normInvs = (invs as any[]).map((i) => ({
+      ...i,
+      documentNumber: i.invoiceNumber,
+      documentType: 'sales_invoice',
+      source: 'pos',
+      partner: { id: i.partnerId, name: nameById.get(i.partnerId) ?? 'Walk-in' },
+      _count: { lines: i._count?.items ?? 0 },
+    }));
+    const normDocs = (docs as any[]).map((d) => ({ ...d, source: 'manual' }));
+
+    const merged = [...normDocs, ...normInvs].sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    const start = (page - 1) * pageSize;
+    const data = merged.slice(start, start + pageSize);
+    const total = docCount + invCount;
     return { data, meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } };
   }
 
-  findOne(id: string) {
-    return this.prisma.client.document.findFirst({
+  async findOne(id: string) {
+    const doc = await this.prisma.client.document.findFirst({
       where: { id, documentType: 'sales_invoice' },
       include: { lines: { orderBy: { lineNumber: 'asc' } }, partner: true, allocations: true },
     });
+    if (doc) return doc;
+
+    // POS sale — lives in the separate Invoice table. Normalise to the Document
+    // shape the detail page expects (documentNumber, partner, lines).
+    const inv = await this.prisma.client.invoice.findFirst({
+      where: { id },
+      include: { items: { orderBy: { lineNumber: 'asc' } }, allocations: true },
+    });
+    if (!inv) return null;
+    const partner = await this.prisma.client.partner.findFirst({
+      where: { id: (inv as any).partnerId },
+      select: { id: true, name: true },
+    });
+    return {
+      ...inv,
+      documentNumber: (inv as any).invoiceNumber,
+      documentType: 'sales_invoice',
+      source: 'pos',
+      partner,
+      lines: (inv as any).items,
+    };
   }
 
   async create(dto: CreateInvoiceDto) {
