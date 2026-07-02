@@ -43,6 +43,9 @@ export class SequenceService implements OnApplicationBootstrap {
     'waste_doc',
     'stock_adj',
     'stock_transfer',
+    // Direct Stock In/Out
+    'direct_stock_in',
+    'direct_stock_out',
     'invoice',
     'creditnote',
     'vendorbill',

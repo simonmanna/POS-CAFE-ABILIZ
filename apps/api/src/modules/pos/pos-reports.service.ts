@@ -263,29 +263,22 @@ export class PosReportsService {
       ? new Set(hours.split(',').map((h) => parseInt(h, 10)).filter((n) => !isNaN(n) && n >= 0 && n <= 23))
       : null;
 
-    const [docs, invoices] = await Promise.all([
-      this.prisma.client.document.findMany({
-        where: {
-          organizationId,
-          documentType: 'sales_invoice',
-          sourceType: 'pos',
-          status: { in: ['posted', 'paid'] },
-          createdAt: { gte: start, lte: end },
-        },
-        select: { totalAmount: true, createdAt: true },
-      }),
-      this.prisma.client.invoice.findMany({
-        where: {
-          organizationId,
-          status: { in: ['posted', 'paid'] },
-          createdAt: { gte: start, lte: end },
-        },
-        select: { totalAmount: true, createdAt: true },
-      }),
-    ]);
+    // POS sales live on Invoice and always carry an orderId (bridged from the
+    // operational Order). Scoping by `orderId: { not: null }` keeps manual AR
+    // invoices out of the POS hourly totals. The legacy Document branch is gone
+    // (POS no longer writes Document after the Document→Invoice migration).
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: {
+        organizationId,
+        orderId: { not: null },
+        status: { in: ['posted', 'paid'] },
+        createdAt: { gte: start, lte: end },
+      },
+      select: { totalAmount: true, createdAt: true },
+    });
 
     const buckets = new Array(24).fill(0).map((_, hour) => ({ hour, count: 0, total: dec(0) }));
-    for (const d of [...docs, ...invoices] as any[]) {
+    for (const d of invoices as any[]) {
       const hour = new Date(d.createdAt).getHours();
       if (hourFilter && !hourFilter.has(hour)) continue;
       buckets[hour].count += 1;
@@ -312,33 +305,20 @@ export class PosReportsService {
     }
     end.setHours(23, 59, 59, 999);
 
-    const [invoices, docs] = await Promise.all([
-      this.prisma.client.invoice.findMany({
-        where: {
-          organizationId,
-          status: { in: ['posted', 'paid', 'refunded'] },
-          createdAt: { gte: start, lte: end },
-        },
-        select: { id: true, subtotal: true, totalAmount: true, discountTotal: true, taxAmount: true, status: true, createdAt: true },
-        orderBy: { createdAt: 'asc' },
-      }),
-      this.prisma.client.document.findMany({
-        where: {
-          organizationId,
-          documentType: 'sales_invoice',
-          sourceType: 'pos', // POS-only
-          status: { in: ['posted', 'paid'] },
-          createdAt: { gte: start, lte: end },
-        },
-        select: { id: true, subtotal: true, totalAmount: true, discountTotal: true, taxAmount: true, status: true, createdAt: true },
-        orderBy: { createdAt: 'asc' },
-      }),
-    ]);
+    // POS-only: Invoice rows bridged from an Order (orderId set). Excludes manual
+    // AR invoices. Legacy Document branch removed post-migration.
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: {
+        organizationId,
+        orderId: { not: null },
+        status: { in: ['posted', 'paid', 'refunded'] },
+        createdAt: { gte: start, lte: end },
+      },
+      select: { id: true, subtotal: true, totalAmount: true, discountTotal: true, taxAmount: true, status: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
 
-    const rows = [
-      ...invoices.map((i: any) => ({ ...i, refunded: i.status === 'refunded' })),
-      ...docs.map((d: any) => ({ ...d, refunded: false })),
-    ];
+    const rows = invoices.map((i: any) => ({ ...i, refunded: i.status === 'refunded' }));
 
     const periodKey = (d: Date): string => {
       if (groupBy === 'day') return d.toISOString().slice(0, 10);
@@ -380,10 +360,9 @@ export class PosReportsService {
     // Payment-method breakdown — actual money received, by allocation amount,
     // inbound only (refunds excluded so methods aren't inflated).
     const invIds = invoices.map((i: any) => i.id);
-    const docIds = docs.map((d: any) => d.id);
-    const allocations = (invIds.length || docIds.length)
+    const allocations = invIds.length
       ? await this.prisma.client.paymentAllocation.findMany({
-          where: { OR: [{ invoiceId: { in: invIds } }, { documentId: { in: docIds } }] },
+          where: { invoiceId: { in: invIds } },
           include: { payment: { select: { paymentMethod: true, direction: true } } },
         })
       : [];

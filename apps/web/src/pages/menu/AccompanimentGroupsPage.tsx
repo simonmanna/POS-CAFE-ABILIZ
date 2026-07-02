@@ -104,7 +104,7 @@ export default function AccompanimentGroupsPage() {
   };
 
   if (isLoading) return (
-    <div className="p-3 max-w-4xl mx-auto space-y-3">
+    <div className="p-2 max-w-[1600px] mx-auto space-y-2">
       <div className="flex items-center justify-between mb-2">
         <div><div className="h-7 w-48 bg-slate-200 rounded animate-pulse" /><div className="h-4 w-64 bg-slate-100 rounded mt-1 animate-pulse" /></div>
         <div className="h-10 w-28 bg-slate-200 rounded-lg animate-pulse" />
@@ -116,7 +116,7 @@ export default function AccompanimentGroupsPage() {
   );
 
   return (
-    <div className="p-3 max-w-4xl mx-auto space-y-3">
+    <div className="p-2 max-w-[1600px] mx-auto space-y-2">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-slate-800">Accompaniment Groups</h1>
@@ -128,14 +128,14 @@ export default function AccompanimentGroupsPage() {
       </div>
 
       {groups.length === 0 ? (
-        <div className="text-center py-8 text-slate-400">
+        <div className="text-center py-6 text-slate-400">
           <p className="text-lg font-semibold">No accompaniment groups yet</p>
           <p className="text-sm mt-1">Create one to get started.</p>
         </div>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid gap-2">
           {groups.map((g) => (
-            <div key={g.id} className={'rounded-xl border bg-white p-3 shadow-sm ' + (!g.isActive ? 'opacity-50' : '')}>
+            <div key={g.id} className={'rounded-xl border bg-white p-2.5 shadow-sm ' + (!g.isActive ? 'opacity-50' : '')}>
               {/* Header */}
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">

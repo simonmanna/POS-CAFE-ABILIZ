@@ -346,26 +346,30 @@ export class PosOrdersService {
 
     const deltas: Array<{ item: any; delta: number }> = [];
     for (const it of items as any[]) {
-      if (!it.productId) continue;
+      // A line reaches the kitchen if it maps to EITHER a stock product or a menu
+      // item. Menu items carry `menuItemId` only (no single `productId`), so the
+      // old `if (!it.productId) continue` silently dropped every menu-driven order
+      // — the kitchen never saw it. Only lines with neither id are skipped.
+      if (!it.productId && !it.menuItemId) continue;
       const printed = Number(it.kitchenPrintedQty ?? 0);
       const delta = Number(it.quantity) - printed;
       if (delta > 0) deltas.push({ item: it, delta });
     }
     if (deltas.length === 0) return { ticketIds: [], count: 0, message: 'No new items to send' };
 
-    const productIds = [...new Set(deltas.map((d) => d.item.productId))];
-    const products = await this.prisma.client.product.findMany({ where: { id: { in: productIds } }, select: { id: true, station: true } });
-    const stationMap = new Map(products.map((p) => [p.id, (p as any).station ?? 'cafe']));
-
-    const kdsItems = deltas.map(({ item, delta }) => ({
-      productId: item.productId,
-      productName: item.description,
-      quantity: delta,
-      modifiers: (item.modifiers ?? []).map((m: any) => ({ name: m.name, priceDelta: Number(m.priceDelta) })),
-      notes: item.note ?? null,
-      station: stationMap.get(item.productId) ?? 'cafe',
-      accompanimentNames: item.accompanimentNames ?? [],
-    }));
+    const stationCache = new Map<string, 'bar' | 'kitchen' | 'cafe'>();
+    const kdsItems: Array<Record<string, any>> = [];
+    for (const { item, delta } of deltas) {
+      kdsItems.push({
+        productId: item.productId ?? item.menuItemId,
+        productName: item.description,
+        quantity: delta,
+        modifiers: (item.modifiers ?? []).map((m: any) => ({ name: m.name, priceDelta: Number(m.priceDelta) })),
+        notes: item.note ?? null,
+        station: await this.stationForOrderItem(item, stationCache),
+        accompanimentNames: item.accompanimentNames ?? [],
+      });
+    }
 
     const ticketIds = await this.kds.createTicketsForSale({ orderId, label: order.orderNumber, items: kdsItems as any });
 
@@ -396,6 +400,53 @@ export class PosOrdersService {
     const d = new Date();
     const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
     return this.sequence.next(`order:${ymd}`, { prefix: `ORD-${ymd}-`, padding: 6 }, tx);
+  }
+
+  /**
+   * Resolve the KDS/kitchen station for an order line. Stock-product lines use
+   * `Product.station` directly; menu-item lines (no single productId) derive it
+   * from the recipe's products (`MenuProduct` → `Product.station`), picking a
+   * primary station. Results are cached per invocation to avoid N+1 lookups.
+   */
+  private async stationForOrderItem(
+    it: any,
+    cache: Map<string, 'bar' | 'kitchen' | 'cafe'>,
+  ): Promise<'bar' | 'kitchen' | 'cafe'> {
+    if (it.productId) {
+      const key = `p:${it.productId}`;
+      if (cache.has(key)) return cache.get(key)!;
+      const p = await this.prisma.client.product.findFirst({ where: { id: it.productId }, select: { station: true } });
+      const st = ((p as any)?.station ?? 'cafe') as 'bar' | 'kitchen' | 'cafe';
+      cache.set(key, st);
+      return st;
+    }
+    if (it.menuItemId) {
+      const key = `m:${it.menuItemId}`;
+      if (cache.has(key)) return cache.get(key)!;
+      const recipe = await this.prisma.client.menuProduct.findMany({
+        where: { menuItemId: it.menuItemId, organizationId: this.tenant.organizationId },
+        include: { product: { select: { station: true } } },
+      });
+      const stations = (recipe as any[]).map((r) => (r.product?.station ?? 'cafe') as string);
+      const st = this.pickPrimaryStation(stations);
+      cache.set(key, st);
+      return st;
+    }
+    return 'cafe';
+  }
+
+  /** Majority station across a menu item's recipe; ties prefer kitchen > bar > cafe. */
+  private pickPrimaryStation(stations: string[]): 'bar' | 'kitchen' | 'cafe' {
+    if (!stations.length) return 'cafe';
+    const counts = new Map<string, number>();
+    for (const s of stations) counts.set(s, (counts.get(s) ?? 0) + 1);
+    let best: 'bar' | 'kitchen' | 'cafe' = 'cafe';
+    let bestCount = -1;
+    for (const s of ['kitchen', 'bar', 'cafe'] as const) {
+      const c = counts.get(s) ?? 0;
+      if (c > bestCount) { best = s; bestCount = c; }
+    }
+    return best;
   }
 
   /** Validate variant + accompaniment + modifier rules server-side before pricing. */

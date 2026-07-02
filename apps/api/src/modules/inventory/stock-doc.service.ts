@@ -385,7 +385,7 @@ export class StockDocService {
       case 'waste':
         return this.prisma.client.wasteRecord.findMany({ where, orderBy: order, include: { items: true } });
       case 'adjustment':
-        return this.prisma.client.stockAdjustment.findMany({ where, orderBy: order, include: { items: true } });
+        return this.prisma.client.stockAdjustment.findMany({ where, orderBy: order, include: { items: true, location: true } });
       case 'transfer':
         return this.prisma.client.stockTransfer.findMany({ where, orderBy: order, include: { items: true } });
     }

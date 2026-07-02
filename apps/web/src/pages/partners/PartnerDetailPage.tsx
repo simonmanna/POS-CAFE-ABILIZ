@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ChevronRight, ArrowLeft, Users, Building2, Mail, Phone,
-  MapPin, FileText, DollarSign, ShoppingCart, BookOpen, Activity,
+  MapPin, FileText, DollarSign, ShoppingCart, BookOpen, Activity, Receipt,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -400,6 +400,149 @@ function TabLedger({ partnerId }: { partnerId: string }) {
   );
 }
 
+interface ExpenseRow {
+  id: string;
+  expenseCode: string;
+  title: string;
+  expenseDate: string;
+  amount: string;
+  status: string;
+}
+
+interface ExpenseApiResponse {
+  data: ExpenseRow[];
+  total: number;
+}
+
+function TabExpensesPurchases({ partnerId }: { partnerId: string }) {
+  const [expenses, setExpenses] = useState<ExpenseRow[]>([]);
+  const [expensesLoading, setExpensesLoading] = useState(true);
+  const [pos, setPos] = useState<PORow[]>([]);
+  const [posLoading, setPosLoading] = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get<ExpenseApiResponse>('/expenses', { params: { supplierId: partnerId, limit: 5 } })
+      .then((r) => setExpenses(r.data.data ?? []))
+      .catch(() => {})
+      .finally(() => setExpensesLoading(false));
+    api.get<PaginatedResult<PORow>>('/procurement/purchase-orders', { params: { partnerId, pageSize: 5 } })
+      .then((r) => setPos(r.data.data ?? []))
+      .catch(() => {})
+      .finally(() => setPosLoading(false));
+  }, [partnerId]);
+
+  const expStatusColors: Record<string, string> = {
+    DRAFT: 'bg-gray-100 text-gray-700',
+    APPROVED: 'bg-blue-100 text-blue-700',
+    POSTED: 'bg-emerald-100 text-emerald-700',
+    REJECTED: 'bg-red-100 text-red-700',
+    VOID: 'bg-red-100 text-red-700',
+  };
+
+  const poStatusColors: Record<string, string> = {
+    draft: 'bg-gray-100 text-gray-700',
+    active: 'bg-blue-100 text-blue-700',
+    partially_received: 'bg-amber-100 text-amber-700',
+    received: 'bg-emerald-100 text-emerald-700',
+    cancelled: 'bg-red-100 text-red-700',
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Expenses Section */}
+      <Card>
+        <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg flex flex-row items-center justify-between">
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Expenses</CardTitle>
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => navigate('/expenses')}>
+            View all expenses →
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          {expensesLoading ? (
+            <div className="p-4"><Skeleton className="h-32 w-full" /></div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Code</TableHead>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {expenses.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No expenses found.</TableCell>
+                  </TableRow>
+                ) : expenses.map((exp) => (
+                  <TableRow key={exp.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/expenses/${exp.id}`)}>
+                    <TableCell className="font-mono text-xs font-medium">{exp.expenseCode}</TableCell>
+                    <TableCell className="text-sm">{exp.title}</TableCell>
+                    <TableCell className="text-sm">{date(exp.expenseDate)}</TableCell>
+                    <TableCell className="text-right font-medium">{money(exp.amount)}</TableCell>
+                    <TableCell>
+                      <span className={`inline-flex px-2.5 py-0.5 rounded text-xs font-semibold ${expStatusColors[exp.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                        {exp.status}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Purchase Orders Section */}
+      <Card>
+        <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg flex flex-row items-center justify-between">
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Purchase Orders</CardTitle>
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => navigate('/procurement/purchase-orders')}>
+            View all POs →
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          {posLoading ? (
+            <div className="p-4"><Skeleton className="h-32 w-full" /></div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Order #</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pos.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No purchase orders found.</TableCell>
+                  </TableRow>
+                ) : pos.map((po) => (
+                  <TableRow key={po.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/procurement/purchase-orders/${po.id}`)}>
+                    <TableCell className="font-mono text-xs font-medium">{po.orderNumber}</TableCell>
+                    <TableCell className="text-sm">{date(po.orderDate)}</TableCell>
+                    <TableCell className="text-right font-medium">{money(po.totalAmount)}</TableCell>
+                    <TableCell>
+                      <span className={`inline-flex px-2.5 py-0.5 rounded text-xs font-semibold ${poStatusColors[po.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                        {po.status.replace(/_/g, ' ')}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplier' }) {
   const { partnerId } = useParams<{ partnerId: string }>();
   const navigate = useNavigate();
@@ -407,7 +550,7 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
 
   if (isLoading) {
     return (
-      <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto">
+      <div className="space-y-6 px-2 md:px-4 py-3 mx-auto">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-32 w-full rounded-xl" />
         <Skeleton className="h-64 w-full rounded-xl" />
@@ -417,7 +560,7 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
 
   if (!partner) {
     return (
-      <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto">
+      <div className="space-y-6 px-2 md:px-4 py-3 mx-auto">
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-6 text-center">
           <h1 className="text-2xl font-semibold text-destructive">Not Found</h1>
           <p className="mt-2 text-sm text-muted-foreground">Partner not found or you don't have permission to view it.</p>
@@ -439,7 +582,7 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
     { value: 'overview', label: 'Overview', icon: FileText },
     { value: 'contacts', label: 'Contacts', icon: Users },
     { value: 'addresses', label: 'Addresses', icon: MapPin },
-    { value: 'invoices', label: 'Invoices', icon: DollarSign },
+    { value: isCustomer ? 'invoices' : 'expenses-purchases', label: isCustomer ? 'Invoices' : 'Expenses/Purchases', icon: isCustomer ? DollarSign : Receipt },
     { value: 'payments', label: 'Payments', icon: Activity },
   ];
   if (!isCustomer) {
@@ -448,12 +591,12 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
   }
 
   return (
-    <div className="space-y-6 p-4 md:p-6 max-w-7xl mx-auto">
+    <div className="space-y-6 px-2 md:px-4 py-3 mx-auto">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <button onClick={() => navigate(`/${labelPlural.toLowerCase()}`)} className="hover:text-foreground transition-colors">{labelPlural}</button>
         <ChevronRight className="h-3.5 w-3.5" />
-        <span className="text-foreground font-medium truncate max-w-[200px]">{partner.name}</span>
+        <span className="text-foreground font-medium truncate">{partner.name}</span>
       </nav>
 
       {/* Gradient header */}
@@ -507,8 +650,8 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
           <TabAddresses partner={partner} />
         </TabsContent>
 
-        <TabsContent value="invoices" className="mt-6">
-          <TabInvoices partnerId={partner.id} />
+        <TabsContent value={isCustomer ? 'invoices' : 'expenses-purchases'} className="mt-6">
+          {isCustomer ? <TabInvoices partnerId={partner.id} /> : <TabExpensesPurchases partnerId={partner.id} />}
         </TabsContent>
 
         <TabsContent value="payments" className="mt-6">

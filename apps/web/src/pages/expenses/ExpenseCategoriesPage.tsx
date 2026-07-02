@@ -216,7 +216,7 @@ export default function ExpenseCategoriesPage() {
   };
 
   return (
-    <div className="p-4 max-w-5xl mx-auto space-y-4">
+    <div className="p-2 max-w-[1800px] mx-auto space-y-2">
       <div className="flex items-center justify-between">
         <div>
           <Link
@@ -239,7 +239,7 @@ export default function ExpenseCategoriesPage() {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-10 text-center text-slate-400">
+          <div className="p-5 text-center text-slate-400">
             <Loader2 className="w-6 h-6 animate-spin mx-auto" />
           </div>
         ) : (

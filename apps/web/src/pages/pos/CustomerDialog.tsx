@@ -43,7 +43,7 @@ export const CustomerDialog: React.FC<Props> = ({ open, onClose, onPick }) => {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent className="sm:max-w-[750px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><User className="h-4 w-4" /> Attach customer</DialogTitle>
           <DialogDescription>Search an existing customer or create a new one on the fly.</DialogDescription>

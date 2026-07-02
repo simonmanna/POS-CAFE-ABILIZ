@@ -18,6 +18,13 @@ interface CartState {
   transactionDiscountAmount: number;
   overrideById?: string;
   cashSessionId?: string;
+  /**
+   * H2 — optimistic-lock token of the table's open order as last read from the
+   * server. Echoed back on every tab save so a stale full-replace from another
+   * device is rejected (409) instead of silently clobbering. Set on load; bumped
+   * from each save response. Undefined for walk-in carts (no table).
+   */
+  tabVersion?: number;
   /** Workflow state */
   orderType?: OrderType;
   tableId?: string;
@@ -42,6 +49,8 @@ interface CartState {
   setTransactionDiscount: (amount: number, type?: DiscountType) => void;
   setOverrideById: (id: string | undefined) => void;
   setCashSession: (id: string | undefined) => void;
+  /** H2 — record the tab's server version (from a load or a save response). */
+  setTabVersion: (v: number | undefined) => void;
   setOrderType: (type: OrderType | undefined) => void;
   setTable: (id: string | undefined, number?: number, name?: string) => void;
   markSentToKitchen: (v: boolean) => void;
@@ -77,6 +86,7 @@ export const useCartStore = create<CartState>()(
       transactionDiscountAmount: 0,
       overrideById: undefined,
       cashSessionId: undefined,
+      tabVersion: undefined,
       orderType: undefined,
       tableId: undefined,
       tableNumber: undefined,
@@ -159,6 +169,7 @@ export const useCartStore = create<CartState>()(
         }),
       setOverrideById: (id) => set({ overrideById: id }),
       setCashSession: (id) => set({ cashSessionId: id }),
+      setTabVersion: (v) => set({ tabVersion: v }),
       setOrderType: (type) => set({ orderType: type }),
       setTable: (id, number, name) => set({ tableId: id, tableNumber: number, tableName: name }),
       markSentToKitchen: (v) => set({ sentToKitchen: v }),

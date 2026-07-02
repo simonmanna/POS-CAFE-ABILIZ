@@ -18,6 +18,14 @@ import { formatMoney, dateTime } from '@/lib/format';
 
 interface Product { id: string; code: string; name: string; costPrice?: string }
 interface Location { id: string; code: string; name: string }
+interface AdjustmentItem { id: string; productId: string; productName: string; quantityChange: number }
+interface AdjustmentRow {
+  id: string; adjCode: string; createdAt: string; reason: string; status: string; notes: string | null;
+  location: { id: string; code: string; name: string } | null;
+  items: AdjustmentItem[];
+  _count?: { items: number };
+  approvedAt: string | null; approvedById: string | null; performedById: string | null;
+}
 
 interface AdjustmentLine {
   productId: string;
@@ -39,14 +47,32 @@ const ADJUSTMENT_REASONS = [
   { value: 'OTHER', label: 'Other' },
 ];
 
+const STATUS_COLORS: Record<string, string> = {
+  draft: 'bg-gray-100 text-gray-700',
+  pending: 'bg-amber-100 text-amber-700',
+  approved: 'bg-emerald-100 text-emerald-700',
+  posted: 'bg-blue-100 text-blue-700',
+  cancelled: 'bg-red-100 text-red-700',
+};
+
+const REASON_LABELS: Record<string, string> = {
+  CYCLE_COUNT: 'Cycle Count', DAMAGED: 'Damaged', EXPIRED: 'Expired',
+  THEFT: 'Theft / Loss', RETURNED_TO_SUPPLIER: 'Returned to Supplier',
+  FOUND: 'Found / Surplus', INITIAL_COUNT: 'Initial Count', OTHER: 'Other',
+};
+
 export function StockAdjustmentsPage() {
   const qc = useQueryClient();
-  const [tab, setTab] = useState<'adjust' | 'history'>('adjust');
   const [showForm, setShowForm] = useState(false);
   const [locationId, setLocationId] = useState('');
   const [reason, setReason] = useState('CYCLE_COUNT');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<AdjustmentLine[]>([{ productId: '', itemName: '', unit: 'pcs', quantitySystem: 0, quantityActual: 0 }]);
+
+  const adjustments = useQuery<AdjustmentRow[]>({
+    queryKey: ['stock-adjustments'],
+    queryFn: async () => (await api.get<AdjustmentRow[]>('/inventory/adjustments')).data,
+  });
 
   const products = useQuery<Product[]>({
     queryKey: ['products'],
@@ -85,6 +111,7 @@ export function StockAdjustmentsPage() {
       setShowForm(false);
       setLines([{ productId: '', itemName: '', unit: 'pcs', quantitySystem: 0, quantityActual: 0 }]);
       setNotes('');
+      qc.invalidateQueries({ queryKey: ['stock-adjustments'] });
       qc.invalidateQueries({ queryKey: ['inventory-items'] });
       qc.invalidateQueries({ queryKey: ['inventory-stats'] });
       qc.invalidateQueries({ queryKey: ['inventory-ledger'] });
@@ -112,11 +139,6 @@ export function StockAdjustmentsPage() {
     } catch (e) { console.warn('fetchSystemQty failed', e); }
   };
 
-  const ledger = useQuery({
-    queryKey: ['inventory-ledger'],
-    queryFn: async () => (await api.get('/inventory/ledger?limit=50')).data,
-  });
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -129,59 +151,47 @@ export function StockAdjustmentsPage() {
         </Button>
       </div>
 
-      <div className="flex gap-1 border-b pb-2">
-        <Button size="sm" variant={tab === 'adjust' ? 'default' : 'outline'} onClick={() => setTab('adjust')}>
-          <Plus className="mr-1 h-3 w-3" />New Adjustment
-        </Button>
-        <Button size="sm" variant={tab === 'history' ? 'default' : 'outline'} onClick={() => setTab('history')}>
-          <History className="mr-1 h-3 w-3" />Ledger History
-        </Button>
-      </div>
-
-      {tab === 'history' && <div className="space-y-2">
-          {ledger.isLoading && <Skeleton className="h-48 w-full" />}
-          {ledger.data?.data?.length > 0 && (
-            <div className="rounded-md border">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="px-3 py-2 text-left">Date</th>
-                    <th className="px-3 py-2 text-left">Type</th>
-                    <th className="px-3 py-2 text-left">Product</th>
-                    <th className="px-3 py-2 text-left">Location</th>
-                    <th className="px-3 py-2 text-right">Change</th>
-                    <th className="px-3 py-2 text-right">Balance</th>
-                    <th className="px-3 py-2 text-right">Value</th>
-                    <th className="px-3 py-2 text-left">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledger.data.data.map((entry: any) => (
-                    <tr key={entry.id} className="border-b hover:bg-muted/30">
-                      <td className="px-3 py-2 whitespace-nowrap">{dateTime(entry.createdAt)}</td>
-                      <td className="px-3 py-2">
-                        <Badge variant="outline" className="text-xs">{entry.type}</Badge>
-                      </td>
-                      <td className="px-3 py-2">{entry.product?.name ?? entry.productId}</td>
-                      <td className="px-3 py-2">{entry.location?.code ?? '—'}</td>
-                      <td className={`px-3 py-2 text-right font-mono tabular-nums ${Number(entry.quantityChange) < 0 ? 'text-destructive' : 'text-emerald-600'}`}>
-                        {Number(entry.quantityChange) > 0 ? '+' : ''}{Number(entry.quantityChange)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums">{Number(entry.balanceAfter)}</td>
-                      <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(entry.totalValue)}</td>
-                      <td className="px-3 py-2 max-w-40 truncate text-muted-foreground">{entry.notes ?? '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {ledger.data?.data?.length === 0 && (
-            <Card><CardContent className="p-8 text-center text-muted-foreground">No ledger entries yet</CardContent></Card>
-          )}
+      {/* Adjustments List */}
+      {adjustments.isLoading && <Skeleton className="h-48 w-full" />}
+      {adjustments.data && adjustments.data.length === 0 && (
+        <Card><CardContent className="p-8 text-center text-muted-foreground">No adjustments yet. Click "New Adjustment" to create one.</CardContent></Card>
+      )}
+      {adjustments.data && adjustments.data.length > 0 && (
+        <div className="rounded-md border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b bg-muted/50">
+                <th className="px-3 py-2 text-left">Adj #</th>
+                <th className="px-3 py-2 text-left">Date</th>
+                <th className="px-3 py-2 text-left">Location</th>
+                <th className="px-3 py-2 text-left">Reason</th>
+                <th className="px-3 py-2 text-right">Items</th>
+                <th className="px-3 py-2 text-left">Status</th>
+                <th className="px-3 py-2 text-left">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adjustments.data.map((adj) => (
+                <tr key={adj.id} className="border-b hover:bg-muted/30">
+                  <td className="px-3 py-2 font-mono text-xs font-medium">{adj.adjCode}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">{dateTime(adj.createdAt)}</td>
+                  <td className="px-3 py-2">{adj.location?.code ? `${adj.location.code} — ${adj.location.name}` : adj.locationId}</td>
+                  <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{REASON_LABELS[adj.reason] ?? adj.reason}</Badge></td>
+                  <td className="px-3 py-2 text-right font-mono tabular-nums">{adj.items?.length ?? adj._count?.items ?? 0}</td>
+                  <td className="px-3 py-2">
+                    <span className={`inline-flex px-2.5 py-0.5 rounded text-xs font-semibold ${STATUS_COLORS[adj.status] ?? 'bg-gray-100 text-gray-700'}`}>
+                      {adj.status}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 max-w-48 truncate text-muted-foreground">{adj.notes ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      }
+      )}
 
+      {/* Create Adjustment Dialog */}
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>New Stock Adjustment</DialogTitle></DialogHeader>

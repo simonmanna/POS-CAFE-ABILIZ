@@ -1084,8 +1084,12 @@ export class PosReceiptsController {
       return { ok: true, backend: 'none', message: 'No changes since last KOT', kotNumber } as any;
     }
 
-    const addLines = deltas.addLines.filter((a: any) => a.line.productId);
-    const removeLines = deltas.removeLines.filter((r: any) => r.line.productId);
+    // A line is kitchen-eligible if it maps to a stock product OR a menu item.
+    // Menu-item lines carry `menuItemId` only — filtering on `productId` alone
+    // dropped every menu-driven order from the printed KOT.
+    const kotEligible = (l: any) => !!l.productId || !!l.menuItemId;
+    const addLines = deltas.addLines.filter((a: any) => kotEligible(a.line));
+    const removeLines = deltas.removeLines.filter((r: any) => kotEligible(r.line));
 
     const text = addLines.length > 0
       ? await this.svc.buildTextKot(id, kotNumber, addLines, removeLines)

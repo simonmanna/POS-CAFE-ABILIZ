@@ -162,7 +162,14 @@ export class PosInvoiceService {
       await this.issueStockForItems(items, invoice.invoiceNumber);
     } catch (e: any) {
       this.logger.error(`[stock] deduction skipped for invoice ${invoice.invoiceNumber} (sale kept): ${e?.message ?? e}`);
+      await this.recordStockDrift(invoice.invoiceNumber, { productId: null, menuItemId: null, description: 'whole-invoice deduction', quantity: 0 }, e);
     }
+
+    // M4 — fiscalization seam. Jurisdictions such as UG (EFRIS) require each
+    // invoice be signed by a fiscal device and carry a fiscal code/QR. Runs
+    // best-effort and gated by FISCAL_PROVIDER (default 'none' = disabled) so it
+    // never blocks a sale; wire a real provider inside fiscalizeInvoice().
+    await this.fiscalizeInvoice(invoice).catch((e: any) => this.logger.warn(`fiscalization skipped for ${invoice.invoiceNumber}: ${e?.message ?? e}`));
 
     this.events.publish(EVENTS.PosOrderInvoiced, {
       organizationId: orgId, orderId, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
@@ -318,7 +325,13 @@ export class PosInvoiceService {
   async refund(
     invoiceId: string,
     reason?: string,
-    opts?: { overrideById?: string; cashSessionId?: string; requireOverride?: boolean },
+    opts?: {
+      overrideById?: string;
+      cashSessionId?: string;
+      requireOverride?: boolean;
+      /** Partial refund: a subset of the original lines + quantities. Omit for a full refund. */
+      lines?: Array<{ lineId: string; quantity: number }>;
+    },
   ) {
     const orgId = this.tenant.organizationId;
 
@@ -329,6 +342,16 @@ export class PosInvoiceService {
     }
     if (opts?.overrideById) {
       await this.overrides.assertCanOverride(opts.overrideById, 'manual_refund');
+    }
+
+    // Partial (line-level) refund takes a distinct path — it reverses only the
+    // selected portion of the GL, restocks only those units, and tracks per-line
+    // refunded quantity so the same units can't be refunded twice.
+    if (opts?.lines?.length) {
+      return this.partialRefund(invoiceId, opts.lines, reason, {
+        overrideById: opts.overrideById,
+        cashSessionId: opts.cashSessionId,
+      });
     }
 
     const result = await this.prisma.client.$transaction(async (tx: any) => {
@@ -378,7 +401,7 @@ export class PosInvoiceService {
       }
 
       // 4) Mark refunded + close the order (release the table).
-      await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'refunded', settlementStatus: 'settled', amountResidual: 0, version: { increment: 1 } } });
+      await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'refunded', settlementStatus: 'settled', amountResidual: 0, amountRefunded: invoice.totalAmount, version: { increment: 1 } } });
       const closed = await this.closeOrderForInvoice(tx, invoiceId);
       await this.createReceipt(tx, invoice, 'merchant_copy', null);
       return { total: invoice.totalAmount.toString(), closed };
@@ -388,6 +411,161 @@ export class PosInvoiceService {
     if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
     this.events.publish(EVENTS.PosRefundCompleted, { organizationId: orgId, invoiceId, creditNoteId: '', total: result.total } as any);
     return { invoiceId, status: 'refunded', amount: result.total };
+  }
+
+  /**
+   * Partial (line-level) refund. Reverses only the selected portion of the sale
+   * to the GL, restocks only those units, returns the cash portion to the drawer,
+   * and records per-line refunded quantity (guarding against refunding the same
+   * unit twice). The whole thing is ONE transaction, mirroring the full refund's
+   * compensation guarantees.
+   */
+  private async partialRefund(
+    invoiceId: string,
+    lines: Array<{ lineId: string; quantity: number }>,
+    reason: string | undefined,
+    opts?: { overrideById?: string; cashSessionId?: string },
+  ) {
+    const orgId = this.tenant.organizationId;
+
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
+      // Serialise concurrent refunds of THIS invoice (mirrors receivePayment).
+      await tx.$queryRawUnsafe(`SELECT id FROM "Invoice" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, invoiceId, orgId);
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: true } });
+      if (!invoice) throw new NotFoundException('Invoice not found');
+      if (invoice.status === 'refunded') throw new BadRequestException('Invoice already refunded');
+      if (invoice.status === 'cancelled') throw new BadRequestException('Invoice is cancelled');
+
+      const itemById = new Map<string, any>((invoice.items as any[]).map((it) => [it.id, it]));
+      const selections = lines.map((sel) => {
+        const src = itemById.get(sel.lineId);
+        if (!src) throw new BadRequestException(`Line ${sel.lineId} is not on this invoice`);
+        const q = Number(sel.quantity);
+        const remaining = Number(src.quantity) - Number(src.refundedQty ?? 0);
+        if (!(q > 0)) throw new BadRequestException(`Invalid refund quantity for line ${sel.lineId}`);
+        if (q > remaining + 1e-6) {
+          throw new BadRequestException(`Refund quantity ${q} exceeds the ${remaining} still refundable on line ${sel.lineId}`);
+        }
+        return { src, quantity: q };
+      });
+
+      // Portion of each line to reverse (fraction of the full line).
+      let refundSubtotal = dec(0), refundTax = dec(0), refundTotal = dec(0);
+      const revenueByAccount = new Map<string, any>();
+      const taxByTaxId = new Map<string, any>();
+      for (const { src, quantity } of selections) {
+        const f = dec(quantity).dividedBy(dec(src.quantity));
+        const sSub = dec(src.subtotal).times(f);
+        const sTax = dec(src.taxAmount).times(f);
+        const sTot = dec(src.total).times(f);
+        refundSubtotal = refundSubtotal.plus(sSub);
+        refundTax = refundTax.plus(sTax);
+        refundTotal = refundTotal.plus(sTot);
+        if (src.accountId) revenueByAccount.set(src.accountId, (revenueByAccount.get(src.accountId) ?? dec(0)).plus(sSub));
+        if (src.taxId && !sTax.isZero()) taxByTaxId.set(src.taxId, (taxByTaxId.get(src.taxId) ?? dec(0)).plus(sTax));
+      }
+
+      // Over-refund guard (invoice-level, defence in depth on top of per-line).
+      const alreadyRefunded = dec(invoice.amountRefunded ?? 0);
+      if (alreadyRefunded.plus(refundTotal).greaterThan(dec(invoice.totalAmount).plus(0.01))) {
+        throw new BadRequestException('Refund exceeds the remaining refundable amount');
+      }
+
+      // Reverse the GL portion: Dr Revenue + Tax, Cr counter (cash/bank/AR by mode).
+      const counterAccount = await this.refundCounterAccount(tx, invoice);
+      const glLines: any[] = [];
+      for (const [accountId, amt] of revenueByAccount) glLines.push({ accountId, debit: amt.toString(), partnerId: invoice.partnerId, description: 'Refund revenue' });
+      for (const [taxId, amt] of taxByTaxId) {
+        const tax = await tx.tax.findFirst({ where: { id: taxId } });
+        const taxAcc = await this.determination.taxAccount(tax, tx, 'tax_payable');
+        glLines.push({ accountId: taxAcc, debit: amt.toString(), description: 'Refund output tax' });
+      }
+      glLines.push({ accountId: counterAccount, credit: refundTotal.toString(), partnerId: invoice.partnerId, description: `Partial refund ${invoice.invoiceNumber}` });
+      await this.posting.post({
+        journalCode: 'SALES',
+        date: new Date().toISOString(),
+        description: `Partial refund ${invoice.invoiceNumber}${reason ? ` — ${reason}` : ''}`,
+        sourceType: 'pos_invoice_partial_refund',
+        sourceId: invoice.id,
+        lines: glLines,
+      } as any, tx);
+
+      // Restock the refunded quantities (recipe-aware) in the same tx.
+      const warehouse = await tx.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
+      if (warehouse) {
+        for (const { src, quantity } of selections) {
+          if (src.menuItemId) { await this.receiveMenuItemRecipe(tx, src.menuItemId, quantity, warehouse.id, `Refund ${invoice.invoiceNumber}`); continue; }
+          if (!src.productId) continue;
+          await this.stock.receive({ productId: src.productId, locationId: warehouse.id, quantity, reference: `Refund ${invoice.invoiceNumber}` } as any, tx);
+        }
+      }
+
+      // Return the cash portion to the drawer (GL cash was reversed above; this
+      // is the CashMovement so the session reconciles). Only for cash-collected
+      // sales, on the same cashier's open session.
+      const isCashLike = invoice.paymentMode === 'cash' || invoice.paymentMode === 'mobile_money' || invoice.paymentMode === 'mixed';
+      const refundSessionId = opts?.cashSessionId ?? invoice.cashSessionId;
+      if (isCashLike && refundSessionId && refundTotal.greaterThan(0.001)) {
+        const session = await tx.cashSession.findFirst({ where: { id: refundSessionId, organizationId: orgId } });
+        if (session && session.status === 'open' && session.userId === this.tenant.userId) {
+          await this.payments.createCustomerRefund({
+            partnerId: invoice.partnerId,
+            paymentDate: new Date().toISOString(),
+            paymentMethod: 'cash',
+            amount: Number(refundTotal),
+            reference: `Refund ${invoice.invoiceNumber}`,
+            cashSessionId: refundSessionId,
+            skipGlPosting: true,
+          } as any, tx);
+        }
+      }
+
+      // Track per-line refunded qty + invoice cumulative; flip to refunded when whole.
+      for (const { src, quantity } of selections) {
+        await tx.invoiceItem.update({ where: { id: src.id }, data: { refundedQty: dec(src.refundedQty ?? 0).plus(quantity) } });
+      }
+      const newRefunded = alreadyRefunded.plus(refundTotal);
+      const fullyRefunded = newRefunded.greaterThanOrEqualTo(dec(invoice.totalAmount).minus(0.01));
+      const residual = dec(invoice.amountResidual);
+      const nextResidual = residual.greaterThan(0)
+        ? (residual.minus(refundTotal).greaterThan(0) ? residual.minus(refundTotal) : dec(0))
+        : residual;
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          amountRefunded: newRefunded,
+          amountResidual: nextResidual,
+          ...(fullyRefunded ? { status: 'refunded', settlementStatus: 'settled' } : {}),
+          version: { increment: 1 },
+        },
+      });
+      await this.createReceipt(tx, invoice, 'merchant_copy', null);
+
+      let closed: { orderId: string; tableId: string | null } | null = null;
+      if (fullyRefunded) closed = await this.closeOrderForInvoice(tx, invoiceId);
+      return { refundTotal: refundTotal.toString(), fullyRefunded, closed };
+    });
+
+    await this.audit.record({ entity: 'Invoice', entityId: invoiceId, action: 'update' as any, newValues: { kind: 'partial_refund', reason: reason ?? null, amount: result.refundTotal, lines, overrideById: opts?.overrideById ?? null } });
+    if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
+    this.events.publish(EVENTS.PosRefundCompleted, { organizationId: orgId, invoiceId, creditNoteId: '', total: result.refundTotal } as any);
+    return { invoiceId, status: result.fullyRefunded ? 'refunded' : 'partially_refunded', amount: result.refundTotal };
+  }
+
+  /**
+   * The account the original sale's counter leg used, by payment mode:
+   *   cash / mobile_money → Cash · card → Bank · credit / mixed / null → AR.
+   * A partial refund credits this same account so the reversal mirrors the sale.
+   */
+  private async refundCounterAccount(tx: any, invoice: any): Promise<string> {
+    const mode = invoice.paymentMode;
+    const mappingKey: Record<string, string> = { cash: 'default_cash', card: 'default_bank', mobile_money: 'default_cash' };
+    if (mode && mode !== 'credit' && mode !== 'mixed') {
+      const key = mappingKey[mode as string];
+      if (key) { try { return await this.determination.mapped(key, tx); } catch { /* fall through to AR */ } }
+    }
+    const partner = await tx.partner.findFirst({ where: { id: invoice.partnerId } });
+    return this.determination.receivableAccount(partner, tx);
   }
 
   /** Read an invoice with items (public — used by controllers). */
@@ -478,8 +656,59 @@ export class PosInvoiceService {
         await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `POS bill ${reference}` } as any);
       } catch (e: any) {
         this.logger.error(`[stock] issue failed for "${it.description ?? it.productId ?? it.menuItemId}" on ${reference} (sale kept): ${e?.message ?? e}`);
+        await this.recordStockDrift(reference, { productId: it.productId ?? null, menuItemId: it.menuItemId ?? null, description: it.description ?? null, quantity: Number(it.quantity) }, e);
       }
     }
+  }
+
+  /**
+   * M3 — durable stock-drift marker. Inventory deduction is best-effort (a sale
+   * is never blocked by stock), so a silent skip could let the ledger drift from
+   * what was sold. We write an AuditLog row that back-office / a reconcile job can
+   * query (entity=Product, kind=stock_reconcile_needed) so the drift is
+   * detectable rather than only living in a log line. Never throws.
+   */
+  private async recordStockDrift(
+    reference: string,
+    item: { productId: string | null; menuItemId: string | null; description: string | null; quantity: number },
+    e: unknown,
+  ): Promise<void> {
+    try {
+      await this.audit.record({
+        entity: 'Product',
+        entityId: item.productId ?? item.menuItemId ?? 'unknown',
+        action: 'update' as any,
+        newValues: {
+          kind: 'stock_reconcile_needed',
+          reference,
+          productId: item.productId,
+          menuItemId: item.menuItemId,
+          description: item.description,
+          quantity: item.quantity,
+          reason: e instanceof Error ? e.message : String(e),
+        },
+      });
+    } catch { /* never let the drift marker itself break a completed sale */ }
+  }
+
+  /**
+   * M4 — fiscalization adapter seam. Default 'none' = disabled (no behavior
+   * change). Set FISCAL_PROVIDER to a real device/EFD integration (e.g. 'efris')
+   * and implement the sign + persist below. Until then, when a provider is
+   * configured we record an auditable "pending" marker so operators can see the
+   * invoice was expected to be fiscally signed but no adapter is wired yet.
+   */
+  private async fiscalizeInvoice(invoice: any): Promise<void> {
+    const provider = (process.env.FISCAL_PROVIDER ?? 'none').toLowerCase();
+    if (provider === 'none') return;
+    // TODO: integrate the real fiscal device / EFD here:
+    //   const result = await this.<provider>.sign(invoice);
+    //   await persist result.fiscalCode / result.qr onto the Invoice + Receipt.
+    await this.audit.record({
+      entity: 'Invoice', entityId: invoice.id, action: 'update' as any,
+      newValues: { kind: 'fiscalization_pending', provider, invoiceNumber: invoice.invoiceNumber },
+    });
+    this.logger.warn(`[fiscal] provider '${provider}' set but no adapter wired — invoice ${invoice.invoiceNumber} not fiscally signed`);
   }
 
   private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
@@ -491,6 +720,7 @@ export class PosInvoiceService {
         await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any);
       } catch (e: any) {
         this.logger.error(`[stock] recipe issue failed (menuItem ${menuItemId}, product ${ing.productId}) on ${reference} (sale kept): ${e?.message ?? e}`);
+        await this.recordStockDrift(reference, { productId: ing.productId, menuItemId, description: `recipe ingredient`, quantity: qty }, e);
       }
     }
   }

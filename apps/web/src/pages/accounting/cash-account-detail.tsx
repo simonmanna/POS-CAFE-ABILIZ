@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowDownToLine, ArrowUpFromLine, Building2, Banknote, Smartphone, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useCashAccountTransactions, useCashFlowDeposit, useCashFlowWithdraw } from '@/features/accounting/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,10 +11,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
-const TYPE_LABEL: Record<string, { icon: typeof Banknote; label: string; color: string }> = {
-  cash: { icon: Banknote, label: 'Cash', color: 'text-green-600' },
-  bank: { icon: Building2, label: 'Bank', color: 'text-blue-600' },
-  mobile_money: { icon: Smartphone, label: 'Mobile Money', color: 'text-yellow-600' },
+const TYPE_CONFIG: Record<string, { icon: typeof Banknote; label: string; color: string; bg: string }> = {
+  cash: { icon: Banknote, label: 'Cash', color: 'text-emerald-600', bg: 'bg-emerald-500' },
+  bank: { icon: Building2, label: 'Bank', color: 'text-blue-600', bg: 'bg-blue-500' },
+  mobile_money: { icon: Smartphone, label: 'Mobile Money', color: 'text-orange-600', bg: 'bg-orange-500' },
+  petty_cash: { icon: Banknote, label: 'Petty Cash', color: 'text-purple-600', bg: 'bg-purple-500' },
 };
 
 export function CashAccountDetailPage() {
@@ -41,8 +43,7 @@ export function CashAccountDetailPage() {
   }
 
   const acct = data.account;
-  const cfg = TYPE_LABEL[acct.accountType] ?? { icon: Banknote, label: acct.accountType, color: '' };
-  const Icon = cfg.icon;
+  const cfg = TYPE_CONFIG[acct.accountType] ?? { icon: Banknote, label: acct.accountType, color: '', bg: 'bg-slate-500' };
 
   const running = (idx: number) => {
     return data.data.slice(0, idx + 1).reduce((s, t) => s + Number(t.baseDebit) - Number(t.baseCredit), 0);
@@ -94,12 +95,15 @@ export function CashAccountDetailPage() {
         <Button variant="ghost" size="icon" onClick={() => navigate('/accounts/cash-accounts')}>
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <div className="flex items-center gap-3 flex-1">
-          <Icon className={`h-8 w-8 ${cfg.color}`} />
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{acct.name}</h1>
-            <p className="text-sm text-muted-foreground">{acct.code} &middot; {cfg.label}</p>
-          </div>
+        <div className={cn('p-2 rounded-lg text-white shadow-inner text-lg', cfg.bg)}>
+          {acct.accountType === 'mobile_money' ? '📱' : acct.accountType === 'petty_cash' ? '🪙' : acct.accountType === 'bank' ? '🏦' : '💵'}
+        </div>
+        <div className="flex-1">
+          <h1 className="text-2xl font-semibold tracking-tight">{acct.name}</h1>
+          <p className="text-sm text-muted-foreground">
+            {acct.code} &middot; {cfg.label}
+            {acct.accountType === 'bank' || acct.accountType === 'mobile_money' ? ` · ${acct.accountNumber || ''}` : ''}
+          </p>
         </div>
         <div className="text-right">
           <p className="text-sm text-muted-foreground">Current Balance</p>

@@ -262,7 +262,7 @@ export default function ExpensesReportPage() {
   const totalPages = Math.max(1, Math.ceil(total / 20));
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-2 max-w-[1800px] mx-auto space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <Link
@@ -291,7 +291,7 @@ export default function ExpensesReportPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-wrap items-end gap-3">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-2.5 flex flex-wrap items-end gap-2">
         <div>
           <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">From</label>
           <Input
@@ -329,7 +329,7 @@ export default function ExpensesReportPage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
         <StatCard
           label="Total Expenses"
           value={stats ? money(stats.grandTotal) : "—"}
@@ -371,7 +371,7 @@ export default function ExpensesReportPage() {
         />
 
         {/* Pagination */}
-        <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
+        <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100">
           <p className="text-xs text-slate-500">
             Showing {total === 0 ? 0 : (page - 1) * 20 + 1}–
             {Math.min(page * 20, total)} of {total}
@@ -392,10 +392,10 @@ export default function ExpensesReportPage() {
               className="h-8 w-8"
               disabled={page <= 1}
               onClick={() => setPage((p) => p - 1)}
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </Button>
-            <span className="text-xs text-slate-600 px-2 font-medium">
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </Button>
+            <span className="text-xs text-slate-600 px-1.5 font-medium">
               {page} / {totalPages}
             </span>
             <Button

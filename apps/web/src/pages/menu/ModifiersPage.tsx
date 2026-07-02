@@ -161,8 +161,8 @@ export default function ModifiersPage() {
   };
 
   return (
-    <div className="p-3 max-w-6xl mx-auto">
-      <div className="mb-3">
+    <div className="p-2 max-w-[1800px] mx-auto space-y-2">
+      <div className="mb-2">
         <h1 className="text-xl font-bold text-slate-800">Menu Modifiers &amp; Add-ons</h1>
         <p className="text-sm text-slate-500 mb-2">Configure size / milk / extras groups and assign them to menu items.</p>
         <Button onClick={() => setShowNewGroup(true)} style={{ background: '#4f46e5' }}>
@@ -170,18 +170,18 @@ export default function ModifiersPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-2">
         {/* Groups */}
         <div className="lg:col-span-2 space-y-2">
           {groups.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-300 p-6 text-center text-slate-400">
+             <div className="rounded-lg border border-dashed border-slate-300 p-5 text-center text-slate-400">
               <Tag className="h-8 w-8 mx-auto mb-2 opacity-50" />
               No modifier groups yet. Create one (e.g. "Size", "Milk", "Extras").
             </div>
           ) : null}
 
           {groups.map((g) => (
-            <div key={g.id} className="rounded-lg border border-slate-200 bg-white p-3">
+            <div key={g.id} className="rounded-lg border border-slate-200 bg-white p-2.5">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex items-center gap-2">
                   <div className="font-bold text-slate-800">{g.name}</div>
@@ -248,7 +248,7 @@ export default function ModifiersPage() {
               </div>
 
               {optFor === g.id ? (
-                <div className="flex flex-wrap items-end gap-3 border-t border-slate-100 pt-3">
+                 <div className="flex flex-wrap items-end gap-2 border-t border-slate-100 pt-2">
                   <div className="flex-1 min-w-[140px]">
                     <Label className="text-xs font-medium text-slate-600">Option name</Label>
                     <Input value={optName} onChange={(e) => setOptName(e.target.value)} placeholder="e.g. Large" autoFocus className="h-9 text-sm" />
@@ -275,9 +275,9 @@ export default function ModifiersPage() {
         </div>
 
         {/* Assign modifier groups to sellable menu items */}
-        <div className="space-y-3">
+        <div className="space-y-2">
           {/* Assign to menu items */}
-          <div className="rounded-lg border border-slate-200 bg-white p-3">
+          <div className="rounded-lg border border-slate-200 bg-white p-2.5">
             <div className="font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
               <Link2 className="h-4 w-4" /> Assign to menu item
             </div>
@@ -333,7 +333,7 @@ export default function ModifiersPage() {
       </div>
 
       {/* M-F: modifier sales report */}
-      <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="mt-3 rounded-lg border border-slate-200 bg-white p-2.5">
         <div className="font-bold text-slate-800 mb-2 flex items-center gap-1.5">
           <BarChart3 className="h-4 w-4" /> Modifier sales
         </div>

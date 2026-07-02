@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../kernel/audit/audit.service';
@@ -129,6 +129,12 @@ export class PosService {
   async checkout(input: CheckoutInput) {
     if (!input.lines?.length) throw new BadRequestException('Cart is empty');
     const orgId = this.tenant.organizationId;
+
+    // H1 — a sale that collects physical cash MUST post against an open drawer
+    // session owned by the caller, otherwise the GL cash leg diverges from the
+    // till (no CashMovement is written). Resolve/validate it before anything.
+    const cashSessionId = await this.requireCashSession(input);
+    input = { ...input, cashSessionId };
 
     // Manager-override guard for high discounts (validates line + tx discount).
     const effectiveDiscount = await this.assertDiscountAuthority(input);
@@ -522,6 +528,9 @@ export class PosService {
       id: o.id,
       orderNumber: o.orderNumber,
       status: o.status,
+      // Optimistic-lock token — the terminal echoes it back on save so a stale
+      // full-replace from another device is rejected (H2) instead of clobbering.
+      version: o.version ?? 0,
       subtotal: String(o.subtotal ?? 0),
       discountTotal: String(o.discountTotal ?? 0),
       taxAmount: String(o.taxAmount ?? 0),
@@ -633,6 +642,9 @@ export class PosService {
     lines: CheckoutLine[];
     partnerId?: string;
     guestCount?: number;
+    /** H2 — the version the terminal last read; a mismatch means another device
+     *  edited this tab first and this stale full-replace is rejected (409). */
+    expectedVersion?: number;
   }) {
     const existing = await this.orders.getOpenOrderForTable(input.tableId);
 
@@ -665,6 +677,7 @@ export class PosService {
         lines,
         guestCount: input.guestCount,
         partnerId: input.partnerId,
+        expectedVersion: input.expectedVersion,
       } as any);
     } else {
       order = await this.orders.createOrder({
@@ -704,6 +717,13 @@ export class PosService {
     cashSessionId?: string;
   }) {
     const orgId = this.tenant.organizationId;
+
+    // H1 — a cash/mobile-money settle must post against an open drawer session
+    // owned by the caller (so the till reconciles). Card-only tabs may settle
+    // without one. Resolve/validate before touching the tab.
+    const cashSessionId = await this.requireCashSession(input);
+    input = { ...input, cashSessionId };
+
     // T-LOCK: lock the table row so two cashiers cannot settle the same tab concurrently.
     await this.prisma.client.$transaction(async (tx: any) => {
       await tx.$queryRawUnsafe(
@@ -943,6 +963,55 @@ export class PosService {
       });
     }
     return expanded;
+  }
+
+  /** True when the sale collects physical cash (cash or mobile money) and must
+   *  therefore be attributed to an open drawer session for reconciliation. */
+  private saleNeedsCashDrawer(input: { tenders?: PaymentTender[]; paymentMethod?: string }): boolean {
+    const methods = input.tenders?.length
+      ? input.tenders.map((t) => t.method)
+      : [input.paymentMethod ?? 'cash']; // default tender is cash
+    return methods.some((m) => m === 'cash' || m === 'mobile_money');
+  }
+
+  /**
+   * H1 — resolve the cash session a sale posts against and enforce the drawer
+   * gate. A cash/mobile-money sale REQUIRES an open session owned by the caller;
+   * a card/bank-only sale may proceed without one. A supplied session id is
+   * validated to exist, be open, and belong to the caller.
+   */
+  private async requireCashSession(input: {
+    cashSessionId?: string;
+    tenders?: PaymentTender[];
+    paymentMethod?: string;
+  }): Promise<string | undefined> {
+    const orgId = this.tenant.organizationId;
+    const userId = this.tenant.userId ?? undefined;
+
+    if (input.cashSessionId) {
+      const s = await this.prisma.client.cashSession.findFirst({
+        where: { id: input.cashSessionId, organizationId: orgId },
+      });
+      if (!s) throw new BadRequestException('Cash session not found');
+      if (s.status !== 'open') throw new BadRequestException('Cash session is not open — open a shift first');
+      if (userId && s.userId !== userId) {
+        throw new ForbiddenException('That cash session belongs to a different cashier');
+      }
+      return s.id;
+    }
+
+    // No session supplied: only cash/mobile-money sales must be gated.
+    if (!this.saleNeedsCashDrawer(input)) return undefined;
+
+    const open = userId
+      ? await this.prisma.client.cashSession.findFirst({ where: { organizationId: orgId, userId, status: 'open' } })
+      : null;
+    if (!open) {
+      throw new BadRequestException(
+        'No open cash session — open a shift before taking a cash or mobile-money payment',
+      );
+    }
+    return open.id;
   }
 
   /**

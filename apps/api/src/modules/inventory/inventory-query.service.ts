@@ -57,7 +57,7 @@ export class InventoryQueryService {
    * One row per product. When locationId is provided, totalQuantity reflects
    * stock at that location only.
    */
-  async listProductStockLevels(query: PaginationQuery & { locationId?: string; lowStock?: string }) {
+  async listProductStockLevels(query: PaginationQuery & { locationId?: string; lowStock?: string; outOfStock?: string }) {
     const organizationId = this.tenant.organizationId;
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 25));
@@ -72,29 +72,20 @@ export class InventoryQueryService {
       ];
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.client.product.findMany({
-        where: { ...where, ...searchWhere },
-        include: {
-          stockItems: {
-            select: {
-              quantity: true,
-              runningAverageCost: true,
-              locationId: true,
-              location: { select: { id: true, code: true, name: true } },
-            },
-          },
-          uom: { select: { code: true } },
+    const baseInclude = {
+      stockItems: {
+        select: {
+          quantity: true,
+          runningAverageCost: true,
+          locationId: true,
+          location: { select: { id: true, code: true, name: true } },
         },
-        orderBy: { name: 'asc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      this.prisma.client.product.count({ where: { ...where, ...searchWhere } }),
-    ]);
+      },
+      uom: { select: { code: true } },
+    } as const;
 
-    const mapped = data.map((p) => {
-      const locationBreakdown = p.stockItems.map((si) => ({
+    const mapProduct = (p: any) => {
+      const locationBreakdown = p.stockItems.map((si: any) => ({
         locationId: si.location.id,
         code: si.location.code,
         name: si.location.name,
@@ -102,12 +93,12 @@ export class InventoryQueryService {
       }));
 
       const relevantItems = query.locationId
-        ? p.stockItems.filter((si) => si.locationId === query.locationId)
+        ? p.stockItems.filter((si: any) => si.locationId === query.locationId)
         : p.stockItems;
 
-      const totalQuantity = relevantItems.reduce((sum, si) => sum + Number(si.quantity), 0);
-      const totalCost = relevantItems.reduce((sum, si) => sum + Number(si.quantity) * Number(si.runningAverageCost), 0);
-      const qtyForCost = relevantItems.reduce((sum, si) => sum + Number(si.quantity), 0);
+      const totalQuantity = relevantItems.reduce((sum: number, si: any) => sum + Number(si.quantity), 0);
+      const totalCost = relevantItems.reduce((sum: number, si: any) => sum + Number(si.quantity) * Number(si.runningAverageCost), 0);
+      const qtyForCost = relevantItems.reduce((sum: number, si: any) => sum + Number(si.quantity), 0);
       const averageCost = qtyForCost > 0 ? totalCost / qtyForCost : 0;
       const minQty = p.minQuantity ? Number(p.minQuantity) : 0;
 
@@ -127,15 +118,43 @@ export class InventoryQueryService {
         isLow: minQty > 0 && totalQuantity > 0 && totalQuantity <= minQty,
         isOut: totalQuantity <= 0,
       };
-    });
+    };
 
-    let filtered = mapped;
-    if (query.lowStock === 'true') {
-      filtered = mapped.filter((m) => m.isLow);
+    const needsFilter = query.lowStock === 'true' || query.outOfStock === 'true';
+
+    if (needsFilter) {
+      const allProducts = await this.prisma.client.product.findMany({
+        where: { ...where, ...searchWhere },
+        include: baseInclude,
+        orderBy: { name: 'asc' },
+      });
+
+      let filtered = allProducts.map(mapProduct);
+      if (query.lowStock === 'true') filtered = filtered.filter((m) => m.isLow || m.isOut);
+      if (query.outOfStock === 'true') filtered = filtered.filter((m) => m.isOut);
+
+      const total = filtered.length;
+      const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+      return {
+        data: paged,
+        meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+      };
     }
 
+    const [data, total] = await Promise.all([
+      this.prisma.client.product.findMany({
+        where: { ...where, ...searchWhere },
+        include: baseInclude,
+        orderBy: { name: 'asc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.client.product.count({ where: { ...where, ...searchWhere } }),
+    ]);
+
     return {
-      data: filtered,
+      data: data.map(mapProduct),
       meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     };
   }
@@ -249,7 +268,10 @@ export class InventoryQueryService {
     return { totalItems, lowStockCount, totalLocations, totalProducts };
   }
 
-  async getLedger(query: PaginationQuery & { productId?: string; locationId?: string; type?: string }) {
+  async getLedger(query: PaginationQuery & {
+    productId?: string; locationId?: string; type?: string;
+    referenceType?: string; dateFrom?: string; dateTo?: string;
+  }) {
     const organizationId = this.tenant.organizationId;
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 25));
@@ -258,14 +280,21 @@ export class InventoryQueryService {
     if (query.productId) where.productId = query.productId;
     if (query.locationId) where.locationId = query.locationId;
     if (query.type) where.type = query.type;
+    if (query.referenceType) where.referenceType = query.referenceType;
+    if (query.dateFrom || query.dateTo) {
+      where.createdAt = {};
+      if (query.dateFrom) where.createdAt.gte = new Date(query.dateFrom);
+      if (query.dateTo) where.createdAt.lte = new Date(query.dateTo);
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.client.inventoryLedger.findMany({
         where,
         include: {
-          product: { select: { code: true, name: true } },
-          location: { select: { code: true, name: true } },
-          batch: { select: { batchNumber: true } },
+          product: { select: { id: true, code: true, name: true } },
+          variant: { select: { id: true, name: true } },
+          location: { select: { id: true, code: true, name: true } },
+          batch: { select: { id: true, batchNumber: true, expiryDate: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * pageSize,

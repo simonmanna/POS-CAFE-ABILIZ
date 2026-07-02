@@ -1,6 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Post, Query, UseInterceptors } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
-import { PaginationDto } from '../../../kernel/common/pagination.dto';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
@@ -15,8 +14,13 @@ export class PaymentController {
   // ---- Customer receipts (inbound) ----
   @Get('payments')
   @RequirePermissions(PERMISSIONS.payment.read)
-  listReceipts(@Query() query: PaginationDto, @Query('partnerId') partnerId?: string) {
-    return this.payments.list(query, 'inbound', partnerId);
+  listReceipts(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
+    @Query('search') search?: string,
+    @Query('partnerId') partnerId?: string,
+  ) {
+    return this.payments.list({ page, pageSize, search }, 'inbound', partnerId);
   }
 
   @Get('payments/:id')
@@ -42,8 +46,13 @@ export class PaymentController {
   // ---- Supplier payments (outbound) ----
   @Get('supplier-payments')
   @RequirePermissions(PERMISSIONS.payment.read)
-  listSupplierPayments(@Query() query: PaginationDto, @Query('partnerId') partnerId?: string) {
-    return this.payments.list(query, 'outbound', partnerId);
+  listSupplierPayments(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
+    @Query('search') search?: string,
+    @Query('partnerId') partnerId?: string,
+  ) {
+    return this.payments.list({ page, pageSize, search }, 'outbound', partnerId);
   }
 
   @Post('supplier-payments')

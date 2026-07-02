@@ -479,11 +479,14 @@ const TerminalPage: React.FC = () => {
       // Only apply if the cashier is still on this table (didn't switch again).
       if (useCartStore.getState().tableId === id) {
         useCartStore.getState().load(serverLines);
+        // H2 — remember the server version so saves carry the optimistic-lock token.
+        useCartStore.getState().setTabVersion(doc?.version);
         tabSyncSig.current = orderSig(serverLines);
       }
     } catch {
       if (useCartStore.getState().tableId === id) {
         useCartStore.getState().load([]);
+        useCartStore.getState().setTabVersion(undefined);
         tabSyncSig.current = orderSig([]);
       }
     } finally {
@@ -502,7 +505,7 @@ const TerminalPage: React.FC = () => {
     if (cart.tableId && cart.tableId !== t.id && orderSig(cart.lines) !== tabSyncSig.current) {
       const leavingNumber = cart.tableNumber;
       saveTab
-        .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id })
+        .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: cart.tabVersion })
         .catch((e: any) =>
           toast.error(e?.response?.data?.message || `Failed to save T${leavingNumber ?? ''} order before switching`),
         );
@@ -535,7 +538,7 @@ const TerminalPage: React.FC = () => {
     if (cart.tableId && orderSig(cart.lines) !== tabSyncSig.current) {
       const currentSig = orderSig(cart.lines);
       try {
-        await saveTab.mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id });
+        await saveTab.mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: cart.tabVersion });
         tabSyncSig.current = currentSig;
       } catch (e: any) {
         toast.error(e?.response?.data?.message || 'Failed to save the order — your latest changes may not be persisted');
@@ -582,7 +585,7 @@ const TerminalPage: React.FC = () => {
     if (cart.tableId) {
       if (orderSig(cart.lines) !== tabSyncSig.current) {
         saveTab
-          .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id })
+          .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: cart.tabVersion })
           .catch(() => { /* best effort */ });
       }
       setSelectedTableId(null);
@@ -616,7 +619,19 @@ const TerminalPage: React.FC = () => {
     const h = setTimeout(() => {
       saveTab.mutate(
         { tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id },
-        { onSuccess: () => { tabSyncSig.current = currentSig; } },
+        {
+          onSuccess: () => { tabSyncSig.current = currentSig; },
+          onError: (e: any) => {
+            // H2 — another device edited this tab first (stale version → 409).
+            // Reload the server truth rather than silently clobbering it; the
+            // cashier re-adds their last change on top of the merged order.
+            if (e?.response?.status === 409) {
+              toast.error('This table was updated on another device — reloading the latest order. Re-add your last change if needed.');
+              setPendingTableLoad(tableId);
+              void loadTableOrder(tableId);
+            }
+          },
+        },
       );
     }, 700);
     return () => clearTimeout(h);

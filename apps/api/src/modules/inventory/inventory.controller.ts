@@ -19,6 +19,9 @@ import { LocationService } from './location.service';
 import { StockService } from './stock.service';
 import { StockDocService } from './stock-doc.service';
 import { InventoryQueryService } from './inventory-query.service';
+import { InventoryQueryDto } from './dto/inventory-query.dto';
+import { DirectStockService } from './direct-stock.service';
+import { DirectStockInDto, DirectStockOutDto, StockLedgerQueryDto } from './dto/direct-stock.dto';
 import { CreateLocationDto, UpdateLocationDto, LocationQueryDto } from './dto/location.dto';
 import { ReceiveStockDto, IssueStockDto, AdjustStockDto, TransferStockDto } from './dto/stock.dto';
 import {
@@ -36,6 +39,7 @@ export class InventoryController {
     private readonly stock: StockService,
     private readonly stockDocs: StockDocService,
     private readonly queries: InventoryQueryService,
+    private readonly directStock: DirectStockService,
   ) {}
 
   // ---- Locations ----
@@ -101,11 +105,27 @@ export class InventoryController {
     return this.stock.transfer(dto);
   }
 
+  // ---- Direct Stock In / Out ----
+
+  @Post('direct-stock/in')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventory.move)
+  directStockIn(@Body() dto: DirectStockInDto) {
+    return this.directStock.directIn(dto);
+  }
+
+  @Post('direct-stock/out')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventory.move)
+  directStockOut(@Body() dto: DirectStockOutDto) {
+    return this.directStock.directOut(dto);
+  }
+
   // ---- Query Endpoints ----
 
   @Get('items')
   @RequirePermissions(PERMISSIONS.inventory.read)
-  listItems(@Query() query: PaginationDto & { locationId?: string; lowStock?: string }) {
+  listItems(@Query() query: InventoryQueryDto) {
     return this.queries.listItems(query);
   }
 
@@ -123,13 +143,13 @@ export class InventoryController {
 
   @Get('product-stock-levels')
   @RequirePermissions(PERMISSIONS.inventory.read)
-  productStockLevels(@Query() query: PaginationDto & { locationId?: string; lowStock?: string }) {
+  productStockLevels(@Query() query: InventoryQueryDto) {
     return this.queries.listProductStockLevels(query);
   }
 
   @Get('ledger')
   @RequirePermissions(PERMISSIONS.inventory.read)
-  ledger(@Query() query: PaginationDto & { productId?: string; locationId?: string; type?: string }) {
+  ledger(@Query() query: StockLedgerQueryDto) {
     return this.queries.getLedger(query);
   }
 

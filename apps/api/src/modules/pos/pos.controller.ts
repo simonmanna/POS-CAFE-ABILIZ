@@ -36,6 +36,7 @@ import {
   type CheckoutLineModifier,
   type PaymentTender,
 } from './pos.service';
+import { PosInvoiceService } from './billing/pos-invoice.service';
 
 class CheckoutLineModifierDto implements CheckoutLineModifier {
   @ApiProperty() @IsString() modifierId!: string;
@@ -148,6 +149,8 @@ class SaveTabDto {
   lines!: CheckoutLineDto[];
   @ApiProperty({ required: false }) @IsOptional() @IsString() partnerId?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() guestCount?: number;
+  @ApiProperty({ required: false, description: 'H2: optimistic-lock token from the last tab read; rejects a stale overwrite (409).' })
+  @IsOptional() @IsNumber() expectedVersion?: number;
 }
 
 class SettleTabDto {
@@ -165,7 +168,10 @@ class SettleTabDto {
 @ApiBearerAuth()
 @Controller('pos')
 export class PosController {
-  constructor(private readonly svc: PosService) {}
+  constructor(
+    private readonly svc: PosService,
+    private readonly billing: PosInvoiceService,
+  ) {}
 
   @Post('checkout')
   @RequirePermissions('pos:checkout')
@@ -175,12 +181,23 @@ export class PosController {
     return this.svc.checkout(dto);
   }
 
+  /**
+   * Refund a POS sale. Redirects to the Order→Invoice→Receipt pipeline
+   * (billing.refund) — the older Document-based path was retired when POS sales
+   * moved onto the Invoice table. Supports partial refunds via `lines`. The
+   * canonical, override-gated endpoint is POST /pos/invoices/:id/refund; this one
+   * is kept for tooling/back-compat.
+   */
   @Post('refund')
   @RequirePermissions('pos:refund')
   @UseInterceptors(IdempotencyInterceptor)
   @Idempotent()
   refund(@Body() dto: RefundDto) {
-    return this.svc.refund(dto);
+    return this.billing.refund(dto.invoiceId, dto.reason, {
+      overrideById: dto.overrideById,
+      cashSessionId: dto.cashSessionId,
+      lines: dto.lines,
+    });
   }
 
   @Post('sales/:id/void')
@@ -188,7 +205,10 @@ export class PosController {
   @UseInterceptors(IdempotencyInterceptor)
   @Idempotent()
   void(@Param('id') id: string, @Body() dto: VoidDto) {
-    return this.svc.voidSale({ invoiceId: id, reason: dto.reason, overrideById: dto.overrideById });
+    return this.billing.refund(id, `VOID: ${dto.reason}`, {
+      overrideById: dto.overrideById,
+      requireOverride: true,
+    });
   }
 
   @Get('lookup')

@@ -171,7 +171,7 @@ async function main(): Promise<void> {
   });
 
   // --- Chart of accounts (Phase 2) -----------------------------------------
-  const accountDefs: { code: string; name: string; accountType: AccountType; isGroup?: boolean; cashFlowCategory?: 'operating' | 'investing' | 'financing' }[] = [
+  const accountDefs: { code: string; name: string; accountType: AccountType; isGroup?: boolean; cashFlowCategory?: 'operating' | 'investing' | 'financing'; isDefault?: boolean; bankName?: string | null; accountNumber?: string | null }[] = [
     { code: '1000', name: 'Assets', accountType: 'asset', isGroup: true, cashFlowCategory: 'investing' },
     { code: '1100', name: 'Cash', accountType: 'cash', cashFlowCategory: 'operating' },
     { code: '1200', name: 'Bank', accountType: 'bank', cashFlowCategory: 'operating' },
@@ -197,12 +197,18 @@ async function main(): Promise<void> {
     { code: '4200', name: 'Stock Adjustment Income', accountType: 'revenue', cashFlowCategory: 'operating' },
     // Cash drawer over/short at shift close (also used for manual adjustments).
     { code: '5400', name: 'Cash Short & Over', accountType: 'expense', cashFlowCategory: 'operating' },
+    // Payment accounts used on receipts & payments (visible in POS tender selection).
+    { code: 'CASH-DEFAULT', name: 'Cash Drawer', accountType: 'cash', cashFlowCategory: 'operating', isDefault: true, bankName: null, accountNumber: null },
+    { code: 'BANK-DEFAULT', name: 'Bank Account 1', accountType: 'bank', cashFlowCategory: 'operating', isDefault: true, bankName: null, accountNumber: null },
+    { code: 'MOMO-MTN', name: 'MTN Mobile Money', accountType: 'mobile_money', cashFlowCategory: 'operating', isDefault: true, bankName: null, accountNumber: null },
+    { code: 'MOMO-AIRTEL', name: 'Airtel Money', accountType: 'mobile_money', cashFlowCategory: 'operating', bankName: null, accountNumber: null },
+    { code: 'PETTY', name: 'Petty Cash', accountType: 'petty_cash', cashFlowCategory: 'operating' },
   ];
   const accountIds: Record<string, string> = {};
   for (const a of accountDefs) {
     const account = await prisma.account.upsert({
       where: { organizationId_code: { organizationId: org.id, code: a.code } },
-      update: { name: a.name, accountType: a.accountType, isGroup: a.isGroup ?? false, cashFlowCategory: a.cashFlowCategory ?? null },
+      update: { name: a.name, accountType: a.accountType, isGroup: a.isGroup ?? false, cashFlowCategory: a.cashFlowCategory ?? null, isDefault: a.isDefault ?? false, bankName: a.bankName ?? null, accountNumber: a.accountNumber ?? null },
       create: {
         organizationId: org.id,
         code: a.code,
@@ -210,6 +216,9 @@ async function main(): Promise<void> {
         accountType: a.accountType,
         isGroup: a.isGroup ?? false,
         cashFlowCategory: a.cashFlowCategory ?? null,
+        isDefault: a.isDefault ?? false,
+        bankName: a.bankName ?? null,
+        accountNumber: a.accountNumber ?? null,
       },
     });
     accountIds[a.code] = account.id;

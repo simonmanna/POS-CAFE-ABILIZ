@@ -124,7 +124,10 @@ describe('POS sell loop', () => {
       method: 'POST',
       body: JSON.stringify({ invoiceId: invoice.id, reason: 'E2E refund test' }),
     }) as any;
-    expect(refund.creditNoteId).toBeTruthy();
+    // POS refunds now run the Order→Invoice→Receipt pipeline (billing.refund),
+    // which reverses the invoice GL in place rather than raising a credit-note
+    // Document. It returns the refunded invoice, not a creditNoteId.
+    expect(refund.status).toBe('refunded');
   });
 
   test('manager override: 30% discount requires manager PIN', async () => {

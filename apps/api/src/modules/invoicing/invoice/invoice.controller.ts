@@ -1,6 +1,5 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
-import { PaginationDto } from '../../../kernel/common/pagination.dto';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
@@ -14,8 +13,13 @@ export class InvoiceController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.invoice.read)
-  list(@Query() query: PaginationDto, @Query('partnerId') partnerId?: string) {
-    return this.invoices.list(query, partnerId);
+  list(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
+    @Query('search') search?: string,
+    @Query('partnerId') partnerId?: string,
+  ) {
+    return this.invoices.list({ page, pageSize, search }, partnerId);
   }
 
   @Get(':id')

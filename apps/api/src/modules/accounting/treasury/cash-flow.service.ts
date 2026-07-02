@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { AccountType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
@@ -6,7 +6,7 @@ import { PostingService } from '../posting/posting.service';
 import { AccountDeterminationService } from '../posting/account-determination.service';
 import { dec, ZERO } from '../../../kernel/common/money';
 
-const CASH_ACCOUNT_TYPES: AccountType[] = ['cash', 'bank', 'mobile_money'];
+const PAYMENT_ACCOUNT_TYPES: AccountType[] = ['cash', 'bank', 'mobile_money', 'petty_cash'];
 
 @Injectable()
 export class CashFlowService {
@@ -22,11 +22,12 @@ export class CashFlowService {
     const accounts = await this.prisma.client.account.findMany({
       where: {
         organizationId: orgId,
-        accountType: { in: CASH_ACCOUNT_TYPES },
+        accountType: { in: PAYMENT_ACCOUNT_TYPES },
         isActive: true,
         deletedAt: null,
       },
       orderBy: { accountType: 'asc' },
+      include: { cashRegisters: { select: { id: true, name: true, code: true } } },
     });
 
     const grouped = await this.prisma.client.journalLine.groupBy({
@@ -52,21 +53,105 @@ export class CashFlowService {
       name: a.name,
       accountType: a.accountType,
       currencyId: a.currencyId,
+      bankName: a.bankName,
+      accountNumber: a.accountNumber,
+      isDefault: a.isDefault,
       balance: balanceMap.get(a.id)?.toString() ?? '0',
+      cashRegister: (a as any).cashRegisters?.[0] ?? null,
     }));
   }
 
-  async deposit(accountId: string, amount: number, description?: string) {
-    if (amount <= 0) {
-      throw new BadRequestException('Amount must be positive');
+  async create(dto: {
+    code: string;
+    name: string;
+    accountType: AccountType;
+    currencyId?: string;
+    bankName?: string;
+    accountNumber?: string;
+    isDefault?: boolean;
+  }) {
+    const orgId = this.tenant.organizationId;
+    if (!dto.code || !dto.name) throw new BadRequestException('Code and name are required');
+    if (!PAYMENT_ACCOUNT_TYPES.includes(dto.accountType)) {
+      throw new BadRequestException('Account type must be a payment account type');
     }
+
+    const existing = await this.prisma.client.account.findUnique({
+      where: { organizationId_code: { organizationId: orgId, code: dto.code } },
+    });
+    if (existing) throw new BadRequestException('Account code already exists');
+
+    if (dto.isDefault) {
+      await this.prisma.client.account.updateMany({
+        where: { organizationId: orgId, accountType: dto.accountType, isDefault: true },
+        data: { isDefault: false },
+      });
+    }
+
+    return this.prisma.client.account.create({
+      data: {
+        organizationId: orgId,
+        code: dto.code,
+        name: dto.name,
+        accountType: dto.accountType,
+        currencyId: dto.currencyId ?? null,
+        bankName: dto.bankName ?? null,
+        accountNumber: dto.accountNumber ?? null,
+        isDefault: dto.isDefault ?? false,
+        cashFlowCategory: 'operating',
+      },
+    });
+  }
+
+  async update(id: string, dto: {
+    name?: string;
+    currencyId?: string;
+    bankName?: string;
+    accountNumber?: string;
+    isDefault?: boolean;
+  }) {
+    const orgId = this.tenant.organizationId;
+    const account = await this.prisma.client.account.findFirst({ where: { id, organizationId: orgId } });
+    if (!account) throw new NotFoundException('Account not found');
+
+    if (dto.isDefault) {
+      await this.prisma.client.account.updateMany({
+        where: { organizationId: orgId, accountType: account.accountType, isDefault: true, id: { not: id } },
+        data: { isDefault: false },
+      });
+    }
+
+    return this.prisma.client.account.update({
+      where: { id },
+      data: {
+        name: dto.name,
+        currencyId: dto.currencyId,
+        bankName: dto.bankName,
+        accountNumber: dto.accountNumber,
+        isDefault: dto.isDefault,
+      },
+    });
+  }
+
+  async remove(id: string) {
+    const orgId = this.tenant.organizationId;
+    const account = await this.prisma.client.account.findFirst({ where: { id, organizationId: orgId } });
+    if (!account) throw new NotFoundException('Account not found');
+    return this.prisma.client.account.update({
+      where: { id },
+      data: { deletedAt: new Date(), isActive: false },
+    });
+  }
+
+  async deposit(accountId: string, amount: number, description?: string) {
+    if (amount <= 0) throw new BadRequestException('Amount must be positive');
     const orgId = this.tenant.organizationId;
     const account = await this.prisma.client.account.findFirst({
       where: { id: accountId, organizationId: orgId },
     });
     if (!account) throw new BadRequestException('Account not found');
-    if (!CASH_ACCOUNT_TYPES.includes(account.accountType)) {
-      throw new BadRequestException('Account is not a cash/bank/mobile_money account');
+    if (!PAYMENT_ACCOUNT_TYPES.includes(account.accountType)) {
+      throw new BadRequestException('Account is not a payment account');
     }
     const suspenseId = await this.determination.mapped('cash_suspense');
     return this.posting.post({
@@ -83,16 +168,14 @@ export class CashFlowService {
   }
 
   async withdraw(accountId: string, amount: number, description?: string) {
-    if (amount <= 0) {
-      throw new BadRequestException('Amount must be positive');
-    }
+    if (amount <= 0) throw new BadRequestException('Amount must be positive');
     const orgId = this.tenant.organizationId;
     const account = await this.prisma.client.account.findFirst({
       where: { id: accountId, organizationId: orgId },
     });
     if (!account) throw new BadRequestException('Account not found');
-    if (!CASH_ACCOUNT_TYPES.includes(account.accountType)) {
-      throw new BadRequestException('Account is not a cash/bank/mobile_money account');
+    if (!PAYMENT_ACCOUNT_TYPES.includes(account.accountType)) {
+      throw new BadRequestException('Account is not a payment account');
     }
     const suspenseId = await this.determination.mapped('cash_suspense');
     return this.posting.post({
@@ -108,11 +191,7 @@ export class CashFlowService {
     });
   }
 
-  async getTransactions(
-    accountId: string,
-    page: number,
-    pageSize: number,
-  ) {
+  async getTransactions(accountId: string, page: number, pageSize: number) {
     const orgId = this.tenant.organizationId;
     const account = await this.prisma.client.account.findFirst({
       where: { id: accountId, organizationId: orgId },
@@ -171,6 +250,9 @@ export class CashFlowService {
         code: account.code,
         name: account.name,
         accountType: account.accountType,
+        bankName: account.bankName,
+        accountNumber: account.accountNumber,
+        currencyId: account.currencyId,
       },
     };
   }

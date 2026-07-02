@@ -10,11 +10,11 @@ import {
   Query,
 } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
-import { PaginationDto } from '../../../kernel/common/pagination.dto';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductQueryDto } from './dto/product-query.dto';
 
 @Controller('products')
 export class ProductController {
@@ -22,7 +22,7 @@ export class ProductController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.product.read)
-  list(@Query() query: PaginationDto) {
+  list(@Query() query: ProductQueryDto) {
     return this.products.list(query);
   }
 

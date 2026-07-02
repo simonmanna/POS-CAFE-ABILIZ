@@ -21,6 +21,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { useCartStore } from '@/features/pos/cart.store';
 import type { PaginatedResult } from '@erp/shared';
 import type {
   CashRegister, CashSession, Category, Customer, Product, MovementsResponse,
@@ -354,6 +355,8 @@ export interface TabDocument {
   id: string;
   orderNumber: string;
   status: string;
+  /** H2 — optimistic-lock token echoed back on save to reject stale overwrites. */
+  version: number;
   subtotal: string;
   discountTotal: string;
   taxAmount: string;
@@ -427,9 +430,22 @@ export function useSettleTab() {
 export function useSaveTab() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ tableId, ...body }: { tableId: string; lines: CheckoutBody['lines']; partnerId?: string; guestCount?: number }) =>
-      (await api.post<TabDocument | null>(`/pos/tabs/${tableId}/save`, body)).data,
-    onSuccess: () => {
+    // H2 — echo the last-read tab version so the server rejects a stale
+    // full-replace from another device (409). Callers may pass an explicit
+    // `expectedVersion` (captured synchronously when leaving a table); otherwise
+    // we read the currently-loaded tab's version from the cart store.
+    mutationFn: async ({ tableId, expectedVersion, ...body }: {
+      tableId: string; lines: CheckoutBody['lines']; partnerId?: string; guestCount?: number; expectedVersion?: number;
+    }) => {
+      const version = expectedVersion ?? useCartStore.getState().tabVersion;
+      return (await api.post<TabDocument | null>(
+        `/pos/tabs/${tableId}/save`,
+        { ...body, ...(version != null ? { expectedVersion: version } : {}) },
+      )).data;
+    },
+    onSuccess: (data) => {
+      // Absorb the server's new version so the NEXT save carries a fresh token.
+      if (data && typeof data.version === 'number') useCartStore.getState().setTabVersion(data.version);
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
       // Note: we deliberately do NOT invalidate ['pos-tab', tableId] here — the
       // local cart is already the source of truth; refetching would fight typing.

@@ -47,6 +47,7 @@ import { ExportController } from './reporting/export.controller';
  */
 @Module({
   controllers: [
+    CashFlowController,
     AccountController,
     JournalController,
     AccountMappingController,
@@ -54,7 +55,6 @@ import { ExportController } from './reporting/export.controller';
     TreasuryController,
     CashRegisterController,
     CashSessionController,
-    CashFlowController,
     PeriodCloseController,
     CurrencyController,
     BankReconciliationController,

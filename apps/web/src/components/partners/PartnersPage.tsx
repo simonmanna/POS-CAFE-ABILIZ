@@ -559,7 +559,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-[650px] p-0 gap-0 bg-white max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[900px] p-0 gap-0 bg-white max-h-[90vh] overflow-y-auto">
           <DialogHeader className="bg-[#0066aa] text-white p-6 rounded-t-lg">
             <div className="flex items-start justify-between">
               <div className="flex items-start gap-3">

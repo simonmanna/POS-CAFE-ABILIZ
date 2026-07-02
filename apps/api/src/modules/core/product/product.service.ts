@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Product } from '@prisma/client';
+import type { PaginatedResult, PaginationQuery } from '@erp/shared';
+import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '@erp/shared';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { EventBus } from '../../../kernel/events/event-bus';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
@@ -21,6 +23,40 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
     private readonly audit: AuditService,
   ) {
     super(prisma.client.product as unknown as CrudDelegate);
+  }
+
+  async list(query: PaginationQuery & { categoryId?: string; productType?: string }): Promise<PaginatedResult<Product>> {
+    const page = Math.max(1, Number(query.page) || DEFAULT_PAGE);
+    const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(query.pageSize) || DEFAULT_PAGE_SIZE));
+
+    const where: Record<string, unknown> = {};
+    if (query.search && this.searchFields.length > 0) {
+      where.OR = this.searchFields.map((field) => ({
+        [field]: { contains: query.search, mode: 'insensitive' },
+      }));
+    }
+    if (query.categoryId) (where as any).categoryId = query.categoryId;
+    if (query.productType) (where as any).productType = query.productType;
+
+    const orderBy = query.sortBy
+      ? { [query.sortBy]: query.sortOrder ?? 'asc' }
+      : this.defaultOrderBy;
+
+    const [data, total] = await Promise.all([
+      this.delegate.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: this.defaultInclude,
+      }),
+      this.delegate.count({ where }),
+    ]);
+
+    return {
+      data: data as Product[],
+      meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    };
   }
 
   async create(dto: CreateProductDto): Promise<Product> {

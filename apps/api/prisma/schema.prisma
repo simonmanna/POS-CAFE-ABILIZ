@@ -110,22 +110,22 @@ enum AuditAction {
 
 /// Tenant root. This table IS the tenant, so it has no organizationId.
 model Organization {
-  id           String             @id @default(uuid())
-  code         String             @unique
-  name         String
-  timezone     String             @default("UTC")
-  currencyCode String             @default("USD")
+  id            String             @id @default(uuid())
+  code          String             @unique
+  name          String
+  timezone      String             @default("UTC")
+  currencyCode  String             @default("USD")
   /// Phase C: FK to Currency for the org's base. Defaults to "USD" via seed.
   /// Renamed relation name avoids ambiguity with other Currency refs.
-  baseCurrency Currency?          @relation("OrgBaseCurrency", fields: [currencyCode], references: [code])
-  status       OrganizationStatus @default(active)
-  settings     Json               @default("{}")
+  baseCurrency  Currency?          @relation("OrgBaseCurrency", fields: [currencyCode], references: [code])
+  status        OrganizationStatus @default(active)
+  settings      Json               @default("{}")
   /// Receipt header/footer overrides (businessName, addressLine1, phone, taxId, message)
   receiptHeader Json?
   receiptFooter Json?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  deletedAt    DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  deletedAt     DateTime?
 }
 
 /// Global permission catalog (resource:action). Seeded from @erp/shared.
@@ -782,6 +782,7 @@ enum AccountType {
   bank
   cash
   mobile_money
+  petty_cash
   receivable
   payable
   tax
@@ -822,6 +823,11 @@ model Account {
   /// Only meaningful for asset / liability / equity accounts; revenue and
   /// expense accounts are always operating.
   cashFlowCategory String?
+  /// Payment account fields — bank/provider name and account/phone number.
+  bankName         String?
+  accountNumber    String?
+  /// Marks this as the default account for its type (used in POS tender selection).
+  isDefault        Boolean     @default(false)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
   createdBy        String?
@@ -1295,19 +1301,19 @@ model ModifierGroup {
 }
 
 model Modifier {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   groupId        String
   /// e.g. "Oat milk", "Extra shot", "Large".
   name           String
   /// Signed UGX added to the line price when this modifier is selected.
   /// Negative for "discount" modifiers (e.g. "No syrup" = -500).
-  priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
-  isDefault      Boolean @default(false)
-  sortOrder      Int     @default(0)
-  isActive       Boolean @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  priceDelta     Decimal   @default(0) @db.Decimal(20, 6)
+  isDefault      Boolean   @default(false)
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   createdBy      String?
   updatedBy      String?
   deletedAt      DateTime?
@@ -1322,11 +1328,11 @@ model Modifier {
 /// M-N: which modifier groups are available on a product. `sortOrder`
 /// controls the order the cashier sees them in the AddOns dialog.
 model ProductModifierGroup {
-  id              String @id @default(uuid())
+  id              String    @id @default(uuid())
   organizationId  String
   productId       String
   modifierGroupId String
-  sortOrder       Int    @default(0)
+  sortOrder       Int       @default(0)
   deletedAt       DateTime?
 
   product       Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -1468,11 +1474,11 @@ model MenuItem {
 /// menu-based POS resolves a menu item's options from here (mirrors the legacy
 /// product-scoped ProductModifierGroup).
 model MenuItemModifierGroup {
-  id              String @id @default(uuid())
+  id              String    @id @default(uuid())
   organizationId  String
   menuItemId      String
   modifierGroupId String
-  sortOrder       Int    @default(0)
+  sortOrder       Int       @default(0)
   deletedAt       DateTime?
 
   menuItem      MenuItem      @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
@@ -1529,18 +1535,18 @@ model MenuProduct {
 ///   - Medium (250g)  $13   ← selected → unitPrice becomes $13
 ///   - Large  (350g)  $16
 model MenuItemVariant {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   menuItemId     String
   /// Display label, e.g. "Small (150g)", "Medium (250g)".
   name           String
   /// Absolute per-unit price for this variant. NOT a delta — this REPLACES
   /// the MenuItem.basePrice when selected.
-  price          Decimal  @db.Decimal(20, 6)
-  sortOrder      Int      @default(0)
-  isActive       Boolean           @default(true)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  price          Decimal   @db.Decimal(20, 6)
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   createdBy      String?
   updatedBy      String?
   deletedAt      DateTime?
@@ -1564,20 +1570,20 @@ model MenuItemVariant {
 /// Accompaniment groups (global, organization-scoped). Assigned to MenuItems
 /// through the MenuItemAccompanimentGroup join table — same pattern as ModifierGroup.
 model AccompanimentGroup {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   /// Display label, e.g. "Choose 1 Side", "Beverage".
   name           String
   /// When true the POS enforces this selection before allowing add-to-cart.
-  isRequired     Boolean  @default(true)
+  isRequired     Boolean   @default(true)
   /// Minimum selections required (default 1 when isRequired).
-  minSelect      Int      @default(1)
+  minSelect      Int       @default(1)
   /// Maximum selections allowed. 1 = radio, 2+ = checkbox.
-  maxSelect      Int      @default(1)
-  sortOrder      Int      @default(0)
-  isActive       Boolean           @default(true)
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  maxSelect      Int       @default(1)
+  sortOrder      Int       @default(0)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   createdBy      String?
   updatedBy      String?
   deletedAt      DateTime?
@@ -1592,11 +1598,11 @@ model AccompanimentGroup {
 
 /// Join table: which AccompanimentGroups are attached to which MenuItems.
 model MenuItemAccompanimentGroup {
-  id                   String @id @default(uuid())
+  id                   String    @id @default(uuid())
   organizationId       String
   menuItemId           String
   accompanimentGroupId String
-  sortOrder            Int    @default(0)
+  sortOrder            Int       @default(0)
   deletedAt            DateTime?
 
   menuItem           MenuItem           @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
@@ -1611,23 +1617,23 @@ model MenuItemAccompanimentGroup {
 /// One selectable option within an AccompanimentGroup. Each option either is
 /// included (priceImpact = 0) or carries an upcharge (priceImpact > 0).
 model AccompanimentOption {
-  id              String  @id @default(uuid())
+  id              String    @id @default(uuid())
   organizationId  String
   groupId         String
   /// Display label, e.g. "Rice", "Fries".
   name            String
   /// Price impact of selecting this option. 0 = included; >0 = upcharge.
   /// E.g. Rice=0, Fries=1 means Fries costs $1 extra.
-  priceImpact     Decimal @default(0) @db.Decimal(20, 6)
+  priceImpact     Decimal   @default(0) @db.Decimal(20, 6)
   /// Pre-selected when the dialog opens (only if within min/max bounds).
-  isDefault       Boolean @default(false)
-  sortOrder       Int     @default(0)
-  isActive        Boolean @default(true)
+  isDefault       Boolean   @default(false)
+  sortOrder       Int       @default(0)
+  isActive        Boolean   @default(true)
   /// Optional: links this accompaniment to a Product for BOM / stock tracking.
   inventoryItemId String?
-  createdBy      String?
-  updatedBy      String?
-  deletedAt      DateTime?
+  createdBy       String?
+  updatedBy       String?
+  deletedAt       DateTime?
 
   group AccompanimentGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
@@ -2058,8 +2064,8 @@ model InventoryLocation {
   stockOuts     StockOut[]
   wasteRecords  WasteRecord[]
   adjustments   StockAdjustment[]
-  transfersFrom StockTransfer[]   @relation("StockTransferFrom")
-  transfersTo   StockTransfer[]   @relation("StockTransferTo")
+  transfersFrom StockTransfer[]         @relation("StockTransferFrom")
+  transfersTo   StockTransfer[]         @relation("StockTransferTo")
   countSessions InventoryCountSession[]
 
   @@unique([organizationId, code])
@@ -2192,18 +2198,18 @@ model StockOut {
 }
 
 model StockOutItem {
-  id             String   @id @default(uuid())
+  id             String  @id @default(uuid())
   organizationId String
   stockOutId     String
   productId      String
   variantId      String?
   productName    String
   unit           String?
-  qty            Decimal  @db.Decimal(20, 6)
-  unitCost       Decimal  @default(0) @db.Decimal(20, 6)
-  totalCost      Decimal  @default(0) @db.Decimal(20, 6)
+  qty            Decimal @db.Decimal(20, 6)
+  unitCost       Decimal @default(0) @db.Decimal(20, 6)
+  totalCost      Decimal @default(0) @db.Decimal(20, 6)
   batchNumber    String?
-  distStrategy   String?  @default("FEFO")
+  distStrategy   String? @default("FEFO")
 
   stockOut StockOut @relation(fields: [stockOutId], references: [id], onDelete: Cascade)
 
@@ -2238,19 +2244,19 @@ model WasteRecord {
 }
 
 model WasteItem {
-  id             String   @id @default(uuid())
+  id             String  @id @default(uuid())
   organizationId String
   wasteId        String
   productId      String
   variantId      String?
   productName    String
   unit           String?
-  qty            Decimal  @db.Decimal(20, 6)
-  unitCost       Decimal  @default(0) @db.Decimal(20, 6)
-  totalCost      Decimal  @default(0) @db.Decimal(20, 6)
+  qty            Decimal @db.Decimal(20, 6)
+  unitCost       Decimal @default(0) @db.Decimal(20, 6)
+  totalCost      Decimal @default(0) @db.Decimal(20, 6)
   batchNumber    String?
   /// true → post EXPIRY_WRITE_OFF instead of WASTE.
-  isExpiry       Boolean  @default(false)
+  isExpiry       Boolean @default(false)
 
   waste WasteRecord @relation(fields: [wasteId], references: [id], onDelete: Cascade)
 
@@ -2275,7 +2281,7 @@ model StockAdjustment {
   createdBy      String?
   updatedBy      String?
 
-  location InventoryLocation  @relation(fields: [locationId], references: [id])
+  location InventoryLocation     @relation(fields: [locationId], references: [id])
   items    StockAdjustmentItem[]
 
   @@unique([organizationId, adjCode])
@@ -2284,17 +2290,17 @@ model StockAdjustment {
 }
 
 model StockAdjustmentItem {
-  id             String   @id @default(uuid())
+  id             String  @id @default(uuid())
   organizationId String
   adjId          String
   productId      String
   variantId      String?
   productName    String
   unit           String?
-  qtySystem      Decimal  @db.Decimal(20, 6)
-  qtyActual      Decimal  @db.Decimal(20, 6)
-  qtyDiff        Decimal  @db.Decimal(20, 6)
-  unitCost       Decimal  @default(0) @db.Decimal(20, 6)
+  qtySystem      Decimal @db.Decimal(20, 6)
+  qtyActual      Decimal @db.Decimal(20, 6)
+  qtyDiff        Decimal @db.Decimal(20, 6)
+  unitCost       Decimal @default(0) @db.Decimal(20, 6)
   batchNumber    String?
 
   adj StockAdjustment @relation(fields: [adjId], references: [id], onDelete: Cascade)
@@ -2330,18 +2336,18 @@ model StockTransfer {
 }
 
 model StockTransferItem {
-  id             String   @id @default(uuid())
+  id             String  @id @default(uuid())
   organizationId String
   transferId     String
   productId      String
   variantId      String?
   productName    String
   unit           String?
-  qtyRequested   Decimal  @db.Decimal(20, 6)
-  qtyTransferred Decimal  @default(0) @db.Decimal(20, 6)
+  qtyRequested   Decimal @db.Decimal(20, 6)
+  qtyTransferred Decimal @default(0) @db.Decimal(20, 6)
   batchNumber    String?
-  distStrategy   String?  @default("FEFO")
-  unitCost       Decimal  @default(0) @db.Decimal(20, 6)
+  distStrategy   String? @default("FEFO")
+  unitCost       Decimal @default(0) @db.Decimal(20, 6)
 
   transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
@@ -2470,43 +2476,43 @@ model CashRegister {
 /// the system computed (= opening + sales + pay-ins − pay-outs − refunds);
 /// `closingDifference = counted − expected` and is the variance.
 model CashSession {
-  id                String            @id @default(uuid())
-  organizationId    String
-  cashRegisterId    String
+  id                  String            @id @default(uuid())
+  organizationId      String
+  cashRegisterId      String
   /// Phase F: redundant cache of the register's branch, for branch-scoped
   /// reports without joining back to the register.
-  branchId          String?
-  userId            String
-  status            CashSessionStatus @default(open)
-  openedAt          DateTime          @default(now())
-  closedAt          DateTime?
-  openingFloat      Decimal           @default(0) @db.Decimal(20, 6)
-  closingCounted    Decimal?          @db.Decimal(20, 6)
-  closingExpected   Decimal?          @db.Decimal(20, 6)
-  closingDifference Decimal?          @db.Decimal(20, 6)
+  branchId            String?
+  userId              String
+  status              CashSessionStatus @default(open)
+  openedAt            DateTime          @default(now())
+  closedAt            DateTime?
+  openingFloat        Decimal           @default(0) @db.Decimal(20, 6)
+  closingCounted      Decimal?          @db.Decimal(20, 6)
+  closingExpected     Decimal?          @db.Decimal(20, 6)
+  closingDifference   Decimal?          @db.Decimal(20, 6)
   /// Variance investigation trail: user-supplied reason for the discrepancy.
-  varianceReason    String?
+  varianceReason      String?
   /// null = unexamined, 'pending_review' = flagged, 'approved' / 'rejected' = resolved.
-  varianceStatus    String?
+  varianceStatus      String?
   /// How much was banked from this session and where.
-  bankedAmount      Decimal?          @db.Decimal(20, 6)
-  bankName          String?
+  bankedAmount        Decimal?          @db.Decimal(20, 6)
+  bankName            String?
   /// C3: manager who approved a variance (must differ from `userId` — SoD).
-  approvedById      String?
+  approvedById        String?
   /// Medium: reopen audit trail. A closed (not reconciled) session may be
   /// reopened by a manager; reconciled sessions are immutable.
-  reopenedAt        DateTime?
-  reopenedById      String?
+  reopenedAt          DateTime?
+  reopenedById        String?
   /// Medium: denomination breakdowns (note/coin counts) captured at open/close.
   /// Shape: { "50000": 3, "20000": 5, ... } → face-value → count.
   openingDenomination Json?
   closingDenomination Json?
   /// Medium: frozen per-tender totals (cash/card/mobile_money/…) at close, so a
   /// reprinted summary doesn't drift when invoices are later voided/edited.
-  closingByMethod   Json?
-  notes             String?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
+  closingByMethod     Json?
+  notes               String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
 
   cashRegister CashRegister   @relation(fields: [cashRegisterId], references: [id])
   movements    CashMovement[]
@@ -3203,13 +3209,13 @@ model PurchaseOrder {
   approvedById         String?
   sentAt               DateTime?
   /// Simple flow: how this PO will be paid.
-  paymentType          PaymentType          @default(cash)
+  paymentType          PaymentType         @default(cash)
   /// Tracks credit-purchase payment status.
-  paymentStatus        PaymentStatus?       @default(not_paid)
-  totalPaid            Decimal              @default(0) @db.Decimal(20, 6)
+  paymentStatus        PaymentStatus?      @default(not_paid)
+  totalPaid            Decimal             @default(0) @db.Decimal(20, 6)
   /// Optimistic lock version — incremented on every write. Used by the
   /// service layer to detect concurrent edits and prevent lost updates.
-  version              Int                  @default(0)
+  version              Int                 @default(0)
   notes                String?
   terms                String?
   /// Free-form snapshot at approve/send for audit.
@@ -3250,7 +3256,7 @@ model PurchasePayment {
   amount          Decimal  @db.Decimal(20, 6)
   paidAt          DateTime @default(now())
   paidById        String?
-  reference       String?  // e.g. transaction ID, cheque number
+  reference       String? // e.g. transaction ID, cheque number
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
@@ -3726,31 +3732,31 @@ model PosTableOrder {
 /// an empty Order is opened (no items yet) so the cashier can start ringing.
 /// The reservation worker flips `pending → no_show` after a 30-minute grace.
 model PosTableReservation {
-  id               String               @id @default(uuid())
-  organizationId   String
-  tableId          String
-  customerName     String
-  phone            String?
-  email            String?
-  partySize        Int                  @default(2)
+  id             String               @id @default(uuid())
+  organizationId String
+  tableId        String
+  customerName   String
+  phone          String?
+  email          String?
+  partySize      Int                  @default(2)
   /// Reservation start (guests expected to arrive).
-  startAt          DateTime
+  startAt        DateTime
   /// Reservation end (table must be freed for the next booking).
-  endAt            DateTime
-  status           PosReservationStatus @default(pending)
-  notes            String?
+  endAt          DateTime
+  status         PosReservationStatus @default(pending)
+  notes          String?
   /// When the guest was seated; null until then.
-  seatedAt         DateTime?
+  seatedAt       DateTime?
   /// Set when the guest is flagged as no-show by the worker.
-  noShowAt         DateTime?
-  cancelledAt      DateTime?
+  noShowAt       DateTime?
+  cancelledAt    DateTime?
   /// Optional ref to the Order that was opened when the reservation was seated.
   /// Lets the cashier jump from the reservation list straight to the open ticket.
-  seatedOrderId    String?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-  createdBy        String?
-  updatedBy        String?
+  seatedOrderId  String?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  createdBy      String?
+  updatedBy      String?
 
   table PosTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
 
@@ -4014,6 +4020,8 @@ model Invoice {
   totalAmount          Decimal                 @default(0) @db.Decimal(20, 6)
   amountPaid           Decimal                 @default(0) @db.Decimal(20, 6)
   amountResidual       Decimal                 @default(0) @db.Decimal(20, 6)
+  /// Cumulative amount refunded across full + partial refunds (over-refund guard).
+  amountRefunded       Decimal                 @default(0) @db.Decimal(20, 6)
   status               InvoiceStatus           @default(draft)
   paymentStatus        PaymentStatus           @default(not_paid)
   paymentMode          InvoicePaymentMode?
@@ -4073,6 +4081,8 @@ model InvoiceItem {
   subtotal        Decimal  @default(0) @db.Decimal(20, 6)
   taxAmount       Decimal  @default(0) @db.Decimal(20, 6)
   total           Decimal  @default(0) @db.Decimal(20, 6)
+  /// Cumulative quantity refunded across partial refunds (per-line over-refund guard).
+  refundedQty     Decimal  @default(0) @db.Decimal(20, 6)
   lineNumber      Int      @default(0)
   createdAt       DateTime @default(now())
 
@@ -4142,27 +4152,27 @@ enum SplitType {
 }
 
 model SplitBill {
-  id               String          @id @default(uuid())
-  organizationId   String
+  id             String          @id @default(uuid())
+  organizationId String
   /// Loose ref to PosTable (integrity enforced in the service layer).
-  tableId          String
+  tableId        String
   /// The open tab Order being split (its items are the source lines).
-  sourceOrderId    String
-  label            String
-  splitType        SplitType       @default(item)
+  sourceOrderId  String
+  label          String
+  splitType      SplitType       @default(item)
   /// Percent splits only — the share of the table total this bill owes.
-  sharePercent     Decimal?        @db.Decimal(9, 4)
-  partnerId        String?
+  sharePercent   Decimal?        @db.Decimal(9, 4)
+  partnerId      String?
   /// Set when the bill is paid: the Invoice this bill settled into (1:1).
-  invoiceId        String?         @unique
-  status           SplitBillStatus @default(open)
-  subtotal         Decimal         @default(0) @db.Decimal(20, 6)
-  totalAmount      Decimal         @default(0) @db.Decimal(20, 6)
-  amountPaid       Decimal         @default(0) @db.Decimal(20, 6)
-  settledAt        DateTime?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  createdBy        String?
+  invoiceId      String?         @unique
+  status         SplitBillStatus @default(open)
+  subtotal       Decimal         @default(0) @db.Decimal(20, 6)
+  totalAmount    Decimal         @default(0) @db.Decimal(20, 6)
+  amountPaid     Decimal         @default(0) @db.Decimal(20, 6)
+  settledAt      DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  createdBy      String?
 
   items SplitBillItem[]
 

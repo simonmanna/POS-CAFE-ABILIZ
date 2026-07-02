@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ClipboardList, History, Play, Save, CheckCircle2, XCircle, Search } from 'lucide-react';
+import { ClipboardList, History, Play, Save, CheckCircle2, XCircle, Search, Eye } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { dateTime } from '@/lib/format';
@@ -54,6 +57,16 @@ export function InventoryCountPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('all');
   const [onlyVariance, setOnlyVariance] = useState(false);
+  const [viewSessionId, setViewSessionId] = useState<string | null>(null);
+
+  const viewSession = useQuery<CountSession>({
+    queryKey: ['inventory-count', viewSessionId],
+    queryFn: async () => {
+      if (!viewSessionId) throw new Error('No session');
+      return (await api.get<CountSession>(`/inventory/counts/${viewSessionId}`)).data;
+    },
+    enabled: !!viewSessionId,
+  });
 
   const locations = useQuery<Location[]>({
     queryKey: ['inventory-locations'],
@@ -368,6 +381,7 @@ export function InventoryCountPage() {
                     <th className="px-3 py-2 text-right">Items</th>
                     <th className="px-3 py-2 text-left">Started</th>
                     <th className="px-3 py-2 text-left">Submitted</th>
+                    <th className="px-3 py-2 text-center w-20">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -384,6 +398,11 @@ export function InventoryCountPage() {
                       <td className="px-3 py-2 text-right">{s._count?.lines ?? '—'}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{dateTime(s.startedAt)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{s.submittedAt ? dateTime(s.submittedAt) : '—'}</td>
+                      <td className="px-3 py-2 text-center">
+                        <Button size="sm" variant="ghost" onClick={() => setViewSessionId(s.id)}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -395,6 +414,86 @@ export function InventoryCountPage() {
           )}
         </div>
       )}
+
+      {/* View Count Detail Dialog */}
+      <Dialog open={!!viewSessionId} onOpenChange={(o) => { if (!o) setViewSessionId(null); }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto p-0 gap-0">
+          {viewSession.isLoading && (
+            <div className="p-6"><Skeleton className="h-64 w-full" /></div>
+          )}
+          {viewSession.data && (
+            <>
+              <div className="bg-sky-600 px-6 py-4 text-white">
+                <DialogHeader>
+                  <DialogTitle className="text-white text-lg flex items-center gap-2">
+                    <ClipboardList className="h-5 w-5" />
+                    {viewSession.data.countCode}
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-white/80">
+                  <span>{viewSession.data.location?.name ?? viewSession.data.location?.code ?? '—'}</span>
+                  <span className="text-white/50">|</span>
+                  <span>{viewSession.data.countType === 'opening' ? 'Morning Count' : 'Evening Count'}</span>
+                  <span className="text-white/50">|</span>
+                  <Badge variant="secondary" className="bg-white/20 text-white border-0">
+                    {viewSession.data.status}
+                  </Badge>
+                  <span className="text-white/50">|</span>
+                  <span>{viewSession.data.lines.length} items</span>
+                  <span className="text-white/50">|</span>
+                  <span>Started {dateTime(viewSession.data.startedAt)}</span>
+                  {viewSession.data.submittedAt && (
+                    <>
+                      <span className="text-white/50">|</span>
+                      <span>Submitted {dateTime(viewSession.data.submittedAt)}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="p-4">
+                <div className="rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b bg-slate-50">
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Product</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">System</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actual</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Variance</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {viewSession.data.lines.map((ln) => {
+                        const sys = Number(ln.systemQty);
+                        const act = ln.countedQty !== null ? Number(ln.countedQty) : null;
+                        const varVal = act !== null ? act - sys : null;
+                        return (
+                          <tr key={ln.id} className="border-b last:border-0 hover:bg-sky-50/50 transition-colors">
+                            <td className="px-4 py-2.5">
+                              <span className="font-medium text-slate-800">{ln.productName}</span>
+                              {ln.unit && <span className="ml-1.5 text-xs text-slate-400">({ln.unit})</span>}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono tabular-nums text-slate-600">{sys}</td>
+                            <td className="px-4 py-2.5 text-right font-mono tabular-nums font-medium">{act !== null ? act : <span className="text-slate-300">—</span>}</td>
+                            <td className={`px-4 py-2.5 text-right font-mono tabular-nums font-semibold ${
+                              varVal === null ? 'text-slate-300'
+                                : varVal === 0 ? 'text-slate-400'
+                                : varVal > 0 ? 'text-emerald-600' : 'text-red-500'
+                            }`}>
+                              {varVal === null ? '—' : `${varVal > 0 ? '+' : ''}${varVal}`}
+                            </td>
+                            <td className="px-4 py-2.5 text-sm text-slate-500">{ln.reason ?? '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

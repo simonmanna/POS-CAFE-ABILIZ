@@ -15,7 +15,7 @@ export function useAccounts() {
   return useQuery({
     queryKey: ['accounts'],
     queryFn: async () =>
-      (await api.get<PaginatedResult<Account>>('/accounts', { params: { pageSize: 300 } })).data,
+      (await api.get<PaginatedResult<Account>>('/accounts', { params: { pageSize: 200 } })).data,
   });
 }
 
@@ -145,6 +145,11 @@ export interface CashAccount {
   name: string;
   accountType: string;
   balance: string;
+  bankName: string | null;
+  accountNumber: string | null;
+  isDefault: boolean;
+  currencyId: string | null;
+  cashRegister: { id: string; name: string; code: string } | null;
 }
 
 export function useCashAccounts() {
@@ -173,7 +178,7 @@ export interface TransactionsResult {
   page: number;
   pageSize: number;
   totalPages: number;
-  account: { id: string; code: string; name: string; accountType: string };
+  account: { id: string; code: string; name: string; accountType: string; bankName: string | null; accountNumber: string | null; currencyId: string | null };
 }
 
 export function useCashAccountTransactions(id: string | undefined, params: { page?: number; pageSize?: number }) {
@@ -220,6 +225,48 @@ export function useTreasuryTransfer() {
       qc.invalidateQueries({ queryKey: ['cash-accounts'] });
       qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });
       qc.invalidateQueries({ queryKey: ['trial-balance'] });
+    },
+  });
+}
+
+export function useCreateCashAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      code: string;
+      name: string;
+      accountType: string;
+      currencyId?: string;
+      bankName?: string;
+      accountNumber?: string;
+      isDefault?: boolean;
+    }) => (await api.post('/accounts/cash-flow', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-accounts'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+    },
+  });
+}
+
+export function useUpdateCashAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...data }: { id: string; name?: string; bankName?: string; accountNumber?: string; isDefault?: boolean }) =>
+      (await api.patch(`/accounts/cash-flow/${id}`, data)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-accounts'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+    },
+  });
+}
+
+export function useDeleteCashAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/accounts/cash-flow/${id}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-accounts'] });
+      qc.invalidateQueries({ queryKey: ['accounts'] });
     },
   });
 }

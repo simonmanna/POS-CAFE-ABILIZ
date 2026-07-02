@@ -50,6 +50,14 @@ export class ReceiveStockDto {
 
   @IsOptional()
   @IsString()
+  sourceType?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceId?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
 

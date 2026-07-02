@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Put, Query, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
 import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
@@ -11,12 +12,20 @@ import {
   MoveTableDto, ReceivePaymentDto, SaveOrderItemsDto, SettleCreditDto, WriteOffDto,
 } from './dto/order.dto';
 
+class RefundLineDto {
+  @ApiProperty() @IsString() lineId!: string;
+  @ApiProperty() @IsNumber() @Min(0) quantity!: number;
+}
+
 class RefundInvoiceDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() reason?: string;
   @ApiProperty({ description: 'Manager user id; a void/refund of a settled sale requires an override.' })
   @IsString() overrideById!: string;
   @ApiProperty({ required: false, description: "Cashier's current open cash session, so the refund's cash-out reconciles on this shift." })
   @IsOptional() @IsString() cashSessionId?: string;
+  @ApiProperty({ required: false, type: [RefundLineDto], description: 'Partial refund: subset of the invoice lines + quantities. Omit for a full refund.' })
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => RefundLineDto)
+  lines?: RefundLineDto[];
 }
 
 @ApiTags('pos/orders')
@@ -138,6 +147,7 @@ export class PosBillingController {
       overrideById: dto.overrideById,
       cashSessionId: dto.cashSessionId,
       requireOverride: true,
+      lines: dto.lines,
     });
   }
 

@@ -103,7 +103,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Accounting',
     items: [
-      { to: '/accounts/cash-accounts', label: 'Cash Accounts', icon: Banknote, permission: PERMISSIONS.account.read },
+      { to: '/accounts/cash-accounts', label: 'Financial Accounts', icon: Banknote, permission: PERMISSIONS.account.read },
       { to: '/accounts', label: 'Chart of Accounts', icon: BookOpen, permission: PERMISSIONS.account.read },
       { to: '/accounts/cash-registers', label: 'Cash Registers', icon: Smartphone, permission: 'cash_register:read' },
       { to: '/journals', label: 'Journals', icon: BookText, permission: PERMISSIONS.journal.read },
@@ -115,6 +115,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'Inventory',
     items: [
       { to: '/inventory', label: 'Stock Levels', icon: Package, permission: 'inventory:read' },
+      { to: '/inventory/ledger', label: 'Stock Ledger', icon: ScrollText, permission: 'inventory:read' },
       { to: '/inventory/count', label: 'Stock Count', icon: ClipboardList, permission: 'inventory_count:read' },
       { to: '/inventory/adjustments', label: 'Stock Adjustments', icon: Scale, permission: 'inventory:move' },
     ],

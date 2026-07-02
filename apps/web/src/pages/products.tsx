@@ -53,6 +53,8 @@ export function ProductsPage() {
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState('');
   const search = useDebouncedValue(searchInput, 300);
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState<Product | null>(null);
@@ -63,9 +65,14 @@ export function ProductsPage() {
   const canEdit = hasPermission(PERMISSIONS.products.edit);
   const canDelete = hasPermission(PERMISSIONS.products.delete);
 
-  useEffect(() => setPage(1), [search]);
+  useEffect(() => setPage(1), [search, categoryFilter, typeFilter]);
 
-  const { data, isLoading } = useProducts({ page, pageSize: 10, search: search || undefined });
+  const { data, isLoading } = useProducts({
+    page, pageSize: 10,
+    search: search || undefined,
+    categoryId: categoryFilter || undefined,
+    productType: typeFilter || undefined,
+  });
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
@@ -124,9 +131,9 @@ export function ProductsPage() {
   };
 
   const columns: Column<Product>[] = [
+    { key: 'name', header: 'Name' },
     { key: 'code', header: 'Code' },
     { key: 'sku', header: 'SKU', render: (p) => p.sku ?? '-' },
-    { key: 'name', header: 'Name' },
     { key: 'category', header: 'Category', render: (p) => p.category?.name ?? '-' },
     { key: 'productType', header: 'Type', render: (p) => <Badge variant="secondary">{p.productType}</Badge> },
     {
@@ -188,14 +195,34 @@ export function ProductsPage() {
         )}
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-        <Input
-          className="pl-9 h-10 border-gray-200 rounded-lg focus:border-[#3b82f6] focus:ring-[#3b82f6]/20"
-          placeholder="Search products..."
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <Input
+            className="pl-9 h-10 border-gray-200 rounded-lg focus:border-[#3b82f6] focus:ring-[#3b82f6]/20"
+            placeholder="Search products..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </div>
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+          <SelectTrigger className="w-44 h-10"><SelectValue placeholder="All categories" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All categories</SelectItem>
+            {categories.map((c) => (
+              <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={typeFilter} onValueChange={setTypeFilter}>
+          <SelectTrigger className="w-40 h-10"><SelectValue placeholder="All types" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All types</SelectItem>
+            {PRODUCT_TYPES.map((t) => (
+              <SelectItem key={t} value={t}>{t}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} getRowId={(p) => p.id} />

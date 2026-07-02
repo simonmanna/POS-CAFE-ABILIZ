@@ -41,6 +41,7 @@ export const ACCOUNT_TYPES = [
   'bank',
   'cash',
   'mobile_money',
+  'petty_cash',
   'receivable',
   'payable',
   'tax',
@@ -57,6 +58,7 @@ export const DEBIT_NORMAL_ACCOUNT_TYPES: AccountType[] = [
   'bank',
   'cash',
   'mobile_money',
+  'petty_cash',
   'receivable',
   'contra_liability',
 ];

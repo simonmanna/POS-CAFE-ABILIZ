@@ -27,6 +27,8 @@ export interface ListParams {
   page: number;
   pageSize: number;
   search?: string;
+  categoryId?: string;
+  productType?: string;
 }
 
 export interface CreateProductInput {

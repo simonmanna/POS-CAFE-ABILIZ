@@ -24,6 +24,7 @@ interface ListQuery {
   dateFrom?: string;
   dateTo?: string;
   search?: string;
+  supplierId?: string;
 }
 
 const PaymentStatus = { UNPAID: 'UNPAID', PARTIALLY_PAID: 'PARTIALLY_PAID', PAID: 'PAID' } as const;
@@ -73,6 +74,7 @@ export class ExpensesService {
     const limit = Math.min(200, Math.max(1, Number(query.limit) || 15));
     const where: any = {};
     if (query.categoryId) where.categoryId = query.categoryId;
+    if (query.supplierId) where.supplierId = query.supplierId;
     if (query.status) where.status = query.status;
     if (query.paymentType) where.paymentType = query.paymentType;
     if (query.dateFrom || query.dateTo) {
