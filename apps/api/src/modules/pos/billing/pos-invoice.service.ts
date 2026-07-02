@@ -81,10 +81,15 @@ export class PosInvoiceService {
     }));
 
     const year = new Date().getUTCFullYear();
-    const invoiceNumber = await this.sequenceInvoiceNumber(year);
 
     const invoice = await this.prisma.client.$transaction(async (tx: any) => {
       const totals = await this.builder.prepareLines(tx, lineInputs);
+      // H2: allocate the invoice number INSIDE the tx (after line pricing) so a
+      // prepareLines failure no longer burns a number. NOTE: Postgres sequences
+      // are non-transactional — a later rollback still advances the sequence, so
+      // the INV- series can gap but never duplicates (see SequenceService). True
+      // gap-free numbering needs a row-locked gapless counter (separate change).
+      const invoiceNumber = await this.sequenceInvoiceNumber(year, tx);
       const inv = await tx.invoice.create({
         data: {
           organizationId: orgId,
@@ -120,6 +125,7 @@ export class PosInvoiceService {
             menuItemId: p.menuItemId,
             variantId: p.variantId ?? undefined,
             variantName: p.variantName ?? undefined,
+            accompanimentOptionIds: src?.accompanimentOptionIds ?? [],
             accountId: p.accountId,
             description: p.description,
             quantity: p.quantity,
@@ -297,6 +303,7 @@ export class PosInvoiceService {
         description: `Write-off ${invoice.invoiceNumber} — ${dto.reason}`,
         sourceType: 'pos_invoice_writeoff',
         sourceId: invoice.id,
+        branchId: invoice.branchId ?? undefined,
         lines: [
           { accountId: badDebtAccount, debit: residual.toString() },
           { accountId: arAccount, credit: residual.toString(), partnerId: invoice.partnerId },
@@ -355,7 +362,7 @@ export class PosInvoiceService {
     }
 
     const result = await this.prisma.client.$transaction(async (tx: any) => {
-      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: true } });
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: { include: { modifiers: true } } } });
       if (!invoice) throw new NotFoundException('Invoice not found');
       if (invoice.status === 'refunded') throw new BadRequestException('Invoice already refunded');
 
@@ -366,13 +373,15 @@ export class PosInvoiceService {
         await this.posting.reverse(invoice.journalEntryId, { description: `Refund of ${invoice.invoiceNumber}${reason ? ` — ${reason}` : ''}` }, tx);
       }
 
-      // 2) Restock the sold items (recipe-aware) in the same tx.
+      // 2) Restock the sold items (recipe-aware) in the same tx. Paid modifiers
+      //    and accompaniments (H3) are restocked too, symmetric with the sale.
       const warehouse = await tx.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
       if (warehouse) {
         for (const it of invoice.items as any[]) {
-          if (it.menuItemId) { await this.receiveMenuItemRecipe(tx, it.menuItemId, Number(it.quantity), warehouse.id, `Refund ${invoice.invoiceNumber}`); continue; }
-          if (!it.productId) continue;
-          await this.stock.receive({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `Refund ${invoice.invoiceNumber}` } as any, tx);
+          const ref = `Refund ${invoice.invoiceNumber}`;
+          if (it.menuItemId) await this.receiveMenuItemRecipe(tx, it.menuItemId, Number(it.quantity), warehouse.id, ref);
+          else if (it.productId) await this.stock.receive({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: ref } as any, tx);
+          await this.receiveLineExtras(tx, it, Number(it.quantity), warehouse.id, ref);
         }
       }
 
@@ -431,7 +440,7 @@ export class PosInvoiceService {
     const result = await this.prisma.client.$transaction(async (tx: any) => {
       // Serialise concurrent refunds of THIS invoice (mirrors receivePayment).
       await tx.$queryRawUnsafe(`SELECT id FROM "Invoice" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, invoiceId, orgId);
-      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: true } });
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: { include: { modifiers: true } } } });
       if (!invoice) throw new NotFoundException('Invoice not found');
       if (invoice.status === 'refunded') throw new BadRequestException('Invoice already refunded');
       if (invoice.status === 'cancelled') throw new BadRequestException('Invoice is cancelled');
@@ -487,6 +496,7 @@ export class PosInvoiceService {
         description: `Partial refund ${invoice.invoiceNumber}${reason ? ` — ${reason}` : ''}`,
         sourceType: 'pos_invoice_partial_refund',
         sourceId: invoice.id,
+        branchId: invoice.branchId ?? undefined,
         lines: glLines,
       } as any, tx);
 
@@ -494,9 +504,11 @@ export class PosInvoiceService {
       const warehouse = await tx.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
       if (warehouse) {
         for (const { src, quantity } of selections) {
-          if (src.menuItemId) { await this.receiveMenuItemRecipe(tx, src.menuItemId, quantity, warehouse.id, `Refund ${invoice.invoiceNumber}`); continue; }
-          if (!src.productId) continue;
-          await this.stock.receive({ productId: src.productId, locationId: warehouse.id, quantity, reference: `Refund ${invoice.invoiceNumber}` } as any, tx);
+          const ref = `Refund ${invoice.invoiceNumber}`;
+          if (src.menuItemId) await this.receiveMenuItemRecipe(tx, src.menuItemId, quantity, warehouse.id, ref);
+          else if (src.productId) await this.stock.receive({ productId: src.productId, locationId: warehouse.id, quantity, reference: ref } as any, tx);
+          // H3: restock the refunded fraction's modifiers + accompaniments too.
+          await this.receiveLineExtras(tx, src, quantity, warehouse.id, ref);
         }
       }
 
@@ -578,9 +590,60 @@ export class PosInvoiceService {
 
   // ─── Internals ───────────────────────────────────────────────────────────────
 
-  private async sequenceInvoiceNumber(year: number): Promise<string> {
-    // Reuse the shared sales-invoice sequence so POS + manual invoices share INV- series.
-    return this.sequence.next(`invoice:${year}`, { prefix: `INV-${year}-`, padding: 6 });
+  private async sequenceInvoiceNumber(year: number, tx?: any): Promise<string> {
+    // Reuse the shared sales-invoice sequence so POS + manual invoices share INV-
+    // series. `tx` reserves the number in the same unit as the invoice write.
+    return this.sequence.next(`invoice:${year}`, { prefix: `INV-${year}-`, padding: 6 }, tx);
+  }
+
+  /**
+   * H3: deplete/return stock for a line's paid modifiers + accompaniments.
+   * Modifiers link to a product via `Modifier.inventoryItemId`; accompaniments via
+   * `AccompanimentOption.inventoryItemId` (resolved from the persisted option ids).
+   * `dir` = 'issue' on sale, 'receive' on refund. Best-effort per unit: a missing
+   * link or stock error is logged, never thrown (mirrors "never block sales").
+   */
+  private async issueLineExtras(db: any, item: any, lineQty: number, warehouseId: string, reference: string): Promise<void> {
+    return this.moveLineExtras(db, 'issue', item, lineQty, warehouseId, reference);
+  }
+
+  private async receiveLineExtras(db: any, item: any, lineQty: number, warehouseId: string, reference: string): Promise<void> {
+    return this.moveLineExtras(db, 'receive', item, lineQty, warehouseId, reference);
+  }
+
+  private async moveLineExtras(
+    db: any, dir: 'issue' | 'receive', item: any, lineQty: number, warehouseId: string, reference: string,
+  ): Promise<void> {
+    if (!(lineQty > 0)) return;
+    const move = async (productId: string) => {
+      const args = { productId, locationId: warehouseId, quantity: lineQty, reference } as any;
+      if (dir === 'issue') await this.stock.issue(args);
+      else await this.stock.receive(args, db);
+    };
+    // Modifiers (structured on the line).
+    for (const m of (item.modifiers ?? []) as any[]) {
+      if (!m.modifierId) continue;
+      try {
+        const mod = await db.modifier.findFirst({ where: { id: m.modifierId }, select: { inventoryItemId: true } });
+        if (mod?.inventoryItemId) await move(mod.inventoryItemId);
+      } catch (e: any) {
+        this.logger.error(`[stock] modifier extra ${dir} failed (${m.modifierId}) on ${reference} (kept): ${e?.message ?? e}`);
+      }
+    }
+    // Accompaniment options (resolved from the persisted ids).
+    const accIds: string[] = item.accompanimentOptionIds ?? [];
+    if (accIds.length) {
+      try {
+        const opts = await db.accompanimentOption.findMany({ where: { id: { in: accIds } }, select: { inventoryItemId: true } });
+        for (const o of opts as any[]) {
+          if (!o.inventoryItemId) continue;
+          try { await move(o.inventoryItemId); }
+          catch (e: any) { this.logger.error(`[stock] accompaniment extra ${dir} failed on ${reference} (kept): ${e?.message ?? e}`); }
+        }
+      } catch (e: any) {
+        this.logger.error(`[stock] accompaniment lookup failed on ${reference} (kept): ${e?.message ?? e}`);
+      }
+    }
   }
 
   /**
@@ -625,6 +688,7 @@ export class PosInvoiceService {
       exchangeRate: Number(invoice.exchangeRate),
       sourceType: 'pos_invoice',
       sourceId: invoice.id,
+      branchId: invoice.branchId ?? undefined,
       lines,
     } as any, tx);
     return entry.id;
@@ -648,12 +712,17 @@ export class PosInvoiceService {
     if (!warehouse) { this.logger.warn(`[stock] no active warehouse; skipping deduction for ${reference}`); return; }
     for (const it of items) {
       try {
-        if (it.menuItemId) { await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, `POS bill ${reference}`); continue; }
-        if (!it.productId) continue;
-        const product = await this.prisma.client.product.findFirst({ where: { id: it.productId } });
-        if (!product?.trackInventory) continue;
-        if (product.productType !== 'stockable' && product.productType !== 'consumable') continue;
-        await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: `POS bill ${reference}` } as any);
+        const ref = `POS bill ${reference}`;
+        if (it.menuItemId) {
+          await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ref);
+        } else if (it.productId) {
+          const product = await this.prisma.client.product.findFirst({ where: { id: it.productId } });
+          if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
+            await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: ref } as any);
+          }
+        }
+        // H3: deplete paid modifiers + accompaniments on the line too.
+        await this.issueLineExtras(this.prisma.client, it, Number(it.quantity), warehouse.id, ref);
       } catch (e: any) {
         this.logger.error(`[stock] issue failed for "${it.description ?? it.productId ?? it.menuItemId}" on ${reference} (sale kept): ${e?.message ?? e}`);
         await this.recordStockDrift(reference, { productId: it.productId ?? null, menuItemId: it.menuItemId ?? null, description: it.description ?? null, quantity: Number(it.quantity) }, e);

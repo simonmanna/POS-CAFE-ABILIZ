@@ -212,6 +212,7 @@ export class PosReceiptsService {
     lines.push(header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA');
     lines.push(header?.addressLine2 ?? 'Kampala, Uganda');
     lines.push(`Telephone: ${header?.phone ?? '+256757920771'}`);
+    if (header?.taxId) lines.push(`TIN/VAT: ${header.taxId}`);
     lines.push('');
     lines.push(`Receipt: #${(inv as any).documentNumber}`);
     const d = new Date(inv.issueDate);
@@ -220,6 +221,8 @@ export class PosReceiptsService {
     lines.push(`Date ${datePart}${' '.repeat(3)}${timePart}`);
     lines.push(`Mode: ${((inv as any).paymentMode || 'CASH').toUpperCase()}`);
     lines.push(`Cashier: ${(inv as any).cashierName ?? '-'}`);
+    const custName = (inv as any).partner?.name;
+    if (custName && custName !== 'Walk-in Customer') lines.push(`Customer: ${custName}`);
     lines.push('');
     lines.push('Qty  Item.................. Price....... Total');
     lines.push('-'.repeat(R));
@@ -250,6 +253,7 @@ export class PosReceiptsService {
     lines.push('');
     lines.push('-'.repeat(R));
     lines.push(`Subtotal:`.padEnd(R - 10) + fmt(inv.subtotal).padStart(10));
+    if (Number(inv.taxAmount) > 0) lines.push(`Tax:`.padEnd(R - 10) + fmt(inv.taxAmount).padStart(10));
     lines.push(`TOTAL:`.padEnd(R - 10) + fmt(inv.totalAmount).padStart(10));
     lines.push(`Paid:`.padEnd(R - 10) + fmt(inv.amountPaid).padStart(10));
     const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
@@ -301,6 +305,7 @@ export class PosReceiptsService {
     lines.push(center(addr1));
     lines.push(center(addr2));
     lines.push(center(`Tel: ${phone}`));
+    if (header?.taxId) lines.push(center(`TIN/VAT: ${header.taxId}`));
     lines.push('-'.repeat(W));
     lines.push(`Receipt #${(inv as any).documentNumber}`);
     const d = new Date(inv.issueDate);
@@ -309,6 +314,8 @@ export class PosReceiptsService {
     lines.push(`${datePart}  ${timePart}`);
     lines.push(`Mode: ${((inv as any).paymentMode || 'CASH').toUpperCase()}`);
     lines.push(`Cashier: ${(inv as any).cashierName ?? '-'}`);
+    const custNameH = (inv as any).partner?.name;
+    if (custNameH && custNameH !== 'Walk-in Customer') lines.push(`Customer: ${custNameH}`);
     lines.push('-'.repeat(W));
 
     // Compact item columns — no currency prefix in the item table.
@@ -347,6 +354,7 @@ export class PosReceiptsService {
 
     lines.push('-'.repeat(W));
     lines.push(two('Subtotal:', fmt(inv.subtotal)));
+    if (Number(inv.taxAmount) > 0) lines.push(two('Tax:', fmt(inv.taxAmount)));
     lines.push(two('TOTAL:', fmt(inv.totalAmount)));
     lines.push(two('Paid:', fmt(inv.amountPaid)));
     const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
@@ -410,6 +418,7 @@ export class PosReceiptsService {
         doc.text(header?.addressLine2 ?? 'Kampala, Uganda');
         doc.moveDown(0.1);
         doc.text(`Telephone: ${header?.phone ?? '+256757920771'}`);
+        if (header?.taxId) doc.text(`TIN/VAT: ${header.taxId}`);
         doc.moveDown(0.25);
 
         doc.text(`Receipt #${(inv as any).documentNumber}`);
@@ -461,6 +470,10 @@ export class PosReceiptsService {
         doc.moveDown(0.12);
         doc.text(`Subtotal:`.padEnd(33) + fmt(inv.subtotal).padStart(9), 8, doc.y, { width: 210 });
         doc.moveDown(0.12);
+        if (Number((inv as any).taxAmount) > 0) {
+          doc.text(`Tax:`.padEnd(33) + fmt((inv as any).taxAmount).padStart(9), 8, doc.y, { width: 210 });
+          doc.moveDown(0.12);
+        }
         doc.text(`Total:`.padEnd(33) + fmt(inv.totalAmount).padStart(9), 8, doc.y, { width: 210 });
         doc.moveDown(0.12);
         doc.text(`Paid:`.padEnd(33) + fmt(inv.amountPaid).padStart(9), 8, doc.y, { width: 210 });
@@ -682,13 +695,17 @@ export class PosReceiptsService {
     try {
       const net = require('net');
       const logoBuf = this.getEscposLogo();
+      // Single flushed write preserves byte order and stops end() from
+      // dropping trailing bytes. Bill has no cut (just feeds+ejects).
+      const parts: Buffer[] = [];
+      if (logoBuf) parts.push(logoBuf);
+      parts.push(Buffer.from(text + '\n\n\n\n\n', 'utf8'));
+      const payload = Buffer.concat(parts);
       await new Promise<void>((resolve, reject) => {
         const client = net.connect({ host, port, timeout: 5000 }, () => {
-          if (logoBuf) client.write(logoBuf);
-          client.write(text + '\n\n\n\n\n');
-          client.end();
+          client.write(payload, () => client.end());
         });
-        client.on('end', resolve);
+        client.on('close', () => resolve());
         client.on('error', reject);
         client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
       });
@@ -910,6 +927,19 @@ export class PosReceiptsService {
   }
 
   /**
+   * ESC d n — feed n lines so content clears the head→cutter gap before a cut.
+   * Configurable via the `pos.cutFeedLines` setting (default 6 ≈ 19mm on 80mm
+   * printers); clamped to 0–16. GS V 0 does not feed on its own, so this is
+   * what stops the blade slicing the last printed lines.
+   */
+  private async feedBuffer(): Promise<Buffer> {
+    const setting = await this.settings.get('pos.cutFeedLines');
+    const parsed = Number(setting?.value);
+    const lines = Number.isFinite(parsed) ? Math.min(16, Math.max(0, Math.trunc(parsed))) : 6;
+    return Buffer.from([0x1b, 0x64, lines]);
+  }
+
+  /**
    * Print the receipt to a thermal ESC/POS printer.
    * Looks up printer IP from settings (pos.printerHost, pos.printerPort).
    */
@@ -942,19 +972,21 @@ export class PosReceiptsService {
       const net = require('net');
       const kickSetting = await this.settings.get('pos.kickDrawerOnPrint');
       const shouldKick = kickSetting?.value !== 'false';
+      const FEED = await this.feedBuffer(); // pos.cutFeedLines (default 6)
       const CUT = Buffer.from([0x1D, 0x56, 0x00]);
+      const KICK = Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]);
+      // Assemble one payload so a single flushed write preserves byte order;
+      // writing piecemeal then calling end() can drop the trailing cut bytes.
+      const parts: Buffer[] = [Buffer.from(customerText, 'utf8'), FEED, CUT];
+      if (merchantText) parts.push(Buffer.from(merchantText, 'utf8'), FEED, CUT);
+      if (shouldKick) parts.push(KICK); // drawer AFTER the cut
+      const payload = Buffer.concat(parts);
       await new Promise<void>((resolve, reject) => {
         const client = net.connect({ host, port, timeout: 5000 }, () => {
-          client.write(customerText + '\n\n\n');
-          if (shouldKick) client.write(Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]));
-          client.write(CUT);
-          if (merchantText) {
-            client.write(merchantText + '\n\n\n');
-            client.write(CUT);
-          }
-          client.end();
+          // Wait for the write to flush to the OS before sending FIN.
+          client.write(payload, () => client.end());
         });
-        client.on('end', resolve);
+        client.on('close', () => resolve());
         client.on('error', reject);
         client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
       });

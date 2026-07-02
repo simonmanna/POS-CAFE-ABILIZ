@@ -120,6 +120,12 @@ model Organization {
   baseCurrency  Currency?          @relation("OrgBaseCurrency", fields: [currencyCode], references: [code])
   status        OrganizationStatus @default(active)
   settings      Json               @default("{}")
+  /// Books lock date (hard close). Any posting dated on or before this instant is
+  /// rejected regardless of fiscal-period status. Null = no global lock.
+  booksLockDate DateTime?
+  /// When true, a posting date MUST fall inside a defined fiscal period; dates
+  /// outside every period are rejected. Default false (periods stay optional).
+  requireFiscalPeriod Boolean        @default(false)
   /// Receipt header/footer overrides (businessName, addressLine1, phone, taxId, message)
   receiptHeader Json?
   receiptFooter Json?
@@ -828,6 +834,11 @@ model Account {
   accountNumber    String?
   /// Marks this as the default account for its type (used in POS tender selection).
   isDefault        Boolean     @default(false)
+  /// System accounts are created by the seed / posting engine (Retained Earnings,
+  /// Rounding, control accounts). They cannot be deleted. `isProtected` additionally
+  /// blocks deletion of accounts wired into an AccountMapping.
+  isSystem         Boolean     @default(false)
+  isProtected      Boolean     @default(false)
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
   createdBy        String?
@@ -880,6 +891,10 @@ model JournalEntry {
   currencyId      String?
   sourceType      String?
   sourceId        String?
+  /// Reporting dimensions (multi-branch / cost-center accounting). Optional so
+  /// single-outlet orgs are unaffected; set by the posting caller.
+  branchId        String?
+  costCenterId    String?
   reversedEntryId String? // the reversal entry that voids this one
   reversalOfId    String? // set when this entry IS a reversal of another
   postedAt        DateTime?
@@ -894,6 +909,7 @@ model JournalEntry {
   @@unique([organizationId, entryNumber])
   @@index([organizationId])
   @@index([organizationId, postingDate])
+  @@index([organizationId, branchId, postingDate])
   @@index([sourceType, sourceId])
 }
 
@@ -911,6 +927,9 @@ model JournalLine {
   baseDebit      Decimal  @default(0) @db.Decimal(20, 6)
   baseCredit     Decimal  @default(0) @db.Decimal(20, 6)
   lineNumber     Int      @default(0)
+  /// Reporting dimensions inherited from the entry (or overridden per line).
+  branchId       String?
+  costCenterId   String?
   createdAt      DateTime @default(now())
 
   entry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
@@ -919,6 +938,7 @@ model JournalLine {
   @@index([organizationId])
   @@index([journalEntryId])
   @@index([organizationId, accountId])
+  @@index([organizationId, branchId])
 }
 
 /// Org-level account determination defaults (key -> account). See ADR-009.
@@ -1309,6 +1329,9 @@ model Modifier {
   /// Signed UGX added to the line price when this modifier is selected.
   /// Negative for "discount" modifiers (e.g. "No syrup" = -500).
   priceDelta     Decimal   @default(0) @db.Decimal(20, 6)
+  /// Optional: links this modifier to a Product so selecting it depletes stock
+  /// (mirrors AccompanimentOption.inventoryItemId). Best-effort at sale time.
+  inventoryItemId String?
   isDefault      Boolean   @default(false)
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
@@ -1445,6 +1468,10 @@ model MenuItem {
   /// Price the customer sees. Stored as Decimal(20,6) so it can be in any
   /// currency minor unit. NULL means "derive from MenuProduct sum" (rare).
   basePrice       Decimal? @db.Decimal(20, 6)
+  /// Optional tax category for this menu item. A menu item has no single stock
+  /// product to inherit tax from, so this is resolved server-side at order time
+  /// (a client-sent taxId still wins). NULL = untaxed unless the cart specifies one.
+  taxId           String?
   image           String?
   /// Prep time hint for KDS — does not enforce anything, just a UI signal.
   preparationTime Int?
@@ -3919,6 +3946,9 @@ model OrderItem {
   lineNumber             Int                    @default(0)
   /// Free-text snapshot of selected accompaniments (display + KOT).
   accompanimentNames     String[]               @default([])
+  /// Selected AccompanimentOption ids (structured) so settlement can deplete
+  /// each option's inventoryItemId; the names above stay for display/KOT.
+  accompanimentOptionIds String[]               @default([])
   /// Kitchen print lifecycle (the order owns the kitchen flow now). Delta KOT
   /// logic compares printed vs current qty.
   kitchenPrintCount      Int                    @default(0)
@@ -4070,6 +4100,8 @@ model InvoiceItem {
   menuItemId      String?
   variantId       String?
   variantName     String?
+  /// Selected AccompanimentOption ids copied from the order line (stock + audit).
+  accompanimentOptionIds String[] @default([])
   /// Revenue account resolved at posting time (for the GL credit).
   accountId       String?
   description     String

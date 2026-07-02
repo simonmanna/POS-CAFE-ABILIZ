@@ -31,6 +31,7 @@ interface ResolvedLine {
   variantId?: string;
   variantName?: string;
   accompanimentNames: string[];
+  accompanimentOptionIds: string[];
   station: 'bar' | 'kitchen' | 'cafe';
 }
 
@@ -160,6 +161,7 @@ export class PosOrdersService {
       taxInclusive?: boolean;
       note?: string | null;
       accompanimentNames?: string[];
+      accompanimentOptionIds?: string[];
       modifiers?: Array<{ modifierId: string; name: string; priceDelta: number }>;
     }>;
   }) {
@@ -177,6 +179,7 @@ export class PosOrdersService {
       taxInclusive: l.taxInclusive,
       modifiers: l.modifiers ?? [],
       accompanimentNames: l.accompanimentNames ?? [],
+      accompanimentOptionIds: l.accompanimentOptionIds ?? [],
       station: 'cafe',
     }));
     return this.prisma.client.$transaction(async (tx: any) => {
@@ -449,6 +452,18 @@ export class PosOrdersService {
     return best;
   }
 
+  /** Resolve a menu item's configured tax category (H4). Cached per resolve pass. */
+  private async menuItemTaxId(menuItemId: string, cache: Map<string, string | null>): Promise<string | null> {
+    if (cache.has(menuItemId)) return cache.get(menuItemId)!;
+    const mi = await this.prisma.client.menuItem.findFirst({
+      where: { id: menuItemId, organizationId: this.tenant.organizationId },
+      select: { taxId: true },
+    });
+    const taxId = (mi as any)?.taxId ?? null;
+    cache.set(menuItemId, taxId);
+    return taxId;
+  }
+
   /** Validate variant + accompaniment + modifier rules server-side before pricing. */
   private async validateLines(lines: OrderLineDto[], bypassRequired = false): Promise<void> {
     for (const ln of lines) {
@@ -479,6 +494,7 @@ export class PosOrdersService {
   private async resolveLines(inputLines: OrderLineDto[]): Promise<ResolvedLine[]> {
     const orgId = this.tenant.organizationId;
     const skuMap = await this.resolveSkus(inputLines);
+    const menuTaxCache = new Map<string, string | null>();
     const productStationCache = new Map<string, 'bar' | 'kitchen' | 'cafe'>();
     const stationFor = async (productId: string | null): Promise<'bar' | 'kitchen' | 'cafe'> => {
       if (!productId) return 'cafe';
@@ -520,13 +536,18 @@ export class PosOrdersService {
       if (accompanimentNames.length) noteParts.push(...accompanimentNames.map((n) => `+ ${n}`));
       if (resolvedMods.length) noteParts.push(...resolvedMods.map((m) => `+ ${m.name}`));
       const productId = l.productId ?? skuMap.get(l.sku?.toLowerCase() ?? '') ?? null;
+      // H4: a menu item carries its own tax category (it has no single stock
+      // product to inherit from). A client-sent taxId still wins; otherwise fall
+      // back to the menu item's configured taxId so menu sales aren't untaxed.
+      let taxId = l.taxId ?? null;
+      if (!taxId && l.menuItemId) taxId = await this.menuItemTaxId(l.menuItemId, menuTaxCache);
       lines.push({
         productId,
         menuItemId: l.menuItemId ?? null,
         description: l.description,
         quantity: l.quantity,
         unitPrice: finalUnitPrice,
-        taxId: l.taxId ?? null,
+        taxId,
         discountPercent: l.discountPercent ?? 0,
         note: noteParts.length ? noteParts.join(' | ') : null,
         taxInclusive: l.taxInclusive,
@@ -534,6 +555,7 @@ export class PosOrdersService {
         variantId: l.variantId ?? undefined,
         variantName,
         accompanimentNames,
+        accompanimentOptionIds: l.accompanimentOptionIds ?? [],
         station: await stationFor(productId),
       });
     }
@@ -572,6 +594,7 @@ export class PosOrdersService {
       taxInclusive: it.taxInclusive,
       modifiers: (it.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId, name: m.name, priceDelta: Number(m.priceDelta) })),
       accompanimentNames: it.accompanimentNames ?? [],
+      accompanimentOptionIds: it.accompanimentOptionIds ?? [],
       station: 'cafe',
     };
   }
@@ -636,6 +659,7 @@ export class PosOrdersService {
           taxInclusive: p.taxInclusive,
           note: src?.note ?? null,
           accompanimentNames: src?.accompanimentNames ?? [],
+          accompanimentOptionIds: src?.accompanimentOptionIds ?? [],
           lineNumber: p.lineNumber,
           kitchenStatus: lc?.kitchenStatus ?? 'pending',
           kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
