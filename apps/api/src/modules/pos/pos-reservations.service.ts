@@ -49,8 +49,8 @@ export interface UpdateReservationDto {
 }
 
 export interface SeatReservationDto {
-  /** Optional pre-existing open Document to attach the table to. */
-  documentId?: string;
+  /** Optional pre-existing open Order to attach the table to. */
+  orderId?: string;
 }
 
 const SEATABLE_GRACE_MS = 30 * 60 * 1000; // 30 minutes
@@ -250,7 +250,7 @@ export class PosReservationsService {
         data: {
           status: 'seated',
           seatedAt: new Date(),
-          seatedDocumentId: dto.documentId ?? null,
+          seatedOrderId: dto.orderId ?? null,
         },
       });
       // When seated, table becomes occupied (no open orders yet, but reservation holds it)
@@ -267,16 +267,16 @@ export class PosReservationsService {
         entityId: id,
         action: 'update',
         oldValues: { status: 'pending' },
-        newValues: { status: 'seated', seatedDocumentId: dto.documentId ?? null },
+        newValues: { status: 'seated', seatedOrderId: dto.orderId ?? null },
       });
       return updated;
     }).then(async (updated) => {
       // If a Document was provided, attach the table to it (outside the
       // reservation tx is fine — attachSaleToTable has its own tx).
-      if (dto.documentId) {
+      if (dto.orderId) {
         await this.tables.attachSaleToTable({
           tableId: updated.tableId,
-          documentId: dto.documentId,
+          orderId: dto.orderId,
           customerName: updated.customerName,
           guestCount: updated.partySize,
         });
@@ -285,7 +285,7 @@ export class PosReservationsService {
         organizationId,
         reservationId: id,
         tableId: updated.tableId,
-        documentId: dto.documentId,
+        orderId: dto.orderId,
       });
       return updated;
     });

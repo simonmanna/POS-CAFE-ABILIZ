@@ -72,13 +72,13 @@ async function main(): Promise<void> {
   const passwordHash = await bcrypt.hash('Admin@123', 10);
   await prisma.user.upsert({
     where: { organizationId_email: { organizationId: org.id, email: 'admin@demo.test' } },
-    update: { roles: { set: [{ id: adminRole.id }] }, lastName: null },
+    update: { roles: { set: [{ id: adminRole.id }] } },
     create: {
       organizationId: org.id,
       email: 'admin@demo.test',
       passwordHash,
       firstName: 'Admin',
-      lastName: null,
+      lastName: 'User',
       roles: { connect: [{ id: adminRole.id }] },
     },
   });
@@ -260,6 +260,8 @@ async function main(): Promise<void> {
     // M5 cash drawer → GL
     cash_clearing: accountIds['1900'],
     cash_short_over: accountIds['5400'],
+    // Cash flow deposit/withdraw suspense
+    cash_suspense: accountIds['1900'],
   };
   for (const [key, accountId] of Object.entries(mappings)) {
     await prisma.accountMapping.upsert({

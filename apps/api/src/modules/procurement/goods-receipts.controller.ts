@@ -35,8 +35,13 @@ export class GoodsReceiptsController {
 
   @Get()
   @RequirePermissions('goods_receipt:read')
-  list(@Query('status') status?: string, @Query('purchaseOrderId') purchaseOrderId?: string) {
-    return this.svc.list({ status, purchaseOrderId });
+  list(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.svc.list({ page: Number(page), pageSize: Number(pageSize), search, status });
   }
 
   @Get(':id')

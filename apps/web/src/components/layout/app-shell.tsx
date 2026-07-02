@@ -29,6 +29,10 @@ import {
   ClipboardList,
   PanelLeftClose,
   PanelLeft,
+  BookOpen,
+  BookText,
+  ScrollText,
+  Smartphone,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
@@ -96,16 +100,17 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote, permission: PERMISSIONS.payment.read },
     ],
   },
-  // {
-  //   title: 'Accounting',
-  //   items: [
-  //     { to: '/accounts', label: 'Chart of Accounts', icon: BookOpen, permission: PERMISSIONS.account.read },
-  //     { to: '/accounts/cash-registers', label: 'Cash Registers', icon: Banknote, permission: 'cash_register:read' },
-  //     { to: '/journals', label: 'Journals', icon: BookText, permission: PERMISSIONS.journal.read },
-  //     { to: '/journal-entries', label: 'Journal Entries', icon: ScrollText, permission: PERMISSIONS.journalEntry.read },
-  //     { to: '/trial-balance', label: 'Trial Balance', icon: Scale, permission: PERMISSIONS.report.accounting },
-  //   ],
-  // },
+  {
+    title: 'Accounting',
+    items: [
+      { to: '/accounts/cash-accounts', label: 'Cash Accounts', icon: Banknote, permission: PERMISSIONS.account.read },
+      { to: '/accounts', label: 'Chart of Accounts', icon: BookOpen, permission: PERMISSIONS.account.read },
+      { to: '/accounts/cash-registers', label: 'Cash Registers', icon: Smartphone, permission: 'cash_register:read' },
+      { to: '/journals', label: 'Journals', icon: BookText, permission: PERMISSIONS.journal.read },
+      { to: '/journal-entries', label: 'Journal Entries', icon: ScrollText, permission: PERMISSIONS.journalEntry.read },
+      { to: '/trial-balance', label: 'Trial Balance', icon: Scale, permission: PERMISSIONS.report.accounting },
+    ],
+  },
   {
     title: 'Inventory',
     items: [
@@ -440,7 +445,7 @@ export function AppShell() {
               {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
             <span className="hidden text-sm text-muted-foreground sm:inline">
-              {user?.firstName}{user?.lastName ? ` ${user.lastName}` : ''}
+              {user?.firstName}
             </span>
             <Button variant="outline" size="sm" onClick={logout}>
               <LogOut className="h-4 w-4" />

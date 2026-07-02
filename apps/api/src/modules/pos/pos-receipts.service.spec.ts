@@ -12,6 +12,7 @@ describe('PosReceiptsService', () => {
       client: {
         invoice: { findFirst: jest.fn() },
         invoiceItem: { findMany: jest.fn() },
+        order: { findFirst: jest.fn() },
         document: { findFirst: jest.fn() },
         documentLine: { findMany: jest.fn() },
         partner: { findFirst: jest.fn() },
@@ -48,23 +49,24 @@ describe('PosReceiptsService', () => {
       expect(result.partner!.name).toBe('Alice');
       expect(result.lines).toHaveLength(1);
       expect(result.lines[0].product?.name).toBe('Coffee');
-      expect(prisma.client.document.findFirst).not.toHaveBeenCalled();
+      expect(prisma.client.order.findFirst).not.toHaveBeenCalled();
     });
 
-    it('falls back to Document when no Invoice record exists', async () => {
+    it('falls back to the open tab Order when no Invoice record exists', async () => {
       prisma.client.invoice.findFirst.mockResolvedValue(null);
-      prisma.client.document.findFirst.mockResolvedValue({
-        id: 'doc-1', documentNumber: 'DOC-001', partnerId: 'p-2',
-        totalAmount: '200',
+      prisma.client.order.findFirst.mockResolvedValue({
+        id: 'ord-1', orderNumber: 'ORD-001', partnerId: 'p-2',
+        totalAmount: '200', openedAt: new Date(), createdAt: new Date(),
+        items: [
+          { id: 'oi-1', productId: 'prod-2', description: 'Tea', quantity: '1', unitPrice: '200', discountPercent: '0', modifiers: [] },
+        ],
       });
-      prisma.client.documentLine.findMany.mockResolvedValue([
-        { id: 'dl-1', productId: 'prod-2', description: 'Tea', quantity: '1', unitPrice: '200', total: '200', lineNumber: 1 },
-      ]);
       prisma.client.partner.findFirst.mockResolvedValue({ id: 'p-2', name: 'Bob' });
       prisma.client.product.findMany.mockResolvedValue([{ id: 'prod-2', name: 'Tea', sku: 'TE-01' }]);
 
-      const result = await svc.resolveInvoice('doc-1');
-      expect(result.id).toBe('doc-1');
+      const result = await svc.resolveInvoice('ord-1');
+      expect(result.id).toBe('ord-1');
+      expect(result.documentNumber).toBe('ORD-001');
       expect(result.partner!.name).toBe('Bob');
       expect(result.lines).toHaveLength(1);
       expect(result.lines[0].product?.name).toBe('Tea');
@@ -72,7 +74,7 @@ describe('PosReceiptsService', () => {
 
     it('throws NotFoundException when neither table has the record', async () => {
       prisma.client.invoice.findFirst.mockResolvedValue(null);
-      prisma.client.document.findFirst.mockResolvedValue(null);
+      prisma.client.order.findFirst.mockResolvedValue(null);
       await expect(svc.resolveInvoice('missing')).rejects.toThrow();
     });
   });

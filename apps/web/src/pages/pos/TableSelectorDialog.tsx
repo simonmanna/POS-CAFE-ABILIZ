@@ -205,7 +205,7 @@ const TableCard: React.FC<{
 }> = ({ table, selected, onPick }) => {
   const meta = STATUS_META[table.status];
   const openOrders = (table.orders ?? []).filter((o) => !o.closedAt);
-  const total = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
+  const total = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
 
   return (
       <div

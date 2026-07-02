@@ -159,7 +159,7 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
             <select className={selectCls} value={incomingUserId} onChange={(e) => setIncomingUserId(e.target.value)}>
               <option value="">Select…</option>
               {staff.filter((u) => u.id !== currentUserId).map((u) => (
-                <option key={u.id} value={u.id}>{u.firstName} {u.lastName ?? ''}</option>
+                <option key={u.id} value={u.id}>{u.firstName}</option>
               ))}
             </select>
           </div>
@@ -175,7 +175,7 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
             <select className={selectCls} value={approvedById} onChange={(e) => setApprovedById(e.target.value)}>
               <option value="">Select…</option>
               {staff.map((u) => (
-                <option key={u.id} value={u.id}>{u.firstName} {u.lastName ?? ''}</option>
+                <option key={u.id} value={u.id}>{u.firstName}</option>
               ))}
             </select>
           </div>

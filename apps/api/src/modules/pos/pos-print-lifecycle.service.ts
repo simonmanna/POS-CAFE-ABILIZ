@@ -1,14 +1,15 @@
 /**
  * POS T5 — Print Lifecycle Service.
  *
- * Single source of truth for all document-print events:
- *   KOT  → kitchen tickets (KDS) + optional ESC/POS KOT printer
- *   BILL → customer preview (ESC/POS)
- *   RECEIPT → legal payment proof (ESC/POS)
- *   CANCEL → kitchen cancellation tickets
+ * Single source of truth for the bill/receipt/KOT print counters + audit log.
+ *   BILL    → customer preview (ESC/POS) on the open tab (an Order) or Invoice
+ *   RECEIPT → legal payment proof (ESC/POS) on the paid Invoice
+ *   KOT     → kitchen tickets (counters live on OrderItem; see PosOrdersService)
  *
- * Every print is recorded in DocumentPrintLog for audit. Idempotency keys
- * prevent duplicate prints on network retry.
+ * A print target is resolved dynamically: a POS pre-settle bill references the
+ * open `Order`; a post-settle receipt/bill references the `Invoice`; legacy /
+ * manual prints reference the generic `Document`. Each print is recorded in
+ * DocumentPrintLog for audit (idempotency keys prevent duplicate prints on retry).
  */
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
@@ -17,6 +18,7 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 
 export interface PrintLogInput {
   organizationId: string;
+  /** The record being printed — an Invoice, Order, or (legacy) Document id. */
   documentId: string;
   documentLineId?: string;
   type: 'KOT' | 'BILL' | 'RECEIPT' | 'CANCEL';
@@ -27,6 +29,8 @@ export interface PrintLogInput {
   printer?: string;
   idempotencyKey?: string;
 }
+
+type PrintTarget = 'invoice' | 'order' | 'document';
 
 export interface KitchenDelta {
   addLines: Array<{ line: any; delta: number }>;
@@ -42,270 +46,89 @@ export class PosPrintLifecycleService {
     private readonly tenant: TenantContextService,
   ) {}
 
-  /* ─────────── KOT helpers ─────────── */
-
-  async markKitchenPrinted(
-    tx: any,
-    lineIds: string[],
-    qtyMap: Map<string, number>,
-    userId?: string,
-    idempotencyKey?: string,
-  ): Promise<void> {
-    if (!lineIds.length) return;
-    const now = new Date();
-    await tx.documentLine.updateMany({
-      where: { id: { in: lineIds } },
-      data: {
-        kitchenPrintCount: { increment: 1 },
-        kitchenLastPrintedAt: now,
-        lastKitchenPrintedById: userId ?? null,
-      },
-    });
-    for (const lid of lineIds) {
-      const qty = qtyMap.get(lid);
-      if (qty != null) {
-        await tx.documentLine.update({
-          where: { id: lid },
-          data: { kitchenPrintedQty: qty },
-        });
-      }
-    }
-  }
-
-  async markCancelPrinted(
-    tx: any,
-    lineIds: string[],
-    userId?: string,
-  ): Promise<void> {
-    if (!lineIds.length) return;
-    await tx.documentLine.updateMany({
-      where: { id: { in: lineIds } },
-      data: {
-        cancelPrintCount: { increment: 1 },
-        cancelLastPrintedAt: new Date(),
-        lastKitchenPrintedById: userId ?? null,
-      },
-    });
-  }
-
-  async getUnprintedLines(
-    tx: any,
-    documentId: string,
-  ): Promise<any[]> {
-    return tx.documentLine.findMany({
-      where: {
-        documentId,
-        kitchenLastPrintedAt: null,
-      },
-      orderBy: { lineNumber: 'asc' },
-    });
-  }
-
-  /**
-   * Compute kitchen deltas between current line quantities and the last
-   * printed quantities stored in `kitchenPrintedQty`.
-   */
-  async getKitchenDeltas(
-    tx: any,
-    documentId: string,
-  ): Promise<KitchenDelta> {
-    const lines = await tx.documentLine.findMany({
-      where: { documentId },
-      orderBy: { lineNumber: 'asc' },
-    });
-
-    const addLines: KitchenDelta['addLines'] = [];
-    const removeLines: KitchenDelta['removeLines'] = [];
-    const unchangedLines: KitchenDelta['unchangedLines'] = [];
-
-    for (const ln of lines) {
-      const currentQty = Number(ln.quantity);
-      const printedQty = ln.kitchenPrintedQty != null ? Number(ln.kitchenPrintedQty) : 0;
-
-      if (ln.kitchenLastPrintedAt == null) {
-        // Never printed — full qty is new
-        addLines.push({ line: ln, delta: currentQty });
-      } else if (currentQty > printedQty) {
-        addLines.push({ line: ln, delta: currentQty - printedQty });
-      } else if (currentQty < printedQty) {
-        removeLines.push({ line: ln, delta: printedQty - currentQty });
-      } else {
-        unchangedLines.push({ line: ln });
-      }
-    }
-
-    return { addLines, removeLines, unchangedLines };
-  }
-
   /* ──── Target detection ──── */
 
   /**
-   * Return the table name ('invoice' | 'document') for a given record,
-   * so print-lifecycle methods can target the correct model.
+   * Resolve which model a print-record id belongs to so print-lifecycle methods
+   * target the correct table: a post-settle Invoice, an open-tab Order, or a
+   * legacy/manual Document.
    */
-  private async resolvePrintTarget(
-    tx: any,
-    recordId: string,
-  ): Promise<'invoice' | 'document'> {
+  private async resolvePrintTarget(tx: any, recordId: string): Promise<PrintTarget> {
     const inv = await tx.invoice.findFirst({ where: { id: recordId }, select: { id: true } });
     if (inv) return 'invoice';
+    const order = await tx.order.findFirst({ where: { id: recordId }, select: { id: true } });
+    if (order) return 'order';
     return 'document';
   }
 
   /* ─────────── Bill helpers ─────────── */
 
-  async markBillPrinted(
-    tx: any,
-    recordId: string,
-    userId?: string,
-  ): Promise<void> {
+  async markBillPrinted(tx: any, recordId: string, userId?: string): Promise<void> {
     const target = await this.resolvePrintTarget(tx, recordId);
-    if (target === 'invoice') {
-      await tx.invoice.update({
-        where: { id: recordId },
-        data: {
-          billPrintCount: { increment: 1 },
-          billLastPrintedAt: new Date(),
-          lastPrintedById: userId ?? null,
-        },
-      });
-    } else {
-      await tx.document.update({
-        where: { id: recordId },
-        data: {
-          billPrintCount: { increment: 1 },
-          billLastPrintedAt: new Date(),
-          lastPrintedById: userId ?? null,
-        },
-      });
-    }
+    const data = { billPrintCount: { increment: 1 }, billLastPrintedAt: new Date(), lastPrintedById: userId ?? null };
+    if (target === 'invoice') await tx.invoice.update({ where: { id: recordId }, data });
+    else if (target === 'order') await tx.order.update({ where: { id: recordId }, data });
+    else await tx.document.update({ where: { id: recordId }, data });
   }
 
-  async markLinesBilled(
-    tx: any,
-    recordId: string,
-    userId?: string,
-  ): Promise<void> {
+  async markLinesBilled(tx: any, recordId: string, _userId?: string): Promise<void> {
     const target = await this.resolvePrintTarget(tx, recordId);
-    if (target === 'invoice') {
-      // Invoice items have no bill-printed-at field; skip for Invoice model.
-      return;
-    }
+    // Invoice / Order items have no bill-printed-at field; only legacy Document tracks it.
+    if (target !== 'document') return;
     await tx.documentLine.updateMany({
       where: { documentId: recordId, billPrintedAt: null },
       data: { billPrintedAt: new Date() },
     });
   }
 
-  async getBillCopyNumber(
-    tx: any,
-    recordId: string,
-  ): Promise<number> {
+  async getBillCopyNumber(tx: any, recordId: string): Promise<number> {
     const target = await this.resolvePrintTarget(tx, recordId);
-    if (target === 'invoice') {
-      const inv = await tx.invoice.findUnique({ where: { id: recordId }, select: { billPrintCount: true } });
-      return (inv?.billPrintCount ?? 0) + 1;
-    }
-    const doc = await tx.document.findUnique({
-      where: { id: recordId },
-      select: { billPrintCount: true },
-    });
-    return (doc?.billPrintCount ?? 0) + 1;
+    const model = target === 'invoice' ? tx.invoice : target === 'order' ? tx.order : tx.document;
+    const rec = await model.findUnique({ where: { id: recordId }, select: { billPrintCount: true } });
+    return (rec?.billPrintCount ?? 0) + 1;
   }
 
-  /* ─────────── Receipt helpers ─────────── */
+  /* ─────────── Receipt helpers (post-settle: Invoice only) ─────────── */
 
-  async markReceiptPrinted(
-    tx: any,
-    recordId: string,
-    userId?: string,
-    idempotencyKey?: string,
-  ): Promise<void> {
+  async markReceiptPrinted(tx: any, recordId: string, userId?: string, _idempotencyKey?: string): Promise<void> {
     const target = await this.resolvePrintTarget(tx, recordId);
-    if (target === 'invoice') {
-      await tx.invoice.update({
-        where: { id: recordId },
-        data: {
-          receiptPrintCount: { increment: 1 },
-          receiptLastPrintedAt: new Date(),
-          lastPrintedById: userId ?? null,
-        },
-      });
-    } else {
-      await tx.document.update({
-        where: { id: recordId },
-        data: {
-          receiptPrintCount: { increment: 1 },
-          receiptLastPrintedAt: new Date(),
-          lastPrintedById: userId ?? null,
-        },
-      });
-    }
+    const data = { receiptPrintCount: { increment: 1 }, receiptLastPrintedAt: new Date(), lastPrintedById: userId ?? null };
+    if (target === 'invoice') await tx.invoice.update({ where: { id: recordId }, data });
+    else if (target === 'document') await tx.document.update({ where: { id: recordId }, data });
+    // Orders have no receipt counter — receipts are only issued post-settle (Invoice).
   }
 
-  async getReceiptCopyNumber(
-    tx: any,
-    recordId: string,
-  ): Promise<number> {
+  async getReceiptCopyNumber(tx: any, recordId: string): Promise<number> {
     const target = await this.resolvePrintTarget(tx, recordId);
-    if (target === 'invoice') {
-      const inv = await tx.invoice.findUnique({ where: { id: recordId }, select: { receiptPrintCount: true } });
-      return (inv?.receiptPrintCount ?? 0) + 1;
-    }
-    const doc = await tx.document.findUnique({
-      where: { id: recordId },
-      select: { receiptPrintCount: true },
-    });
-    return (doc?.receiptPrintCount ?? 0) + 1;
+    if (target === 'order') return 1;
+    const model = target === 'invoice' ? tx.invoice : tx.document;
+    const rec = await model.findUnique({ where: { id: recordId }, select: { receiptPrintCount: true } });
+    return (rec?.receiptPrintCount ?? 0) + 1;
   }
 
-  async getKotCopyNumber(
-    tx: any,
-    recordId: string,
-  ): Promise<number> {
+  /* ─────────── KOT copy helpers ─────────── */
+
+  async getKotCopyNumber(tx: any, recordId: string): Promise<number> {
     const target = await this.resolvePrintTarget(tx, recordId);
-    if (target === 'invoice') {
-      const inv = await tx.invoice.findUnique({ where: { id: recordId }, select: { kotPrintCount: true } });
-      return (inv?.kotPrintCount ?? 0) + 1;
-    }
-    const doc = await tx.document.findUnique({
-      where: { id: recordId },
-      select: { kotPrintCount: true },
-    });
-    return (doc?.kotPrintCount ?? 0) + 1;
+    const model = target === 'invoice' ? tx.invoice : target === 'order' ? tx.order : tx.document;
+    const rec = await model.findUnique({ where: { id: recordId }, select: { kotPrintCount: true } });
+    return (rec?.kotPrintCount ?? 0) + 1;
   }
 
-  async markKotPrinted(
-    tx: any,
-    recordId: string,
-    userId?: string,
-  ): Promise<void> {
+  async markKotPrinted(tx: any, recordId: string, userId?: string): Promise<void> {
     const target = await this.resolvePrintTarget(tx, recordId);
-    if (target === 'invoice') {
-      await tx.invoice.update({
-        where: { id: recordId },
-        data: {
-          kotPrintCount: { increment: 1 },
-          lastPrintedById: userId ?? null,
-        },
-      });
-    } else {
-      await tx.document.update({
-        where: { id: recordId },
-        data: {
-          kotPrintCount: { increment: 1 },
-          lastPrintedById: userId ?? null,
-        },
-      });
-    }
+    const data = { kotPrintCount: { increment: 1 }, lastPrintedById: userId ?? null };
+    if (target === 'invoice') await tx.invoice.update({ where: { id: recordId }, data });
+    else if (target === 'order') await tx.order.update({ where: { id: recordId }, data });
+    else await tx.document.update({ where: { id: recordId }, data });
   }
 
   /* ─────────── Print log ─────────── */
 
   async recordPrintLog(tx: any, input: PrintLogInput): Promise<void> {
-    // R2: the print log's documentId FK is required-by-history but POS prints
-    // reference the separate Invoice. Route the id to the right column so the
-    // log row is written without violating the Document FK.
+    // The print log's documentId/invoiceId FKs are both optional. Route the id to
+    // the right column so the log row is written without violating a FK. Order-tab
+    // prints reference neither (the Order is retired at settle), so both stay null.
     const target = await this.resolvePrintTarget(tx, input.documentId);
     await tx.documentPrintLog.create({
       data: {
@@ -324,11 +147,58 @@ export class PosPrintLifecycleService {
     });
   }
 
+  /* ─────────── KOT deltas (open tab = Order + OrderItem) ─────────── */
+
+  /**
+   * Compute kitchen deltas between an order's current item quantities and the
+   * last-printed quantities stored in `kitchenPrintedQty`. Used by the manual
+   * KOT-print endpoint. `line` is an OrderItem (carries its `modifiers`).
+   */
+  async getKitchenDeltas(tx: any, orderId: string): Promise<KitchenDelta> {
+    const items = await tx.orderItem.findMany({
+      where: { orderId, cancelled: false },
+      orderBy: { lineNumber: 'asc' },
+      include: { modifiers: true },
+    });
+    const addLines: KitchenDelta['addLines'] = [];
+    const removeLines: KitchenDelta['removeLines'] = [];
+    const unchangedLines: KitchenDelta['unchangedLines'] = [];
+    for (const ln of items) {
+      const currentQty = Number(ln.quantity);
+      const printedQty = ln.kitchenPrintedQty != null ? Number(ln.kitchenPrintedQty) : 0;
+      if (ln.kitchenLastPrintedAt == null) addLines.push({ line: ln, delta: currentQty });
+      else if (currentQty > printedQty) addLines.push({ line: ln, delta: currentQty - printedQty });
+      else if (currentQty < printedQty) removeLines.push({ line: ln, delta: printedQty - currentQty });
+      else unchangedLines.push({ line: ln });
+    }
+    return { addLines, removeLines, unchangedLines };
+  }
+
+  async markKitchenPrinted(tx: any, itemIds: string[], qtyMap: Map<string, number>, userId?: string): Promise<void> {
+    if (!itemIds.length) return;
+    const now = new Date();
+    await tx.orderItem.updateMany({
+      where: { id: { in: itemIds } },
+      data: { kitchenPrintCount: { increment: 1 }, kitchenLastPrintedAt: now, lastKitchenPrintedById: userId ?? null },
+    });
+    for (const id of itemIds) {
+      const qty = qtyMap.get(id);
+      if (qty != null) await tx.orderItem.update({ where: { id }, data: { kitchenPrintedQty: qty } });
+    }
+  }
+
+  async markCancelPrinted(tx: any, itemIds: string[], userId?: string): Promise<void> {
+    if (!itemIds.length) return;
+    await tx.orderItem.updateMany({
+      where: { id: { in: itemIds } },
+      data: { cancelPrintCount: { increment: 1 }, cancelLastPrintedAt: new Date(), lastKitchenPrintedById: userId ?? null },
+    });
+  }
+
   /* ─────────── Printer settings ─────────── */
 
-  async getPrinterSettings(type: 'kot' | 'bill' | 'receipt'): Promise<{ host: string; port: number } | null> {
-    const key = `pos.printerHost`;
-    const host = await this.settings.get(key);
+  async getPrinterSettings(_type: 'kot' | 'bill' | 'receipt'): Promise<{ host: string; port: number } | null> {
+    const host = await this.settings.get(`pos.printerHost`);
     if (!host || typeof host !== 'string') return null;
     const port = Number(await this.settings.get(`pos.printerPort`) ?? 9100);
     return { host, port };

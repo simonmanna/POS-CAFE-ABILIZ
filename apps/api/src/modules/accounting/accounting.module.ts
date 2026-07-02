@@ -16,6 +16,8 @@ import { JournalEntryController } from './journal-entry/journal-entry.controller
 import { BankAccountService } from './treasury/bank-account.service';
 import { TreasuryService } from './treasury/treasury.service';
 import { TreasuryController } from './treasury/treasury.controller';
+import { CashFlowService } from './treasury/cash-flow.service';
+import { CashFlowController } from './treasury/cash-flow.controller';
 import { BankReconciliationService } from './treasury/bank-reconciliation.service';
 import { BankReconciliationController } from './treasury/bank-reconciliation.controller';
 import { CashRegisterService } from './treasury/cash-register.service';
@@ -52,6 +54,7 @@ import { ExportController } from './reporting/export.controller';
     TreasuryController,
     CashRegisterController,
     CashSessionController,
+    CashFlowController,
     PeriodCloseController,
     CurrencyController,
     BankReconciliationController,
@@ -69,6 +72,7 @@ import { ExportController } from './reporting/export.controller';
     JournalEntryService,
     BankAccountService,
     TreasuryService,
+    CashFlowService,
     BankReconciliationService,
     CashRegisterService,
     CashSessionService,
@@ -103,7 +107,7 @@ export class AccountingModule implements OnModuleInit {
   onModuleInit(): void {
     this.registry.register({
       name: 'accounting',
-      version: '1.2.0',
+      version: '1.3.0',
       dependencies: ['core'],
       permissions: [
         ...Object.values(PERMISSIONS.account),

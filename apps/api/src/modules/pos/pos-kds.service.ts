@@ -128,13 +128,13 @@ export class PosKdsService {
     if (args.tableId) {
       const tableOrder = await this.prisma.client.posTableOrder.findFirst({
         where: { tableId: args.tableId, organizationId: orgId, closedAt: null },
-        include: { document: { include: { lines: { select: { productId: true, kitchenPrintCount: true } } } } },
+        include: { order: { include: { items: { select: { productId: true, kitchenPrintCount: true } } } } },
       });
-      if (tableOrder?.document?.lines) {
+      if (tableOrder?.order?.items) {
         const printedProductIds = new Set(
-          tableOrder.document.lines
-            .filter((l) => (l.kitchenPrintCount ?? 0) > 0)
-            .map((l) => l.productId),
+          tableOrder.order.items
+            .filter((l: any) => (l.kitchenPrintCount ?? 0) > 0)
+            .map((l: any) => l.productId),
         );
         if (printedProductIds.size > 0) {
           const alreadyPrinted = args.items.filter((it) => printedProductIds.has(it.productId));

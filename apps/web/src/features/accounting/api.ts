@@ -136,3 +136,90 @@ export function useReverseJournalEntry() {
     },
   });
 }
+
+// ── Cash Accounts / Cash Flow ──
+
+export interface CashAccount {
+  id: string;
+  code: string;
+  name: string;
+  accountType: string;
+  balance: string;
+}
+
+export function useCashAccounts() {
+  return useQuery({
+    queryKey: ['cash-accounts'],
+    queryFn: async () => (await api.get<CashAccount[]>('/accounts/cash-flow')).data,
+  });
+}
+
+export interface CashTransaction {
+  id: string;
+  journalEntryId: string;
+  entryNumber: string;
+  postingDate: string;
+  description: string | null;
+  sourceType: string | null;
+  debit: string;
+  credit: string;
+  baseDebit: string;
+  baseCredit: string;
+}
+
+export interface TransactionsResult {
+  data: CashTransaction[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  account: { id: string; code: string; name: string; accountType: string };
+}
+
+export function useCashAccountTransactions(id: string | undefined, params: { page?: number; pageSize?: number }) {
+  return useQuery({
+    queryKey: ['cash-account-transactions', id, params],
+    queryFn: async () =>
+      (await api.get<TransactionsResult>(`/accounts/cash-flow/${id}/transactions`, { params })).data,
+    enabled: !!id,
+  });
+}
+
+export function useCashFlowDeposit() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { accountId: string; amount: number; description?: string }) =>
+      (await api.post('/accounts/cash-flow/deposit', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-accounts'] });
+      qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });
+      qc.invalidateQueries({ queryKey: ['trial-balance'] });
+    },
+  });
+}
+
+export function useCashFlowWithdraw() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { accountId: string; amount: number; description?: string }) =>
+      (await api.post('/accounts/cash-flow/withdraw', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-accounts'] });
+      qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });
+      qc.invalidateQueries({ queryKey: ['trial-balance'] });
+    },
+  });
+}
+
+export function useTreasuryTransfer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { fromAccountId: string; toAccountId: string; amount: number; date: string; reference?: string }) =>
+      (await api.post('/treasury/transfer', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['cash-accounts'] });
+      qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });
+      qc.invalidateQueries({ queryKey: ['trial-balance'] });
+    },
+  });
+}

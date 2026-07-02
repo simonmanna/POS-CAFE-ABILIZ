@@ -48,7 +48,7 @@ class UpdateReservationBody {
 }
 
 class SeatBody {
-  @ApiProperty({ required: false }) @IsOptional() @IsString() documentId?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() orderId?: string;
 }
 
 @ApiTags('pos/reservations')

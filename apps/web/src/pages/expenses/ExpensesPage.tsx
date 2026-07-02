@@ -220,13 +220,13 @@ function fmtDate(d: string) {
 }
 
 function staffName(
-  user?: { staff?: { firstName: string; lastName: string } | null } | null,
+  user?: { staff?: { firstName: string } | null } | null,
 ) {
-  return user?.staff ? `${user.staff.firstName} ${user.staff.lastName}` : "—";
+  return user?.staff ? user.staff.firstName : "—";
 }
 
 function userDisplayName(u: User) {
-  return u.staff ? `${u.staff.firstName} ${u.staff.lastName}` : u.email;
+  return u.staff ? u.staff.firstName : u.email;
 }
 
 // ─── Status Badge ────────────────────────────────────────────────────────────
@@ -326,39 +326,6 @@ function StatCard({
         </div>
       </div>
       <div className="absolute -bottom-6 -right-6 w-24 h-24 rounded-full bg-white/5 pointer-events-none" />
-    </div>
-  );
-}
-
-function BreakdownCard({
-  title,
-  rows,
-  empty = "No data",
-}: {
-  title: string;
-  rows: { label: string; value: string; sub?: string }[];
-  empty?: string;
-}) {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
-      <p className="text-xs font-bold uppercase text-slate-500 mb-3">{title}</p>
-      {rows.length === 0 ? (
-        <p className="text-sm text-slate-400">{empty}</p>
-      ) : (
-        <ul className="space-y-2">
-          {rows.map((r, i) => (
-            <li key={i} className="flex items-center justify-between gap-2 text-sm">
-              <span className="truncate text-slate-600">{r.label}</span>
-              <span className="font-semibold text-slate-800 whitespace-nowrap">
-                {r.value}
-                {r.sub && (
-                  <span className="text-xs text-slate-400 ml-1">({r.sub})</span>
-                )}
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }
@@ -1851,49 +1818,6 @@ export function ExpensesPage() {
               icon={BarChart3}
               color="violet"
             />
-          </div>
-        )}
-
-        {/* Breakdowns: by category, by supplier, outstanding payables */}
-        {stats && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-            <BreakdownCard
-              title="Top Categories"
-              rows={[...(stats.byCategory ?? [])]
-                .sort((a, b) => Number(b._sum.amount) - Number(a._sum.amount))
-                .slice(0, 5)
-                .map((c) => ({
-                  label: c.category ?? "—",
-                  value: formatCurrency(Number(c._sum.amount ?? 0)),
-                  sub: `${c._count.id}`,
-                }))}
-            />
-            <BreakdownCard
-              title="By Supplier"
-              rows={[...(stats.bySupplier ?? [])]
-                .sort((a, b) => Number(b._sum.amount) - Number(a._sum.amount))
-                .slice(0, 5)
-                .map((s) => ({
-                  label: s.supplierName ?? "Unspecified",
-                  value: formatCurrency(Number(s._sum.amount ?? 0)),
-                  sub: `${s._count.id}`,
-                }))}
-              empty="No supplier-linked expenses"
-            />
-            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col">
-              <p className="text-xs font-bold uppercase text-slate-500">
-                Outstanding Payables
-              </p>
-              <p className="text-2xl font-bold text-amber-600 mt-2">
-                {formatCurrency(Number(stats.outstandingPayables?.amount ?? 0))}
-              </p>
-              <p className="text-xs text-slate-400 mt-1">
-                {stats.outstandingPayables?.count ?? 0} unpaid / partially paid
-              </p>
-              <p className="text-[11px] text-slate-400 mt-auto pt-3">
-                Money still owed to suppliers and service providers.
-              </p>
-            </div>
           </div>
         )}
 

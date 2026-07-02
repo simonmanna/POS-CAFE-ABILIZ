@@ -26,9 +26,6 @@ export interface ExpenseStats {
   totalPartiallyPaidCount: number;
   totalPaid: number;
   totalPaidCount: number;
-  byCategory?: Array<{ category?: string; _sum: { amount?: number }; _count: { id: number } }>;
-  bySupplier?: Array<{ supplierName?: string; _sum: { amount?: number }; _count: { id: number } }>;
-  outstandingPayables?: { amount: number; count: number };
 }
 
 export interface Account {

@@ -187,7 +187,7 @@ export function SettingsPage() {
             {users.data?.map((u) => (
               <div key={u.id} className="flex items-center justify-between border-b py-2 last:border-b-0">
                 <div>
-                  <div className="font-medium">{u.firstName} {u.lastName ?? ''}</div>
+                  <div className="font-medium">{u.firstName}</div>
                   <div className="text-xs text-muted-foreground">
                     {u.email} · {u.roles.map((r) => r.name).join(', ') || 'no role'}
                   </div>

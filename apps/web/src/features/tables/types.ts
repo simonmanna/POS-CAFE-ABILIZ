@@ -30,22 +30,20 @@ export type PosReservationStatus =
 export interface PosTableOrder {
   id: string;
   tableId: string;
-  documentId: string;
+  orderId: string;
   customerName: string | null;
   guestCount: number | null;
   openedAt: string;
   closedAt: string | null;
   notes: string | null;
-  document?: {
+  order?: {
     id: string;
-    documentNumber: string;
+    orderNumber: string;
     totalAmount: string;
     status: string;
     createdAt: string;
     billPrintCount: number;
     billLastPrintedAt: string | null;
-    receiptPrintCount: number;
-    receiptLastPrintedAt: string | null;
   };
 }
 
@@ -63,7 +61,7 @@ export interface PosTableReservationFE {
   seatedAt: string | null;
   noShowAt: string | null;
   cancelledAt: string | null;
-  seatedDocumentId: string | null;
+  seatedOrderId: string | null;
   table?: {
     id: string;
     number: number;
@@ -148,10 +146,10 @@ export interface UpdateReservationInput {
 }
 
 export interface SplitBillInput {
-  sourceDocumentId: string;
+  sourceOrderId: string;
   splits: Array<{
     label: string;
-    lines: Array<{ sourceLineId: string; quantity: number }>;
+    lines: Array<{ sourceItemId: string; quantity: number }>;
   }>;
   partnerId?: string;
 }

@@ -2,9 +2,9 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsArray, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 
-/** One {source line, quantity} assignment instruction. */
+/** One {source item, quantity} assignment instruction. */
 export class SplitItemDto {
-  @ApiProperty() @IsString() sourceLineId!: string;
+  @ApiProperty() @IsString() sourceItemId!: string;
   @ApiProperty() @IsNumber() @Min(0.000001) quantity!: number;
 }
 

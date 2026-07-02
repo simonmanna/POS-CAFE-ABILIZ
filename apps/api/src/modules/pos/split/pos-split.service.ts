@@ -9,25 +9,25 @@ import { PosInvoiceService } from '../billing/pos-invoice.service';
 import { PosTablesService } from '../pos-tables.service';
 import type { PaymentTender } from '../pos.service';
 
-/** One {line, qty} assignment instruction from the client. */
+/** One {item, qty} assignment instruction from the client. */
 interface ItemAssignment {
-  sourceLineId: string;
+  sourceItemId: string;
   quantity: number;
 }
 
 /**
- * Split Bills — divide a table's open tab (a draft `Document`) into multiple
+ * Split Bills — divide a table's open tab (an open `Order`) into multiple
  * independently-payable bills WITHOUT duplicating the order or touching the
- * kitchen. A `SplitBillItem` references a source `DocumentLine` + a partial
- * quantity; the invariant `Σ assigned qty per line ≤ line.quantity` is enforced
+ * kitchen. A `SplitBillItem` references a source `OrderItem` + a partial
+ * quantity; the invariant `Σ assigned qty per item ≤ item.quantity` is enforced
  * on every mutation.
  *
  * Each item-split bill settles into its OWN Invoice via the same bridge
  * `PosService.settleTab` uses (`createOrderFromResolved` → `generateInvoice` →
  * `receivePayment`). Because the splits partition the source quantities exactly,
- * stock deducts once and the GL stays balanced across the table. The source
- * draft Document is only ever cancelled (never posted) once the last bill
- * settles, so it contributes no stock/GL of its own.
+ * stock deducts once and the GL stays balanced across the table. The source open
+ * Order is only ever cancelled (never billed) once the last bill settles, so it
+ * contributes no stock/GL of its own.
  */
 @Injectable()
 export class PosSplitService {
@@ -44,19 +44,19 @@ export class PosSplitService {
 
   // ─── Query ─────────────────────────────────────────────────────────────────
 
-  /** The full split workspace for a table: source lines (+ unassigned qty),
+  /** The full split workspace for a table: source items (+ unassigned qty),
    *  every bill (+ its items + per-bill totals), and the table running balance. */
   async getState(tableId: string) {
-    const { doc, lines } = await this.loadDraftTab(this.prisma.client, tableId);
-    if (!doc) {
-      return { tableId, sourceDocumentId: null, lines: [], bills: [], summary: this.emptySummary(), splitActive: false };
+    const { order, items } = await this.loadOpenTab(this.prisma.client, tableId);
+    if (!order) {
+      return { tableId, sourceOrderId: null, lines: [], bills: [], summary: this.emptySummary(), splitActive: false };
     }
     const bills = await this.prisma.client.splitBill.findMany({
-      where: { sourceDocumentId: doc.id, status: { not: 'void' } },
+      where: { sourceOrderId: order.id, status: { not: 'void' } },
       orderBy: { createdAt: 'asc' },
       include: { items: true },
     });
-    return this.buildState(tableId, doc, lines, bills);
+    return this.buildState(tableId, order, items, bills);
   }
 
   // ─── Bill lifecycle ──────────────────────────────────────────────────────────
@@ -66,37 +66,37 @@ export class PosSplitService {
     const orgId = this.tenant.organizationId;
     const n = Math.max(1, Math.min(20, Math.floor(count)));
     return this.withTableLock(tableId, async (tx) => {
-      const { doc } = await this.loadDraftTab(tx, tableId);
-      if (!doc) throw new BadRequestException('No open tab on this table to split');
-      if (!doc.lines?.length) throw new BadRequestException('The tab is empty');
-      const existing = await tx.splitBill.count({ where: { sourceDocumentId: doc.id, status: { not: 'void' } } });
+      const { order, items } = await this.loadOpenTab(tx, tableId);
+      if (!order) throw new BadRequestException('No open tab on this table to split');
+      if (!items?.length) throw new BadRequestException('The tab is empty');
+      const existing = await tx.splitBill.count({ where: { sourceOrderId: order.id, status: { not: 'void' } } });
       for (let i = 0; i < n; i++) {
         await tx.splitBill.create({
           data: {
-            organizationId: orgId, tableId, sourceDocumentId: doc.id,
+            organizationId: orgId, tableId, sourceOrderId: order.id,
             label: `Bill ${existing + i + 1}`, splitType: 'item', status: 'open',
             createdBy: this.tenant.userId ?? null,
           },
         });
       }
-      await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: doc.id, action: 'create', newValues: { tableId, added: n } });
-      return this.reloadState(tx, tableId, doc.id);
+      await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: order.id, action: 'create', newValues: { tableId, added: n } });
+      return this.reloadState(tx, tableId, order.id);
     });
   }
 
   /** Assign quantity from the unassigned pool into a bill. */
   async assign(billId: string, items: ItemAssignment[]) {
-    return this.mutateBill(billId, async (tx, bill, doc, lines) => {
-      const assignedByLine = await this.assignedByLine(tx, doc.id);
+    return this.mutateBill(billId, async (tx, bill, order, srcItems) => {
+      const assignedByItem = await this.assignedByItem(tx, order.id);
       for (const it of items) {
-        const src = lines.find((l: any) => l.id === it.sourceLineId);
-        if (!src) throw new BadRequestException(`Unknown source line ${it.sourceLineId}`);
+        const src = srcItems.find((l: any) => l.id === it.sourceItemId);
+        if (!src) throw new BadRequestException(`Unknown source item ${it.sourceItemId}`);
         const qty = Number(it.quantity);
         if (!(qty > 0)) continue;
-        const pool = Number(src.quantity) - (assignedByLine.get(src.id) ?? 0);
+        const pool = Number(src.quantity) - (assignedByItem.get(src.id) ?? 0);
         if (qty > pool + 1e-6) throw new BadRequestException(`Only ${pool} of "${src.description}" left to assign`);
         await this.upsertItem(tx, bill.id, src.id, qty);
-        assignedByLine.set(src.id, (assignedByLine.get(src.id) ?? 0) + qty);
+        assignedByItem.set(src.id, (assignedByItem.get(src.id) ?? 0) + qty);
       }
       await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: bill.id, action: 'assign', newValues: { items } });
     });
@@ -106,7 +106,7 @@ export class PosSplitService {
   async unassign(billId: string, items: ItemAssignment[]) {
     return this.mutateBill(billId, async (tx, bill) => {
       for (const it of items) {
-        await this.decrementItem(tx, bill.id, it.sourceLineId, Number(it.quantity));
+        await this.decrementItem(tx, bill.id, it.sourceItemId, Number(it.quantity));
       }
       await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: bill.id, action: 'unassign', newValues: { items } });
     });
@@ -126,14 +126,14 @@ export class PosSplitService {
       this.assertOpen(f); this.assertOpen(t);
       for (const it of items) {
         const qty = Number(it.quantity);
-        await this.decrementItem(tx, fromBillId, it.sourceLineId, qty);
-        await this.upsertItem(tx, toBillId, it.sourceLineId, qty);
+        await this.decrementItem(tx, fromBillId, it.sourceItemId, qty);
+        await this.upsertItem(tx, toBillId, it.sourceItemId, qty);
       }
       await this.recomputeBill(tx, fromBillId);
       await this.recomputeBill(tx, toBillId);
       await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: toBillId, action: 'assign', newValues: { from: fromBillId, items } });
       void orgId;
-      return this.reloadState(tx, from.tableId, from.sourceDocumentId);
+      return this.reloadState(tx, from.tableId, from.sourceOrderId);
     });
   }
 
@@ -149,12 +149,12 @@ export class PosSplitService {
       const src = await tx.splitBill.findFirst({ where: { id: sourceBillId }, include: { items: true } });
       this.assertOpen(tgt); this.assertOpen(src);
       for (const it of src.items as any[]) {
-        await this.upsertItem(tx, targetBillId, it.sourceLineId, Number(it.quantity));
+        await this.upsertItem(tx, targetBillId, it.sourceItemId, Number(it.quantity));
       }
       await tx.splitBill.delete({ where: { id: sourceBillId } });
       await this.recomputeBill(tx, targetBillId);
       await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: targetBillId, action: 'merge' as any, newValues: { sourceBillId } });
-      return this.reloadState(tx, target.tableId, target.sourceDocumentId);
+      return this.reloadState(tx, target.tableId, target.sourceOrderId);
     });
   }
 
@@ -167,18 +167,18 @@ export class PosSplitService {
       this.assertOpen(b);
       await tx.splitBill.delete({ where: { id: billId } });
       await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: billId, action: 'delete', newValues: { tableId: bill.tableId } });
-      return this.reloadState(tx, bill.tableId, bill.sourceDocumentId);
+      return this.reloadState(tx, bill.tableId, bill.sourceOrderId);
     });
   }
 
   /** Abort the split: void every open bill (settled bills are kept). */
   async cancelSplit(tableId: string) {
     return this.withTableLock(tableId, async (tx) => {
-      const { doc } = await this.loadDraftTab(tx, tableId);
-      if (!doc) return this.buildState(tableId, null, [], []);
-      await tx.splitBill.deleteMany({ where: { sourceDocumentId: doc.id, status: 'open' } });
-      await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: doc.id, action: 'cancel', newValues: { kind: 'cancel_split', tableId } });
-      return this.reloadState(tx, tableId, doc.id);
+      const { order } = await this.loadOpenTab(tx, tableId);
+      if (!order) return this.buildState(tableId, null, [], []);
+      await tx.splitBill.deleteMany({ where: { sourceOrderId: order.id, status: 'open' } });
+      await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: order.id, action: 'cancel', newValues: { kind: 'cancel_split', tableId } });
+      return this.reloadState(tx, tableId, order.id);
     });
   }
 
@@ -188,7 +188,7 @@ export class PosSplitService {
    * Settle one bill into its own Invoice (+ Receipt) and take payment. Reuses the
    * exact bridge `settleTab` uses. Idempotent: a bill that already carries an
    * invoiceId returns it without re-charging. Closes + frees the table once every
-   * source line is fully assigned to a settled bill.
+   * source item is fully assigned to a settled bill.
    */
   async settleBill(
     billId: string,
@@ -204,19 +204,19 @@ export class PosSplitService {
     }
     if (!bill.items?.length) throw new BadRequestException('This bill has no items to pay');
 
-    const { doc, lines } = await this.loadDraftTab(this.prisma.client, bill.tableId);
-    if (!doc || doc.id !== bill.sourceDocumentId) throw new ConflictException('The tab changed since this split started — cancel the split and retry');
-    const lineById = new Map<string, any>(lines.map((l: any) => [l.id, l]));
+    const { order, items } = await this.loadOpenTab(this.prisma.client, bill.tableId);
+    if (!order || order.id !== bill.sourceOrderId) throw new ConflictException('The tab changed since this split started — cancel the split and retry');
+    const itemById = new Map<string, any>(items.map((l: any) => [l.id, l]));
 
     const resolvedLines = (bill.items as any[]).map((it) => {
-      const src = lineById.get(it.sourceLineId);
-      if (!src) throw new ConflictException(`Source line ${it.sourceLineId} is gone — cancel the split and retry`);
+      const src = itemById.get(it.sourceItemId);
+      if (!src) throw new ConflictException(`Source item ${it.sourceItemId} is gone — cancel the split and retry`);
       return {
         productId: src.productId ?? null,
         menuItemId: src.menuItemId ?? null,
         description: src.description,
         quantity: Number(it.quantity),
-        // The tab line's unitPrice already folds variant/accompaniment/modifier
+        // The tab item's unitPrice already folds variant/accompaniment/modifier
         // deltas — pass as-is (no re-folding), exactly like settleTab's bridge.
         unitPrice: Number(src.unitPrice),
         taxId: src.taxId ?? null,
@@ -228,21 +228,21 @@ export class PosSplitService {
     });
 
     // Build the order → invoice → payment (each manages its own transaction).
-    const order = await this.orders.createOrderFromResolved({
+    const billOrder = await this.orders.createOrderFromResolved({
       orderType: 'dine_in',
       tableId: bill.tableId,
-      partnerId: bill.partnerId ?? doc.partnerId ?? undefined,
+      partnerId: bill.partnerId ?? order.partnerId ?? undefined,
       cashSessionId: dto.cashSessionId,
-      branchId: doc.branchId ?? undefined,
+      branchId: order.branchId ?? undefined,
       lines: resolvedLines,
     });
 
     let invoice: any;
     try {
-      invoice = await this.billing.generateInvoice(order.id, {});
+      invoice = await this.billing.generateInvoice(billOrder.id, {});
     } catch (e: any) {
-      this.logger.error(`[split] invoice gen failed for bill ${billId} / order ${order.id}: ${e?.message ?? e}`);
-      await this.orders.cancelOrder(order.id, 'split: invoice generation failed').catch(() => undefined);
+      this.logger.error(`[split] invoice gen failed for bill ${billId} / order ${billOrder.id}: ${e?.message ?? e}`);
+      await this.orders.cancelOrder(billOrder.id, 'split: invoice generation failed').catch(() => undefined);
       throw e;
     }
     let pay: any;
@@ -269,7 +269,7 @@ export class PosSplitService {
     });
     await this.audit.record({ entity: 'SplitBill', entityId: billId, action: 'post' as any, newValues: { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber } });
 
-    const tableClosed = await this.maybeCloseTable(bill.tableId, bill.sourceDocumentId);
+    const tableClosed = await this.maybeCloseTable(bill.tableId, bill.sourceOrderId);
 
     return {
       billId,
@@ -283,27 +283,27 @@ export class PosSplitService {
 
   // ─── Internals ───────────────────────────────────────────────────────────────
 
-  /** Close + free the table once every source line is fully assigned to a settled
+  /** Close + free the table once every source item is fully assigned to a settled
    *  bill (no open bills, no unassigned quantity left). Otherwise leave it open. */
-  private async maybeCloseTable(tableId: string, sourceDocumentId: string): Promise<boolean> {
-    const { doc, lines } = await this.loadDraftTab(this.prisma.client, tableId);
-    if (!doc || doc.id !== sourceDocumentId) return false;
-    const open = await this.prisma.client.splitBill.count({ where: { sourceDocumentId, status: 'open' } });
+  private async maybeCloseTable(tableId: string, sourceOrderId: string): Promise<boolean> {
+    const { order, items } = await this.loadOpenTab(this.prisma.client, tableId);
+    if (!order || order.id !== sourceOrderId) return false;
+    const open = await this.prisma.client.splitBill.count({ where: { sourceOrderId, status: 'open' } });
     if (open > 0) return false;
-    const settled = await this.prisma.client.splitBill.findMany({ where: { sourceDocumentId, status: 'settled' }, include: { items: true } });
-    const assignedByLine = new Map<string, number>();
+    const settled = await this.prisma.client.splitBill.findMany({ where: { sourceOrderId, status: 'settled' }, include: { items: true } });
+    const assignedByItem = new Map<string, number>();
     for (const b of settled as any[]) {
-      for (const it of b.items) assignedByLine.set(it.sourceLineId, (assignedByLine.get(it.sourceLineId) ?? 0) + Number(it.quantity));
+      for (const it of b.items) assignedByItem.set(it.sourceItemId, (assignedByItem.get(it.sourceItemId) ?? 0) + Number(it.quantity));
     }
-    const fullyAssigned = lines.every((l: any) => Math.abs(Number(l.quantity) - (assignedByLine.get(l.id) ?? 0)) < 1e-6);
+    const fullyAssigned = items.every((l: any) => Math.abs(Number(l.quantity) - (assignedByItem.get(l.id) ?? 0)) < 1e-6);
     if (!fullyAssigned) return false;
 
-    // Everything is paid — retire the draft tab + free the table (mirrors settleTab).
+    // Everything is paid — retire the source tab Order + free the table (mirrors settleTab).
     try {
-      await this.prisma.client.document.update({ where: { id: doc.id }, data: { status: 'cancelled', notes: `Split-settled across ${settled.length} bill(s)` } });
+      await this.orders.cancelOrder(order.id, `Split-settled across ${settled.length} bill(s)`);
     } catch (e: any) { this.logger.warn(`[split] tab cancel failed: ${e?.message}`); }
     try {
-      await this.tables.closeTableOrder({ tableId, documentId: doc.id });
+      await this.tables.closeTableOrder({ tableId, orderId: order.id });
     } catch (e: any) { this.logger.warn(`[split] close table failed: ${e?.message}`); }
     return true;
   }
@@ -311,18 +311,18 @@ export class PosSplitService {
   /** Run a bill-scoped mutation under the table lock + recompute the bill after. */
   private async mutateBill(
     billId: string,
-    fn: (tx: any, bill: any, doc: any, lines: any[]) => Promise<void>,
+    fn: (tx: any, bill: any, order: any, items: any[]) => Promise<void>,
   ) {
     const bill = await this.prisma.client.splitBill.findFirst({ where: { id: billId } });
     if (!bill) throw new NotFoundException('Bill not found');
     return this.withTableLock(bill.tableId, async (tx) => {
       const b = await tx.splitBill.findFirst({ where: { id: billId } });
       this.assertOpen(b);
-      const { doc, lines } = await this.loadDraftTab(tx, bill.tableId);
-      if (!doc || doc.id !== bill.sourceDocumentId) throw new ConflictException('The tab changed — cancel the split and retry');
-      await fn(tx, b, doc, lines);
+      const { order, items } = await this.loadOpenTab(tx, bill.tableId);
+      if (!order || order.id !== bill.sourceOrderId) throw new ConflictException('The tab changed — cancel the split and retry');
+      await fn(tx, b, order, items);
       await this.recomputeBill(tx, billId);
-      return this.reloadState(tx, bill.tableId, bill.sourceDocumentId);
+      return this.reloadState(tx, bill.tableId, bill.sourceOrderId);
     });
   }
 
@@ -332,21 +332,21 @@ export class PosSplitService {
     if (bill.status === 'void') throw new ConflictException('That bill was cancelled');
   }
 
-  /** Increment (or create) a bill's item for a source line. */
-  private async upsertItem(tx: any, billId: string, sourceLineId: string, qty: number): Promise<void> {
+  /** Increment (or create) a bill's item for a source item. */
+  private async upsertItem(tx: any, billId: string, sourceItemId: string, qty: number): Promise<void> {
     if (!(qty > 0)) return;
-    const existing = await tx.splitBillItem.findFirst({ where: { splitBillId: billId, sourceLineId } });
+    const existing = await tx.splitBillItem.findFirst({ where: { splitBillId: billId, sourceItemId } });
     if (existing) {
       await tx.splitBillItem.update({ where: { id: existing.id }, data: { quantity: dec(existing.quantity).plus(qty) as any } });
     } else {
-      await tx.splitBillItem.create({ data: { organizationId: this.tenant.organizationId, splitBillId: billId, sourceLineId, quantity: qty } });
+      await tx.splitBillItem.create({ data: { organizationId: this.tenant.organizationId, splitBillId: billId, sourceItemId, quantity: qty } });
     }
   }
 
   /** Decrement a bill's item (delete when it hits zero). */
-  private async decrementItem(tx: any, billId: string, sourceLineId: string, qty: number): Promise<void> {
+  private async decrementItem(tx: any, billId: string, sourceItemId: string, qty: number): Promise<void> {
     if (!(qty > 0)) return;
-    const existing = await tx.splitBillItem.findFirst({ where: { splitBillId: billId, sourceLineId } });
+    const existing = await tx.splitBillItem.findFirst({ where: { splitBillId: billId, sourceItemId } });
     if (!existing) throw new BadRequestException('That item is not on this bill');
     const next = Number(existing.quantity) - qty;
     if (next < -1e-6) throw new BadRequestException(`Bill only has ${Number(existing.quantity)} of that item`);
@@ -354,57 +354,72 @@ export class PosSplitService {
     else await tx.splitBillItem.update({ where: { id: existing.id }, data: { quantity: next } });
   }
 
-  /** Recompute a bill's snapshot totals (proportional share of each source line). */
+  /** Recompute a bill's snapshot totals (proportional share of each source item). */
   private async recomputeBill(tx: any, billId: string): Promise<void> {
     const bill = await tx.splitBill.findFirst({ where: { id: billId }, include: { items: true } });
     if (!bill) return;
-    const { lines } = await this.loadDraftTab(tx, bill.tableId);
-    const lineById = new Map<string, any>(lines.map((l: any) => [l.id, l]));
+    const { items } = await this.loadOpenTab(tx, bill.tableId);
+    const itemById = new Map<string, any>(items.map((l: any) => [l.id, l]));
     let subtotal = dec(0); let total = dec(0);
     for (const it of bill.items as any[]) {
-      const src = lineById.get(it.sourceLineId);
+      const src = itemById.get(it.sourceItemId);
       if (!src) continue;
       const lineQty = Number(src.quantity) || 1;
       const ratio = dec(it.quantity).dividedBy(lineQty);
-      subtotal = subtotal.plus(dec(src.subtotal).times(ratio));
-      total = total.plus(dec(src.total).times(ratio));
+      const lineTotal = this.lineTotal(src);
+      subtotal = subtotal.plus(dec(lineTotal).times(ratio));
+      total = total.plus(dec(lineTotal).times(ratio));
     }
     await tx.splitBill.update({ where: { id: billId }, data: { subtotal: subtotal as any, totalAmount: total as any } });
   }
 
-  /** Map of sourceLineId → total qty assigned across all non-void bills. */
-  private async assignedByLine(db: any, sourceDocumentId: string): Promise<Map<string, number>> {
-    const bills = await db.splitBill.findMany({ where: { sourceDocumentId, status: { not: 'void' } }, include: { items: true } });
+  /** Discounted line amount for an OrderItem (OrderItem stores no per-line total). */
+  private lineTotal(it: any): number {
+    const qty = Number(it.quantity);
+    const unit = Number(it.unitPrice);
+    const disc = Number(it.discountPercent ?? 0);
+    return qty * unit * (1 - disc / 100);
+  }
+
+  /** Map of sourceItemId → total qty assigned across all non-void bills. */
+  private async assignedByItem(db: any, sourceOrderId: string): Promise<Map<string, number>> {
+    const bills = await db.splitBill.findMany({ where: { sourceOrderId, status: { not: 'void' } }, include: { items: true } });
     const map = new Map<string, number>();
     for (const b of bills as any[]) {
-      for (const it of b.items) map.set(it.sourceLineId, (map.get(it.sourceLineId) ?? 0) + Number(it.quantity));
+      for (const it of b.items) map.set(it.sourceItemId, (map.get(it.sourceItemId) ?? 0) + Number(it.quantity));
     }
     return map;
   }
 
-  /** The open draft tab Document for a table (+ its lines), or null. */
-  private async loadDraftTab(db: any, tableId: string): Promise<{ doc: any | null; lines: any[] }> {
-    const order = await db.posTableOrder.findFirst({
+  /** The open tab Order for a table (+ its items), or null. */
+  private async loadOpenTab(db: any, tableId: string): Promise<{ order: any | null; items: any[] }> {
+    const link = await db.posTableOrder.findFirst({
       where: { tableId, closedAt: null },
       orderBy: { openedAt: 'desc' },
-      include: { document: { include: { lines: { orderBy: { lineNumber: 'asc' }, include: { modifiers: true } } } } },
+      include: {
+        order: {
+          include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true } } },
+        },
+      },
     });
-    const doc = order?.document && order.document.status === 'draft' ? order.document : null;
-    return { doc, lines: doc?.lines ?? [] };
+    const o = link?.order;
+    const isOpen = o && !o.invoiceId && ['draft', 'open', 'preparing', 'ready', 'served'].includes(o.status);
+    const order = isOpen ? o : null;
+    return { order, items: order?.items ?? [] };
   }
 
-  private async reloadState(tx: any, tableId: string, sourceDocumentId: string) {
-    const { doc, lines } = await this.loadDraftTab(tx, tableId);
-    const bills = await tx.splitBill.findMany({ where: { sourceDocumentId, status: { not: 'void' } }, orderBy: { createdAt: 'asc' }, include: { items: true } });
-    return this.buildState(tableId, doc, lines, bills);
+  private async reloadState(tx: any, tableId: string, sourceOrderId: string) {
+    const { order, items } = await this.loadOpenTab(tx, tableId);
+    const bills = await tx.splitBill.findMany({ where: { sourceOrderId, status: { not: 'void' } }, orderBy: { createdAt: 'asc' }, include: { items: true } });
+    return this.buildState(tableId, order, items, bills);
   }
 
   /** Shape the API response the SplitBillDialog renders. */
-  private buildState(tableId: string, doc: any | null, lines: any[], bills: any[]) {
+  private buildState(tableId: string, order: any | null, items: any[], bills: any[]) {
     const assigned = new Map<string, number>();
-    for (const b of bills) for (const it of b.items) assigned.set(it.sourceLineId, (assigned.get(it.sourceLineId) ?? 0) + Number(it.quantity));
+    for (const b of bills) for (const it of b.items) assigned.set(it.sourceItemId, (assigned.get(it.sourceItemId) ?? 0) + Number(it.quantity));
 
-    const outLines = lines.map((l: any) => {
+    const outLines = items.map((l: any) => {
       const a = assigned.get(l.id) ?? 0;
       return {
         id: l.id,
@@ -412,7 +427,7 @@ export class PosSplitService {
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
         discountPercent: Number(l.discountPercent ?? 0),
-        lineTotal: Number(l.total),
+        lineTotal: this.lineTotal(l),
         assignedQty: a,
         unassignedQty: Math.max(0, Number(l.quantity) - a),
         modifiers: (l.modifiers ?? []).map((m: any) => m.name),
@@ -429,19 +444,19 @@ export class PosSplitService {
       totalAmount: Number(b.totalAmount),
       amountPaid: Number(b.amountPaid),
       items: (b.items as any[]).map((it) => {
-        const src = lines.find((l: any) => l.id === it.sourceLineId);
+        const src = items.find((l: any) => l.id === it.sourceItemId);
         const qty = Number(it.quantity);
         const ratio = src && Number(src.quantity) ? qty / Number(src.quantity) : 0;
         return {
-          sourceLineId: it.sourceLineId,
+          sourceItemId: it.sourceItemId,
           description: src?.description ?? '(removed)',
           quantity: qty,
-          lineTotal: src ? Number(src.total) * ratio : 0,
+          lineTotal: src ? this.lineTotal(src) * ratio : 0,
         };
       }),
     }));
 
-    const tableTotal = lines.reduce((s: number, l: any) => s + Number(l.total), 0);
+    const tableTotal = outLines.reduce((s: number, l: any) => s + l.lineTotal, 0);
     const assignedTotal = outBills.reduce((s, b) => s + b.totalAmount, 0);
     const paidTotal = outBills.filter((b) => b.status === 'settled').reduce((s, b) => s + b.totalAmount, 0);
     const unassignedTotal = outLines.reduce((s, l) => s + (l.unassignedQty / (l.quantity || 1)) * l.lineTotal, 0);
@@ -450,7 +465,7 @@ export class PosSplitService {
 
     return {
       tableId,
-      sourceDocumentId: doc?.id ?? null,
+      sourceOrderId: order?.id ?? null,
       lines: outLines,
       bills: outBills,
       summary: {
@@ -486,8 +501,8 @@ export class PosSplitService {
   }
 
   /** True when the table has any non-void split bill (used to block plain settle). */
-  async hasActiveSplit(sourceDocumentId: string): Promise<boolean> {
-    const n = await this.prisma.client.splitBill.count({ where: { sourceDocumentId, status: { not: 'void' } } });
+  async hasActiveSplit(sourceOrderId: string): Promise<boolean> {
+    const n = await this.prisma.client.splitBill.count({ where: { sourceOrderId, status: { not: 'void' } } });
     return n > 0;
   }
 }

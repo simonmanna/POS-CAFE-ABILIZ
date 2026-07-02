@@ -82,7 +82,7 @@ class AssignWaiterBody {
 }
 
 class SplitLineBody {
-  @ApiProperty() @IsString() sourceLineId!: string;
+  @ApiProperty() @IsString() sourceItemId!: string;
   @ApiProperty() @IsNumber() @Min(0.0001) quantity!: number;
 }
 
@@ -93,7 +93,7 @@ class SplitGroupBody {
 }
 
 class SplitBillBody {
-  @ApiProperty() @IsString() sourceDocumentId!: string;
+  @ApiProperty() @IsString() sourceOrderId!: string;
   @ApiProperty({ type: [SplitGroupBody] }) @IsArray() @ValidateNested({ each: true }) @Type(() => SplitGroupBody)
   splits!: SplitGroupBody[];
   @ApiProperty({ required: false }) @IsOptional() @IsString() partnerId?: string;
@@ -214,7 +214,7 @@ export class PosTablesController {
   splitBill(@Param('id') id: string, @Body() dto: SplitBillBody) {
     return this.svc.splitBill({
       tableId: id,
-      sourceDocumentId: dto.sourceDocumentId,
+      sourceOrderId: dto.sourceOrderId,
       splits: dto.splits,
       partnerId: dto.partnerId,
     });
@@ -229,11 +229,11 @@ export class PosTablesController {
   @RequirePermissions('tables:edit')
   attachSale(
     @Param('id') id: string,
-    @Body() dto: { documentId: string; customerName?: string; guestCount?: number },
+    @Body() dto: { orderId: string; customerName?: string; guestCount?: number },
   ) {
     return this.svc.attachSaleToTable({
       tableId: id,
-      documentId: dto.documentId,
+      orderId: dto.orderId,
       customerName: dto.customerName,
       guestCount: dto.guestCount,
     });

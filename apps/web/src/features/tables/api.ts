@@ -157,9 +157,9 @@ export function useUnmergeTable() {
 export function useTransferTable() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { sourceId: string; targetId: string; documentIds?: string[] }) =>
+    mutationFn: async (args: { sourceId: string; targetId: string; orderIds?: string[] }) =>
       (await api.post<unknown>(`/pos/tables/${args.sourceId}/transfer/${args.targetId}`, {
-        documentIds: args.documentIds,
+        orderIds: args.orderIds,
       }, {
         headers: { 'Idempotency-Key': uuid() },
       })).data,
@@ -254,9 +254,9 @@ export function useUpdateReservation() {
 export function useSeatReservation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { id: string; documentId?: string }) =>
+    mutationFn: async (args: { id: string; orderId?: string }) =>
       (await api.post<PosTableReservationFE>(`/pos/reservations/${args.id}/seat`, {
-        documentId: args.documentId,
+        orderId: args.orderId,
       })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-reservations'] });

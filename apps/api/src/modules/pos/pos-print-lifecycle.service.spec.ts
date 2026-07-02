@@ -4,8 +4,10 @@ import { PosPrintLifecycleService } from './pos-print-lifecycle.service';
 function mockTx(overrides?: Record<string, any>): any {
   return {
     invoice: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+    order: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     document: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
     documentLine: { updateMany: jest.fn() },
+    orderItem: { updateMany: jest.fn(), update: jest.fn(), findMany: jest.fn() },
     documentPrintLog: { create: jest.fn() },
     ...overrides,
   };

@@ -409,7 +409,7 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Per-table cart persistence ============== */
   const saveCurrentTableCart = useCallback(() => {
-    const key = selectedTableId ?? 'counter';
+    const key = selectedTableId ?? 'walk-in';
     tableCartsRef.current.set(key, {
       lines: useCartStore.getState().lines,
       sentLineIds: Array.from(currentSentLineIds.current),
@@ -607,7 +607,7 @@ const TerminalPage: React.FC = () => {
   }, []);
 
   /* Auto-save: persist the cart back to the table's order whenever it changes
-   * (debounced). No table selected = counter mode, no auto-save. */
+   * (debounced). No table selected = walk-in sale, no auto-save. */
   useEffect(() => {
     // While a split is active the tab is pinned (saveTab 400s) — never auto-save.
     if (!tableId || pendingTableLoad || splitActive) return;
@@ -1111,14 +1111,14 @@ const TerminalPage: React.FC = () => {
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
     const openOrder = selectedTable?.orders?.find((o) => !o.closedAt);
     if (!openOrder) { toast.error('No open order on this table'); return; }
-    const billCount = Number(openOrder.document?.billPrintCount ?? 0);
+    const billCount = Number(openOrder.order?.billPrintCount ?? 0);
     if (billCount > 0) {
       toast.error('Bill already printed. Only Admin/Manager can reprint.');
       return;
     }
-    if (openOrder.documentId) {
+    if (openOrder.orderId) {
       try {
-        await printBill.mutateAsync({ invoiceId: openOrder.documentId });
+        await printBill.mutateAsync({ invoiceId: openOrder.orderId });
       } catch { /* non-fatal */ }
     }
     setShowBillPreview(true);
@@ -1129,7 +1129,7 @@ const TerminalPage: React.FC = () => {
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
     const openOrder = selectedTable?.orders?.find((o) => !o.closedAt);
     if (!openOrder) { toast.error('No open order on this table'); return; }
-    const billCount = Number(openOrder.document?.billPrintCount ?? 0);
+    const billCount = Number(openOrder.order?.billPrintCount ?? 0);
     if (billCount === 0) {
       toast.error('Print the initial bill first before printing an additional bill.');
       return;
@@ -1177,7 +1177,7 @@ const TerminalPage: React.FC = () => {
   /* ============== Split Bill ============== */
   /* Dine-in: open the split workspace (divide the tab into independent bills).
    * Flush the cart first so server DocumentLine ids match the on-screen order —
-   * the split references those ids. Counter sales fall back to multi-tender. */
+   * the split references those ids. Walk-in sales fall back to multi-tender. */
   const onSplit = async () => {
     if (!tableId) {
       toast.info('Split bill is for dine-in tables. For counter sales, add multiple tenders at payment.');
@@ -1262,7 +1262,7 @@ const TerminalPage: React.FC = () => {
         onCloseShift={() => setShowCloseShift(true)}
         onOpenTableSelector={() => setShowTableSelector(true)}
         activeTableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : null}
-        staffName={user ? `${user.firstName} ${user.lastName ?? ''}`.trim() : undefined}
+        staffName={user?.firstName}
         staffRole={(user as any)?.roles?.[0]}
         session={session ?? null}
         fullscreen={fullscreen}
@@ -1305,7 +1305,7 @@ const TerminalPage: React.FC = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
                     {tables.map((t) => {
                       const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
-                      const backendTotal = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
+                      const backendTotal = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
                       const statusColors: Record<string, string> = {
                         available: 'bg-emerald-400',
                         occupied: 'bg-amber-400',
@@ -1369,7 +1369,7 @@ const TerminalPage: React.FC = () => {
                 activeId={activeCategory}
                 onSelect={setActiveCategory}
               />
-              <div className="relative flex-1 min-h-0">
+              <div className="relative flex-1 flex flex-col min-h-0">
                 <MenuGrid products={products as any} locked={locked} onPick={onPickProduct} />
               </div>
             </div>
@@ -1385,7 +1385,7 @@ const TerminalPage: React.FC = () => {
             onChangeOrderType={handleChangeOrderType}
             tableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : undefined}
             tableId={tableId}
-            billAlreadyPrinted={!!selectedTable?.orders?.find((o) => !o.closedAt && (o.document?.billPrintCount ?? 0) > 0)}
+            billAlreadyPrinted={!!selectedTable?.orders?.find((o) => !o.closedAt && (o.order?.billPrintCount ?? 0) > 0)}
             onPrintAdditionalBill={onPrintAdditionalBill}
             onInc={onInc}
             onDec={onDec}
@@ -1540,7 +1540,7 @@ const TerminalPage: React.FC = () => {
         tableLabel={activeTableLabel ?? undefined}
         customerName={customer?.name}
         onPrint={async () => {
-          const docId = selectedTable?.orders?.find((o) => !o.closedAt)?.documentId;
+          const docId = selectedTable?.orders?.find((o) => !o.closedAt)?.orderId;
           if (docId) {
             try { await printBill.mutateAsync({ invoiceId: docId }); } catch { /* non-fatal */ }
           }
@@ -1573,7 +1573,7 @@ const TerminalPage: React.FC = () => {
         previousSubtotal={additionalBillPreviousSubtotal}
         grandTotal={additionalBillGrandTotal}
         onPrint={async () => {
-          const docId = selectedTable?.orders?.find((o) => !o.closedAt)?.documentId;
+          const docId = selectedTable?.orders?.find((o) => !o.closedAt)?.orderId;
           if (docId) {
             try { await printAdditionalBill.mutateAsync({ invoiceId: docId }); } catch { /* non-fatal */ }
           }
@@ -1702,7 +1702,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
   };
   const badge = statusBadge[table.status] ?? { label: table.status, cls: 'bg-slate-100 text-slate-600' };
   const openOrders = (table.orders ?? []).filter((o) => !o.closedAt);
-  const tableTotal = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
+  const tableTotal = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
 
   return (
     <div className="flex flex-col h-full">
@@ -1775,7 +1775,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
-                      {o.document?.documentNumber ?? `#${o.id.slice(0, 6)}`}
+                      {o.order?.orderNumber ?? `#${o.id.slice(0, 6)}`}
                     </span>
                     <span className="text-[10px] font-semibold text-slate-400">
                       {o.openedAt ? `${Math.max(1, Math.floor((Date.now() - new Date(o.openedAt).getTime()) / 60000))}m ago` : 'New'}
@@ -1790,10 +1790,10 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className="text-sm font-bold text-slate-800">
-                    {o.document ? `UGX ${Number(o.document.totalAmount || 0).toLocaleString()}` : '—'}
+                    {o.order ? `UGX ${Number(o.order.totalAmount || 0).toLocaleString()}` : '—'}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
-                    {o.document?.status ?? 'open'} · {o.guestCount ?? '?'} guests
+                    {o.order?.status ?? 'open'} · {o.guestCount ?? '?'} guests
                   </div>
                 </div>
               </div>

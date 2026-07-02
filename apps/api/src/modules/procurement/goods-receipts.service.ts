@@ -5,6 +5,7 @@ import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { StockService } from '../inventory/stock.service';
+import { PaginatedResult, PaginationQuery, DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '@erp/shared';
 
 interface CreateGRNInput {
   warehouseId: string;
@@ -36,7 +37,6 @@ export class GoodsReceiptsService {
     private readonly stock: StockService,
   ) {}
 
-  /** Create and post an ad-hoc GRN (direct stock-in without a PO). */
   async createAdhoc(input: CreateGRNInput) {
     const orgId = this.tenant.organizationId;
     if (!input.lines?.length) throw new BadRequestException('At least one line required');
@@ -84,7 +84,6 @@ export class GoodsReceiptsService {
         include: { lines: true },
       });
 
-      // Post stock for trackable products
       for (const ln of input.lines) {
         if (!ln.productId) continue;
         const product = await tx.product.findFirst({
@@ -115,7 +114,7 @@ export class GoodsReceiptsService {
       newValues: { receiptNumber, lines: input.lines.length },
     });
     this.events.publish('goods_receipt.posted' as any, {
-      organizationId: orgId,
+      organizationId: this.tenant.organizationId,
       receiptId: result.id,
       receiptNumber,
     });
@@ -123,16 +122,37 @@ export class GoodsReceiptsService {
     return result;
   }
 
-  list(query: { status?: string; purchaseOrderId?: string }) {
-    const where: any = { organizationId: this.tenant.organizationId };
+  async list(query: PaginationQuery & { status?: string }): Promise<PaginatedResult<any>> {
+    const orgId = this.tenant.organizationId;
+    const page = Math.max(1, Number(query.page) || DEFAULT_PAGE);
+    const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(query.pageSize) || DEFAULT_PAGE_SIZE));
+    const where: any = { organizationId: orgId };
+
     if (query.status) where.status = query.status;
-    if (query.purchaseOrderId) where.purchaseOrderId = query.purchaseOrderId;
-    return this.prisma.client.goodsReceiptNote.findMany({
-      where,
-      include: { lines: true, order: { select: { orderNumber: true } } },
-      orderBy: { receivedAt: 'desc' },
-      take: 200,
-    });
+
+    if (query.search) {
+      where.OR = [
+        { receiptNumber: { contains: query.search, mode: 'insensitive' } },
+        { notes: { contains: query.search, mode: 'insensitive' } },
+        { order: { orderNumber: { contains: query.search, mode: 'insensitive' } } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.client.goodsReceiptNote.findMany({
+        where,
+        include: { lines: true, order: { select: { orderNumber: true } } },
+        orderBy: { receivedAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.client.goodsReceiptNote.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+    };
   }
 
   findOne(id: string) {

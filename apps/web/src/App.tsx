@@ -20,6 +20,8 @@ import { WebhooksPage } from '@/pages/webhooks';
 import { FilesPage } from '@/pages/files';
 import { ModulesPage } from '@/pages/modules';
 import { ChartOfAccountsPage } from '@/pages/accounting/chart-of-accounts';
+import { CashAccountsPage } from '@/pages/accounting/cash-accounts';
+import { CashAccountDetailPage } from '@/pages/accounting/cash-account-detail';
 import { CashRegistersCrudPage } from '@/pages/accounting/cash-registers';
 import { JournalEntriesPage } from '@/pages/accounting/journal-entries';
 import { TrialBalancePage } from '@/pages/accounting/trial-balance';
@@ -114,6 +116,8 @@ export function App() {
           <Route path="/supplier-payments" element={<SupplierPaymentsPage />} />
           <Route path="/ar-aging" element={<ArAgingPage />} />
           <Route path="/accounts" element={<ChartOfAccountsPage />} />
+          <Route path="/accounts/cash-accounts" element={<CashAccountsPage />} />
+          <Route path="/accounts/cash-accounts/:id" element={<CashAccountDetailPage />} />
           <Route path="/accounts/cash-registers" element={<CashRegistersCrudPage />} />
           <Route path="/journals" element={<JournalsPage />} />
           <Route path="/journal-entries" element={<JournalEntriesPage />} />

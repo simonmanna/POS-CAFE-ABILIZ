@@ -147,7 +147,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
                   {(u.firstName?.[0] || '?').toUpperCase()}
                 </div>
                 <span className="text-sm font-semibold text-center leading-tight">
-                  {u.firstName} {u.lastName || ''}
+                  {u.firstName}
                 </span>
               </button>
             ))}
@@ -172,7 +172,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
           {(selectedUser?.firstName?.[0] || '?').toUpperCase()}
         </div>
         <h2 className="text-xl font-bold text-white">
-          {selectedUser?.firstName} {selectedUser?.lastName || ''}
+          {selectedUser?.firstName}
         </h2>
         <p className="text-slate-400 text-sm mt-1">Enter your POS PIN</p>
       </div>

@@ -91,29 +91,38 @@ export class PosReceiptsService {
       return { ...inv, documentNumber: inv.invoiceNumber, partner, cashierName, lines: linesWithProducts };
     }
 
-    // Fallback to generic Document (legacy tab flow).
-    const doc = await this.prisma.client.document.findFirst({
-      where: { id: invoiceId, organizationId: orgId, documentType: 'sales_invoice' },
+    // Fallback to the open tab Order (pre-settle bill — no Invoice yet).
+    const order = await this.prisma.client.order.findFirst({
+      where: { id: invoiceId, organizationId: orgId },
+      include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true } } },
     });
-    if (!doc) throw new NotFoundException('Invoice not found');
-    const [partner, lines, productMap] = await Promise.all([
-      this.prisma.client.partner.findFirst({ where: { id: doc.partnerId } }),
-      this.prisma.client.documentLine.findMany({
-        where: { documentId: invoiceId },
-        orderBy: { lineNumber: 'asc' },
-        include: { modifiers: true },
-      }),
-      this.resolveProductsForLines(
-        (await this.prisma.client.documentLine.findMany({ where: { documentId: invoiceId }, select: { productId: true } }))
-          .map((l: any) => l.productId).filter(Boolean),
-      ),
+    if (!order) throw new NotFoundException('Invoice not found');
+    const [partner, productMap] = await Promise.all([
+      this.prisma.client.partner.findFirst({ where: { id: order.partnerId ?? undefined } }),
+      this.resolveProductsForLines((order.items as any[]).map((i: any) => i.productId).filter(Boolean)),
     ]);
-    const linesWithProducts = lines.map((ln: any) => ({
-      ...ln,
-      product: ln.productId ? productMap.get(ln.productId) : null,
-    }));
-    const cashierName = await this.resolveUserName((doc as any).createdBy);
-    return { ...doc, partner, cashierName, lines: linesWithProducts };
+    const linesWithProducts = (order.items as any[]).map((ln: any) => {
+      const qty = Number(ln.quantity);
+      const unit = Number(ln.unitPrice);
+      const disc = Number(ln.discountPercent ?? 0);
+      return {
+        ...ln,
+        total: qty * unit * (1 - disc / 100),
+        product: ln.productId ? productMap.get(ln.productId) : null,
+      };
+    });
+    const cashierName = await this.resolveUserName((order as any).createdBy ?? (order as any).waiterId);
+    // Normalise to the receipt shape (an un-billed tab has no invoice fields yet).
+    return {
+      ...order,
+      documentNumber: order.orderNumber,
+      issueDate: order.openedAt ?? order.createdAt,
+      amountPaid: 0,
+      amountResidual: Number(order.totalAmount),
+      partner,
+      cashierName,
+      lines: linesWithProducts,
+    };
   }
 
   /** Resolve a user id into a printable "First Last" (or email) for the receipt. */
@@ -642,7 +651,7 @@ export class PosReceiptsService {
         select: { billPrintCount: true },
       });
       const prior = inv?.billPrintCount ?? (
-        await this.prisma.client.document.findFirst({
+        await this.prisma.client.order.findFirst({
           where: { id: invoiceId, organizationId: this.tenant.organizationId },
           select: { billPrintCount: true },
         })
@@ -693,13 +702,23 @@ export class PosReceiptsService {
     }
   }
 
-  /** Fetch only the lines that have NOT yet appeared on a printed bill. */
-  private async getUnbilledLines(invoiceId: string): Promise<any[]> {
+  /** Fetch only the lines that have NOT yet appeared on a printed bill. Only the
+   *  legacy Document tracks per-line bill state; for an open tab Order we return
+   *  all current items (the full bill is printed each time). */
+  private async getUnbilledLines(recordId: string): Promise<any[]> {
     const orgId = this.tenant.organizationId;
-    return this.prisma.client.documentLine.findMany({
-      where: { documentId: invoiceId, organizationId: orgId, billPrintedAt: null },
-      orderBy: { lineNumber: 'asc' },
+    const doc = await this.prisma.client.document.findFirst({ where: { id: recordId, organizationId: orgId }, select: { id: true } });
+    if (doc) {
+      return this.prisma.client.documentLine.findMany({
+        where: { documentId: recordId, organizationId: orgId, billPrintedAt: null },
+        orderBy: { lineNumber: 'asc' },
+      });
+    }
+    const order = await this.prisma.client.order.findFirst({
+      where: { id: recordId, organizationId: orgId },
+      include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' } } },
     });
+    return (order?.items as any[]) ?? [];
   }
 
   // ... (KOT, additional bill, printReceipt methods remain exactly as original) ...
@@ -836,7 +855,7 @@ export class PosReceiptsService {
       where: { id: invoiceId, organizationId: orgId },
       select: { billPrintCount: true },
     });
-    const docPrint = invPrint ? null : await this.prisma.client.document.findFirst({
+    const docPrint = invPrint ? null : await this.prisma.client.order.findFirst({
       where: { id: invoiceId, organizationId: orgId },
       select: { billPrintCount: true },
     });

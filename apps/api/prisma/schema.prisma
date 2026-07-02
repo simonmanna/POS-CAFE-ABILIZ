@@ -781,6 +781,7 @@ enum AccountType {
   cost_of_goods_sold
   bank
   cash
+  mobile_money
   receivable
   payable
   tax
@@ -1023,10 +1024,9 @@ model Document {
   branchId           String?
   sourceType         String?
   sourceId           String?
-  /// POS Tables (Phase T1): denormalised hot-path cache of which table this
-  /// sale belongs to. Authoritative link is `PosTableOrder.documentId`; this
-  /// column is kept in sync inside the same transaction so reporting queries
-  /// (utilization / revenue) can GROUP BY table without joining.
+  /// POS Tables (Phase T1): legacy denormalised cache of which table a Document
+  /// sale belonged to. POS tabs now live on `Order` (see `PosTableOrder.orderId`
+  /// + `Order.tableId`); this column is retained only for historical Document rows.
   tableId            String?
   postedAt           DateTime?
   postedBy           String?
@@ -1043,13 +1043,10 @@ model Document {
   lastPrintedById      String?
   kotPrintCount        Int       @default(0)
 
-  partner        Partner             @relation(fields: [partnerId], references: [id])
-  lines          DocumentLine[]
-  printLogs      DocumentPrintLog[]
-  allocations    PaymentAllocation[]
-  /// Back-reference for PosTableOrder.documentId. The FK is enforced from
-  /// the PosTableOrder side (Document → PosTableOrder is a 1:N relation).
-  posTableOrders PosTableOrder[]
+  partner     Partner             @relation(fields: [partnerId], references: [id])
+  lines       DocumentLine[]
+  printLogs   DocumentPrintLog[]
+  allocations PaymentAllocation[]
 
   @@unique([organizationId, documentNumber])
   @@index([organizationId])
@@ -3689,15 +3686,17 @@ model PosTable {
   @@index([organizationId, active])
 }
 
-/// Live link between a table and the open sales-invoice being rung up on it.
-/// One open sale == one row. `closedAt` is set when the Document posts so
-/// reports can compute occupancy time. `@@unique([tableId, documentId])`
-/// guarantees we can't double-link the same invoice.
+/// Live link between a table and the open Order being rung up on it.
+/// One open sale == one row. `closedAt` is set when the Order is billed/closed so
+/// reports can compute occupancy time. `@@unique([tableId, orderId])`
+/// guarantees we can't double-link the same order.
 model PosTableOrder {
   id             String    @id @default(uuid())
   organizationId String
   tableId        String
-  documentId     String
+  /// The open tab Order rung up on this table. Nullable so historical occupancy
+  /// rows (migrated from the legacy Document-linked tabs) survive without a link.
+  orderId        String?
   /// Snapshot of customer info shown in the table picker (e.g. "Sarah, 4 pax").
   /// Not a hard FK — the customer may be a walk-in (no Partner record).
   customerName   String?
@@ -3713,18 +3712,18 @@ model PosTableOrder {
   createdBy      String?
   updatedBy      String?
 
-  table    PosTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
-  document Document @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  table PosTable @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  order Order?   @relation(fields: [orderId], references: [id], onDelete: Restrict)
 
-  @@unique([tableId, documentId])
+  @@unique([tableId, orderId])
   @@index([organizationId])
   @@index([organizationId, tableId, closedAt])
-  @@index([organizationId, documentId])
+  @@index([organizationId, orderId])
   @@index([organizationId, openedAt])
 }
 
 /// A booking. When `status='seated'` the linked table flips to OCCUPIED and
-/// an empty Document is opened (no lines yet) so the cashier can start ringing.
+/// an empty Order is opened (no items yet) so the cashier can start ringing.
 /// The reservation worker flips `pending → no_show` after a 30-minute grace.
 model PosTableReservation {
   id               String               @id @default(uuid())
@@ -3745,9 +3744,9 @@ model PosTableReservation {
   /// Set when the guest is flagged as no-show by the worker.
   noShowAt         DateTime?
   cancelledAt      DateTime?
-  /// Optional FK to the Document that was opened when the reservation was seated.
+  /// Optional ref to the Order that was opened when the reservation was seated.
   /// Lets the cashier jump from the reservation list straight to the open ticket.
-  seatedDocumentId String?
+  seatedOrderId    String?
   createdAt        DateTime             @default(now())
   updatedAt        DateTime             @updatedAt
   createdBy        String?
@@ -3864,13 +3863,21 @@ model Order {
   closedAt                   DateTime?
   cancelledAt                DateTime?
   cancelReason               String?
+  /// Bill / KOT print lifecycle for the OPEN tab (pre-settle). Receipt counters
+  /// live on the Invoice once the tab is billed. Replaces the former
+  /// Document.billPrintCount / kotPrintCount for POS tabs.
+  billPrintCount             Int         @default(0)
+  billLastPrintedAt          DateTime?
+  kotPrintCount              Int         @default(0)
+  lastPrintedById            String?
   createdAt                  DateTime    @default(now())
   updatedAt                  DateTime    @updatedAt
   createdBy                  String?
   updatedBy                  String?
 
-  items   OrderItem[]
-  invoice Invoice?    @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  items          OrderItem[]
+  invoice        Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  posTableOrders PosTableOrder[]
 
   @@unique([organizationId, orderNumber])
   @@index([organizationId])
@@ -4114,10 +4121,10 @@ model ReceiptItem {
 }
 
 // ─── Split Bills (dine-in bill splitting) ───────────────────────────────────
-// Divide one table's open tab (a draft Document) into multiple independently-
+// Divide one table's open tab (an open Order) into multiple independently-
 // payable bills WITHOUT duplicating the order or re-firing the kitchen. A
-// SplitBillItem references a source DocumentLine + a PARTIAL quantity; the sum
-// of assigned quantities across non-void bills can never exceed the line qty.
+// SplitBillItem references a source OrderItem + a PARTIAL quantity; the sum
+// of assigned quantities across non-void bills can never exceed the item qty.
 // Each item-split bill settles into its OWN Invoice (reusing the Order→Invoice→
 // Receipt bridge used by settleTab); the table closes only once every line is
 // fully assigned to a settled bill. Loose refs (no FK) mirror Order.tableId.
@@ -4139,8 +4146,8 @@ model SplitBill {
   organizationId   String
   /// Loose ref to PosTable (integrity enforced in the service layer).
   tableId          String
-  /// The draft tab Document being split (its lines are the source items).
-  sourceDocumentId String
+  /// The open tab Order being split (its items are the source lines).
+  sourceOrderId    String
   label            String
   splitType        SplitType       @default(item)
   /// Percent splits only — the share of the table total this bill owes.
@@ -4161,16 +4168,16 @@ model SplitBill {
 
   @@index([organizationId])
   @@index([organizationId, tableId])
-  @@index([organizationId, sourceDocumentId])
+  @@index([organizationId, sourceOrderId])
 }
 
-/// One assignment of a source DocumentLine (whole or partial qty) to a SplitBill.
+/// One assignment of a source OrderItem (whole or partial qty) to a SplitBill.
 model SplitBillItem {
   id             String   @id @default(uuid())
   organizationId String
   splitBillId    String
-  /// The DocumentLine on the source tab this slice was taken from.
-  sourceLineId   String
+  /// The OrderItem on the source tab this slice was taken from.
+  sourceItemId   String
   quantity       Decimal  @db.Decimal(20, 6)
   createdAt      DateTime @default(now())
 
@@ -4178,7 +4185,7 @@ model SplitBillItem {
 
   @@index([organizationId])
   @@index([organizationId, splitBillId])
-  @@index([sourceLineId])
+  @@index([sourceItemId])
 }
 
 // ─── Standalone Expenses (petty-cash / operating expenses) ───────────────────

@@ -62,7 +62,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
   const meta = STATUS_META[t.status];
   const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
   const closedOrders = (t.orders ?? []).filter((o) => o.closedAt);
-  const total = openOrders.reduce((s, o) => s + Number(o.document?.totalAmount ?? 0), 0);
+  const total = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
 
   async function doMerge() {
     if (!targetId || !t) return;
@@ -104,23 +104,23 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
       const { data: doc } = await api.get(`/pos/tabs/${t.id}`);
       if (!doc?.lines?.length) { toast.error('Source document has no lines'); return; }
       const lines: Array<{ id: string; quantity: number }> = doc.lines;
-      const split1: Array<{ sourceLineId: string; quantity: number }> = [];
-      const split2: Array<{ sourceLineId: string; quantity: number }> = [];
+      const split1: Array<{ sourceItemId: string; quantity: number }> = [];
+      const split2: Array<{ sourceItemId: string; quantity: number }> = [];
       for (const ln of lines) {
         const qty = Math.floor(Number(ln.quantity));
         const half = Math.ceil(qty / 2);
         if (half > 0 && qty - half > 0) {
-          split1.push({ sourceLineId: ln.id, quantity: half });
-          split2.push({ sourceLineId: ln.id, quantity: qty - half });
+          split1.push({ sourceItemId: ln.id, quantity: half });
+          split2.push({ sourceItemId: ln.id, quantity: qty - half });
         } else {
-          split2.push({ sourceLineId: ln.id, quantity: qty });
+          split2.push({ sourceItemId: ln.id, quantity: qty });
         }
       }
       if (split1.length === 0) { toast.error('Cannot split — each line quantity is 1'); return; }
       await split.mutateAsync({
         tableId: t.id,
         body: {
-          sourceDocumentId: splitSource,
+          sourceOrderId: splitSource,
           splits: [
             { label: 'Split 1', lines: split1 },
             { label: 'Split 2', lines: split2 },
@@ -173,7 +173,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                   <CardContent className="p-3 flex items-center justify-between">
                     <div>
                       <div className="text-sm font-extrabold">
-                        #{o.document?.documentNumber ?? o.documentId.slice(0, 6)}
+                        #{o.order?.orderNumber ?? o.orderId.slice(0, 6)}
                       </div>
                       <div className="text-[11px] text-slate-500">
                         {o.customerName ?? 'Walk-in'}
@@ -183,7 +183,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                       </div>
                     </div>
                     <div className="font-extrabold text-slate-700">
-                      {fmtMoney(o.document?.totalAmount)}
+                      {fmtMoney(o.order?.totalAmount)}
                     </div>
                   </CardContent>
                 </Card>
@@ -235,11 +235,11 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
               {closedOrders.slice(0, 10).map((o) => (
                 <div key={o.id} className="flex justify-between">
                   <span>
-                    #{o.document?.documentNumber ?? o.documentId.slice(0, 6)}
+                    #{o.order?.orderNumber ?? o.orderId.slice(0, 6)}
                     {' · '}
                     {minutesBetween(o.openedAt, o.closedAt)}m
                   </span>
-                  <span className="font-bold">{fmtMoney(o.document?.totalAmount)}</span>
+                  <span className="font-bold">{fmtMoney(o.order?.totalAmount)}</span>
                 </div>
               ))}
             </div>
@@ -332,9 +332,9 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
             >
               <option value="">Select an open order…</option>
               {openOrders.map((o) => (
-                <option key={o.id} value={o.documentId}>
-                  #{o.document?.documentNumber ?? o.documentId.slice(0, 6)} ·{' '}
-                  {fmtMoney(o.document?.totalAmount)}
+                <option key={o.id} value={o.orderId}>
+                  #{o.order?.orderNumber ?? o.orderId.slice(0, 6)} ·{' '}
+                  {fmtMoney(o.order?.totalAmount)}
                 </option>
               ))}
             </select>

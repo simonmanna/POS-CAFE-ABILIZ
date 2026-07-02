@@ -352,7 +352,7 @@ export function useCheckout() {
 
 export interface TabDocument {
   id: string;
-  documentNumber: string;
+  orderNumber: string;
   status: string;
   subtotal: string;
   discountTotal: string;
@@ -840,7 +840,7 @@ export interface SplitLine {
 }
 
 export interface SplitBillItem {
-  sourceLineId: string;
+  sourceItemId: string;
   description: string;
   quantity: number;
   lineTotal: number;
@@ -860,7 +860,7 @@ export interface SplitBill {
 
 export interface SplitState {
   tableId: string;
-  sourceDocumentId: string | null;
+  sourceOrderId: string | null;
   lines: SplitLine[];
   bills: SplitBill[];
   summary: {
@@ -885,7 +885,7 @@ export interface SettleSplitResult {
   alreadySettled?: boolean;
 }
 
-type AssignItem = { sourceLineId: string; quantity: number };
+type AssignItem = { sourceItemId: string; quantity: number };
 
 /** The split workspace for a table (lines + bills + running balance). */
 export function useSplitState(tableId?: string, enabled = true) {

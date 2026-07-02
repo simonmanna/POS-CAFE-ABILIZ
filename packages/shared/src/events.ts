@@ -258,11 +258,11 @@ export interface DomainEventMap {
   'pos.table.status_changed': { organizationId: string; tableId: string; from: string; to: string; reason?: string };
   'pos.table.merged': { organizationId: string; sourceId: string; targetId: string; orderIds: string[]; actorId: string };
   'pos.table.unmerged': { organizationId: string; tableId: string; actorId: string };
-  'pos.table.transferred': { organizationId: string; sourceId: string; targetId: string; documentIds: string[]; actorId: string };
-  'pos.table.split': { organizationId: string; sourceDocumentId: string; newDocumentIds: string[]; actorId: string };
+  'pos.table.transferred': { organizationId: string; sourceId: string; targetId: string; orderIds: string[]; actorId: string };
+  'pos.table.split': { organizationId: string; sourceOrderId: string; newOrderIds: string[]; actorId: string };
   'pos.table.cleaned': { organizationId: string; tableId: string; actorId: string };
   'pos.table.reservation_created': { organizationId: string; reservationId: string; tableId: string; startAt: string; endAt: string };
-  'pos.table.reservation_seated': { organizationId: string; reservationId: string; tableId: string; documentId?: string };
+  'pos.table.reservation_seated': { organizationId: string; reservationId: string; tableId: string; orderId?: string };
   'pos.table.reservation_cancelled': { organizationId: string; reservationId: string; tableId: string };
   'pos.table.reservation_no_show': { organizationId: string; reservationId: string; tableId: string };
   'role.created': EntityEventPayload;

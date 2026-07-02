@@ -30,6 +30,7 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 import { AuditService } from '../../kernel/audit/audit.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { DocumentBuilderService } from '../invoicing/document/document-builder.service';
+import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { EVENTS } from '@erp/shared';
 
 // ─── DTOs ──────────────────────────────────────────────────────────────────
@@ -74,6 +75,7 @@ export class PosTablesService {
     private readonly audit: AuditService,
     private readonly events: EventBus,
     private readonly builder: DocumentBuilderService,
+    private readonly sequence: SequenceService,
   ) {
     const relevant = [
       EVENTS.PosTableCreated,
@@ -127,6 +129,113 @@ export class PosTablesService {
     return nextStatus as any;
   }
 
+  // ─── Order helpers (tab lives on Order, not Document) ─────────────────────
+
+  /** ORD-YYYYMMDD-NNNNNN sequence (mirrors PosOrdersService.nextOrderNumber). */
+  private async nextOrderNumberTx(tx: any): Promise<string> {
+    const d = new Date();
+    const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+    return this.sequence.next(`order:${ymd}`, { prefix: `ORD-${ymd}-`, padding: 6 }, tx);
+  }
+
+  /** Open a fresh tab Order for a table + its PosTableOrder link (in-tx). */
+  private async createTabOrderInTx(
+    tx: any,
+    args: { tableId: string; partnerId: string; branchId?: string | null; orderType?: 'dine_in' | 'takeaway' | 'delivery' },
+  ): Promise<any> {
+    const orgId = this.tenant.organizationId;
+    const orderNumber = await this.nextOrderNumberTx(tx);
+    const order = await tx.order.create({
+      data: {
+        organizationId: orgId,
+        orderNumber,
+        orderType: args.orderType ?? 'dine_in',
+        status: 'open',
+        tableId: args.tableId,
+        partnerId: args.partnerId,
+        waiterId: this.tenant.userId ?? null,
+        branchId: args.branchId ?? null,
+        createdBy: this.tenant.userId ?? null,
+      },
+    });
+    await tx.posTableOrder.create({ data: { organizationId: orgId, tableId: args.tableId, orderId: order.id } });
+    return order;
+  }
+
+  /**
+   * Replace an order's items with `inputs` (priced through the tax engine) and
+   * refresh its header totals. `modsList[i]` maps 1:1 onto `inputs[i]` (prepareLines
+   * preserves order). Kitchen lifecycle is preserved by productId. Order-based
+   * analogue of the former Document `rebuildDraftLines` + `attachLineModifiers`.
+   */
+  private async rebuildOrderItems(
+    tx: any,
+    organizationId: string,
+    orderId: string,
+    inputs: Array<{
+      productId?: string; menuItemId?: string; description: string;
+      quantity: number; unitPrice: number; taxId?: string; discountPercent: number; taxInclusive?: boolean;
+    }>,
+    modsList: Array<Array<{ modifierId: string | null; name: string; priceDelta: any }>> = [],
+  ): Promise<void> {
+    const oldItems = await tx.orderItem.findMany({
+      where: { orderId },
+      select: {
+        productId: true, kitchenPrintCount: true, kitchenLastPrintedAt: true, kitchenPrintedQty: true,
+        cancelPrintCount: true, cancelLastPrintedAt: true, lastKitchenPrintedById: true, kitchenStatus: true,
+      },
+    });
+    const lifecycleByProductId = new Map<string, any>();
+    for (const o of oldItems) if (o.productId) lifecycleByProductId.set(o.productId, o);
+
+    const totals = await this.builder.prepareLines(tx, inputs);
+    await tx.orderItem.deleteMany({ where: { orderId } });
+    for (let i = 0; i < totals.prepared.length; i++) {
+      const p = totals.prepared[i];
+      const lc = p.productId ? lifecycleByProductId.get(p.productId) : null;
+      const item = await tx.orderItem.create({
+        data: {
+          organizationId,
+          orderId,
+          productId: p.productId,
+          menuItemId: p.menuItemId,
+          variantId: p.variantId ?? undefined,
+          variantName: p.variantName ?? undefined,
+          description: p.description,
+          quantity: p.quantity,
+          unitPrice: p.unitPrice,
+          discountPercent: p.discountPercent,
+          taxId: p.taxId,
+          taxInclusive: p.taxInclusive,
+          lineNumber: p.lineNumber,
+          kitchenStatus: lc?.kitchenStatus ?? 'pending',
+          kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
+          kitchenLastPrintedAt: lc?.kitchenLastPrintedAt ?? null,
+          kitchenPrintedQty: lc?.kitchenPrintedQty ?? null,
+          cancelPrintCount: lc?.cancelPrintCount ?? 0,
+          cancelLastPrintedAt: lc?.cancelLastPrintedAt ?? null,
+          lastKitchenPrintedById: lc?.lastKitchenPrintedById ?? null,
+        },
+      });
+      const mods = modsList[i];
+      if (mods?.length) {
+        await tx.orderItemModifier.createMany({
+          data: mods.map((m) => ({ organizationId, orderItemId: item.id, modifierId: m.modifierId ?? null, name: m.name, priceDelta: m.priceDelta ?? 0 })),
+        });
+      }
+    }
+    await tx.order.update({
+      where: { id: orderId },
+      data: {
+        subtotal: totals.subtotal,
+        discountTotal: totals.discountTotal,
+        taxAmount: totals.taxAmount,
+        totalAmount: totals.total,
+        version: { increment: 1 },
+      },
+    });
+  }
+
   // ─── Queries ─────────────────────────────────────────────────────────────
 
   async list(filter: { status?: string; zone?: string; active?: boolean } = {}) {
@@ -143,16 +252,14 @@ export class PosTablesService {
         orders: {
           where: { closedAt: null },
           include: {
-            document: {
+            order: {
               select: {
                 id: true,
-                documentNumber: true,
+                orderNumber: true,
                 totalAmount: true,
                 status: true,
                 billPrintCount: true,
                 billLastPrintedAt: true,
-                receiptPrintCount: true,
-                receiptLastPrintedAt: true,
               },
             },
           },
@@ -174,17 +281,15 @@ export class PosTablesService {
           orderBy: { openedAt: 'desc' },
           take: 50,
           include: {
-            document: {
+            order: {
               select: {
                 id: true,
-                documentNumber: true,
+                orderNumber: true,
                 totalAmount: true,
                 status: true,
                 createdAt: true,
                 billPrintCount: true,
                 billLastPrintedAt: true,
-                receiptPrintCount: true,
-                receiptLastPrintedAt: true,
               },
             },
           },
@@ -459,18 +564,18 @@ export class PosTablesService {
       if (source.status === 'out_of_service' || target.status === 'out_of_service') {
         throw new ConflictException('Cannot merge an out-of-service table');
       }
-      // Settled-table guard (User Story 9): only OPEN draft orders may merge — a
-      // posted / paid sale has GL behind it and must never be re-tabled. We also
-      // refuse a cross-branch merge (branch is carried on the Document, since a
+      // Settled-table guard (User Story 9): only OPEN (un-billed) orders may merge
+      // — a billed sale has GL behind it and must never be re-tabled. We also
+      // refuse a cross-branch merge (branch is carried on the Order, since a
       // PosTable itself is not branch-scoped).
       const involved = await tx.posTableOrder.findMany({
         where: { tableId: { in: [sourceId, targetId] }, closedAt: null },
-        include: { document: { select: { status: true, branchId: true } } },
+        include: { order: { select: { status: true, branchId: true, invoiceId: true } } },
       });
-      if (involved.some((o: any) => o.document && o.document.status !== 'draft')) {
+      if (involved.some((o: any) => o.order && (o.order.invoiceId || ['closed', 'cancelled'].includes(o.order.status)))) {
         throw new ConflictException('Cannot merge settled tables');
       }
-      const branches = new Set(involved.map((o: any) => o.document?.branchId).filter(Boolean));
+      const branches = new Set(involved.map((o: any) => o.order?.branchId).filter(Boolean));
       if (branches.size > 1) {
         throw new ConflictException('Cannot merge tables from different branches');
       }
@@ -481,18 +586,18 @@ export class PosTablesService {
       });
       const allSourceIds = [sourceId, ...cascadedSourceIds.map((c: any) => c.id)];
 
-      // Reassign open PosTableOrder rows in one statement.
+      // Reassign open PosTableOrder rows + their Order.tableId cache.
       const reassigned = await tx.posTableOrder.findMany({
         where: { tableId: { in: allSourceIds }, closedAt: null },
-        select: { id: true, documentId: true },
+        select: { id: true, orderId: true },
       });
-      const docIds = reassigned.map((r: any) => r.documentId);
+      const docIds = reassigned.map((r: any) => r.orderId);
       if (docIds.length > 0) {
         await tx.posTableOrder.updateMany({
           where: { id: { in: reassigned.map((r: any) => r.id) } },
           data: { tableId: targetId },
         });
-        await tx.document.updateMany({
+        await tx.order.updateMany({
           where: { id: { in: docIds } },
           data: { tableId: targetId },
         });
@@ -586,9 +691,9 @@ export class PosTablesService {
    * Transfer every open sale from `sourceId` to `targetId`. Unlike merge,
    * source becomes AVAILABLE (no merge pointer); target becomes OCCUPIED
    * (absorbing the transferred sales). All PosTableOrder rows + their
-   * Document.tableId cache are reassigned in one tx.
+   * Order.tableId cache are reassigned in one tx.
    */
-  async transfer(sourceId: string, targetId: string, documentIds?: string[]) {
+  async transfer(sourceId: string, targetId: string, orderIds?: string[]) {
     if (sourceId === targetId) {
       throw new BadRequestException('A table cannot transfer to itself');
     }
@@ -611,12 +716,12 @@ export class PosTablesService {
         );
       }
       const where: any = { tableId: sourceId, closedAt: null };
-      if (documentIds?.length) where.documentId = { in: documentIds };
+      if (orderIds?.length) where.orderId = { in: orderIds };
       const orders = await tx.posTableOrder.findMany({
         where,
-        select: { id: true, documentId: true },
+        select: { id: true, orderId: true },
       });
-      const docIds = orders.map((o: any) => o.documentId);
+      const docIds = orders.map((o: any) => o.orderId);
       if (docIds.length === 0) {
         throw new BadRequestException('No open orders on the source table');
       }
@@ -624,7 +729,7 @@ export class PosTablesService {
         where: { id: { in: orders.map((o: any) => o.id) } },
         data: { tableId: targetId },
       });
-      await tx.document.updateMany({
+      await tx.order.updateMany({
         where: { id: { in: docIds } },
         data: { tableId: targetId },
       });
@@ -643,7 +748,7 @@ export class PosTablesService {
         organizationId,
         sourceId,
         targetId,
-        documentIds: transferred,
+        orderIds: transferred,
         actorId: userId ?? '',
       });
       return { sourceId, targetId, transferredDocuments: transferred };
@@ -693,19 +798,19 @@ export class PosTablesService {
         throw new ConflictException(`Target table T${target.number} is out of service`);
       }
 
-      // Source open draft order + lines (with modifier rows, to re-attach later).
-      const sourceOrder = await tx.posTableOrder.findFirst({
+      // Source open order + items (with modifier rows, to re-attach later).
+      const sourceLink = await tx.posTableOrder.findFirst({
         where: { tableId: sourceId, closedAt: null },
         include: {
-          document: { include: { lines: { include: { modifiers: true }, orderBy: { lineNumber: 'asc' } } } },
+          order: { include: { items: { where: { cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' } } } },
         },
       });
-      if (!sourceOrder?.document || sourceOrder.document.status !== 'draft') {
+      const sourceOrder = sourceLink?.order;
+      if (!sourceOrder || sourceOrder.invoiceId || !['draft', 'open', 'preparing', 'ready', 'served'].includes(sourceOrder.status)) {
         throw new BadRequestException('No open order on the source table');
       }
-      const sourceDoc = sourceOrder.document;
 
-      // Tally requested quantities per source line.
+      // Tally requested quantities per source item.
       const byLine = new Map<string, number>();
       for (const it of items) {
         if (!(it.quantity > 0)) throw new BadRequestException('Transfer quantity must be greater than zero');
@@ -725,13 +830,13 @@ export class PosTablesService {
       const modsOf = (l: any) =>
         (l.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId, name: m.name, priceDelta: m.priceDelta }));
 
-      // Split each source line into remaining (stays) + moved (goes to target).
+      // Split each source item into remaining (stays) + moved (goes to target).
       const remainingInputs: any[] = [];
       const remainingMods: any[][] = [];
       const movedInputs: any[] = [];
       const movedMods: any[][] = [];
       const movedSummary: Array<{ description: string; quantity: number }> = [];
-      for (const l of sourceDoc.lines as any[]) {
+      for (const l of sourceOrder.items as any[]) {
         const moveQty = byLine.get(l.id) ?? 0;
         const have = Number(l.quantity);
         if (moveQty === 0) {
@@ -761,51 +866,49 @@ export class PosTablesService {
 
       // ── Source side ──────────────────────────────────────────────────────
       if (remainingInputs.length === 0) {
-        // Fully drained → cancel the draft, close the order, free the table.
-        await tx.documentLine.deleteMany({ where: { documentId: sourceDoc.id } });
-        await tx.document.update({
-          where: { id: sourceDoc.id },
+        // Fully drained → cancel the order, close the tab link, free the table.
+        await tx.orderItem.deleteMany({ where: { orderId: sourceOrder.id } });
+        await tx.order.update({
+          where: { id: sourceOrder.id },
           data: {
             status: 'cancelled',
-            subtotal: 0, discountTotal: 0, taxAmount: 0, totalAmount: 0, amountResidual: 0,
-            notes: `Items transferred to T${target.number}`,
+            cancelledAt: new Date(),
+            cancelReason: `Items transferred to T${target.number}`,
+            subtotal: 0, discountTotal: 0, taxAmount: 0, totalAmount: 0,
+            version: { increment: 1 },
           },
         });
-        await tx.posTableOrder.updateMany({ where: { id: sourceOrder.id }, data: { closedAt: new Date() } });
+        await tx.posTableOrder.updateMany({ where: { id: sourceLink.id }, data: { closedAt: new Date() } });
       } else {
-        const srcLines = await this.rebuildDraftLines(tx, organizationId, sourceDoc.id, remainingInputs);
-        await this.attachLineModifiers(tx, organizationId, srcLines, 0, remainingMods);
+        await this.rebuildOrderItems(tx, organizationId, sourceOrder.id, remainingInputs, remainingMods);
       }
       await this.syncTableStatus(sourceId, tx);
 
       // ── Target side ──────────────────────────────────────────────────────
-      const targetOrder = await tx.posTableOrder.findFirst({
+      const targetLink = await tx.posTableOrder.findFirst({
         where: { tableId: targetId, closedAt: null },
         include: {
-          document: { include: { lines: { include: { modifiers: true }, orderBy: { lineNumber: 'asc' } } } },
+          order: { include: { items: { where: { cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' } } } },
         },
       });
-      let targetDocId: string;
-      if (targetOrder?.document && targetOrder.document.status === 'draft') {
-        // Append moved lines to the existing draft; preserve its current items
+      const targetExisting = targetLink?.order;
+      const targetIsOpen = targetExisting && !targetExisting.invoiceId && ['draft', 'open', 'preparing', 'ready', 'served'].includes(targetExisting.status);
+      let targetOrderId: string;
+      if (targetIsOpen) {
+        // Append moved items to the existing order; preserve its current items
         // and their modifier rows (rebuild cascade-deletes them).
-        targetDocId = targetOrder.documentId;
-        const existing = (targetOrder.document.lines as any[]).map((l) => toInput(l, Number(l.quantity)));
-        const existingMods = (targetOrder.document.lines as any[]).map((l) => modsOf(l));
-        const tgtLines = await this.rebuildDraftLines(tx, organizationId, targetDocId, [...existing, ...movedInputs]);
-        await this.attachLineModifiers(tx, organizationId, tgtLines, 0, [...existingMods, ...movedMods]);
+        targetOrderId = targetExisting.id;
+        const existing = (targetExisting.items as any[]).map((l) => toInput(l, Number(l.quantity)));
+        const existingMods = (targetExisting.items as any[]).map((l) => modsOf(l));
+        await this.rebuildOrderItems(tx, organizationId, targetOrderId, [...existing, ...movedInputs], [...existingMods, ...movedMods]);
       } else {
-        const doc = await this.builder.createDocument(
-          tx,
-          'sales_invoice',
-          { partnerId: sourceDoc.partnerId, issueDate: new Date().toISOString(), sourceType: 'pos', branchId: target.branchId ?? undefined } as any,
-          movedInputs,
-        );
-        targetDocId = doc.id;
-        await tx.document.update({ where: { id: doc.id }, data: { tableId: targetId } });
-        await tx.posTableOrder.create({ data: { tableId: targetId, documentId: doc.id } });
-        const tgtLines = await tx.documentLine.findMany({ where: { documentId: doc.id }, orderBy: { lineNumber: 'asc' } });
-        await this.attachLineModifiers(tx, organizationId, tgtLines, 0, movedMods);
+        const newOrder = await this.createTabOrderInTx(tx, {
+          tableId: targetId,
+          partnerId: sourceOrder.partnerId,
+          branchId: target.branchId ?? undefined,
+        });
+        targetOrderId = newOrder.id;
+        await this.rebuildOrderItems(tx, organizationId, targetOrderId, movedInputs, movedMods);
       }
       if (target.status !== 'occupied' && target.status !== 'reserved') {
         await tx.posTable.update({ where: { id: targetId }, data: { status: 'occupied' } });
@@ -821,16 +924,16 @@ export class PosTablesService {
       });
 
       const [sourceFresh, targetFresh] = await Promise.all([
-        tx.document.findFirst({ where: { id: sourceDoc.id }, include: { lines: { orderBy: { lineNumber: 'asc' } } } }),
-        tx.document.findFirst({ where: { id: targetDocId }, include: { lines: { orderBy: { lineNumber: 'asc' } } } }),
+        tx.order.findFirst({ where: { id: sourceOrder.id }, include: { items: { orderBy: { lineNumber: 'asc' } } } }),
+        tx.order.findFirst({ where: { id: targetOrderId }, include: { items: { orderBy: { lineNumber: 'asc' } } } }),
       ]);
-      return { sourceId, targetId, targetDocId, movedSummary, source: sourceFresh, target: targetFresh };
+      return { sourceId, targetId, targetOrderId, movedSummary, source: sourceFresh, target: targetFresh };
     }).then((res) => {
       this.events.publish(EVENTS.PosTableTransferred, {
         organizationId,
         sourceId,
         targetId,
-        documentIds: [res.targetDocId],
+        orderIds: [res.targetOrderId],
         actorId: userId ?? '',
       });
       return res;
@@ -838,130 +941,18 @@ export class PosTablesService {
   }
 
   /**
-   * Replace a draft document's lines with `inputs` (priced through the tax
-   * engine) and refresh its header totals. Returns the freshly-created lines in
-   * order. Shared by transferItems for both the source and target rebuilds.
-   */
-  private async rebuildDraftLines(
-    tx: any,
-    organizationId: string,
-    documentId: string,
-    inputs: Array<{
-      productId?: string; menuItemId?: string; description: string;
-      quantity: number; unitPrice: number; taxId?: string; discountPercent: number; taxInclusive?: boolean;
-    }>,
-  ) {
-    // Stash lifecycle fields from old lines before deletion.
-    const oldLines = await tx.documentLine.findMany({
-      where: { documentId },
-      select: {
-        id: true,
-        productId: true,
-        kitchenPrintCount: true,
-        kitchenLastPrintedAt: true,
-        kitchenPrintedQty: true,
-        cancelPrintCount: true,
-        cancelLastPrintedAt: true,
-        lastKitchenPrintedById: true,
-        billPrintedAt: true,
-      },
-    });
-    const lifecycleByProductId = new Map<string, any>();
-    for (const ol of oldLines) {
-      if (ol.productId) lifecycleByProductId.set(ol.productId, ol);
-    }
-
-    const totals = await this.builder.prepareLines(tx, inputs);
-    await tx.documentLine.deleteMany({ where: { documentId } });
-    for (const p of totals.prepared) {
-      const lc = p.productId ? lifecycleByProductId.get(p.productId) : null;
-      await tx.documentLine.create({
-        data: {
-          organizationId,
-          documentId,
-          productId: p.productId,
-          menuItemId: p.menuItemId,
-          accountId: p.accountId,
-          description: p.description,
-          quantity: p.quantity,
-          unitPrice: p.unitPrice,
-          discountPercent: p.discountPercent,
-          taxId: p.taxId,
-          subtotal: p.subtotal,
-          taxAmount: p.taxAmount,
-          total: p.total,
-          lineNumber: p.lineNumber,
-          taxInclusive: p.taxInclusive,
-          // Preserve lifecycle from old lines for the same product.
-          kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
-          kitchenLastPrintedAt: lc?.kitchenLastPrintedAt ?? null,
-          kitchenPrintedQty: lc?.kitchenPrintedQty ?? null,
-          cancelPrintCount: lc?.cancelPrintCount ?? 0,
-          cancelLastPrintedAt: lc?.cancelLastPrintedAt ?? null,
-          lastKitchenPrintedById: lc?.lastKitchenPrintedById ?? null,
-          billPrintedAt: lc?.billPrintedAt ?? null,
-        },
-      });
-    }
-    await tx.document.updateMany({
-      where: { id: documentId },
-      data: {
-        subtotal: totals.subtotal,
-        discountTotal: totals.discountTotal,
-        taxAmount: totals.taxAmount,
-        totalAmount: totals.total,
-        amountResidual: totals.total,
-      },
-    });
-    return tx.documentLine.findMany({ where: { documentId }, orderBy: { lineNumber: 'asc' } });
-  }
-
-  /**
-   * Re-create DocumentLineModifier rows after a line rebuild. `modsList[i]`
-   * maps onto `lines[fromIndex + i]` — prepareLines preserves input order 1:1,
-   * so positional mapping is exact. Best-effort (modifier prices are already
-   * baked into unitPrice; these rows exist for reporting).
-   */
-  private async attachLineModifiers(
-    tx: any,
-    organizationId: string,
-    lines: any[],
-    fromIndex: number,
-    modsList: Array<Array<{ modifierId: string | null; name: string; priceDelta: any }>>,
-  ) {
-    for (let i = 0; i < modsList.length; i++) {
-      const mods = modsList[i];
-      if (!mods?.length) continue;
-      const line = lines[fromIndex + i];
-      if (!line) continue;
-      for (const m of mods) {
-        await tx.documentLineModifier.create({
-          data: {
-            organizationId,
-            documentLineId: line.id,
-            modifierId: m.modifierId ?? null,
-            name: m.name,
-            priceDelta: m.priceDelta ?? 0,
-          },
-        });
-      }
-    }
-  }
-
-  /**
-   * Split a single Document into N Documents (one per "guest check"). Each
-   * new Document inherits a subset of DocumentLines from the original. The
-   * source Document is voided (status='cancelled', kept for audit) and the
-   * new Documents become separate PosTableOrder rows on the same table.
+   * Split a single open tab Order into N Orders (one per "guest check"). Each
+   * new Order inherits a subset of OrderItems from the original. The source
+   * Order is cancelled (kept for audit) and the new Orders become separate
+   * PosTableOrder rows on the same table.
    *
-   * For full menu-engine split, the caller passes `splits` — an array of
-   * `{ documentLines: { id, quantity } }` instructions. Backend re-prices
-   * and creates the new sales_invoice Documents.
+   * The caller passes `splits` — an array of `{ label, lines: { sourceItemId,
+   * quantity } }`. The backend re-prices each child through the tax engine.
    */
   async splitBill(args: {
     tableId: string;
-    sourceDocumentId: string;
-    splits: Array<{ label: string; lines: Array<{ sourceLineId: string; quantity: number }> }>;
+    sourceOrderId: string;
+    splits: Array<{ label: string; lines: Array<{ sourceItemId: string; quantity: number }> }>;
     partnerId?: string;
   }) {
     const organizationId = this.tenant.organizationId;
@@ -974,111 +965,115 @@ export class PosTablesService {
       );
       const source = await tx.posTable.findFirst({ where: { id: args.tableId, organizationId } });
       if (!source) throw new NotFoundException('Table not found');
-      const sourceDoc = await tx.document.findFirst({
-        where: { id: args.sourceDocumentId, organizationId },
-        include: { lines: true },
+      const sourceOrder = await tx.order.findFirst({
+        where: { id: args.sourceOrderId, organizationId },
+        include: { items: { where: { cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' } } },
       });
-      if (!sourceDoc) throw new NotFoundException('Source document not found');
-      // H6 — a posted/paid sale has GL behind it; cancelling it to split would
-      // orphan those entries. Only an open (unposted draft) bill can be split.
-      if (sourceDoc.status !== 'draft') {
+      if (!sourceOrder) throw new NotFoundException('Source order not found');
+      // A billed sale has GL behind it; cancelling it to split would orphan those
+      // entries. Only an open (un-billed) tab can be split.
+      if (sourceOrder.invoiceId || !['draft', 'open', 'preparing', 'ready', 'served'].includes(sourceOrder.status)) {
         throw new BadRequestException(
-          'Only an open (unposted) bill can be split — a posted or paid sale cannot be re-split',
+          'Only an open (un-billed) bill can be split — a billed sale cannot be re-split',
         );
       }
 
-      // Validate that the splits cover the original lines exactly.
-      const usedByLine = new Map<string, number>();
+      // Validate that the splits cover the original items exactly.
+      const usedByItem = new Map<string, number>();
       for (const split of args.splits) {
         for (const ln of split.lines) {
-          usedByLine.set(ln.sourceLineId, (usedByLine.get(ln.sourceLineId) ?? 0) + ln.quantity);
+          usedByItem.set(ln.sourceItemId, (usedByItem.get(ln.sourceItemId) ?? 0) + ln.quantity);
         }
       }
-      for (const srcLine of sourceDoc.lines) {
-        const requested = Number(srcLine.quantity);
-        const allocated = usedByLine.get(srcLine.id) ?? 0;
+      for (const srcItem of sourceOrder.items) {
+        const requested = Number(srcItem.quantity);
+        const allocated = usedByItem.get(srcItem.id) ?? 0;
         if (Math.abs(requested - allocated) > 0.0001) {
           throw new BadRequestException(
-            `Split quantities do not match source line ${srcLine.id} (have ${allocated}, need ${requested})`,
+            `Split quantities do not match source item ${srcItem.id} (have ${allocated}, need ${requested})`,
           );
         }
       }
 
-      // Move the open PosTableOrder off the source doc once (the source is
-      // about to be cancelled and replaced by the split tickets below).
-      await tx.posTableOrder.deleteMany({
-        where: { tableId: args.tableId, documentId: args.sourceDocumentId },
-      });
+      const itemById = new Map<string, any>((sourceOrder.items as any[]).map((i) => [i.id, i]));
 
-      // Generate one Document per split. H5: each split is priced through the
-      // DocumentBuilder so tax + document-level totals are computed correctly —
-      // the old hand-rolled lines wrote taxAmount:0 and left the doc total null.
-      const created: string[] = [];
-
-      // Phase T5: stash kitchen print lifecycle from source lines so split
-      // tickets don't re-print items already sent to the kitchen.
+      // Stash kitchen print lifecycle by product so split tickets don't re-print
+      // items already sent to the kitchen.
       const srcLifecycle = new Map<string, any>();
-      for (const ln of sourceDoc.lines) {
-        srcLifecycle.set(ln.id, {
-          kitchenPrintCount: ln.kitchenPrintCount ?? 0,
-          kitchenLastPrintedAt: ln.kitchenLastPrintedAt ?? null,
-          kitchenPrintedQty: ln.kitchenPrintedQty ?? null,
-          cancelPrintCount: ln.cancelPrintCount ?? 0,
-          cancelLastPrintedAt: ln.cancelLastPrintedAt ?? null,
-          lastKitchenPrintedById: ln.lastKitchenPrintedById ?? null,
+      for (const it of sourceOrder.items as any[]) {
+        if (!it.productId) continue;
+        srcLifecycle.set(it.productId, {
+          kitchenPrintCount: it.kitchenPrintCount ?? 0,
+          kitchenLastPrintedAt: it.kitchenLastPrintedAt ?? null,
+          kitchenPrintedQty: it.kitchenPrintedQty ?? null,
+          cancelPrintCount: it.cancelPrintCount ?? 0,
+          cancelLastPrintedAt: it.cancelLastPrintedAt ?? null,
+          lastKitchenPrintedById: it.lastKitchenPrintedById ?? null,
+          kitchenStatus: it.kitchenStatus ?? 'pending',
         });
       }
 
+      // Close the source tab link — it is about to be cancelled and replaced.
+      await tx.posTableOrder.updateMany({
+        where: { tableId: args.tableId, orderId: args.sourceOrderId, closedAt: null },
+        data: { closedAt: new Date() },
+      });
+
+      // One child Order per split (priced through the tax engine).
+      const created: string[] = [];
       for (const split of args.splits) {
-        const newDoc = await this.builder.createDocument(
-          tx,
-          'sales_invoice',
-          {
-            partnerId: args.partnerId ?? sourceDoc.partnerId,
-            currencyId: sourceDoc.currencyId ?? undefined,
-            exchangeRate: Number(sourceDoc.exchangeRate ?? 1),
-            issueDate: new Date().toISOString(),
-            reference: `Split of ${sourceDoc.documentNumber}`,
-          } as any,
-          split.lines.map((ln) => {
-            const src = sourceDoc.lines.find((s: any) => s.id === ln.sourceLineId);
-            if (!src) throw new BadRequestException(`Unknown source line ${ln.sourceLineId}`);
-            return {
-              productId: src.productId ?? undefined,
-              description: src.description + (split.label ? ` (${split.label})` : ''),
-              quantity: Number(ln.quantity),
-              unitPrice: Number(src.unitPrice),
-              discountPercent: Number(src.discountPercent),
-              taxId: src.taxId ?? undefined,
-              taxInclusive: (src as any).taxInclusive,
-            };
-          }),
-        );
-        // createDocument doesn't map branch / table / source — tag them now so
-        // the split ticket stays linked to the table and the POS report scope.
-        await tx.document.update({
-          where: { id: newDoc.id },
-          data: { branchId: sourceDoc.branchId, tableId: args.tableId, sourceType: 'pos' },
+        const inputs = split.lines.map((ln) => {
+          const src = itemById.get(ln.sourceItemId);
+          if (!src) throw new BadRequestException(`Unknown source item ${ln.sourceItemId}`);
+          return {
+            productId: src.productId ?? undefined,
+            menuItemId: src.menuItemId ?? undefined,
+            description: src.description + (split.label ? ` (${split.label})` : ''),
+            quantity: Number(ln.quantity),
+            unitPrice: Number(src.unitPrice),
+            discountPercent: Number(src.discountPercent),
+            taxId: src.taxId ?? undefined,
+            taxInclusive: (src as any).taxInclusive,
+          };
+        });
+        const mods = split.lines.map((ln) => {
+          const src = itemById.get(ln.sourceItemId);
+          return (src?.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId, name: m.name, priceDelta: m.priceDelta }));
+        });
+
+        const orderNumber = await this.nextOrderNumberTx(tx);
+        const child = await tx.order.create({
+          data: {
+            organizationId,
+            orderNumber,
+            orderType: sourceOrder.orderType,
+            status: 'open',
+            tableId: args.tableId,
+            partnerId: args.partnerId ?? sourceOrder.partnerId,
+            waiterId: this.tenant.userId ?? null,
+            branchId: sourceOrder.branchId ?? null,
+            createdBy: this.tenant.userId ?? null,
+          },
         });
         await tx.posTableOrder.create({
           data: {
+            organizationId,
             tableId: args.tableId,
-            documentId: newDoc.id,
+            orderId: child.id,
             customerName: split.label,
-            notes: `Split from ${sourceDoc.documentNumber}`,
+            notes: `Split from ${sourceOrder.orderNumber}`,
           },
         });
-        // Phase T5: inherit kitchen print lifecycle from source lines so
-        // already-printed items aren't re-sent to the kitchen on split tickets.
-        const splitSrcLineIds = split.lines.map((ln: any) => ln.sourceLineId);
-        const newLines = (newDoc as any).lines ?? [];
-        for (let i = 0; i < newLines.length; i++) {
-          const srcId = splitSrcLineIds[i];
-          if (!srcId) continue;
-          const lc = srcLifecycle.get(srcId);
+        await this.rebuildOrderItems(tx, organizationId, child.id, inputs, mods);
+
+        // Inherit kitchen lifecycle by product so already-fired items aren't
+        // re-sent to the kitchen on the split tickets.
+        const childItems = await tx.orderItem.findMany({ where: { orderId: child.id } });
+        for (const ci of childItems) {
+          const lc = ci.productId ? srcLifecycle.get(ci.productId) : null;
           if (!lc) continue;
-          await tx.documentLine.update({
-            where: { id: newLines[i].id },
+          await tx.orderItem.update({
+            where: { id: ci.id },
             data: {
               kitchenPrintCount: lc.kitchenPrintCount,
               kitchenLastPrintedAt: lc.kitchenLastPrintedAt,
@@ -1086,16 +1081,17 @@ export class PosTablesService {
               cancelPrintCount: lc.cancelPrintCount,
               cancelLastPrintedAt: lc.cancelLastPrintedAt,
               lastKitchenPrintedById: lc.lastKitchenPrintedById,
+              kitchenStatus: lc.kitchenStatus,
             },
           });
         }
-        created.push(newDoc.id);
+        created.push(child.id);
       }
-      // Mark the source document as cancelled (kept for audit; cannot be
-      // posted). The new Documents become the live tickets for tender.
-      await tx.document.update({
-        where: { id: args.sourceDocumentId },
-        data: { status: 'cancelled', notes: `Split into ${created.length} ticket(s)` },
+      // Cancel the source order (kept for audit; cannot be billed). The new
+      // orders become the live tickets for tender.
+      await tx.order.update({
+        where: { id: args.sourceOrderId },
+        data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: `Split into ${created.length} ticket(s)`, version: { increment: 1 } },
       });
       // Sync table status after split (new open orders created)
       await this.syncTableStatus(args.tableId, tx);
@@ -1103,14 +1099,14 @@ export class PosTablesService {
         entity: 'PosTable',
         entityId: args.tableId,
         action: 'update',
-        newValues: { kind: 'split', sourceDocumentId: args.sourceDocumentId, newDocumentIds: created, actorId: userId ?? null },
+        newValues: { kind: 'split', sourceOrderId: args.sourceOrderId, newOrderIds: created, actorId: userId ?? null },
       });
-      return { sourceDocumentId: args.sourceDocumentId, newDocumentIds: created };
+      return { sourceOrderId: args.sourceOrderId, newOrderIds: created };
     }).then((res) => {
       this.events.publish(EVENTS.PosTableSplit, {
         organizationId,
-        sourceDocumentId: res.sourceDocumentId,
-        newDocumentIds: res.newDocumentIds,
+        sourceOrderId: res.sourceOrderId,
+        newOrderIds: res.newOrderIds,
         actorId: userId ?? '',
       });
       return res;
@@ -1126,7 +1122,7 @@ export class PosTablesService {
    */
   async attachSaleToTable(args: {
     tableId: string;
-    documentId: string;
+    orderId: string;
     customerName?: string;
     guestCount?: number;
   }) {
@@ -1144,11 +1140,11 @@ export class PosTablesService {
       }
       await tx.posTableOrder.upsert({
         where: {
-          tableId_documentId: { tableId: args.tableId, documentId: args.documentId },
+          tableId_orderId: { tableId: args.tableId, orderId: args.orderId },
         },
         create: {
           tableId: args.tableId,
-          documentId: args.documentId,
+          orderId: args.orderId,
           customerName: args.customerName ?? null,
           guestCount: args.guestCount ?? null,
         },
@@ -1157,13 +1153,13 @@ export class PosTablesService {
           guestCount: args.guestCount ?? null,
         },
       });
-      await tx.document.update({
-        where: { id: args.documentId },
+      await tx.order.update({
+        where: { id: args.orderId },
         data: { tableId: args.tableId },
       });
       // Sync status: occupied if open orders exist, available otherwise (reserved stays reserved)
       await this.syncTableStatus(args.tableId, tx);
-      return { tableId: args.tableId, documentId: args.documentId };
+      return { tableId: args.tableId, orderId: args.orderId };
     });
   }
 
@@ -1171,7 +1167,7 @@ export class PosTablesService {
    * Close the open PosTableOrder(s) on a table after payment.
    * Table status auto-synced: no open orders → available, else occupied.
    */
-  async closeTableOrder(args: { tableId: string; documentId?: string }): Promise<{ closed: number; tableStatus: 'available' | 'occupied' | 'reserved' | 'out_of_service' }> {
+  async closeTableOrder(args: { tableId: string; orderId?: string }): Promise<{ closed: number; tableStatus: 'available' | 'occupied' | 'reserved' | 'out_of_service' }> {
     const organizationId = this.tenant.organizationId;
     return this.prisma.client.$transaction(async (tx: any) => {
       await tx.$queryRawUnsafe(
@@ -1180,7 +1176,7 @@ export class PosTablesService {
         organizationId,
       );
       const where: any = { tableId: args.tableId, closedAt: null };
-      if (args.documentId) where.documentId = args.documentId;
+      if (args.orderId) where.orderId = args.orderId;
       const closed = await tx.posTableOrder.updateMany({
         where,
         data: { closedAt: new Date() },

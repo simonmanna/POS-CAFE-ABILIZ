@@ -105,7 +105,7 @@ export function StaffPage() {
         <div className="space-y-0.5">
           <div className="flex items-center gap-2">
             <span className="font-medium">
-              {u.firstName} {u.lastName ?? ''}
+              {u.firstName}
             </span>
             {u.id === meId && (
               <Badge variant="outline" className="text-[10px]">
@@ -297,7 +297,7 @@ export function StaffPage() {
             <DialogTitle>Delete user?</DialogTitle>
             <DialogDescription>
               {deleting
-                ? `${deleting.firstName} ${deleting.lastName ?? ''} (${deleting.email}) will be deactivated. Their sessions will be revoked.`
+                ? `${deleting.firstName} (${deleting.email}) will be deactivated. Their sessions will be revoked.`
                 : ''}
             </DialogDescription>
           </DialogHeader>

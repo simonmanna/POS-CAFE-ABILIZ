@@ -246,39 +246,6 @@ export class PosService {
 
 
   /**
-   * M-D — persist each line's selected modifiers as queryable rows. `docLines`
-   * and `sourceLines` share order (lineNumber). Best-effort: never fails the sale,
-   * and is a no-op until the DocumentLineModifier migration has been applied.
-   */
-  private async persistLineModifiers(
-    client: any,
-    docLines: Array<{ id: string; lineNumber: number }>,
-    sourceLines: Array<{ modifiers?: CheckoutLineModifier[] }>,
-  ): Promise<void> {
-    try {
-      const orgId = this.tenant.organizationId;
-      const ordered = [...docLines].sort((a, b) => (a.lineNumber ?? 0) - (b.lineNumber ?? 0));
-      const rows: any[] = [];
-      for (let i = 0; i < ordered.length; i++) {
-        const mods = sourceLines[i]?.modifiers;
-        if (!mods?.length) continue;
-        for (const m of mods) {
-          rows.push({
-            organizationId: orgId,
-            documentLineId: ordered[i].id,
-            modifierId: m.modifierId,
-            name: m.name,
-            priceDelta: m.priceDelta,
-          });
-        }
-      }
-      if (rows.length > 0) await client.documentLineModifier.createMany({ data: rows });
-    } catch (e: any) {
-      this.logger.warn(`persistLineModifiers skipped: ${String(e?.message ?? e)}`);
-    }
-  }
-
-  /**
    * P9.C — Low-stock alert. Publishes a domain event AND writes a notification
    * so the manager's bell icon lights up. Rate-limited: only fires once per
    * product per 15 minutes so a busy shift doesn't spam.
@@ -538,25 +505,76 @@ export class PosService {
   // kitchen), the running bill is always readable, and the tab is settled — and
   // only then posted + paid + stock-issued + the table marked dirty — at the end.
 
-  /** Return the open (unposted) tab for a table — the running bill — or null. */
+  /** Return the open (unbilled) tab for a table — the running bill — or null. */
   async getTab(tableId: string) {
-    const orgId = this.tenant.organizationId;
-    const order = await this.prisma.client.posTableOrder.findFirst({
-      where: { tableId, closedAt: null },
-      orderBy: { openedAt: 'desc' },
-      include: {
-        document: { include: { lines: { orderBy: { lineNumber: 'asc' }, include: { modifiers: true } }, partner: true } },
-      },
-    });
-    if (!order?.document || order.document.status !== 'draft') return null;
-    return order.document;
+    const order = await this.orders.getOpenOrderForTable(tableId);
+    if (!order) return null;
+    return this.toTabView(order);
   }
 
   /**
-   * Add a round of items to a table's tab. Creates the draft Document on the
-   * first round and appends to it thereafter (rebuilding totals through the tax
-   * engine), flips the table OCCUPIED, and optionally fires the new items to the
-   * kitchen. No GL / stock / cash effect happens until the tab is settled.
+   * Map an open Order (with items) to the tab view the POS terminal renders.
+   * Keeps the historical "TabDocument" shape (lines + running totals) but sourced
+   * from the Order aggregate — no Document involved.
+   */
+  private toTabView(o: any) {
+    return {
+      id: o.id,
+      orderNumber: o.orderNumber,
+      status: o.status,
+      subtotal: String(o.subtotal ?? 0),
+      discountTotal: String(o.discountTotal ?? 0),
+      taxAmount: String(o.taxAmount ?? 0),
+      totalAmount: String(o.totalAmount ?? 0),
+      guestCount: o.guestCount ?? null,
+      partnerId: o.partnerId ?? null,
+      lines: (o.items ?? []).map((it: any) => {
+        const qty = Number(it.quantity);
+        const unit = Number(it.unitPrice);
+        const disc = Number(it.discountPercent ?? 0);
+        const total = qty * unit * (1 - disc / 100);
+        return {
+          id: it.id,
+          productId: it.productId ?? null,
+          menuItemId: it.menuItemId ?? null,
+          description: it.description,
+          quantity: String(it.quantity),
+          unitPrice: String(it.unitPrice),
+          total: String(total),
+          modifiers: (it.modifiers ?? []).map((m: any) => ({
+            modifierId: m.modifierId, name: m.name, priceDelta: String(m.priceDelta),
+          })),
+        };
+      }),
+    };
+  }
+
+  /** Record the table↔open-order occupancy link (denormalised for the table map). */
+  private async linkTableOrder(tableId: string, orderId: string, guestCount?: number): Promise<void> {
+    await this.prisma.client.posTableOrder.create({
+      data: {
+        organizationId: this.tenant.organizationId,
+        tableId,
+        orderId,
+        guestCount: guestCount ?? null,
+      },
+    });
+  }
+
+  /** Close the table↔order occupancy link (does not free the table by itself). */
+  private async closeTableLink(tableId: string, orderId: string): Promise<void> {
+    await this.prisma.client.posTableOrder.updateMany({
+      where: { tableId, orderId, closedAt: null },
+      data: { closedAt: new Date() },
+    });
+  }
+
+  /**
+   * Add a round of items to a table's tab. Opens the Order on the first round and
+   * appends to it thereafter (delegating to the Order aggregate, which prices,
+   * validates and snapshots totals), flips the table OCCUPIED, and optionally
+   * fires the new items to the kitchen. No GL / stock / cash effect happens until
+   * the tab is settled.
    */
   async addToTab(input: {
     tableId: string;
@@ -568,175 +586,39 @@ export class PosService {
     transactionDiscountPercent?: number;
   }) {
     if (!input.lines?.length) throw new BadRequestException('No items to add');
-    // Validate variants per line.
-    for (const ln of input.lines) {
-      if (ln.variantId && ln.menuItemId) {
-        await this.variants.validateVariant(ln.menuItemId, ln.variantId);
-      }
-    }
-    await this.modifiers.validateSelections(input.lines); // M-B
-    const orgId = this.tenant.organizationId;
-    const partnerId = input.partnerId ?? (await this.ensureWalkInCustomer(orgId));
     // Line discounts on a tab still need manager authority above the threshold.
     await this.assertDiscountAuthority({
       lines: input.lines,
       transactionDiscountPercent: input.transactionDiscountPercent,
       overrideById: input.overrideById,
     } as CheckoutInput);
-    const expanded = await this.expandCheckoutLines(input.lines);
-    const newLineInputs = expanded.map((l) => ({
-      productId: l.productId ?? undefined,
-      menuItemId: l.menuItemId ?? undefined,
-      description: l.description,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      taxId: l.taxId ?? undefined,
-      discountPercent: l.discountPercent,
-      taxInclusive: l.taxInclusive,
-    }));
 
-    const result = await this.prisma.client.$transaction(async (tx: any) => {
-      // Lock the table so two waiters can't race on the same tab.
-      await tx.$queryRawUnsafe(
-        `SELECT id FROM "PosTable" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
-        input.tableId,
-        orgId,
-      );
-      const table = await tx.posTable.findFirst({ where: { id: input.tableId, organizationId: orgId } });
-      if (!table) throw new NotFoundException('Table not found');
-      if (table.status === 'out_of_service') throw new ConflictException('Table is out of service');
-
-      const open = await tx.posTableOrder.findFirst({
-        where: { tableId: input.tableId, closedAt: null },
-        include: { document: { include: { lines: true } } },
-      });
-
-      let documentId: string;
-      if (open?.document && open.document.status === 'draft') {
-        // Append: combine existing + new lines and rebuild totals via the builder.
-        documentId = open.documentId;
-        const existing = open.document.lines.map((s: any) => ({
-          productId: s.productId ?? undefined,
-          menuItemId: s.menuItemId ?? undefined,
-          description: s.description,
-          quantity: Number(s.quantity),
-          unitPrice: Number(s.unitPrice),
-          taxId: s.taxId ?? undefined,
-          discountPercent: Number(s.discountPercent),
-          taxInclusive: s.taxInclusive,
-        }));
-        const totals = await this.builder.prepareLines(tx, [...existing, ...newLineInputs]);
-        await tx.documentLine.deleteMany({ where: { documentId } });
-        for (const p of totals.prepared) {
-          await tx.documentLine.create({
-            data: {
-              organizationId: orgId,
-              documentId,
-              productId: p.productId,
-              menuItemId: p.menuItemId,
-              accountId: p.accountId,
-              description: p.description,
-              quantity: p.quantity,
-              unitPrice: p.unitPrice,
-              discountPercent: p.discountPercent,
-              taxId: p.taxId,
-              subtotal: p.subtotal,
-              taxAmount: p.taxAmount,
-              total: p.total,
-              lineNumber: p.lineNumber,
-              taxInclusive: p.taxInclusive,
-            },
-          });
-        }
-        await tx.document.updateMany({
-          where: { id: documentId },
-          data: {
-            subtotal: totals.subtotal,
-            discountTotal: totals.discountTotal,
-            taxAmount: totals.taxAmount,
-            totalAmount: totals.total,
-            amountResidual: totals.total,
-          },
-        });
-        if (input.guestCount != null) {
-          await tx.posTableOrder.updateMany({ where: { id: open.id }, data: { guestCount: input.guestCount } });
-        }
-      } else {
-        // New tab — fresh draft document + table order.
-        const doc = await this.builder.createDocument(
-          tx,
-          'sales_invoice',
-          {
-            partnerId,
-            issueDate: new Date().toISOString(),
-            sourceType: 'pos',
-            branchId: table.branchId ?? undefined,
-          } as any,
-          newLineInputs,
-        );
-        documentId = doc.id;
-        await tx.document.update({ where: { id: doc.id }, data: { tableId: input.tableId } });
-        await tx.posTableOrder.create({
-          data: { tableId: input.tableId, documentId: doc.id, guestCount: input.guestCount ?? null },
-        });
+    const lines = input.lines.map((l) => this.toOrderLine(l));
+    const existing = await this.orders.getOpenOrderForTable(input.tableId);
+    let order: any;
+    if (existing) {
+      order = await this.orders.addItems(existing.id, {
+        lines,
+        sendToKitchen: input.sendToKitchen,
+        guestCount: input.guestCount,
+        overrideById: input.overrideById,
+        transactionDiscountPercent: input.transactionDiscountPercent,
+      } as any);
+    } else {
+      order = await this.orders.createOrder({
+        orderType: 'dine_in',
+        tableId: input.tableId,
+        partnerId: input.partnerId,
+        guestCount: input.guestCount,
+        overrideById: input.overrideById,
+        lines,
+      } as CreateOrderDto);
+      await this.linkTableOrder(input.tableId, order.id, input.guestCount);
+      if (input.sendToKitchen) {
+        await this.orders.fireKitchen(order.id).catch((e: any) => this.logger.warn(`fireKitchen failed: ${e?.message}`));
       }
-
-      if (table.status !== 'occupied' && table.status !== 'reserved') {
-        await tx.posTable.update({ where: { id: input.tableId }, data: { status: 'occupied' } });
-      }
-
-      return tx.document.findFirst({
-        where: { id: documentId },
-        include: { lines: { orderBy: { lineNumber: 'asc' } } },
-      });
-    });
-
-    // Fire the new round to the kitchen (outside the tx; never fails the round).
-    if (input.sendToKitchen) {
-      try {
-        const kdsItems: any[] = [];
-        for (const ln of expanded) {
-          if (!ln.productId) continue;
-          const product = await this.prisma.client.product.findFirst({ where: { id: ln.productId } });
-          if (!product) continue;
-          kdsItems.push({
-            productId: ln.productId,
-            productName: ln.description,
-            quantity: Number(ln.quantity),
-            modifiers: ln.modifiers ?? [],
-            notes: ln.note,
-            station: (product as any).station ?? 'cafe',
-            variantName: ln.variantName,
-            accompanimentNames: ln.accompanimentNames,
-          });
-        }
-        if (kdsItems.length > 0) {
-          const docId = (result as any)?.id;
-          await this.kds.createTicketsForSale({
-            invoiceId: docId,
-            label: (result as any)?.documentNumber ?? 'Tab',
-            items: kdsItems,
-          });
-          const lineIds = expanded.filter((ln: any) => ln.productId).map((ln: any) => ln.id);
-          const qtyMap = new Map<string, number>(expanded.filter((ln: any) => ln.productId).map((ln: any) => [ln.id as string, Number(ln.quantity)]));
-          await this.printLifecycle.markKitchenPrinted(this.prisma.client, lineIds, qtyMap, this.tenant.userId ?? undefined);
-          await this.printLifecycle.recordPrintLog(this.prisma.client, {
-            organizationId: orgId,
-            documentId: docId,
-            type: 'KOT',
-            printedById: this.tenant.userId ?? undefined,
-          });
-        }
-      } catch (e: any) { this.logger.warn(`KDS push failed: ${e?.message}`); }
     }
-
-    await this.audit.record({
-      entity: 'Document',
-      entityId: (result as any)?.id,
-      action: 'update' as any,
-      newValues: { kind: 'tab_round', tableId: input.tableId, lineCount: expanded.length },
-    });
-    return result;
+    return this.toTabView(order);
   }
 
   /**
@@ -752,278 +634,60 @@ export class PosService {
     partnerId?: string;
     guestCount?: number;
   }) {
-    const orgId = this.tenant.organizationId;
-    if (input.lines?.length) {
-      // Validate variants per line.
-      for (const ln of input.lines) {
-        if (ln.variantId && ln.menuItemId) {
-          await this.variants.validateVariant(ln.menuItemId, ln.variantId);
-        }
+    const existing = await this.orders.getOpenOrderForTable(input.tableId);
+
+    // A split in progress pins the tab's items (SplitBillItems reference them by
+    // id). Rewriting them here would orphan those refs, so block edits until the
+    // split is settled or cancelled.
+    if (existing) {
+      const activeSplit = await this.prisma.client.splitBill.count({
+        where: { sourceOrderId: existing.id, status: { not: 'void' } },
+      });
+      if (activeSplit > 0) {
+        throw new BadRequestException('Split in progress — settle or cancel the split before changing this order.');
       }
-      await this.modifiers.validateSelections(input.lines); // M-B
     }
-    const expanded = input.lines?.length ? await this.expandCheckoutLines(input.lines) : [];
-    const lineInputs = expanded.map((l) => ({
-      productId: l.productId ?? undefined,
-      menuItemId: l.menuItemId ?? undefined,
-      description: l.description,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      taxId: l.taxId ?? undefined,
-      discountPercent: l.discountPercent,
-      taxInclusive: l.taxInclusive,
-    }));
 
-    return this.prisma.client.$transaction(async (tx: any) => {
-      await tx.$queryRawUnsafe(
-        `SELECT id FROM "PosTable" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
-        input.tableId,
-        orgId,
-      );
-      const table = await tx.posTable.findFirst({ where: { id: input.tableId, organizationId: orgId } });
-      if (!table) throw new NotFoundException('Table not found');
+    const lines = (input.lines ?? []).map((l) => this.toOrderLine(l));
 
-      const open = await tx.posTableOrder.findFirst({
-        where: { tableId: input.tableId, closedAt: null },
-        include: { document: true },
-      });
-      const draftId = open?.document && open.document.status === 'draft' ? open.documentId : null;
-
-      // A split in progress pins the tab's lines (SplitBillItems reference them by
-      // id). Rewriting them here would orphan those refs, so block edits until the
-      // split is settled or cancelled.
-      if (draftId) {
-        const activeSplit = await tx.splitBill.count({ where: { sourceDocumentId: draftId, status: { not: 'void' } } });
-        if (activeSplit > 0) {
-          throw new BadRequestException('Split in progress — settle or cancel the split before changing this order.');
-        }
+    // Empty order → cancel the open order and free the table.
+    if (lines.length === 0) {
+      if (existing) {
+        await this.orders.cancelOrder(existing.id, 'Order emptied');
+        await this.closeTableLink(input.tableId, existing.id);
       }
+      return null;
+    }
 
-      // Empty order → cancel the draft and free the table.
-      if (lineInputs.length === 0) {
-        if (draftId && open) {
-          await tx.documentLine.deleteMany({ where: { documentId: draftId } });
-          await tx.document.update({
-            where: { id: draftId },
-            data: { status: 'cancelled', subtotal: 0, discountTotal: 0, taxAmount: 0, totalAmount: 0, amountResidual: 0, notes: 'Order emptied' },
-          });
-          await tx.posTableOrder.updateMany({ where: { id: open.id }, data: { closedAt: new Date() } });
-        }
-        if (table.status !== 'out_of_service' && table.status !== 'reserved') {
-          await tx.posTable.update({ where: { id: input.tableId }, data: { status: 'available' } });
-        }
-        return null;
-      }
-
-      const partnerId = input.partnerId ?? (await this.ensureWalkInCustomer(orgId));
-      let documentId: string;
-      if (draftId && open) {
-        documentId = draftId;
-        const oldLines: any[] = await tx.documentLine.findMany({
-          where: { documentId },
-          select: {
-            id: true,
-            productId: true,
-            kitchenPrintCount: true,
-            kitchenLastPrintedAt: true,
-            kitchenPrintedQty: true,
-            cancelPrintCount: true,
-            cancelLastPrintedAt: true,
-            lastKitchenPrintedById: true,
-            billPrintedAt: true,
-          },
-        });
-        const lifecycleByPid = new Map(oldLines.filter((l: any) => l.productId).map((l: any) => [l.productId, l]));
-        const totals = await this.builder.prepareLines(tx, lineInputs);
-        await tx.documentLine.deleteMany({ where: { documentId } });
-        for (const p of totals.prepared) {
-          const lc: any = p.productId ? lifecycleByPid.get(p.productId) : null;
-          await tx.documentLine.create({
-            data: {
-              organizationId: orgId,
-              documentId,
-              productId: p.productId,
-              menuItemId: p.menuItemId,
-              accountId: p.accountId,
-              description: p.description,
-              quantity: p.quantity,
-              unitPrice: p.unitPrice,
-              discountPercent: p.discountPercent,
-              taxId: p.taxId,
-              subtotal: p.subtotal,
-              taxAmount: p.taxAmount,
-              total: p.total,
-              lineNumber: p.lineNumber,
-              taxInclusive: p.taxInclusive,
-              kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
-              kitchenLastPrintedAt: lc?.kitchenLastPrintedAt ?? null,
-              kitchenPrintedQty: lc?.kitchenPrintedQty ?? null,
-              cancelPrintCount: lc?.cancelPrintCount ?? 0,
-              cancelLastPrintedAt: lc?.cancelLastPrintedAt ?? null,
-              lastKitchenPrintedById: lc?.lastKitchenPrintedById ?? null,
-              billPrintedAt: lc?.billPrintedAt ?? null,
-            },
-          });
-        }
-        await tx.document.updateMany({
-          where: { id: documentId },
-          data: {
-            subtotal: totals.subtotal,
-            discountTotal: totals.discountTotal,
-            taxAmount: totals.taxAmount,
-            totalAmount: totals.total,
-            amountResidual: totals.total,
-          },
-        });
-        if (input.guestCount != null) {
-          await tx.posTableOrder.updateMany({ where: { id: open.id }, data: { guestCount: input.guestCount } });
-        }
-      } else {
-        const doc = await this.builder.createDocument(
-          tx,
-          'sales_invoice',
-          { partnerId, issueDate: new Date().toISOString(), sourceType: 'pos', branchId: table.branchId ?? undefined } as any,
-          lineInputs,
-        );
-        documentId = doc.id;
-        await tx.document.update({ where: { id: doc.id }, data: { tableId: input.tableId } });
-        await tx.posTableOrder.create({
-          data: { tableId: input.tableId, documentId: doc.id, guestCount: input.guestCount ?? null },
-        });
-      }
-
-      if (table.status !== 'occupied' && table.status !== 'reserved') {
-        await tx.posTable.update({ where: { id: input.tableId }, data: { status: 'occupied' } });
-      }
-      const fresh = await tx.document.findFirst({
-        where: { id: documentId },
-        include: { lines: { orderBy: { lineNumber: 'asc' } } },
-      });
-      // M-D: re-persist structured modifiers for the saved lines (the old rows
-      // cascade-deleted with the replaced lines). Best-effort.
-      await this.persistLineModifiers(tx, (fresh as any)?.lines ?? [], expanded);
-      return fresh;
-    });
+    let order: any;
+    if (existing) {
+      order = await this.orders.saveItems(existing.id, {
+        lines,
+        guestCount: input.guestCount,
+        partnerId: input.partnerId,
+      } as any);
+    } else {
+      order = await this.orders.createOrder({
+        orderType: 'dine_in',
+        tableId: input.tableId,
+        partnerId: input.partnerId,
+        guestCount: input.guestCount,
+        lines,
+      } as CreateOrderDto);
+      await this.linkTableOrder(input.tableId, order.id, input.guestCount);
+    }
+    return this.toTabView(order);
   }
 
   /**
-   * Fire the table's current draft order to the kitchen display (KDS): one ticket
-   * per station from the saved order lines. Does not modify the order.
+   * Fire the table's current open order to the kitchen display (KDS). Delegates
+   * to the Order aggregate, which sends only the new / increased quantities
+   * (delta) since the last fire and records cancellations for decreases.
    */
   async fireTabToKitchen(tableId: string) {
-    const orgId = this.tenant.organizationId;
-    const order = await this.prisma.client.posTableOrder.findFirst({
-      where: { tableId, closedAt: null },
-      orderBy: { openedAt: 'desc' },
-      include: { document: { include: { lines: { orderBy: { lineNumber: 'asc' } } } } },
-    });
-    if (!order?.document || order.document.status !== 'draft') {
-      throw new BadRequestException('No open order to send to the kitchen');
-    }
-    const doc = order.document;
-    const userId = this.tenant.userId ?? undefined;
-
-    // Compute deltas vs. last printed state.
-    const deltas = await this.printLifecycle.getKitchenDeltas(this.prisma.client, doc.id);
-
-    // Phase T5: no changes since last print — return early without duplicate KOT.
-    if (deltas.addLines.length === 0 && deltas.removeLines.length === 0) {
-      return { ticketIds: [], count: 0, message: 'No changes since last kitchen fire' };
-    }
-
-    // Load structured modifiers for the lines being fired so the KDS shows the
-    // add-ons/modifiers (a DocumentLine has no `modifiers` relation — they live in
-    // DocumentLineModifier, so the previous `line.modifiers` was always empty and
-    // the kitchen never saw them for dine-in tabs).
-    const addLineIds = deltas.addLines.map((d: any) => d.line.id).filter(Boolean);
-    const modRows = addLineIds.length
-      ? await this.prisma.client.documentLineModifier.findMany({
-          where: { organizationId: orgId, documentLineId: { in: addLineIds } },
-          select: { documentLineId: true, name: true, priceDelta: true },
-        }).catch(() => [] as any[])
-      : [];
-    const modsByLine = new Map<string, Array<{ name: string; priceDelta: number }>>();
-    for (const m of modRows as any[]) {
-      const arr = modsByLine.get(m.documentLineId) ?? [];
-      arr.push({ name: m.name, priceDelta: Number(m.priceDelta) });
-      modsByLine.set(m.documentLineId, arr);
-    }
-
-    // Send only new / increased qty to KDS.
-    let ticketIds: string[] = [];
-    if (deltas.addLines.length > 0) {
-      const kdsItems = [];
-      for (const { line, delta } of deltas.addLines) {
-        if (!line.productId) continue;
-        const product = await this.prisma.client.product.findFirst({ where: { id: line.productId } });
-        kdsItems.push({
-          productId: line.productId,
-          productName: line.description,
-          quantity: delta,
-          modifiers: modsByLine.get(line.id) ?? [],
-          notes: line.note ?? null,
-          station: (product as any)?.station ?? 'cafe',
-        });
-      }
-      if (kdsItems.length > 0) {
-        ticketIds = await this.kds.createTicketsForSale({
-          invoiceId: doc.id,
-          label: (doc as any).documentNumber,
-          items: kdsItems,
-        });
-      }
-    }
-
-    // Handle decreases as cancellation tickets.
-    if (deltas.removeLines.length > 0) {
-      const cancelItems = [];
-      for (const { line, delta } of deltas.removeLines) {
-        if (!line.productId) continue;
-        const product = await this.prisma.client.product.findFirst({ where: { id: line.productId } });
-        cancelItems.push({
-          productId: line.productId,
-          productName: `[CANCEL] ${line.description}`,
-          quantity: delta,
-          modifiers: [],
-          notes: line.note ?? null,
-          station: (product as any)?.station ?? 'cafe',
-        });
-      }
-      if (cancelItems.length > 0) {
-        const cancelIds = await this.kds.createTicketsForSale({
-          invoiceId: doc.id,
-          label: `[CANCEL] ${(doc as any).documentNumber}`,
-          items: cancelItems,
-        });
-        ticketIds = [...ticketIds, ...cancelIds];
-      }
-    }
-
-    // Update lifecycle counters.
-    const addedLineIds = deltas.addLines.filter((l: any) => l.line.productId).map((l: any) => l.line.id);
-    const addedQtyMap = new Map(deltas.addLines.filter((l: any) => l.line.productId).map((l: any) => [l.line.id, Number(l.line.quantity)]));
-    const removedLineIds = deltas.removeLines.filter((l: any) => l.line.productId).map((l: any) => l.line.id);
-
-    if (addedLineIds.length > 0) {
-      await this.printLifecycle.markKitchenPrinted(this.prisma.client, addedLineIds, addedQtyMap, userId);
-      await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId,
-        documentId: doc.id,
-        type: 'KOT',
-        printedById: userId,
-      });
-    }
-    if (removedLineIds.length > 0) {
-      await this.printLifecycle.markCancelPrinted(this.prisma.client, removedLineIds, userId);
-      await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: orgId,
-        documentId: doc.id,
-        type: 'CANCEL',
-        printedById: userId,
-      });
-    }
-
-    return { ticketIds, count: ticketIds.length };
+    const order = await this.orders.getOpenOrderForTable(tableId);
+    if (!order) throw new BadRequestException('No open order to send to the kitchen');
+    return this.orders.fireKitchen(order.id);
   }
 
   /**
@@ -1041,53 +705,25 @@ export class PosService {
   }) {
     const orgId = this.tenant.organizationId;
     // T-LOCK: lock the table row so two cashiers cannot settle the same tab concurrently.
-    const [tabOrder] = await this.prisma.client.$transaction(async (tx: any) => {
+    await this.prisma.client.$transaction(async (tx: any) => {
       await tx.$queryRawUnsafe(
         `SELECT id FROM "PosTable" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
         input.tableId,
         orgId,
       );
-      return tx.posTableOrder.findMany({
-        where: { tableId: input.tableId, closedAt: null },
-        orderBy: { openedAt: 'desc' },
-        take: 1,
-        include: { document: { include: { lines: { orderBy: { lineNumber: 'asc' } } } } },
-      });
     });
-    if (!tabOrder?.document || tabOrder.document.status !== 'draft') {
-      throw new BadRequestException('No open tab to settle on this table');
-    }
-    const doc = tabOrder.document;
-    if (!doc.lines.length) throw new BadRequestException('The tab is empty');
+
+    // The open tab IS an Order — settle it directly (no Document bridge).
+    const order = await this.orders.getOpenOrderForTable(input.tableId);
+    if (!order) throw new BadRequestException('No open tab to settle on this table');
+    if (!order.items?.length) throw new BadRequestException('The tab is empty');
 
     // A split in progress owns settlement of this tab — settling the whole tab
     // here would double-charge items already assigned to (and paid on) bills.
-    const activeSplit = await this.prisma.client.splitBill.count({ where: { sourceDocumentId: doc.id, status: { not: 'void' } } });
+    const activeSplit = await this.prisma.client.splitBill.count({ where: { sourceOrderId: order.id, status: { not: 'void' } } });
     if (activeSplit > 0) {
       throw new BadRequestException('This table has a split in progress — settle each split bill instead.');
     }
-
-    // Bridge the legacy draft tab into the Order→Invoice→Receipt pipeline. The
-    // draft lines are already priced (modifiers folded into unitPrice), so the
-    // order is created from resolved lines (no re-validation / re-folding).
-    const order = await this.orders.createOrderFromResolved({
-      orderType: 'dine_in',
-      tableId: input.tableId,
-      partnerId: doc.partnerId ?? undefined,
-      cashSessionId: input.cashSessionId,
-      branchId: doc.branchId ?? undefined,
-      lines: doc.lines.map((l: any) => ({
-        productId: l.productId ?? null,
-        menuItemId: l.menuItemId ?? null,
-        description: l.description,
-        quantity: Number(l.quantity),
-        unitPrice: Number(l.unitPrice),
-        taxId: l.taxId ?? null,
-        discountPercent: Number(l.discountPercent ?? 0),
-        taxInclusive: (l as any).taxInclusive,
-        note: l.note ?? null,
-      })),
-    });
 
     // Generate the Invoice (own GL + stock at bill time) then take payment
     // (writes the Receipt + ReceiptItems and closes the order).
@@ -1113,17 +749,11 @@ export class PosService {
       throw e;
     }
 
-    // Retire the legacy draft tab: cancel the draft Document + close its
-    // PosTableOrder so the table frees and the old draft isn't left dangling.
-    try {
-      await this.prisma.client.document.update({
-        where: { id: doc.id },
-        data: { status: 'cancelled', notes: `Migrated to invoice ${invoice.invoiceNumber}` },
-      });
-    } catch (e: any) { this.logger.warn(`Legacy doc cancel failed: ${e?.message}`); }
+    // Close the tab: retire the table↔order link so the table frees. The Order
+    // itself is closed by billing.receivePayment (closeOrderForInvoice).
     let tableStatus: string | undefined;
     try {
-      const closeResult = await this.tables.closeTableOrder({ tableId: input.tableId, documentId: doc.id });
+      const closeResult = await this.tables.closeTableOrder({ tableId: input.tableId, orderId: order.id });
       tableStatus = (closeResult as any)?.tableStatus;
     } catch (e: any) { this.logger.warn(`Close table failed: ${e?.message}`); }
 

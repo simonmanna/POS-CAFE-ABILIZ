@@ -40,6 +40,7 @@ export const ACCOUNT_TYPES = [
   'cost_of_goods_sold',
   'bank',
   'cash',
+  'mobile_money',
   'receivable',
   'payable',
   'tax',
@@ -55,6 +56,7 @@ export const DEBIT_NORMAL_ACCOUNT_TYPES: AccountType[] = [
   'cost_of_goods_sold',
   'bank',
   'cash',
+  'mobile_money',
   'receivable',
   'contra_liability',
 ];
@@ -119,6 +121,7 @@ export const ACCOUNT_MAPPING_KEYS = [
   'rounding',
   'retained_earnings',
   'suspense',
+  'cash_suspense',
   // M3 — inventory→GL
   'stock_valuation',
   'cogs',

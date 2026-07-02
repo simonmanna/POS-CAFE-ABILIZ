@@ -66,9 +66,12 @@ describeDb('POS Tables Management (ADR-012)', () => {
     return prisma.document.findFirst({ where: { id: doc.id }, include: { lines: true } }) as any;
   }
 
-  async function createOrder(orgId: string, tableId: string, docId: string) {
+  // NOTE: this integration suite still builds tabs as Documents; the tab now
+  // lives on Order. Rewrite the setup helpers to create Orders/OrderItems and
+  // link posTableOrder.orderId to exercise the new flow end-to-end.
+  async function createOrder(orgId: string, tableId: string, orderId: string) {
     return prisma.posTableOrder.create({
-      data: { organizationId: orgId, tableId, documentId: docId, openedAt: new Date() },
+      data: { organizationId: orgId, tableId, orderId, openedAt: new Date() },
     });
   }
 
@@ -169,9 +172,9 @@ describeDb('POS Tables Management (ADR-012)', () => {
 
       const involved = await prisma.posTableOrder.findMany({
         where: { tableId: { in: [srcId, tgtId] }, closedAt: null },
-        include: { document: { select: { status: true } } },
+        include: { order: { select: { status: true } } },
       });
-      const hasNonDraft = involved.some((o: any) => o.document && o.document.status !== 'draft');
+      const hasNonDraft = involved.some((o: any) => o.order && o.order.status !== 'draft');
       expect(hasNonDraft).toBe(true);
 
       await prisma.document.update({ where: { id: doc.id }, data: { status: 'draft' } });

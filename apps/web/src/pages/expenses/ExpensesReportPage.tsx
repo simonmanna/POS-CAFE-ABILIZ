@@ -192,7 +192,7 @@ export default function ExpensesReportPage() {
           r.categoryName ?? r.category?.name ?? "",
           String(r.amount),
           r.status,
-          r.createdBy?.staff ? `${r.createdBy.staff.firstName} ${r.createdBy.staff.lastName}` : "—",
+          r.createdBy?.staff ? r.createdBy.staff.firstName : "—",
           r.paidAt ? r.paidAt.slice(0, 10) : "",
           r.notes ?? "",
         ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
@@ -252,7 +252,7 @@ export default function ExpensesReportPage() {
       header: "Created By",
       render: (r) => {
         const n = r.createdBy?.staff
-          ? `${r.createdBy.staff.firstName} ${r.createdBy.staff.lastName}`
+          ? r.createdBy.staff.firstName
           : "—";
         return <span className="text-xs text-slate-500">{n}</span>;
       },

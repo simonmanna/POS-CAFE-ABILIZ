@@ -82,14 +82,14 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
   const onAssign = async (lineId: string, qty: number) => {
     if (!activeBillId) { toast.error('Pick a bill first'); return; }
     try {
-      await assignItems.mutateAsync({ billId: activeBillId, tableId, items: [{ sourceLineId: lineId, quantity: qty }] });
+      await assignItems.mutateAsync({ billId: activeBillId, tableId, items: [{ sourceItemId: lineId, quantity: qty }] });
       setQtyByLine((p) => ({ ...p, [lineId]: 0 }));
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Assign failed'); }
   };
 
-  const onReturn = async (billId: string, sourceLineId: string, quantity: number) => {
+  const onReturn = async (billId: string, sourceItemId: string, quantity: number) => {
     try {
-      await unassignItems.mutateAsync({ billId, tableId, items: [{ sourceLineId, quantity }] });
+      await unassignItems.mutateAsync({ billId, tableId, items: [{ sourceItemId, quantity }] });
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Return failed'); }
   };
 
@@ -231,12 +231,12 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
                         ) : (
                           <div className="space-y-1">
                             {b.items.map((it) => (
-                              <div key={it.sourceLineId} className="flex items-center justify-between text-xs">
+                              <div key={it.sourceItemId} className="flex items-center justify-between text-xs">
                                 <span className="text-slate-600 truncate">{it.quantity}× {it.description}</span>
                                 <div className="flex items-center gap-2">
                                   <span className="font-mono text-slate-500">{fmt(it.lineTotal)}</span>
                                   {isOpen && (
-                                    <button type="button" title="Return to order" className="text-rose-400 hover:text-rose-600" onClick={(e) => { e.stopPropagation(); onReturn(b.id, it.sourceLineId, it.quantity); }}>
+                                    <button type="button" title="Return to order" className="text-rose-400 hover:text-rose-600" onClick={(e) => { e.stopPropagation(); onReturn(b.id, it.sourceItemId, it.quantity); }}>
                                       <X className="h-3.5 w-3.5" />
                                     </button>
                                   )}
