@@ -1267,7 +1267,7 @@ export class CashSessionService {
     try {
       const cash = await this.registerCashAccount(tx, session);
       const date = new Date();
-      const base = { date, sourceType: 'cash_movement', sourceId: movementId } as const;
+      const base = { date, sourceType: 'cash_movement', sourceId: movementId, branchId: session.branchId ?? undefined } as const;
 
       const amt = amount.toString();
       if (movementType === 'pay_in') {
@@ -1319,6 +1319,7 @@ export class CashSessionService {
         description: `Bank deposit: ${bankName}`,
         sourceType: 'cash_movement',
         sourceId: movementId,
+        branchId: session.branchId ?? undefined,
         lines: [
           { accountId: bank, debit: amt },
           { accountId: cash, credit: amt },
@@ -1346,6 +1347,7 @@ export class CashSessionService {
         description: `Cash over/short — session ${session.id}`,
         sourceType: 'cash_session_variance',
         sourceId: session.id,
+        branchId: session.branchId ?? undefined,
         lines,
       }, tx);
     } catch (e) {

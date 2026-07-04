@@ -47,15 +47,3 @@ export function getFoodEmoji(name: string, categoryName?: string): string {
   }
   return '🍽️';
 }
-
-export function getCategoryColor(categoryName?: string): string {
-  const c = (categoryName || '').toLowerCase();
-  if (c.includes('drink') || c.includes('beverage') || c.includes('coffee') || c.includes('tea')) return '#06b6d4';
-  if (c.includes('dessert') || c.includes('sweet') || c.includes('cake') || c.includes('bakery')) return '#ec4899';
-  if (c.includes('breakfast')) return '#f59e0b';
-  if (c.includes('salad') || c.includes('healthy') || c.includes('vegan') || c.includes('fruit')) return '#22c55e';
-  if (c.includes('pizza') || c.includes('burger') || c.includes('sandwich')) return '#ef4444';
-  if (c.includes('pasta') || c.includes('noodle') || c.includes('rice')) return '#a855f7';
-  if (c.includes('seafood') || c.includes('fish')) return '#3b82f6';
-  return '#1a7fcf';
-}

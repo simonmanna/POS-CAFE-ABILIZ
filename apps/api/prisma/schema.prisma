@@ -3896,6 +3896,12 @@ model Order {
   closedAt                   DateTime?
   cancelledAt                DateTime?
   cancelReason               String?
+  cancelledBy                String?
+  /// Kitchen lifecycle tracked from KDS ticket transitions.
+  kitchenStartedAt           DateTime?
+  kitchenStartedBy           String?
+  kitchenCompletedAt         DateTime?
+  kitchenCompletedBy         String?
   /// Bill / KOT print lifecycle for the OPEN tab (pre-settle). Receipt counters
   /// live on the Invoice once the tab is billed. Replaces the former
   /// Document.billPrintCount / kotPrintCount for POS tabs.
@@ -3943,6 +3949,7 @@ model OrderItem {
   cancelled              Boolean                @default(false)
   cancelledAt            DateTime?
   cancelReason           String?
+  voidedBy               String?
   lineNumber             Int                    @default(0)
   /// Free-text snapshot of selected accompaniments (display + KOT).
   accompanimentNames     String[]               @default([])
@@ -4052,6 +4059,7 @@ model Invoice {
   amountResidual       Decimal                 @default(0) @db.Decimal(20, 6)
   /// Cumulative amount refunded across full + partial refunds (over-refund guard).
   amountRefunded       Decimal                 @default(0) @db.Decimal(20, 6)
+  refundedBy           String?
   status               InvoiceStatus           @default(draft)
   paymentStatus        PaymentStatus           @default(not_paid)
   paymentMode          InvoicePaymentMode?
@@ -4072,6 +4080,7 @@ model Invoice {
   lastPrintedById      String?
   postedAt             DateTime?
   postedBy             String?
+  settledBy            String?
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
   createdBy            String?

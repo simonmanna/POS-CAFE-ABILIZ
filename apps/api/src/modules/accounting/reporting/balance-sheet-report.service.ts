@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
+import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 
 const ZERO = new Prisma.Decimal(0);
-const FALLBACK_EPSILON_MS = 60 * 1000;
 
 /**
  * Balance Sheet (D3). Reads from `ReportBalanceSheetSnapshot` when available;
@@ -71,7 +71,7 @@ export class BalanceSheetReportService {
   private async live(asOf: string) {
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: 'posted', postingDate: { lte: new Date(asOf) } } },
+      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: new Date(asOf) } } },
       _sum: { baseDebit: true, baseCredit: true },
     });
     const accounts = await this.prisma.client.account.findMany({
@@ -128,17 +128,20 @@ export class BalanceSheetReportService {
     };
   }
 
+  /** Latest snapshot ≤ asOf, served only if nothing balance-affecting posted since. */
   private async findSnapshot(asOf: Date): Promise<{ organizationId: string; asOf: Date } | null> {
-    const now = Date.now();
-    const candidates = await this.prisma.client.reportBalanceSheetSnapshot.findMany({
+    const snap = await this.prisma.client.reportBalanceSheetSnapshot.findFirst({
+      where: { asOf: { lte: asOf } },
       orderBy: { asOf: 'desc' },
-      take: 5,
+      select: { organizationId: true, asOf: true },
     });
-    for (const c of candidates) {
-      if (c.asOf.getTime() > asOf.getTime()) continue;
-      if (Math.abs(now - c.asOf.getTime()) > FALLBACK_EPSILON_MS) continue;
-      return { organizationId: c.organizationId, asOf: c.asOf };
-    }
-    return null;
+    if (!snap) return null;
+    const newer = await this.prisma.client.journalLine.count({
+      where: {
+        entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { gt: snap.asOf, lte: asOf } },
+      },
+    });
+    if (newer > 0) return null;
+    return snap;
   }
 }

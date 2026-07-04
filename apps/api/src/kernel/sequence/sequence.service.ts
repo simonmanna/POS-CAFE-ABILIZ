@@ -51,6 +51,7 @@ export class SequenceService implements OnApplicationBootstrap {
     'vendorbill',
     'payment_inbound',
     'payment_outbound',
+    'receipt',
     'cashsession',
     'journal_sales',
     'journal_purch',

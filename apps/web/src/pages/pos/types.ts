@@ -31,6 +31,8 @@ export interface Product {
   isActive: boolean;
   /** P10: when true, the displayed price already includes tax. */
   taxInclusive?: boolean;
+  /** Signed download URL for the menu-item photo (resolved by the API). */
+  image?: string | null;
 }
 
 export interface Customer {
@@ -256,6 +258,7 @@ export interface SoldItem {
 }
 
 export interface SalesReportRow {
+  id: string;
   orderNumber: string;
   orderType: string | null;
   invoiceNumber: string;

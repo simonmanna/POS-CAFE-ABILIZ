@@ -39,7 +39,7 @@ export class PaymentService {
     private readonly audit: AuditService,
   ) {}
 
-  async list(query: PaginationQuery, direction?: PaymentDirection, partnerId?: string) {
+  async list(query: PaginationQuery, direction?: PaymentDirection, partnerId?: string, dateFrom?: string, dateTo?: string) {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 25));
     const where: any = {};
@@ -50,6 +50,14 @@ export class PaymentService {
         { paymentNumber: { contains: query.search, mode: 'insensitive' } },
         { reference: { contains: query.search, mode: 'insensitive' } },
       ];
+    }
+    if (dateFrom) {
+      where.paymentDate = { ...(where.paymentDate || {}), gte: new Date(dateFrom) };
+    }
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setHours(23, 59, 59, 999);
+      where.paymentDate = { ...(where.paymentDate || {}), lte: end };
     }
     const [data, total] = await Promise.all([
       this.prisma.client.payment.findMany({
@@ -87,14 +95,23 @@ export class PaymentService {
    * Cr Receivable) the net effect is Dr Revenue+Tax / Cr Cash — the sale is
    * reversed against AR instead of booking a phantom payable.
    */
-  createCustomerRefund(dto: CreatePaymentDto, tx?: any) {
-    return this.record(dto, 'outbound', { counterAccount: 'receivable' }, tx);
+  createCustomerRefund(dto: CreatePaymentDto, tx?: any, opts?: { allowSessionOwnerMismatch?: boolean }) {
+    return this.record(dto, 'outbound', { counterAccount: 'receivable', ...opts }, tx);
   }
 
   private async record(
     dto: CreatePaymentDto,
     direction: PaymentDirection,
-    opts: { counterAccount?: 'receivable' | 'payable' } = {},
+    opts: {
+      counterAccount?: 'receivable' | 'payable';
+      /**
+       * Permit the cash movement on a session the caller doesn't own.
+       * Programmatic-only (never on the HTTP DTO): set by the POS refund flow,
+       * where the refunder is a pos:refund-gated manager paying out of the
+       * cashier's drawer — the drawer must still reconcile.
+       */
+      allowSessionOwnerMismatch?: boolean;
+    } = {},
     externalTx?: any,
   ) {
     const run = async (tx: any) => {
@@ -272,7 +289,9 @@ export class PaymentService {
         });
         if (!session) throw new BadRequestException('Cash session not found');
         if (session.status !== 'open') throw new BadRequestException('Cash session is not open');
-        if (session.userId !== userId) throw new BadRequestException('Cash session belongs to a different cashier');
+        if (session.userId !== userId && !opts.allowSessionOwnerMismatch) {
+          throw new BadRequestException('Cash session belongs to a different cashier');
+        }
         await this.cashSessions.recordSaleOrRefund(
           tx,
           dto.cashSessionId,

@@ -41,6 +41,14 @@ export class CreateJournalEntryDto {
   @IsString()
   description?: string;
 
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  costCenterId?: string;
+
   @IsArray()
   @ArrayMinSize(2)
   @ValidateNested({ each: true })

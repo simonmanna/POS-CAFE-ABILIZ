@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../kernel/prisma/prisma.service';
+import { BALANCE_AFFECTING_STATUSES } from '../../posting/posting.types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -55,7 +56,7 @@ export class SnapshotRebuildService {
 
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: 'posted', postingDate: { lte: asOf } } },
+      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
       _sum: { baseDebit: true, baseCredit: true },
     });
     if (grouped.length === 0) return;
@@ -96,7 +97,7 @@ export class SnapshotRebuildService {
 
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: 'posted', postingDate: { lte: asOf } } },
+      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
       _sum: { baseDebit: true, baseCredit: true },
     });
     const accountIds = (grouped as any[]).map((g) => g.accountId);
@@ -156,7 +157,7 @@ export class SnapshotRebuildService {
 
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: 'posted', postingDate: { lte: asOf } } },
+      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
       _sum: { baseDebit: true, baseCredit: true },
     });
     const accountIds = (grouped as any[]).map((g) => g.accountId);

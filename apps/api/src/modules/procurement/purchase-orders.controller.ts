@@ -36,8 +36,10 @@ export class PurchaseOrdersController {
     @Query('paymentType') paymentType?: string,
     @Query('paymentStatus') paymentStatus?: string,
     @Query('partnerId') partnerId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
-    return this.svc.list({ status, paymentType, paymentStatus, partnerId, search, page, pageSize });
+    return this.svc.list({ status, paymentType, paymentStatus, partnerId, search, page, pageSize, dateFrom, dateTo });
   }
 
   @Get(':id')

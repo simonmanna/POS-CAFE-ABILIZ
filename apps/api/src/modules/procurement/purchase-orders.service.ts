@@ -139,6 +139,8 @@ export class PurchaseOrdersService {
     search?: string;
     page?: number;
     pageSize?: number;
+    dateFrom?: string;
+    dateTo?: string;
   }) {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 25));
@@ -156,9 +158,18 @@ export class PurchaseOrdersService {
         { status: { contains: query.search, mode: 'insensitive' } },
       ];
     }
+    if (query.dateFrom) {
+      where.orderDate = { ...(where.orderDate || {}), gte: new Date(query.dateFrom) };
+    }
+    if (query.dateTo) {
+      const end = new Date(query.dateTo);
+      end.setHours(23, 59, 59, 999);
+      where.orderDate = { ...(where.orderDate || {}), lte: end };
+    }
     const [data, total] = await Promise.all([
       this.prisma.client.purchaseOrder.findMany({
         where,
+        include: { partner: { select: { id: true, name: true } } },
         orderBy: { orderDate: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,

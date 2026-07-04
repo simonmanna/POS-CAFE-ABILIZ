@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
+import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -63,7 +64,7 @@ export class TieOutService {
       by: ['accountId'],
       where: {
         accountId: arMapping.accountId,
-        entry: { status: 'posted', postingDate: { lte: asOf } },
+        entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } },
       },
       _sum: { baseDebit: true, baseCredit: true },
     });
@@ -71,7 +72,7 @@ export class TieOutService {
       by: ['accountId'],
       where: {
         accountId: apMapping.accountId,
-        entry: { status: 'posted', postingDate: { lte: asOf } },
+        entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } },
       },
       _sum: { baseDebit: true, baseCredit: true },
     });

@@ -8,7 +8,8 @@
  * to prevent brute-force attacks on the 4-8 digit PIN.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { EventBus } from '../../kernel/events/event-bus';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { PasswordService } from '../../kernel/auth/password.service';
@@ -28,6 +29,7 @@ export class PosAuthService {
     private readonly password: PasswordService,
     private readonly audit: AuditService,
     private readonly jwt: JwtTokenService,
+    private readonly events: EventBus,
   ) {}
 
   /** List active staff in this org for POS PIN login. */
@@ -144,7 +146,38 @@ export class PosAuthService {
         data: { organizationId, email, success, reason, createdAt: new Date() },
       });
     } catch {
-      // Don't fail the login request because of a logging failure.
+      // Don't fail the request because of a logging failure.
     }
+  }
+
+  async changePin(userId: string, currentPin: string, newPin: string): Promise<void> {
+    const user = await this.prisma.client.user.findFirst({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.pinHash) throw new BadRequestException('No POS PIN set. Use the PIN login screen to set one first.');
+    const ok = await this.password.compare(currentPin, user.pinHash);
+    if (!ok) throw new BadRequestException('Current PIN is incorrect');
+    if (currentPin === newPin) throw new BadRequestException('New PIN must be different from the current PIN');
+    const hash = await this.password.hash(newPin);
+    await this.prisma.client.user.update({ where: { id: userId }, data: { pinHash: hash } });
+    await this.audit.record({ entity: 'User', entityId: userId, action: 'update', newValues: { posPinChanged: true } });
+    this.events.publish('user.pos_pin_changed' as any, { userId, organizationId: user.organizationId, at: new Date().toISOString() });
+  }
+
+  async changePassword(userId: string, currentPin: string, newPassword: string): Promise<void> {
+    const user = await this.prisma.client.user.findFirst({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.pinHash) throw new BadRequestException('No POS PIN set. Ask a manager.');
+    const ok = await this.password.compare(currentPin, user.pinHash);
+    if (!ok) throw new BadRequestException('PIN is incorrect');
+    const hash = await this.password.hash(newPassword);
+    await this.prisma.client.$transaction([
+      this.prisma.client.user.update({
+        where: { id: userId },
+        data: { passwordHash: hash, failedLoginCount: 0, lockedUntil: null },
+      }),
+      this.prisma.client.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ]);
+    await this.audit.record({ entity: 'User', entityId: userId, action: 'update', newValues: { passwordChanged: true } });
+    this.events.publish('user.password_changed' as any, { userId, organizationId: user.organizationId, at: new Date().toISOString() });
   }
 }

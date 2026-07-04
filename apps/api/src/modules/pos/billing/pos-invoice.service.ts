@@ -63,11 +63,10 @@ export class PosInvoiceService {
     });
     if (!items.length) throw new BadRequestException('Order has no items to bill');
 
-    // Fold any order-level discount into each line so the GL stays balanced
-    // (AR debit == Revenue+Tax credit) without a separate discount account.
     const txPct = Number(dto.transactionDiscountPercent ?? order.transactionDiscountPercent ?? 0);
     const txFactor = 1 - txPct / 100;
-    const lineInputs = items.map((it: any) => ({
+    // Full (pre-order-discount) line inputs for the GL discount leg.
+    const fullLineInputs = items.map((it: any) => ({
       productId: it.productId ?? undefined,
       menuItemId: it.menuItemId ?? undefined,
       variantId: it.variantId ?? undefined,
@@ -76,14 +75,23 @@ export class PosInvoiceService {
       quantity: Number(it.quantity),
       unitPrice: Number(it.unitPrice),
       taxId: it.taxId ?? undefined,
-      discountPercent: txPct > 0 ? 100 * (1 - (1 - Number(it.discountPercent) / 100) * txFactor) : Number(it.discountPercent),
+      discountPercent: Number(it.discountPercent),
       taxInclusive: it.taxInclusive,
     }));
+    // Discounted line inputs: order-level txPct folded into per-line discountPercent.
+    const lineInputs = txPct > 0
+      ? items.map((it: any) => ({
+          ...fullLineInputs[items.indexOf(it)],
+          discountPercent: 100 * (1 - (1 - Number(it.discountPercent) / 100) * txFactor),
+        }))
+      : fullLineInputs;
 
     const year = new Date().getUTCFullYear();
 
     const invoice = await this.prisma.client.$transaction(async (tx: any) => {
       const totals = await this.builder.prepareLines(tx, lineInputs);
+      const fullTotals = txPct > 0 ? await this.builder.prepareLines(tx, fullLineInputs) : null;
+      const orderDiscountGl = fullTotals ? dec(fullTotals.total).minus(dec(totals.total)) : dec(0);
       // H2: allocate the invoice number INSIDE the tx (after line pricing) so a
       // prepareLines failure no longer burns a number. NOTE: Postgres sequences
       // are non-transactional — a later rollback still advances the sequence, so
@@ -146,9 +154,10 @@ export class PosInvoiceService {
           });
         }
       }
-      // Post the invoice's own GL entry (Dr AR / Cr Revenue+Tax).
+      // Post the invoice's own GL entry (Dr AR / Cr Revenue+Tax + Dr sales_discount).
       const dbItems = await tx.invoiceItem.findMany({ where: { invoiceId: inv.id } });
-      const journalEntryId = await this.postInvoiceGl(tx, inv, dbItems);
+      const fullPrepared = txPct > 0 && fullTotals?.prepared ? fullTotals.prepared : undefined;
+      const journalEntryId = await this.postInvoiceGl(tx, inv, dbItems, orderDiscountGl, fullPrepared);
       await tx.invoice.update({
         where: { id: inv.id },
         data: { journalEntryId, status: 'posted', postedAt: new Date(), postedBy: this.tenant.userId ?? null },
@@ -240,7 +249,7 @@ export class PosInvoiceService {
       const settlementStatus = settled ? 'settled' : 'partially_settled';
       await tx.invoice.update({
         where: { id: invoiceId },
-        data: { paymentMode, settlementStatus, status: settled ? 'paid' : invoice.status, version: { increment: 1 } },
+        data: { paymentMode, settlementStatus, status: settled ? 'paid' : invoice.status, settledBy: this.tenant.userId ?? null, version: { increment: 1 } },
       });
 
       const receiptType = wasCredit ? 'settlement_receipt' : (settled ? 'payment_receipt' : 'partial_payment_receipt');
@@ -272,7 +281,7 @@ export class PosInvoiceService {
     if (Number(invoice.amountResidual) <= 0.001) throw new BadRequestException('Invoice is already settled');
 
     await this.assertCreditAllowed(invoice.partnerId, Number(invoice.amountResidual));
-    await this.prisma.client.invoice.update({ where: { id: invoiceId }, data: { paymentMode: 'credit', settlementStatus: 'unsettled', version: { increment: 1 } } });
+    await this.prisma.client.invoice.update({ where: { id: invoiceId }, data: { paymentMode: 'credit', settlementStatus: 'unsettled', settledBy: this.tenant.userId ?? null, version: { increment: 1 } } });
     const receipt = await this.createReceipt(this.prisma.client, invoice, 'credit_issue_receipt', null);
     const closed = await this.closeOrderForInvoice(this.prisma.client, invoiceId);
     if (closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: closed.orderId, invoiceId });
@@ -393,10 +402,14 @@ export class PosInvoiceService {
       // Prefer the cashier's CURRENT open session (passed by the refund endpoint)
       // so a void rung up after the original shift still records the cash leaving
       // the drawer; fall back to the session the sale was rung on.
+      // An explicitly passed session is honoured even when the refunder isn't
+      // its owner: refunds are pos:refund-gated, so the normal flow is a
+      // manager paying out of the cashier's drawer — the drawer must still
+      // reconcile. The owner check only guards the implicit fallback.
       const refundSessionId = opts?.cashSessionId ?? invoice.cashSessionId;
       if (cashPaid > 0.001 && refundSessionId) {
         const session = await tx.cashSession.findFirst({ where: { id: refundSessionId, organizationId: orgId } });
-        if (session && session.status === 'open' && session.userId === this.tenant.userId) {
+        if (session && session.status === 'open' && (opts?.cashSessionId ? true : session.userId === this.tenant.userId)) {
           await this.payments.createCustomerRefund({
             partnerId: invoice.partnerId,
             paymentDate: new Date().toISOString(),
@@ -405,12 +418,12 @@ export class PosInvoiceService {
             reference: `Refund ${invoice.invoiceNumber}`,
             cashSessionId: refundSessionId,
             skipGlPosting: true,
-          } as any, tx);
+          } as any, tx, { allowSessionOwnerMismatch: true });
         }
       }
 
       // 4) Mark refunded + close the order (release the table).
-      await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'refunded', settlementStatus: 'settled', amountResidual: 0, amountRefunded: invoice.totalAmount, version: { increment: 1 } } });
+      await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'refunded', settlementStatus: 'settled', amountResidual: 0, amountRefunded: invoice.totalAmount, refundedBy: this.tenant.userId ?? null, version: { increment: 1 } } });
       const closed = await this.closeOrderForInvoice(tx, invoiceId);
       await this.createReceipt(tx, invoice, 'merchant_copy', null);
       return { total: invoice.totalAmount.toString(), closed };
@@ -522,10 +535,11 @@ export class PosInvoiceService {
       // is the CashMovement so the session reconciles). Only for cash-collected
       // sales, on the same cashier's open session.
       const isCashLike = invoice.paymentMode === 'cash' || invoice.paymentMode === 'mobile_money' || invoice.paymentMode === 'mixed';
+      // Same owner-vs-explicit session rule as the full-refund path above.
       const refundSessionId = opts?.cashSessionId ?? invoice.cashSessionId;
       if (isCashLike && refundSessionId && refundTotal.greaterThan(0.001)) {
         const session = await tx.cashSession.findFirst({ where: { id: refundSessionId, organizationId: orgId } });
-        if (session && session.status === 'open' && session.userId === this.tenant.userId) {
+        if (session && session.status === 'open' && (opts?.cashSessionId ? true : session.userId === this.tenant.userId)) {
           await this.payments.createCustomerRefund({
             partnerId: invoice.partnerId,
             paymentDate: new Date().toISOString(),
@@ -534,7 +548,7 @@ export class PosInvoiceService {
             reference: `Refund ${invoice.invoiceNumber}`,
             cashSessionId: refundSessionId,
             skipGlPosting: true,
-          } as any, tx);
+          } as any, tx, { allowSessionOwnerMismatch: true });
         }
       }
 
@@ -553,6 +567,7 @@ export class PosInvoiceService {
         data: {
           amountRefunded: newRefunded,
           amountResidual: nextResidual,
+          refundedBy: this.tenant.userId ?? null,
           ...(fullyRefunded ? { status: 'refunded', settlementStatus: 'settled' } : {}),
           version: { increment: 1 },
         },
@@ -663,9 +678,17 @@ export class PosInvoiceService {
    * pass `skipGlPosting: true` to the subsequent payment call to avoid
    * double-posting the cash entry.
    */
-  private async postInvoiceGl(tx: any, invoice: any, items: any[]): Promise<string> {
-    const fullLike = { partnerId: invoice.partnerId, lines: items };
-    const { counterAccount: defaultCounter, itemByAccount, taxByAccount } = await this.builder.groupForPosting(tx, fullLike, 'sales');
+  private async postInvoiceGl(
+    tx: any, invoice: any, items: any[],
+    orderDiscountAmount?: any, fullPrepared?: any[],
+  ): Promise<string> {
+    // Use full (pre-discount) line items for revenue/tax breakdown when an
+    // order-level discount exists, so the discount is posted as a separate
+    // Dr line to sales_discount rather than folded into reduced revenue.
+    const glSource = orderDiscountAmount?.gt(0.001) && fullPrepared?.length
+      ? { partnerId: invoice.partnerId, lines: fullPrepared }
+      : { partnerId: invoice.partnerId, lines: items };
+    const { counterAccount: defaultCounter, itemByAccount, taxByAccount } = await this.builder.groupForPosting(tx, glSource, 'sales');
 
     const mode = invoice.paymentMode;
     const mappingKey: Record<string, string> = {
@@ -686,6 +709,11 @@ export class PosInvoiceService {
     ];
     for (const [accountId, amount] of itemByAccount) lines.push({ accountId, credit: (amount as any).toString(), partnerId: invoice.partnerId, description: 'Revenue' });
     for (const [accountId, amount] of taxByAccount) lines.push({ accountId, credit: (amount as any).toString(), description: 'Output tax' });
+    // Post order-level discount as a separate debit line (Dr sales_discount).
+    if (orderDiscountAmount?.gt(0.001)) {
+      const discountAccount = await this.determination.mapped('sales_discount', tx);
+      lines.push({ accountId: discountAccount, debit: orderDiscountAmount.toString(), description: 'Order discount' });
+    }
     const entry = await this.posting.post({
       journalCode: 'SALES',
       date: invoice.issueDate,
@@ -812,8 +840,9 @@ export class PosInvoiceService {
   /** Create a Receipt + ReceiptItems on the given executor (a tx, or the base client). */
   private async createReceipt(db: any, invoice: any, type: string, paymentId: string | null) {
     const orgId = this.tenant.organizationId;
+    const receiptNumber = await this.sequence.next('receipt', { prefix: 'RCT-', padding: 6 }, db);
     const receipt = await db.receipt.create({
-      data: { organizationId: orgId, invoiceId: invoice.id, receiptNumber: invoice.invoiceNumber, type: type as any, paymentId: paymentId ?? null, printedById: this.tenant.userId ?? null },
+      data: { organizationId: orgId, invoiceId: invoice.id, receiptNumber, type: type as any, paymentId: paymentId ?? null, printedById: this.tenant.userId ?? null },
     });
     const items = await db.invoiceItem.findMany({ where: { invoiceId: invoice.id }, orderBy: { lineNumber: 'asc' } });
     if (items.length) {

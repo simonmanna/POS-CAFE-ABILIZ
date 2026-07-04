@@ -19,8 +19,10 @@ export class PaymentController {
     @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
     @Query('search') search?: string,
     @Query('partnerId') partnerId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
-    return this.payments.list({ page, pageSize, search }, 'inbound', partnerId);
+    return this.payments.list({ page, pageSize, search }, 'inbound', partnerId, dateFrom, dateTo);
   }
 
   @Get('payments/:id')
@@ -51,8 +53,10 @@ export class PaymentController {
     @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
     @Query('search') search?: string,
     @Query('partnerId') partnerId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
-    return this.payments.list({ page, pageSize, search }, 'outbound', partnerId);
+    return this.payments.list({ page, pageSize, search }, 'outbound', partnerId, dateFrom, dateTo);
   }
 
   @Post('supplier-payments')

@@ -93,7 +93,7 @@ export class InvoiceService {
   async findOne(id: string) {
     const doc = await this.prisma.client.document.findFirst({
       where: { id, documentType: 'sales_invoice' },
-      include: { lines: { orderBy: { lineNumber: 'asc' } }, partner: true, allocations: true },
+      include: { lines: { orderBy: { lineNumber: 'asc' } }, partner: true, allocations: { include: { payment: true } } },
     });
     if (doc) return doc;
 
@@ -101,7 +101,7 @@ export class InvoiceService {
     // shape the detail page expects (documentNumber, partner, lines).
     const inv = await this.prisma.client.invoice.findFirst({
       where: { id },
-      include: { items: { orderBy: { lineNumber: 'asc' } }, allocations: true },
+      include: { items: { orderBy: { lineNumber: 'asc' } }, allocations: { include: { payment: true } } },
     });
     if (!inv) return null;
     const partner = await this.prisma.client.partner.findFirst({

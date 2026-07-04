@@ -60,9 +60,22 @@ class CheckoutLineDto implements CheckoutLine {
   modifiers?: CheckoutLineModifierDto[];
   @ApiProperty({ required: false, description: 'Selected variant id. Variant price replaces basePrice.' })
   @IsOptional() @IsString() variantId?: string;
+  // Display-only echoes of the cart's variant/accompaniment state. The server
+  // re-resolves names and prices from the DB (anti-tamper), so these are
+  // accepted-but-ignored — whitelisted only so forbidNonWhitelisted doesn't 400
+  // the save when a line carries a variant or accompaniments.
+  @ApiProperty({ required: false, description: 'Display echo; server re-resolves from variantId.' })
+  @IsOptional() @IsString() variantName?: string;
+  @ApiProperty({ required: false, description: 'Display echo; server re-resolves from variantId.' })
+  @IsOptional() @IsNumber() variantPrice?: number;
   @ApiProperty({ required: false, description: 'Selected accompaniment option ids (one per group).' })
   @IsOptional() @IsArray() @IsString({ each: true })
   accompanimentOptionIds?: string[];
+  @ApiProperty({ required: false, description: 'Display echo; server re-resolves from accompanimentOptionIds.' })
+  @IsOptional() @IsArray() @IsString({ each: true })
+  accompanimentNames?: string[];
+  @ApiProperty({ required: false, description: 'Display echo; server re-resolves from accompanimentOptionIds.' })
+  @IsOptional() @IsNumber() accompanimentPriceImpact?: number;
   @ApiProperty({ required: false, description: 'P4 combo id; expanded into component lines on checkout.' })
   @IsOptional() @IsString() comboId?: string;
   @ApiProperty({ required: false, description: 'P10 per-line tax-inclusive override.' })

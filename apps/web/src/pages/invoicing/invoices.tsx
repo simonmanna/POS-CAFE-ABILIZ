@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Search } from 'lucide-react';
+import { Eye, Plus, Search } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -102,6 +102,16 @@ export function InvoicesPage() {
         >
           {settlementLabel[inv.settlementStatus] ?? inv.settlementStatus}
         </span>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-12 text-right',
+      render: (inv) => (
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/invoices/${inv.id}`)}>
+          <Eye className="h-4 w-4" />
+        </Button>
       ),
     },
   ];

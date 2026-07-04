@@ -528,6 +528,7 @@ export class PosReportsService {
     const waiterMap = new Map(waiters.map((w: any) => [w.id, `${w.firstName}${w.lastName ? ' ' + w.lastName : ''}`]));
 
     return (invoices as any[]).map((inv) => ({
+      id: inv.id,
       orderNumber: inv.order?.orderNumber ?? '—',
       orderType: inv.order?.orderType ?? null,
       invoiceNumber: inv.invoiceNumber,

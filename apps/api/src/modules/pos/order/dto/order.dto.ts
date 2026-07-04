@@ -24,7 +24,13 @@ export class OrderLineDto {
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => OrderLineModifierDto)
   modifiers?: OrderLineModifierDto[];
   @IsOptional() @IsString() variantId?: string;
+  // Display-only echoes from the terminal cart; server re-resolves names/prices
+  // from the DB. Whitelisted so forbidNonWhitelisted doesn't 400 the save.
+  @IsOptional() @IsString() variantName?: string;
+  @IsOptional() @IsNumber() variantPrice?: number;
   @IsOptional() @IsArray() @IsString({ each: true }) accompanimentOptionIds?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) accompanimentNames?: string[];
+  @IsOptional() @IsNumber() accompanimentPriceImpact?: number;
   @IsOptional() @IsString() comboId?: string;
   @IsOptional() @IsBoolean() taxInclusive?: boolean;
 }
@@ -36,7 +42,7 @@ export class CreateOrderDto {
   @IsOptional() @IsString() waiterId?: string;
   @IsOptional() @IsString() branchId?: string;
   @IsOptional() @IsString() cashSessionId?: string;
-  @IsOptional() @IsNumber() guestCount?: number;
+  @IsNumber() @Min(1) guestCount!: number;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsString() overrideById?: string;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => OrderLineDto) lines?: OrderLineDto[];

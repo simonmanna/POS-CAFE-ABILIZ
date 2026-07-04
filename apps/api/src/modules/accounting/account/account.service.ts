@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Account, AccountType } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { BaseCrudService, type CrudDelegate } from '../../../kernel/common/base-crud.service';
@@ -61,5 +61,31 @@ export class AccountService extends BaseCrudService<Account, CreateAccountDto, U
 
   async update(id: string, data: UpdateAccountDto): Promise<Account> {
     return super.update(id, data as any);
+  }
+
+  /**
+   * Guarded delete. A system/protected account, a group with children, an account
+   * that already carries journal lines, or one wired into an AccountMapping cannot
+   * be deleted — deactivate it instead (audit fix #4).
+   */
+  async remove(id: string): Promise<void> {
+    const acct = await this.prisma.client.account.findFirst({ where: { id } });
+    if (!acct) throw new NotFoundException(`Account ${id} not found`);
+    if ((acct as any).isSystem || (acct as any).isProtected) {
+      throw new BadRequestException('This is a protected system account and cannot be deleted. Deactivate it instead.');
+    }
+    const childCount = await this.prisma.client.account.count({ where: { parentAccountId: id } });
+    if (childCount > 0) {
+      throw new BadRequestException('Account has child accounts. Reassign or delete them first.');
+    }
+    const lineCount = await this.prisma.client.journalLine.count({ where: { accountId: id } });
+    if (lineCount > 0) {
+      throw new BadRequestException('Account has journal entries and cannot be deleted. Deactivate it instead.');
+    }
+    const mapping = await this.prisma.client.accountMapping.findFirst({ where: { accountId: id } });
+    if (mapping) {
+      throw new BadRequestException(`Account is used by account mapping '${mapping.key}'. Reassign the mapping first.`);
+    }
+    await super.remove(id);
   }
 }

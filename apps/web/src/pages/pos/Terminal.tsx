@@ -23,7 +23,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Coffee, LayoutGrid, Users, ArrowLeft, Printer } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Coffee, LayoutGrid, Users, ArrowLeft, Printer, Clock } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 
 import { Topbar } from './Topbar';
@@ -52,6 +53,7 @@ import { VoidItemDialog } from './VoidItemDialog';
 import { CancelOrderDialog } from './CancelOrderDialog';
 import { ReprintDialog } from './ReprintDialog';
 import type { PosTable } from '@/features/tables/types';
+import { STATUS_META, ZONE_LABEL, fmtMoney, minutesBetween } from '@/features/tables/utils';
 import { useTables, useTransferItems, usePosTablesStream } from '@/features/tables/api';
 
 import {
@@ -71,7 +73,7 @@ import {
 } from './api';
 import { useMenuItemsAvailable } from '@/features/menu/api';
 import { useMenuItemBundle } from './pos-features-api';
-import { api } from '@/lib/api';
+import { api, resolveAssetUrl } from '@/lib/api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
 import type { Customer } from './types';
@@ -220,6 +222,9 @@ const TerminalPage: React.FC = () => {
         salesPrice: it.basePrice != null ? Number(it.basePrice) : 0,
         categoryId: it.categoryId,
         category: it.categoryId ? { name: catName.get(it.categoryId) ?? '' } : null,
+        // Signed URL resolved by PosMenuService.resolveImage; shown in MenuGrid.
+        // Absolutize so the <img> loads from the API origin (dev proxy-less).
+        image: resolveAssetUrl(it.image) ?? null,
       }));
   }, [menuPayload, activeCategory, search]);
 
@@ -400,6 +405,7 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Tables (live via SSE, fallback poll 20s) ============== */
   usePosTablesStream();
+  const qc = useQueryClient();
   const { data: tables = [], isLoading: tablesLoading } = useTables({ active: true, status: undefined });
 
   /* Derived selected table � derived from selectedTableId + tables list */
@@ -620,15 +626,17 @@ const TerminalPage: React.FC = () => {
       saveTab.mutate(
         { tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id },
         {
-          onSuccess: () => { tabSyncSig.current = currentSig; },
+          onSuccess: () => {
+            tabSyncSig.current = currentSig;
+            qc.invalidateQueries({ queryKey: ['pos-tables'] });
+          },
           onError: (e: any) => {
-            // H2 — another device edited this tab first (stale version → 409).
-            // Reload the server truth rather than silently clobbering it; the
-            // cashier re-adds their last change on top of the merged order.
             if (e?.response?.status === 409) {
               toast.error('This table was updated on another device — reloading the latest order. Re-add your last change if needed.');
               setPendingTableLoad(tableId);
               void loadTableOrder(tableId);
+            } else {
+              toast.error(e?.response?.data?.message || e?.message || 'Failed to save order');
             }
           },
         },
@@ -698,6 +706,12 @@ const TerminalPage: React.FC = () => {
       quantity: 1,
       unitPrice: pendingItem.basePrice,
       taxInclusive: pendingItem.taxInclusive,
+      variantId: pendingItem.variantId,
+      variantName: pendingItem.variantName,
+      variantPrice: pendingItem.variantPrice,
+      accompanimentOptionIds: pendingItem.accompanimentOptionIds,
+      accompanimentNames: pendingItem.accompanimentNames,
+      accompanimentPriceImpact: pendingItem.accompanimentPriceImpact,
     });
     setPendingItem(null);
   }, [nextStep, pendingItem, addLine]);
@@ -1122,30 +1136,46 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Hold ============== */
   /* ============== Bill / KOT preview ============== */
+  const resolveOpenOrder = async (): Promise<{ orderId: string; billPrintCount: number } | null> => {
+    const open = selectedTable?.orders?.find((o) => !o.closedAt);
+    if (open?.orderId) {
+      return { orderId: open.orderId, billPrintCount: Number(open.order?.billPrintCount ?? 0) };
+    }
+    if (tableId) {
+      try {
+        const order = await api.get(`/pos/orders/by-table/${tableId}`).then((r: any) => r.data);
+        if (order?.id) {
+          return { orderId: order.id, billPrintCount: Number(order.billPrintCount ?? 0) };
+        }
+      } catch { /* ignore fallback failure */ }
+    }
+    return null;
+  };
+
   const onPrintBill = async () => {
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
-    const openOrder = selectedTable?.orders?.find((o) => !o.closedAt);
-    if (!openOrder) { toast.error('No open order on this table'); return; }
-    const billCount = Number(openOrder.order?.billPrintCount ?? 0);
-    if (billCount > 0) {
-      toast.error('Bill already printed. Only Admin/Manager can reprint.');
-      return;
-    }
-    if (openOrder.orderId) {
+    try {
+      const saved = await saveTab.mutateAsync({
+        tableId: selectedTableId!,
+        lines: lines.map(cartLineToPayload),
+        partnerId: customer?.id,
+      });
+      if (!saved?.id) { toast.error('No open order on this table'); return; }
       try {
-        await printBill.mutateAsync({ invoiceId: openOrder.orderId });
-      } catch { /* non-fatal */ }
+        await printBill.mutateAsync({ invoiceId: saved.id });
+      } catch { /* non-fatal — print failure shouldn't block preview */ }
+      setShowBillPreview(true);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to save order');
     }
-    setShowBillPreview(true);
   };
 
   /* Print only items added since the last bill print. */
   const onPrintAdditionalBill = async () => {
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
-    const openOrder = selectedTable?.orders?.find((o) => !o.closedAt);
+    const openOrder = await resolveOpenOrder();
     if (!openOrder) { toast.error('No open order on this table'); return; }
-    const billCount = Number(openOrder.order?.billPrintCount ?? 0);
-    if (billCount === 0) {
+    if (openOrder.billPrintCount === 0) {
       toast.error('Print the initial bill first before printing an additional bill.');
       return;
     }
@@ -1180,7 +1210,7 @@ const TerminalPage: React.FC = () => {
       const previousSubtotal = Math.max(0, docSubtotal - additionalSubtotal);
       const grandTotal = Number(refreshed?.totalAmount ?? 0);
       setAdditionalBillLines(matched);
-      setAdditionalBillCopy(billCount + 1);
+      setAdditionalBillCopy(openOrder.billPrintCount + 1);
       setAdditionalBillPreviousSubtotal(previousSubtotal);
       setAdditionalBillGrandTotal(grandTotal);
       setShowAdditionalBillPreview(true);
@@ -1288,7 +1318,7 @@ const TerminalPage: React.FC = () => {
         orderType={orderTypeFromStore ?? 'dine-in'}
       />
 
-      <div className="pos-body-pro">
+      <div className={tableView === 'grid' && !selectedTableId ? 'pos-body-pro pos-body-pro--tables' : 'pos-body-pro'}>
         {locked ? (
           <div className="pos-lock-overlay-pro">
             <div className="pos-lock-icon"><LockIcon className="h-10 w-10" /></div>
@@ -1304,10 +1334,19 @@ const TerminalPage: React.FC = () => {
             </button>
           </div>
         ) : (orderTypeFromStore === 'dine-in' || !orderTypeFromStore) && !selectedTableId && tableView !== 'ordering' ? (
-          /* Dine-in table grid (left) + OrderPanel (right) */
+          /* Dine-in table grid (full-page, no cart) */
           <div className="pos-menus-pro">
             <div className="flex flex-col h-full">
-              <div className="flex-1 overflow-y-auto p-6">
+              {/* Minimal header */}
+              <div className="flex items-end justify-between px-6 pt-5 pb-2">
+                <div>
+                  <h2 className="text-base font-bold text-slate-700">Tables</h2>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {tables.length} tables · {tables.filter(t => t.status === 'occupied').length} occupied
+                  </p>
+                </div>
+              </div>
+              <div className="flex-1 overflow-y-auto px-6 pb-6">
                 {tablesLoading ? (
                   <div className="text-center text-slate-400 py-12">Loading tables...</div>
                 ) : tables.length === 0 ? (
@@ -1316,51 +1355,105 @@ const TerminalPage: React.FC = () => {
                     <p className="font-semibold">No tables configured</p>
                     <p className="text-xs mt-1">Create tables in the Tables admin page first.</p>
                   </div>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-                    {tables.map((t) => {
-                      const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
-                      const backendTotal = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
-                      const statusColors: Record<string, string> = {
-                        available: 'bg-emerald-400',
-                        occupied: 'bg-amber-400',
-                        reserved: 'bg-sky-400',
-                        out_of_service: 'bg-slate-400',
-                      };
-                      const status = t.status;
-                      const dotClass = statusColors[status] ?? 'bg-slate-300';
-                      const statusLabel = status === 'occupied' ? 'Occupied' : status === 'out_of_service' ? 'Out of service' : status === 'reserved' ? 'Reserved' : 'Available';
-                      const hasLocal = tableHasLocalCart(t.id);
-                      const local = localCartTotal(t.id);
-                      const combinedTotal = backendTotal + local;
-                      const combinedCount = openOrders.length + (hasLocal ? 1 : 0);
-                      return (
-                        <button
-                          key={t.id}
-                          type="button"
-                          onClick={() => handleTableClick(t)}
-                          className="relative rounded-xl p-4 border-2 border-slate-200 bg-white hover:border-indigo-400 hover:shadow-lg transition-all text-left group min-h-[120px]"
-                        >
-                          <span className={`absolute top-3 right-3 w-3 h-3 rounded-full ${dotClass} shadow-sm`} />
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">T{t.number}</div>
-                          <div className="text-sm font-bold text-slate-800 leading-tight pr-6 mb-2">{t.name}</div>
-                          <div className="flex items-center gap-1 text-[11px] text-slate-500 mb-1">
-                            <Users className="w-3 h-3" /> {t.seats}
-                            <span className={'ml-auto text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ' + (status === 'occupied' ? 'bg-amber-100 text-amber-700' : status === 'out_of_service' ? 'bg-slate-100 text-slate-500' : status === 'reserved' ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700')}>{statusLabel}</span>
-                          </div>
-                          {combinedCount > 0 ? (
-                            <>
-                              <div className="text-[10px] font-semibold text-slate-600 mb-0.5">{combinedCount} order{combinedCount !== 1 ? 's' : ''} · UGX {combinedTotal.toLocaleString()}</div>
-                              {hasLocal && <div className="text-[9px] text-amber-600 font-semibold">⚡ Draft cart ({tableCartsRef.current.get(t.id)?.lines.length ?? 0} items)</div>}
-                            </>
-                          ) : (
-                            <div className="text-[10px] text-slate-400 font-semibold mt-1">Tap to open</div>
-                          )}
-                        </button>
-                      );
-                    })}
+                ) : (() => {
+                  const grouped = new Map<string, PosTable[]>();
+                  for (const t of tables) {
+                    const key = t.zone === 'custom' && t.customZone ? `custom:${t.customZone}` : t.zone;
+                    const arr = grouped.get(key) ?? [];
+                    arr.push(t);
+                    grouped.set(key, arr);
+                  }
+                  return Array.from(grouped.entries())
+                    .sort((a, b) => (ZONE_LABEL[a[0]] ?? a[0]).localeCompare(ZONE_LABEL[b[0]] ?? b[0]));
+                })().map(([zoneKey, list]) => (
+                  <div key={zoneKey} className="mb-6 last:mb-0">
+                    <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">
+                      {ZONE_LABEL[zoneKey] ?? zoneKey} · {list.length}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+                      {list.map((t) => {
+                        const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
+                        const backendTotal = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
+                        const hasLocal = tableHasLocalCart(t.id);
+                        const local = localCartTotal(t.id);
+                        const combinedTotal = backendTotal + local;
+                        const combinedCount = openOrders.length + (hasLocal ? 1 : 0);
+                        const meta = STATUS_META[t.status] ?? STATUS_META.available;
+                        const statusLabel = t.status === 'occupied' ? 'Occupied' : t.status === 'out_of_service' ? 'Out of service' : t.status === 'reserved' ? 'Reserved' : 'Available';
+                        const zoneLabel = ZONE_LABEL[t.zone] ?? t.customZone ?? t.zone;
+                        return (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => handleTableClick(t)}
+                            className={`relative rounded-xl border p-5 text-left transition-all duration-200
+                              min-h-[200px] sm:min-h-[220px] flex flex-col
+                              hover:shadow-xl hover:-translate-y-1
+                              ${t.status === 'occupied' ? 'bg-orange-50/40 border-orange-200' : t.status === 'reserved' ? 'bg-blue-50/30 border-blue-200' : t.status === 'out_of_service' ? 'bg-slate-100 border-slate-300' : 'bg-white border-slate-200 hover:border-indigo-300'}
+                              ${hasLocal ? 'border-l-[3px] border-l-amber-400' : ''}
+                            `}
+                          >
+                            {/* Zone pill */}
+                            <div className="mb-3">
+                              <span className="text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                                {zoneLabel}
+                              </span>
+                            </div>
+
+                            {/* Table number + name */}
+                            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">
+                              T{t.number}
+                            </div>
+                            <div className="text-[17px] font-bold text-slate-800 leading-tight mb-auto">
+                              {t.name}
+                            </div>
+
+                            {/* Seats + status badge */}
+                            <div className="flex items-center justify-between mt-3 mb-2">
+                              <span className="flex items-center gap-1 text-[11px] text-slate-500">
+                                <Users className="w-3.5 h-3.5" /> {t.seats} seats
+                              </span>
+                              <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${meta.pill}`}>
+                                {statusLabel}
+                              </span>
+                            </div>
+
+                            {/* Bottom accent bar */}
+                            <div className={`h-[3px] w-full rounded-b-xl mt-2 ${
+                              t.status === 'occupied' ? 'bg-orange-300'
+                              : t.status === 'reserved' ? 'bg-blue-300'
+                              : t.status === 'out_of_service' ? 'bg-slate-400'
+                              : 'bg-emerald-300'
+                            }`} />
+
+                            {/* Order footer */}
+                            {combinedCount > 0 ? (
+                              <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                                <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
+                                  <Clock className="w-3 h-3" />
+                                  {minutesBetween(openOrders[0]?.openedAt ?? new Date(), null)}m
+                                </span>
+                                <span className="text-[11px] font-bold text-slate-700">{fmtMoney(combinedTotal)}</span>
+                              </div>
+                            ) : (
+                              <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-slate-400 font-medium">
+                                Tap to open
+                              </div>
+                            )}
+
+                            {/* Draft indicator */}
+                            {hasLocal && (
+                              <div className="mt-2 text-[10px] text-amber-600 font-semibold flex items-center gap-1">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                Draft · {tableCartsRef.current.get(t.id)?.lines.length ?? 0} items
+                              </div>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
             </div>
           </div>
@@ -1391,8 +1484,8 @@ const TerminalPage: React.FC = () => {
           </>
         )}
 
-        {/* OrderPanel — always visible (right column) when not locked */}
-        {!locked && (
+        {/* OrderPanel — hidden in full-page tables grid mode */}
+        {!locked && tableView !== 'grid' && (
           <OrderPanel
             customerName={customer?.name}
             orderTypeLabel={orderTypeLabel}

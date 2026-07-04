@@ -522,8 +522,29 @@ export class PosService {
    * Map an open Order (with items) to the tab view the POS terminal renders.
    * Keeps the historical "TabDocument" shape (lines + running totals) but sourced
    * from the Order aggregate — no Document involved.
+   *
+   * Lines carry the full variant/accompaniment state so the terminal can rebuild
+   * its cart exactly on reload. `variantPrice` and `accompanimentPriceImpact` are
+   * re-resolved from the DB here because OrderItem stores only the folded
+   * unitPrice — without them the terminal can't un-bake the base price on the
+   * next save and accompaniment charges would double.
    */
-  private toTabView(o: any) {
+  private async toTabView(o: any) {
+    const items: any[] = o.items ?? [];
+
+    const variantIds = [...new Set(items.map((it) => it.variantId).filter(Boolean))] as string[];
+    const optionIds = [...new Set(items.flatMap((it) => it.accompanimentOptionIds ?? []))] as string[];
+    const [variants, options] = await Promise.all([
+      variantIds.length
+        ? this.prisma.client.menuItemVariant.findMany({ where: { id: { in: variantIds } }, select: { id: true, price: true } })
+        : Promise.resolve([]),
+      optionIds.length
+        ? this.prisma.client.accompanimentOption.findMany({ where: { id: { in: optionIds } }, select: { id: true, priceImpact: true } })
+        : Promise.resolve([]),
+    ]);
+    const variantPriceById = new Map((variants as any[]).map((v) => [v.id, Number(v.price)]));
+    const optionImpactById = new Map((options as any[]).map((op) => [op.id, Number(op.priceImpact)]));
+
     return {
       id: o.id,
       orderNumber: o.orderNumber,
@@ -537,11 +558,20 @@ export class PosService {
       totalAmount: String(o.totalAmount ?? 0),
       guestCount: o.guestCount ?? null,
       partnerId: o.partnerId ?? null,
-      lines: (o.items ?? []).map((it: any) => {
+      lines: items.map((it: any) => {
         const qty = Number(it.quantity);
         const unit = Number(it.unitPrice);
         const disc = Number(it.discountPercent ?? 0);
         const total = qty * unit * (1 - disc / 100);
+        const accIds: string[] = it.accompanimentOptionIds ?? [];
+        // OrderItem.note holds "user note | + accompaniment | + modifier" (the
+        // folded KOT form). Return only the user part — the add-on names travel
+        // in their own fields, and echoing the folded note back on save would
+        // re-fold it and duplicate the "+ x" parts.
+        const userNote = (it.note ?? '')
+          .split(' | ')
+          .filter((part: string) => part && !part.startsWith('+ '))
+          .join(' | ');
         return {
           id: it.id,
           productId: it.productId ?? null,
@@ -550,6 +580,16 @@ export class PosService {
           quantity: String(it.quantity),
           unitPrice: String(it.unitPrice),
           total: String(total),
+          taxId: it.taxId ?? null,
+          taxInclusive: it.taxInclusive ?? false,
+          discountPercent: String(it.discountPercent ?? 0),
+          note: userNote || null,
+          variantId: it.variantId ?? null,
+          variantName: it.variantName ?? null,
+          variantPrice: it.variantId != null ? variantPriceById.get(it.variantId) ?? null : null,
+          accompanimentOptionIds: accIds,
+          accompanimentNames: it.accompanimentNames ?? [],
+          accompanimentPriceImpact: accIds.reduce((s: number, oid: string) => s + (optionImpactById.get(oid) ?? 0), 0),
           modifiers: (it.modifiers ?? []).map((m: any) => ({
             modifierId: m.modifierId, name: m.name, priceDelta: String(m.priceDelta),
           })),
@@ -906,12 +946,14 @@ export class PosService {
         hasVariant = true;
       }
 
-      // Resolve accompaniment price impact (stacks on top). Always validate for a
-      // menu item — passing [] enforces required groups even when the client omits them.
+      // Resolve accompaniment price impact (stacks on top). Resolution only —
+      // min-select is not enforced here (owner rule: a sale must never be
+      // blocked; tab saves already gate rules at entry with the override state,
+      // and settle must not 400 on lines that were legitimately saved).
       let accompanimentImpact = 0;
       let accompanimentNames: string[] = [];
       if (l.menuItemId) {
-        const result = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds ?? []);
+        const result = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds ?? [], true);
         accompanimentImpact = result.priceImpact;
         accompanimentNames = result.names;
       }

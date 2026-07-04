@@ -37,7 +37,7 @@ export class ExportController {
         COALESCE(SUM(jl."baseDebit" - jl."baseCredit"), 0)::text AS balance
       FROM "Account" a
       LEFT JOIN "JournalLine" jl ON jl."accountId" = a.id
-      LEFT JOIN "JournalEntry" je ON je.id = jl."journalEntryId" AND je.status = 'posted' AND je."postingDate" <= ${date}
+      LEFT JOIN "JournalEntry" je ON je.id = jl."journalEntryId" AND je.status IN ('posted', 'reversed') AND je."postingDate" <= ${date}
       WHERE a."organizationId" = ${orgId}
       GROUP BY a.id, a.code, a.name, a."accountType"
       ORDER BY a.code

@@ -6,6 +6,8 @@ export interface NormalizedLine {
   accountId: string;
   partnerId?: string;
   description?: string;
+  branchId?: string;
+  costCenterId?: string;
   debit: Prisma.Decimal;
   credit: Prisma.Decimal;
   baseDebit: Prisma.Decimal;
@@ -21,6 +23,8 @@ export function normalizeLines(lines: PostingLineInput[], exchangeRate: Prisma.D
       accountId: l.accountId,
       partnerId: l.partnerId,
       description: l.description,
+      branchId: l.branchId,
+      costCenterId: l.costCenterId,
       debit,
       credit,
       baseDebit: round(debit.times(exchangeRate), 6),

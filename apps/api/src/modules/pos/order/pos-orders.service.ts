@@ -153,6 +153,8 @@ export class PosOrdersService {
     lines: Array<{
       productId?: string | null;
       menuItemId?: string | null;
+      variantId?: string;
+      variantName?: string;
       description: string;
       quantity: number;
       unitPrice: number;
@@ -180,6 +182,8 @@ export class PosOrdersService {
       modifiers: l.modifiers ?? [],
       accompanimentNames: l.accompanimentNames ?? [],
       accompanimentOptionIds: l.accompanimentOptionIds ?? [],
+      variantId: l.variantId ?? undefined,
+      variantName: l.variantName ?? undefined,
       station: 'cafe',
     }));
     return this.prisma.client.$transaction(async (tx: any) => {
@@ -264,7 +268,7 @@ export class PosOrdersService {
       if (order.status === 'cancelled' || order.status === 'closed') return order;
       const updated = await tx.order.update({
         where: { id: orderId },
-        data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: reason ?? null, version: { increment: 1 } },
+        data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: reason ?? null, cancelledBy: this.tenant.userId ?? null, version: { increment: 1 } },
       });
       await this.syncTableOnClose(tx, order.tableId);
       this.events.publish(EVENTS.PosOrderCancelled, { organizationId: orgId, orderId, reason });
@@ -281,7 +285,7 @@ export class PosOrdersService {
       if (order.status !== 'cancelled') throw new BadRequestException('Only a cancelled order can be reopened');
       const updated = await tx.order.update({
         where: { id: orderId },
-        data: { status: 'open', cancelledAt: null, cancelReason: null, version: { increment: 1 } },
+        data: { status: 'open', cancelledAt: null, cancelReason: null, cancelledBy: null, version: { increment: 1 } },
       });
       await this.syncTableOnOpen(tx, order.tableId);
       return updated;
@@ -390,7 +394,7 @@ export class PosOrdersService {
       });
     }
     if (order.status === 'open') {
-      await this.prisma.client.order.update({ where: { id: orderId }, data: { status: 'preparing' } });
+      await this.prisma.client.order.update({ where: { id: orderId }, data: { status: 'preparing', kitchenStartedAt: now, kitchenStartedBy: this.tenant.userId ?? null } });
     }
     await this.audit.record({ entity: 'Order', entityId: orderId, action: 'update' as any, newValues: { kind: 'fire_kitchen', tickets: ticketIds.length } });
     return { ticketIds, count: ticketIds.length };
@@ -526,7 +530,10 @@ export class PosOrdersService {
       let accompanimentImpact = 0;
       let accompanimentNames: string[] = [];
       if (l.accompanimentOptionIds?.length && l.menuItemId) {
-        const r = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds);
+        // Resolution only — rule enforcement already ran in validateLines (with
+        // the caller's override state). Re-running strict here would 400 an
+        // override-approved save.
+        const r = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds, true);
         accompanimentImpact = r.priceImpact; accompanimentNames = r.names;
       }
       const baseUnitPrice = hasVariant ? variantPrice : l.unitPrice;
@@ -593,6 +600,8 @@ export class PosOrdersService {
       note: it.note ?? null,
       taxInclusive: it.taxInclusive,
       modifiers: (it.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId, name: m.name, priceDelta: Number(m.priceDelta) })),
+      variantId: it.variantId ?? undefined,
+      variantName: it.variantName ?? undefined,
       accompanimentNames: it.accompanimentNames ?? [],
       accompanimentOptionIds: it.accompanimentOptionIds ?? [],
       station: 'cafe',
@@ -627,6 +636,8 @@ export class PosOrdersService {
     const totals = await this.builder.prepareLines(tx, all.map((l) => ({
       productId: l.productId ?? undefined,
       menuItemId: l.menuItemId ?? undefined,
+      variantId: l.variantId ?? undefined,
+      variantName: l.variantName ?? undefined,
       description: l.description,
       quantity: l.quantity,
       unitPrice: l.unitPrice,

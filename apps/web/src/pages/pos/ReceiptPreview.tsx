@@ -35,13 +35,8 @@ interface Props {
   onPrint?: () => void;
 }
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
 const money = (n: number | string) => Number(n || 0).toLocaleString();
-
-const now = () => {
-  const d = new Date();
-  return d.toLocaleDateString('en-UG', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-};
+const ugx = (n: number | string) => `UGX ${money(n)}`;
 
 /**
  * Build a standalone 80mm monospace thermal document for the bill / KOT and
@@ -62,7 +57,7 @@ function buildThermalHtml(p: {
   previousSubtotal?: number;
   grandTotal?: number;
 }): string {
-  const W = 40;
+  const W = 44;
   const out: string[] = [];
   const center = (s: string) => {
     const pad = Math.max(0, Math.floor((W - s.length) / 2));
@@ -74,9 +69,10 @@ function buildThermalHtml(p: {
   };
 
   out.push('='.repeat(W));
-  out.push(center('CAFE POS'));
-  out.push(center('Point of Sale'));
-  out.push(center(now()));
+  out.push(center('ABILIZ CAFE AND PATISSERIE'));
+  out.push(center('AFEE COMPLEX, KASANGA'));
+  out.push(center('Kampala, Uganda'));
+  out.push(center('Tel: +256757920771'));
   if (p.orderTypeLabel) out.push(center(p.orderTypeLabel));
   if (p.tableLabel) out.push(center(p.tableLabel));
   if (p.customerName) out.push(center('Customer: ' + p.customerName));
@@ -97,10 +93,11 @@ function buildThermalHtml(p: {
     out.push('-'.repeat(W));
     out.push(center('Prepare and serve with care'));
   } else {
-    const descW = 20;
-    const qtyW = 4;
-    const priceW = W - descW - qtyW;
-    out.push(`${'Item'.padEnd(descW)}${'Qty'.padStart(qtyW)}${'Price'.padStart(priceW)}`);
+    const descW = 26;
+    const qtyW = 3;
+    const priceW = 7;
+    const totalW = 5;
+    out.push(`${'Item'.padEnd(descW)} ${'Qty'.padStart(qtyW)} ${'Price'.padStart(priceW)} ${'Total'.padStart(totalW)}`);
     out.push('-'.repeat(W));
     if (p.lines.length === 0) out.push(center('No items'));
     let subtotal = 0;
@@ -108,7 +105,7 @@ function buildThermalHtml(p: {
       const lineTotal = it.unitPrice * it.quantity;
       subtotal += lineTotal;
       out.push(
-        `${it.name.slice(0, descW).padEnd(descW)}${String(it.quantity).padStart(qtyW)}${money(lineTotal).padStart(priceW)}`,
+        `${it.name.slice(0, descW).padEnd(descW)} ${String(it.quantity).padStart(qtyW)} ${money(it.unitPrice).padStart(priceW)} ${money(lineTotal).padStart(totalW)}`,
       );
       if (it.variantName) out.push(`  ${it.variantName}`);
       if (it.accompanimentNames?.length) out.push(`  + ${it.accompanimentNames.join(', ')}`);
@@ -117,18 +114,18 @@ function buildThermalHtml(p: {
       if (it.note) out.push(`  Note: ${it.note}`);
     }
     out.push('-'.repeat(W));
-    out.push(two('Subtotal', fmt(subtotal)));
+    out.push(two('Subtotal', ugx(subtotal)));
     if (p.discountPercent && p.discountPercent > 0) {
-      out.push(two(`Discount (${p.discountPercent}%)`, '-' + fmt(p.discountAmount ?? 0)));
+      out.push(two(`Discount (${p.discountPercent}%)`, '-' + money(p.discountAmount ?? 0)));
     }
     if (p.subtitle && p.previousSubtotal != null && p.grandTotal != null) {
-      out.push(two('Previous Total', fmt(p.previousSubtotal)));
-      out.push(two('Additional Total', fmt(p.total)));
+      out.push(two('Previous Total', money(p.previousSubtotal)));
+      out.push(two('Additional Total', money(p.total)));
       out.push('='.repeat(W));
-      out.push(two('Grand Total Due', fmt(p.grandTotal)));
+      out.push(two('Grand Total Due', money(p.grandTotal)));
     } else {
       out.push('='.repeat(W));
-      out.push(two('TOTAL', fmt(p.total)));
+      out.push(two('TOTAL', ugx(p.total)));
     }
     out.push('-'.repeat(W));
     out.push(center('Thank you for your visit!'));
@@ -142,7 +139,7 @@ function buildThermalHtml(p: {
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { margin:0; padding:0; width:80mm; height:auto; }
-  body { font-family:'Courier New',Courier,monospace; font-size:12px; line-height:1.15; white-space:pre; padding:1px 4px 2px; }
+  body { font-family:'Courier New',Courier,monospace; font-size:12px; line-height:1.15; white-space:pre; padding:1px 2px 2px; }
   @media print { @page { margin:0; size:80mm auto; } html,body { width:80mm; height:auto; } }
 </style></head>
 <body>${esc(text).replace(/\n/g, '<br>')}</body></html>`;

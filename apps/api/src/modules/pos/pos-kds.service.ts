@@ -224,6 +224,31 @@ export class PosKdsService {
       where: { id },
       data: { status: next.status as any, [next.timestamp || 'updatedAt']: now } as any,
     });
+    // Sync kitchen lifecycle timestamps onto the parent Order.
+    if (t.orderId) {
+      if (action === 'start') {
+        // Set kitchenStartedAt once (first ticket starting).
+        await this.prisma.client.order.updateMany({
+          where: { id: t.orderId, kitchenStartedAt: null },
+          data: { kitchenStartedAt: now, kitchenStartedBy: this.tenant.userId ?? null },
+        });
+      } else if (next.status === 'ready' || next.status === 'served') {
+        // Check if ALL tickets for this order are now done (ready/served/cancelled).
+        const siblings = await this.prisma.client.kitchenTicket.findMany({
+          where: { orderId: t.orderId, id: { not: id } },
+          select: { status: true },
+        });
+        const allDone = [updated, ...siblings].every((s: any) =>
+          ['ready', 'served', 'cancelled'].includes(s.status),
+        );
+        if (allDone) {
+          await this.prisma.client.order.update({
+            where: { id: t.orderId },
+            data: { kitchenCompletedAt: now, kitchenCompletedBy: this.tenant.userId ?? null },
+          });
+        }
+      }
+    }
     await this.audit.record({
       entity: 'KitchenTicket',
       entityId: id,

@@ -110,19 +110,6 @@ export const OrderPanel: React.FC<Props> = ({
           <div className="pos-ord-num shrink-0">
             {empty ? "No items" : `${itemCount} item${itemCount === 1 ? "" : "s"}`}
           </div>
-          {orderTypeLabel ? (
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-white/20 text-white/90 shrink-0">
-              {orderTypeLabel}
-            </span>
-          ) : null}
-          {tableLabel ? (
-            <span className="text-[10px] font-semibold text-white/70 truncate min-w-0">
-              · {tableLabel}
-            </span>
-          ) : null}
-          {!orderTypeLabel && !tableLabel ? (
-            <span className="text-[11px] text-white/60 truncate">Tap a category, scan a barcode, or search</span>
-          ) : null}
         </div>
         {customerName ? (
           <div className="pos-ord-customer ml-2">

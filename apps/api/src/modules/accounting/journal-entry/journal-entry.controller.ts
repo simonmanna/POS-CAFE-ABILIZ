@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, UseInterceptors } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
 import { PaginationDto } from '../../../kernel/common/pagination.dto';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
@@ -24,11 +24,28 @@ export class JournalEntryController {
     return this.entries.findOne(id);
   }
 
+  /** Maker: stage a manual entry as a draft (does not post to the ledger). */
   @Post()
   @Idempotent()
-  @RequirePermissions(PERMISSIONS.journalEntry.post)
+  @RequirePermissions(PERMISSIONS.journalEntry.create)
   create(@Body() dto: CreateJournalEntryDto) {
     return this.entries.createManual(dto);
+  }
+
+  /** Checker: approve + post a draft. Rejected if the approver created the draft. */
+  @Post(':id/post')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.journalEntry.post)
+  post(@Param('id') id: string) {
+    return this.entries.post(id);
+  }
+
+  /** Discard a draft that was never posted. */
+  @Delete(':id')
+  @HttpCode(204)
+  @RequirePermissions(PERMISSIONS.journalEntry.create)
+  discard(@Param('id') id: string) {
+    return this.entries.discard(id);
   }
 
   @Post(':id/reverse')

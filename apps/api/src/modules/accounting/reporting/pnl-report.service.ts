@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
+import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -10,7 +11,6 @@ interface DateRange {
 }
 
 const ZERO = new Prisma.Decimal(0);
-const FALLBACK_EPSILON_MS = 60 * 1000;
 
 /**
  * P&L report (D3). Reads from `ReportPnLSnapshot` when available; falls back
@@ -53,7 +53,7 @@ export class PnLReportService {
   private async livePnl(range: DateRange) {
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: 'posted', postingDate: this.rangeFilter(range) } },
+      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: this.rangeFilter(range) } },
       _sum: { baseDebit: true, baseCredit: true },
     });
     const accounts = await this.prisma.client.account.findMany({
@@ -93,18 +93,21 @@ export class PnLReportService {
     };
   }
 
+  /** Latest snapshot ≤ asOf, served only if nothing balance-affecting posted since. */
   private async findSnapshot(asOf: Date): Promise<{ organizationId: string; asOf: Date } | null> {
-    const now = Date.now();
-    const candidates = await this.prisma.client.reportPnLSnapshot.findMany({
+    const snap = await this.prisma.client.reportPnLSnapshot.findFirst({
+      where: { asOf: { lte: asOf } },
       orderBy: { asOf: 'desc' },
-      take: 5,
+      select: { organizationId: true, asOf: true },
     });
-    for (const c of candidates) {
-      if (c.asOf.getTime() > asOf.getTime()) continue;
-      if (Math.abs(now - c.asOf.getTime()) > FALLBACK_EPSILON_MS) continue;
-      return { organizationId: c.organizationId, asOf: c.asOf };
-    }
-    return null;
+    if (!snap) return null;
+    const newer = await this.prisma.client.journalLine.count({
+      where: {
+        entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { gt: snap.asOf, lte: asOf } },
+      },
+    });
+    if (newer > 0) return null;
+    return snap;
   }
 
   private rangeFilter(range: DateRange): any {

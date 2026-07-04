@@ -209,6 +209,14 @@
   .pos-body-pro { grid-template-columns: minmax(0, 1fr) 400px; }
 }
 
+/* Full-screen table grid: single column, no cart */
+.pos-body-pro--tables {
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 1280px) {
+  .pos-body-pro--tables { grid-template-columns: minmax(0, 1fr); }
+}
+
 .pos-menus-pro {
   display: flex;
   flex-direction: column;
@@ -221,8 +229,8 @@
 .pos-cats-pro {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.55rem 0.75rem;
+  gap: 0.5rem;
+  padding: 0.65rem 0.85rem;
   background: #fff;
   border-bottom: 1px solid #e2e8f0;
   overflow-x: auto;
@@ -235,27 +243,29 @@
 .pos-cat-pill-pro {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  padding: 0.1rem 0.5rem;
+  gap: 0.3rem;
+  padding: 0.45rem 1rem;
   background: #fff;
-  border: 1.5px solid #bcc2ca;
+  border: 1.5px solid #e2e8f0;
   border-radius: 999px;
-  font-size: 1rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: #475569;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 .pos-cat-pill-pro:hover {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+  background: #f8fafc;
+  border-color: #94a3b8;
   transform: translateY(-1px);
 }
 .pos-cat-pill-pro.active {
-  background: #3b82f6;
-  border-color: #3b82f6;
+  background: #1a73e8;
+  border-color: #1a73e8;
   color: #fff;
+  box-shadow: 0 2px 8px rgba(26,115,232,0.25);
 }
 .pos-cat-emoji { font-size: 1rem; line-height: 1; }
 
@@ -263,62 +273,87 @@
 .pos-menus-grid-pro {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 0.6rem;
-  padding: 0.6rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  padding: 1rem;
   overflow-y: auto;
   align-content: start;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 }
+.pos-menus-grid-pro::-webkit-scrollbar { width: 8px; }
+.pos-menus-grid-pro::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+.pos-menus-grid-pro::-webkit-scrollbar-track { background: transparent; }
+
+/* Explicit column counts (not auto-fill) so you reliably get 4–5 per row
+   at typical POS widths, instead of however many happen to fit. */
+@media (min-width: 640px)  { .pos-menus-grid-pro { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 900px)  { .pos-menus-grid-pro { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1280px) { .pos-menus-grid-pro { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
 
 .pos-menu-card-pro {
   position: relative;
   display: flex;
   flex-direction: column;
+  min-height: 165px;
   background: #fff;
-  border: 2px solid #e2e8f0;
-  border-radius: 10px;
+  border: 1px solid #eef1f6;
+  border-radius: 18px;
   overflow: hidden;
   cursor: pointer;
-  transition: all 0.18s ease;
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  padding: 0;
+  transition: transform 0.2s cubic-bezier(.22,.9,.32,1), box-shadow 0.2s ease, border-color 0.2s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .pos-menu-card-pro:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 8px 25px rgba(59, 130, 246, 0.18);
-  border-color: #3b82f6;
+  transform: translateY(-4px);
+  box-shadow: 0 18px 32px -12px rgba(15, 23, 42, 0.22), 0 4px 10px rgba(15, 23, 42, 0.06);
+  border-color: #dbe4f3;
 }
-.pos-menu-card-pro.locked {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-.pos-menu-card-pro.locked:hover { transform: none; box-shadow: none; }
+.pos-menu-card-pro:active { transform: translateY(-1px); }
+.pos-menu-card-pro.locked { opacity: 0.45; cursor: not-allowed; pointer-events: none; }
+.pos-menu-card-pro.locked:hover { transform: none; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
 
-.pos-menu-img {
-  width: 100%;
-  height: 70px;
-  object-fit: cover;
-}
-.pos-menu-emoji {
-  width: 100%;
-  height: 70px;
+.pos-menu-media-pro {
+  position: relative;
+  height: 120px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2.5rem;
-  background: #f1f5f9;
+  flex-shrink: 0;
+  overflow: hidden;
 }
+.pos-menu-emoji-pro {
+  font-size: 3.1rem;
+  line-height: 1;
+  filter: drop-shadow(0 6px 10px rgba(15, 23, 42, 0.16));
+  transition: transform 0.25s ease;
+}
+.pos-menu-card-pro:hover .pos-menu-emoji-pro { transform: scale(1.08) translateY(-2px); }
+.pos-menu-photo-pro {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.25s ease;
+}
+.pos-menu-card-pro:hover .pos-menu-photo-pro { transform: scale(1.06); }
 
-.pos-menu-body {
-  padding: 0.35rem 0.4rem 0.4rem;
-  flex: 1;
+.pos-menu-info-pro {
+  padding: 0.3rem 0.8rem 0.2rem;
   display: flex;
   flex-direction: column;
   gap: 0.05rem;
-  text-align: center;
-  align-items: center;
+  justify-content: flex-start;
 }
-.pos-menu-name {
-  font-size: 0.95rem;
+.pos-menu-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.02rem;
+}
+.pos-menu-name-pro {
+  font-size: 0.87rem;
   font-weight: 700;
   color: #0f172a;
   line-height: 1.15;
@@ -326,18 +361,18 @@
   overflow: hidden;
   text-overflow: ellipsis;
   width: 100%;
+  margin-bottom: 0;
 }
-.pos-menu-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: auto;
-}
-.pos-menu-price {
-  font-size: 0.9rem;
+.pos-menu-price-pro {
+  font-size: 0.92rem;
   font-weight: 800;
-  color: #1e293b;
+  color: #1a73e8;
+  font-variant-numeric: tabular-nums;
+  margin-top: 0;
+  padding-bottom: 0;
+  text-shadow: none;
 }
+
 .pos-menu-addon-tag {
   font-size: 0.62rem;
   background: #dbeafe;
@@ -346,19 +381,31 @@
   border-radius: 4px;
   font-weight: 700;
 }
-.pos-menu-add {
-  position: absolute;
-  top: 0.35rem;
-  right: 0.35rem;
-  width: 24px;
-  height: 24px;
+
+.pos-menu-empty-pro {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 4rem 1rem;
+  text-align: center;
+  color: #94a3b8;
+}
+.pos-menu-empty-icon {
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
+  background: #f1f5f9;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.18);
+  font-size: 1.8rem;
+  margin-bottom: 0.25rem;
 }
+.pos-menu-empty-title { font-weight: 700; color: #475569; }
+.pos-menu-empty-sub { font-size: 0.85rem; }
 
 /* ============== Lock overlay ============== */
 .pos-lock-overlay-pro {

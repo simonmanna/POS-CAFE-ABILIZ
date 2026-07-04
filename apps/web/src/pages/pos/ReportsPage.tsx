@@ -4,7 +4,7 @@
  */
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Clock, TrendingUp, RefreshCw, Printer, ArrowLeft, CalendarDays, Download, FileText } from 'lucide-react';
+import { BarChart3, Clock, TrendingUp, RefreshCw, Printer, ArrowLeft, CalendarDays, Download, FileText, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -617,6 +617,7 @@ const SalesReportView: React.FC<{
   rows: SalesReportRow[];
   loading: boolean;
 }> = ({ fromDate, setFromDate, toDate, setToDate, orderType, setOrderType, rows, loading }) => {
+  const navigate = useNavigate();
   const totals = rows.reduce(
     (s, r) => ({
       subtotal: s.subtotal + Number(r.subtotal),
@@ -681,6 +682,7 @@ const SalesReportView: React.FC<{
                   <th className="py-2 pr-3 text-right">Discount</th>
                   <th className="py-2 pr-3 text-right">Total Amount</th>
                   <th className="py-2 pr-3">Waiter</th>
+                  <th className="py-2 pr-3 w-16 text-center">Action</th>
                 </tr>
               </thead>
               <tbody>
@@ -693,6 +695,11 @@ const SalesReportView: React.FC<{
                     <td className="py-2 pr-3 text-right font-mono">{fmt(r.discount)}</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
                     <td className="py-2 pr-3 text-xs">{r.waiterName ?? '—'}</td>
+                    <td className="py-2 pr-3 text-center">
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => navigate(`/invoices/${r.id}`)}>
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -702,6 +709,7 @@ const SalesReportView: React.FC<{
                   <td className="py-2 pr-3 text-right font-mono">{fmt(totals.subtotal)}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(totals.discount)}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(totals.totalAmount)}</td>
+                  <td className="py-2 pr-3" />
                   <td className="py-2 pr-3" />
                 </tr>
               </tfoot>

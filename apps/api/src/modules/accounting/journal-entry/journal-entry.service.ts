@@ -47,13 +47,29 @@ export class JournalEntryService {
     });
   }
 
+  /**
+   * Maker step: create a manual entry as a DRAFT. It does not affect any balance
+   * until a different user approves it via `post` (maker-checker, audit fix #5).
+   */
   createManual(dto: CreateJournalEntryDto) {
-    return this.posting.post({
+    return this.posting.stageDraft({
       journalCode: dto.journalCode,
       date: dto.date,
       description: dto.description,
+      branchId: dto.branchId,
+      costCenterId: dto.costCenterId,
       lines: dto.lines,
     });
+  }
+
+  /** Checker step: approve + post a draft. Rejects if approver == creator. */
+  post(id: string) {
+    return this.posting.postDraft(id);
+  }
+
+  /** Discard a draft entry that was never posted. */
+  discard(id: string) {
+    return this.posting.discardDraft(id);
   }
 
   reverse(id: string, dto: ReverseJournalEntryDto) {

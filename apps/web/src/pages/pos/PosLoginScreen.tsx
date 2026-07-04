@@ -62,12 +62,13 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
   const MAX_PIN = 8;
 
   const handlePinDigit = (digit: string) => {
-    // Support 4–8 digit PINs (matches the API's @Length(4, 8)). No auto-submit:
-    // a manager may set any length in that range, so the cashier confirms with
-    // the Sign-in button (or Enter) once they've entered their full PIN.
     if (pin.length >= MAX_PIN) return;
-    setPin(pin + digit);
+    const newPin = pin + digit;
+    setPin(newPin);
     setLocalError(null);
+    if (newPin.length >= MIN_PIN) {
+      submitLogin(selectedUserId, newPin);
+    }
   };
 
   const handleClearPin = () => {
@@ -231,15 +232,6 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
           ⌫
         </button>
       </div>
-
-      {/* Explicit submit — supports any 4–8 digit PIN (no premature auto-submit). */}
-      <button
-        onClick={() => submitLogin(selectedUserId, pin)}
-        disabled={loading || pin.length < MIN_PIN}
-        className="mt-5 w-full max-w-[260px] h-14 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-lg font-bold transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        Sign in
-      </button>
 
       {loading && (
         <div className="mt-4 flex items-center gap-2 text-slate-400">

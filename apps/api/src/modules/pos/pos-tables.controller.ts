@@ -15,6 +15,7 @@ import {
   Post,
   Put,
   Query,
+  Req,
   Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
@@ -135,8 +136,8 @@ export class PosTablesController {
 
   @Get('stream')
   @RequirePermissions('tables:view')
-  stream(@Res() res: Response) {
-    return this.svc.stream(res);
+  stream(@Res() res: Response, @Req() req: any) {
+    return this.svc.stream(res, req.headers?.origin);
   }
 
   @Get(':id')

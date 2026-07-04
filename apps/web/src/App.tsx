@@ -66,6 +66,7 @@ import DigitalMenuPage from '@/pages/pos/DigitalMenuPage';
 import TablesPage from '@/pages/tables/TablesPage';
 import ReservationsPage from '@/pages/tables/ReservationsPage';
 import TableReportsPage from '@/pages/tables/TableReportsPage';
+import ReportCenterPage from '@/pages/reports/ReportCenterPage';
 import { StaffPage } from '@/pages/staff/StaffPage';
 import { RolesPage } from '@/pages/staff/RolesPage';
 
@@ -125,6 +126,7 @@ export function App() {
           <Route path="/journal-entries/new" element={<JournalEntryCreatePage />} />
           <Route path="/journal-entries/:id" element={<JournalEntryDetailPage />} />
           <Route path="/trial-balance" element={<TrialBalancePage />} />
+          <Route path="/reports" element={<ReportCenterPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/recurring" element={<RecurringPage />} />
           <Route path="/webhooks" element={<WebhooksPage />} />

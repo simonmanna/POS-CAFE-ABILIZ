@@ -59,9 +59,8 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
 
   const t = fresh ?? table;
   if (!t) return null;
-  const meta = STATUS_META[t.status];
+  const meta = STATUS_META[t.status] ?? STATUS_META.available;
   const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
-  const closedOrders = (t.orders ?? []).filter((o) => o.closedAt);
   const total = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
 
   async function doMerge() {
@@ -173,7 +172,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                   <CardContent className="p-3 flex items-center justify-between">
                     <div>
                       <div className="text-sm font-extrabold">
-                        #{o.order?.orderNumber ?? o.orderId.slice(0, 6)}
+                        #{o.order?.orderNumber ?? (o.orderId ? o.orderId.slice(0, 6) : '—')}
                       </div>
                       <div className="text-[11px] text-slate-500">
                         {o.customerName ?? 'Walk-in'}
@@ -225,27 +224,6 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
           </section>
         ) : null}
 
-        {/* Recent history */}
-        {closedOrders.length > 0 ? (
-          <section>
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-              Recent history
-            </h3>
-            <div className="text-xs text-slate-600 space-y-1 max-h-32 overflow-y-auto">
-              {closedOrders.slice(0, 10).map((o) => (
-                <div key={o.id} className="flex justify-between">
-                  <span>
-                    #{o.order?.orderNumber ?? o.orderId.slice(0, 6)}
-                    {' · '}
-                    {minutesBetween(o.openedAt, o.closedAt)}m
-                  </span>
-                  <span className="font-bold">{fmtMoney(o.order?.totalAmount)}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        ) : null}
-
         {/* Actions */}
         <section className="border-t border-slate-100 pt-3 space-y-3">
           <div className="flex flex-wrap items-end gap-2">
@@ -263,7 +241,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                   <option key={ot.id} value={ot.id}>
                     T{ot.number} {ot.name} · {ot.seats} seats ·{' '}
                     {ot.zone === 'custom' && ot.customZone ? ot.customZone : ZONE_LABEL[ot.zone] ?? ot.zone} ·{' '}
-                    {STATUS_META[ot.status].label}
+                     {(STATUS_META[ot.status] ?? STATUS_META.available).label}
                   </option>
                 ))}
                 {otherTables.length === 0 ? (

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,7 +8,6 @@ import {
   Patch,
   Post,
   Query,
-  Req,
   Res,
   UploadedFile,
   UseInterceptors,
@@ -19,11 +19,6 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../auth/jwt-token.service';
 import { FilesService } from './files.service';
 import type { Request, Response } from 'express';
-
-class AttachDto {
-  ownerType!: string;
-  ownerId!: string;
-}
 
 @ApiTags('files')
 @ApiBearerAuth()
@@ -48,18 +43,19 @@ export class FilesController {
   async upload(
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: any,
-    @Body() body: AttachDto,
+    @Body('ownerType') ownerType: string | undefined,
+    @Body('ownerId') ownerId: string | undefined,
   ) {
-    if (!file) throw new Error('Missing file');
+    if (!file) throw new BadRequestException('Missing file');
     const res = await this.files.upload({
       filename: file.originalname,
       contentType: file.mimetype,
       buffer: file.buffer,
-      ownerType: body.ownerType,
-      ownerId: body.ownerId,
+      ownerType,
+      ownerId,
     });
     const signed = this.files.signDownload(res.id);
-    return { ...res, ...signed, filename: file.originalname, byteSize: file.size, contentType: file.mimetype };
+    return { id: res.id, storageKey: res.storageKey, ...signed, filename: file.originalname, byteSize: file.size, contentType: file.mimetype };
   }
 
   @Get()

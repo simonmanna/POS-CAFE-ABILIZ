@@ -10,10 +10,10 @@
  *   - variants: size/type options with absolute prices (edit only)
  *   - accompaniments: side-dish groups (edit only)
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, PlusCircle, X, Check, Trash2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
-import { api } from '@/lib/api';
+import { api, resolveAssetUrl } from '@/lib/api';
 import {
   Dialog, DialogContent, DialogFooter,
 } from '@/components/ui/dialog';
@@ -69,9 +69,10 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
   const [description, setDescription] = useState('');
   const [categoryId, setCategoryId] = useState<string>('');
   const [basePrice, setBasePrice] = useState('');
-  const [image, setImage] = useState('');
-  const [uploadingImg, setUploadingImg] = useState(false);
+  const imageFileIdRef = useRef<string>('');
+  const [previewSrc, setPreviewSrc] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingImg, setUploadingImg] = useState(false);
   const [prepTime, setPrepTime] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
   const [ingredients, setIngredients] = useState<DraftIngredient[]>([newIngredient()]);
@@ -79,6 +80,18 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
   const [submitting, setSubmitting] = useState(false);
 
   const products = useProductPicker(productSearch);
+
+  // Seed the picker with the item's current ingredient products so their names
+  // render on edit even before the user searches (search only returns matches
+  // for a typed term ≥ 2 chars).
+  const productOptions = useMemo(() => {
+    const map = new Map<string, { id: string; code: string; name: string; station?: string }>();
+    for (const ing of item?.ingredients ?? []) {
+      if (ing.product) map.set(ing.product.id, ing.product);
+    }
+    for (const p of products.data ?? []) map.set(p.id, p as any);
+    return Array.from(map.values());
+  }, [item?.ingredients, products.data]);
 
   /* ============== Variants (edit only) ============== */
   const itemId = item?.id ?? null;
@@ -97,31 +110,56 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
   const unassignAccGroup = useUnassignAccompanimentGroup();
   const assignedIds = new Set(assignedGroups.map((g) => g.id));
 
-  // Reset / hydrate form when the dialog opens or the target item changes.
+  // Hydrate every field when the dialog opens (edit), or reset to a clean
+  // slate (create). Runs on open/item change only — never mid-typing — so it
+  // won't clobber user input. Without this, the Edit dialog opened blank and
+  // the Save button stayed disabled (empty name).
   useEffect(() => {
     if (!open) return;
-    if (item) {
-      setName(item.name);
-      setCode(item.code ?? '');
-      setDescription(item.description ?? '');
-      setCategoryId(item.categoryId ?? '');
-      setBasePrice(item.basePrice != null ? String(Number(item.basePrice)) : '');
-      setImage(item.image ?? '');
-      setPrepTime(item.preparationTime != null ? String(item.preparationTime) : '');
-      setIsAvailable(item.isAvailable);
-      setIngredients(
-        (item.ingredients ?? []).map((ing) => ({
-          productId: ing.productId,
-          quantity: Number(ing.quantity),
-          _key: ing.id,
-        })),
-      );
-    } else {
+    if (!item) {
       setName(''); setCode(''); setDescription(''); setCategoryId('');
-      setBasePrice(''); setImage(''); setPrepTime(''); setIsAvailable(true);
+      setBasePrice(''); setPrepTime(''); setIsAvailable(true);
       setIngredients([newIngredient()]);
+      setPreviewSrc(''); imageFileIdRef.current = '';
+      return;
     }
-  }, [open, item]);
+    setName(item.name ?? '');
+    setCode(item.code ?? '');
+    setDescription(item.description ?? '');
+    setCategoryId(item.categoryId ?? '');
+    setBasePrice(item.basePrice != null ? String(item.basePrice) : '');
+    setPrepTime(item.preparationTime != null ? String(item.preparationTime) : '');
+    setIsAvailable(item.isAvailable ?? true);
+    setIngredients(
+      item.ingredients && item.ingredients.length > 0
+        ? item.ingredients.map((ing) => ({
+            productId: ing.productId,
+            quantity: Number(ing.quantity ?? 1),
+            _key: ing.id ?? Math.random().toString(36).slice(2, 10),
+          }))
+        : [newIngredient()],
+    );
+
+    // Image: the list API already resolves `image` to a signed download URL,
+    // so use it directly for the preview. Recover the permanent file ID from
+    // the URL when possible so a save without touching the image re-stores the
+    // bare ID (which PosMenuService re-signs on every read).
+    const raw = item.image ?? '';
+    const uuid = raw.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)?.[1] ?? '';
+    if (raw.startsWith('http') || raw.startsWith('/api/v1/files/')) {
+      setPreviewSrc(resolveAssetUrl(raw) ?? '');
+      imageFileIdRef.current = uuid;
+    } else if (raw) {
+      // Bare file ID — request a fresh signed URL for the preview.
+      imageFileIdRef.current = raw;
+      api.post(`/files/${encodeURIComponent(raw)}/signed-url`)
+        .then((r) => { if (r.data?.url) setPreviewSrc(resolveAssetUrl(r.data.url) ?? ''); })
+        .catch(() => setPreviewSrc(''));
+    } else {
+      setPreviewSrc('');
+      imageFileIdRef.current = '';
+    }
+  }, [open, item?.id]);
 
   const valid = name.trim() && ingredients.every((i) => i.productId);
 
@@ -137,7 +175,14 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
       const { data } = await api.post('/files/upload', form, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-      setImage(data.downloadUrl ?? data.url ?? '');
+      // Store the permanent file ID; the URL in the response is a fresh
+      // 15-min signed URL suitable for the immediate preview only.
+      const fileId = data.id as string | undefined;
+      if (fileId) imageFileIdRef.current = fileId;
+      // For the preview use the fresh URL returned by the upload endpoint,
+      // absolutized so it loads from the API origin.
+      const previewUrl = (data as any).downloadUrl ?? (data as any).url ?? '';
+      setPreviewSrc(resolveAssetUrl(previewUrl) ?? '');
     } catch (err: any) {
       toast.error(err?.response?.data?.message ?? 'Image upload failed');
     } finally {
@@ -168,7 +213,10 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                 description: description.trim() || undefined,
                 categoryId: categoryId || undefined,
                 basePrice: basePrice ? Number(basePrice) : undefined,
-                image: image.trim() || undefined,
+                // Send the file ID (permanent ref) rather than a time-limited signed URL.
+                // The server stores the ID in MenuItem.image and the PosMenuService
+                // mints a fresh signed URL on every read.
+                image: imageFileIdRef.current || (previewSrc || undefined),
                 preparationTime: prepTime ? Number(prepTime) : undefined,
                 isAvailable,
                 ingredients: ingredients.map(({ productId, quantity }) => ({
@@ -219,9 +267,9 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
             <div className="md:col-span-2">
               <Label htmlFor="mi-img" className="text-sm font-medium text-slate-700 mb-1.5">Image</Label>
               <div className="flex items-start gap-3">
-                {image && (
+                {previewSrc && (
                   <img
-                    src={image}
+                    src={previewSrc}
                     alt="Item preview"
                     className="w-16 h-16 rounded-md border border-slate-200 object-cover shrink-0"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -230,17 +278,17 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                 <div className="flex-1 space-y-1.5">
                   <Input
                     id="mi-img"
-                    placeholder="https://... or upload"
-                    value={image}
-                    onChange={(e) => setImage(e.target.value)}
+                    placeholder="Paste image URL, or upload below"
+                    value={previewSrc}
+                    onChange={(e) => { setPreviewSrc(e.target.value); imageFileIdRef.current = ''; }}
                   />
                   <div className="flex items-center gap-2">
                     <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                     <Button type="button" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadingImg}>
                       {uploadingImg ? 'Uploading…' : 'Upload image'}
                     </Button>
-                    {image && (
-                      <Button type="button" size="sm" variant="ghost" onClick={() => setImage('')}>
+                    {previewSrc && (
+                      <Button type="button" size="sm" variant="ghost" onClick={() => { setPreviewSrc(''); imageFileIdRef.current = ''; }}>
                         <X className="h-3 w-3 mr-1" /> Clear
                       </Button>
                     )}
@@ -310,7 +358,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="_pick">— pick —</SelectItem>
-                      {(products.data ?? []).map((p) => (
+                      {productOptions.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
                           <span className="font-mono text-xs mr-2">{p.code}</span>
                           {p.name}

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { SnapshotRebuildService } from './snapshots/snapshot-rebuild.service';
+import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -11,7 +12,6 @@ interface DateRange {
 }
 
 const ZERO = new Prisma.Decimal(0);
-const FALLBACK_EPSILON_MS = 60 * 1000; // consider snapshot "current" within 1 min
 
 /**
  * Accounting reports (D3) — Trial Balance, Account Ledger, GL listing.
@@ -30,7 +30,7 @@ export class AccountingReportingService {
   /** Trial Balance — snapshot-first, live-fallback. */
   async trialBalance(range: DateRange) {
     const asOf = range.to ? new Date(range.to) : new Date();
-    const snap = await this.findSnapshot(asOf, 'trialBalance');
+    const snap = await this.findSnapshot(asOf);
     if (snap) {
       const rows = await this.prisma.client.reportTrialBalanceSnapshot.findMany({
         where: { organizationId: snap.organizationId, asOf: snap.asOf },
@@ -63,7 +63,7 @@ export class AccountingReportingService {
     // Fallback: live groupBy.
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: 'posted', postingDate: this.rangeFilter(range) } } as any,
+      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: this.rangeFilter(range) } } as any,
       _sum: { baseDebit: true, baseCredit: true },
     });
     const accounts = await this.prisma.client.account.findMany({
@@ -102,7 +102,7 @@ export class AccountingReportingService {
   async accountLedger(accountId: string, range: DateRange) {
     const account = await this.prisma.client.account.findFirst({ where: { id: accountId } });
     const lines = await this.prisma.client.journalLine.findMany({
-      where: { accountId, entry: { status: 'posted', postingDate: this.rangeFilter(range) } },
+      where: { accountId, entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: this.rangeFilter(range) } },
       include: { entry: true },
       orderBy: [{ entry: { postingDate: 'asc' } }, { lineNumber: 'asc' }],
     });
@@ -124,7 +124,7 @@ export class AccountingReportingService {
 
   /** General Ledger — paginated, live. Not snapshotted (range is open-ended). */
   async generalLedger(range: DateRange, page = 1, pageSize = 100) {
-    const where = { entry: { status: 'posted', postingDate: this.rangeFilter(range) } } as any;
+    const where = { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: this.rangeFilter(range) } } as any;
     const [lines, total] = await Promise.all([
       this.prisma.client.journalLine.findMany({
         where,
@@ -150,23 +150,31 @@ export class AccountingReportingService {
     };
   }
 
-  /** Pick the latest snapshot at or before `asOf`, no older than 1 minute. */
-  private async findSnapshot(asOf: Date, _kind: string): Promise<{ organizationId: string; asOf: Date } | null> {
-    // We store snapshots per (organization, asOf) for the calling org; the
-    // calling code is in a tenant context, so we just look for the latest
-    // snapshot whose asOf is <= the request's asOf and within epsilon of now.
-    const now = Date.now();
-    const candidates = await this.prisma.client.reportTrialBalanceSnapshot.findMany({
+  /**
+   * Pick the latest snapshot at or before `asOf` and serve it ONLY if nothing has
+   * been posted since (so it is exact for `asOf`). This lets historical queries
+   * hit a snapshot instead of always falling back to live — while never returning
+   * a stale balance. `reversed` entries count as changes so a reversal after the
+   * snapshot correctly forces a live recompute.
+   */
+  private async findSnapshot(asOf: Date): Promise<{ organizationId: string; asOf: Date } | null> {
+    const snap = await this.prisma.client.reportTrialBalanceSnapshot.findFirst({
+      where: { asOf: { lte: asOf } },
       orderBy: { asOf: 'desc' },
-      take: 5,
+      select: { organizationId: true, asOf: true },
     });
-    for (const c of candidates) {
-      const cMs = c.asOf.getTime();
-      if (cMs > asOf.getTime()) continue;
-      if (Math.abs(now - cMs) > FALLBACK_EPSILON_MS) continue;
-      return { organizationId: c.organizationId, asOf: c.asOf };
-    }
-    return null;
+    if (!snap) return null;
+    // Any balance-affecting line dated after the snapshot up to asOf ⇒ stale.
+    const newer = await this.prisma.client.journalLine.count({
+      where: {
+        entry: {
+          status: { in: [...BALANCE_AFFECTING_STATUSES] },
+          postingDate: { gt: snap.asOf, lte: asOf },
+        },
+      },
+    });
+    if (newer > 0) return null;
+    return snap;
   }
 
   private rangeFilter(range: DateRange): any {

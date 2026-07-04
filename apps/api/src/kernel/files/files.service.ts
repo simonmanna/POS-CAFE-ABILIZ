@@ -75,20 +75,26 @@ export class FilesService {
       this.logger.warn('S3 storage driver is a stub; file metadata saved but bytes discarded');
     }
 
-    const file = await this.prisma.client.file.create({
-      data: {
-        organizationId: orgId,
-        uploadedById: this.tenant.userId ?? null,
-        filename: sanitizeFilename(input.filename),
-        contentType: input.contentType,
-        byteSize: input.buffer.length,
-        storageKey: key,
-        visibility: input.visibility ?? 'private',
-        ownerType: input.ownerType ?? null,
-        ownerId: input.ownerId ?? null,
-        checksum,
-      },
-    });
+    let file;
+    try {
+      file = await this.prisma.client.file.create({
+        data: {
+          organizationId: orgId,
+          uploadedById: this.tenant.userId ?? null,
+          filename: sanitizeFilename(input.filename),
+          contentType: input.contentType,
+          byteSize: input.buffer.length,
+          storageKey: key,
+          visibility: input.visibility ?? 'private',
+          ownerType: input.ownerType ?? null,
+          ownerId: input.ownerId ?? null,
+          checksum,
+        },
+      });
+    } catch (e) {
+      this.logger.error(`Failed to persist file record: ${(e as Error).message}`, (e as Error).stack);
+      throw new BadRequestException(`Unable to save file record: ${(e as Error).message}`);
+    }
     return { id: file.id, storageKey: file.storageKey };
   }
 
@@ -112,9 +118,16 @@ export class FilesService {
     if (expected !== token) {
       throw new BadRequestException('Invalid signed URL token');
     }
-    const file = await this.prisma.client.file.findFirst({ where: { id: fileId } });
+    // The download route is @Public (an <img> carries no auth), so there is no
+    // tenant context. `File` is org-scoped, so reading via `prisma.client` would
+    // throw "No tenant context" in the tenancy extension. Use the unscoped `raw`
+    // client — the valid HMAC token is itself the authorization for this fileId.
+    const file = await this.prisma.raw.file.findFirst({ where: { id: fileId, deletedAt: null } });
     if (!file) throw new NotFoundException('File not found');
-    if (file.visibility === 'private' && file.organizationId !== this.tenant.organizationId) {
+    // When a tenant context does exist (authenticated caller), still enforce the
+    // org boundary for private files; for anonymous callers the token suffices.
+    const currentOrg = this.tenant.optionalOrganizationId;
+    if (file.visibility === 'private' && currentOrg && file.organizationId !== currentOrg) {
       throw new NotFoundException('File not found');
     }
     return file;

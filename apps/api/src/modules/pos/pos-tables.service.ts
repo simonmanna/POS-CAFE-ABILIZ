@@ -1189,7 +1189,12 @@ export class PosTablesService {
 
   // ─── SSE Stream (mirrors KDS pattern) ───────────────────────────────────
 
-  async stream(res: Response) {
+  async stream(res: Response, origin = '') {
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+    }
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');

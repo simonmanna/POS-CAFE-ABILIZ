@@ -10,10 +10,16 @@
  *   - MenuItems are built from one or more Products via MenuProduct.
  *   - Each MenuItem has a basePrice, image, preparationTime, availability flag.
  *   - Categories form a self-referencing tree (parentId).
+ *
+ * Image handling (P11):
+ *   - File IDs are stored permanently in `MenuItem.image` / `MenuCategory.image`.
+ *   - Fresh signed download URLs are minted on every read so images never
+ *     expire in the UI even though the underlying signed URL TTL is 15 min.
  */
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
+import { FilesService } from '../../kernel/files/files.service';
 import type { PaginatedResult, PaginationQuery } from '@erp/shared';
 
 export interface MenuItemBundle {
@@ -67,7 +73,31 @@ export class PosMenuService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly files: FilesService,
   ) {}
+
+  /** Convert a stored value to a fresh signed download URL.
+   *
+   *  Accepted formats in `image` column:
+   *   - A file ID (UUID) → mint a new signed URL via FilesService.
+   *   - A full signed URL `/api/v1/files/{id}/download?token=…&expires=…` →
+   *     extract the ID and mint a fresh URL (expired tokens no longer block
+   *     the image in the UI).
+   *   - An absolute URL (http/https) → return as-is.
+   *   - null/empty → null.
+   */
+  private resolveImage(image: string | null | undefined): string | null {
+    if (!image) return null;
+    if (image.startsWith('http')) return image;
+    // Extract file ID from a stored URL, or accept a bare UUID directly
+    const idMatch = image.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (!idMatch) return image; // not a recognised format — pass through
+    try {
+      return this.files.signDownload(idMatch[1]).url;
+    } catch {
+      return null;
+    }
+  }
 
   // ───────────────────────── Categories ─────────────────────────
 
@@ -140,8 +170,8 @@ export class PosMenuService {
       },
     });
     return {
-      categories: cats,
-      items,
+      categories: cats.map((c) => ({ ...c, image: this.resolveImage(c.image) })),
+      items: items.map((it) => ({ ...it, image: this.resolveImage(it.image) })),
     };
   }
 
@@ -170,7 +200,7 @@ export class PosMenuService {
       this.prisma.client.menuItem.count({ where }),
     ]);
     return {
-      data,
+      data: data.map((it) => ({ ...it, image: this.resolveImage(it.image) })),
       meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     };
   }
@@ -181,7 +211,7 @@ export class PosMenuService {
       include: { ingredients: { include: { product: true } }, category: true },
     });
     if (!item) throw new NotFoundException(`MenuItem ${id} not found`);
-    return item;
+    return { ...item, image: this.resolveImage(item.image) };
   }
 
   async create(input: {

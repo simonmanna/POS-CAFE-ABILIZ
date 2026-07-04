@@ -331,7 +331,7 @@ export const TablesPage: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1">
           {filtered.map((table) => {
-            const meta = STATUS_META[table.status];
+            const meta = STATUS_META[table.status] ?? STATUS_META.available;
             const openOrders = (table.orders ?? []).filter((o) => !o.closedAt);
             const total = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
             return (

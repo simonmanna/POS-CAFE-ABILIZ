@@ -243,3 +243,19 @@ export function useTopItems(fromDate: string, toDate: string, limit = 20) {
     enabled: !!fromDate && !!toDate,
   });
 }
+
+// ---- POS self-service auth ----
+
+export function usePosChangePin() {
+  return useMutation({
+    mutationFn: async (input: { currentPin: string; newPin: string }) =>
+      (await api.post('/pos/auth/change-pin', input)).data,
+  });
+}
+
+export function usePosChangePassword() {
+  return useMutation({
+    mutationFn: async (input: { currentPin: string; newPassword: string }) =>
+      (await api.post('/pos/auth/change-password', input)).data,
+  });
+}

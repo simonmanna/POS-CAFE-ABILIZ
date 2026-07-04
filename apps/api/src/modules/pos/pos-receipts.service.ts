@@ -76,19 +76,23 @@ export class PosReceiptsService {
     // Try the POS Invoice table first.
     const inv = await this.prisma.client.invoice.findFirst({
       where: { id: invoiceId, organizationId: orgId },
-      include: { items: { orderBy: { lineNumber: 'asc' }, include: { modifiers: true } } },
+      include: {
+        items: { orderBy: { lineNumber: 'asc' }, include: { modifiers: true } },
+        order: { select: { orderType: true } },
+      },
     });
     if (inv) {
-      const [partner, productMap, cashierName] = await Promise.all([
+      const [partner, productMap, cashierName, table] = await Promise.all([
         this.prisma.client.partner.findFirst({ where: { id: inv.partnerId } }),
         this.resolveProductsForLines(inv.items.map((i: any) => i.productId).filter(Boolean)),
         this.resolveUserName((inv as any).createdBy ?? (inv as any).postedBy),
+        inv.tableId ? this.prisma.client.posTable.findFirst({ where: { id: inv.tableId } }) : Promise.resolve(null),
       ]);
       const linesWithProducts = inv.items.map((ln: any) => ({
         ...ln,
         product: ln.productId ? productMap.get(ln.productId) : null,
       }));
-      return { ...inv, documentNumber: inv.invoiceNumber, partner, cashierName, lines: linesWithProducts };
+      return { ...inv, documentNumber: inv.invoiceNumber, partner, cashierName, lines: linesWithProducts, orderType: inv.order?.orderType ?? null, tableName: table?.name ?? null };
     }
 
     // Fallback to the open tab Order (pre-settle bill — no Invoice yet).
@@ -97,9 +101,10 @@ export class PosReceiptsService {
       include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true } } },
     });
     if (!order) throw new NotFoundException('Invoice not found');
-    const [partner, productMap] = await Promise.all([
+    const [partner, productMap, table] = await Promise.all([
       this.prisma.client.partner.findFirst({ where: { id: order.partnerId ?? undefined } }),
       this.resolveProductsForLines((order.items as any[]).map((i: any) => i.productId).filter(Boolean)),
+      order.tableId ? this.prisma.client.posTable.findFirst({ where: { id: order.tableId } }) : Promise.resolve(null),
     ]);
     const linesWithProducts = (order.items as any[]).map((ln: any) => {
       const qty = Number(ln.quantity);
@@ -122,6 +127,8 @@ export class PosReceiptsService {
       partner,
       cashierName,
       lines: linesWithProducts,
+      orderType: order.orderType ?? null,
+      tableName: table?.name ?? null,
     };
   }
 
@@ -199,7 +206,7 @@ export class PosReceiptsService {
     if (isReprint) lines.push('*** REPRINT COPY ***');
     if (copyLabel) lines.push(`*** ${copyLabel} ***`);
 
-    const R = 42;
+    const R = 48;
     const rule = '='.repeat(R);
     const addr1 = header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA';
     const addr2 = header?.addressLine2 ?? 'Kampala, Uganda';
@@ -224,7 +231,7 @@ export class PosReceiptsService {
     const custName = (inv as any).partner?.name;
     if (custName && custName !== 'Walk-in Customer') lines.push(`Customer: ${custName}`);
     lines.push('');
-    lines.push('Qty  Item.................. Price....... Total');
+    lines.push('Qty   Item....................  Price...... Total');
     lines.push('-'.repeat(R));
 
     for (const ln of inv.lines) {
@@ -234,10 +241,10 @@ export class PosReceiptsService {
       const lineTotal = qty * price * (1 - disc / 100);
       const inclTag = (ln as any).taxInclusive ? ' (incl)' : '';
       const variantTag = (ln as any).variantName ? `${ln.variantName} ` : '';
-      const desc = (variantTag + ln.description + inclTag).slice(0, 20).padEnd(20);
+      const desc = (variantTag + ln.description + inclTag).slice(0, 28).padEnd(28);
       const qtyStr = String(qty).padStart(3);
       const priceStr = fmt(price).padStart(8);
-      const totalStr = fmt(lineTotal).padStart(10);
+      const totalStr = fmt(lineTotal).padStart(5);
       lines.push(` ${qtyStr} ${desc} ${priceStr} ${totalStr}`);
       const mods: any[] = (ln as any).modifiers ?? [];
       for (const m of mods) {
@@ -282,9 +289,7 @@ export class PosReceiptsService {
     if (isReprint) lines.push('*** REPRINT COPY ***');
     if (copyLabel) lines.push(`*** ${copyLabel} ***`);
 
-    // Compact thermal width — kept tight so 80mm paper isn't overrun and there's
-    // no big side/top/bottom whitespace.
-    const W = 40;
+    const W = 46;
     const money = (n: number | string | Prisma.Decimal | null | undefined) =>
       Number(n || 0).toLocaleString();
     const center = (s: string) => {
@@ -320,11 +325,11 @@ export class PosReceiptsService {
 
     // Compact item columns — no currency prefix in the item table.
     const qtyW = 3;
-    const descW = 18;
+    const descW = 26;
     const priceW = 8;
-    const totalW = W - qtyW - 1 - descW - priceW;
+    const totalW = W - qtyW - 3 - descW - priceW;
     lines.push(
-      `${'Qty'.padStart(qtyW)} ${'Item'.padEnd(descW)}${'Price'.padStart(priceW)}${'Total'.padStart(totalW)}`,
+      `${'Qty'.padStart(qtyW)} ${'Item'.padEnd(descW)} ${'Price'.padStart(priceW)} ${'Total'.padStart(totalW)}`,
     );
     lines.push('-'.repeat(W));
 
@@ -340,7 +345,7 @@ export class PosReceiptsService {
       const desc = (variantTag + ln.description + inclTag).slice(0, descW).padEnd(descW);
       const priceStr = money(price).padStart(priceW);
       const totalStr = money(lineTotal).padStart(totalW);
-      lines.push(`${qtyStr} ${desc}${priceStr}${totalStr}`);
+      lines.push(`${qtyStr} ${desc} ${priceStr} ${totalStr}`);
 
       const mods: any[] = (ln as any).modifiers ?? [];
       for (const m of mods) {
@@ -378,7 +383,7 @@ export class PosReceiptsService {
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { margin:0; padding:0; width:80mm; height:auto; }
-  body { font-family:'Courier New',Courier,monospace; font-size:12px; line-height:1.15; white-space:pre; padding:1px 4px 2px; }
+  body { font-family:'Courier New',Courier,monospace; font-size:12px; line-height:1.15; white-space:pre; padding:1px 2px 2px; }
   @media print {
     @page { margin:0; size:80mm auto; }
     html,body { width:80mm; height:auto; }
@@ -551,18 +556,29 @@ export class PosReceiptsService {
     const inv = await this.resolveInvoice(invoiceId);
     const org = await this.resolveOrg();
     const lines: string[] = [];
+    const header = (org as any).receiptHeader as Record<string, string> | null;
+    const R = 42;
+    const orderTypeLabels: Record<string, string> = { dine_in: 'Dine In', takeaway: 'Take Away', delivery: 'Delivery' };
+    const plainFmt = (n: number | string | Prisma.Decimal | null | undefined) =>
+      Number(n || 0).toLocaleString();
     if (isReprint) lines.push('*** REPRINT COPY ***');
-    lines.push((org?.name ?? 'Cafe').toUpperCase());
-    lines.push('=============== BILL ===============');
-    lines.push(`Table bill: ${(inv as any).documentNumber}`);
-    lines.push(`Date:       ${new Date(inv.issueDate).toLocaleString()}`);
-    lines.push('--------------------------------');
+    lines.push('='.repeat(R));
+    lines.push((header?.businessName ?? 'Abiliz Cafe and Patisserie').toUpperCase());
+    lines.push(header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA');
+    lines.push(header?.addressLine2 ?? 'Kampala, Uganda');
+    lines.push(`Telephone: ${header?.phone ?? '+256757920771'}`);
+    if ((inv as any).orderType) lines.push(orderTypeLabels[(inv as any).orderType] ?? (inv as any).orderType);
+    if ((inv as any).tableName) lines.push((inv as any).tableName);
+    lines.push('='.repeat(R));
+    lines.push(`Bill #${(inv as any).documentNumber}`);
+    lines.push(`Date: ${new Date(inv.issueDate).toLocaleString()}`);
+    lines.push('-'.repeat(R));
     for (const ln of inv.lines) {
       const qty = Number(ln.quantity);
       const price = Number(ln.unitPrice);
       const disc = Number(ln.discountPercent ?? 0);
       const lineTotal = qty * price * (1 - disc / 100);
-      lines.push(`${(ln.description).padEnd(20).slice(0, 20)} ${fmt(lineTotal).padStart(10)}`);
+      lines.push(`${(ln.description).padEnd(20).slice(0, 20)} ${plainFmt(lineTotal).padStart(10)}`);
       if (disc > 0) lines.push(`  (discount ${disc}%)`);
       if (ln.note) lines.push(`  ! ${ln.note}`);
     }
