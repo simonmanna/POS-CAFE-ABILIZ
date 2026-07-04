@@ -874,7 +874,10 @@ export class PosInvoiceService {
 
   private async freeTableIfEmpty(db: any, tableId?: string | null): Promise<void> {
     if (!tableId) return;
-    const open = await db.order.count({ where: { tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] }, invoiceId: null } });
+    // Billed-but-unpaid orders still hold the table (order stays 'served'
+    // until its invoice settles), so a table with an outstanding bill can't
+    // flip to available just because a sibling order settled first.
+    const open = await db.order.count({ where: { tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] } } });
     if (open > 0) return;
     const table = await db.posTable.findFirst({ where: { id: tableId } });
     if (!table || table.status === 'out_of_service' || table.status === 'reserved') return;

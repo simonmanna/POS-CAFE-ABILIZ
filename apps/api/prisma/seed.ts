@@ -905,7 +905,9 @@ async function main(): Promise<void> {
     for (const t of tableDefs) {
       await prisma.posTable.upsert({
         where: { organizationId_number: { organizationId: orgId, number: t.number } },
-        update: { name: t.name, seats: t.seats, zone: t.zone, active: true, status: 'available' },
+        // No `status` here: re-seeding must never stomp live occupancy —
+        // status is only set on create and owned by the order lifecycle after.
+        update: { name: t.name, seats: t.seats, zone: t.zone, active: true },
         create: {
           organizationId: orgId,
           name: t.name,

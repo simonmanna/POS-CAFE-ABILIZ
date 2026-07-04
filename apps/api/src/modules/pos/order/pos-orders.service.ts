@@ -748,7 +748,10 @@ export class PosOrdersService {
 
   private async syncTableOnClose(tx: any, tableId?: string | null): Promise<void> {
     if (!tableId) return;
-    const open = await tx.order.count({ where: { tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] }, invoiceId: null } });
+    // Billed-but-unpaid orders still hold the table: an order only leaves
+    // these statuses when it settles (closed) or is cancelled, so a customer
+    // who has the bill but hasn't paid keeps the table occupied.
+    const open = await tx.order.count({ where: { tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] } } });
     const table = await tx.posTable.findFirst({ where: { id: tableId } });
     if (!table || table.status === 'out_of_service' || table.status === 'reserved') return;
     const next = open > 0 ? 'occupied' : 'available';
