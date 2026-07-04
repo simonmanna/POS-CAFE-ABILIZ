@@ -44,6 +44,17 @@ import { Prisma } from '@prisma/client';
 const fmt = (n: number | string | Prisma.Decimal | null | undefined) =>
   `UGX ${Number(n || 0).toLocaleString()}`;
 
+/** ESC/POS printers speak CP437, not UTF-8 — map common Unicode to ASCII so
+ *  multi-byte characters never turn into stray glyphs mid-ticket. */
+const toPrinterAscii = (s: string) =>
+  s
+    .replace(/[—–]/g, '-')
+    .replace(/[’‘]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/…/g, '...')
+    .replace(/×/g, 'x')
+    .replace(/[^\x00-\x7F]/g, '?');
+
 class ReprintDto {
   @IsString()
   reason!: string;
@@ -231,7 +242,9 @@ export class PosReceiptsService {
     const custName = (inv as any).partner?.name;
     if (custName && custName !== 'Walk-in Customer') lines.push(`Customer: ${custName}`);
     lines.push('');
-    lines.push('Qty   Item....................  Price...... Total');
+    const num = (n: number | string | Prisma.Decimal | null | undefined) =>
+      Number(n || 0).toLocaleString();
+    lines.push(` ${'Qty'.padStart(3)} ${'Item'.padEnd(22)} ${'Price'.padStart(8)} ${'Total'.padStart(10)}`);
     lines.push('-'.repeat(R));
 
     for (const ln of inv.lines) {
@@ -241,18 +254,18 @@ export class PosReceiptsService {
       const lineTotal = qty * price * (1 - disc / 100);
       const inclTag = (ln as any).taxInclusive ? ' (incl)' : '';
       const variantTag = (ln as any).variantName ? `${ln.variantName} ` : '';
-      const desc = (variantTag + ln.description + inclTag).slice(0, 28).padEnd(28);
+      const desc = (variantTag + ln.description + inclTag).slice(0, 22).padEnd(22);
       const qtyStr = String(qty).padStart(3);
-      const priceStr = fmt(price).padStart(8);
-      const totalStr = fmt(lineTotal).padStart(5);
+      const priceStr = num(price).padStart(8);
+      const totalStr = num(lineTotal).padStart(10);
       lines.push(` ${qtyStr} ${desc} ${priceStr} ${totalStr}`);
       const mods: any[] = (ln as any).modifiers ?? [];
       for (const m of mods) {
         const mName = (m.name ?? '').slice(0, 15).padEnd(15);
-        lines.push(`      + ${mName} ${fmt(m.priceDelta).padStart(8)}`);
+        lines.push(`      + ${mName} ${num(m.priceDelta).padStart(8)}`);
       }
       if (ln.note) {
-        lines.push(`      ${ln.note.slice(0, 30).padEnd(30)}`);
+        lines.push(`      ${ln.note.slice(0, R - 6)}`);
       }
     }
 
@@ -578,42 +591,96 @@ export class PosReceiptsService {
   // ... (rest of the service methods unchanged) ...
 
   /** Pre-payment bill preview (text). */
-  async buildTextBill(invoiceId: string, isReprint = false): Promise<string> {
-    const inv = await this.resolveInvoice(invoiceId);
-    const org = await this.resolveOrg();
-    const lines: string[] = [];
-    const header = (org as any).receiptHeader as Record<string, string> | null;
-    const R = 42;
-    const orderTypeLabels: Record<string, string> = { dine_in: 'Dine In', takeaway: 'Take Away', delivery: 'Delivery' };
-    const plainFmt = (n: number | string | Prisma.Decimal | null | undefined) =>
-      Number(n || 0).toLocaleString();
-    if (isReprint) lines.push('*** REPRINT COPY ***');
-    lines.push('='.repeat(R));
-    lines.push((header?.businessName ?? 'Abiliz Cafe and Patisserie').toUpperCase());
-    lines.push(header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA');
-    lines.push(header?.addressLine2 ?? 'Kampala, Uganda');
-    lines.push(`Telephone: ${header?.phone ?? '+256757920771'}`);
-    if ((inv as any).orderType) lines.push(orderTypeLabels[(inv as any).orderType] ?? (inv as any).orderType);
-    if ((inv as any).tableName) lines.push((inv as any).tableName);
-    lines.push('='.repeat(R));
-    lines.push(`Bill #${(inv as any).documentNumber}`);
-    lines.push(`Date: ${new Date(inv.issueDate).toLocaleString()}`);
-    lines.push('-'.repeat(R));
-    for (const ln of inv.lines) {
+  /* ─────────── Shared 48-column ticket frame ───────────
+   * The settlement receipt (buildTextReceipt) is the reference layout; these
+   * helpers reproduce its header / date / item-row / totals conventions so the
+   * bill, additional bill and KOT print with the same look.
+   */
+  private static readonly TICKET_W = 48;
+
+  private ticketHeader(header: Record<string, string> | null): string[] {
+    const R = PosReceiptsService.TICKET_W;
+    return [
+      '='.repeat(R),
+      (header?.businessName ?? 'Abiliz Cafe and Patisserie').toUpperCase(),
+      '',
+      header?.addressLine1 ?? 'AFEE COMPLEX, KASANGA',
+      header?.addressLine2 ?? 'Kampala, Uganda',
+      `Telephone: ${header?.phone ?? '+256757920771'}`,
+      ...(header?.taxId ? [`TIN/VAT: ${header.taxId}`] : []),
+      '',
+    ];
+  }
+
+  private ticketDate(d: Date): string {
+    const datePart = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    const timePart = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `Date ${datePart}   ${timePart}`;
+  }
+
+  /** `Qty Item Price Total` rows exactly like the settlement receipt. */
+  private ticketItemRows(items: any[], out: string[]): void {
+    const num = (n: number | string | Prisma.Decimal | null | undefined) => Number(n || 0).toLocaleString();
+    for (const ln of items) {
       const qty = Number(ln.quantity);
       const price = Number(ln.unitPrice);
       const disc = Number(ln.discountPercent ?? 0);
       const lineTotal = qty * price * (1 - disc / 100);
-      lines.push(`${(ln.description).padEnd(20).slice(0, 20)} ${plainFmt(lineTotal).padStart(10)}`);
-      if (disc > 0) lines.push(`  (discount ${disc}%)`);
-      if (ln.note) lines.push(`  ! ${ln.note}`);
+      const inclTag = ln.taxInclusive ? ' (incl)' : '';
+      const variantTag = ln.variantName ? `${ln.variantName} ` : '';
+      const desc = (variantTag + ln.description + inclTag).slice(0, 22).padEnd(22);
+      out.push(` ${String(qty).padStart(3)} ${desc} ${num(price).padStart(8)} ${num(lineTotal).padStart(10)}`);
+      for (const m of ln.modifiers ?? []) {
+        out.push(`      + ${(m.name ?? '').slice(0, 15).padEnd(15)} ${num(m.priceDelta).padStart(8)}`);
+      }
+      for (const a of ln.accompanimentNames ?? []) {
+        out.push(`      + ${String(a).slice(0, 38)}`);
+      }
+      if (disc > 0) out.push(`      (discount ${disc}%)`);
+      if (ln.note) out.push(`      ${String(ln.note).slice(0, 40)}`);
     }
-    lines.push('--------------------------------');
-    lines.push(`Subtotal: ${fmt(inv.subtotal)}`);
-    if (Number(inv.discountTotal) > 0) lines.push(`Discount: -${fmt(inv.discountTotal)}`);
-    lines.push(`TOTAL:    ${fmt(inv.totalAmount)}`);
-    lines.push('--------------------------------');
-    lines.push('Thank you for your patience!');
+  }
+
+  /** Right-aligned totals row that always fits the 48-column frame. */
+  private ticketTotal(label: string, value: string): string {
+    const R = PosReceiptsService.TICKET_W;
+    const gap = Math.max(1, R - label.length - value.length);
+    return label + ' '.repeat(gap) + value;
+  }
+
+  /**
+   * Pre-payment bill — same 48-column frame as the settlement receipt; only
+   * the document block differs (a bill shows the amount due, never Paid/Change).
+   */
+  async buildTextBill(invoiceId: string, isReprint = false): Promise<string> {
+    const inv = await this.resolveInvoice(invoiceId);
+    const org = await this.resolveOrg();
+    const header = (org as any).receiptHeader as Record<string, string> | null;
+    const R = PosReceiptsService.TICKET_W;
+    const orderTypeLabels: Record<string, string> = { dine_in: 'Dine In', takeaway: 'Take Away', delivery: 'Delivery' };
+    const lines: string[] = [];
+    if (isReprint) lines.push('*** REPRINT COPY ***');
+    lines.push('*** BILL ***');
+    lines.push(...this.ticketHeader(header));
+    lines.push(`Bill: #${(inv as any).documentNumber}`);
+    lines.push(this.ticketDate(new Date(inv.issueDate)));
+    if ((inv as any).orderType) lines.push(`Order: ${orderTypeLabels[(inv as any).orderType] ?? (inv as any).orderType}`);
+    if ((inv as any).tableName) lines.push(`Table: ${(inv as any).tableName}`);
+    lines.push('');
+    lines.push(` ${'Qty'.padStart(3)} ${'Item'.padEnd(22)} ${'Price'.padStart(8)} ${'Total'.padStart(10)}`);
+    lines.push('-'.repeat(R));
+    this.ticketItemRows(inv.lines as any[], lines);
+    lines.push('');
+    lines.push('');
+    lines.push('-'.repeat(R));
+    lines.push(this.ticketTotal('Subtotal:', fmt(inv.subtotal)));
+    if (Number(inv.discountTotal) > 0) lines.push(this.ticketTotal('Discount:', `-${fmt(inv.discountTotal)}`));
+    if (Number(inv.taxAmount) > 0) lines.push(this.ticketTotal('Tax:', fmt(inv.taxAmount)));
+    lines.push(this.ticketTotal('TOTAL DUE:', fmt(inv.totalAmount)));
+    lines.push('-'.repeat(R));
+    lines.push('');
+    lines.push('');
+    lines.push('Thank you for your patience!'.padStart(R));
     return lines.join('\n');
   }
 
@@ -782,7 +849,8 @@ export class PosReceiptsService {
    */
   private async sendWindowsRaw(printerName: string, payload: Buffer): Promise<void> {
     const os = require('os');
-    const tmp = path.join(os.tmpdir(), `escpos-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
+    const tmpDir = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Temp') : os.tmpdir();
+    const tmp = path.join(tmpDir, `escpos-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
     fs.writeFileSync(tmp, payload);
     const script = `
 $ErrorActionPreference='Stop'
@@ -820,7 +888,7 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
         execFile(
           'powershell.exe',
           ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
-          { env: { ...process.env, ESCPOS_FILE: tmp, ESCPOS_PRINTER: printerName }, timeout: 20000, windowsHide: true },
+          { env: { ...process.env, TMP: tmpDir, TEMP: tmpDir, ESCPOS_FILE: tmp, ESCPOS_PRINTER: printerName }, timeout: 20000, windowsHide: true },
           (err: any, _stdout: string, stderr: string) => {
             if (err) reject(new Error((stderr || '').trim() || err.message));
             else resolve();
@@ -829,6 +897,53 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
       });
     } finally {
       try { fs.unlinkSync(tmp); } catch { /* temp cleanup is best-effort */ }
+    }
+  }
+
+  /**
+   * Print a paper KOT for already-computed kitchen deltas. Called by the
+   * fire-kitchen flow right after it creates the KDS tickets — the KDS decides
+   * WHAT fires; this puts the same delta on paper. Never throws: a kitchen
+   * fire must not fail because the printer is off.
+   */
+  async printKotPaper(
+    orderId: string,
+    addLines: Array<{ line: any; delta: number }>,
+    removeLines: Array<{ line: any; delta: number }> = [],
+  ): Promise<{ ok: boolean; backend: string; kotNumber?: number; message?: string }> {
+    try {
+      if (addLines.length === 0 && removeLines.length === 0) {
+        return { ok: true, backend: 'none', message: 'No kitchen changes to print' };
+      }
+      const kotNumber = await this.printLifecycle.getKotCopyNumber(this.prisma.client, orderId);
+      const text = addLines.length > 0
+        ? await this.buildTextKot(orderId, kotNumber, addLines, removeLines)
+        : await this.buildTextCancelKot(orderId, kotNumber, removeLines);
+      await this.printLifecycle.markKotPrinted(this.prisma.client, orderId, this.tenant.userId ?? undefined);
+      const logType = removeLines.length > 0 && addLines.length === 0 ? 'CANCEL' : 'KOT';
+
+      const target = await this.resolvePrintTarget();
+      if (target.kind === 'none') {
+        this.logger.warn(`[POS] No printer configured; KOT #${kotNumber}:\n${text}`);
+        await this.printLifecycle.recordPrintLog(this.prisma.client, {
+          organizationId: this.tenant.organizationId, documentId: orderId, type: logType, printedById: this.tenant.userId ?? undefined,
+        });
+        return { ok: true, backend: 'console', kotNumber };
+      }
+
+      const payload = Buffer.concat([
+        Buffer.from(toPrinterAscii(text) + '\n', 'ascii'),
+        await this.feedBuffer(),
+        Buffer.from([0x1d, 0x56, 0x00]), // GS V 0 — full cut
+      ]);
+      await this.sendRaw(target, payload);
+      await this.printLifecycle.recordPrintLog(this.prisma.client, {
+        organizationId: this.tenant.organizationId, documentId: orderId, type: logType, printedById: this.tenant.userId ?? undefined,
+      });
+      return { ok: true, backend: target.backend, kotNumber };
+    } catch (e: any) {
+      this.logger.warn(`[POS] Paper KOT failed (kitchen fire continues): ${e?.message}`);
+      return { ok: false, backend: 'error', message: e?.message ?? 'printer error' };
     }
   }
 
@@ -866,12 +981,12 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
     }
 
     try {
-      const logoBuf = this.getEscposLogo();
       // Feed past the head→cutter gap, then cut — otherwise the tail of the
       // bill stays inside the printer and has to be pushed out by hand.
+      // No raster logo: the settlement receipt prints text-only and the bill
+      // mirrors its layout exactly.
       const parts: Buffer[] = [];
-      if (logoBuf) parts.push(logoBuf);
-      parts.push(Buffer.from(text + '\n', 'utf8'), await this.feedBuffer(), Buffer.from([0x1d, 0x56, 0x00]));
+      parts.push(Buffer.from(toPrinterAscii(text) + '\n', 'ascii'), await this.feedBuffer(), Buffer.from([0x1d, 0x56, 0x00]));
       await this.sendRaw(target, Buffer.concat(parts));
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'BILL', printedById: userId,
@@ -915,43 +1030,55 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
   ): Promise<string> {
     const inv = await this.resolveInvoice(invoiceId);
     const org = await this.resolveOrg();
+    const header = (org as any).receiptHeader as Record<string, string> | null;
+    const R = PosReceiptsService.TICKET_W;
+    const orderTypeLabels: Record<string, string> = { dine_in: 'Dine In', takeaway: 'Take Away', delivery: 'Delivery' };
     const lines: string[] = [];
     const isInitial = kotNumber <= 1 && removeLines.length === 0;
-    if (isInitial) {
-      lines.push((org?.name ?? 'Cafe').toUpperCase());
-      lines.push(`******** KOT #${String(kotNumber).padStart(3, '0')} ********`);
-    } else {
-      lines.push((org?.name ?? 'Cafe').toUpperCase());
-      lines.push('******** ADDITIONAL KOT ********');
-      lines.push(`KOT #${String(kotNumber).padStart(3, '0')}`);
-    }
-    lines.push(`Order: ${(inv as any).documentNumber}`);
-    lines.push(`Date:  ${new Date(inv.issueDate).toLocaleString()}`);
-    lines.push('--------------------------------');
 
+    // Same frame as the settlement receipt, minus the address block — the
+    // kitchen needs the ticket identity, not the phone number. Fallback is the
+    // brand name, never the raw org record name ("Demo Organization").
+    lines.push('='.repeat(R));
+    lines.push((header?.businessName || 'ABILIZ CAKE & PATISSERIE').toUpperCase());
+    lines.push('');
+    lines.push(isInitial ? '*** KITCHEN ORDER TICKET ***' : '*** ADDITIONAL KOT ***');
+    lines.push(`KOT: #${String(kotNumber).padStart(3, '0')}`);
+    lines.push(`Order: #${(inv as any).documentNumber}`);
+    lines.push(this.ticketDate(new Date())); // fire time, not order-open time
+    if ((inv as any).orderType) lines.push(`Type: ${orderTypeLabels[(inv as any).orderType] ?? (inv as any).orderType}`);
+    if ((inv as any).tableName) lines.push(`Table: ${(inv as any).tableName}`);
+    lines.push('');
+    lines.push(` ${'Qty'.padStart(3)}  Item`);
+    lines.push('-'.repeat(R));
+
+    // Full line detail — variant, accompaniments, modifiers and note all print,
+    // and names get the whole 41-column width instead of being cut at 20 chars.
     for (const { line, delta } of addLines) {
       const qty = Number(line.quantity);
-      const price = Number(line.unitPrice);
-      const name = (line.description ?? '').padEnd(20).slice(0, 20);
-      if (delta >= qty) {
-        lines.push(`${name} x${qty}`);
-      } else {
-        lines.push(`${name} +${delta}`);
-      }
-      if (line.note) lines.push(`  ! ${line.note}`);
+      const mark = delta >= qty ? `x${qty}` : `+${delta}`;
+      lines.push(` ${mark.padStart(3)}  ${String(line.description ?? '').slice(0, R - 7)}`);
+      if (line.variantName) lines.push(`        ${String(line.variantName).slice(0, R - 9)}`);
+      for (const a of line.accompanimentNames ?? []) lines.push(`        + ${String(a).slice(0, R - 11)}`);
+      for (const m of line.modifiers ?? []) lines.push(`        + ${String(m.name ?? '').slice(0, R - 11)}`);
+      if (line.note) lines.push(`        ! ${String(line.note).slice(0, R - 11)}`);
     }
 
-    for (const { line, delta } of removeLines) {
-      const name = (line.description ?? '').padEnd(20).slice(0, 20);
-      lines.push(`CANCEL ${name} -${delta}`);
+    if (removeLines.length > 0) {
+      lines.push('-'.repeat(R));
+      lines.push('CANCELLED:');
+      for (const { line, delta } of removeLines) {
+        lines.push(` ${`-${delta}`.padStart(3)}  ${String(line.description ?? '').slice(0, R - 7)}`);
+      }
     }
 
     if (addLines.length === 0 && removeLines.length === 0) {
       lines.push('  (no changes)');
     }
 
-    lines.push('--------------------------------');
-    lines.push('Prepare and serve with care');
+    lines.push('-'.repeat(R));
+    lines.push('');
+    lines.push('Prepare and serve with care'.padStart(R));
     return lines.join('\n');
   }
 
@@ -965,20 +1092,29 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
   ): Promise<string> {
     const inv = await this.resolveInvoice(invoiceId);
     const org = await this.resolveOrg();
+    const header = (org as any).receiptHeader as Record<string, string> | null;
+    const R = PosReceiptsService.TICKET_W;
     const lines: string[] = [];
-    lines.push((org?.name ?? 'Cafe').toUpperCase());
-    lines.push(`******** CANCEL KOT #${String(kotNumber).padStart(3, '0')} ********`);
-    lines.push(`Order: ${(inv as any).documentNumber}`);
-    lines.push(`Date:  ${new Date(inv.issueDate).toLocaleString()}`);
-    lines.push('--------------------------------');
+    lines.push('='.repeat(R));
+    lines.push((header?.businessName || 'ABILIZ CAKE & PATISSERIE').toUpperCase());
+    lines.push('');
+    lines.push('*** CANCEL KOT ***');
+    lines.push(`KOT: #${String(kotNumber).padStart(3, '0')}`);
+    lines.push(`Order: #${(inv as any).documentNumber}`);
+    lines.push(this.ticketDate(new Date()));
+    if ((inv as any).tableName) lines.push(`Table: ${(inv as any).tableName}`);
+    lines.push('');
+    lines.push(` ${'Qty'.padStart(3)}  Item`);
+    lines.push('-'.repeat(R));
 
     for (const { line, delta } of removeLines) {
-      const name = (line.description ?? '').padEnd(20).slice(0, 20);
-      lines.push(`CANCEL ${name} -${delta}`);
+      lines.push(` ${`-${delta}`.padStart(3)}  ${String(line.description ?? '').slice(0, R - 7)}`);
+      if (line.variantName) lines.push(`        ${String(line.variantName).slice(0, R - 9)}`);
     }
 
-    lines.push('--------------------------------');
-    lines.push('VOID / REDUCE');
+    lines.push('-'.repeat(R));
+    lines.push('');
+    lines.push('VOID / REDUCE'.padStart(R));
     return lines.join('\n');
   }
 
@@ -991,25 +1127,29 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
     const org = await this.resolveOrg();
     const unbilled = await this.getUnbilledLines(invoiceId);
 
+    const header = (org as any).receiptHeader as Record<string, string> | null;
+    const R = PosReceiptsService.TICKET_W;
+    const orderTypeLabels: Record<string, string> = { dine_in: 'Dine In', takeaway: 'Take Away', delivery: 'Delivery' };
     const lines: string[] = [];
-    lines.push((org?.name ?? 'Cafe').toUpperCase());
-    lines.push('========= ADDITIONAL BILL =========');
-    lines.push(`Table bill: ${(inv as any).documentNumber}`);
-    if (copyNumber > 1) lines.push(`Copy #:    ${copyNumber}`);
-    lines.push(`Date:       ${new Date(inv.issueDate).toLocaleString()}`);
-    lines.push('--------------------------------');
+    lines.push('*** ADDITIONAL BILL ***');
+    lines.push(...this.ticketHeader(header));
+    lines.push(`Bill: #${(inv as any).documentNumber}`);
+    if (copyNumber > 1) lines.push(`Copy: #${copyNumber}`);
+    lines.push(this.ticketDate(new Date(inv.issueDate)));
+    if ((inv as any).orderType) lines.push(`Order: ${orderTypeLabels[(inv as any).orderType] ?? (inv as any).orderType}`);
+    if ((inv as any).tableName) lines.push(`Table: ${(inv as any).tableName}`);
+    lines.push('');
+    lines.push(` ${'Qty'.padStart(3)} ${'Item'.padEnd(22)} ${'Price'.padStart(8)} ${'Total'.padStart(10)}`);
+    lines.push('-'.repeat(R));
 
     let additionalSubtotal = 0;
     for (const ln of unbilled) {
       const qty = Number(ln.quantity);
       const price = Number(ln.unitPrice);
       const disc = Number(ln.discountPercent ?? 0);
-      const lineTotal = qty * price * (1 - disc / 100);
-      additionalSubtotal += lineTotal;
-      lines.push(`${(ln.description).padEnd(20).slice(0, 20)} ${fmt(lineTotal).padStart(10)}`);
-      if (disc > 0) lines.push(`  (discount ${disc}%)`);
-      if (ln.note) lines.push(`  ! ${ln.note}`);
+      additionalSubtotal += qty * price * (1 - disc / 100);
     }
+    this.ticketItemRows(unbilled as any[], lines);
 
     if (unbilled.length === 0) {
       lines.push('  (no additional items)');
@@ -1018,13 +1158,17 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
     const previousSubtotal = Math.max(0, Number(inv.subtotal) - additionalSubtotal);
     const grandTotal = Number(inv.totalAmount);
 
-    lines.push('================================');
-    lines.push(`Additional Total:   ${fmt(additionalSubtotal)}`);
-    lines.push(`Previous Total:     ${fmt(previousSubtotal)}`);
-    lines.push('================================');
-    lines.push(`Grand Total Due:    ${fmt(grandTotal)}`);
-    lines.push('--------------------------------');
-    lines.push('Thank you for your patience!');
+    lines.push('');
+    lines.push('');
+    lines.push('-'.repeat(R));
+    lines.push(this.ticketTotal('Additional Total:', fmt(additionalSubtotal)));
+    lines.push(this.ticketTotal('Previous Total:', fmt(previousSubtotal)));
+    lines.push('='.repeat(R));
+    lines.push(this.ticketTotal('GRAND TOTAL DUE:', fmt(grandTotal)));
+    lines.push('-'.repeat(R));
+    lines.push('');
+    lines.push('');
+    lines.push('Thank you for your patience!'.padStart(R));
     return { text: lines.join('\n'), grandTotal, additionalSubtotal, previousSubtotal };
   }
 
@@ -1065,10 +1209,8 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
     }
 
     try {
-      const logoBuf = this.getEscposLogo();
       const parts: Buffer[] = [];
-      if (logoBuf) parts.push(logoBuf);
-      parts.push(Buffer.from(additionalBillText + '\n', 'utf8'), await this.feedBuffer(), Buffer.from([0x1d, 0x56, 0x00]));
+      parts.push(Buffer.from(toPrinterAscii(additionalBillText) + '\n', 'ascii'), await this.feedBuffer(), Buffer.from([0x1d, 0x56, 0x00]));
       await this.sendRaw(target, Buffer.concat(parts));
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'BILL', action: 'PRINT', copies: 1, printedById: userId,
@@ -1125,8 +1267,8 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
       const FEED = await this.feedBuffer(); // pos.cutFeedLines (default 6)
       const CUT = Buffer.from([0x1D, 0x56, 0x00]);
       const KICK = Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]);
-      const parts: Buffer[] = [Buffer.from(customerText, 'utf8'), FEED, CUT];
-      if (merchantText) parts.push(Buffer.from(merchantText, 'utf8'), FEED, CUT);
+      const parts: Buffer[] = [Buffer.from(toPrinterAscii(customerText), 'ascii'), FEED, CUT];
+      if (merchantText) parts.push(Buffer.from(toPrinterAscii(merchantText), 'ascii'), FEED, CUT);
       if (shouldKick) parts.push(KICK); // drawer AFTER the cut
       await this.sendRaw(target, Buffer.concat(parts));
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
@@ -1249,42 +1391,55 @@ export class PosReceiptsController {
     const orgId = this.svc.tenantSvc().organizationId;
     const kotNumber = await this.svc.lifecycle().getKotCopyNumber(this.svc.prismaSvc().client, id);
 
-    const deltas = await this.svc.lifecycle().getKitchenDeltas(this.svc.prismaSvc().client, id);
-    const hasChanges = deltas.addLines.length > 0 || deltas.removeLines.length > 0;
-    if (!hasChanges) {
-      return { ok: true, backend: 'none', message: 'No changes since last KOT', kotNumber } as any;
+    // Resolve the order ID — getKitchenDeltas keys on OrderItem.orderId.
+    // Frontend passes an Order ID (open tab) or Invoice ID (settled); support both.
+    let orderId: string | null = null;
+    const kotInv = await this.svc.prismaSvc().client.invoice.findFirst({
+      where: { id, organizationId: orgId },
+      select: { orderId: true },
+    });
+    if (kotInv?.orderId) {
+      orderId = kotInv.orderId;
+    } else {
+      // Fallback: id is an Order ID directly (pre-settle tab)
+      const order = await this.svc.prismaSvc().client.order.findFirst({
+        where: { id, organizationId: orgId },
+        select: { id: true },
+      });
+      if (order) orderId = order.id;
     }
+    if (!orderId) {
+      return { ok: false, backend: 'none', message: 'Invoice has no linked order' };
+    }
+    // Fetch all active order items — the KOT is a full snapshot, not a delta.
+    // fireKitchen (KDS push) marks kitchenPrintedQty, which would make
+    // getKitchenDeltas return empty; we bypass that and read items directly.
+    const allItems = await this.svc.prismaSvc().client.orderItem.findMany({
+      where: { orderId, cancelled: false },
+      orderBy: { lineNumber: 'asc' },
+      include: { modifiers: true },
+    });
 
     // A line is kitchen-eligible if it maps to a stock product OR a menu item.
-    // Menu-item lines carry `menuItemId` only — filtering on `productId` alone
-    // dropped every menu-driven order from the printed KOT.
     const kotEligible = (l: any) => !!l.productId || !!l.menuItemId;
-    const addLines = deltas.addLines.filter((a: any) => kotEligible(a.line));
-    const removeLines = deltas.removeLines.filter((r: any) => kotEligible(r.line));
+    const eligibleItems = allItems.filter(kotEligible);
 
-    const text = addLines.length > 0
-      ? await this.svc.buildTextKot(id, kotNumber, addLines, removeLines)
-      : await this.svc.buildTextCancelKot(id, kotNumber, removeLines);
+    if (eligibleItems.length === 0) {
+      return { ok: true, backend: 'none', message: 'No kitchen-eligible items on this order', kotNumber } as any;
+    }
 
-    const logType = removeLines.length > 0 && addLines.length === 0 ? 'CANCEL' : 'KOT';
+    // Build the KOT showing ALL current items (not just newly-printed ones).
+    const addLines = eligibleItems.map((ln: any) => ({ line: ln, delta: Number(ln.quantity) }));
+    const text = await this.svc.buildTextKot(id, kotNumber, addLines, []);
 
     await this.svc.lifecycle().markKotPrinted(this.svc.prismaSvc().client, id, userId);
-    if (addLines.length > 0) {
-      const lineIds = addLines.map((a: any) => a.line.id);
-      const qtyMap = new Map(addLines.map((a: any) => [a.line.id, a.delta]));
-      await this.svc.lifecycle().markKitchenPrinted(this.svc.prismaSvc().client, lineIds, qtyMap, userId);
-    }
-    if (removeLines.length > 0) {
-      const lineIds = removeLines.map((r: any) => r.line.id);
-      await this.svc.lifecycle().markCancelPrinted(this.svc.prismaSvc().client, lineIds, userId);
-    }
 
     const target = await this.svc.resolvePrintTarget();
 
     if (target.kind === 'none') {
       this.logger.warn(`[POS] No printer configured; KOT #${kotNumber}:\n${text}`);
       await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
-        organizationId: orgId, documentId: id, type: logType, printedById: userId,
+        organizationId: orgId, documentId: id, type: 'KOT', printedById: userId,
       });
       return { ok: true, backend: 'console', message: 'No printer; KOT logged to server console.', kotNumber, text } as any;
     }
@@ -1292,13 +1447,13 @@ export class PosReceiptsController {
     try {
       // Feed + cut so the ticket ejects fully instead of half-hanging in the printer.
       const payload = Buffer.concat([
-        Buffer.from(text + '\n', 'utf8'),
-        Buffer.from([0x1b, 0x64, 0x06]), // ESC d 6 — feed past the head→cutter gap
+        Buffer.from(toPrinterAscii(text) + '\n', 'ascii'),
+        Buffer.from([0x1b, 0x64, 0x0c]), // ESC d 12 — generous feed past head→cutter gap
         Buffer.from([0x1d, 0x56, 0x00]), // GS V 0 — full cut
       ]);
       await this.svc.sendRaw(target, payload);
       await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
-        organizationId: orgId, documentId: id, type: logType, printedById: userId,
+        organizationId: orgId, documentId: id, type: 'KOT', printedById: userId,
       });
       return { ok: true, backend: target.backend, kotNumber, text } as any;
     } catch (e: any) {

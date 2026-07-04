@@ -18,10 +18,13 @@ describe('PosOrdersService — fireKitchen (menu-item routing)', () => {
   let kds: any;
   let svc: PosOrdersService;
 
+  const receipts = { printKotPaper: jest.fn().mockResolvedValue({ ok: true, backend: 'console', kotNumber: 1 }) };
+
   const build = () =>
     new PosOrdersService(
       prisma as any, tenant as any, audit as any, events as any,
       {} as any, {} as any, {} as any, {} as any, {} as any, kds as any,
+      receipts as any,
     );
 
   beforeEach(() => {

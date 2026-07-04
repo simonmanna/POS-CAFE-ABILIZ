@@ -13,6 +13,7 @@ import { PosVariantService } from '../pos-variant.service';
 import { PosAccompanimentService } from '../pos-accompaniment.service';
 import { PosModifiersService } from '../pos-modifiers.service';
 import { PosKdsService } from '../pos-kds.service';
+import { PosReceiptsService } from '../pos-receipts.service';
 import { dec } from '../../../kernel/common/money';
 import type { CreateOrderDto, SaveOrderItemsDto, AddOrderItemsDto, OrderLineDto } from './dto/order.dto';
 
@@ -56,6 +57,7 @@ export class PosOrdersService {
     private readonly accompaniments: PosAccompanimentService,
     private readonly modifiers: PosModifiersService,
     private readonly kds: PosKdsService,
+    private readonly receipts: PosReceiptsService,
   ) {}
 
   // ─── Queries ───────────────────────────────────────────────────────────────
@@ -397,7 +399,15 @@ export class PosOrdersService {
       await this.prisma.client.order.update({ where: { id: orderId }, data: { status: 'preparing', kitchenStartedAt: now, kitchenStartedBy: this.tenant.userId ?? null } });
     }
     await this.audit.record({ entity: 'Order', entityId: orderId, action: 'update' as any, newValues: { kind: 'fire_kitchen', tickets: ticketIds.length } });
-    return { ticketIds, count: ticketIds.length };
+
+    // Paper KOT on the thermal printer mirrors the KDS ticket. Best-effort —
+    // printKotPaper never throws, so the fire succeeds even with the printer off.
+    const paper = await this.receipts.printKotPaper(
+      orderId,
+      deltas.map(({ item, delta }) => ({ line: item, delta })),
+    );
+
+    return { ticketIds, count: ticketIds.length, paperKot: paper.backend, kotNumber: paper.kotNumber };
   }
 
   // ─── Internals ───────────────────────────────────────────────────────────────
