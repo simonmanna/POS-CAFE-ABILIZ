@@ -21,15 +21,6 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
   const [busy, setBusy] = useState<'print' | 'email' | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  /** Universal print: opens the OS print dialog for the receipt (works with
-   *  any printer the workstation has — no networked thermal printer required). */
-  const printReceipt = () => {
-    const win = iframeRef.current?.contentWindow;
-    if (!win) { toast.error('Receipt still loading — try again'); return; }
-    win.focus();
-    win.print();
-  };
-
   // (Re)load the PDF blob URL when the dialog opens or invoiceId changes (fallback
   // when receiptHtml isn't available).
   React.useEffect(() => {
@@ -136,11 +127,8 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
                 <RefreshCw className="h-4 w-4 mr-1" /> Reprint
               </Button>
             )}
-            <Button variant="outline" onClick={onPrint} disabled={busy !== null} title="Send to networked thermal printer">
+            <Button variant="outline" onClick={onPrint} disabled={busy !== null} title="Send to thermal printer">
               <Printer className="h-4 w-4 mr-1" /> {busy === 'print' ? 'Sending…' : 'Thermal'}
-            </Button>
-            <Button onClick={printReceipt} disabled={!pdfUrl && !receiptHtml} style={{ background: '#16a34a' }} title="Open the print dialog for any printer">
-              <Printer className="h-4 w-4 mr-1" /> Print Receipt
             </Button>
           </div>
         </DialogFooter>

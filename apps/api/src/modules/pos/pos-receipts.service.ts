@@ -379,17 +379,30 @@ export class PosReceiptsService {
     const escape = (s: string) =>
       s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=80mm"><title>Receipt</title>
+<html><head><meta charset="utf-8"><title>Receipt</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { margin:0; padding:0; width:80mm; height:auto; }
-  body { font-family:'Courier New',Courier,monospace; font-size:12px; line-height:1.15; white-space:pre; padding:1px 2px 2px; }
+  html,body { margin:0; padding:0; width:72mm; height:auto; }
+  body { font-family:'Courier New',Courier,monospace; font-size:9.5px; line-height:1.25; white-space:pre; padding:1mm 1mm 14mm; }
   @media print {
-    @page { margin:0; size:80mm auto; }
-    html,body { width:80mm; height:auto; }
+    @page { margin:0; size:72mm 297mm; }
+    html,body { width:72mm; height:auto; }
   }
 </style></head>
-<body><img src="/abiliz-logo.png" style="width:60mm;max-width:100%;display:block;margin:0 auto 6px auto;" onerror="this.style.display='none'">${escape(text).replace(/\n/g, '<br>')}<script>window.onload=function(){try{window.print();}catch(e){}};</script></body></html>`;
+<body><img src="/abiliz-logo.png" style="width:60mm;max-width:100%;display:block;margin:0 auto 6px auto;" onerror="this.style.display='none'">${escape(text).replace(/\n/g, '<br>')}<script>
+  // "size:80mm auto" is invalid CSS (dropped by browsers), which left the page
+  // size to the driver's custom thermal paper — that broke print preview and
+  // paginated long receipts so the cutter fired mid-receipt. Size the page to
+  // the exact content height instead: one continuous page, one cut at the end.
+  // The 14mm bottom padding feeds the last lines past the tear bar/cutter.
+  window.onload=function(){
+    var mm=Math.max(40,Math.ceil(document.body.scrollHeight*25.4/96)+4);
+    var s=document.createElement('style');
+    s.textContent='@page { size:72mm '+mm+'mm; margin:0; }';
+    document.head.appendChild(s);
+    try{window.print();}catch(e){}
+  };
+</script></body></html>`;
   }
 
   /** PDF receipt — pdfkit stream. */
@@ -706,6 +719,119 @@ export class PosReceiptsService {
     }
   }
 
+  /* ─────────── Raw ESC/POS transport ───────────
+   * Preference order:
+   *  1. pos.printerHost (+ pos.printerPort, default 9100) → network printer, TCP.
+   *  2. pos.printerWindowsName → printer installed on the API host's Windows
+   *     spooler (USB printers like the SP-240 that have no network port).
+   *     Bytes are spooled with datatype RAW via winspool, so the driver's
+   *     broken paper forms (80mm x 99999mm) are never involved.
+   *  3. neither → 'none'; call sites log the ticket text to the console.
+   */
+  async resolvePrintTarget(): Promise<
+    | { kind: 'tcp'; host: string; port: number; backend: string }
+    | { kind: 'windows'; printerName: string; backend: string }
+    | { kind: 'none'; backend: string }
+  > {
+    const hostValue = (await this.settings.get('pos.printerHost'))?.value;
+    const host = hostValue == null || hostValue === '' ? null : String(hostValue);
+    if (host) {
+      const portSetting = await this.settings.get('pos.printerPort');
+      return { kind: 'tcp', host, port: portSetting?.value ? Number(portSetting.value) : 9100, backend: 'escpos' };
+    }
+    const winValue = (await this.settings.get('pos.printerWindowsName'))?.value;
+    const winName = winValue == null || winValue === '' ? null : String(winValue);
+    if (winName) {
+      if (process.platform !== 'win32') {
+        this.logger.warn(`[POS] pos.printerWindowsName is set but the API host is not Windows; falling back to console.`);
+        return { kind: 'none', backend: 'console' };
+      }
+      return { kind: 'windows', printerName: winName, backend: 'windows-raw' };
+    }
+    return { kind: 'none', backend: 'console' };
+  }
+
+  /** Send raw ESC/POS bytes to the resolved target. Throws on failure. */
+  async sendRaw(
+    target: { kind: 'tcp'; host: string; port: number } | { kind: 'windows'; printerName: string } | { kind: 'none' },
+    payload: Buffer,
+  ): Promise<void> {
+    if (target.kind === 'none') throw new Error('No printer configured');
+    if (target.kind === 'tcp') {
+      const net = require('net');
+      await new Promise<void>((resolve, reject) => {
+        const client = net.connect({ host: target.host, port: target.port, timeout: 5000 }, () => {
+          // Single flushed write preserves byte order; writing piecemeal then
+          // calling end() can drop the trailing cut bytes.
+          client.write(payload, () => client.end());
+        });
+        client.on('close', () => resolve());
+        client.on('error', reject);
+        client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
+      });
+      return;
+    }
+    await this.sendWindowsRaw(target.printerName, payload);
+  }
+
+  /**
+   * Spool raw bytes to a local Windows printer (datatype RAW → the spooler
+   * passes them straight to the port, no driver rendering). Implemented as an
+   * inline PowerShell + winspool P/Invoke helper so no native Node module and
+   * no on-disk script (dist layouts vary) is needed.
+   */
+  private async sendWindowsRaw(printerName: string, payload: Buffer): Promise<void> {
+    const os = require('os');
+    const tmp = path.join(os.tmpdir(), `escpos-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
+    fs.writeFileSync(tmp, payload);
+    const script = `
+$ErrorActionPreference='Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class RawPrint {
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi)]
+  public class DOCINFOA { [MarshalAs(UnmanagedType.LPStr)] public string pDocName; [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile; [MarshalAs(UnmanagedType.LPStr)] public string pDataType; }
+  [DllImport("winspool.Drv", EntryPoint="OpenPrinterA", SetLastError=true, CharSet=CharSet.Ansi)] public static extern bool OpenPrinter(string szPrinter, out IntPtr hPrinter, IntPtr pd);
+  [DllImport("winspool.Drv", SetLastError=true)] public static extern bool ClosePrinter(IntPtr hPrinter);
+  [DllImport("winspool.Drv", EntryPoint="StartDocPrinterA", SetLastError=true, CharSet=CharSet.Ansi)] public static extern bool StartDocPrinter(IntPtr hPrinter, int level, [In] DOCINFOA di);
+  [DllImport("winspool.Drv", SetLastError=true)] public static extern bool EndDocPrinter(IntPtr hPrinter);
+  [DllImport("winspool.Drv", SetLastError=true)] public static extern bool StartPagePrinter(IntPtr hPrinter);
+  [DllImport("winspool.Drv", SetLastError=true)] public static extern bool EndPagePrinter(IntPtr hPrinter);
+  [DllImport("winspool.Drv", SetLastError=true)] public static extern bool WritePrinter(IntPtr hPrinter, byte[] pBytes, int dwCount, out int dwWritten);
+  public static string Send(string printer, byte[] bytes) {
+    IntPtr h; if (!OpenPrinter(printer, out h, IntPtr.Zero)) return "OpenPrinter failed: " + Marshal.GetLastWin32Error();
+    var di = new DOCINFOA(); di.pDocName = "POS ticket"; di.pDataType = "RAW";
+    if (!StartDocPrinter(h, 1, di)) { ClosePrinter(h); return "StartDocPrinter failed: " + Marshal.GetLastWin32Error(); }
+    StartPagePrinter(h); int written;
+    bool ok = WritePrinter(h, bytes, bytes.Length, out written);
+    EndPagePrinter(h); EndDocPrinter(h); ClosePrinter(h);
+    return ok ? ("OK " + written) : ("WritePrinter failed: " + Marshal.GetLastWin32Error());
+  }
+}
+'@
+$bytes = [System.IO.File]::ReadAllBytes($env:ESCPOS_FILE)
+$r = [RawPrint]::Send($env:ESCPOS_PRINTER, $bytes)
+if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLine($r); exit 1 }
+`;
+    const { execFile } = require('child_process');
+    try {
+      await new Promise<void>((resolve, reject) => {
+        execFile(
+          'powershell.exe',
+          ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+          { env: { ...process.env, ESCPOS_FILE: tmp, ESCPOS_PRINTER: printerName }, timeout: 20000, windowsHide: true },
+          (err: any, _stdout: string, stderr: string) => {
+            if (err) reject(new Error((stderr || '').trim() || err.message));
+            else resolve();
+          },
+        );
+      });
+    } finally {
+      try { fs.unlinkSync(tmp); } catch { /* temp cleanup is best-effort */ }
+    }
+  }
+
   /** Print a pre-payment bill (ESC/POS). */
   async printBill(invoiceId: string, userId?: string, isReprint = false): Promise<{ ok: boolean; backend: string; message?: string }> {
     if (!isReprint) {
@@ -729,12 +855,9 @@ export class PosReceiptsService {
     await this.printLifecycle.markBillPrinted(this.prisma.client, invoiceId, userId);
     await this.printLifecycle.markLinesBilled(this.prisma.client, invoiceId, userId);
 
-    const hostSetting = await this.settings.get('pos.printerHost');
-    const portSetting = await this.settings.get('pos.printerPort');
-    const host = hostSetting?.value;
-    const port = portSetting?.value ? Number(portSetting.value) : 9100;
+    const target = await this.resolvePrintTarget();
 
-    if (!host) {
+    if (target.kind === 'none') {
       this.logger.warn(`[POS] No printer configured; bill:\n${text}`);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'BILL', printedById: userId,
@@ -743,26 +866,17 @@ export class PosReceiptsService {
     }
 
     try {
-      const net = require('net');
       const logoBuf = this.getEscposLogo();
-      // Single flushed write preserves byte order and stops end() from
-      // dropping trailing bytes. Bill has no cut (just feeds+ejects).
+      // Feed past the head→cutter gap, then cut — otherwise the tail of the
+      // bill stays inside the printer and has to be pushed out by hand.
       const parts: Buffer[] = [];
       if (logoBuf) parts.push(logoBuf);
-      parts.push(Buffer.from(text + '\n\n\n\n\n', 'utf8'));
-      const payload = Buffer.concat(parts);
-      await new Promise<void>((resolve, reject) => {
-        const client = net.connect({ host, port, timeout: 5000 }, () => {
-          client.write(payload, () => client.end());
-        });
-        client.on('close', () => resolve());
-        client.on('error', reject);
-        client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
-      });
+      parts.push(Buffer.from(text + '\n', 'utf8'), await this.feedBuffer(), Buffer.from([0x1d, 0x56, 0x00]));
+      await this.sendRaw(target, Buffer.concat(parts));
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'BILL', printedById: userId,
       });
-      return { ok: true, backend: 'escpos' };
+      return { ok: true, backend: target.backend };
     } catch (e: any) {
       this.logger.warn(`[POS] Printer unreachable; bill fallback: ${e?.message}`);
       return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error; bill fallback' };
@@ -940,12 +1054,9 @@ export class PosReceiptsService {
     await this.printLifecycle.markBillPrinted(this.prisma.client, invoiceId, userId);
     await this.printLifecycle.markLinesBilled(this.prisma.client, invoiceId, userId);
 
-    const hostSetting = await this.settings.get('pos.printerHost');
-    const portSetting = await this.settings.get('pos.printerPort');
-    const host = hostSetting?.value;
-    const port = portSetting?.value ? Number(portSetting.value) : 9100;
+    const target = await this.resolvePrintTarget();
 
-    if (!host) {
+    if (target.kind === 'none') {
       this.logger.warn(`[POS] No printer configured; additional bill:\n${additionalBillText}`);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'BILL', action: 'PRINT', copies: 1, printedById: userId,
@@ -954,22 +1065,15 @@ export class PosReceiptsService {
     }
 
     try {
-      const net = require('net');
       const logoBuf = this.getEscposLogo();
-      await new Promise<void>((resolve, reject) => {
-        const client = net.connect({ host, port, timeout: 5000 }, () => {
-          if (logoBuf) client.write(logoBuf);
-          client.write(additionalBillText + '\n\n\n\n\n');
-          client.end();
-        });
-        client.on('end', resolve);
-        client.on('error', reject);
-        client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
-      });
+      const parts: Buffer[] = [];
+      if (logoBuf) parts.push(logoBuf);
+      parts.push(Buffer.from(additionalBillText + '\n', 'utf8'), await this.feedBuffer(), Buffer.from([0x1d, 0x56, 0x00]));
+      await this.sendRaw(target, Buffer.concat(parts));
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'BILL', action: 'PRINT', copies: 1, printedById: userId,
       });
-      return { ok: true, backend: 'escpos', copyNumber, grandTotal, additionalSubtotal, previousSubtotal };
+      return { ok: true, backend: target.backend, copyNumber, grandTotal, additionalSubtotal, previousSubtotal };
     } catch (e: any) {
       this.logger.warn(`[POS] Printer unreachable; additional bill fallback: ${e?.message}`);
       return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error', copyNumber, grandTotal, additionalSubtotal, previousSubtotal };
@@ -1004,12 +1108,9 @@ export class PosReceiptsService {
     const merchantText = printCashierCopy ? await this.buildTextReceipt(invoiceId, isReprint, 'CASHIER COPY') : null;
     const copies = merchantText ? 2 : 1;
 
-    const hostSetting = await this.settings.get('pos.printerHost');
-    const portSetting = await this.settings.get('pos.printerPort');
-    const host = hostSetting?.value;
-    const port = portSetting?.value ? Number(portSetting.value) : 9100;
+    const target = await this.resolvePrintTarget();
 
-    if (!host) {
+    if (target.kind === 'none') {
       this.logger.warn(`[POS] No printer configured; receipt (customer):\n${customerText}`);
       if (merchantText) this.logger.warn(`[POS] No printer configured; receipt (cashier copy):\n${merchantText}`);
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
@@ -1019,31 +1120,19 @@ export class PosReceiptsService {
     }
 
     try {
-      const net = require('net');
       const kickSetting = await this.settings.get('pos.kickDrawerOnPrint');
       const shouldKick = kickSetting?.value !== 'false';
       const FEED = await this.feedBuffer(); // pos.cutFeedLines (default 6)
       const CUT = Buffer.from([0x1D, 0x56, 0x00]);
       const KICK = Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]);
-      // Assemble one payload so a single flushed write preserves byte order;
-      // writing piecemeal then calling end() can drop the trailing cut bytes.
       const parts: Buffer[] = [Buffer.from(customerText, 'utf8'), FEED, CUT];
       if (merchantText) parts.push(Buffer.from(merchantText, 'utf8'), FEED, CUT);
       if (shouldKick) parts.push(KICK); // drawer AFTER the cut
-      const payload = Buffer.concat(parts);
-      await new Promise<void>((resolve, reject) => {
-        const client = net.connect({ host, port, timeout: 5000 }, () => {
-          // Wait for the write to flush to the OS before sending FIN.
-          client.write(payload, () => client.end());
-        });
-        client.on('close', () => resolve());
-        client.on('error', reject);
-        client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
-      });
+      await this.sendRaw(target, Buffer.concat(parts));
       await this.printLifecycle.recordPrintLog(this.prisma.client, {
         organizationId: orgId, documentId: invoiceId, type: 'RECEIPT', copies, printedById: userId,
       });
-      return { ok: true, backend: 'escpos', message: merchantText ? 'Customer + cashier copies printed' : undefined };
+      return { ok: true, backend: target.backend, message: merchantText ? 'Customer + cashier copies printed' : undefined };
     } catch (e: any) {
       this.logger.warn(`[POS] Printer unreachable; receipt fallback: ${e?.message}`);
       return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error' };
@@ -1190,12 +1279,9 @@ export class PosReceiptsController {
       await this.svc.lifecycle().markCancelPrinted(this.svc.prismaSvc().client, lineIds, userId);
     }
 
-    const hostSetting = await this.svc['settings'].get('pos.printerHost');
-    const portSetting = await this.svc['settings'].get('pos.printerPort');
-    const host = hostSetting?.value;
-    const port = portSetting?.value ? Number(portSetting.value) : 9100;
+    const target = await this.svc.resolvePrintTarget();
 
-    if (!host) {
+    if (target.kind === 'none') {
       this.logger.warn(`[POS] No printer configured; KOT #${kotNumber}:\n${text}`);
       await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
         organizationId: orgId, documentId: id, type: logType, printedById: userId,
@@ -1204,20 +1290,17 @@ export class PosReceiptsController {
     }
 
     try {
-      const net = require('net');
-      await new Promise<void>((resolve, reject) => {
-        const client = net.connect({ host, port, timeout: 5000 }, () => {
-          client.write(text + '\n\n\n\n\n');
-          client.end();
-        });
-        client.on('end', resolve);
-        client.on('error', reject);
-        client.on('timeout', () => { client.destroy(); reject(new Error('printer timeout')); });
-      });
+      // Feed + cut so the ticket ejects fully instead of half-hanging in the printer.
+      const payload = Buffer.concat([
+        Buffer.from(text + '\n', 'utf8'),
+        Buffer.from([0x1b, 0x64, 0x06]), // ESC d 6 — feed past the head→cutter gap
+        Buffer.from([0x1d, 0x56, 0x00]), // GS V 0 — full cut
+      ]);
+      await this.svc.sendRaw(target, payload);
       await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
         organizationId: orgId, documentId: id, type: logType, printedById: userId,
       });
-      return { ok: true, backend: 'escpos', kotNumber, text } as any;
+      return { ok: true, backend: target.backend, kotNumber, text } as any;
     } catch (e: any) {
       this.logger.warn(`[POS] Printer unreachable; KOT #${kotNumber} fallback: ${e?.message}`);
       return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error', kotNumber, text } as any;

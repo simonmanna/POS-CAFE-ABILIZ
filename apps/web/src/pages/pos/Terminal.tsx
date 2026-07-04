@@ -64,6 +64,7 @@ import {
   useStoreCredit,
   useFireKitchen,
   usePrintBill,
+  usePrintKot,
   usePrintAdditionalBill,
   useReprintReceipt,
   useCreateOrder,
@@ -458,6 +459,7 @@ const TerminalPage: React.FC = () => {
   const saveTab = useSaveTab();
   const fireKitchen = useFireKitchen();
   const printBill = usePrintBill();
+  const printKot = usePrintKot();
   const printAdditionalBill = usePrintAdditionalBill();
   const reprintReceipt = useReprintReceipt();
   const transferItemsMut = useTransferItems();
@@ -1665,6 +1667,12 @@ const TerminalPage: React.FC = () => {
         orderTypeLabel={orderTypeLabel ?? undefined}
         tableLabel={activeTableLabel ?? undefined}
         customerName={customer?.name}
+        onPrint={async () => {
+          const docId = selectedTable?.orders?.find((o) => !o.closedAt)?.orderId || selectedTableId;
+          if (docId) {
+            try { await printKot.mutateAsync({ invoiceId: docId }); } catch { /* non-fatal */ }
+          }
+        }}
       />
 
       <ReceiptPreview

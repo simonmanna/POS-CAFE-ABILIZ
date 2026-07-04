@@ -1,5 +1,5 @@
-import { useMemo, useRef } from 'react';
-import { Printer, Download, X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Printer, Download, X, CheckCircle2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
@@ -135,14 +135,26 @@ function buildThermalHtml(p: {
   const esc = (s: string) =>
     s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   return `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=80mm"><title>Print</title>
+<html><head><meta charset="utf-8"><title>Print</title>
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { margin:0; padding:0; width:80mm; height:auto; }
-  body { font-family:'Courier New',Courier,monospace; font-size:12px; line-height:1.15; white-space:pre; padding:1px 2px 2px; }
-  @media print { @page { margin:0; size:80mm auto; } html,body { width:80mm; height:auto; } }
+  html,body { margin:0; padding:0; width:72mm; height:auto; }
+  body { font-family:'Courier New',Courier,monospace; font-size:10px; line-height:1.25; white-space:pre; padding:1mm 1mm 14mm; }
+  @media print { @page { margin:0; size:72mm 297mm; } html,body { width:72mm; height:auto; } }
 </style></head>
-<body>${esc(text).replace(/\n/g, '<br>')}</body></html>`;
+<body>${esc(text).replace(/\n/g, '<br>')}<script>
+  // "size:80mm auto" is invalid CSS (dropped by browsers), which left the page
+  // size to the driver's custom thermal paper — that broke print preview and
+  // paginated long tickets so the cutter fired mid-receipt. Instead, size the
+  // page to the exact content height: one continuous page, one cut at the end.
+  // The 14mm bottom padding feeds the last lines past the tear bar/cutter.
+  window.onload = function () {
+    var mm = Math.max(40, Math.ceil(document.body.scrollHeight * 25.4 / 96) + 4);
+    var s = document.createElement('style');
+    s.textContent = '@page { size:72mm ' + mm + 'mm; margin:0; }';
+    document.head.appendChild(s);
+  };
+</script></body></html>`;
 }
 
 
@@ -151,9 +163,8 @@ export const ReceiptPreview: React.FC<Props> = ({
   discountPercent, discountAmount, orderTypeLabel, tableLabel, customerName,
   subtitle, previousSubtotal, grandTotal, onPrint,
 }) => {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [printed, setPrinted] = useState(false);
 
-  // Same isolated-print flow the settlement receipt uses — only the content differs.
   const html = useMemo(
     () => buildThermalHtml({
       type, lines, total, discountPercent, discountAmount,
@@ -164,10 +175,7 @@ export const ReceiptPreview: React.FC<Props> = ({
 
   const doPrint = () => {
     onPrint?.();
-    const win = iframeRef.current?.contentWindow;
-    if (!win) return;
-    win.focus();
-    win.print();
+    setPrinted(true);
   };
 
   const doDownload = () => {
@@ -180,43 +188,48 @@ export const ReceiptPreview: React.FC<Props> = ({
     URL.revokeObjectURL(url);
   };
 
+  const handleClose = () => { setPrinted(false); onClose(); };
+
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-[560px] p-0 overflow-hidden">
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogContent className="sm:max-w-[420px] p-0 overflow-hidden">
         <DialogHeader className="bg-gradient-to-r from-slate-700 to-slate-900 text-white p-4">
           <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
             <Printer className="h-4 w-4" /> {title}
           </DialogTitle>
           <DialogDescription className="text-slate-300 text-xs">
-            {subtitle
-              ? subtitle
-              : type === 'kot'
-                ? 'Kitchen order ticket — preview and print.'
-                : 'Preview and print the bill.'}
+            {subtitle ?? (type === 'kot' ? 'Kitchen order ticket' : 'Bill receipt')}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="bg-slate-200 p-4 flex justify-center min-h-[500px]">
-          <iframe
-            ref={iframeRef}
-            srcDoc={html}
-            title={`${type} preview`}
-            className="bg-white shadow-md"
-            style={{ width: 340, height: 600 }}
-          />
+        <div className="p-8 flex flex-col items-center justify-center min-h-[200px] text-center">
+          {printed ? (
+            <>
+              <CheckCircle2 className="h-12 w-12 text-green-500 mb-3" />
+              <p className="text-base font-semibold text-slate-800">Sent to printer</p>
+              <p className="text-sm text-slate-500 mt-1">The {type === 'kot' ? 'KOT' : 'bill'} has been sent to the thermal printer.</p>
+            </>
+          ) : (
+            <>
+              <Printer className="h-12 w-12 text-slate-300 mb-3" />
+              <p className="text-sm text-slate-500">Click Print to send to the thermal printer.</p>
+            </>
+          )}
         </div>
 
         <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 flex gap-2 justify-between">
-          <Button variant="ghost" onClick={onClose}>
+          <Button variant="ghost" onClick={handleClose}>
             <X className="h-4 w-4 mr-1" /> Close
           </Button>
           <div className="flex gap-2">
             <Button variant="outline" onClick={doDownload}>
               <Download className="h-4 w-4 mr-1" /> Download HTML
             </Button>
-            <Button onClick={doPrint} style={{ background: '#16a34a' }}>
-              <Printer className="h-4 w-4 mr-1" /> Print {type === 'kot' ? 'KOT' : 'Bill'}
-            </Button>
+            {!printed && (
+              <Button onClick={doPrint} style={{ background: '#16a34a' }}>
+                <Printer className="h-4 w-4 mr-1" /> Print {type === 'kot' ? 'KOT' : 'Bill'}
+              </Button>
+            )}
           </div>
         </DialogFooter>
       </DialogContent>
