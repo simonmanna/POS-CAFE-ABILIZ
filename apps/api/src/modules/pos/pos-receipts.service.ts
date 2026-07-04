@@ -389,7 +389,7 @@ export class PosReceiptsService {
     html,body { width:80mm; height:auto; }
   }
 </style></head>
-<body>${escape(text).replace(/\n/g, '<br>')}<script>window.onload=function(){try{window.print();}catch(e){}};</script></body></html>`;
+<body><img src="/abiliz-logo.png" style="width:60mm;max-width:100%;display:block;margin:0 auto 6px auto;" onerror="this.style.display='none'">${escape(text).replace(/\n/g, '<br>')}<script>window.onload=function(){try{window.print();}catch(e){}};</script></body></html>`;
   }
 
   /** PDF receipt — pdfkit stream. */
@@ -412,6 +412,19 @@ export class PosReceiptsService {
         if (isReprint) doc.font('Helvetica-Bold').fontSize(10).text('*** REPRINT COPY ***');
         doc.font('Helvetica-Bold').fontSize(10).text(`*** ${copyLabel} ***`);
         doc.moveDown(0.35);
+
+        // Centered logo above the business name (skipped silently if the
+        // asset is missing — receipts must never fail over branding).
+        try {
+          const logoPath = this.getLogoPath();
+          if (logoPath) {
+            const imgWidth = 40;
+            const imgHeight = 40;
+            const x = (226 - imgWidth) / 2;
+            doc.image(logoPath, x, doc.y, { width: imgWidth, height: imgHeight });
+            doc.y += imgHeight + 10;
+          }
+        } catch { /* no logo — continue with the text header */ }
 
         const bizName = (header?.businessName ?? 'Abiliz Cafe and Patisserie').toUpperCase();
         doc.font('Helvetica-Bold').fontSize(20).text(bizName);
@@ -610,15 +623,36 @@ export class PosReceiptsService {
     }
   }
 
+  /**
+   * Resolve the logo asset across build layouts: dist may be flat
+   * (dist/modules/pos → 4 ups to apps/) or src-nested (dist/src/modules/pos →
+   * 5 ups), and ts-node runs from src (5 ups). Falls back to cwd-relative
+   * paths for monorepo-root launches. Returns null when absent — receipts
+   * must never fail over branding.
+   */
+  private resolvedLogoPath: string | null | undefined = undefined;
+
+  private getLogoPath(): string | null {
+    if (this.resolvedLogoPath !== undefined) return this.resolvedLogoPath;
+    const candidates = [
+      path.join(__dirname, '../../../../../web/public/abiliz-logo.png'),
+      path.join(__dirname, '../../../../web/public/abiliz-logo.png'),
+      path.resolve(process.cwd(), '../web/public/abiliz-logo.png'),
+      path.resolve(process.cwd(), 'apps/web/public/abiliz-logo.png'),
+    ];
+    this.resolvedLogoPath = candidates.find((p) => fs.existsSync(p)) ?? null;
+    if (!this.resolvedLogoPath) this.logger.warn('[POS] Logo file not found (searched dist/src/cwd layouts)');
+    return this.resolvedLogoPath;
+  }
+
   /** Load the logo and convert to ESC/POS GS v 0 raster image bytes (cached). */
   private escposLogoBuf: Buffer | null | undefined = undefined;
 
   private getEscposLogo(): Buffer | null {
     if (this.escposLogoBuf !== undefined) return this.escposLogoBuf;
     try {
-      const logoPath = path.join(__dirname, '../../../../../web/public/abiliz-logo.png');
-      if (!fs.existsSync(logoPath)) {
-        this.logger.warn('[POS] Logo file not found at ' + logoPath);
+      const logoPath = this.getLogoPath();
+      if (!logoPath) {
         this.escposLogoBuf = null;
         return null;
       }
