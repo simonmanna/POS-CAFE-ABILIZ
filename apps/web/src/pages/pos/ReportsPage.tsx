@@ -38,7 +38,7 @@ function monthStart(ym: string): string {
 const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
   const permissions = useAuthStore((s) => s.permissions);
-  const [tab, setTab] = useState<'x' | 'z' | 'daily' | 'weekly' | 'monthly' | 'hourly' | 'top' | 'items' | 'sales' | 'orders' | 'cashier' | 'cashier-summary' | 'waiter'>('x');
+  const [tab, setTab] = useState<'sales'| 'items' | 'x' | 'z' | 'daily' | 'weekly' | 'monthly' | 'hourly' | 'top'  | 'orders' | 'cashier' | 'cashier-summary' | 'waiter'>('x');
   const [fromDate, setFromDate] = useState(todayIso());
   const [toDate, setToDate] = useState(todayIso());
   const [topCategoryId, setTopCategoryId] = useState<string | undefined>();
