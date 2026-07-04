@@ -105,8 +105,13 @@ export class PaymentService {
 
       const amount = round(dec(dto.amount), 6);
       const method = dto.paymentMethod ?? 'cash';
+      const counterType = opts.counterAccount ?? (direction === 'inbound' ? 'receivable' : 'payable');
 
-      if (direction === 'outbound') {
+      // Supplier-overpayment guard: only when settling a payable (a vendor bill).
+      // A customer refund is also `outbound` but settles a receivable, so it must
+      // NOT run the vendor_bill aggregate — doing so both crashed the refund and
+      // was semantically wrong (checked a supplier balance for a customer refund).
+      if (direction === 'outbound' && counterType === 'payable') {
         const outstanding = await tx.document.aggregate({
           where: { organizationId, partnerId: dto.partnerId, documentType: 'vendor_bill', status: { in: ['posted', 'partial'] } },
           _sum: { amountResidual: true },
@@ -120,7 +125,6 @@ export class PaymentService {
       }
       const cashAccount =
         dto.accountId ?? (await this.determination.mapped(method === 'bank' ? 'default_bank' : 'default_cash', tx));
-      const counterType = opts.counterAccount ?? (direction === 'inbound' ? 'receivable' : 'payable');
       const counterAccount =
         counterType === 'receivable'
           ? await this.determination.receivableAccount(partner, tx)

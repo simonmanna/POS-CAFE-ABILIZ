@@ -279,49 +279,61 @@ export class AuthService {
 
   async refresh(dto: RefreshDto, request?: Request) {
     const presentedHash = hashRefreshToken(dto.refreshToken);
-    return this.prisma.client.$transaction(async (tx) => {
-      const existing = await tx.refreshToken.findFirst({
-        where: { tokenHash: presentedHash },
-        include: { user: { include: { roles: true } } },
-      });
-      if (!existing || existing.revokedAt || existing.expiresAt < new Date()) {
-        throw new UnauthorizedException('Invalid or expired refresh token');
-      }
-      if (!existing.user || !existing.user.isActive) {
-        throw new UnauthorizedException('User no longer active');
-      }
-
-      const replacement = newRefreshTokenValue();
-      const newRow = await tx.refreshToken.create({
-        data: {
-          organizationId: existing.organizationId,
-          userId: existing.userId,
-          tokenHash: replacement.hash,
-          expiresAt: replacement.expiresAt,
-          deviceLabel: existing.deviceLabel,
-          ipAddress: request?.ip ?? existing.ipAddress,
-          userAgent: request?.headers?.['user-agent'] as string | undefined ?? existing.userAgent,
-        },
-      });
-      await tx.refreshToken.update({
-        where: { id: existing.id },
-        data: { revokedAt: new Date(), replacedById: newRow.id },
-      });
-
-      const user = existing.user as UserWithRoles;
-      const accessToken = this.jwt.signAccess({
-        sub: user.id,
-        organizationId: existing.organizationId,
-        email: user.email,
-        permissions: this.aggregatePermissions(user.roles),
-      });
-      return {
-        accessToken,
-        refreshToken: replacement.value,
-        user: this.sanitize(user),
-        permissions: this.aggregatePermissions(user.roles),
-      };
+    // `/auth/refresh` is @Public, so there is no tenant context yet. Resolve the
+    // org from the presented token via the raw client (which bypasses the
+    // org-scoped Prisma extension), then run the rotation inside that org's
+    // context. Without this, the org-scoped $transaction threw "No tenant
+    // context" and refresh returned 500. Mirrors mfaLogin.
+    const preload = await this.prisma.raw.refreshToken.findFirst({
+      where: { tokenHash: presentedHash },
+      select: { organizationId: true },
     });
+    if (!preload) throw new UnauthorizedException('Invalid or expired refresh token');
+    return this.tenant.run({ organizationId: preload.organizationId }, () =>
+      this.prisma.client.$transaction(async (tx) => {
+        const existing = await tx.refreshToken.findFirst({
+          where: { tokenHash: presentedHash },
+          include: { user: { include: { roles: true } } },
+        });
+        if (!existing || existing.revokedAt || existing.expiresAt < new Date()) {
+          throw new UnauthorizedException('Invalid or expired refresh token');
+        }
+        if (!existing.user || !existing.user.isActive) {
+          throw new UnauthorizedException('User no longer active');
+        }
+
+        const replacement = newRefreshTokenValue();
+        const newRow = await tx.refreshToken.create({
+          data: {
+            organizationId: existing.organizationId,
+            userId: existing.userId,
+            tokenHash: replacement.hash,
+            expiresAt: replacement.expiresAt,
+            deviceLabel: existing.deviceLabel,
+            ipAddress: request?.ip ?? existing.ipAddress,
+            userAgent: request?.headers?.['user-agent'] as string | undefined ?? existing.userAgent,
+          },
+        });
+        await tx.refreshToken.update({
+          where: { id: existing.id },
+          data: { revokedAt: new Date(), replacedById: newRow.id },
+        });
+
+        const user = existing.user as UserWithRoles;
+        const accessToken = this.jwt.signAccess({
+          sub: user.id,
+          organizationId: existing.organizationId,
+          email: user.email,
+          permissions: this.aggregatePermissions(user.roles),
+        });
+        return {
+          accessToken,
+          refreshToken: replacement.value,
+          user: this.sanitize(user),
+          permissions: this.aggregatePermissions(user.roles),
+        };
+      }),
+    );
   }
 
   async me(auth: AuthUser) {

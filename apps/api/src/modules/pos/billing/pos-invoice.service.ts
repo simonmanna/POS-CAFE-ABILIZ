@@ -459,6 +459,11 @@ export class PosInvoiceService {
       });
 
       // Portion of each line to reverse (fraction of the full line).
+      // Menu-item invoice lines don't persist a revenue accountId (it's resolved
+      // at post time), so fall back to the `sales_revenue` mapping — the same
+      // account the sale posted to. Without this the revenue debit leg was
+      // dropped, leaving a single-line (unbalanced) JE that failed to post.
+      const fallbackRevenueAccount = await this.determination.mapped('sales_revenue', tx);
       let refundSubtotal = dec(0), refundTax = dec(0), refundTotal = dec(0);
       const revenueByAccount = new Map<string, any>();
       const taxByTaxId = new Map<string, any>();
@@ -470,7 +475,8 @@ export class PosInvoiceService {
         refundSubtotal = refundSubtotal.plus(sSub);
         refundTax = refundTax.plus(sTax);
         refundTotal = refundTotal.plus(sTot);
-        if (src.accountId) revenueByAccount.set(src.accountId, (revenueByAccount.get(src.accountId) ?? dec(0)).plus(sSub));
+        const revAccountId = src.accountId ?? fallbackRevenueAccount;
+        revenueByAccount.set(revAccountId, (revenueByAccount.get(revAccountId) ?? dec(0)).plus(sSub));
         if (src.taxId && !sTax.isZero()) taxByTaxId.set(src.taxId, (taxByTaxId.get(src.taxId) ?? dec(0)).plus(sTax));
       }
 
