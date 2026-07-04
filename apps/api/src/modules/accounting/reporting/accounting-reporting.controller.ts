@@ -56,8 +56,15 @@ export class AccountingReportingController {
   }
 
   @Get('cash-flow')
-  cashFlowReport(@Query('from') from?: string, @Query('to') to?: string) {
-    return this.cashFlow.cashFlow({ from, to });
+  cashFlowReport(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    // Accept both `from/to` and the `fromDate/toDate` names used by the POS
+    // reports so a mismatched param name can't silently widen the window.
+    return this.cashFlow.cashFlow({ from: from ?? fromDate, to: to ?? toDate });
   }
 
   @Get('tieout')

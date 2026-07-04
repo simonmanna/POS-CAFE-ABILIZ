@@ -4,6 +4,7 @@ import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { PostingService } from '../posting/posting.service';
 import { AccountDeterminationService } from '../posting/account-determination.service';
+import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 import { dec, ZERO } from '../../../kernel/common/money';
 
 const PAYMENT_ACCOUNT_TYPES: AccountType[] = ['cash', 'bank', 'mobile_money', 'petty_cash'];
@@ -35,7 +36,11 @@ export class CashFlowService {
       where: {
         organizationId: orgId,
         accountId: { in: accounts.map((a) => a.id) },
-        entry: { status: 'posted' },
+        // Balance must count both `posted` and `reversed` entries: a reversed
+        // entry's lines are still real and are cancelled by the mirror reversal
+        // entry. Filtering to `posted` alone keeps the reversal but drops the
+        // original, so the balance diverges from the trial balance / GL.
+        entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] } },
       },
       _sum: { baseDebit: true, baseCredit: true },
     });
@@ -201,7 +206,9 @@ export class CashFlowService {
     const where = {
       organizationId: orgId,
       accountId,
-      entry: { status: 'posted' as const },
+      // Match the balance query (getCashAccounts) and the GL: show both posted
+      // and reversed lines so a reversed movement isn't silently hidden.
+      entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] } },
     };
 
     const [total, lines] = await Promise.all([
