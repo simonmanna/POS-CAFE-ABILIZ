@@ -109,12 +109,15 @@ export class PosOrdersService {
     const resolved = dto.lines?.length ? await this.resolveLines(dto.lines) : [];
 
     return this.prisma.client.$transaction(async (tx: any) => {
-      // One active dine-in order per table. The floor UI reuses the open order
-      // via getOpenOrderForTable; this is the server-side safety net against a
-      // second concurrent tab (including an empty-but-open one) on the table.
+      // One active *un-billed* dine-in tab per table. The floor UI reuses the
+      // open order via getOpenOrderForTable (which also filters invoiceId: null),
+      // so this guard must match it — otherwise a billed-but-unpaid order (which
+      // getOpenOrderForTable can't see) would block a brand-new round on the table
+      // with a cryptic 409. A billed order settles on its own bill; a new round
+      // starts a fresh order. We still block a second genuinely-editable tab.
       if ((dto.orderType ?? 'dine_in') === 'dine_in' && dto.tableId) {
         const held = await tx.order.findFirst({
-          where: { tableId: dto.tableId, orderType: 'dine_in', status: { in: TABLE_HELD_ORDER_STATUSES as unknown as string[] } },
+          where: { tableId: dto.tableId, orderType: 'dine_in', invoiceId: null, status: { in: TABLE_HELD_ORDER_STATUSES as unknown as string[] } },
           select: { id: true, orderNumber: true },
         });
         if (held) throw new ConflictException(`Table already has an open order (${held.orderNumber})`);
