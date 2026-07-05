@@ -213,6 +213,8 @@ async function main(): Promise<void> {
     { code: '4200', name: 'Stock Adjustment Income', accountType: 'revenue', cashFlowCategory: 'operating' },
     // Cash drawer over/short at shift close (also used for manual adjustments).
     { code: '5400', name: 'Cash Short & Over', accountType: 'expense', cashFlowCategory: 'operating' },
+    // Invoice write-offs (Dr bad debt / Cr AR) — required by POS write-off.
+    { code: '5500', name: 'Bad Debt Expense', accountType: 'expense', cashFlowCategory: 'operating' },
     // Payment accounts used on receipts & payments (visible in POS tender selection).
     { code: 'CASH-DEFAULT', name: 'Cash Drawer', accountType: 'cash', cashFlowCategory: 'operating', isDefault: true, bankName: null, accountNumber: null },
     { code: 'BANK-DEFAULT', name: 'Bank Account 1', accountType: 'bank', cashFlowCategory: 'operating', isDefault: true, bankName: null, accountNumber: null },
@@ -285,6 +287,8 @@ async function main(): Promise<void> {
     // M5 cash drawer → GL
     cash_clearing: accountIds['1900'],
     cash_short_over: accountIds['5400'],
+    // POS invoice write-off (uncollectible AR)
+    bad_debt: accountIds['5500'],
     // Cash flow deposit/withdraw suspense
     cash_suspense: accountIds['1900'],
   };
