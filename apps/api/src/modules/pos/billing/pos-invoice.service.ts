@@ -14,6 +14,7 @@ import { AccountDeterminationService } from '../../accounting/posting/account-de
 import { StockService } from '../../inventory/stock.service';
 import { PosReceiptsService } from '../pos-receipts.service';
 import { PosOverridesService } from '../pos-overrides.service';
+import { recomputeTableStatus } from '../table-status.util';
 import type { GenerateInvoiceDto, ReceivePaymentDto, SettleCreditDto, WriteOffDto, TenderDto } from '../order/dto/order.dto';
 
 const MODE_FROM_METHOD: Record<string, 'cash' | 'card' | 'mobile_money'> = {
@@ -322,7 +323,10 @@ export class PosInvoiceService {
         where: { id: invoiceId },
         data: { settlementStatus: 'written_off', amountResidual: 0, amountPaid: invoice.totalAmount, paymentStatus: 'paid', status: 'paid' },
       });
+      const affected = await tx.order.findMany({ where: { invoiceId }, select: { tableId: true } });
       await tx.order.updateMany({ where: { invoiceId }, data: { status: 'closed', closedAt: new Date() } });
+      // Closing the order(s) can leave the table with no active items — free it.
+      for (const o of affected) await recomputeTableStatus(tx, o.tableId);
       await this.audit.recordInTx(tx, { entity: 'Invoice', entityId: invoiceId, action: 'update', newValues: { kind: 'write_off', reason: dto.reason, amount: residual.toString() } });
       this.events.publish(EVENTS.PosInvoiceWrittenOff, { organizationId: orgId, invoiceId, invoiceNumber: invoice.invoiceNumber, amount: residual.toString() });
       return { invoiceId, settlementStatus: 'written_off', amount: residual.toString() };
@@ -873,15 +877,10 @@ export class PosInvoiceService {
   }
 
   private async freeTableIfEmpty(db: any, tableId?: string | null): Promise<void> {
-    if (!tableId) return;
-    // Billed-but-unpaid orders still hold the table (order stays 'served'
-    // until its invoice settles), so a table with an outstanding bill can't
-    // flip to available just because a sibling order settled first.
-    const open = await db.order.count({ where: { tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] } } });
-    if (open > 0) return;
-    const table = await db.posTable.findFirst({ where: { id: tableId } });
-    if (!table || table.status === 'out_of_service' || table.status === 'reserved') return;
-    if (table.status !== 'available') await db.posTable.update({ where: { id: tableId }, data: { status: 'available' } });
+    // Derived from the active-item count: a table with a billed-but-unpaid
+    // order (status 'served', items intact) stays occupied; it frees only once
+    // the settled order goes 'closed' and no active items remain.
+    await recomputeTableStatus(db, tableId);
   }
 
   private async storeCreditAccountId(): Promise<string> {

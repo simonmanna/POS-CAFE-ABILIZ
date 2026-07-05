@@ -2,6 +2,7 @@
  * Reports page — shift reports + daily/weekly/monthly sales + analytics.
  * Manager-gated (`pos:reports`). Navigated to from the terminal Topbar.
  */
+
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, Clock, TrendingUp, RefreshCw, Printer, ArrowLeft, CalendarDays, Download, FileText, Eye } from 'lucide-react';
@@ -38,7 +39,7 @@ function monthStart(ym: string): string {
 const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
   const permissions = useAuthStore((s) => s.permissions);
-  const [tab, setTab] = useState<'sales'| 'items' | 'x' | 'z' | 'daily' | 'weekly' | 'monthly' | 'hourly' | 'top'  | 'orders' | 'cashier' | 'cashier-summary' | 'waiter'>('x');
+  const [tab, setTab] = useState<'sales'| 'items' | 'x' | 'z' | 'daily' | 'weekly' | 'monthly' | 'hourly' | 'top'  | 'orders' | 'cashier' | 'cashier-summary' | 'waiter'>('sales');
   const [fromDate, setFromDate] = useState(todayIso());
   const [toDate, setToDate] = useState(todayIso());
   const [topCategoryId, setTopCategoryId] = useState<string | undefined>();

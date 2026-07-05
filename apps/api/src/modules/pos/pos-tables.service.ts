@@ -31,6 +31,7 @@ import { AuditService } from '../../kernel/audit/audit.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { DocumentBuilderService } from '../invoicing/document/document-builder.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
+import { recomputeTableStatus } from './table-status.util';
 import { EVENTS } from '@erp/shared';
 
 // ─── DTOs ──────────────────────────────────────────────────────────────────
@@ -111,22 +112,12 @@ export class PosTablesService {
     tableId: string,
     tx: any = this.prisma.client,
   ): Promise<'available' | 'occupied' | 'reserved' | 'out_of_service'> {
-    const openCount = await tx.posTableOrder.count({
-      where: { tableId, closedAt: null },
-    });
-
-    const table = await tx.posTable.findFirst({ where: { id: tableId } });
-    if (!table) throw new NotFoundException('Table not found');
-    if (table.status === 'out_of_service') return table.status;
-
-    const nextStatus = openCount > 0 ? 'occupied' : 'available';
-    if (table.status !== nextStatus) {
-      await tx.posTable.update({
-        where: { id: tableId },
-        data: { status: nextStatus as any },
-      });
-    }
-    return nextStatus as any;
+    // Delegates to the single item-derived invariant (shared with the Order and
+    // Invoice services) so transfer / merge / split all free or occupy the table
+    // from the same rule: OCCUPIED iff ≥1 active order item, else AVAILABLE.
+    const status = await recomputeTableStatus(tx, tableId);
+    if (status === null) throw new NotFoundException('Table not found');
+    return status;
   }
 
   // ─── Order helpers (tab lives on Order, not Document) ─────────────────────

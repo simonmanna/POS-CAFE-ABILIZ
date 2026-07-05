@@ -15,6 +15,7 @@ import { PosModifiersService } from '../pos-modifiers.service';
 import { PosKdsService } from '../pos-kds.service';
 import { PosReceiptsService } from '../pos-receipts.service';
 import { dec } from '../../../kernel/common/money';
+import { recomputeTableStatus, TABLE_HELD_ORDER_STATUSES } from '../table-status.util';
 import type { CreateOrderDto, SaveOrderItemsDto, AddOrderItemsDto, OrderLineDto } from './dto/order.dto';
 
 /** A cart line resolved to ledger-ready values (modifiers/variant folded into unitPrice). */
@@ -108,6 +109,16 @@ export class PosOrdersService {
     const resolved = dto.lines?.length ? await this.resolveLines(dto.lines) : [];
 
     return this.prisma.client.$transaction(async (tx: any) => {
+      // One active dine-in order per table. The floor UI reuses the open order
+      // via getOpenOrderForTable; this is the server-side safety net against a
+      // second concurrent tab (including an empty-but-open one) on the table.
+      if ((dto.orderType ?? 'dine_in') === 'dine_in' && dto.tableId) {
+        const held = await tx.order.findFirst({
+          where: { tableId: dto.tableId, orderType: 'dine_in', status: { in: TABLE_HELD_ORDER_STATUSES as unknown as string[] } },
+          select: { id: true, orderNumber: true },
+        });
+        if (held) throw new ConflictException(`Table already has an open order (${held.orderNumber})`);
+      }
       const orderNumber = await this.nextOrderNumber(tx);
       const order = await tx.order.create({
         data: {
@@ -234,6 +245,9 @@ export class PosOrdersService {
           },
         });
       }
+      // Deleting the last item (resolved = []) frees the table; adding the first
+      // one occupies it. Derived from the item count in the same tx.
+      await recomputeTableStatus(tx, order.tableId);
       const fresh = await this.reload(tx, orderId);
       this.events.publish(EVENTS.PosOrderUpdated, { organizationId: orgId, orderId, version: fresh.version });
       return fresh;
@@ -252,6 +266,7 @@ export class PosOrdersService {
       this.assertEditable(order);
       await this.writeItems(tx, orderId, resolved, { append: true, transactionDiscountPercent: dto.transactionDiscountPercent });
       if (dto.guestCount != null) await tx.order.update({ where: { id: orderId }, data: { guestCount: dto.guestCount } });
+      await recomputeTableStatus(tx, order.tableId);
       return this.reload(tx, orderId);
     });
 
@@ -749,23 +764,14 @@ export class PosOrdersService {
     }
   }
 
+  // Table status is derived from active order items — one invariant, one helper.
+  // Both names are kept for call-site clarity but delegate to the same recompute.
   private async syncTableOnOpen(tx: any, tableId?: string | null): Promise<void> {
-    if (!tableId) return;
-    const table = await tx.posTable.findFirst({ where: { id: tableId } });
-    if (!table || table.status === 'out_of_service' || table.status === 'reserved') return;
-    if (table.status !== 'occupied') await tx.posTable.update({ where: { id: tableId }, data: { status: 'occupied' } });
+    await recomputeTableStatus(tx, tableId);
   }
 
   private async syncTableOnClose(tx: any, tableId?: string | null): Promise<void> {
-    if (!tableId) return;
-    // Billed-but-unpaid orders still hold the table: an order only leaves
-    // these statuses when it settles (closed) or is cancelled, so a customer
-    // who has the bill but hasn't paid keeps the table occupied.
-    const open = await tx.order.count({ where: { tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] } } });
-    const table = await tx.posTable.findFirst({ where: { id: tableId } });
-    if (!table || table.status === 'out_of_service' || table.status === 'reserved') return;
-    const next = open > 0 ? 'occupied' : 'available';
-    if (table.status !== next) await tx.posTable.update({ where: { id: tableId }, data: { status: next as any } });
+    await recomputeTableStatus(tx, tableId);
   }
 
   private async resolveSkus(lines: OrderLineDto[]): Promise<Map<string, string>> {
