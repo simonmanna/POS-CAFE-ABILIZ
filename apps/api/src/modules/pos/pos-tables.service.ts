@@ -31,7 +31,7 @@ import { AuditService } from '../../kernel/audit/audit.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { DocumentBuilderService } from '../invoicing/document/document-builder.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
-import { recomputeTableStatus } from './table-status.util';
+import { recomputeTableStatus, TABLE_HELD_ORDER_STATUSES } from './table-status.util';
 import { EVENTS } from '@erp/shared';
 
 // ─── DTOs ──────────────────────────────────────────────────────────────────
@@ -229,8 +229,45 @@ export class PosTablesService {
 
   // ─── Queries ─────────────────────────────────────────────────────────────
 
+  /**
+   * Self-heal the derived invariant: free any table stuck OCCUPIED that has no
+   * active dine-in items left (occupancy left over from before the item-derived
+   * rule shipped, an abandoned order, or a crash mid-flow). One-directional —
+   * we only FREE here; occupying is always done synchronously by the order
+   * mutation path (create/add/save), so this can never race a just-opened tab
+   * to available. `reserved` / `out_of_service` are overrides and never touched.
+   *
+   * Runs on the floor-map fetch, so the map converges to the truth every poll
+   * without a manual backfill. Three cheap set-based queries, no per-table loop;
+   * steady state writes nothing (the updateMany matches no rows).
+   */
+  private async reconcileStuckTables(organizationId: string): Promise<void> {
+    const held = await this.prisma.client.order.findMany({
+      where: {
+        status: { in: TABLE_HELD_ORDER_STATUSES as any },
+        tableId: { not: null },
+        items: { some: { cancelled: false } },
+      },
+      select: { tableId: true },
+      distinct: ['tableId'],
+    });
+    const occupiedIds = held.map((o: any) => o.tableId).filter(Boolean) as string[];
+    await this.prisma.client.posTable.updateMany({
+      where: {
+        organizationId,
+        status: 'occupied',
+        ...(occupiedIds.length ? { id: { notIn: occupiedIds } } : {}),
+      },
+      data: { status: 'available' },
+    });
+  }
+
   async list(filter: { status?: string; zone?: string; active?: boolean } = {}) {
     const organizationId = this.tenant.organizationId;
+    // Converge stored status to the item-derived truth before returning the map.
+    await this.reconcileStuckTables(organizationId).catch((e) =>
+      this.logger.warn(`table reconcile skipped: ${String((e as any)?.message ?? e)}`),
+    );
     return this.prisma.client.posTable.findMany({
       where: {
         organizationId,
