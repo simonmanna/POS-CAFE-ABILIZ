@@ -443,9 +443,18 @@ export function useSaveTab() {
         { ...body, ...(version != null ? { expectedVersion: version } : {}) },
       )).data;
     },
-    onSuccess: (data) => {
-      // Absorb the server's new version so the NEXT save carries a fresh token.
-      if (data && typeof data.version === 'number') useCartStore.getState().setTabVersion(data.version);
+    onSuccess: (data, variables) => {
+      // Absorb the server's new version so the NEXT save carries a fresh token —
+      // but ONLY if we're still on the table this save was for. A fire-and-forget
+      // flush for a table we just LEFT (handleTableClick) resolves after the cart
+      // has already switched; without this guard it would stamp the old table's
+      // version onto the now-current table's token and every next save would 409.
+      if (
+        data && typeof data.version === 'number' &&
+        useCartStore.getState().tableId === variables.tableId
+      ) {
+        useCartStore.getState().setTabVersion(data.version);
+      }
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
       // Note: we deliberately do NOT invalidate ['pos-tab', tableId] here — the
       // local cart is already the source of truth; refetching would fight typing.

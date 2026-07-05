@@ -624,21 +624,38 @@ const TerminalPage: React.FC = () => {
     if (!tableId || pendingTableLoad || splitActive) return;
     const currentSig = orderSig(lines);
     if (currentSig === tabSyncSig.current) return;
-    const h = setTimeout(() => {
+    const payloadLines = lines.map(cartLineToPayload);
+
+    // Fire the save with an explicit optimistic-lock token. On a genuine version
+    // conflict we self-heal ONCE: re-read the current server version, keep the
+    // cart as-is (so a just-applied line discount isn't lost), and retry. Last
+    // write wins for the cashier who owns this screen — matches the "never block
+    // the sale" rule. Only if the retry ALSO conflicts (a real concurrent writer)
+    // do we fall back to reloading the server truth.
+    const fire = (expectedVersion: number | undefined, isRetry: boolean) => {
       saveTab.mutate(
-        { tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id },
+        { tableId, lines: payloadLines, partnerId: customer?.id, expectedVersion },
         {
           onSuccess: () => {
             tabSyncSig.current = currentSig;
             qc.invalidateQueries({ queryKey: ['pos-tables'] });
           },
-          onError: (e: any) => {
+          onError: async (e: any) => {
             const serverMsg: string | undefined = e?.response?.data?.message;
             // A billed-but-unpaid order also holds the table and returns 409, but
             // reloading won't clear it (the tab is locked until it's settled/
-            // voided). Only the genuine optimistic-lock conflict should trigger a
-            // reload; otherwise show the server's actual reason.
+            // voided). Only the genuine optimistic-lock conflict is recoverable.
             const isVersionConflict = e?.response?.status === 409 && /modified by someone else/i.test(serverMsg ?? '');
+            if (isVersionConflict && !isRetry) {
+              try {
+                const doc = (await api.get(`/pos/tabs/${tableId}`)).data as any;
+                useCartStore.getState().setTabVersion(doc?.version);
+                fire(doc?.version, true);
+                return;
+              } catch {
+                // fall through to the reload path below
+              }
+            }
             if (isVersionConflict) {
               toast.error(serverMsg || 'This table was updated on another device — reloading the latest order. Re-add your last change if needed.');
               setPendingTableLoad(tableId);
@@ -649,7 +666,9 @@ const TerminalPage: React.FC = () => {
           },
         },
       );
-    }, 700);
+    };
+
+    const h = setTimeout(() => fire(useCartStore.getState().tabVersion, false), 700);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lines, tableId, pendingTableLoad, customer?.id, splitActive]);
@@ -833,8 +852,10 @@ const TerminalPage: React.FC = () => {
     // the guard would 400). The catch below is just a fallback for the race where
     // splitActive hasn't loaded yet.
     if (splitActive) { setShowSplit(true); return; }
+    const flushOnce = (expectedVersion?: number) =>
+      saveTab.mutateAsync({ tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion });
     try {
-      await saveTab.mutateAsync({ tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id });
+      await flushOnce(useCartStore.getState().tabVersion);
       tabSyncSig.current = orderSig(lines);
     } catch (e: any) {
       // A split owns settlement of this tab — guide the cashier to the Split
@@ -845,8 +866,20 @@ const TerminalPage: React.FC = () => {
         setShowSplit(true);
         return;
       }
-      toast.error('Could not save the order before settling');
-      return;
+      // Optimistic-lock conflict: adopt the server's current version and retry the
+      // flush ONCE, preserving the on-screen cart (incl. any discount), so settling
+      // isn't dead-ended by a stale token. Falls through to payment on success.
+      const isVersionConflict = e?.response?.status === 409 && /modified by someone else/i.test(msg);
+      if (!isVersionConflict) { toast.error('Could not save the order before settling'); return; }
+      try {
+        const doc = (await api.get(`/pos/tabs/${tableId}`)).data as any;
+        useCartStore.getState().setTabVersion(doc?.version);
+        await flushOnce(doc?.version);
+        tabSyncSig.current = orderSig(lines);
+      } catch {
+        toast.error('Could not save the order before settling');
+        return;
+      }
     }
     setIsTabSettle(true);
     setShowPayment(true);
