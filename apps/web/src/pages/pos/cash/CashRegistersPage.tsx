@@ -16,7 +16,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, ArrowLeftRight, ArrowRight, Banknote, Calculator, Check,
-  CircleDollarSign, ClipboardList, Coins, ThumbsUp, ThumbsDown,
+  CircleDollarSign, ClipboardList, Coins, Eye, ThumbsUp, ThumbsDown,
   History, List, LogOut, Minus, Plus,
   RefreshCw, X,
 } from 'lucide-react';
@@ -426,7 +426,7 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
             {/* Opening float row */}
             <tr className="border-b border-slate-100 text-slate-600">
               <td className="py-1.5 pr-2 font-mono">{session.openedAt ? new Date(session.openedAt).toLocaleTimeString() : ''}</td>
-              <td className="py-1.5 pr-2 flex items-center gap-1">
+              <td className="py-2.5 pr-2 flex items-center gap-2">
                 <Calculator className="h-3 w-3" /> Opening Float
               </td>
               <td className="py-1.5 pr-2 text-right font-mono font-bold">{fmt(session.openingFloat)}</td>
@@ -538,9 +538,9 @@ const OpenShiftDialog: React.FC<{
           )}
         </div>
 
-        <div>
-          <Label>Opening float (UGX)</Label>
-          <Input type="number" value={openingFloat} onChange={(e) => setOpeningFloat(e.target.value)} className="text-right text-lg h-11 font-mono font-bold" autoFocus />
+        <div className="mb-4 py-2">
+          <Label className="mb-2">Opening float (UGX)</Label>
+          <Input type="number" value={openingFloat} onChange={(e) => setOpeningFloat(e.target.value)} className="mt-3 text-right text-lg h-11 font-mono font-bold" autoFocus />
           <div className="flex gap-1.5 mt-2 flex-wrap">
             {QUICK_FLOATS.map((q) => (
               <button key={q} type="button" className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-xs font-bold" onClick={() => setOpeningFloat(String(q))}>
@@ -878,6 +878,8 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
   const [page, setPage] = useState(1);
   const { data, isLoading } = useSessionHistory(page, 20, registerId);
   const updateVariance = useUpdateVariance();
+  const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
+  const { data: viewMovements } = useSessionMovements(viewingSessionId ?? undefined);
 
   const handleApprove = async (sessionId: string, reason: string) => {
     try {
@@ -921,6 +923,7 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
                     <th className="py-2 pr-3 text-right">Variance</th>
                     <th className="py-2 pr-3">Variance</th>
                     <th className="py-2 pr-3">Notes</th>
+                    <th className="py-2 pr-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -964,6 +967,11 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
                           )}
                         </td>
                         <td className="py-2 pr-3 text-xs text-slate-500 max-w-[150px] truncate">{s.notes || '—'}</td>
+                        <td className="py-2 pr-3">
+                          <button className="p-1 rounded hover:bg-blue-100 text-blue-600" title="View transactions" onClick={() => setViewingSessionId(s.id)}>
+                            <Eye className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -976,6 +984,14 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
                 <span className="text-xs text-slate-500 self-center">Page {page} of {data.totalPages}</span>
                 <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
               </div>
+            )}
+            {viewMovements && viewingSessionId && (
+              <MovementsDialog
+                open={true}
+                onClose={() => setViewingSessionId(null)}
+                session={viewMovements.session}
+                movements={viewMovements.movements}
+              />
             )}
           </>
         )}
