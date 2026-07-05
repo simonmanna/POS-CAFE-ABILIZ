@@ -698,6 +698,30 @@ export class PosService {
       if (activeSplit > 0) {
         throw new BadRequestException('Split in progress — settle or cancel the split before changing this order.');
       }
+    } else {
+      // getOpenOrderForTable only sees the EDITABLE tab (invoiceId: null). A
+      // billed-but-unpaid order (status `served` with an invoice) still holds the
+      // table but is invisible here — so without this check we'd fall through to
+      // createOrder(), whose held-order guard *does* see it and throws a cryptic
+      // "Table already has an open order". Detect it and give the real reason so
+      // the cashier knows to settle or void the bill (billed orders are locked;
+      // they can't be reopened or appended to).
+      const billed = await this.prisma.client.order.findFirst({
+        where: {
+          organizationId: this.tenant.organizationId,
+          tableId: input.tableId,
+          orderType: 'dine_in',
+          status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] },
+          invoiceId: { not: null },
+        },
+        select: { orderNumber: true },
+        orderBy: { openedAt: 'desc' },
+      });
+      if (billed) {
+        throw new ConflictException(
+          `This table has an unpaid bill (${billed.orderNumber}). Settle or void it before starting a new order on the table.`,
+        );
+      }
     }
 
     const lines = (input.lines ?? []).map((l) => this.toOrderLine(l));

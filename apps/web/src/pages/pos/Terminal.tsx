@@ -633,12 +633,18 @@ const TerminalPage: React.FC = () => {
             qc.invalidateQueries({ queryKey: ['pos-tables'] });
           },
           onError: (e: any) => {
-            if (e?.response?.status === 409) {
-              toast.error('This table was updated on another device — reloading the latest order. Re-add your last change if needed.');
+            const serverMsg: string | undefined = e?.response?.data?.message;
+            // A billed-but-unpaid order also holds the table and returns 409, but
+            // reloading won't clear it (the tab is locked until it's settled/
+            // voided). Only the genuine optimistic-lock conflict should trigger a
+            // reload; otherwise show the server's actual reason.
+            const isVersionConflict = e?.response?.status === 409 && /modified by someone else/i.test(serverMsg ?? '');
+            if (isVersionConflict) {
+              toast.error(serverMsg || 'This table was updated on another device — reloading the latest order. Re-add your last change if needed.');
               setPendingTableLoad(tableId);
               void loadTableOrder(tableId);
             } else {
-              toast.error(e?.response?.data?.message || e?.message || 'Failed to save order');
+              toast.error(serverMsg || e?.message || 'Failed to save order');
             }
           },
         },
