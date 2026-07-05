@@ -97,7 +97,7 @@ export function PaymentDetailPage() {
                 <TableBody>
                   {payment.allocations.map((a) => (
                     <TableRow key={a.id}>
-                      <TableCell>{a.document.documentNumber}</TableCell>
+                      <TableCell>{a.document?.documentNumber ?? '-'}</TableCell>
                       <TableCell className="text-right">{money(a.amount)}</TableCell>
                     </TableRow>
                   ))}

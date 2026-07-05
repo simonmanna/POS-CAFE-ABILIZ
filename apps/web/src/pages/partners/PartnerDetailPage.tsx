@@ -15,7 +15,7 @@ import { money, date, dateTime } from '@/lib/format';
 import { api } from '@/lib/api';
 import type { PaginatedResult } from '@erp/shared';
 import { useNavigate, useParams } from 'react-router-dom';
-import { usePartner, type Partner } from '@/features/partners/api';
+import { usePartner, useCustomerStatement, type Partner } from '@/features/partners/api';
 import { useSupplierLedger } from '@/features/invoicing/api';
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -400,6 +400,74 @@ function TabLedger({ partnerId }: { partnerId: string }) {
   );
 }
 
+function TabStatement({ partnerId }: { partnerId: string }) {
+  const { data, isLoading } = useCustomerStatement(partnerId);
+
+  if (isLoading) return <div className="p-8"><Skeleton className="h-48 w-full" /></div>;
+  if (!data) return <div className="p-8 text-center text-muted-foreground">No statement data.</div>;
+
+  const typeBadge: Record<string, string> = {
+    credit_issue: 'bg-blue-50 text-blue-700',
+    payment: 'bg-emerald-50 text-emerald-700',
+    write_off: 'bg-red-50 text-red-700',
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Credit Limit</div>
+            <div className="text-2xl font-bold">{data.creditLimit > 0 ? money(data.creditLimit) : 'No limit'}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Outstanding</div>
+            <div className="text-2xl font-bold">{money(data.outstanding)}</div>
+          </CardContent>
+        </Card>
+      </div>
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Date</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Reference</TableHead>
+                <TableHead className="text-right">Charge</TableHead>
+                <TableHead className="text-right">Payment</TableHead>
+                <TableHead className="text-right">Balance</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.entries.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No credit activity.</TableCell>
+                </TableRow>
+              ) : data.entries.map((e, i) => (
+                <TableRow key={`${e.invoiceId}-${e.type}-${i}`}>
+                  <TableCell className="text-sm">{date(e.date)}</TableCell>
+                  <TableCell>
+                    <Badge variant="secondary" className={`text-xs capitalize ${typeBadge[e.type] ?? ''}`}>
+                      {e.type.replace(/_/g, ' ')}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="font-mono text-xs">{e.reference}</TableCell>
+                  <TableCell className="text-right">{e.amount > 0 ? money(e.amount) : '-'}</TableCell>
+                  <TableCell className="text-right">{e.amount < 0 ? money(-e.amount) : '-'}</TableCell>
+                  <TableCell className="text-right font-medium">{money(e.runningBalance)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 interface ExpenseRow {
   id: string;
   expenseCode: string;
@@ -585,7 +653,9 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
     { value: isCustomer ? 'invoices' : 'expenses-purchases', label: isCustomer ? 'Invoices' : 'Expenses/Purchases', icon: isCustomer ? DollarSign : Receipt },
     { value: 'payments', label: 'Payments', icon: Activity },
   ];
-  if (!isCustomer) {
+  if (isCustomer) {
+    tabs.push({ value: 'statement', label: 'Statement', icon: BookOpen });
+  } else {
     tabs.push({ value: 'purchase-orders', label: 'Purchase Orders', icon: ShoppingCart });
     tabs.push({ value: 'ledger', label: 'Ledger', icon: BookOpen });
   }
@@ -658,7 +728,11 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
           <TabPayments partnerId={partner.id} direction={isCustomer ? 'inbound' : 'outbound'} />
         </TabsContent>
 
-        {!isCustomer && (
+        {isCustomer ? (
+          <TabsContent value="statement" className="mt-6">
+            <TabStatement partnerId={partner.id} />
+          </TabsContent>
+        ) : (
           <>
             <TabsContent value="purchase-orders" className="mt-6">
               <TabPurchaseOrders partnerId={partner.id} />

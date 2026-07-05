@@ -28,23 +28,37 @@ export const CancelOrderDialog: React.FC<Props> = ({
   const voidSale = useVoidSale();
   const [showOverride, setShowOverride] = useState(false);
   const overrideKind: 'discount' | 'void' | 'manual_refund' = 'void';
+  // D6: one Idempotency-Key per submit attempt (stable across double-clicks, so
+  // a rapid second click replays instead of double-voiding). Regenerated when
+  // the body changes — i.e. when we retry with a manager override attached.
+  const idemKeyRef = React.useRef<string>(crypto.randomUUID());
 
   React.useEffect(() => {
     if (!open) { setReason(''); setShowOverride(false); }
+    else { idemKeyRef.current = crypto.randomUUID(); }
   }, [open]);
 
   const doCancel = async (overrideById?: string) => {
-    if (!invoiceId || !reason.trim()) return;
+    if (!invoiceId || !reason.trim() || voidSale.isPending) return;
+    // Override retry carries a different body → needs its own key.
+    if (overrideById) idemKeyRef.current = crypto.randomUUID();
     try {
       await voidSale.mutateAsync({
         invoiceId,
         reason: reason.trim(),
         overrideById: overrideById ?? '',
+        _idemKey: idemKeyRef.current,
       });
       toast.success(`Order ${invoiceNumber} cancelled`);
       onDone();
       onClose();
     } catch (e: any) {
+      // 409 = the identical void is already in flight (server-side idempotency
+      // lock). Not an error — the first request will complete.
+      if (e?.response?.status === 409) {
+        toast.info('This cancellation is already being processed.');
+        return;
+      }
       const msg = e?.response?.data?.message || 'Failed to cancel order';
       if (/manager override/i.test(msg)) {
         setShowOverride(true);

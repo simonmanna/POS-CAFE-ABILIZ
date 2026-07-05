@@ -54,6 +54,7 @@ import { PosPrintLifecycleService } from './pos-print-lifecycle.service';
 import { PosOrdersService } from './order/pos-orders.service';
 import { PosOrdersController, PosBillingController } from './order/pos-orders.controller';
 import { PosInvoiceService } from './billing/pos-invoice.service';
+import { PosCustomerStatementService, PosCustomerStatementController } from './billing/pos-customer-statement.controller';
 import { PosSplitService } from './split/pos-split.service';
 import { PosSplitController } from './split/pos-split.controller';
 import {
@@ -112,11 +113,13 @@ export const POS_PERMISSIONS = {
     PosOrdersController,
     PosBillingController,
     PosSplitController,
+    PosCustomerStatementController,
   ],
   providers: [
     PosService,
     PosOrdersService,
     PosInvoiceService,
+    PosCustomerStatementService,
     PosSplitService,
     PosWorkflowsInitializer,
     PosShiftService,

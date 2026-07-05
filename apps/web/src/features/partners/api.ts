@@ -62,6 +62,32 @@ export function usePartner(id: string | undefined) {
   });
 }
 
+export interface CustomerStatementEntry {
+  date: string;
+  type: 'credit_issue' | 'payment' | 'write_off';
+  reference: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  amount: number;
+  runningBalance: number;
+}
+
+export interface CustomerStatement {
+  partner: { id: string; name: string; code: string | null };
+  creditLimit: number;
+  outstanding: number;
+  entries: CustomerStatementEntry[];
+}
+
+/** Derived house-account (credit) statement for a customer. */
+export function useCustomerStatement(partnerId: string | undefined) {
+  return useQuery({
+    queryKey: ['customer-statement', partnerId],
+    queryFn: async () => (await api.get<CustomerStatement>(`/pos/customers/${partnerId}/statement`)).data,
+    enabled: !!partnerId,
+  });
+}
+
 export function usePartnerStats() {
   return useQuery({
     queryKey: ['partners-stats'],

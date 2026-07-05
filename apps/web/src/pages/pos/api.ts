@@ -25,7 +25,7 @@ import { useCartStore } from '@/features/pos/cart.store';
 import type { PaginatedResult } from '@erp/shared';
 import type {
   CashRegister, CashSession, Category, Customer, Product, MovementsResponse,
-  Order, InvoiceResult, PaymentResult, PaymentTender,
+  Order, InvoiceResult, PaymentResult, PaymentTender, Receipt, ReceiptLine,
 } from './types';
 
 /* ============== Catalog ============== */
@@ -493,16 +493,32 @@ export function useReprintReceipt() {
   });
 }
 
+export function useReceipts(params: { page?: number; pageSize?: number; search?: string }) {
+  return useQuery({
+    queryKey: ['receipts', params],
+    queryFn: async () => (await api.get<PaginatedResult<Receipt>>('/pos/receipts', { params })).data,
+  });
+}
+
+export function useReceipt(id: string | undefined) {
+  return useQuery({
+    queryKey: ['receipt', id],
+    queryFn: async () => (await api.get<Receipt & { lines: ReceiptLine[] }>(`/pos/receipts/${id}`)).data,
+    enabled: !!id,
+  });
+}
+
 export function useRefundSale() {
   const qc = useQueryClient();
   return useMutation({
     // New pipeline: refund targets the Invoice id (URL); body carries only the
-    // whitelisted fields. See features/pos/api.ts for the primary copy.
-    mutationFn: async (body: { invoiceId: string; reason?: string; cashSessionId?: string; overrideById?: string }) =>
+    // whitelisted fields. `_idemKey` (minted once by the confirming UI, stripped
+    // from the body) makes a double-click replay rather than double-refund.
+    mutationFn: async ({ _idemKey, ...body }: { invoiceId: string; reason?: string; cashSessionId?: string; overrideById?: string; _idemKey?: string }) =>
       (await api.post(
         `/pos/invoices/${body.invoiceId}/refund`,
         { reason: body.reason, overrideById: body.overrideById, cashSessionId: body.cashSessionId },
-        { headers: { 'Idempotency-Key': uuid() } },
+        { headers: { 'Idempotency-Key': _idemKey ?? uuid() } },
       )).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
   });
@@ -511,11 +527,11 @@ export function useRefundSale() {
 export function useVoidSale() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { invoiceId: string; reason: string; overrideById: string }) =>
+    mutationFn: async ({ _idemKey, ...body }: { invoiceId: string; reason: string; overrideById: string; _idemKey?: string }) =>
       (await api.post(
         `/pos/invoices/${body.invoiceId}/refund`,
         { reason: body.reason, overrideById: body.overrideById },
-        { headers: { 'Idempotency-Key': uuid() } },
+        { headers: { 'Idempotency-Key': _idemKey ?? uuid() } },
       )).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
   });
@@ -808,6 +824,9 @@ export function useReceivePayment() {
       tenders?: PaymentTender[];
       paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
       amountTendered?: number; cashSessionId?: string;
+      // When true, tenders summing to LESS than the balance leave the invoice
+      // partially settled (table stays held). Default false = settle in full.
+      allowPartial?: boolean;
     }) => (await api.post<PaymentResult>(`/pos/invoices/${invoiceId}/payments`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-tables'] });

@@ -351,6 +351,29 @@ Severity: 🔴 Critical · 🟠 High · 🟡 Medium · ⚪ Low.
 
 ---
 
+## Addendum — 2026-07-05 · Settlement hardening + credit-mode completion
+
+**Branch:** `feat/pos-settlement-hardening-credit`. Follow-up pass triggered by a full data-lifecycle validation request + a credit/house-account settlement design review. **Key finding: the credit-settlement design was already ~90% implemented** — `InvoicePaymentMode {cash,card,mobile_money,mixed,credit}`, `InvoiceSettlementStatus {unsettled,partially_settled,settled,written_off}`, `ReceiptType {…,credit_issue_receipt,settlement_receipt,…}`, `settleCredit()`, `writeOff()` (Dr bad-debt / Cr AR), AR-counter GL at invoice generation, and table-release on credit issue all pre-existed. No schema migration was needed. Six defects found during the validation were fixed.
+
+| # | Sev | Defect | Fix |
+|---|-----|--------|-----|
+| D1 | High | Partial payments unreachable — `normalizeTenders` rejected any tender sum ≠ residual, so `partially_settled` / `partial_payment_receipt` were dead branches. | Opt-in `allowPartial` on `ReceivePaymentDto`; `normalizeTenders` now allows underpayment under the flag, still rejects overpay; on partial the invoice stays `posted`/`partially_settled`, keeps `paymentMode` null (AR counter), the order stays `served` and the table held; final `paymentMode` derived from **all** allocations on settlement (cash-partial + card-completion → `mixed`). Forbidden on pre-settled (cash/card/mobile) invoices to avoid GL double-count. Composite checkout/split/tab never set the flag → strict semantics preserved. `pos-invoice.service.ts` `receivePayment`/`normalizeTenders`, `order.dto.ts`. |
+| D2 | High | No positive-amount tender guard — `[150 cash, −50 card]` summed to residual, passed, and wrote a reversing Payment. | `@IsPositive() @IsNumber({allowNaN:false,allowInfinity:false})` on `TenderDto` + `PaymentTenderDto`; service-level `Number.isFinite && >0` guard in `normalizeTenders`. Unit-tested. |
+| D3 | High | `settleCredit` non-transactional; credit-limit check was check-then-act (concurrent credit issues could jointly blow the limit). | Wrapped in one `$transaction` with `FOR UPDATE` on the invoice (mirrors `receivePayment`); re-read + guards inside tx; idempotency guard rejects a second credit issue; `assertCreditAllowed` takes the tx and `FOR UPDATE`-locks the `CustomerTab` row (lock order Invoice→CustomerTab, no deadlock); events/audit moved post-commit. |
+| D4 | Med | No customer statement / AR visibility (F-CUST). | New `GET /pos/customers/:partnerId/statement` — **derived** from credit invoices + inbound allocations + write-off JEs (no parallel ledger, no drift; write-off amount = total − Σ allocations since `writeOff` fakes `amountPaid`). `runningBalance` invariant = `outstanding`. Web: `useCustomerStatement` + Statement tab on the customer detail page. `CustomerTabLedger` left reserved for the manual tab API. |
+| D5 | Blocker | Uncommitted receipts pages broken — detail read `useParams().id` vs route `:invoiceId` (always empty); back-button → `/payments`; list type/API mismatch. | Fixed param name + back-nav to `/pos/receipts`; added a sidebar entry (`pos:read`); widened `listReceipts` select with `subtotal`/`discountTotal`; made `tableName` optional in the type. |
+| D6 | Med | Refund/void double-submit — web minted a fresh idempotency key per mutation call, so a double-click sent two keys = two refunds (server idempotency was correct). | `useRefundSale`/`useVoidSale` (both api copies) accept a caller-supplied `_idemKey`; `CancelOrderDialog` mints one key per dialog-open (regenerated only when a manager override changes the body), disables while pending, and treats 409 as “already in progress”. |
+
+**Out of scope (unchanged backlog):** F-COGS, F-SEC-RLS, F-BOOT, F-TEST-1, F-TIEOUT, load testing. New backlog noted: `payment.service` Invoice-allocation branch lacks the negative-residual guard the Document branch has; `partialRefund` treats `mixed` as cash-like for drawer cash-out; checkout returns an empty `paymentIds`. UI note: a "Partial payment" toggle in `PaymentDialog` is deferred — `useReceivePayment` has no terminal consumer yet, so the partial path is API-complete (`allowPartial`) but not yet surfaced in the terminal.
+
+**Verification this pass:**
+- `tsc --noEmit` clean on `apps/api`; the 11 pre-existing `apps/web` tsc errors are all in files untouched by this branch (StockAdjustmentsPage, invoice-detail, OrderPanel).
+- Integration harness green against the live dev DB: `invoice-to-payment.spec.ts` passes (money flow unaffected).
+- New unit spec `test/unit/pos-tender-validation.spec.ts` — 12/12 (D1 `allowPartial` DTO + D2 positive/finite tender rules).
+- New runtime suite `scripts/validate-production.ts` (16 sections: cash/split/partial/credit/write-off/refund/void, double-settle + double-credit races, orphan sweep, report reconciliation, table lifecycle). **Not executed this session** — the running API is pre-change and the seed admin password was changed from the default (login 401); needs a rebuilt API on this branch + valid creds + `pnpm add -w -D tsx pg dotenv`.
+
+---
+
 ## Appendix — Evidence & Method
 
 - Runtime probes: Node + native fetch against `http://127.0.0.1:3000/api/v1`, admin JWT + PIN POS tokens; every financial claim cross-checked three ways (POS report ↔ invoice ↔ GL trial balance). Scripts executed live this session.

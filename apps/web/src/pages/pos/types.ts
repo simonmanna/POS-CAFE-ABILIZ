@@ -391,3 +391,37 @@ export interface PaymentResult {
   receiptId: string;
   change: number;
 }
+
+export interface Receipt {
+  id: string;
+  documentNumber: string;
+  issueDate: string;
+  totalAmount: string;
+  amountPaid: string;
+  amountResidual: string;
+  paymentStatus: string;
+  paymentMode: string | null;
+  settlementStatus: string;
+  status: string;
+  partnerId: string;
+  partner?: { id: string; name: string } | null;
+  orderType: string | null;
+  // Only the detail resolver populates tableName; the list omits it.
+  tableName?: string | null;
+  subtotal: string;
+  discountTotal: string;
+  itemCount: number;
+}
+
+export interface ReceiptLine {
+  id: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+  discountPercent: string;
+  total: string;
+  taxAmount?: string;
+  taxInclusive?: boolean;
+  variantName?: string;
+  modifiers?: Array<{ id: string; name: string; priceDelta: string }>;
+}

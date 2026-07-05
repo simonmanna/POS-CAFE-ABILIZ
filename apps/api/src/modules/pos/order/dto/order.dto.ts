@@ -1,5 +1,5 @@
 import {
-  IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, Min, ValidateNested,
+  IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsPositive, IsString, Min, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -91,7 +91,10 @@ export class GenerateInvoiceDto {
 export class TenderDto {
   @IsIn(['cash', 'bank', 'card', 'mobile_money', 'store_credit'])
   method!: 'cash' | 'bank' | 'card' | 'mobile_money' | 'store_credit';
-  @IsNumber() @Min(0) amount!: number;
+  // D2: tender must be a positive, finite amount. A negative leg in a split
+  // (e.g. [150 cash, -50 card]) would otherwise sum to the residual, pass the
+  // total check, and write a reversing Payment that corrupts the drawer/GL.
+  @IsNumber({ allowNaN: false, allowInfinity: false }) @IsPositive() amount!: number;
   @IsOptional() @IsString() reference?: string;
 }
 
@@ -101,6 +104,11 @@ export class ReceivePaymentDto {
   @IsOptional() @IsIn(['cash', 'bank', 'card', 'mobile_money']) paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
   @IsOptional() @IsNumber() amountTendered?: number;
   @IsOptional() @IsString() cashSessionId?: string;
+  // D1: opt-in partial settlement. When true, tenders may sum to LESS than the
+  // amount due — the invoice stays partially_settled and the table stays held.
+  // Composite flows (checkout / split / tab settle) never set it, so their
+  // strict "tenders must equal the balance" contract is preserved.
+  @IsOptional() @IsBoolean() allowPartial?: boolean;
 }
 
 /** Settle an invoice on credit (postpaid house account). */

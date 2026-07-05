@@ -22,6 +22,7 @@ import {
   IsIn,
   IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   Min,
   ValidateNested,
@@ -86,7 +87,8 @@ class PaymentTenderDto implements PaymentTender {
   @ApiProperty({ enum: ['cash', 'bank', 'card', 'mobile_money', 'store_credit'] })
   @IsIn(['cash', 'bank', 'card', 'mobile_money', 'store_credit'])
   method!: PaymentTender['method'];
-  @ApiProperty() @IsNumber() @Min(0) amount!: number;
+  // D2: reject zero/negative/non-finite tender legs (see TenderDto).
+  @ApiProperty() @IsNumber({ allowNaN: false, allowInfinity: false }) @IsPositive() amount!: number;
   @ApiProperty({ required: false }) @IsOptional() @IsString() reference?: string;
 }
 

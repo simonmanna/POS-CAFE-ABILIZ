@@ -34,6 +34,8 @@ import { CreditNoteCreatePage } from '@/pages/invoicing/credit-note-create';
 import { CreditNoteDetailPage } from '@/pages/invoicing/credit-note-detail';
 import { PaymentsPage } from '@/pages/invoicing/payments';
 import { PaymentDetailPage } from '@/pages/invoicing/payment-detail';
+import { ReceiptsPage } from '@/pages/pos/ReceiptsPage';
+import { ReceiptDetailPage } from '@/pages/pos/ReceiptDetailPage';
 import { ExpensesPage } from '@/pages/expenses/ExpensesPage';
 import ExpensesReportPage from '@/pages/expenses/ExpensesReportPage';
 import ExpenseCategoriesPage from '@/pages/expenses/ExpenseCategoriesPage';
@@ -112,6 +114,8 @@ export function App() {
           <Route path="/credit-notes/:id" element={<CreditNoteDetailPage />} />
           <Route path="/payments" element={<PaymentsPage />} />
           <Route path="/payments/:id" element={<PaymentDetailPage />} />
+          <Route path="/pos/receipts" element={<ReceiptsPage />} />
+          <Route path="/pos/receipts/:invoiceId" element={<ReceiptDetailPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/expenses/categories" element={<ExpenseCategoriesPage />} />
           <Route path="/expenses/reports" element={<ExpensesReportPage />} />

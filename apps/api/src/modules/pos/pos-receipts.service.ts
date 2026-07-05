@@ -1284,6 +1284,72 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
   public lifecycle() { return this.printLifecycle; }
   public prismaSvc() { return this.prisma; }
   public tenantSvc() { return this.tenant; }
+
+  async listReceipts(page: number, pageSize: number, search?: string) {
+    const orgId = this.tenant.organizationId;
+    const where: any = { organizationId: orgId };
+    if (search?.trim()) {
+      const q = search.trim();
+      where.invoiceNumber = { contains: q, mode: 'insensitive' as Prisma.QueryMode };
+    }
+    const [items, total] = await Promise.all([
+      this.prisma.client.invoice.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true,
+          invoiceNumber: true,
+          issueDate: true,
+          totalAmount: true,
+          amountPaid: true,
+          amountResidual: true,
+          subtotal: true,
+          discountTotal: true,
+          paymentStatus: true,
+          paymentMode: true,
+          settlementStatus: true,
+          status: true,
+          partnerId: true,
+          order: { select: { orderType: true } },
+          _count: { select: { items: true } },
+        },
+      }),
+      this.prisma.client.invoice.count({ where }),
+    ]);
+
+    const partnerIds = Array.from(new Set(items.map((i: any) => i.partnerId).filter(Boolean))) as string[];
+    const partners = partnerIds.length
+      ? new Map((await this.prisma.client.partner.findMany({ where: { id: { in: partnerIds } }, select: { id: true, name: true } })).map((p: any) => [p.id, p]))
+      : new Map<string, any>();
+
+    const data = items.map((i: any) => ({
+      id: i.id,
+      documentNumber: i.invoiceNumber,
+      issueDate: i.issueDate,
+      totalAmount: i.totalAmount,
+      amountPaid: i.amountPaid,
+      amountResidual: i.amountResidual,
+      subtotal: i.subtotal,
+      discountTotal: i.discountTotal,
+      paymentStatus: i.paymentStatus,
+      paymentMode: i.paymentMode,
+      settlementStatus: i.settlementStatus,
+      status: i.status,
+      partnerId: i.partnerId,
+      partner: partners.get(i.partnerId) ?? null,
+      orderType: i.order?.orderType ?? null,
+      itemCount: i._count?.items ?? 0,
+    }));
+
+    return { data, meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } };
+  }
+
+  async getReceiptDetail(invoiceId: string) {
+    const resolved = await this.resolveInvoice(invoiceId);
+    return resolved;
+  }
 }
 
 /* ============================== CONTROLLER ============================== */
@@ -1460,6 +1526,22 @@ export class PosReceiptsController {
       this.logger.warn(`[POS] Printer unreachable; KOT #${kotNumber} fallback: ${e?.message}`);
       return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error', kotNumber, text } as any;
     }
+  }
+
+  @Get(':invoiceId')
+  @RequirePermissions('pos:read')
+  async get(@Param('invoiceId') id: string) {
+    return this.svc.getReceiptDetail(id);
+  }
+
+  @Get()
+  @RequirePermissions('pos:read')
+  async list(@Query('page') page?: string, @Query('pageSize') pageSize?: string, @Query('search') search?: string) {
+    return this.svc.listReceipts(
+      Number(page) || 1,
+      Math.min(Number(pageSize) || 20, 100),
+      search,
+    );
   }
 
   @Patch(':invoiceId/settings/receipt')

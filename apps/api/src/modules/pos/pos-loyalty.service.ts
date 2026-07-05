@@ -215,7 +215,16 @@ export class PosLoyaltyService {
     });
   }
 
-  /* ====================== Customer tabs ====================== */
+  /* ====================== Customer tabs ======================
+   *
+   * This manual CustomerTab / CustomerTabLedger API (chargeTab / settleTab) is
+   * SEPARATE from POS credit settlement. POS credit invoices are settled via
+   * PosInvoiceService.settleCredit and their statement is DERIVED from the
+   * invoices/allocations/write-off JEs (see pos-customer-statement.controller);
+   * it does NOT write to CustomerTab.balance / CustomerTabLedger. Only
+   * CustomerTab.creditLimit is shared (read by assertCreditAllowed). Keep this
+   * ledger reserved for manual house-account adjustments to avoid double books.
+   */
 
   async getTab(partnerId: string): Promise<any | null> {
     const orgId = this.tenant.organizationId;

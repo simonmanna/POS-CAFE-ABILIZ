@@ -221,7 +221,18 @@ export class PosInvoiceService {
       const preSettledModes = new Set(['cash', 'card', 'mobile_money']);
       const skipGl = !!invoice.paymentMode && preSettledModes.has(invoice.paymentMode);
 
-      const tenders = this.normalizeTenders(dto, residual);
+      const tenders = this.normalizeTenders(dto, residual, { allowPartial: dto.allowPartial === true });
+      const tendersSum = tenders.reduce((s, t) => s + Number(t.amount), 0);
+      const isPartial = tendersSum < residual - 0.01;
+      // D1: a pre-settled invoice already debited Cash/Bank for its FULL total at
+      // generation, so a partial (skip-GL) payment would leave the GL claiming cash
+      // that was never collected. Partial is only sound when the GL counter is AR.
+      if (isPartial && skipGl) {
+        throw new BadRequestException(
+          'Partial payment is not allowed on an invoice billed with a pre-settled payment mode (cash/card/mobile money); settle in full or re-bill without a payment mode',
+        );
+      }
+
       let lastPaymentId: string | null = null;
       for (const tender of tenders) {
         let accountId: string | undefined;
@@ -246,20 +257,47 @@ export class PosInvoiceService {
       const fresh = await tx.invoice.findFirst({ where: { id: invoiceId } });
       const settled = Number(fresh!.amountResidual) <= 0.001;
       const wasCredit = invoice.paymentMode === 'credit';
-      const paymentMode = wasCredit ? 'credit' : (tenders.length > 1 ? 'mixed' : MODE_FROM_METHOD[tenders[0].method] ?? 'cash');
       const settlementStatus = settled ? 'settled' : 'partially_settled';
+
+      // Final paymentMode is derived from ALL allocations on settlement, not just
+      // this call's tenders — a cash partial followed by a card completion must end
+      // 'mixed', not 'card'. While partially paid we leave paymentMode untouched
+      // (stays null → the GL counter remains AR, which matches reality).
+      let paymentMode = invoice.paymentMode ?? null;
+      if (settled) {
+        if (wasCredit) {
+          paymentMode = 'credit';
+        } else {
+          const allocs = await tx.paymentAllocation.findMany({
+            where: { invoiceId, organizationId: orgId },
+            include: { payment: { select: { paymentMethod: true, direction: true } } },
+          });
+          const modes = new Set(
+            allocs
+              .filter((a: any) => (a.payment?.direction ?? 'inbound') === 'inbound')
+              .map((a: any) => MODE_FROM_METHOD[a.payment?.paymentMethod] ?? 'cash'),
+          );
+          paymentMode = modes.size > 1 ? 'mixed' : ([...modes][0] ?? 'cash');
+        }
+      }
       await tx.invoice.update({
         where: { id: invoiceId },
-        data: { paymentMode, settlementStatus, status: settled ? 'paid' : invoice.status, settledBy: this.tenant.userId ?? null, version: { increment: 1 } },
+        data: {
+          settlementStatus,
+          status: settled ? 'paid' : invoice.status,
+          settledBy: this.tenant.userId ?? null,
+          version: { increment: 1 },
+          ...(settled ? { paymentMode } : {}),
+        },
       });
 
-      const receiptType = wasCredit ? 'settlement_receipt' : (settled ? 'payment_receipt' : 'partial_payment_receipt');
+      const receiptType = settled ? (wasCredit ? 'settlement_receipt' : 'payment_receipt') : 'partial_payment_receipt';
       const receipt = await this.createReceipt(tx, invoice, receiptType, lastPaymentId);
       // The cashier/settlement copy printed right after the customer one.
       if (settled) await this.createReceipt(tx, invoice, 'merchant_copy', lastPaymentId);
       const closed = settled ? await this.closeOrderForInvoice(tx, invoiceId) : null;
 
-      return { residual, settled, paymentMode, settlementStatus, receiptId: receipt.id, closed, invoiceNumber: invoice.invoiceNumber };
+      return { residual, tendersSum, settled, paymentMode, settlementStatus, receiptId: receipt.id, closed, invoiceNumber: invoice.invoiceNumber };
     });
 
     // Side effects AFTER commit — never on a rolled-back tx.
@@ -269,29 +307,47 @@ export class PosInvoiceService {
       this.events.publish(EVENTS.PosInvoiceSettled, { organizationId: orgId, invoiceId, invoiceNumber: result.invoiceNumber, paymentMode: result.paymentMode });
     }
 
-    const tendered = dto.amountTendered ?? result.residual;
-    return { invoiceId, settlementStatus: result.settlementStatus, paymentMode: result.paymentMode, receiptId: result.receiptId, change: Math.max(0, tendered - result.residual) };
+    const tendered = dto.amountTendered ?? result.tendersSum;
+    return { invoiceId, settlementStatus: result.settlementStatus, paymentMode: result.paymentMode, receiptId: result.receiptId, change: Math.max(0, tendered - result.tendersSum) };
   }
 
-  /** Settle on credit (postpaid house account). AR already booked at generation. */
+  /**
+   * Settle on credit (postpaid house account). AR is already booked at
+   * generation, so this just flags the invoice CREDIT, issues the credit-issue
+   * receipt, and closes the order (freeing the table) while leaving the balance
+   * outstanding for later collection.
+   *
+   * D3: the whole thing runs in one transaction guarded by a `FOR UPDATE` lock
+   * on the invoice (mirrors receivePayment) and the credit-limit check runs
+   * inside the tx with a `FOR UPDATE` lock on the customer tab — otherwise two
+   * terminals could both pass a check-then-act limit test and jointly blow the
+   * limit, or race a concurrent cash settlement.
+   */
   async settleCredit(invoiceId: string, dto: SettleCreditDto = {}) {
     const orgId = this.tenant.organizationId;
-    const invoice = await this.prisma.client.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId } });
-    if (!invoice) throw new NotFoundException('Invoice not found');
-    if (invoice.status === 'cancelled' || invoice.status === 'refunded') throw new BadRequestException(`Invoice is ${invoice.status}`);
-    if (Number(invoice.amountResidual) <= 0.001) throw new BadRequestException('Invoice is already settled');
 
-    await this.assertCreditAllowed(invoice.partnerId, Number(invoice.amountResidual));
-    await this.prisma.client.invoice.update({ where: { id: invoiceId }, data: { paymentMode: 'credit', settlementStatus: 'unsettled', settledBy: this.tenant.userId ?? null, version: { increment: 1 } } });
-    const receipt = await this.createReceipt(this.prisma.client, invoice, 'credit_issue_receipt', null);
-    const closed = await this.closeOrderForInvoice(this.prisma.client, invoiceId);
-    if (closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: closed.orderId, invoiceId });
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe(`SELECT id FROM "Invoice" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, invoiceId, orgId);
+      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId } });
+      if (!invoice) throw new NotFoundException('Invoice not found');
+      if (invoice.status === 'cancelled' || invoice.status === 'refunded') throw new BadRequestException(`Invoice is ${invoice.status}`);
+      if (invoice.paymentMode === 'credit') throw new BadRequestException('Invoice is already settled on credit');
+      if (Number(invoice.amountResidual) <= 0.001) throw new BadRequestException('Invoice is already settled');
 
+      await this.assertCreditAllowed(invoice.partnerId, Number(invoice.amountResidual), tx);
+      await tx.invoice.update({ where: { id: invoiceId }, data: { paymentMode: 'credit', settlementStatus: 'unsettled', settledBy: this.tenant.userId ?? null, version: { increment: 1 } } });
+      const receipt = await this.createReceipt(tx, invoice, 'credit_issue_receipt', null);
+      const closed = await this.closeOrderForInvoice(tx, invoiceId);
+      return { receiptId: receipt.id, closed, invoiceNumber: invoice.invoiceNumber, partnerId: invoice.partnerId, amount: String(invoice.amountResidual) };
+    });
+
+    // Side effects AFTER commit — never on a rolled-back tx.
+    if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
     this.events.publish(EVENTS.PosInvoiceCredited, {
-      organizationId: orgId, invoiceId, invoiceNumber: invoice.invoiceNumber, partnerId: invoice.partnerId, amount: String(invoice.amountResidual),
+      organizationId: orgId, invoiceId, invoiceNumber: result.invoiceNumber, partnerId: result.partnerId, amount: result.amount,
     });
     await this.audit.record({ entity: 'Invoice', entityId: invoiceId, action: 'update' as any, newValues: { kind: 'credit_issue', notes: dto.notes ?? null } });
-    return { invoiceId, settlementStatus: 'unsettled', paymentMode: 'credit', receiptId: receipt.id };
+    return { invoiceId, settlementStatus: 'unsettled', paymentMode: 'credit', receiptId: result.receiptId };
   }
 
   /** Write off the outstanding balance (Dr bad-debt / Cr AR). */
@@ -732,12 +788,22 @@ export class PosInvoiceService {
     return entry.id;
   }
 
-  private normalizeTenders(dto: ReceivePaymentDto, residual: number): TenderDto[] {
+  private normalizeTenders(dto: ReceivePaymentDto, residual: number, opts?: { allowPartial?: boolean }): TenderDto[] {
     if (dto.tenders?.length) {
+      // D2: every leg must be a positive, finite amount (defence-in-depth for
+      // internal callers that bypass the HTTP validation pipe).
+      for (const t of dto.tenders) {
+        const amt = Number(t.amount);
+        if (!Number.isFinite(amt) || amt <= 0) throw new BadRequestException('Tender amounts must be positive finite numbers');
+      }
       const sum = dto.tenders.reduce((s, t) => s + Number(t.amount), 0);
-      if (Math.abs(sum - residual) > 0.01) throw new BadRequestException(`Tenders sum ${sum} does not match amount due ${residual}`);
+      // Overpayment is always rejected — cash change is handled via amountTendered.
+      if (sum > residual + 0.01) throw new BadRequestException(`Tenders sum ${sum} exceeds amount due ${residual}`);
+      // D1: underpayment is only allowed when the caller opts into partial settlement.
+      if (sum < residual - 0.01 && !opts?.allowPartial) throw new BadRequestException(`Tenders sum ${sum} does not match amount due ${residual}`);
       return dto.tenders;
     }
+    // No explicit tenders → settle the whole residual with a single method.
     return [{ method: dto.paymentMethod ?? 'cash', amount: residual } as TenderDto];
   }
 
@@ -893,12 +959,20 @@ export class PosInvoiceService {
     return mapping.accountId;
   }
 
-  private async assertCreditAllowed(partnerId: string, amount: number): Promise<void> {
+  private async assertCreditAllowed(partnerId: string, amount: number, db: any = this.prisma.client): Promise<void> {
     const orgId = this.tenant.organizationId;
-    const tab = await this.prisma.client.customerTab.findFirst({ where: { organizationId: orgId, partnerId } });
+    // D3: serialise concurrent credit issues for the SAME partner by locking the
+    // customer-tab row before reading outstanding balance. Lock order is always
+    // Invoice → CustomerTab (settleCredit takes the invoice lock first), so no
+    // deadlock cycle with receivePayment (which only locks the invoice). When no
+    // tab row exists the limit is 0 → unlimited, and the check is vacuous anyway.
+    if (typeof db.$queryRawUnsafe === 'function') {
+      await db.$queryRawUnsafe(`SELECT id FROM "CustomerTab" WHERE "organizationId" = $1 AND "partnerId" = $2 FOR UPDATE`, orgId, partnerId);
+    }
+    const tab = await db.customerTab.findFirst({ where: { organizationId: orgId, partnerId } });
     const limit = Number(tab?.creditLimit ?? 0);
     if (limit <= 0) return;
-    const open = await this.prisma.client.invoice.aggregate({
+    const open = await db.invoice.aggregate({
       where: { organizationId: orgId, partnerId, paymentMode: 'credit', settlementStatus: { in: ['unsettled', 'partially_settled'] } },
       _sum: { amountResidual: true },
     });

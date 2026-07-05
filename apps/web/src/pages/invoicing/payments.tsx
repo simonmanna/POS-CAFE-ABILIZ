@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Search, Eye } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import { money, date, statusLabel } from '@/lib/format';
 import { usePayments, type Payment } from '@/features/invoicing/api';
 
 export function PaymentsPage() {
+  const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState('');
   const search = useDebouncedValue(searchInput, 300);
@@ -32,6 +33,16 @@ export function PaymentsPage() {
     { key: 'paymentMethod', header: 'Method', render: (p) => <Badge variant="secondary">{statusLabel(p.paymentMethod)}</Badge> },
     { key: 'amount', header: 'Amount', className: 'text-right', render: (p) => money(p.amount) },
     { key: 'unallocatedAmount', header: 'Unapplied', className: 'text-right', render: (p) => money(p.unallocatedAmount) },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-12 text-right',
+      render: (p) => (
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/payments/${p.id}`)}>
+          <Eye className="h-4 w-4" />
+        </Button>
+      ),
+    },
   ];
 
   const meta = data?.meta;

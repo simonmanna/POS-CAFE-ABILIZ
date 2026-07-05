@@ -126,12 +126,16 @@ export function useCheckout() {
 export function useRefundSale() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { invoiceId: string; reason?: string; cashSessionId?: string; overrideById?: string }) => {
+    // `_idemKey` is minted once when the confirming UI opens (NOT per submit), so
+    // a double-click sends the SAME Idempotency-Key and the server replays the
+    // first refund instead of issuing a second. It is stripped from the body
+    // (forbidNonWhitelisted would 400 on extras).
+    mutationFn: async ({ _idemKey, ...body }: { invoiceId: string; reason?: string; cashSessionId?: string; overrideById?: string; _idemKey?: string }) => {
       const cashSessionId = body.cashSessionId ?? useCartStore.getState().cashSessionId;
       const res = await api.post(
         `/pos/invoices/${body.invoiceId}/refund`,
         { reason: body.reason, overrideById: body.overrideById, cashSessionId },
-        { headers: { 'Idempotency-Key': uuid() } },
+        { headers: { 'Idempotency-Key': _idemKey ?? uuid() } },
       );
       return res.data;
     },
@@ -142,12 +146,12 @@ export function useRefundSale() {
 export function useVoidSale() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { invoiceId: string; reason: string; overrideById: string }) => {
+    mutationFn: async ({ _idemKey, ...body }: { invoiceId: string; reason: string; overrideById: string; _idemKey?: string }) => {
       const cashSessionId = useCartStore.getState().cashSessionId;
       const res = await api.post(
         `/pos/invoices/${body.invoiceId}/refund`,
         { reason: body.reason, overrideById: body.overrideById, cashSessionId },
-        { headers: { 'Idempotency-Key': uuid() } },
+        { headers: { 'Idempotency-Key': _idemKey ?? uuid() } },
       );
       return res.data;
     },
