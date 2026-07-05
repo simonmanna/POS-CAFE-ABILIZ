@@ -770,8 +770,26 @@ export class PosInvoiceService {
     for (const [accountId, amount] of itemByAccount) lines.push({ accountId, credit: (amount as any).toString(), partnerId: invoice.partnerId, description: 'Revenue' });
     for (const [accountId, amount] of taxByAccount) lines.push({ accountId, credit: (amount as any).toString(), description: 'Output tax' });
     // Post order-level discount as a separate debit line (Dr sales_discount).
+    // A missing 'sales_discount' mapping must NEVER block a sale (owner rule): fall
+    // back to netting the discount against a revenue account already on this entry,
+    // so the entry still balances and the discount is just folded into revenue.
     if (orderDiscountAmount?.gt(0.001)) {
-      const discountAccount = await this.determination.mapped('sales_discount', tx);
+      let discountAccount: string | undefined;
+      try {
+        discountAccount = await this.determination.mapped('sales_discount', tx);
+      } catch {
+        discountAccount = itemByAccount.keys().next().value as string | undefined;
+        if (discountAccount) {
+          this.logger.warn(
+            `sales_discount mapping missing — folding order discount into revenue account ${discountAccount} for invoice ${invoice.invoiceNumber}. Map 'sales_discount' under Accounting > Account Mapping (or re-run db:seed) to break it out.`,
+          );
+        }
+      }
+      if (!discountAccount) {
+        // No revenue account resolved either — degrade to sales_revenue as a last
+        // resort; if THAT is unmapped the invoice legitimately can't post.
+        discountAccount = await this.determination.mapped('sales_revenue', tx);
+      }
       lines.push({ accountId: discountAccount, debit: orderDiscountAmount.toString(), description: 'Order discount' });
     }
     const entry = await this.posting.post({

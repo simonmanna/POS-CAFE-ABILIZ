@@ -206,6 +206,9 @@ async function main(): Promise<void> {
     { code: '3100', name: 'Retained Earnings', accountType: 'equity', cashFlowCategory: 'financing' },
     { code: '4000', name: 'Revenue', accountType: 'revenue', isGroup: true, cashFlowCategory: 'operating' },
     { code: '4100', name: 'Sales Revenue', accountType: 'revenue', cashFlowCategory: 'operating' },
+    // Contra-revenue: order/line discounts post here (debit) instead of reducing
+    // Sales Revenue, so gross sales and total discounts are both visible on the P&L.
+    { code: '4900', name: 'Sales Discounts', accountType: 'revenue', cashFlowCategory: 'operating' },
     { code: '5000', name: 'Expenses', accountType: 'expense', isGroup: true, cashFlowCategory: 'operating' },
     { code: '5100', name: 'Cost of Goods Sold', accountType: 'cost_of_goods_sold', cashFlowCategory: 'operating' },
     { code: '5200', name: 'Operating Expenses', accountType: 'expense', cashFlowCategory: 'operating' },
@@ -270,6 +273,7 @@ async function main(): Promise<void> {
     accounts_receivable: accountIds['1300'],
     accounts_payable: accountIds['2100'],
     sales_revenue: accountIds['4100'],
+    sales_discount: accountIds['4900'],
     tax_payable: accountIds['2200'],
     tax_receivable: accountIds['1450'],
     default_cash: accountIds['1100'],
