@@ -387,6 +387,23 @@ const TerminalPage: React.FC = () => {
   /* ============== Fullscreen ============== */
   const [fullscreen, setFullscreen] = useState(false);
 
+  const enterFullscreen = useCallback(() => {
+    setFullscreen(true);
+    document.body.classList.add('pos-terminal-fullscreen');
+    document.documentElement.requestFullscreen?.().catch(() => {});
+  }, []);
+
+  // Listen for browser-fullscreen-change to keep React state + body class in sync (ESC exit)
+  useEffect(() => {
+    const onFsChange = () => {
+      const isFullscreen = !!document.fullscreenElement;
+      setFullscreen(isFullscreen);
+      document.body.classList.toggle('pos-terminal-fullscreen', isFullscreen);
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
   /* ============== Cart (zustand) ============== */
   const lines = useCartStore((s) => s.lines);
   const transactionDiscountPercent = useCartStore((s) => s.transactionDiscountPercent);
@@ -524,8 +541,9 @@ const TerminalPage: React.FC = () => {
     tabSyncSig.current = '__loading__';
     setSelectedTableId(t.id);
     setTableView('ordering');
+    enterFullscreen();
     void loadTableOrder(t.id);
-  }, [saveTab, customer?.id, loadTableOrder]);
+  }, [saveTab, customer?.id, loadTableOrder, enterFullscreen]);
 
   const handleNewOrder = useCallback((t: PosTable) => {
     tableCartsRef.current.delete(t.id);
@@ -1291,14 +1309,13 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Fullscreen toggle ============== */
   const onToggleFullscreen = () => {
-    setFullscreen((f: boolean) => {
-      const next = !f;
-      try {
-        if (next) document.documentElement.requestFullscreen?.();
-        else document.exitFullscreen?.();
-      } catch { /* noop */ }
-      return next;
-    });
+    const next = !fullscreen;
+    setFullscreen(next);
+    document.body.classList.toggle('pos-terminal-fullscreen', next);
+    try {
+      if (next) document.documentElement.requestFullscreen?.();
+      else document.exitFullscreen?.();
+    } catch { /* noop */ }
   };
 
   /* ============== Keyboard shortcuts ============== */
@@ -1332,7 +1349,7 @@ const TerminalPage: React.FC = () => {
     <div className={'pos-shell-pro' + (fullscreen ? ' dark-mode' : '')}>
       {/* POS PIN Login screen — shown until a cashier authenticates */}
       {showPosLogin && !posUser ? (
-        <PosLoginScreen onLoggedIn={() => setShowPosLogin(false)} />
+        <PosLoginScreen onLoggedIn={() => setShowPosLogin(false)} onBeforeSubmit={enterFullscreen} />
       ) : null}
 
       <Topbar

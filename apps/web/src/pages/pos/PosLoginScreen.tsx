@@ -12,9 +12,10 @@ import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 
 interface Props {
   onLoggedIn: () => void;
+  onBeforeSubmit?: () => void;
 }
 
-const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
+const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit }) => {
   const login = usePosAuthStore((s) => s.login);
   const loading = usePosAuthStore((s) => s.loading);
   const error = usePosAuthStore((s) => s.error);
@@ -67,6 +68,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
     setPin(newPin);
     setLocalError(null);
     if (newPin.length >= MIN_PIN) {
+      onBeforeSubmit?.();
       submitLogin(selectedUserId, newPin);
     }
   };
@@ -106,7 +108,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn }) => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key >= '0' && e.key <= '9') { e.preventDefault(); handlePinDigit(e.key); }
       else if (e.key === 'Backspace') { e.preventDefault(); handleBackspace(); }
-      else if (e.key === 'Enter') { e.preventDefault(); submitLogin(selectedUserId, pin); }
+      else if (e.key === 'Enter') { e.preventDefault(); onBeforeSubmit?.(); submitLogin(selectedUserId, pin); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

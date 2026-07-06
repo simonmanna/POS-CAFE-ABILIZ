@@ -27,6 +27,10 @@
   background: #0f172a;
 }
 
+body.pos-terminal-fullscreen .app-shell-header {
+  display: none;
+}
+
 /* ============== Topbar ============== */
 .pos-topbar-pro {
   display: flex;
