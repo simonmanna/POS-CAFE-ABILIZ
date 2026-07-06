@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
-import { formatMoney, dateTime } from '@/lib/format';
+import { dateTime } from '@/lib/format';
 
 interface Product { id: string; code: string; name: string; costPrice?: string }
 interface Location { id: string; code: string; name: string }
@@ -175,7 +175,7 @@ export function StockAdjustmentsPage() {
                 <tr key={adj.id} className="border-b hover:bg-muted/30">
                   <td className="px-3 py-2 font-mono text-xs font-medium">{adj.adjCode}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{dateTime(adj.createdAt)}</td>
-                  <td className="px-3 py-2">{adj.location?.code ? `${adj.location.code} — ${adj.location.name}` : adj.locationId}</td>
+                  <td className="px-3 py-2">{adj.location?.code ? `${adj.location.code} — ${adj.location.name}` : '—'}</td>
                   <td className="px-3 py-2"><Badge variant="outline" className="text-xs">{REASON_LABELS[adj.reason] ?? adj.reason}</Badge></td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{adj.items?.length ?? adj._count?.items ?? 0}</td>
                   <td className="px-3 py-2">
