@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../kernel/audit/audit.service';
@@ -1037,30 +1037,40 @@ export class PosService {
     const orgId = this.tenant.organizationId;
     const userId = this.tenant.userId ?? undefined;
 
+    // Ease-of-use (owner rule: never block a sale): on a shared terminal any
+    // cashier may settle against whatever drawer is open. We prefer the caller's
+    // own drawer but do NOT reject a sale because the open drawer was opened by a
+    // different cashier, nor because a client sent a stale/closed session id.
     if (input.cashSessionId) {
       const s = await this.prisma.client.cashSession.findFirst({
         where: { id: input.cashSessionId, organizationId: orgId },
       });
-      if (!s) throw new BadRequestException('Cash session not found');
-      if (s.status !== 'open') throw new BadRequestException('Cash session is not open — open a shift first');
-      if (userId && s.userId !== userId) {
-        throw new ForbiddenException('That cash session belongs to a different cashier');
-      }
-      return s.id;
+      // Use the supplied session when it is live — regardless of who owns it.
+      if (s && s.status === 'open') return s.id;
+      // Stale / closed / not found: fall through and resolve a live drawer
+      // instead of throwing, so a stale client cache never blocks the sale.
     }
 
-    // No session supplied: only cash/mobile-money sales must be gated.
-    if (!this.saleNeedsCashDrawer(input)) return undefined;
-
-    const open = userId
+    // Prefer the caller's own open drawer.
+    const own = userId
       ? await this.prisma.client.cashSession.findFirst({ where: { organizationId: orgId, userId, status: 'open' } })
       : null;
-    if (!open) {
+    if (own) return own.id;
+
+    // Card/bank-only sales never need a drawer.
+    if (!this.saleNeedsCashDrawer(input)) return undefined;
+
+    // Cash/mobile-money still needs *some* open drawer so the till reconciles —
+    // but it may belong to any cashier on this terminal.
+    const anyOpen = await this.prisma.client.cashSession.findFirst({
+      where: { organizationId: orgId, status: 'open' },
+    });
+    if (!anyOpen) {
       throw new BadRequestException(
         'No open cash session — open a shift before taking a cash or mobile-money payment',
       );
     }
-    return open.id;
+    return anyOpen.id;
   }
 
   /**
