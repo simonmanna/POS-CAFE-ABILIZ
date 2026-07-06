@@ -250,7 +250,7 @@ export class PosInvoiceService {
           skipGlPosting: skipGl,
           // R2: allocate against the Invoice (not a Document).
           allocations: [{ invoiceId: invoice.id, amount: tender.amount }],
-        } as any, tx);
+        } as any, tx, { allowSessionOwnerMismatch: true });
         if ((payment as any)?.id) lastPaymentId = (payment as any).id;
       }
 

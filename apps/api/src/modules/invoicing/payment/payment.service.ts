@@ -79,8 +79,8 @@ export class PaymentService {
     });
   }
 
-  createReceipt(dto: CreatePaymentDto, tx?: any) {
-    return this.record(dto, 'inbound', {}, tx);
+  createReceipt(dto: CreatePaymentDto, tx?: any, opts?: { allowSessionOwnerMismatch?: boolean }) {
+    return this.record(dto, 'inbound', opts ?? {}, tx);
   }
 
   createSupplierPayment(dto: CreatePaymentDto, tx?: any) {

@@ -553,8 +553,8 @@ body.pos-terminal-fullscreen .app-shell-header {
   gap: 0.35rem;
 }
 .pos-card-emoji {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
   background: #f1f5f9;
   display: flex;
@@ -564,17 +564,17 @@ body.pos-terminal-fullscreen .app-shell-header {
   flex-shrink: 0;
 }
 .pos-card-name {
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: #0f172a;
 }
 .pos-card-line {
-  font-size: 0.65rem;
+  font-size: 0.72rem;
   color: #64748b;
 }
 .pos-card-price {
-  font-size: 0.85rem;
-  font-weight: 800;
+  font-size: 0.9rem;
+  font-weight: 700;
   color: #0f172a;
   margin-left: auto;
   font-variant-numeric: tabular-nums;
@@ -586,7 +586,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   padding-left: 2rem;
 }
 .pos-card-addons span {
-  font-size: 0.6rem;
+  font-size: 0.68rem;
   background: #dbeafe;
   color: #1e40af;
   padding: 1px 5px;
@@ -594,7 +594,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   font-weight: 600;
 }
 .pos-card-notes {
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   color: #b45309;
   background: #fef3c7;
   border-radius: 4px;
@@ -616,8 +616,8 @@ body.pos-terminal-fullscreen .app-shell-header {
   overflow: hidden;
 }
 .pos-qty button {
-  width: 22px;
-  height: 22px;
+  width: 26px;
+  height: 26px;
   background: #f8fafc;
   border: none;
   display: flex;
@@ -628,10 +628,10 @@ body.pos-terminal-fullscreen .app-shell-header {
 }
 .pos-qty button:hover { background: #e2e8f0; }
 .pos-qty-val {
-  width: 24px;
+  width: 28px;
   text-align: center;
   font-weight: 800;
-  font-size: 0.72rem;
+  font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
 }
 .pos-card-actions {
@@ -640,8 +640,8 @@ body.pos-terminal-fullscreen .app-shell-header {
   margin-left: auto;
 }
 .pos-card-action {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -660,7 +660,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   position: absolute;
   top: 6px;
   right: 6px;
-  font-size: 0.62rem;
+  font-size: 0.7rem;
   background: #22c55e;
   color: #fff;
   padding: 1px 5px;
@@ -699,8 +699,8 @@ body.pos-terminal-fullscreen .app-shell-header {
 .pos-order-actions {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.25rem;
-  padding: 0.4rem;
+  gap: 0.35rem;
+  padding: 0.5rem;
   border-top: 1px solid #e2e8f0;
   background: #fff;
   flex-shrink: 0;
@@ -714,16 +714,16 @@ body.pos-terminal-fullscreen .app-shell-header {
   align-items: center;
   justify-content: center;
   gap: 0.3rem;
-  padding: 0.5rem 0.4rem;
-  border-radius: 10px;
-  font-size: 0.78rem;
+  padding: 0.65rem 0.55rem;
+  border-radius: 12px;
+  font-size: 0.95rem;
   font-weight: 700;
   color: #fff;
   border: none;
   cursor: pointer;
   transition: all 0.15s ease;
   position: relative;
-  min-height: 30px;
+  min-height: 42px;
 }
 .pos-action-btn-pro:hover:not(:disabled) {
   transform: translateY(-1px);
@@ -735,14 +735,14 @@ body.pos-terminal-fullscreen .app-shell-header {
   position: absolute;
   top: 2px;
   right: 4px;
-  font-size: 0.58rem;
+  font-size: 0.65rem;
   opacity: 0.6;
   background: rgba(0,0,0,0.15);
   padding: 1px 4px;
   border-radius: 3px;
   font-weight: 800;
 }
-.pos-action-icon { width: 14px; height: 14px; }
+.pos-action-icon { width: 18px; height: 18px; }
 
 .pos-action-btn-pro.bg-blue { background: #1a7fcf; }
 .pos-action-btn-pro.bg-amber { background: #f59e0b; }
