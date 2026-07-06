@@ -14,7 +14,6 @@ import {
   MoveRight,
   Scissors,
   User,
-  Hash,
   AlertTriangle,
   Printer,
 } from "lucide-react";
@@ -47,7 +46,6 @@ interface Props {
   onSplit: () => void;
   onAddCustomer: () => void;
   onAddDiscount: () => void;
-  onAddTax: () => void;
   onCloseOrder: () => void;
   onPrintKot: () => void;
   onVoidItem?: (line: CartLine) => void;
@@ -68,10 +66,8 @@ const ORDER_TYPES: Array<{ key: 'dine-in' | 'takeaway' | 'delivery'; label: stri
 
 export const OrderPanel: React.FC<Props> = ({
   customerName,
-  orderTypeLabel,
   orderType,
   onChangeOrderType,
-  tableLabel,
   tableId,
   onInc,
   onDec,
@@ -83,7 +79,6 @@ export const OrderPanel: React.FC<Props> = ({
   onSplit,
   onAddCustomer,
   onAddDiscount,
-  onAddTax,
   onCloseOrder,
   onPrintKot,
   onVoidItem,
@@ -121,7 +116,7 @@ export const OrderPanel: React.FC<Props> = ({
           {/* Order type dropdown */}
           <div className="mr-1 pr-1.5 flex items-center">
             <select
-              className="text-[11px] font-bold cursor-pointer appearance-none bg-white/15 text-white rounded-md px-2 py-1 pr-5 border border-white/20"
+              className="text-[13px] font-bold cursor-pointer appearance-none bg-white/15 text-white rounded-md px-2 py-1 pr-5 border border-white/20"
               value={orderType}
               onChange={(e) => onChangeOrderType(e.target.value as OrderTypeOption)}
               title="Order type"
@@ -139,22 +134,6 @@ export const OrderPanel: React.FC<Props> = ({
             title="Add customer"
           >
             <User className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="pos-ord-action"
-            onClick={onAddDiscount}
-            title="Order-level discount"
-          >
-            <Tag className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="pos-ord-action"
-            onClick={onAddTax}
-            title="Tax settings"
-          >
-            <Hash className="h-4 w-4" />
           </button>
           {lines.length > 0 ? (
             <button

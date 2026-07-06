@@ -1289,11 +1289,6 @@ const TerminalPage: React.FC = () => {
     setShowSplit(true);
   };
 
-  /* ============== Tax / SC (placeholder) ============== */
-  const onAddTax = () => {
-    toast.info('Tax is set per-product via the Tax catalog. Tax is currently 0% on all items.');
-  };
-
   /* ============== Fullscreen toggle ============== */
   const onToggleFullscreen = () => {
     setFullscreen((f: boolean) => {
@@ -1546,7 +1541,6 @@ const TerminalPage: React.FC = () => {
             onSplit={onSplit}
             onAddCustomer={() => setShowCustomer(true)}
             onAddDiscount={() => setShowDiscount(true)}
-            onAddTax={onAddTax}
             onCloseOrder={handleCloseOrder}
             onPrintKot={async () => {
               if (lines.length === 0) { toast.error('Cart is empty'); return; }

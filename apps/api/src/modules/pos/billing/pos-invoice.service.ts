@@ -956,6 +956,19 @@ export class PosInvoiceService {
     const order = await db.order.findFirst({ where: { invoiceId, organizationId: orgId } });
     if (!order) return null;
     await db.order.update({ where: { id: order.id }, data: { status: 'closed', closedAt: new Date() } });
+    // Close the table↔order occupancy link. The floor-map card reads the OPEN
+    // link (its openedAt drives the dining-minutes timer, the joined order's
+    // totalAmount drives the running bill). Closing the Order alone frees the
+    // table (status recomputes to available) but leaves the link open, so the
+    // mins + bill amount would linger on the card. Setting closedAt drops it
+    // from the "open" filter — resetting the timer and total — while preserving
+    // the row (and its openedAt) for dining-time reports.
+    if (order.tableId) {
+      await db.posTableOrder.updateMany({
+        where: { organizationId: orgId, tableId: order.tableId, orderId: order.id, closedAt: null },
+        data: { closedAt: new Date() },
+      });
+    }
     await this.freeTableIfEmpty(db, order.tableId);
     return { orderId: order.id, tableId: order.tableId };
   }
