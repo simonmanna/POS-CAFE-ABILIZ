@@ -69,9 +69,9 @@ export function StockLedgerPage() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  const locations = useQuery<{ data: { id: string; code: string; name: string }[] }>({
+  const locations = useQuery<{ id: string; code: string; name: string }[]>({
     queryKey: ['inventory-locations'],
-    queryFn: async () => (await api.get('/inventory/locations')).data,
+    queryFn: async () => (await api.get<{ data: { id: string; code: string; name: string }[] }>('/inventory/locations')).data.data ?? [],
   });
 
   const params = new URLSearchParams();
@@ -110,7 +110,7 @@ export function StockLedgerPage() {
               <SelectTrigger className="w-40"><SelectValue placeholder="All" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="">All locations</SelectItem>
-                {locations.data?.data?.map((l) => (
+                {locations.data?.map((l) => (
                   <SelectItem key={l.id} value={l.id}>{l.code}</SelectItem>
                 ))}
               </SelectContent>

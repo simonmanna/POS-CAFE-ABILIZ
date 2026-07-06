@@ -277,6 +277,9 @@ export function InvoiceDetailPage() {
           <div className="flex justify-end">
             <div className="w-80 space-y-2 pt-3 pb-3 pr-4">
               <SummaryRow label="SubTotal" value={money(inv.subtotal)} />
+              {inv.discountTotal && Number(inv.discountTotal) > 0 && (
+                <SummaryRow label="Discount" value={`-${money(inv.discountTotal)}`} />
+              )}
               <SummaryRow label="Taxes" value={inv.taxAmount && Number(inv.taxAmount) > 0 ? money(inv.taxAmount) : '0.00'} />
               <div className="border-t-2 border-sky-200 pt-2">
                 <SummaryRow label="TOTAL" value={money(inv.totalAmount)} bold />

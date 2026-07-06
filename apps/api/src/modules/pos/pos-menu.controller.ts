@@ -39,9 +39,9 @@ class CreateMenuItemDto {
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() preparationTime?: number;
   @ApiProperty({ required: false, default: true }) @IsOptional() @IsBoolean() isAvailable?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() displayOrder?: number;
-  @ApiProperty({ type: () => [IngredientDto] })
-  @IsArray() @ValidateNested({ each: true }) @Type(() => IngredientDto)
-  ingredients!: IngredientDto[];
+  @ApiProperty({ required: false, type: () => [IngredientDto] })
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => IngredientDto)
+  ingredients?: IngredientDto[];
 }
 class IngredientDto {
   @ApiProperty() @IsUUID() productId!: string;

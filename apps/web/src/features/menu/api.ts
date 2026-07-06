@@ -111,7 +111,7 @@ export interface CreateMenuItemInput {
   preparationTime?: number;
   isAvailable?: boolean;
   displayOrder?: number;
-  ingredients: IngredientInput[];
+  ingredients?: IngredientInput[];
 }
 
 export interface UpdateMenuItemInput {
@@ -190,6 +190,8 @@ export function useMenuItemsAvailable() {
   return useQuery({
     queryKey: ['menu-items-available'],
     queryFn: async () => (await api.get<MenuPayload>('/pos/menu/items/available')).data,
+    staleTime: 240_000,
+    refetchInterval: 300_000,
   });
 }
 

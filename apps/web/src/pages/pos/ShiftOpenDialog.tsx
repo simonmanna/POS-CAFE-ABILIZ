@@ -86,7 +86,7 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened }) =>
         </div>
 
         <div>
-          <Label className="flex items-center gap-1">
+          <Label className="flex items-center gap-1 mb-2">
             <Calculator className="h-3 w-3" /> Opening float (UGX)
           </Label>
           <Input

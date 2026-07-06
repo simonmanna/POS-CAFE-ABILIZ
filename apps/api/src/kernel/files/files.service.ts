@@ -34,7 +34,7 @@ export class FilesService {
   private readonly driver: 'local' | 's3';
   private readonly localDir: string;
   private readonly signingSecret: string;
-  private static readonly SIGN_TTL_MS = 15 * 60 * 1000;
+  private static readonly SIGN_TTL_MS = 60 * 60 * 1000;
 
   constructor(
     private readonly prisma: PrismaService,

@@ -75,7 +75,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
   const [uploadingImg, setUploadingImg] = useState(false);
   const [prepTime, setPrepTime] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
-  const [ingredients, setIngredients] = useState<DraftIngredient[]>([newIngredient()]);
+  const [ingredients, setIngredients] = useState<DraftIngredient[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -119,7 +119,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
     if (!item) {
       setName(''); setCode(''); setDescription(''); setCategoryId('');
       setBasePrice(''); setPrepTime(''); setIsAvailable(true);
-      setIngredients([newIngredient()]);
+      setIngredients([]);
       setPreviewSrc(''); imageFileIdRef.current = '';
       return;
     }
@@ -137,7 +137,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
             quantity: Number(ing.quantity ?? 1),
             _key: ing.id ?? Math.random().toString(36).slice(2, 10),
           }))
-        : [newIngredient()],
+        : [],
     );
 
     // Image: the list API already resolves `image` to a signed download URL,
@@ -342,7 +342,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
              />
 
             {ingredients.length === 0 && (
-              <p className="text-sm text-muted-foreground">No ingredients yet — add at least one product to sell this item.</p>
+              <p className="text-sm text-muted-foreground">No ingredients yet. Products can be added later.</p>
             )}
 
             <div className="space-y-2">
@@ -378,7 +378,6 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                   <Button
                     type="button" size="sm" variant="ghost"
                     onClick={() => setIngredients((s) => s.filter((_, i) => i !== idx))}
-                    disabled={ingredients.length === 1}
                   >
                     <X className="h-4 w-4 text-destructive" />
                   </Button>

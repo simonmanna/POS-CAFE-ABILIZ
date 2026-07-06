@@ -224,11 +224,8 @@ export class PosMenuService {
     preparationTime?: number;
     isAvailable?: boolean;
     displayOrder?: number;
-    ingredients: { productId: string; quantity?: number }[];
+    ingredients?: { productId: string; quantity?: number }[];
   }) {
-    if (!input.ingredients?.length) {
-      throw new BadRequestException('A menu item must reference at least one product (ingredient).');
-    }
     return this.prisma.client.$transaction(async (tx) => {
       const item = await tx.menuItem.create({
         data: {
@@ -244,7 +241,7 @@ export class PosMenuService {
           displayOrder: input.displayOrder ?? 0,
         },
       });
-      for (const ing of input.ingredients) {
+      for (const ing of input.ingredients ?? []) {
         await tx.menuProduct.create({
           data: {
             organizationId: this.tenant.organizationId,
@@ -280,9 +277,6 @@ export class PosMenuService {
         await tx.menuItem.update({ where: { id }, data });
       }
       if (ingredients) {
-        if (!ingredients.length) {
-          throw new BadRequestException('A menu item must reference at least one product (ingredient).');
-        }
         await tx.menuProduct.deleteMany({ where: { menuItemId: id } });
         for (const ing of ingredients) {
           await tx.menuProduct.create({
