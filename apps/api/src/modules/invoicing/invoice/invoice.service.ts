@@ -20,34 +20,61 @@ export class InvoiceService {
     private readonly builder: DocumentBuilderService,
   ) {}
 
-  async list(query: PaginationQuery, partnerId?: string) {
+  async list(
+    query: PaginationQuery,
+    partnerId?: string,
+    filters?: { status?: string; paymentStatus?: string; settlementStatus?: string; dateFrom?: string; dateTo?: string },
+  ) {
     const page = Math.max(1, Number(query.page) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query.pageSize) || 25));
     const search = query.search?.trim();
+    const f = filters ?? {};
 
-    // Sales invoices live in TWO tables: manual invoices in `Document`
-    // (documentType=sales_invoice) and POS sales in the separate `Invoice` table.
-    // They never overlap, so union both, normalise the POS rows to the Document
-    // shape the page renders, sort by createdAt, and paginate the merged set.
     const docWhere: any = { documentType: 'sales_invoice' };
     const invWhere: any = {};
     if (partnerId) {
       docWhere.partnerId = partnerId;
       invWhere.partnerId = partnerId;
     }
+    if (f.status) {
+      docWhere.status = f.status;
+      invWhere.status = f.status;
+    }
+    if (f.dateFrom || f.dateTo) {
+      const dateFilter: any = {};
+      if (f.dateFrom) dateFilter.gte = new Date(f.dateFrom);
+      if (f.dateTo) {
+        const end = new Date(f.dateTo);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.lte = end;
+      }
+      docWhere.issueDate = dateFilter;
+      invWhere.issueDate = dateFilter;
+    }
     if (search) {
-      docWhere.OR = [
+      const matchingPartners = await this.prisma.client.partner.findMany({
+        where: { name: { contains: search, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      const pIds = matchingPartners.map((p: any) => p.id);
+
+      const docOr: any[] = [
         { documentNumber: { contains: search, mode: 'insensitive' } },
         { reference: { contains: search, mode: 'insensitive' } },
       ];
-      invWhere.OR = [
+      if (pIds.length) docOr.push({ partnerId: { in: pIds } });
+      docWhere.OR = docOr;
+
+      const invOr: any[] = [
         { invoiceNumber: { contains: search, mode: 'insensitive' } },
         { reference: { contains: search, mode: 'insensitive' } },
       ];
+      if (pIds.length) invOr.push({ partnerId: { in: pIds } });
+      invWhere.OR = invOr;
     }
 
-    const take = page * pageSize; // enough of each to cover the requested page after merge
-    const [docs, invs, docCount, invCount] = await Promise.all([
+    const take = page * pageSize;
+    const [docs, invs] = await Promise.all([
       this.prisma.client.document.findMany({
         where: docWhere,
         include: { partner: true, _count: { select: { lines: true } } },
@@ -60,11 +87,8 @@ export class InvoiceService {
         orderBy: { createdAt: 'desc' },
         take,
       }),
-      this.prisma.client.document.count({ where: docWhere }),
-      this.prisma.client.invoice.count({ where: invWhere }),
     ]);
 
-    // `Invoice` has no partner relation — resolve display names in one query.
     const partnerIds = [...new Set((invs as any[]).map((i) => i.partnerId))];
     const partners = partnerIds.length
       ? await this.prisma.client.partner.findMany({ where: { id: { in: partnerIds } }, select: { id: true, name: true } })
@@ -79,14 +103,22 @@ export class InvoiceService {
       partner: { id: i.partnerId, name: nameById.get(i.partnerId) ?? 'Walk-in' },
       _count: { lines: i._count?.items ?? 0 },
     }));
-    const normDocs = (docs as any[]).map((d) => ({ ...d, source: 'manual' }));
+    const normDocs = (docs as any[]).map((d) => ({
+      ...d,
+      source: 'manual',
+      paymentStatus: d.amountResidual === '0' ? 'paid' : 'unpaid',
+      settlementStatus: d.amountResidual === '0' ? 'settled' : 'unsettled',
+    }));
 
-    const merged = [...normDocs, ...normInvs].sort(
+    let merged = [...normDocs, ...normInvs].sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
+    if (f.paymentStatus) merged = merged.filter((m: any) => m.paymentStatus === f.paymentStatus);
+    if (f.settlementStatus) merged = merged.filter((m: any) => m.settlementStatus === f.settlementStatus);
+
+    const total = merged.length;
     const start = (page - 1) * pageSize;
     const data = merged.slice(start, start + pageSize);
-    const total = docCount + invCount;
     return { data, meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } };
   }
 

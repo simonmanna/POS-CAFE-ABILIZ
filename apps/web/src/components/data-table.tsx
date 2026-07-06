@@ -24,6 +24,7 @@ interface DataTableProps<T> {
   getRowId?: (row: T) => string;
   className?: string;
   headerRowClassName?: string;
+  cellClassName?: string;
 }
 
 /** Reusable, presentational data table. Pagination/search live in the page. */
@@ -35,6 +36,7 @@ export function DataTable<T>({
   getRowId,
   className = '',
   headerRowClassName = '',
+  cellClassName = '',
 }: DataTableProps<T>) {
   return (
     <div className={`rounded-md border ${className}`}>
@@ -53,7 +55,7 @@ export function DataTable<T>({
             Array.from({ length: 6 }).map((_, i) => (
               <TableRow key={`s-${i}`}>
                 {columns.map((c) => (
-                  <TableCell key={c.key}>
+                  <TableCell key={c.key} className={cellClassName}>
                     <Skeleton className="h-4 w-full" />
                   </TableCell>
                 ))}
@@ -69,7 +71,7 @@ export function DataTable<T>({
             data.map((row, i) => (
               <TableRow key={getRowId ? getRowId(row) : i}>
                 {columns.map((c) => (
-                  <TableCell key={c.key} className={c.className}>
+                  <TableCell key={c.key} className={`${cellClassName} ${c.className ?? ''}`}>
                     {c.render ? c.render(row) : String((row as Record<string, unknown>)[c.key] ?? '')}
                   </TableCell>
                 ))}

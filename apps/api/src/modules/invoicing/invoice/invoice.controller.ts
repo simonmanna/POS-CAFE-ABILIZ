@@ -18,8 +18,19 @@ export class InvoiceController {
     @Query('pageSize', new DefaultValuePipe(25), ParseIntPipe) pageSize: number,
     @Query('search') search?: string,
     @Query('partnerId') partnerId?: string,
+    @Query('status') status?: string,
+    @Query('paymentStatus') paymentStatus?: string,
+    @Query('settlementStatus') settlementStatus?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
-    return this.invoices.list({ page, pageSize, search }, partnerId);
+    return this.invoices.list({ page, pageSize, search }, partnerId, {
+      status,
+      paymentStatus,
+      settlementStatus,
+      dateFrom,
+      dateTo,
+    });
   }
 
   @Get(':id')

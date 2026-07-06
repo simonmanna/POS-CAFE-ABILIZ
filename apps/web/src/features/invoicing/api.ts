@@ -37,8 +37,21 @@ export interface InvoiceLine {
   total: string;
 }
 
+export interface InvoiceAllocation {
+  paymentId: string;
+  amount: string;
+  payment?: {
+    direction: string;
+    paymentDate: string;
+    paymentMethod: string;
+    reference?: string | null;
+    paymentNumber?: string | null;
+  };
+}
+
 export interface InvoiceDetail extends Invoice {
   lines: InvoiceLine[];
+  allocations?: InvoiceAllocation[];
 }
 
 export interface InvoiceLineInput {
@@ -58,7 +71,16 @@ export interface CreateInvoiceInput {
   lines: InvoiceLineInput[];
 }
 
-export function useInvoices(params: { page?: number; pageSize?: number; search?: string }) {
+export function useInvoices(params: {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  status?: string;
+  paymentStatus?: string;
+  settlementStatus?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) {
   return useQuery({
     queryKey: ['invoices', params],
     queryFn: async () => (await api.get<PaginatedResult<Invoice>>('/invoices', { params })).data,

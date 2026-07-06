@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, Plus, Search } from 'lucide-react';
+import { Eye, Plus, Search, X } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,15 +40,42 @@ const settlementColor: Record<string, string> = {
   written_off: 'bg-rose-50 text-rose-700',
 };
 
+const selectClass = 'h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+
 export function InvoicesPage() {
   const navigate = useNavigate();
+  const hasPermission = useAuthStore((s) => s.hasPermission);
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState('');
   const search = useDebouncedValue(searchInput, 300);
-  const hasPermission = useAuthStore((s) => s.hasPermission);
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterPayment, setFilterPayment] = useState('');
+  const [filterSettlement, setFilterSettlement] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
-  useEffect(() => setPage(1), [search]);
-  const { data, isLoading } = useInvoices({ page, pageSize: 10, search: search || undefined });
+  const hasActiveFilters = filterStatus || filterPayment || filterSettlement || dateFrom || dateTo;
+
+  useEffect(() => setPage(1), [search, filterStatus, filterPayment, filterSettlement, dateFrom, dateTo]);
+
+  const { data, isLoading } = useInvoices({
+    page,
+    pageSize: 10,
+    search: search || undefined,
+    status: filterStatus || undefined,
+    paymentStatus: filterPayment || undefined,
+    settlementStatus: filterSettlement || undefined,
+    dateFrom: dateFrom || undefined,
+    dateTo: dateTo || undefined,
+  });
+
+  const clearFilters = () => {
+    setFilterStatus('');
+    setFilterPayment('');
+    setFilterSettlement('');
+    setDateFrom('');
+    setDateTo('');
+  };
 
   const columns: Column<Invoice>[] = [
     {
@@ -107,7 +134,7 @@ export function InvoicesPage() {
     {
       key: 'actions',
       header: '',
-      className: 'w-12 text-right',
+      className: 'w-12',
       render: (inv) => (
         <Button variant="ghost" size="sm" onClick={() => navigate(`/invoices/${inv.id}`)}>
           <Eye className="h-4 w-4" />
@@ -132,17 +159,66 @@ export function InvoicesPage() {
         )}
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          className="pl-9"
-          placeholder="Search invoices..."
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9 h-9"
+            placeholder="Search invoices..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+          />
+        </div>
+        <select className={selectClass} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+          <option value="">All statuses</option>
+          <option value="draft">Draft</option>
+          <option value="posted">Posted</option>
+          <option value="paid">Paid</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <select className={selectClass} value={filterPayment} onChange={(e) => setFilterPayment(e.target.value)}>
+          <option value="">All payments</option>
+          <option value="unpaid">Unpaid</option>
+          <option value="paid">Paid</option>
+          <option value="partially_paid">Partially Paid</option>
+        </select>
+        <select className={selectClass} value={filterSettlement} onChange={(e) => setFilterSettlement(e.target.value)}>
+          <option value="">All settlements</option>
+          <option value="unsettled">Unsettled</option>
+          <option value="partially_settled">Partially Paid</option>
+          <option value="settled">Settled</option>
+          <option value="written_off">Written Off</option>
+        </select>
+        <input
+          type="date"
+          className={selectClass}
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          title="From date"
         />
+        <span className="text-xs text-muted-foreground">—</span>
+        <input
+          type="date"
+          className={selectClass}
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          title="To date"
+        />
+        {hasActiveFilters && (
+          <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 gap-1">
+            <X className="h-3.5 w-3.5" /> Clear
+          </Button>
+        )}
       </div>
 
-      <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} getRowId={(i) => i.id} />
+      <DataTable
+        columns={columns}
+        data={data?.data ?? []}
+        loading={isLoading}
+        getRowId={(i) => i.id}
+        cellClassName="py-1.5 px-3"
+        headerRowClassName="h-10"
+      />
 
       {meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
