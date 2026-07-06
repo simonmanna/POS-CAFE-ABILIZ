@@ -202,20 +202,17 @@ export const ReceiptPreview: React.FC<Props> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="p-8 flex flex-col items-center justify-center min-h-[200px] text-center">
-          {printed ? (
-            <>
-              <CheckCircle2 className="h-12 w-12 text-green-500 mb-3" />
-              <p className="text-base font-semibold text-slate-800">Sent to printer</p>
-              <p className="text-sm text-slate-500 mt-1">The {type === 'kot' ? 'KOT' : 'bill'} has been sent to the thermal printer.</p>
-            </>
-          ) : (
-            <>
-              <Printer className="h-12 w-12 text-slate-300 mb-3" />
-              <p className="text-sm text-slate-500">Click Print to send to the thermal printer.</p>
-            </>
-          )}
-        </div>
+        {printed ? (
+          <div className="p-8 flex flex-col items-center justify-center min-h-[200px] text-center">
+            <CheckCircle2 className="h-12 w-12 text-green-500 mb-3" />
+            <p className="text-base font-semibold text-slate-800">Sent to printer</p>
+            <p className="text-sm text-slate-500 mt-1">The {type === 'kot' ? 'KOT' : 'bill'} has been sent to the thermal printer.</p>
+          </div>
+        ) : (
+          <div className="bg-slate-200 p-4 flex justify-center">
+            <iframe srcDoc={html} title="Preview" className="bg-white shadow-md" style={{ width: 340, height: 440 }} />
+          </div>
+        )}
 
         <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 flex gap-2 justify-between">
           <Button variant="ghost" onClick={handleClose}>
