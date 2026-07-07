@@ -510,9 +510,9 @@ export class CashSessionService {
     });
   }
 
-  /** Get the open session for the current user/cash register (or null). */
+  /** Get any open session on the terminal (or null). */
   async findOpen(cashRegisterId?: string) {
-    const where: any = { organizationId: this.tenant.organizationId, userId: this.tenant.userId, status: 'open' };
+    const where: any = { organizationId: this.tenant.organizationId, status: 'open' };
     if (cashRegisterId) where.cashRegisterId = cashRegisterId;
     return this.prisma.client.cashSession.findFirst({
       where,

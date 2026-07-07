@@ -1343,13 +1343,14 @@ const TerminalPage: React.FC = () => {
   const handleUserChanged = () => {
     // Force re-render — locked state recalculates via posUser
     setShowPosLogin(!usePosAuthStore.getState().user);
+    refetchSession();
   };
 
   return (
     <div className={'pos-shell-pro' + (fullscreen ? ' dark-mode' : '')}>
       {/* POS PIN Login screen — shown until a cashier authenticates */}
       {showPosLogin && !posUser ? (
-        <PosLoginScreen onLoggedIn={() => setShowPosLogin(false)} onBeforeSubmit={enterFullscreen} />
+        <PosLoginScreen onLoggedIn={() => { setShowPosLogin(false); refetchSession(); }} onBeforeSubmit={enterFullscreen} />
       ) : null}
 
       <Topbar
