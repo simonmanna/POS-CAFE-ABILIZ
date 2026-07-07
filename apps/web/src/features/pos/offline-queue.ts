@@ -34,11 +34,20 @@ export interface QueuedSale {
   payload: any; // the CheckoutBody / SettleTab body the request normally sends
 }
 
+/** A sale the server actively rejected (4xx). Moved out of the pending queue
+ *  so it can't poison replay, but kept for cashier/manager review — a rejected
+ *  sale is money and must never vanish silently. */
+export interface FailedSale extends QueuedSale {
+  failedAt: number; // epoch ms
+  httpStatus?: number;
+}
+
 /* ====================== IndexedDB wrapper ====================== */
 
 const DB_NAME = 'pos-offline-queue';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'pending-sales';
+const FAILED_STORE = 'failed-sales';
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -55,6 +64,9 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE)) {
         db.createObjectStore(STORE, { keyPath: 'idempotencyKey' });
       }
+      if (!db.objectStoreNames.contains(FAILED_STORE)) {
+        db.createObjectStore(FAILED_STORE, { keyPath: 'idempotencyKey' });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -62,41 +74,41 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-async function idbPut<T>(value: T): Promise<void> {
+async function idbPut<T>(value: T, store: string = STORE): Promise<void> {
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).put(value);
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(value);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
-async function idbAll<T>(): Promise<T[]> {
+async function idbAll<T>(store: string = STORE): Promise<T[]> {
   const db = await openDb();
   return new Promise<T[]>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readonly');
-    const req = tx.objectStore(STORE).getAll();
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAll();
     req.onsuccess = () => resolve(req.result as T[]);
     req.onerror = () => reject(req.error);
   });
 }
 
-async function idbDel(key: string): Promise<void> {
+async function idbDel(key: string, store: string = STORE): Promise<void> {
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).delete(key);
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).delete(key);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
 }
 
-async function idbClear(): Promise<void> {
+async function idbClear(store: string = STORE): Promise<void> {
   const db = await openDb();
   return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE, 'readwrite');
-    tx.objectStore(STORE).clear();
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).clear();
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -117,7 +129,12 @@ export async function enqueueSale(payload: any, opts?: { endpoint?: string; idem
     createdAt: Date.now(),
     attempts: 0,
     endpoint: opts?.endpoint ?? '/pos/checkout',
-    payload: { ...payload, idempotencyKey },
+    // The key travels ONLY as the Idempotency-Key header. Spreading it into
+    // the body trips the API's forbidNonWhitelisted validation → 400 → the
+    // sale would be treated as poison and lost.
+    // occurredAt pins the sale to the moment it was rung up, so a replay
+    // hours/days later still lands on the correct business date.
+    payload: { ...payload, occurredAt: new Date().toISOString() },
   };
   await idbPut(sale);
   return sale;
@@ -139,6 +156,33 @@ export async function removePending(idempotencyKey: string): Promise<void> {
   try { await idbDel(idempotencyKey); } catch { /* noop */ }
 }
 
+/* ---------------------- Failed-sale review ---------------------- */
+
+export async function listFailed(): Promise<FailedSale[]> {
+  try {
+    return await idbAll<FailedSale>(FAILED_STORE);
+  } catch {
+    return [];
+  }
+}
+
+/** Move a rejected sale back into the pending queue for another attempt
+ *  (e.g. after the server-side cause was fixed). Same idempotency key. */
+export async function retryFailed(idempotencyKey: string): Promise<void> {
+  const failed = await listFailed();
+  const sale = failed.find((s) => s.idempotencyKey === idempotencyKey);
+  if (!sale) return;
+  const { failedAt: _f, httpStatus: _s, ...pending } = sale;
+  await idbPut({ ...pending, attempts: 0, lastError: undefined });
+  await idbDel(idempotencyKey, FAILED_STORE);
+}
+
+/** Permanently discard a rejected sale. Caller must confirm with the user —
+ *  this is the only path where a recorded sale is intentionally dropped. */
+export async function discardFailed(idempotencyKey: string): Promise<void> {
+  try { await idbDel(idempotencyKey, FAILED_STORE); } catch { /* noop */ }
+}
+
 /** Replay every pending sale in order. Resolves when the queue is empty
  *  or all retries failed (returns the unresolved list). */
 export async function replayAll(onResult?: (sale: QueuedSale, result: 'ok' | 'error') => void): Promise<QueuedSale[]> {
@@ -155,7 +199,8 @@ export async function replayAll(onResult?: (sale: QueuedSale, result: 'ok' | 'er
     } catch (e: any) {
       // Mark the attempt + the last error. If we're still offline (no
       // response at all), keep it queued. If the server actively rejected
-      // it (4xx), we drop it so a poison message doesn't block the queue.
+      // it (4xx), park it in the failed-sales store: it must not poison the
+      // queue, but a rejected sale is money and must stay visible for review.
       const status = e?.response?.status;
       const next: QueuedSale = {
         ...sale,
@@ -163,7 +208,9 @@ export async function replayAll(onResult?: (sale: QueuedSale, result: 'ok' | 'er
         lastError: e?.response?.data?.message || e?.message || 'unknown',
       };
       if (status && status >= 400 && status < 500 && status !== 408 && status !== 429) {
-        // 4xx other than 408 (timeout) / 429 (rate-limit) — drop the message.
+        // 4xx other than 408 (timeout) / 429 (rate-limit) — park for review.
+        const failed: FailedSale = { ...next, failedAt: Date.now(), httpStatus: status };
+        await idbPut(failed, FAILED_STORE);
         await removePending(sale.idempotencyKey);
         onResult?.(sale, 'error');
       } else {
@@ -182,6 +229,7 @@ export async function replayAll(onResult?: (sale: QueuedSale, result: 'ok' | 'er
 export interface OfflineQueueState {
   online: boolean;
   pending: QueuedSale[];
+  failed: FailedSale[];
   replaying: boolean;
 }
 
@@ -193,9 +241,10 @@ export interface OfflineQueueState {
  *
  * Returns the live state for the badge + indicator.
  */
-export function useOfflineQueue(): OfflineQueueState & { replay: () => Promise<void> } {
+export function useOfflineQueue(): OfflineQueueState & { replay: () => Promise<void>; refresh: () => Promise<void> } {
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [pending, setPending] = useState<QueuedSale[]>([]);
+  const [failed, setFailed] = useState<FailedSale[]>([]);
   const [replaying, setReplaying] = useState(false);
 
   // Wire up online/offline listeners.
