@@ -118,7 +118,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
     });
     toast.success(`${payingBill.label} paid — change ${fmt(res.change ?? 0)}`);
     setPayingBill(null);
-    if (res.invoiceId) setReceipt({ invoiceId: res.invoiceId, invoiceNumber: res.invoiceNumber });
+    if (res.invoiceId) setTimeout(() => setReceipt({ invoiceId: res.invoiceId, invoiceNumber: res.invoiceNumber }), 100);
     if (res.tableClosed) {
       toast.success('All bills paid — table closed');
       onTableClosed?.();
@@ -248,7 +248,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
 
                         {isOpen ? (
                           <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
-                            <Button size="sm" className="h-7 text-xs flex-1" style={{ background: '#16a34a' }} disabled={b.items.length === 0 || busy || settleBill.isPending} onClick={() => setPayingBill(b)}>
+                            <Button size="sm" className="h-7 text-xs flex-1" style={{ background: '#16a34a' }} disabled={b.items.length === 0 || busy || settleBill.isPending} onClick={() => setTimeout(() => setPayingBill(b), 100)}>
                               <Wallet className="h-3.5 w-3.5 mr-1" /> Pay {fmt(b.totalAmount)}
                             </Button>
                             {mergeTargets.length > 0 && (

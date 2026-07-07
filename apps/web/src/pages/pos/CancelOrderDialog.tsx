@@ -61,7 +61,7 @@ export const CancelOrderDialog: React.FC<Props> = ({
       }
       const msg = e?.response?.data?.message || 'Failed to cancel order';
       if (/manager override/i.test(msg)) {
-        setShowOverride(true);
+        setTimeout(() => setShowOverride(true), 100);
         return;
       }
       toast.error(msg);
