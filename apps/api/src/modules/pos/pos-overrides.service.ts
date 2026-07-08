@@ -137,4 +137,38 @@ export class PosOverridesService {
     }
     return manager;
   }
+
+  /**
+   * Verify a manager's PIN at checkout time (F-OVR). The frontend collected the
+   * PIN during the OverrideDialog flow; we re-check it here so a cashier cannot
+   * bypass PIN entry by passing a known manager's userId directly.
+   */
+  async verifyPinForOverride(overrideById: string, pin: string) {
+    const manager = await this.assertCanOverride(overrideById, 'discount');
+    if (!manager.pinHash) {
+      throw new BadRequestException('Manager has not set an override PIN');
+    }
+    const ok = await this.password.compare(pin, manager.pinHash);
+    if (!ok) throw new UnauthorizedException('Invalid override PIN');
+    return manager;
+  }
+
+  /** Verify the currently authenticated user's own PIN. Used for self-service
+   *  actions like removing a cart item. No manager override permission needed. */
+  async verifyCurrentUserPin(userId: string, pin: string) {
+    const user = await this.prisma.client.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.pinHash) {
+      throw new BadRequestException('You have not set a PIN. Set one in your profile.');
+    }
+    const ok = await this.password.compare(pin, user.pinHash);
+    if (!ok) throw new UnauthorizedException('Invalid PIN');
+    await this.audit.record({
+      entity: 'User',
+      entityId: userId,
+      action: 'login',
+      newValues: { pinVerified: true, purpose: 'delete_item' },
+    });
+    return { ok: true };
+  }
 }

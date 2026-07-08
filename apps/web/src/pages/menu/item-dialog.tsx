@@ -10,6 +10,7 @@
  *   - variants: size/type options with absolute prices (edit only)
  *   - accompaniments: side-dish groups (edit only)
  */
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, PlusCircle, X, Check, Trash2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
@@ -29,6 +30,7 @@ import {
   useProductPicker,
   type MenuCategory, type MenuItem,
   type CreateMenuItemInput, type IngredientInput,
+  type ProductMini,
 } from '@/features/menu/api';
 import {
   useVariants,
@@ -75,23 +77,37 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
   const [uploadingImg, setUploadingImg] = useState(false);
   const [prepTime, setPrepTime] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
+  const [isInventoryTracked, setIsInventoryTracked] = useState(false);
   const [ingredients, setIngredients] = useState<DraftIngredient[]>([]);
   const [productSearch, setProductSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const products = useProductPicker(productSearch);
 
-  // Seed the picker with the item's current ingredient products so their names
-  // render on edit even before the user searches (search only returns matches
-  // for a typed term ≥ 2 chars).
+  // Full product list (fetched once when the dialog opens so the picker is
+  // never empty on first render, even before any search text is typed).
+  const allProducts = useQuery({
+    queryKey: ['all-products'],
+    queryFn: async () => {
+      const res = await api.get<{ data: ProductMini[] }>('/products', {
+        params: { page: 1, pageSize: 200 },
+      });
+      return (res.data?.data as ProductMini[] | undefined) ?? [];
+    },
+    enabled: open,
+  });
+
+  // Seed the picker with: existing item ingredients → search results → full list.
+  // Deduplicated by product id; last source wins so live search takes priority.
   const productOptions = useMemo(() => {
     const map = new Map<string, { id: string; code: string; name: string; station?: string }>();
     for (const ing of item?.ingredients ?? []) {
       if (ing.product) map.set(ing.product.id, ing.product);
     }
     for (const p of products.data ?? []) map.set(p.id, p as any);
+    for (const p of allProducts.data ?? []) map.set(p.id, p as any);
     return Array.from(map.values());
-  }, [item?.ingredients, products.data]);
+  }, [item?.ingredients, products.data, allProducts.data]);
 
   /* ============== Variants (edit only) ============== */
   const itemId = item?.id ?? null;
@@ -118,7 +134,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
     if (!open) return;
     if (!item) {
       setName(''); setCode(''); setDescription(''); setCategoryId('');
-      setBasePrice(''); setPrepTime(''); setIsAvailable(true);
+      setBasePrice(''); setPrepTime(''); setIsAvailable(true); setIsInventoryTracked(false);
       setIngredients([]);
       setPreviewSrc(''); imageFileIdRef.current = '';
       return;
@@ -130,6 +146,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
     setBasePrice(item.basePrice != null ? String(item.basePrice) : '');
     setPrepTime(item.preparationTime != null ? String(item.preparationTime) : '');
     setIsAvailable(item.isAvailable ?? true);
+    setIsInventoryTracked(item.isInventoryTracked ?? false);
     setIngredients(
       item.ingredients && item.ingredients.length > 0
         ? item.ingredients.map((ing) => ({
@@ -161,7 +178,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
     }
   }, [open, item?.id]);
 
-  const valid = name.trim() && ingredients.every((i) => i.productId);
+  const valid = name.trim();
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -219,6 +236,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                 image: imageFileIdRef.current || (previewSrc || undefined),
                 preparationTime: prepTime ? Number(prepTime) : undefined,
                 isAvailable,
+                isInventoryTracked,
                 ingredients: ingredients.map(({ productId, quantity }) => ({
                   productId,
                   quantity: quantity ?? 1,
@@ -316,6 +334,23 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                   {isAvailable
                     ? 'Customers can see and order this item from the POS terminal.'
                     : 'This item is hidden from the POS terminal. Uncheck to re-activate.'}
+                </p>
+              </div>
+            </div>
+            <div className="md:col-span-2 flex items-center gap-3 rounded-lg border p-3 bg-slate-50">
+              <input
+                id="mi-inv-tracked"
+                type="checkbox"
+                checked={isInventoryTracked}
+                onChange={(e) => setIsInventoryTracked(e.target.checked)}
+                className="h-5 w-5"
+              />
+              <div>
+                <Label htmlFor="mi-inv-tracked" className="cursor-pointer text-sm font-semibold text-slate-700">
+                  Inventory tracked
+                </Label>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  When checked, each sale deducts stock based on the ingredients below.
                 </p>
               </div>
             </div>

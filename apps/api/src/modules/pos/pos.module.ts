@@ -75,6 +75,7 @@ export const POS_PERMISSIONS = {
     void: 'pos:void',
     override: 'pos:override',
     reports: 'pos:reports',
+    deleteItem: 'pos:delete_item',
   },
   // ADR-012 — Tables Management
   tables: {

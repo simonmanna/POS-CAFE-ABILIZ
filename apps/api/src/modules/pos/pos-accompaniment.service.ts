@@ -16,9 +16,17 @@ export interface AccompanimentOptionWithDetails {
   updatedAt?: Date;
 }
 
+export interface AccompanimentSalesReportRow {
+  optionName: string;
+  groupName: string;
+  count: number;
+  revenue: number;
+}
+
 export interface AccompanimentGroupWithOptions {
   id: string;
   name: string;
+  category: string | null;
   isRequired: boolean;
   minSelect: number;
   maxSelect: number;
@@ -47,16 +55,30 @@ export class PosAccompanimentService {
 
   /* ====================== Groups (standalone CRUD) ====================== */
 
-  async listAllGroups(): Promise<AccompanimentGroupWithOptions[]> {
+  async listAllGroups(opts?: { search?: string; isActive?: boolean; page?: number; pageSize?: number }): Promise<{ data: AccompanimentGroupWithOptions[]; total: number; page: number; pageSize: number }> {
     const orgId = this.tenant.organizationId;
-    const groups = await this.prisma.client.accompanimentGroup.findMany({
-      where: { organizationId: orgId, deletedAt: null },
-      orderBy: { sortOrder: 'asc' },
-      include: {
-        options: { orderBy: { sortOrder: 'asc' } },
-      },
-    });
-    return (groups as any[]).map(mapGroup);
+    const where: any = { organizationId: orgId, deletedAt: null };
+    if (opts?.isActive !== undefined) where.isActive = opts.isActive;
+    if (opts?.search) {
+      where.name = { contains: opts.search, mode: 'insensitive' };
+    }
+    const page = opts?.page ?? 1;
+    const pageSize = opts?.pageSize ?? 50;
+    const skip = (page - 1) * pageSize;
+
+    const [groups, total] = await Promise.all([
+      this.prisma.client.accompanimentGroup.findMany({
+        where,
+        orderBy: { sortOrder: 'asc' },
+        skip,
+        take: pageSize,
+        include: {
+          options: { orderBy: { sortOrder: 'asc' } },
+        },
+      }),
+      this.prisma.client.accompanimentGroup.count({ where }),
+    ]);
+    return { data: (groups as any[]).map(mapGroup), total, page, pageSize };
   }
 
   async listActiveGroups(): Promise<AccompanimentGroupWithOptions[]> {
@@ -85,6 +107,7 @@ export class PosAccompanimentService {
 
   async createGroup(dto: {
     name: string;
+    category?: string;
     isRequired?: boolean;
     minSelect?: number;
     maxSelect?: number;
@@ -107,10 +130,12 @@ export class PosAccompanimentService {
         data: {
           organizationId: orgId,
           name: dto.name.trim(),
+          category: dto.category?.trim() || null,
           isRequired: dto.isRequired ?? true,
           minSelect: dto.minSelect ?? 1,
           maxSelect: dto.maxSelect ?? 1,
           sortOrder: dto.sortOrder ?? 0,
+          createdBy: this.tenant.userId,
         },
         include: { options: true },
       });
@@ -118,27 +143,19 @@ export class PosAccompanimentService {
         entity: 'AccompanimentGroup',
         entityId: g.id,
         action: 'create',
-        newValues: { name: g.name, isRequired: g.isRequired, minSelect: g.minSelect, maxSelect: g.maxSelect },
+        newValues: { name: g.name, category: g.category, isRequired: g.isRequired, minSelect: g.minSelect, maxSelect: g.maxSelect },
       });
       return g;
     });
 
-    return {
-      id: created.id,
-      name: created.name,
-      isRequired: created.isRequired,
-      minSelect: created.minSelect,
-      maxSelect: created.maxSelect,
-      sortOrder: created.sortOrder,
-      isActive: created.isActive,
-      options: [],
-    };
+    return mapGroup(created as any);
   }
 
   async updateGroup(
     id: string,
     dto: {
       name?: string;
+      category?: string;
       isRequired?: boolean;
       minSelect?: number;
       maxSelect?: number;
@@ -175,13 +192,15 @@ export class PosAccompanimentService {
       if (dup) throw new BadRequestException(`Group "${dto.name.trim()}" already exists`);
     }
 
+    const e = existing as any;
     const oldValues = {
-      name: existing.name,
-      isRequired: existing.isRequired,
-      minSelect: existing.minSelect,
-      maxSelect: existing.maxSelect,
-      sortOrder: existing.sortOrder,
-      isActive: existing.isActive,
+      name: e.name,
+      category: e.category,
+      isRequired: e.isRequired,
+      minSelect: e.minSelect,
+      maxSelect: e.maxSelect,
+      sortOrder: e.sortOrder,
+      isActive: e.isActive,
     };
 
     const updated = await this.prisma.client.$transaction(async (tx: any) => {
@@ -189,25 +208,29 @@ export class PosAccompanimentService {
         where: { id },
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.category !== undefined ? { category: dto.category?.trim() || null } : {}),
           ...(dto.isRequired !== undefined ? { isRequired: dto.isRequired } : {}),
           ...(dto.minSelect !== undefined ? { minSelect: dto.minSelect } : {}),
           ...(dto.maxSelect !== undefined ? { maxSelect: dto.maxSelect } : {}),
           ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+          updatedBy: this.tenant.userId,
         },
       });
+      const gr = g as any;
       await this.audit.recordInTx(tx, {
         entity: 'AccompanimentGroup',
-        entityId: g.id,
+        entityId: gr.id,
         action: 'update',
         oldValues,
         newValues: {
-          name: g.name,
-          isRequired: g.isRequired,
-          minSelect: g.minSelect,
-          maxSelect: g.maxSelect,
-          sortOrder: g.sortOrder,
-          isActive: g.isActive,
+          name: gr.name,
+          category: gr.category,
+          isRequired: gr.isRequired,
+          minSelect: gr.minSelect,
+          maxSelect: gr.maxSelect,
+          sortOrder: gr.sortOrder,
+          isActive: gr.isActive,
         },
         ipAddress: dto.ipAddress,
         userAgent: dto.userAgent,
@@ -288,6 +311,7 @@ export class PosAccompanimentService {
           isDefault: dto.isDefault ?? false,
           sortOrder: dto.sortOrder ?? 0,
           inventoryItemId: dto.inventoryItemId ?? null,
+          createdBy: this.tenant.userId,
         },
       });
       await this.audit.recordInTx(tx, {
@@ -359,6 +383,7 @@ export class PosAccompanimentService {
           ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
           ...(dto.inventoryItemId !== undefined ? { inventoryItemId: dto.inventoryItemId } : {}),
+          updatedBy: this.tenant.userId,
         },
       });
       await this.audit.recordInTx(tx, {
@@ -532,6 +557,34 @@ export class PosAccompanimentService {
 
     return { names, priceImpact: totalPriceImpact };
   }
+
+  /* ====================== Sales report ====================== */
+
+  async accompanimentSalesReport(from?: string, to?: string): Promise<AccompanimentSalesReportRow[]> {
+    const orgId = this.tenant.organizationId;
+    const dateFilter: any = {};
+    if (from || to) {
+      dateFilter.createdAt = { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) };
+    }
+    const orderItems = await this.prisma.client.orderItem.findMany({
+      where: {
+        organizationId: orgId,
+        ...dateFilter,
+        order: { orderType: 'pos', reference: { document: { status: { in: ['posted', 'paid'] } } } },
+      },
+      select: { accompanimentNames: true, accompanimentOptionIds: true },
+    });
+    const map = new Map<string, { optionName: string; count: number }>();
+    for (const item of orderItems as any[]) {
+      const names: string[] = item.accompanimentNames ?? [];
+      for (const n of names) {
+        const cur = map.get(n) ?? { optionName: n, count: 0 };
+        cur.count += 1;
+        map.set(n, cur);
+      }
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count).map((r) => ({ ...r, revenue: 0, groupName: '' }));
+  }
 }
 
 /* ====================== Shared mapper ====================== */
@@ -540,6 +593,7 @@ function mapGroup(g: any): AccompanimentGroupWithOptions {
   return {
     id: g.id,
     name: g.name,
+    category: g.category ?? null,
     isRequired: g.isRequired,
     minSelect: g.minSelect,
     maxSelect: g.maxSelect,

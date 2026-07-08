@@ -247,6 +247,7 @@ export interface SoldItem {
   orderNumber: string;
   invoiceNumber: string;
   saleDate: string;
+  time?: string;
   item: string;
   unitPrice: string;
   discountPercent: string;
@@ -263,6 +264,7 @@ export interface SalesReportRow {
   orderType: string | null;
   invoiceNumber: string;
   saleDate: string;
+  time?: string;
   subtotal: string;
   discount: string;
   totalAmount: string;
@@ -273,6 +275,7 @@ export interface OrderReportRow {
   orderNumber: string;
   orderType: string | null;
   date: string;
+  time?: string;
   tableName: string | null;
   waiterName: string | null;
   customerName: string | null;
@@ -288,6 +291,7 @@ export interface CashierReportRow {
   salesAmount: string;
   paymentMethod: string | null;
   received: string;
+  time?: string;
 }
 
 export interface CashierShiftSummaryRow {
@@ -310,6 +314,7 @@ export interface WaiterReportRow {
   discountPercent: string;
   total: string;
   date: string;
+  time?: string;
   orderType?: string | null;
 }
 

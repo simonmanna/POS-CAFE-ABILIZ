@@ -223,6 +223,7 @@ export const PERMISSIONS = {
     void: 'pos:void',                 // void a line or a sale
     override: 'pos:override',         // approve a manager override (PIN)
     reports: 'pos:reports',           // X/Z + sales analytics
+    deleteItem: 'pos:delete_item',    // remove an order item from the cart
   },
   school: {
     read: 'school:read',

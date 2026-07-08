@@ -18,6 +18,12 @@ export interface DocumentLineInput {
   quantity?: number;
   unitPrice?: number;
   discountPercent?: number;
+  /** 'percentage' (default) or 'fixed_amount'. When 'fixed_amount', `discountAmount` is the total line discount in currency. */
+  discountType?: 'percentage' | 'fixed_amount';
+  /** Total fixed discount for this line (in currency, before quantity multiplication). Ignored unless discountType === 'fixed_amount'. */
+  discountAmount?: number;
+  discountReason?: string;
+  discountSource?: 'manual' | 'promotion' | 'loyalty' | 'coupon';
   taxId?: string;
   /**
    * P10: when true, the line's `unitPrice` is tax-inclusive. The tax engine
@@ -52,6 +58,12 @@ interface PreparedLine {
   quantity: Prisma.Decimal;
   unitPrice: Prisma.Decimal;
   discountPercent: Prisma.Decimal;
+  /** 'percentage' or 'fixed_amount'. Persisted so receipts can display the original discount type. */
+  discountType: 'percentage' | 'fixed_amount';
+  /** Monetary discount amount for this line (0 for percentage discounts). */
+  discountAmount: Prisma.Decimal;
+  discountReason: string | null;
+  discountSource: 'manual' | 'promotion' | 'loyalty' | 'coupon';
   taxId: string | null;
   subtotal: Prisma.Decimal;
   taxAmount: Prisma.Decimal;
@@ -86,10 +98,24 @@ export class DocumentBuilderService {
       }
       const unitPrice = l.unitPrice != null ? dec(l.unitPrice) : product?.salesPrice ? dec(product.salesPrice) : ZERO;
       const quantity = dec(l.quantity ?? 1);
-      const discountPercent = dec(l.discountPercent ?? 0);
       const gross = quantity.times(unitPrice);
-      const afterDiscount = gross.times(dec(1).minus(discountPercent.dividedBy(100)));
-      discountTotal = discountTotal.plus(gross.minus(afterDiscount));
+      const discType = l.discountType ?? 'percentage';
+
+      // Compute effective discount: fixed_amount uses discountAmount, percentage uses discountPercent.
+      const effectiveDiscount = discType === 'fixed_amount' && (l.discountAmount ?? 0) > 0
+        ? dec(Math.min(l.discountAmount!, Number(gross)))
+        : gross.times(dec(l.discountPercent ?? 0).dividedBy(100));
+
+      const afterDiscount = gross.minus(effectiveDiscount);
+      discountTotal = discountTotal.plus(effectiveDiscount);
+
+      // Derive effective discountPercent for backward compat with existing consumers.
+      const effectivePct = gross.greaterThan(0)
+        ? effectiveDiscount.dividedBy(gross).times(100)
+        : dec(0);
+
+      const discountReason = l.discountReason ?? null;
+      const discountSource = l.discountSource ?? 'manual';
 
       const taxId = l.taxId ?? product?.taxId ?? null;
       let taxRow: any = null;
@@ -115,7 +141,11 @@ export class DocumentBuilderService {
         description: l.description ?? product?.name ?? 'Item',
         quantity,
         unitPrice,
-        discountPercent,
+        discountPercent: effectivePct,
+        discountType: discType,
+        discountAmount: effectiveDiscount,
+        discountReason,
+        discountSource,
         taxId,
         subtotal: result.net,
         taxAmount: result.taxTotal,

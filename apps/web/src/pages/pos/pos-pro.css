@@ -714,7 +714,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   align-items: center;
   justify-content: center;
   gap: 0.3rem;
-  padding: 0.65rem 0.55rem;
+  padding: 0.35rem 0.55rem;
   border-radius: 12px;
   font-size: 0.95rem;
   font-weight: 700;
@@ -723,7 +723,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   cursor: pointer;
   transition: all 0.15s ease;
   position: relative;
-  min-height: 42px;
+  min-height: 38px;
 }
 .pos-action-btn-pro:hover:not(:disabled) {
   transform: translateY(-1px);
@@ -738,11 +738,11 @@ body.pos-terminal-fullscreen .app-shell-header {
   font-size: 0.65rem;
   opacity: 0.6;
   background: rgba(0,0,0,0.15);
-  padding: 1px 4px;
+  padding: 0.5px 4px;
   border-radius: 3px;
   font-weight: 800;
 }
-.pos-action-icon { width: 18px; height: 18px; }
+.pos-action-icon { width: 18px; height: 19px; }
 
 .pos-action-btn-pro.bg-blue { background: #1a7fcf; }
 .pos-action-btn-pro.bg-amber { background: #f59e0b; }

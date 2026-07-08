@@ -16,7 +16,10 @@ interface CartState {
   transactionDiscountPercent: number;
   transactionDiscountType: DiscountType;
   transactionDiscountAmount: number;
+  transactionDiscountReason?: string;
   overrideById?: string;
+  /** P3: manager PIN for F-OVR re-verify at checkout time. Never persisted to local storage. */
+  overridePin?: string;
   cashSessionId?: string;
   /**
    * H2 — optimistic-lock token of the table's open order as last read from the
@@ -67,6 +70,7 @@ interface CartState {
       transactionDiscountType?: DiscountType;
       transactionDiscountAmount?: number;
       overrideById?: string;
+      overridePin?: string;
     },
   ) => void;
   clear: () => void;
@@ -84,7 +88,9 @@ export const useCartStore = create<CartState>()(
       transactionDiscountPercent: 0,
       transactionDiscountType: 'percentage' as DiscountType,
       transactionDiscountAmount: 0,
+      transactionDiscountReason: undefined,
       overrideById: undefined,
+      overridePin: undefined,
       cashSessionId: undefined,
       tabVersion: undefined,
       orderType: undefined,
@@ -148,9 +154,9 @@ export const useCartStore = create<CartState>()(
             l.lineId === lineId
               ? {
                   ...l,
-                  discountPercent: type === 'fixed' ? 0 : Math.max(0, Math.min(100, amount)),
+                  discountPercent: type === 'fixed_amount' ? 0 : Math.max(0, Math.min(100, amount)),
                   discountType: type ?? 'percentage',
-                  discountAmount: type === 'fixed' ? Math.max(0, amount) : undefined,
+                  discountAmount: type === 'fixed_amount' ? Math.max(0, amount) : undefined,
                 }
               : l,
           ),
@@ -162,12 +168,13 @@ export const useCartStore = create<CartState>()(
       removeLine: (lineId) =>
         set((state) => ({ lines: state.lines.filter((l) => l.lineId !== lineId) })),
       setTransactionDiscount: (amount, type) =>
-        set({
-          transactionDiscountPercent: type === 'fixed' ? 0 : Math.max(0, Math.min(100, amount)),
+        set((state) => ({
+          transactionDiscountPercent: type === 'fixed_amount' ? 0 : Math.max(0, Math.min(100, amount)),
           transactionDiscountType: type ?? 'percentage',
-          transactionDiscountAmount: type === 'fixed' ? Math.max(0, amount) : 0,
-        }),
-      setOverrideById: (id) => set({ overrideById: id }),
+          transactionDiscountAmount: type === 'fixed_amount' ? Math.max(0, amount) : 0,
+          transactionDiscountReason: amount > 0 ? state.transactionDiscountReason : undefined,
+        })),
+      setOverrideById: (id) => set({ overrideById: id, overridePin: undefined }),
       setCashSession: (id) => set({ cashSessionId: id }),
       setTabVersion: (v) => set({ tabVersion: v }),
       setOrderType: (type) => set({ orderType: type }),
@@ -179,13 +186,16 @@ export const useCartStore = create<CartState>()(
           transactionDiscountPercent: opts?.transactionDiscountPercent ?? 0,
           transactionDiscountType: opts?.transactionDiscountType ?? 'percentage',
           transactionDiscountAmount: opts?.transactionDiscountAmount ?? 0,
+          transactionDiscountReason: undefined,
           overrideById: opts?.overrideById,
+          overridePin: opts?.overridePin,
           // New order loaded → new sale → fresh idempotency key.
           idempotencyKey: newLineId(),
         }),
       clear: () => set({
         lines: [], transactionDiscountPercent: 0, transactionDiscountType: 'percentage',
-        transactionDiscountAmount: 0, overrideById: undefined,
+        transactionDiscountAmount: 0, transactionDiscountReason: undefined,
+        overrideById: undefined, overridePin: undefined,
         orderType: undefined, tableId: undefined, tableNumber: undefined, tableName: undefined,
         sentToKitchen: false,
         // Previous sale finished → mint a key for the next cart.
@@ -203,7 +213,7 @@ export const useCartStore = create<CartState>()(
 export const selectSubtotal = (state: CartState): number =>
   state.lines.reduce((sum, l) => {
     const lineTotal = l.quantity * l.unitPrice;
-    const discount = l.discountType === 'fixed'
+    const discount = l.discountType === 'fixed_amount'
       ? (l.discountAmount ?? 0)
       : lineTotal * (l.discountPercent / 100);
     return sum + Math.max(0, lineTotal - discount);
@@ -211,7 +221,7 @@ export const selectSubtotal = (state: CartState): number =>
 
 export const selectTxDiscountAmount = (state: CartState): number => {
   const sub = selectSubtotal(state);
-  if (state.transactionDiscountType === 'fixed') {
+  if (state.transactionDiscountType === 'fixed_amount') {
     return Math.min(state.transactionDiscountAmount, sub);
   }
   return sub * (state.transactionDiscountPercent / 100);

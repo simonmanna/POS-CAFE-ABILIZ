@@ -241,10 +241,9 @@ export interface OfflineQueueState {
  *
  * Returns the live state for the badge + indicator.
  */
-export function useOfflineQueue(): OfflineQueueState & { replay: () => Promise<void>; refresh: () => Promise<void> } {
+export function useOfflineQueue(): Omit<OfflineQueueState, 'failed'> & { replay: () => Promise<void> } {
   const [online, setOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [pending, setPending] = useState<QueuedSale[]>([]);
-  const [failed, setFailed] = useState<FailedSale[]>([]);
   const [replaying, setReplaying] = useState(false);
 
   // Wire up online/offline listeners.

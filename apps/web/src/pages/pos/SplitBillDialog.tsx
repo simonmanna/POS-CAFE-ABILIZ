@@ -46,7 +46,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
   const [activeBillId, setActiveBillId] = useState<string | null>(null);
   const [qtyByLine, setQtyByLine] = useState<Record<string, number>>({});
   const [payingBill, setPayingBill] = useState<SplitBill | null>(null);
-  const [receipt, setReceipt] = useState<{ invoiceId: string; invoiceNumber?: string } | null>(null);
+  const [receipt, setReceipt] = useState<{ invoiceId: string; invoiceNumber?: string; receiptHtml?: string } | null>(null);
 
   const bills = state?.bills ?? [];
   const lines = state?.lines ?? [];
@@ -118,7 +118,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
     });
     toast.success(`${payingBill.label} paid — change ${fmt(res.change ?? 0)}`);
     setPayingBill(null);
-    if (res.invoiceId) setTimeout(() => setReceipt({ invoiceId: res.invoiceId, invoiceNumber: res.invoiceNumber }), 100);
+    if (res.invoiceId) setTimeout(() => setReceipt({ invoiceId: res.invoiceId, invoiceNumber: res.invoiceNumber, receiptHtml: res.receiptHtml }), 100);
     if (res.tableClosed) {
       toast.success('All bills paid — table closed');
       onTableClosed?.();
@@ -311,6 +311,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
           open
           invoiceId={receipt.invoiceId}
           invoiceNumber={receipt.invoiceNumber}
+          receiptHtml={receipt.receiptHtml}
           onClose={() => setReceipt(null)}
         />
       ) : null}

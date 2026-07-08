@@ -165,9 +165,6 @@ export class PosMenuService {
     const items = await this.prisma.client.menuItem.findMany({
       where: { isAvailable: true },
       orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-      include: {
-        ingredients: { include: { product: { select: { id: true, code: true, name: true, station: true } } } },
-      },
     });
     return {
       categories: cats.map((c) => ({ ...c, image: this.resolveImage(c.image) })),
@@ -220,12 +217,14 @@ export class PosMenuService {
     description?: string;
     categoryId?: string;
     basePrice?: number;
+    isInventoryTracked?: boolean;
     image?: string;
     preparationTime?: number;
     isAvailable?: boolean;
     displayOrder?: number;
     ingredients?: { productId: string; quantity?: number }[];
   }) {
+    const tracked = input.isInventoryTracked === true;
     return this.prisma.client.$transaction(async (tx) => {
       const item = await tx.menuItem.create({
         data: {
@@ -235,6 +234,7 @@ export class PosMenuService {
           description: input.description,
           categoryId: input.categoryId,
           basePrice: input.basePrice ?? null,
+          isInventoryTracked: tracked,
           image: input.image,
           preparationTime: input.preparationTime ?? null,
           isAvailable: input.isAvailable ?? true,
@@ -264,6 +264,7 @@ export class PosMenuService {
     description: string;
     categoryId: string | null;
     basePrice: number | null;
+    isInventoryTracked: boolean;
     image: string | null;
     preparationTime: number | null;
     isAvailable: boolean;
@@ -271,10 +272,11 @@ export class PosMenuService {
     ingredients: { productId: string; quantity?: number }[];
   }>) {
     await this.getOne(id);
-    const { ingredients, ...data } = patch;
+    const { ingredients, isInventoryTracked, ...data } = patch;
+    const tracked = isInventoryTracked === true;
     return this.prisma.client.$transaction(async (tx) => {
       if (data && Object.keys(data).length > 0) {
-        await tx.menuItem.update({ where: { id }, data });
+        await tx.menuItem.update({ where: { id }, data: { ...data, ...(isInventoryTracked !== undefined ? { isInventoryTracked: tracked } : {}) } });
       }
       if (ingredients) {
         await tx.menuProduct.deleteMany({ where: { menuItemId: id } });

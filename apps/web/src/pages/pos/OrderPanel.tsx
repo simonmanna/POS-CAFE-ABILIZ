@@ -11,8 +11,6 @@ import {
   Tag,
   CreditCard,
   Receipt,
-  MoveRight,
-  Scissors,
   User,
   AlertTriangle,
   Printer,
@@ -38,7 +36,7 @@ interface Props {
   tableId?: string;
   onInc: (line: CartLine) => void;
   onDec: (line: CartLine) => void;
-  onRemove: (line: CartLine) => void;
+  onRemove?: (line: CartLine) => void;
   onNote: (line: CartLine) => void;
   onLineDiscount: (line: CartLine) => void;
   onPrintBill: () => void;
@@ -193,7 +191,7 @@ export const OrderPanel: React.FC<Props> = ({
                 {it.modifiers && it.modifiers.length > 0 ? (
                   <div className="text-[11px] text-amber-700 px-1 truncate">
                     {it.modifiers
-                      .map((m) => m.name)
+                      .map((m) => (m as any).kitchenPrintName ?? m.name)
                       .filter(Boolean)
                       .join(" · ")}
                   </div>
@@ -211,7 +209,7 @@ export const OrderPanel: React.FC<Props> = ({
                     <button type="button" className="pos-card-action" onClick={() => onNote(it)} title="Add note"><StickyNote className="h-3.5 w-3.5" /></button>
                     <button type="button" className="pos-card-action" onClick={() => onLineDiscount(it)} title="Line discount"><Tag className="h-3.5 w-3.5" /></button>
                     {onVoidItem ? <button type="button" className="pos-card-action text-rose-500" onClick={() => onVoidItem(it)} title="Void item"><AlertTriangle className="h-3.5 w-3.5" /></button> : null}
-                    <button type="button" className="pos-card-action danger" onClick={() => onRemove(it)} title="Remove"><Trash2 className="h-3.5 w-3.5" /></button>
+                    {onRemove ? <button type="button" className="pos-card-action danger" onClick={() => onRemove(it)} title="Remove"><Trash2 className="h-3.5 w-3.5" /></button> : null}
                   </div>
                 </div>
               </div>
@@ -247,7 +245,7 @@ export const OrderPanel: React.FC<Props> = ({
           disabled={empty}
           title={billAlreadyPrinted ? 'Print additional bill for new items' : 'Print bill (F8)'}
         >
-          <Receipt className="pos-action-icon" /> {billAlreadyPrinted ? 'Additional Bill' : 'Bill'}{' '}
+          <Receipt className="pos-action-icon" /> {billAlreadyPrinted ? 'Add Bill' : 'Bill'}{' '}
           {!billAlreadyPrinted && <span className="pos-kbd">F8</span>}
         </button>
         <button
@@ -287,7 +285,7 @@ export const OrderPanel: React.FC<Props> = ({
           onClick={onAddDiscount}
           disabled={empty}
         >
-          <Tag className="pos-action-icon" /> Discount
+         Discount
         </button>
 
         {onMoveItems ? (
@@ -298,7 +296,7 @@ export const OrderPanel: React.FC<Props> = ({
             disabled={empty}
             title="Move selected items to another table"
           >
-            <MoveRight className="pos-action-icon" /> Move Items
+          Move Items
           </button>
         ) : null}
 
@@ -309,8 +307,7 @@ export const OrderPanel: React.FC<Props> = ({
           disabled={empty}
           title={tableId ? "Split this table's bill into separate payments" : 'Split payment across tenders'}
         >
-          <Scissors className="pos-action-icon" /> Split{" "}
-          <span className="pos-kbd">F4</span>
+         Split
         </button>
       </div>
     </div>

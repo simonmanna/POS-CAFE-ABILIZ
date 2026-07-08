@@ -29,7 +29,7 @@ export interface KdsTicketItem {
   productId: string;
   productName: string;
   quantity: number;
-  modifiers: Array<{ name: string; priceDelta?: number }>;
+  modifiers: Array<{ name: string; kitchenPrintName?: string | null; priceDelta?: number }>;
   notes: string | null;
   station: 'bar' | 'kitchen' | 'cafe';
   variantName?: string;
@@ -118,7 +118,7 @@ export class PosKdsService {
       notes?: string | null;
       variantName?: string;
       accompanimentNames?: string[];
-      modifiers?: Array<{ name: string; priceDelta?: number }>;
+      modifiers?: Array<{ name: string; kitchenPrintName?: string | null; priceDelta?: number }>;
     }>;
   }): Promise<string[]> {
     const orgId = this.tenant.organizationId;
@@ -159,7 +159,7 @@ export class PosKdsService {
       productId: it.productId,
       productName: it.productName,
       quantity: Math.max(1, Number(it.quantity ?? 1)),
-      modifiers: (it.modifiers ?? []).map((m) => ({ name: m.name, priceDelta: Number(m.priceDelta) })),
+      modifiers: (it.modifiers ?? []).map((m) => ({ name: m.name, kitchenPrintName: (m as any).kitchenPrintName ?? null, priceDelta: Number(m.priceDelta) })),
       notes: it.notes ?? null,
       station: stationMap.get(it.productId) ?? 'cafe',
       variantName: it.variantName,

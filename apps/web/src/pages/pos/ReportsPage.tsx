@@ -627,10 +627,10 @@ const SalesReportView: React.FC<{
     }),
     { subtotal: 0, discount: 0, totalAmount: 0 },
   );
-  const sCsvHeaders = ['Order #', 'Invoice #', 'Sale Date', 'Subtotal', 'Discount', 'Total Amount', 'Waiter'];
+  const sCsvHeaders = ['Order #', 'Invoice #', 'Sale Date', 'Time', 'Subtotal', 'Discount', 'Total Amount', 'Waiter'];
   const handleSalesCSV = () => {
     const data = rows.map((r) => [
-      r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(),
+      r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(), r.time || new Date(r.saleDate).toLocaleTimeString(),
       String(Number(r.subtotal).toFixed(2)), String(Number(r.discount).toFixed(2)),
       String(Number(r.totalAmount).toFixed(2)), r.waiterName ?? '—',
     ]);
@@ -638,7 +638,7 @@ const SalesReportView: React.FC<{
   };
   const handleSalesPDF = () => {
     const data = rows.map((r) => [
-      r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(),
+      r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(), r.time || new Date(r.saleDate).toLocaleTimeString(),
       fmt(r.subtotal), fmt(r.discount), fmt(r.totalAmount), r.waiterName ?? '—',
     ]);
     exportPDF(`sales-report-${fromDate}-${toDate}.pdf`, `Sales Report — ${fromDate} → ${toDate}`, sCsvHeaders, data);
@@ -679,6 +679,7 @@ const SalesReportView: React.FC<{
                   <th className="py-2 pr-3">Order #</th>
                   <th className="py-2 pr-3">Invoice #</th>
                   <th className="py-2 pr-3">Sale Date</th>
+                  <th className="py-2 pr-3">Time</th>
                   <th className="py-2 pr-3 text-right">Subtotal</th>
                   <th className="py-2 pr-3 text-right">Discount</th>
                   <th className="py-2 pr-3 text-right">Total Amount</th>
@@ -692,6 +693,7 @@ const SalesReportView: React.FC<{
                     <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{r.invoiceNumber}</td>
                     <td className="py-2 pr-3 text-xs">{new Date(r.saleDate).toLocaleDateString()}</td>
+                    <td className="py-2 pr-3 text-xs">{r.time || new Date(r.saleDate).toLocaleTimeString()}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(r.subtotal)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(r.discount)}</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
@@ -706,7 +708,7 @@ const SalesReportView: React.FC<{
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 pr-3" colSpan={3}>Total</td>
+                  <td className="py-2 pr-3" colSpan={4}>Total</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(totals.subtotal)}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(totals.discount)}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(totals.totalAmount)}</td>
@@ -735,10 +737,10 @@ const CashierReportView: React.FC<{
     (s, r) => ({ salesAmount: s.salesAmount + Number(r.salesAmount), received: s.received + Number(r.received) }),
     { salesAmount: 0, received: 0 },
   );
-  const cashierCsvHeaders = ['Cashier', 'Order', 'Invoice', 'Sales Amount', 'Payment Method', 'Received'];
+  const cashierCsvHeaders = ['Cashier', 'Order', 'Invoice', 'Time', 'Sales Amount', 'Payment Method', 'Received'];
   const handleCashierCSV = () => {
     const data = rows.map((r) => [
-      r.cashierName ?? '—', r.orderNumber, r.invoiceNumber,
+      r.cashierName ?? '—', r.orderNumber, r.invoiceNumber, r.time || '',
       String(Number(r.salesAmount).toFixed(2)), r.paymentMethod ?? '—',
       String(Number(r.received).toFixed(2)),
     ]);
@@ -746,7 +748,7 @@ const CashierReportView: React.FC<{
   };
   const handleCashierPDF = () => {
     const data = rows.map((r) => [
-      r.cashierName ?? '—', r.orderNumber, r.invoiceNumber,
+      r.cashierName ?? '—', r.orderNumber, r.invoiceNumber, r.time || '',
       fmt(r.salesAmount), r.paymentMethod ?? '—', fmt(r.received),
     ]);
     exportPDF(`cashier-report-${fromDate}-${toDate}.pdf`, `Cashier Report — ${fromDate} → ${toDate}`, cashierCsvHeaders, data);
@@ -781,38 +783,40 @@ const CashierReportView: React.FC<{
           <p className="text-sm text-slate-500">No sales in this date range.</p>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b border-slate-200 text-slate-600">
-                  <th className="py-2 pr-3">Cashier</th>
-                  <th className="py-2 pr-3">Order</th>
-                  <th className="py-2 pr-3">Invoice</th>
-                  <th className="py-2 pr-3 text-right">Sales Amount</th>
-                  <th className="py-2 pr-3">Payment Method</th>
-                  <th className="py-2 pr-3 text-right">Received</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 text-xs">{r.cashierName ?? '—'}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{r.invoiceNumber}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(r.salesAmount)}</td>
-                    <td className="py-2 pr-3 text-xs capitalize">{r.paymentMethod ?? '—'}</td>
-                    <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.received)}</td>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left border-b border-slate-200 text-slate-600">
+                    <th className="py-2 pr-3">Cashier</th>
+                    <th className="py-2 pr-3">Order</th>
+                    <th className="py-2 pr-3">Invoice</th>
+                    <th className="py-2 pr-3">Time</th>
+                    <th className="py-2 pr-3 text-right">Sales Amount</th>
+                    <th className="py-2 pr-3">Payment Method</th>
+                    <th className="py-2 pr-3 text-right">Received</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 pr-3" colSpan={3}>Total ({rows.length} sales)</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.salesAmount)}</td>
-                  <td className="py-2 pr-3" />
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.received)}</td>
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i} className="border-b border-slate-100">
+                      <td className="py-2 pr-3 text-xs">{r.cashierName ?? '—'}</td>
+                      <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
+                      <td className="py-2 pr-3 font-mono text-xs">{r.invoiceNumber}</td>
+                      <td className="py-2 pr-3 text-xs">{r.time || ''}</td>
+                      <td className="py-2 pr-3 text-right font-mono">{fmt(r.salesAmount)}</td>
+                      <td className="py-2 pr-3 text-xs capitalize">{r.paymentMethod ?? '—'}</td>
+                      <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.received)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
+                    <td className="py-2 pr-3" colSpan={4}>Total ({rows.length} sales)</td>
+                    <td className="py-2 pr-3 text-right font-mono">{fmt(totals.salesAmount)}</td>
+                    <td className="py-2 pr-3" />
+                    <td className="py-2 pr-3 text-right font-mono">{fmt(totals.received)}</td>
+                  </tr>
+                </tfoot>
+              </table>
           </div>
         )}
       </div>
@@ -948,13 +952,13 @@ const WaiterReportView: React.FC<{
     }),
     { quantity: 0, total: 0 },
   );
-  const waiterCsvHeaders = ['Waiter', 'Order #', 'Table', 'Item', 'Qty', 'Unit Price', 'Discount %', 'Total', 'Date'];
+  const waiterCsvHeaders = ['Waiter', 'Order #', 'Table', 'Item', 'Qty', 'Unit Price', 'Discount %', 'Total', 'Date', 'Time'];
   const handleWaiterCSV = () => {
     const data = rows.map((r) => [
       r.waiterName ?? '—', r.orderNumber, r.tableName ?? '—', r.item,
       String(Number(r.quantity).toFixed(2)), String(Number(r.unitPrice).toFixed(2)),
       r.discountPercent, String(Number(r.total).toFixed(2)),
-      new Date(r.date).toLocaleDateString(),
+      new Date(r.date).toLocaleDateString(), r.time || new Date(r.date).toLocaleTimeString(),
     ]);
     exportCSV(`waiter-report-${fromDate}-${toDate}.csv`, waiterCsvHeaders, data);
   };
@@ -963,7 +967,7 @@ const WaiterReportView: React.FC<{
       r.waiterName ?? '—', r.orderNumber, r.tableName ?? '—', r.item,
       String(Number(r.quantity).toFixed(2)), fmt(r.unitPrice),
       `${r.discountPercent}%`, fmt(r.total),
-      new Date(r.date).toLocaleDateString(),
+      new Date(r.date).toLocaleDateString(), r.time || new Date(r.date).toLocaleTimeString(),
     ]);
     exportPDF(`waiter-report-${fromDate}-${toDate}.pdf`, `Waiter Report — ${fromDate} → ${toDate}`, waiterCsvHeaders, data);
   };
@@ -1009,6 +1013,7 @@ const WaiterReportView: React.FC<{
                   <th className="py-2 pr-3 text-right">Discount %</th>
                   <th className="py-2 pr-3 text-right">Total</th>
                   <th className="py-2 pr-3">Date</th>
+                  <th className="py-2 pr-3">Time</th>
                 </tr>
               </thead>
               <tbody>
@@ -1023,6 +1028,7 @@ const WaiterReportView: React.FC<{
                     <td className="py-2 pr-3 text-right font-mono">{r.discountPercent}%</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.total)}</td>
                     <td className="py-2 pr-3 text-xs">{new Date(r.date).toLocaleDateString()}</td>
+                    <td className="py-2 pr-3 text-xs">{r.time || new Date(r.date).toLocaleTimeString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1030,7 +1036,7 @@ const WaiterReportView: React.FC<{
                 <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
                   <td className="py-2 pr-3" colSpan={4}>Total</td>
                   <td className="py-2 pr-3 text-right font-mono">{totals.quantity.toFixed(2)}</td>
-                  <td className="py-2 pr-3" colSpan={2} />
+                  <td className="py-2 pr-3" colSpan={3} />
                   <td className="py-2 pr-3 text-right font-mono">{fmt(totals.total)}</td>
                   <td className="py-2 pr-3" />
                 </tr>
@@ -1053,19 +1059,19 @@ const OrderReportView: React.FC<{
   loading: boolean;
 }> = ({ fromDate, setFromDate, toDate, setToDate, orderType, setOrderType, rows, loading }) => {
   const totalAmount = rows.reduce((s, r) => s + Number(r.totalAmount), 0);
-  const orderCsvHeaders = ['Order No', 'Date', 'Table', 'Waiter', 'Customer', 'Status', 'Total'];
+  const orderCsvHeaders = ['Order No', 'Date', 'Time', 'Table', 'Waiter', 'Customer', 'Status', 'Total'];
   const handleOrderCSV = () => {
     const data = rows.map((r) => [
-      r.orderNumber, new Date(r.date).toLocaleString(), r.tableName ?? '—',
-      r.waiterName ?? '—', r.customerName ?? '—', r.status,
+      r.orderNumber, new Date(r.date).toLocaleDateString(), r.time || new Date(r.date).toLocaleTimeString(),
+      r.tableName ?? '—', r.waiterName ?? '—', r.customerName ?? '—', r.status,
       String(Number(r.totalAmount).toFixed(2)),
     ]);
     exportCSV(`order-report-${fromDate}-${toDate}.csv`, orderCsvHeaders, data);
   };
   const handleOrderPDF = () => {
     const data = rows.map((r) => [
-      r.orderNumber, new Date(r.date).toLocaleString(), r.tableName ?? '—',
-      r.waiterName ?? '—', r.customerName ?? '—', r.status,
+      r.orderNumber, new Date(r.date).toLocaleDateString(), r.time || new Date(r.date).toLocaleTimeString(),
+      r.tableName ?? '—', r.waiterName ?? '—', r.customerName ?? '—', r.status,
       fmt(r.totalAmount),
     ]);
     exportPDF(`order-report-${fromDate}-${toDate}.pdf`, `Order Report — ${fromDate} → ${toDate}`, orderCsvHeaders, data);
@@ -1105,6 +1111,7 @@ const OrderReportView: React.FC<{
                 <tr className="text-left border-b border-slate-200 text-slate-600">
                   <th className="py-2 pr-3">Order No</th>
                   <th className="py-2 pr-3">Date</th>
+                  <th className="py-2 pr-3">Time</th>
                   <th className="py-2 pr-3">Table</th>
                   <th className="py-2 pr-3">Waiter</th>
                   <th className="py-2 pr-3">Customer</th>
@@ -1116,7 +1123,8 @@ const OrderReportView: React.FC<{
                 {rows.map((r, i) => (
                   <tr key={i} className="border-b border-slate-100">
                     <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
-                    <td className="py-2 pr-3 text-xs">{new Date(r.date).toLocaleString()}</td>
+                    <td className="py-2 pr-3 text-xs">{new Date(r.date).toLocaleDateString()}</td>
+                    <td className="py-2 pr-3 text-xs">{r.time || new Date(r.date).toLocaleTimeString()}</td>
                     <td className="py-2 pr-3 text-xs">{r.tableName ?? '—'}</td>
                     <td className="py-2 pr-3 text-xs">{r.waiterName ?? '—'}</td>
                     <td className="py-2 pr-3 text-xs">{r.customerName ?? '—'}</td>
@@ -1127,7 +1135,7 @@ const OrderReportView: React.FC<{
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 pr-3" colSpan={6}>Total ({rows.length} orders)</td>
+                  <td className="py-2 pr-3" colSpan={7}>Total ({rows.length} orders)</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(totalAmount)}</td>
                 </tr>
               </tfoot>
@@ -1151,10 +1159,10 @@ const ItemsReportView: React.FC<{
   loading: boolean;
 }> = ({ fromDate, setFromDate, toDate, setToDate, categoryId, setCategoryId, orderType, setOrderType, categories, items, loading }) => {
   const grandTotal = items.reduce((s, i) => s + Number(i.totalAmount), 0);
-  const itemsCsvHeaders = ['Order #', 'Invoice #', 'Sale Date', 'Item', 'Category', 'Unit Price', 'Discount %', 'Qty', 'Total Amount', 'Waiter'];
+  const itemsCsvHeaders = ['Order #', 'Invoice #', 'Sale Date', 'Time', 'Item', 'Category', 'Unit Price', 'Discount %', 'Qty', 'Total Amount', 'Waiter'];
   const handleItemsCSV = () => {
     const data = items.map((it) => [
-      it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(),
+      it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(), it.time || new Date(it.saleDate).toLocaleTimeString(),
       it.item, it.categoryName ?? '—', String(Number(it.unitPrice).toFixed(2)),
       it.discountPercent, String(Number(it.quantity).toFixed(2)),
       String(Number(it.totalAmount).toFixed(2)), it.waiterName ?? '—',
@@ -1163,7 +1171,7 @@ const ItemsReportView: React.FC<{
   };
   const handleItemsPDF = () => {
     const data = items.map((it) => [
-      it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(),
+      it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(), it.time || new Date(it.saleDate).toLocaleTimeString(),
       it.item, it.categoryName ?? '—', fmt(it.unitPrice),
       `${it.discountPercent}%`, String(Number(it.quantity).toFixed(2)),
       fmt(it.totalAmount), it.waiterName ?? '—',
@@ -1219,6 +1227,7 @@ const ItemsReportView: React.FC<{
                   <th className="py-2 pr-3">Order #</th>
                   <th className="py-2 pr-3">Invoice #</th>
                   <th className="py-2 pr-3">Sale Date</th>
+                  <th className="py-2 pr-3">Time</th>
                   <th className="py-2 pr-3">Item</th>
                   <th className="py-2 pr-3">Category</th>
                   <th className="py-2 pr-3 text-right">Unit Price</th>
@@ -1234,6 +1243,7 @@ const ItemsReportView: React.FC<{
                     <td className="py-2 pr-3 font-mono text-xs">{it.orderNumber}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{it.invoiceNumber}</td>
                     <td className="py-2 pr-3 text-xs">{new Date(it.saleDate).toLocaleDateString()}</td>
+                    <td className="py-2 pr-3 text-xs">{it.time || new Date(it.saleDate).toLocaleTimeString()}</td>
                     <td className="py-2 pr-3 font-semibold">{it.item}</td>
                     <td className="py-2 pr-3 text-xs text-slate-500">{it.categoryName ?? '—'}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(it.unitPrice)}</td>
@@ -1246,7 +1256,7 @@ const ItemsReportView: React.FC<{
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 pr-3" colSpan={7}>Total</td>
+                  <td className="py-2 pr-3" colSpan={8}>Total</td>
                   <td className="py-2 pr-3 text-right font-mono">
                     {items.reduce((s, i) => s + Number(i.quantity), 0).toFixed(2)}
                   </td>

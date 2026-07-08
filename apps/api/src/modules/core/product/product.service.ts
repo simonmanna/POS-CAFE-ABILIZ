@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Product } from '@prisma/client';
 import type { PaginatedResult, PaginationQuery } from '@erp/shared';
 import { DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '@erp/shared';
@@ -29,7 +29,7 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
     const page = Math.max(1, Number(query.page) || DEFAULT_PAGE);
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, Number(query.pageSize) || DEFAULT_PAGE_SIZE));
 
-    const where: Record<string, unknown> = {};
+    const where: Record<string, unknown> = { isActive: true };
     if (query.search && this.searchFields.length > 0) {
       where.OR = this.searchFields.map((field) => ({
         [field]: { contains: query.search, mode: 'insensitive' },
@@ -90,12 +90,34 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
   }
 
   async remove(id: string): Promise<void> {
-    await super.remove(id);
+    const existing = await this.delegate.findFirst({ where: { id } });
+    if (!existing) throw new NotFoundException(`Product ${id} not found`);
+    await this.delegate.updateMany({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
     this.events.publish('product.deleted', {
       id,
       organizationId: this.tenant.organizationId,
     });
     await this.audit.record({ entity: 'Product', entityId: id, action: 'delete' });
+  }
+
+  async restore(id: string): Promise<Product> {
+    const existing = await this.prisma.client.product.findFirst({ where: { id, deletedAt: { not: null } } });
+    if (!existing) throw new NotFoundException(`Deleted Product ${id} not found`);
+    const updated = await this.prisma.client.product.update({ where: { id }, data: { deletedAt: null, isActive: true } });
+    this.events.publish('product.restored', {
+      id,
+      organizationId: this.tenant.organizationId,
+    });
+    await this.audit.record({ entity: 'Product', entityId: id, action: 'restore' });
+    return updated;
+  }
+
+  listDeleted() {
+    return this.delegate.findMany({
+      where: { deletedAt: { not: null } },
+      orderBy: { deletedAt: 'desc' },
+      include: this.defaultInclude,
+    });
   }
 
   async search(q: string, pageSize = 20) {

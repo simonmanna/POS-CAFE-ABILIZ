@@ -6,6 +6,7 @@ import { AuditService } from '../../../kernel/audit/audit.service';
 import { dec } from '../../../kernel/common/money';
 import { PosOrdersService } from '../order/pos-orders.service';
 import { PosInvoiceService } from '../billing/pos-invoice.service';
+import { PosReceiptsService } from '../pos-receipts.service';
 import { PosTablesService } from '../pos-tables.service';
 import type { PaymentTender } from '../pos.service';
 
@@ -39,6 +40,7 @@ export class PosSplitService {
     private readonly audit: AuditService,
     private readonly orders: PosOrdersService,
     private readonly billing: PosInvoiceService,
+    private readonly receipts: PosReceiptsService,
     private readonly tables: PosTablesService,
   ) {}
 
@@ -221,6 +223,9 @@ export class PosSplitService {
         unitPrice: Number(src.unitPrice),
         taxId: src.taxId ?? null,
         discountPercent: Number(src.discountPercent ?? 0),
+        discountType: src.discountType ?? undefined,
+        discountAmount: src.discountAmount ? Number(src.discountAmount) : undefined,
+        discountReason: src.discountReason ?? null,
         taxInclusive: (src as any).taxInclusive,
         note: null,
         modifiers: (src.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId ?? '', name: m.name, priceDelta: Number(m.priceDelta) })),
@@ -271,6 +276,11 @@ export class PosSplitService {
 
     const tableClosed = await this.maybeCloseTable(bill.tableId, bill.sourceOrderId);
 
+    let receiptHtml: string | undefined;
+    try {
+      receiptHtml = await this.receipts.buildHtmlReceipt(invoice.id);
+    } catch { /* non-fatal */ }
+
     return {
       billId,
       invoiceId: invoice.id,
@@ -278,6 +288,7 @@ export class PosSplitService {
       settlementStatus: pay?.settlementStatus ?? 'settled',
       change: pay?.change ?? 0,
       tableClosed,
+      receiptHtml,
     };
   }
 

@@ -15,7 +15,7 @@ interface Props {
     productName: string;
     unitPrice: number;
     sku: string | null;
-    modifiers: Array<{ modifierId: string; name: string; priceDelta: number }>;
+    modifiers: Array<{ modifierId: string; name: string; kitchenPrintName?: string | null; priceDelta: number }>;
     quantity: number;
     note: string;
     taxInclusive?: boolean;
@@ -289,19 +289,12 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
               />
             </div>
 
-            {/* Price breakdown */}
-            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 flex items-center justify-between">
-              <span className="text-sm font-semibold text-amber-900">Base price</span>
-              <span className="font-mono font-bold text-amber-900">{fmt(effectiveBasePrice)}</span>
-            </div>
-            {extraPrice !== 0 ? (
-              <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 flex items-center justify-between">
-                <span className="text-sm font-semibold text-emerald-900">+ Modifiers / add-ons</span>
-                <span className="font-mono font-bold text-emerald-900">+{fmt(extraPrice)}</span>
-              </div>
-            ) : null}
+            {/* Combined price (base + extras) */}
             <div className="rounded-lg bg-slate-900 text-white px-3 py-3 flex items-center justify-between">
-              <span className="text-sm font-semibold">Line total{quantity > 1 ? ` (×${quantity})` : ''}</span>
+              <span className="text-sm font-semibold">
+                Item price
+                {quantity > 1 ? ` (×${quantity} @ ${fmt(effectiveBasePrice + extraPrice)} each)` : ''}
+              </span>
               <span className="font-mono font-bold text-lg">{fmt((effectiveBasePrice + extraPrice) * quantity)}</span>
             </div>
 
@@ -327,19 +320,19 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
           <Button
             onClick={() => {
               if (!bundle || !validation.ok) return;
-              const modifiers: Array<{ modifierId: string; name: string; priceDelta: number }> = [];
+              const modifiers: Array<{ modifierId: string; name: string; kitchenPrintName: string | null; priceDelta: number }> = [];
               for (const g of bundle.groups) {
                 if (g.groupType === 'MODIFIER') {
                   for (const m of g.modifiers) {
                     if (modifierSelection[g.id]?.has(m.id)) {
-                      modifiers.push({ modifierId: m.id, name: m.name, priceDelta: Number(m.priceDelta) });
+                      modifiers.push({ modifierId: m.id, name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, priceDelta: Number(m.priceDelta) });
                     }
                   }
                 } else {
                   for (const m of g.modifiers) {
                     const qty = addonQty[g.id]?.[m.id] ?? 0;
                     for (let i = 0; i < qty; i++) {
-                      modifiers.push({ modifierId: m.id, name: m.name, priceDelta: Number(m.priceDelta) });
+                      modifiers.push({ modifierId: m.id, name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, priceDelta: Number(m.priceDelta) });
                     }
                   }
                 }

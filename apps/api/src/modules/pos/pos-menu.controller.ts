@@ -35,6 +35,8 @@ class CreateMenuItemDto {
   @ApiProperty({ required: false }) @IsOptional() @IsUUID() categoryId?: string;
   @ApiProperty({ required: false, description: 'Whole currency units (UGX). E.g. 5000 = UGX 5,000' })
   @IsOptional() @IsNumber() basePrice?: number;
+  @ApiProperty({ required: false, default: true })
+  @IsOptional() @IsBoolean() isInventoryTracked?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsString() image?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() preparationTime?: number;
   @ApiProperty({ required: false, default: true }) @IsOptional() @IsBoolean() isAvailable?: boolean;
@@ -54,6 +56,8 @@ class UpdateMenuItemDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() description?: string;
   @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsUUID() categoryId?: string | null;
   @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsNumber() basePrice?: number | null;
+  @ApiProperty({ required: false, default: true })
+  @IsOptional() @IsBoolean() isInventoryTracked?: boolean;
   @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() image?: string | null;
   @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsNumber() preparationTime?: number | null;
   @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isAvailable?: boolean;
@@ -89,6 +93,7 @@ class UpdateVariantDto {
 
 class CreateAccompanimentGroupDto {
   @ApiProperty() @IsString() name!: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() category?: string;
   @ApiProperty({ required: false, default: true }) @IsOptional() @IsBoolean() isRequired?: boolean;
   @ApiProperty({ required: false, default: 1 }) @IsOptional() @IsNumber() @Min(0) @Max(999) minSelect?: number;
   @ApiProperty({ required: false, default: 1 }) @IsOptional() @IsNumber() @Min(0) @Max(999) maxSelect?: number;
@@ -97,6 +102,7 @@ class CreateAccompanimentGroupDto {
 
 class UpdateAccompanimentGroupDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() name?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() category?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isRequired?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(999) minSelect?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(999) maxSelect?: number;
@@ -234,8 +240,24 @@ export class PosMenuController {
 
   @Get('accompaniments/groups')
   @RequirePermissions('pos:read')
-  listAllAccompanimentGroups() {
-    return this.accompanimentSvc.listAllGroups();
+  listAllAccompanimentGroups(
+    @Query('search') search?: string,
+    @Query('isActive') isActive?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.accompanimentSvc.listAllGroups({
+      search,
+      isActive: isActive !== undefined ? isActive === 'true' : undefined,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+    });
+  }
+
+  @Get('accompaniments/report/sales')
+  @RequirePermissions('pos:reports')
+  accompanimentSalesReport(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.accompanimentSvc.accompanimentSalesReport(from, to);
   }
 
   @Post('accompaniments/groups')

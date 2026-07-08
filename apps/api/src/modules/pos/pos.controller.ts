@@ -43,6 +43,9 @@ class CheckoutLineModifierDto implements CheckoutLineModifier {
   @ApiProperty() @IsString() modifierId!: string;
   @ApiProperty() @IsString() name!: string;
   @ApiProperty() @IsNumber() priceDelta!: number;
+  // Display echo for the kitchen ticket; server re-resolves from modifierId.
+  // Whitelisted so forbidNonWhitelisted doesn't 400 the save.
+  @ApiProperty({ required: false }) @IsOptional() @IsString() kitchenPrintName?: string;
 }
 
 class CheckoutLineDto implements CheckoutLine {
@@ -55,6 +58,9 @@ class CheckoutLineDto implements CheckoutLine {
   @ApiProperty() @IsNumber() unitPrice!: number;
   @ApiProperty({ required: false }) @IsOptional() @IsString() taxId?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() discountPercent?: number;
+  @ApiProperty({ required: false, enum: ['percentage', 'fixed_amount'] }) @IsOptional() @IsIn(['percentage', 'fixed_amount']) discountType?: 'percentage' | 'fixed_amount';
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() discountReason?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() note?: string;
   @ApiProperty({ required: false, type: [CheckoutLineModifierDto], description: 'P4 add-ons; priceDeltas are folded into the line total server-side.' })
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CheckoutLineModifierDto)
@@ -101,8 +107,16 @@ class CheckoutDto implements CheckoutInput {
   lines!: CheckoutLineDto[];
   @ApiProperty({ required: false, description: 'Transaction-level discount percent (0–100). Default 0.' })
   @IsOptional() @IsNumber() transactionDiscountPercent?: number;
-  @ApiProperty({ required: false, description: 'Manager user id; required when discount > 10%.' })
+  @ApiProperty({ required: false, enum: ['percentage', 'fixed_amount'], description: 'Transaction-level discount type.' })
+  @IsOptional() @IsIn(['percentage', 'fixed_amount']) transactionDiscountType?: 'percentage' | 'fixed_amount';
+  @ApiProperty({ required: false, description: 'Transaction-level fixed discount amount (currency).' })
+  @IsOptional() @IsNumber() @Min(0) transactionDiscountAmount?: number;
+  @ApiProperty({ required: false, description: 'Reason for the discount.' })
+  @IsOptional() @IsString() discountReason?: string;
+  @ApiProperty({ required: false, description: 'Manager user id; required when discount exceeds tier1 threshold.' })
   @IsOptional() @IsString() overrideById?: string;
+  @ApiProperty({ required: false, description: 'Manager PIN; required when overrideById is set (F-OVR).' })
+  @IsOptional() @IsString() overridePin?: string;
   @ApiProperty({ required: false, type: [PaymentTenderDto], description: 'Split tender. Sum must equal total.' })
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => PaymentTenderDto)
   tenders?: PaymentTenderDto[];
@@ -176,6 +190,12 @@ class SettleTabDto {
   @IsOptional() @IsString() paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() amountTendered?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() transactionDiscountPercent?: number;
+  @ApiProperty({ required: false, enum: ['percentage', 'fixed_amount'] })
+  @IsOptional() @IsIn(['percentage', 'fixed_amount']) transactionDiscountType?: 'percentage' | 'fixed_amount';
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) transactionDiscountAmount?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() discountReason?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() overrideById?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() overridePin?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() cashSessionId?: string;
 }
 

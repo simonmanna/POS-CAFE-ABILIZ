@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Coffee, Edit, Plus, Trash2, Search, Eye,
+  Coffee, Edit, PlusCircle, Trash2, Search, Eye,
   Tag, FolderOpen, List, DollarSign, Clock, Layers, RotateCcw,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
@@ -133,7 +133,7 @@ export function MenuPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-[400px_1fr] gap-6">
         {/* Categories Sidebar */}
         {canViewCat && (
           <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -150,9 +150,10 @@ export function MenuPage() {
                     size="sm"
                     variant="ghost"
                     onClick={() => setCatDialog({ open: true })}
-                    className="h-8 w-8 p-0 text-white hover:bg-white/20"
+                    className="h-8 bg-white text-[#3b82f6] hover:bg-white/90 rounded-full px-2"
                   >
-                    <Plus className="h-4 w-4" />
+                    <PlusCircle className="h-4 w-4" />
+                    <span className="text-xs font-medium">Add Category</span>
                   </Button>
                 )}
               </div>
@@ -314,8 +315,8 @@ export function MenuPage() {
                     onClick={() => setItemDialog({ open: true })}
                     className="gap-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white"
                   >
-                    <Plus className="h-4 w-4" />
-                    Add menu item
+                  <PlusCircle className="h-4 w-4" />
+                  Add menu item
                   </Button>
                 )}
               </div>
@@ -343,7 +344,7 @@ export function MenuPage() {
                     onClick={() => setItemDialog({ open: true })}
                     className="mt-4 bg-[#3b82f6] hover:bg-[#2563eb] text-white"
                   >
-                    <Plus className="mr-2 h-4 w-4" />
+                    <PlusCircle className="mr-2 h-4 w-4" />
                     Add Menu Item
                   </Button>
                 )}
@@ -415,7 +416,7 @@ export function MenuPage() {
         onSubmit={(input) =>
           new Promise<void>((resolve, reject) => {
             const onSuccess = () => { notify.success(itemDialog.item ? 'Item updated successfully' : 'Item created successfully'); resolve(); };
-            const onError = (e: any) => { notify.error(e?.message ?? 'Could not save item'); reject(e); };
+            const onError = (e: any) => { notify.error(e?.response?.data?.message ?? e?.message ?? 'Could not save item'); reject(e); };
             if (itemDialog.item) {
               updateItem.mutate(
                 { id: itemDialog.item.id, patch: input },

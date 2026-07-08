@@ -102,10 +102,25 @@ export function InvoicesPage() {
       render: (inv) => <span className="text-sm text-muted-foreground">{statusLabel(inv.paymentStatus)}</span>,
     },
     {
-      key: 'discountTotal',
+      key: 'discount',
       header: 'Discount',
       className: 'text-right',
-      render: (inv) => <span className="text-slate-400">{money(inv.discountTotal)}</span>,
+      render: (inv) => {
+        const hasDiscount = Number(inv.discountTotal) > 0;
+        if (!hasDiscount) return <span className="text-slate-300">—</span>;
+        const typeLabel = inv.discountType === 'fixed_amount'
+          ? ` (fixed)`
+          : inv.discountValue && Number(inv.discountValue) > 0
+            ? ` (${Number(inv.discountValue).toFixed(1)}%)`
+            : '';
+        return (
+          <div className="text-right">
+            <div className="text-amber-700 font-medium">-{money(inv.discountTotal)}</div>
+            {inv.discountReason ? <div className="text-[10px] text-slate-400">{inv.discountReason}</div> : null}
+            {typeLabel ? <div className="text-[10px] text-slate-400">{typeLabel.trim()}</div> : null}
+          </div>
+        );
+      },
     },
     {
       key: 'paymentMode',

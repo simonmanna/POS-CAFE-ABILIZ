@@ -33,12 +33,13 @@ interface Props {
   /** Selected customer's redeemable store-credit balance (0 / undefined hides it). */
   storeCreditBalance?: number;
   /** Called by parent when the cashier needs to verify a manager. */
-  onRequestOverride: (kind: 'discount' | 'void' | 'manual_refund') => Promise<string | null>;
+  onRequestOverride: (kind: 'discount' | 'void' | 'manual_refund') => Promise<{managerId: string; pin: string} | null>;
   onClose: () => void;
   onSettle: (input: {
     tenders: PaymentTender[];
     transactionDiscountPercent: number;
     overrideById?: string;
+    overridePin?: string;
   }) => Promise<void>;
   /** Enables the "Charge to account" (postpaid credit) action — true when a real customer is selected. */
   creditEnabled?: boolean;
@@ -59,10 +60,11 @@ export const PaymentDialog: React.FC<Props> = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overrideId, setOverrideId] = useState<string | undefined>(undefined);
+  const [overridePin, setOverridePin] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!open) return;
-    setTenders([]); setTendered(''); setReference(''); setError(null); setOverrideId(undefined);
+    setTenders([]); setTendered(''); setReference(''); setError(null); setOverrideId(undefined); setOverridePin(undefined);
     setActiveMethod('cash');
   }, [open]);
 
@@ -124,6 +126,7 @@ export const PaymentDialog: React.FC<Props> = ({
         tenders,
         transactionDiscountPercent: 0,
         overrideById: overrideId,
+        overridePin: overridePin,
       });
     } catch (e: any) {
       setError(e?.message || e?.response?.data?.message || 'Payment failed');
@@ -147,8 +150,8 @@ export const PaymentDialog: React.FC<Props> = ({
   };
 
   const requestOverride = async () => {
-    const mgrId = await onRequestOverride('discount');
-    if (mgrId) setOverrideId(mgrId);
+    const result = await onRequestOverride('discount');
+    if (result) { setOverrideId(result.managerId); setOverridePin(result.pin); }
   };
 
   return (

@@ -52,6 +52,8 @@ class CreateTableBody implements CreateTableDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() notes?: string;
   @ApiProperty({ required: false }) @IsOptional() active?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsString() assignedWaiterId?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsInt() sortOrder?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() qrCodeUrl?: string;
 }
 
 class UpdateTableBody {
@@ -69,12 +71,14 @@ class UpdateTableBody {
   @ApiProperty({ required: false }) @IsOptional() @IsString() notes?: string;
   @ApiProperty({ required: false }) @IsOptional() active?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsString() assignedWaiterId?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsInt() sortOrder?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() qrCodeUrl?: string;
 }
 
 class StatusBody {
-  @ApiProperty({ enum: ['available','occupied','reserved','out_of_service'] })
-  @IsIn(['available','occupied','reserved','out_of_service'])
-  status!: 'available' | 'occupied' | 'reserved' | 'out_of_service';
+  @ApiProperty({ enum: ['available','occupied','reserved','out_of_service','cleaning'] })
+  @IsIn(['available','occupied','reserved','out_of_service','cleaning'])
+  status!: 'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning';
   @ApiProperty({ required: false }) @IsOptional() @IsString() reason?: string;
 }
 

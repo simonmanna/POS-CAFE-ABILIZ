@@ -211,10 +211,16 @@ const TableCard: React.FC<{
       <div
       onClick={onPick}
       className={`relative rounded-xl p-3 border cursor-pointer transition-all duration-200 
-        bg-white shadow-sm hover:shadow-md hover:scale-[1.01]
+        shadow-sm hover:shadow-md hover:scale-[1.01]
+        ${table.status === 'available' ? 'bg-emerald-50 border-emerald-300 border-l-4' : table.status === 'occupied' ? 'bg-orange-50/80 border-orange-300' : table.status === 'reserved' ? 'bg-blue-50/30 border-blue-200' : table.status === 'out_of_service' ? 'bg-slate-100 border-slate-300' : 'bg-white border-slate-200'}
         ${selected ? 'ring-2 ring-indigo-500 ring-offset-2 shadow-md' : ''}
       `}
     >
+      {/* Occupied top indicator */}
+      {table.status === 'occupied' && (
+        <div className="absolute top-0 left-0 right-0 h-1.5 rounded-t-xl bg-orange-400" />
+      )}
+
       {/* Status badge top-right */}
       <span
         className={`absolute top-2 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border 
@@ -224,24 +230,41 @@ const TableCard: React.FC<{
         {meta.label}
       </span>
 
-      {/* Table number & name */}
-      <div className="mb-2">
-        <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-0.5">
-          T{table.number}
-        </div>
-        <div className="text-sm font-bold text-slate-800 leading-tight pr-14">
+      {/* Zone pill */}
+      <div className="mb-1.5">
+        <span className={`text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded-full ${table.status === 'available' ? 'bg-emerald-100 text-emerald-700' : 'bg-white/60 text-slate-500'}`}>
+          {ZONE_LABEL[table.zone] ?? table.zone}
+        </span>
+      </div>
+
+      {/* Table number + name */}
+      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+        T{table.number}
+      </div>
+      <div className="text-sm font-bold text-slate-800 leading-tight pr-14">
+        {table.name}
+      </div>
+
+      {/* Zone label below name */}
+      <div className="text-[10px] font-medium text-slate-400 capitalize mb-auto">
+        {ZONE_LABEL[table.zone] ?? table.zone}
+      </div>
+
+      {/* Table code (replaces seats) */}
+      <div className="mt-2">
+        <span className="text-[11px] font-bold text-slate-600 bg-white/70 px-2 py-1 rounded border border-slate-200 font-mono tracking-wider">
           {table.name}
-        </div>
+        </span>
       </div>
 
       {/* Open order info — time & price on one line */}
       {table.mergedIntoId && (
-        <div className="text-[11px] text-orange-600 font-semibold mt-1">
+        <div className="text-[11px] text-orange-600 font-semibold mt-2">
           Merged · orders on T{table.mergedInto?.number ?? '?'}
         </div>
       )}
       {openOrders.length > 0 ? (
-        <div className="flex items-center justify-between mt-1 text-xs font-semibold text-slate-600">
+        <div className="flex items-center justify-between mt-2 text-xs font-semibold text-slate-600">
           <span className="flex items-center gap-1">
             <Clock className="w-3 h-3" />
             {minutesBetween(openOrders[0].openedAt, null)}m
@@ -249,7 +272,7 @@ const TableCard: React.FC<{
           <span>{fmtMoney(total)}</span>
         </div>
       ) : (
-        <div className="mt-1 text-xs text-slate-400 font-medium">Available</div>
+        <div className="mt-2 text-xs text-slate-400 font-medium">Tap to open</div>
       )}
     </div>
   );

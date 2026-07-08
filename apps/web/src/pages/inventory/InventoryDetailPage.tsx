@@ -484,7 +484,7 @@ export default function InventoryDetailPage() {
           </div>
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Button variant="ghost" size="icon" onClick={() => navigate('/inventory')} className="h-8 w-8 flex-shrink-0 hover:bg-muted">
+              <Button variant="ghost" size="icon" onClick={() => navigate('/products')} className="h-8 w-8 flex-shrink-0 hover:bg-muted">
                 <ArrowLeft className="h-4 w-4" />
               </Button>
               <div className="p-2 bg-primary/10 rounded-lg flex-shrink-0"><Package className="h-5 w-5 text-primary" /></div>
@@ -508,7 +508,7 @@ export default function InventoryDetailPage() {
                 </TooltipTrigger>
                 <TooltipContent>Refresh</TooltipContent>
               </Tooltip>
-              <Button variant="outline" size="sm" className="border-primary text-primary hover:bg-primary/10 font-semibold" onClick={() => navigate(`/products`)}>
+              <Button variant="outline" size="sm" className="border-primary text-primary hover:bg-primary/10 font-semibold" onClick={() => navigate('/products', { state: { editId: productId } })}>
                 <Edit className="h-4 w-4 mr-1.5" /> Edit
               </Button>
               <DropdownMenu>

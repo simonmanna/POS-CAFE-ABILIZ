@@ -533,8 +533,12 @@ export class PosReportsService {
       orderType: inv.order?.orderType ?? null,
       invoiceNumber: inv.invoiceNumber,
       saleDate: inv.createdAt?.toISOString() ?? '',
-      subtotal: dec(inv.subtotal).toFixed(2),
+      time: new Date(inv.createdAt).toLocaleTimeString(),
+      subtotal: dec(inv.subtotal).plus(dec(inv.discountTotal ?? 0)).toFixed(2),
       discount: dec(inv.discountTotal).toFixed(2),
+      discountType: inv.discountType ?? 'percentage',
+      discountValue: dec(inv.discountValue).toFixed(2),
+      discountReason: inv.discountReason ?? null,
       totalAmount: dec(inv.totalAmount).toFixed(2),
       waiterName: inv.waiterId ? (waiterMap.get(inv.waiterId) ?? null) : null,
     }));
@@ -598,7 +602,12 @@ export class PosReportsService {
       orderNumber: inv.order?.orderNumber ?? '—',
       orderType: inv.order?.orderType ?? null,
       invoiceNumber: inv.invoiceNumber,
+      time: new Date(inv.createdAt).toLocaleTimeString(),
       salesAmount: dec(inv.totalAmount).toFixed(2),
+      discount: dec(inv.discountTotal).toFixed(2),
+      discountType: inv.discountType ?? 'percentage',
+      discountValue: dec(inv.discountValue).toFixed(2),
+      discountReason: inv.discountReason ?? null,
       paymentMethod: inv.paymentMode ?? null,
       received: dec(inv.amountPaid).toFixed(2),
     }));
@@ -736,8 +745,12 @@ export class PosReportsService {
       quantity: string;
       unitPrice: string;
       discountPercent: string;
+      discountType: string;
+      discountAmount: string;
+      discountReason: string | null;
       total: string;
       date: string;
+      time: string;
       orderType: string | null;
     }> = [];
 
@@ -746,6 +759,7 @@ export class PosReportsService {
       const orderType = inv.order?.orderType ?? null;
       const tableName = inv.order?.tableId ? (tableMap.get(inv.order.tableId) ?? null) : null;
       const waiterName = inv.waiterId ? (waiterMap.get(inv.waiterId) ?? null) : null;
+      const invoiceTime = new Date(inv.createdAt).toLocaleTimeString();
       for (const it of inv.items ?? []) {
         rows.push({
           waiterName,
@@ -756,8 +770,12 @@ export class PosReportsService {
           quantity: dec(it.quantity).toFixed(2),
           unitPrice: dec(it.unitPrice).toFixed(2),
           discountPercent: dec(it.discountPercent).toFixed(2),
+          discountType: it.discountType ?? 'percentage',
+          discountAmount: dec(it.discountAmount).toFixed(2),
+          discountReason: it.discountReason ?? null,
           total: dec(it.subtotal).toFixed(2),
           date: inv.createdAt?.toISOString() ?? '',
+          time: invoiceTime,
         });
       }
     }
@@ -817,6 +835,7 @@ export class PosReportsService {
     return (orders as any[]).map((o) => ({
       orderNumber: o.orderNumber,
       orderType: o.orderType ?? null,
+      time: new Date(o.createdAt).toLocaleTimeString(),
       date: o.createdAt?.toISOString() ?? '',
       tableName: o.tableId ? (tableMap.get(o.tableId) ?? null) : null,
       waiterName: o.waiterId ? (waiterMap.get(o.waiterId) ?? null) : null,
@@ -883,25 +902,57 @@ export class PosReportsService {
     const products = productIds.size
       ? await this.prisma.client.product.findMany({
           where: { id: { in: Array.from(productIds) } },
-          include: { category: true },
+          include: { category: { select: { name: true } } },
         })
       : [];
     const productMap = new Map(
-      products.map((p: any) => [p.id, { name: p.name, categoryName: p.category?.name ?? 'Uncategorised', categoryId: p.category?.id ?? null }]),
+      products.map((p: any) => [
+        p.id,
+        {
+          name: p.name,
+          productCategoryName: p.category?.name ?? null,
+          categoryId: p.category?.id ?? null,
+        },
+      ]),
     );
 
-    // If category filter is active, resolve allowed product IDs
+    // Build menuItem → menuCategory lookup (fallback for menu-driven sales)
+    const menuItemIds = new Set<string>();
+    for (const inv of invoices as any[]) {
+      for (const it of inv.items ?? []) {
+        const mid = it.menuItemId;
+        if (mid) menuItemIds.add(mid);
+      }
+    }
+    const menuItems = menuItemIds.size
+      ? await this.prisma.client.menuItem.findMany({
+          where: { id: { in: Array.from(menuItemIds) } },
+          include: { category: { select: { name: true } } },
+        })
+      : [];
+    const menuItemMap = new Map(
+      menuItems.map((mi: any) => [mi.id, mi.category?.name ?? null]),
+    );
+
+    // If category filter is active, resolve allowed product IDs (from product)
     const allowedProductIds = categoryId
       ? new Set(products.filter((p: any) => p.categoryId === categoryId).map((p: any) => p.id))
+      : null;
+    const allowedMenuItemIds = categoryId
+      ? new Set(menuItems.filter((mi: any) => mi.categoryId === categoryId).map((mi: any) => mi.id))
       : null;
 
     const rows: Array<{
       orderNumber: string;
       invoiceNumber: string;
       saleDate: string;
+      time: string;
       item: string;
       unitPrice: string;
       discountPercent: string;
+      discountType: string;
+      discountAmount: string;
+      discountReason: string | null;
       quantity: string;
       totalAmount: string;
       waiterName: string | null;
@@ -912,21 +963,34 @@ export class PosReportsService {
     for (const inv of invoices as any[]) {
       const orderNumber = inv.order?.orderNumber ?? '—';
       const orderType = inv.order?.orderType ?? null;
+      const invoiceTime = new Date(inv.createdAt).toLocaleTimeString();
       for (const it of inv.items ?? []) {
         const prod = it.productId ? productMap.get(it.productId) : null;
-        const categoryName = prod?.categoryName ?? null;
+        const miCat = it.menuItemId ? menuItemMap.get(it.menuItemId) : null;
+        const categoryName = prod?.productCategoryName ?? miCat ?? 'Uncategorised';
 
-        // Apply category filter — skip items whose product doesn't match
-        if (allowedProductIds && (!it.productId || !allowedProductIds.has(it.productId))) continue;
+        // Apply category filter — skip items whose category doesn't match
+        if (allowedProductIds && allowedMenuItemIds) {
+          if (it.productId && allowedProductIds.has(it.productId)) continue;
+          if (it.menuItemId && allowedMenuItemIds.has(it.menuItemId)) continue;
+        } else if (allowedProductIds) {
+          if (it.productId && !allowedProductIds.has(it.productId)) continue;
+        } else if (allowedMenuItemIds) {
+          if (it.menuItemId && !allowedMenuItemIds.has(it.menuItemId)) continue;
+        }
 
         rows.push({
           orderNumber,
           orderType,
           invoiceNumber: inv.invoiceNumber,
           saleDate: inv.createdAt?.toISOString() ?? '',
+          time: invoiceTime,
           item: it.description,
           unitPrice: dec(it.unitPrice).toFixed(2),
           discountPercent: dec(it.discountPercent).toFixed(2),
+          discountType: it.discountType ?? 'percentage',
+          discountAmount: dec(it.discountAmount).toFixed(2),
+          discountReason: it.discountReason ?? null,
           quantity: dec(it.quantity).toFixed(2),
           totalAmount: dec(it.total).toFixed(2),
           waiterName: inv.waiterId ? (waiterMap.get(inv.waiterId) ?? null) : null,

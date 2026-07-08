@@ -1,6 +1,6 @@
 /** Shared types for the POS feature. Mirrors the API shapes. */
 
-export type DiscountType = 'percentage' | 'fixed';
+export type DiscountType = 'percentage' | 'fixed_amount';
 
 export interface CartLine {
   /** Stable client-side id (used as React key + line id). */
@@ -15,10 +15,11 @@ export interface CartLine {
   discountPercent: number;
   discountType?: DiscountType;
   discountAmount?: number;
+  discountReason?: string;
   taxId?: string;
   note?: string;
   /** P4: modifier add-ons. Their priceDeltas are baked into unitPrice. */
-  modifiers?: Array<{ modifierId: string; name: string; priceDelta: number }>;
+  modifiers?: Array<{ modifierId: string; name: string; kitchenPrintName?: string | null; priceDelta: number }>;
   /** Selected variant id. Variant price replaces basePrice. */
   variantId?: string;
   /** Human-readable variant label (e.g. "Medium"). */

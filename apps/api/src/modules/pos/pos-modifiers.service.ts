@@ -23,13 +23,20 @@ import { AuditService } from '../../kernel/audit/audit.service';
 export interface ModifierGroupWithModifiers {
   id: string;
   name: string;
+  category: string | null;
+  description: string | null;
+  color: string | null;
+  icon: string | null;
   groupType: 'ADD_ON' | 'MODIFIER';
   minSelect: number;
   maxSelect: number;
   sortOrder: number;
+  version: number;
   modifiers: Array<{
     id: string;
     name: string;
+    kitchenPrintName: string | null;
+    description: string | null;
     priceDelta: number;
     isDefault: boolean;
     sortOrder: number;
@@ -62,32 +69,57 @@ export class PosModifiersService {
 
   /* ====================== Modifier groups ====================== */
 
-  async listGroups(): Promise<ModifierGroupWithModifiers[]> {
+  async listGroups(opts?: { search?: string; isActive?: boolean; page?: number; pageSize?: number }): Promise<{ data: ModifierGroupWithModifiers[]; total: number; page: number; pageSize: number }> {
     const orgId = this.tenant.organizationId;
-    const groups = await this.prisma.client.modifierGroup.findMany({
-      where: { organizationId: orgId, isActive: true, deletedAt: null },
-      orderBy: { sortOrder: 'asc' },
-      include: {
-        modifiers: {
-          where: { isActive: true, deletedAt: null },
-          orderBy: { sortOrder: 'asc' },
+    const where: any = { organizationId: orgId, deletedAt: null };
+    if (opts?.isActive !== undefined) where.isActive = opts.isActive;
+    if (opts?.search) {
+      where.name = { contains: opts.search, mode: 'insensitive' };
+    }
+    const page = opts?.page ?? 1;
+    const pageSize = opts?.pageSize ?? 50;
+    const skip = (page - 1) * pageSize;
+
+    const [groups, total] = await Promise.all([
+      this.prisma.client.modifierGroup.findMany({
+        where,
+        orderBy: { sortOrder: 'asc' },
+        skip,
+        take: pageSize,
+        include: {
+          modifiers: {
+            where: { isActive: true, deletedAt: null },
+            orderBy: { sortOrder: 'asc' },
+          },
         },
-      },
-    });
-    return (groups as any[]).map((g) => ({
-      id: g.id,
-      name: g.name,
-      groupType: g.groupType ?? 'ADD_ON',
-      minSelect: g.minSelect,
-      maxSelect: g.maxSelect,
-      sortOrder: g.sortOrder,
-      modifiers: g.modifiers.map((m: any) => ({
-        id: m.id, name: m.name, priceDelta: Number(m.priceDelta), isDefault: m.isDefault, sortOrder: m.sortOrder,
+      }),
+      this.prisma.client.modifierGroup.count({ where }),
+    ]);
+    return {
+      data: (groups as any[]).map((g) => ({
+        id: g.id,
+        name: g.name,
+        category: g.category ?? null,
+        description: g.description ?? null,
+        color: g.color ?? null,
+        icon: g.icon ?? null,
+        groupType: g.groupType ?? 'ADD_ON',
+        minSelect: g.minSelect,
+        maxSelect: g.maxSelect,
+        sortOrder: g.sortOrder,
+        version: g.version,
+        modifiers: g.modifiers.map((m: any) => ({
+          id: m.id, name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, description: m.description ?? null,
+          priceDelta: Number(m.priceDelta), isDefault: m.isDefault, sortOrder: m.sortOrder,
+        })),
       })),
-    }));
+      total,
+      page,
+      pageSize,
+    };
   }
 
-  async createGroup(dto: { name: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; sortOrder?: number }): Promise<any> {
+  async createGroup(dto: { name: string; category?: string; description?: string; color?: string; icon?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; sortOrder?: number }): Promise<any> {
     const orgId = this.tenant.organizationId;
     if (!dto.name?.trim()) throw new BadRequestException('Group name is required');
     if (dto.groupType && !['ADD_ON', 'MODIFIER'].includes(dto.groupType)) {
@@ -108,17 +140,22 @@ export class PosModifiersService {
         data: {
           organizationId: orgId,
           name: dto.name.trim(),
+          category: dto.category?.trim() || null,
+          description: dto.description?.trim() || null,
+          color: dto.color?.trim() || null,
+          icon: dto.icon?.trim() || null,
           groupType: dto.groupType ?? 'ADD_ON',
           minSelect: dto.minSelect ?? 0,
           maxSelect: dto.maxSelect ?? 1,
           sortOrder: dto.sortOrder ?? 0,
+          createdBy: this.tenant.userId,
         },
       });
       await this.audit.recordInTx(tx, {
         entity: 'ModifierGroup',
         entityId: g.id,
         action: 'create',
-        newValues: { name: g.name, groupType: g.groupType, minSelect: g.minSelect, maxSelect: g.maxSelect },
+        newValues: { name: g.name, category: g.category, groupType: g.groupType, minSelect: g.minSelect, maxSelect: g.maxSelect },
       });
       return g;
     });
@@ -126,7 +163,7 @@ export class PosModifiersService {
     return created;
   }
 
-  async createModifier(dto: { groupId: string; name: string; priceDelta?: number; isDefault?: boolean; sortOrder?: number }): Promise<any> {
+  async createModifier(dto: { groupId: string; name: string; kitchenPrintName?: string; description?: string; priceDelta?: number; isDefault?: boolean; sortOrder?: number }): Promise<any> {
     if (!dto.name?.trim()) throw new BadRequestException('Modifier name is required');
     const orgId = this.tenant.organizationId;
     const group = await this.prisma.client.modifierGroup.findFirst({ where: { id: dto.groupId, organizationId: orgId, deletedAt: null } });
@@ -138,9 +175,12 @@ export class PosModifiersService {
           organizationId: orgId,
           groupId: dto.groupId,
           name: dto.name.trim(),
+          kitchenPrintName: dto.kitchenPrintName?.trim() || null,
+          description: dto.description?.trim() || null,
           priceDelta: dto.priceDelta ?? 0,
           isDefault: dto.isDefault ?? false,
           sortOrder: dto.sortOrder ?? 0,
+          createdBy: this.tenant.userId,
         },
       });
       await this.audit.recordInTx(tx, {
@@ -179,12 +219,18 @@ export class PosModifiersService {
       .map((l) => ({
         id: l.modifierGroup.id,
         name: l.modifierGroup.name,
+        category: l.modifierGroup.category ?? null,
+        description: l.modifierGroup.description ?? null,
+        color: l.modifierGroup.color ?? null,
+        icon: l.modifierGroup.icon ?? null,
         groupType: l.modifierGroup.groupType ?? 'ADD_ON',
         minSelect: l.modifierGroup.minSelect,
         maxSelect: l.modifierGroup.maxSelect,
         sortOrder: l.sortOrder,
+        version: l.modifierGroup.version,
         modifiers: l.modifierGroup.modifiers.map((m: any) => ({
-          id: m.id, name: m.name, priceDelta: Number(m.priceDelta), isDefault: m.isDefault, sortOrder: m.sortOrder,
+          id: m.id, name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, description: m.description ?? null,
+          priceDelta: Number(m.priceDelta), isDefault: m.isDefault, sortOrder: m.sortOrder,
         })),
       }));
     return {
@@ -219,12 +265,18 @@ export class PosModifiersService {
       .map((l) => ({
         id: l.modifierGroup.id,
         name: l.modifierGroup.name,
+        category: l.modifierGroup.category ?? null,
+        description: l.modifierGroup.description ?? null,
+        color: l.modifierGroup.color ?? null,
+        icon: l.modifierGroup.icon ?? null,
         groupType: l.modifierGroup.groupType ?? 'ADD_ON',
         minSelect: l.modifierGroup.minSelect,
         maxSelect: l.modifierGroup.maxSelect,
         sortOrder: l.sortOrder,
+        version: l.modifierGroup.version,
         modifiers: l.modifierGroup.modifiers.map((m: any) => ({
-          id: m.id, name: m.name, priceDelta: Number(m.priceDelta), isDefault: m.isDefault, sortOrder: m.sortOrder,
+          id: m.id, name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, description: m.description ?? null,
+          priceDelta: Number(m.priceDelta), isDefault: m.isDefault, sortOrder: m.sortOrder,
         })),
       }));
     return {
@@ -338,7 +390,7 @@ export class PosModifiersService {
     menuItemId?: string | null;
     productId?: string | null;
     modifierIds: string[];
-  }): Promise<Array<{ modifierId: string; name: string; priceDelta: number }>> {
+  }): Promise<Array<{ modifierId: string; name: string; kitchenPrintName: string | null; priceDelta: number }>> {
     if (!opts.modifierIds?.length) return [];
     const bundle = opts.menuItemId
       ? await this.getMenuItemBundle(opts.menuItemId)
@@ -351,9 +403,11 @@ export class PosModifiersService {
       this.logger.warn(`[modifier] no config for item; ignoring ${opts.modifierIds.length} selected modifier(s).`);
       return [];
     }
-    const allowed = new Map<string, { name: string; priceDelta: number }>();
+    const allowed = new Map<string, { name: string; kitchenPrintName: string | null; priceDelta: number }>();
     for (const g of bundle.groups) {
-      for (const m of g.modifiers) allowed.set(m.id, { name: m.name, priceDelta: Number(m.priceDelta) });
+      for (const m of g.modifiers) {
+        allowed.set(m.id, { name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, priceDelta: Number(m.priceDelta) });
+      }
     }
     // Anti-tamper: prices come from the DB, never the client. Unknown / deleted
     // / deactivated ids are dropped (logged) instead of rejected so a stale cart
@@ -362,9 +416,9 @@ export class PosModifiersService {
       .map((id) => {
         const m = allowed.get(id);
         if (!m) { this.logger.warn(`[modifier] "${id}" not available for "${bundle.product.name}" — ignored.`); return null; }
-        return { modifierId: id, name: m.name, priceDelta: m.priceDelta };
+        return { modifierId: id, name: m.name, kitchenPrintName: m.kitchenPrintName, priceDelta: m.priceDelta };
       })
-      .filter((m): m is { modifierId: string; name: string; priceDelta: number } => m !== null);
+      .filter((m): m is { modifierId: string; name: string; kitchenPrintName: string | null; priceDelta: number } => m !== null);
   }
 
   async assignGroupToProduct(productId: string, modifierGroupId: string, sortOrder = 0): Promise<void> {
@@ -389,7 +443,7 @@ export class PosModifiersService {
 
   /* ====================== Edit / delete (M-E) ====================== */
 
-  async updateGroup(id: string, dto: { name?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; isActive?: boolean; expectedVersion?: number; ipAddress?: string; userAgent?: string }): Promise<any> {
+  async updateGroup(id: string, dto: { name?: string; category?: string; description?: string; color?: string; icon?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; sortOrder?: number; isActive?: boolean; expectedVersion?: number; ipAddress?: string; userAgent?: string }): Promise<any> {
     const orgId = this.tenant.organizationId;
     const existing = await this.prisma.client.modifierGroup.findFirst({ where: { id, organizationId: orgId, deletedAt: null } });
     if (!existing) throw new NotFoundException('Modifier group not found');
@@ -410,20 +464,32 @@ export class PosModifiersService {
       if (dup) throw new BadRequestException(`Group "${dto.name.trim()}" already exists`);
     }
 
+    const e = existing as any;
     const oldValues = {
-      name: existing.name,
-      groupType: existing.groupType,
-      minSelect: existing.minSelect,
-      maxSelect: existing.maxSelect,
-      isActive: existing.isActive,
+      name: e.name,
+      category: e.category,
+      description: e.description,
+      color: e.color,
+      icon: e.icon,
+      groupType: e.groupType,
+      minSelect: e.minSelect,
+      maxSelect: e.maxSelect,
+      sortOrder: e.sortOrder,
+      isActive: e.isActive,
     };
 
     const data: any = {
       ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+      ...(dto.category !== undefined ? { category: dto.category?.trim() || null } : {}),
+      ...(dto.description !== undefined ? { description: dto.description?.trim() || null } : {}),
+      ...(dto.color !== undefined ? { color: dto.color?.trim() || null } : {}),
+      ...(dto.icon !== undefined ? { icon: dto.icon?.trim() || null } : {}),
       ...(dto.groupType !== undefined ? { groupType: dto.groupType } : {}),
       ...(dto.minSelect !== undefined ? { minSelect: dto.minSelect } : {}),
       ...(dto.maxSelect !== undefined ? { maxSelect: dto.maxSelect } : {}),
+      ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      updatedBy: this.tenant.userId,
       version: { increment: 1 },
     };
 
@@ -441,17 +507,23 @@ export class PosModifiersService {
       } else {
         result = await tx.modifierGroup.update({ where: { id }, data });
       }
+      const r = result as any;
       await this.audit.recordInTx(tx, {
         entity: 'ModifierGroup',
         entityId: id,
         action: 'update',
         oldValues,
         newValues: {
-          name: result.name,
-          groupType: result.groupType,
-          minSelect: result.minSelect,
-          maxSelect: result.maxSelect,
-          isActive: result.isActive,
+          name: r.name,
+          category: r.category,
+          description: r.description,
+          color: r.color,
+          icon: r.icon,
+          groupType: r.groupType,
+          minSelect: r.minSelect,
+          maxSelect: r.maxSelect,
+          sortOrder: r.sortOrder,
+          isActive: r.isActive,
         },
         ipAddress: dto.ipAddress,
         userAgent: dto.userAgent,
@@ -501,7 +573,7 @@ export class PosModifiersService {
     });
   }
 
-  async updateModifier(id: string, dto: { name?: string; priceDelta?: number; isDefault?: boolean; isActive?: boolean; expectedUpdatedAt?: string; ipAddress?: string; userAgent?: string }): Promise<any> {
+  async updateModifier(id: string, dto: { name?: string; kitchenPrintName?: string; description?: string; priceDelta?: number; isDefault?: boolean; sortOrder?: number; isActive?: boolean; expectedUpdatedAt?: string; ipAddress?: string; userAgent?: string }): Promise<any> {
     const orgId = this.tenant.organizationId;
     const existing = await this.prisma.client.modifier.findFirst({
       where: { id, organizationId: orgId, deletedAt: null },
@@ -517,11 +589,15 @@ export class PosModifiersService {
       throw new BadRequestException('Modifier priceDelta cannot be negative');
     }
 
+    const me = existing as any;
     const oldValues = {
-      name: existing.name,
-      priceDelta: Number(existing.priceDelta),
-      isDefault: existing.isDefault,
-      isActive: existing.isActive,
+      name: me.name,
+      kitchenPrintName: me.kitchenPrintName,
+      description: me.description,
+      priceDelta: Number(me.priceDelta),
+      isDefault: me.isDefault,
+      sortOrder: me.sortOrder,
+      isActive: me.isActive,
     };
 
     const updated = await this.prisma.client.$transaction(async (tx: any) => {
@@ -529,21 +605,29 @@ export class PosModifiersService {
         where: { id },
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+          ...(dto.kitchenPrintName !== undefined ? { kitchenPrintName: dto.kitchenPrintName?.trim() || null } : {}),
+          ...(dto.description !== undefined ? { description: dto.description?.trim() || null } : {}),
           ...(dto.priceDelta !== undefined ? { priceDelta: dto.priceDelta } : {}),
           ...(dto.isDefault !== undefined ? { isDefault: dto.isDefault } : {}),
+          ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+          updatedBy: this.tenant.userId,
         },
       });
+      const mr = m as any;
       await this.audit.recordInTx(tx, {
         entity: 'Modifier',
-        entityId: m.id,
+        entityId: mr.id,
         action: 'update',
         oldValues,
         newValues: {
-          name: m.name,
-          priceDelta: Number(m.priceDelta),
-          isDefault: m.isDefault,
-          isActive: m.isActive,
+          name: mr.name,
+          kitchenPrintName: mr.kitchenPrintName,
+          description: mr.description,
+          priceDelta: Number(mr.priceDelta),
+          isDefault: mr.isDefault,
+          sortOrder: mr.sortOrder,
+          isActive: mr.isActive,
         },
         ipAddress: dto.ipAddress,
         userAgent: dto.userAgent,
@@ -560,6 +644,19 @@ export class PosModifiersService {
       where: { id, organizationId: orgId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Modifier not found');
+
+    // Block deletion if used in any historical or current orders
+    const [orderUsage, docUsage, invoiceUsage] = await Promise.all([
+      this.prisma.client.orderItemModifier.count({ where: { modifierId: id, organizationId: orgId } }),
+      this.prisma.client.documentLineModifier.count({ where: { modifierId: id, organizationId: orgId } }),
+      this.prisma.client.invoiceItemModifier.count({ where: { modifierId: id, organizationId: orgId } }),
+    ]);
+    const totalUsage = orderUsage + docUsage + invoiceUsage;
+    if (totalUsage > 0) {
+      throw new ConflictException(
+        `"${existing.name}" is used in ${totalUsage} historical order line(s). Deactivate instead of deleting.`,
+      );
+    }
 
     await this.prisma.client.$transaction(async (tx: any) => {
       const m = await tx.modifier.update({
@@ -804,6 +901,31 @@ export class PosModifiersService {
       }
       return combo;
     });
+  }
+
+  /**
+   * Return all active menu items with an isAssigned flag for the given group.
+   * Used by the admin modifier page to render the checkbox assignment list.
+   */
+  async getGroupMenuItems(groupId: string): Promise<Array<{ id: string; name: string; isAssigned: boolean }>> {
+    const orgId = this.tenant.organizationId;
+    const group = await this.prisma.client.modifierGroup.findFirst({
+      where: { id: groupId, organizationId: orgId, deletedAt: null },
+    });
+    if (!group) throw new NotFoundException('Modifier group not found');
+    const [menuItems, assignedLinks] = await Promise.all([
+      this.prisma.client.menuItem.findMany({
+        where: { organizationId: orgId, isAvailable: true },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.client.menuItemModifierGroup.findMany({
+        where: { modifierGroupId: groupId, organizationId: orgId, deletedAt: null },
+        select: { menuItemId: true },
+      }),
+    ]);
+    const assignedIds = new Set(assignedLinks.map((l: any) => l.menuItemId));
+    return (menuItems as any[]).map((m) => ({ id: m.id, name: m.name, isAssigned: assignedIds.has(m.id) }));
   }
 
   /**

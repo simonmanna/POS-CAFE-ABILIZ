@@ -111,9 +111,9 @@ export const CancelOrderDialog: React.FC<Props> = ({
         open={showOverride}
         kind={overrideKind}
         onClose={() => setShowOverride(false)}
-        onVerified={(managerId) => {
+        onVerified={(result) => {
           setShowOverride(false);
-          if (managerId) doCancel(managerId);
+          if (result) doCancel(result.managerId);
         }}
       />
     </>

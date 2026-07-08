@@ -64,8 +64,13 @@ export class PosInvoiceService {
     });
     if (!items.length) throw new BadRequestException('Order has no items to bill');
 
-    const txPct = Number(dto.transactionDiscountPercent ?? order.transactionDiscountPercent ?? 0);
-    const txFactor = 1 - txPct / 100;
+    // Resolve discount type/value: DTO overrides order defaults.
+    const txDiscType = dto.transactionDiscountType ?? order.transactionDiscountType ?? 'percentage';
+    const txDiscValue = txDiscType === 'fixed_amount'
+      ? Number(dto.transactionDiscountAmount ?? order.transactionDiscountAmount ?? 0)
+      : Number(dto.transactionDiscountPercent ?? order.transactionDiscountPercent ?? 0);
+    const discountReason = dto.discountReason ?? order.discountReason ?? null;
+
     // Full (pre-order-discount) line inputs for the GL discount leg.
     const fullLineInputs = items.map((it: any) => ({
       productId: it.productId ?? undefined,
@@ -77,21 +82,42 @@ export class PosInvoiceService {
       unitPrice: Number(it.unitPrice),
       taxId: it.taxId ?? undefined,
       discountPercent: Number(it.discountPercent),
+      discountType: it.discountType ?? 'percentage',
+      discountAmount: it.discountAmount ? Number(it.discountAmount) : undefined,
+      discountReason: it.discountReason ?? undefined,
+      discountSource: 'manual' as const,
       taxInclusive: it.taxInclusive,
     }));
-    // Discounted line inputs: order-level txPct folded into per-line discountPercent.
-    const lineInputs = txPct > 0
-      ? items.map((it: any) => ({
-          ...fullLineInputs[items.indexOf(it)],
-          discountPercent: 100 * (1 - (1 - Number(it.discountPercent) / 100) * txFactor),
-        }))
+    // Discounted line inputs: order-level discount folded into per-line.
+    const lineInputs = txDiscValue > 0
+      ? items.map((it: any) => {
+          const base = fullLineInputs[items.indexOf(it)];
+          if (txDiscType === 'fixed_amount') {
+            // Distribute fixed invoice discount proportionally by line gross.
+            const itemGross = Number(it.quantity) * Number(it.unitPrice);
+            const invoiceGross = items.reduce((s: number, i: any) => s + Number(i.quantity) * Number(i.unitPrice), 0);
+            const lineShare = invoiceGross > 0 ? (itemGross / invoiceGross) * txDiscValue : 0;
+            return {
+              ...base,
+              discountAmount: (base.discountAmount ?? 0) + lineShare,
+              discountType: 'fixed_amount' as const,
+            };
+          }
+          // Percentage: fold txPct into per-line discountPercent (existing logic).
+          const txFactor = 1 - txDiscValue / 100;
+          return {
+            ...base,
+            discountPercent: 100 * (1 - (1 - Number(it.discountPercent) / 100) * txFactor),
+            discountType: 'percentage' as const,
+          };
+        })
       : fullLineInputs;
 
     const year = new Date().getUTCFullYear();
 
     const invoice = await this.prisma.client.$transaction(async (tx: any) => {
       const totals = await this.builder.prepareLines(tx, lineInputs);
-      const fullTotals = txPct > 0 ? await this.builder.prepareLines(tx, fullLineInputs) : null;
+      const fullTotals = txDiscValue > 0 ? await this.builder.prepareLines(tx, fullLineInputs) : null;
       const orderDiscountGl = fullTotals ? dec(fullTotals.total).minus(dec(totals.total)) : dec(0);
       // H2: allocate the invoice number INSIDE the tx (after line pricing) so a
       // prepareLines failure no longer burns a number. NOTE: Postgres sequences
@@ -112,6 +138,13 @@ export class PosInvoiceService {
           issueDate: new Date(),
           subtotal: totals.subtotal,
           discountTotal: totals.discountTotal,
+          discountType: txDiscType,
+          discountValue: txDiscValue,
+          discountSource: 'manual',
+          discountReason,
+          discountAppliedBy: this.tenant.userId ?? null,
+          discountApprovedBy: dto.overrideById ?? null,
+          discountApprovedAt: dto.overrideById ? new Date() : null,
           taxAmount: totals.taxAmount,
           totalAmount: totals.total,
           amountResidual: totals.total,
@@ -140,6 +173,13 @@ export class PosInvoiceService {
             quantity: p.quantity,
             unitPrice: p.unitPrice,
             discountPercent: p.discountPercent,
+            discountType: (p as any).discountType ?? 'percentage',
+            discountAmount: (p as any).discountAmount ?? 0,
+            discountReason: (p as any).discountReason ?? null,
+            discountSource: (p as any).discountSource ?? 'manual',
+            discountAppliedBy: this.tenant.userId ?? null,
+            discountApprovedBy: null,
+            discountApprovedAt: null,
             taxId: p.taxId,
             taxInclusive: p.taxInclusive,
             subtotal: p.subtotal,
@@ -151,13 +191,13 @@ export class PosInvoiceService {
         const mods = src?.modifiers ?? [];
         if (mods.length) {
           await tx.invoiceItemModifier.createMany({
-            data: mods.map((m: any) => ({ organizationId: orgId, invoiceItemId: item.id, modifierId: m.modifierId ?? null, name: m.name, priceDelta: m.priceDelta })),
+            data: mods.map((m: any) => ({ organizationId: orgId, invoiceItemId: item.id, modifierId: m.modifierId ?? null, name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, priceDelta: m.priceDelta })),
           });
         }
       }
       // Post the invoice's own GL entry (Dr AR / Cr Revenue+Tax + Dr sales_discount).
       const dbItems = await tx.invoiceItem.findMany({ where: { invoiceId: inv.id } });
-      const fullPrepared = txPct > 0 && fullTotals?.prepared ? fullTotals.prepared : undefined;
+      const fullPrepared = txDiscValue > 0 && fullTotals?.prepared ? fullTotals.prepared : undefined;
       const journalEntryId = await this.postInvoiceGl(tx, inv, dbItems, orderDiscountGl, fullPrepared);
       await tx.invoice.update({
         where: { id: inv.id },
@@ -903,6 +943,11 @@ export class PosInvoiceService {
   }
 
   private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
+    const menuItem = await this.prisma.client.menuItem.findUnique({
+      where: { id: menuItemId },
+      select: { isInventoryTracked: true },
+    });
+    if (!menuItem?.isInventoryTracked) return;
     const recipe = await this.prisma.client.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
@@ -917,6 +962,11 @@ export class PosInvoiceService {
   }
 
   private async receiveMenuItemRecipe(tx: any, menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
+    const menuItem = await tx.menuItem.findUnique({
+      where: { id: menuItemId },
+      select: { isInventoryTracked: true },
+    });
+    if (!menuItem?.isInventoryTracked) return;
     const recipe = await tx.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;

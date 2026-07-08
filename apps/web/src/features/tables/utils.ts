@@ -37,6 +37,14 @@ export const STATUS_META: Record<
     text: 'text-slate-600',
     pill: 'bg-slate-200 text-slate-700 border-slate-300',
   },
+  cleaning: {
+    label: 'Cleaning',
+    bg: 'bg-cyan-50',
+    border: 'border-cyan-300',
+    dot: 'bg-cyan-500',
+    text: 'text-cyan-700',
+    pill: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+  },
 };
 
 export const ZONE_LABEL: Record<string, string> = {

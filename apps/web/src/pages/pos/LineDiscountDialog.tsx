@@ -40,11 +40,11 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
   const valid = mode === 'percentage' ? validPercent : validFixed;
   const requiresOverride = mode === 'percentage' ? num >= 10 : num >= 50000;
 
-  const currentDisc = line.discountType === 'fixed'
+  const currentDisc = line.discountType === 'fixed_amount'
     ? (line.discountAmount ?? 0)
     : line.quantity * line.unitPrice * (line.discountPercent / 100);
   const lineSub = line.quantity * line.unitPrice - currentDisc;
-  const newDisc = mode === 'fixed' ? (validFixed ? num : 0) : line.quantity * line.unitPrice * (validPercent ? num / 100 : 0);
+  const newDisc = mode === 'fixed_amount' ? (validFixed ? num : 0) : line.quantity * line.unitPrice * (validPercent ? num / 100 : 0);
   const newSub = Math.max(0, line.quantity * line.unitPrice - newDisc);
 
   return (
@@ -76,9 +76,9 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
           <button
             type="button"
             className={`flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 transition ${
-              mode === 'fixed' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+              mode === 'fixed_amount' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
             }`}
-            onClick={() => setMode('fixed')}
+            onClick={() => setMode('fixed_amount')}
           >
             <DollarSign className="w-3.5 h-3.5" /> Fixed Amount
           </button>

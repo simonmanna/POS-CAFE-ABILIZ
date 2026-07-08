@@ -56,7 +56,7 @@ const TicketCard: React.FC<{
             )}
             {it.modifiers.length > 0 ? (
               <div className="text-[11px] text-slate-600 mt-0.5">
-                + {it.modifiers.map((m) => m.name).join(', ')}
+                {it.modifiers.map((m) => (m as any).kitchenPrintName ?? m.name).join(', ')}
               </div>
             ) : null}
             {it.notes ? (

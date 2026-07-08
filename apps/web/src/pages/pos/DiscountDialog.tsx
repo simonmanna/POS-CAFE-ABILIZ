@@ -75,9 +75,9 @@ export const DiscountDialog: React.FC<Props> = ({ open, initialPercent, onClose,
           <button
             type="button"
             className={`flex-1 py-2 text-xs font-bold flex items-center justify-center gap-1.5 transition ${
-              mode === 'fixed' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+              mode === 'fixed_amount' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
             }`}
-            onClick={() => setMode('fixed')}
+            onClick={() => setMode('fixed_amount')}
           >
             <DollarSign className="w-3.5 h-3.5" /> Fixed Amount
           </button>

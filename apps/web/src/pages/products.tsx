@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -104,6 +104,23 @@ export function ProductsPage() {
     setOpen(true);
   };
 
+  // When navigated here with an editId in location state (from inventory detail
+  // page), open the edit dialog with that product once its data is loaded.
+  const location = useLocation();
+  const openEditRef = useRef(openEdit);
+  openEditRef.current = openEdit;
+  const processedEditId = useRef<string | null>(null);
+  const editId = (location.state as any)?.editId as string | undefined;
+  useEffect(() => {
+    if (!editId || processedEditId.current === editId) return;
+    const inLoadedData = data?.data?.find((p) => p.id === editId);
+    if (inLoadedData) {
+      processedEditId.current = editId;
+      openEditRef.current(inLoadedData);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [editId, data?.data?.length, navigate]);
+
   const onSubmit = form.handleSubmit(async (values) => {
     const data = {
       ...values,
@@ -126,7 +143,7 @@ export function ProductsPage() {
   const handleDelete = async () => {
     if (!deleting) return;
     await deleteProduct.mutateAsync(deleting.id);
-    notify.success('Product deleted');
+    notify.success('Product moved to deleted');
     setDeleting(null);
   };
 
@@ -225,7 +242,7 @@ export function ProductsPage() {
         </Select>
       </div>
 
-      <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} getRowId={(p) => p.id} />
+      <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} getRowId={(p) => p.id} compact />
 
       {meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -337,14 +354,14 @@ export function ProductsPage() {
         <AlertDialogContent className="p-0 gap-0 overflow-hidden">
           <AlertDialogHeader className="bg-[#3b82f6] text-white p-5 rounded-t-lg">
             <AlertDialogTitle>Delete Product</AlertDialogTitle>
-            <AlertDialogDescription className="text-white/75 mt-1">
-              Are you sure you want to delete <strong className="text-white">{deleting?.name}</strong> ({deleting?.code})? This action cannot be undone.
-            </AlertDialogDescription>
+          <AlertDialogDescription className="text-white/75 mt-1">
+            Move <strong className="text-white">{deleting?.name}</strong> ({deleting?.code}) to recently deleted? It can be restored later.
+          </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="px-5 py-3 border-t bg-slate-50 gap-2">
             <AlertDialogCancel className="rounded-lg border-gray-300 hover:bg-gray-100">Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="rounded-lg bg-red-600 hover:bg-red-700 text-white">
-              Delete
+              Move to deleted
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

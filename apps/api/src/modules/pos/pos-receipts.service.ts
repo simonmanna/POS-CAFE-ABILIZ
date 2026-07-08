@@ -261,9 +261,9 @@ export class PosReceiptsService {
       lines.push(` ${qtyStr} ${desc} ${priceStr} ${totalStr}`);
       const mods: any[] = (ln as any).modifiers ?? [];
       for (const m of mods) {
-        const mName = (m.name ?? '').slice(0, 15).padEnd(15);
-        lines.push(`      + ${mName} ${num(m.priceDelta).padStart(8)}`);
+        lines.push(`      + ${(m.name ?? '').slice(0, 22)}`);
       }
+      if (disc > 0) lines.push(`      (discount ${disc}%)`);
       if (ln.note) {
         lines.push(`      ${ln.note.slice(0, R - 6)}`);
       }
@@ -273,11 +273,14 @@ export class PosReceiptsService {
     lines.push('');
     lines.push('-'.repeat(R));
     lines.push(`Subtotal:`.padEnd(R - 10) + fmt(inv.subtotal).padStart(10));
+    if (Number(inv.discountTotal) > 0) lines.push(`Discount:`.padEnd(R - 10) + `-${fmt(inv.discountTotal)}`.padStart(10));
     if (Number(inv.taxAmount) > 0) lines.push(`Tax:`.padEnd(R - 10) + fmt(inv.taxAmount).padStart(10));
     lines.push(`TOTAL:`.padEnd(R - 10) + fmt(inv.totalAmount).padStart(10));
     lines.push(`Paid:`.padEnd(R - 10) + fmt(inv.amountPaid).padStart(10));
     const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
     if (change > 0) lines.push(`Change:`.padEnd(R - 10) + fmt(change).padStart(10));
+    if ((inv as any).discountReason) lines.push(`Why: ${(inv as any).discountReason}`);
+    if ((inv as any).discountApprovedBy) lines.push(`Approved: ${(inv as any).discountApprovedBy}`);
     lines.push('-'.repeat(R));
     lines.push('');
     lines.push('');
@@ -362,8 +365,7 @@ export class PosReceiptsService {
 
       const mods: any[] = (ln as any).modifiers ?? [];
       for (const m of mods) {
-        const mName = (m.name ?? '').slice(0, 15).padEnd(15);
-        lines.push(`     + ${mName}${money(m.priceDelta).padStart(8)}`);
+        lines.push(`     + ${(m.name ?? '').slice(0, W - 6)}`);
       }
       if (ln.note) {
         lines.push(`     ${ln.note.slice(0, W - 6)}`);
@@ -372,6 +374,16 @@ export class PosReceiptsService {
 
     lines.push('-'.repeat(W));
     lines.push(two('Subtotal:', fmt(inv.subtotal)));
+    if (Number(inv.discountTotal) > 0) {
+      const typeTag = (inv as any).discountType === 'fixed_amount'
+        ? ' (fixed)'
+        : (inv as any).discountValue && Number((inv as any).discountValue) > 0
+          ? ` (${Number((inv as any).discountValue).toFixed(1)}%)`
+          : '';
+      lines.push(two(`Discount${typeTag}:`, `-${fmt(inv.discountTotal)}`));
+      if ((inv as any).discountReason) lines.push(`  Why: ${(inv as any).discountReason}`);
+      if ((inv as any).discountApprovedBy) lines.push(`  Approved: ${(inv as any).discountApprovedBy}`);
+    }
     if (Number(inv.taxAmount) > 0) lines.push(two('Tax:', fmt(inv.taxAmount)));
     lines.push(two('TOTAL:', fmt(inv.totalAmount)));
     lines.push(two('Paid:', fmt(inv.amountPaid)));
@@ -427,7 +439,7 @@ export class PosReceiptsService {
     const cashierSetting = await this.settings.get('pos.printCashierCopy');
     const includeCashier = cashierSetting?.value !== 'false';
     return new Promise<Buffer>((resolve, reject) => {
-      const doc = new PDFDocument({ size: [226, 600], margin: 8 });
+      const doc = new PDFDocument({ size: [226, 600], margin: 0 });
       const chunks: Buffer[] = [];
       doc.on('data', (c: Buffer) => chunks.push(c));
       doc.on('end', () => resolve(Buffer.concat(chunks)));
@@ -494,9 +506,8 @@ export class PosReceiptsService {
           doc.moveDown(0.15);
           const mods: any[] = (ln as any).modifiers ?? [];
           for (const m of mods) {
-            const mName = (m.name ?? '').slice(0, 15).padEnd(15);
             doc.font('Courier-Oblique').fontSize(7);
-            doc.text(`      + ${mName} ${fmt(m.priceDelta).padStart(8)}`, 8, doc.y, { width: 210 });
+            doc.text(`      + ${(m.name ?? '').slice(0, 35)}`, 8, doc.y, { width: 210 });
             doc.moveDown(0.12);
           }
           if (ln.note) {
@@ -514,6 +525,27 @@ export class PosReceiptsService {
         doc.moveDown(0.12);
         doc.text(`Subtotal:`.padEnd(33) + fmt(inv.subtotal).padStart(9), 8, doc.y, { width: 210 });
         doc.moveDown(0.12);
+        if (Number((inv as any).discountTotal) > 0) {
+          const typeTag = (inv as any).discountType === 'fixed_amount'
+            ? ' (fixed)'
+            : (inv as any).discountValue && Number((inv as any).discountValue) > 0
+              ? ` (${Number((inv as any).discountValue).toFixed(1)}%)`
+              : '';
+          doc.text(`Discount${typeTag}:`.padEnd(33) + `-${fmt((inv as any).discountTotal)}`.padStart(9), 8, doc.y, { width: 210 });
+          doc.moveDown(0.12);
+          if ((inv as any).discountReason) {
+            doc.font('Courier-Oblique').fontSize(7);
+            doc.text(`Why: ${(inv as any).discountReason}`.slice(0, 42), 8, doc.y, { width: 210 });
+            doc.moveDown(0.12);
+            doc.font('Courier').fontSize(8);
+          }
+          if ((inv as any).discountApprovedBy) {
+            doc.font('Courier-Oblique').fontSize(7);
+            doc.text(`Approved: ${(inv as any).discountApprovedBy}`.slice(0, 42), 8, doc.y, { width: 210 });
+            doc.moveDown(0.12);
+            doc.font('Courier').fontSize(8);
+          }
+        }
         if (Number((inv as any).taxAmount) > 0) {
           doc.text(`Tax:`.padEnd(33) + fmt((inv as any).taxAmount).padStart(9), 8, doc.y, { width: 210 });
           doc.moveDown(0.12);
@@ -631,7 +663,7 @@ export class PosReceiptsService {
       const desc = (variantTag + ln.description + inclTag).slice(0, 22).padEnd(22);
       out.push(` ${String(qty).padStart(3)} ${desc} ${num(price).padStart(8)} ${num(lineTotal).padStart(10)}`);
       for (const m of ln.modifiers ?? []) {
-        out.push(`      + ${(m.name ?? '').slice(0, 15).padEnd(15)} ${num(m.priceDelta).padStart(8)}`);
+        out.push(`      + ${(m.name ?? '').slice(0, 38)}`);
       }
       for (const a of ln.accompanimentNames ?? []) {
         out.push(`      + ${String(a).slice(0, 38)}`);
@@ -675,6 +707,7 @@ export class PosReceiptsService {
     lines.push('-'.repeat(R));
     lines.push(this.ticketTotal('Subtotal:', fmt(inv.subtotal)));
     if (Number(inv.discountTotal) > 0) lines.push(this.ticketTotal('Discount:', `-${fmt(inv.discountTotal)}`));
+    if ((inv as any).discountReason) lines.push(this.ticketTotal('Why:', (inv as any).discountReason));
     if (Number(inv.taxAmount) > 0) lines.push(this.ticketTotal('Tax:', fmt(inv.taxAmount)));
     lines.push(this.ticketTotal('TOTAL DUE:', fmt(inv.totalAmount)));
     lines.push('-'.repeat(R));
@@ -1060,7 +1093,7 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
       lines.push(` ${mark.padStart(3)}  ${String(line.description ?? '').slice(0, R - 7)}`);
       if (line.variantName) lines.push(`        ${String(line.variantName).slice(0, R - 9)}`);
       for (const a of line.accompanimentNames ?? []) lines.push(`        + ${String(a).slice(0, R - 11)}`);
-      for (const m of line.modifiers ?? []) lines.push(`        + ${String(m.name ?? '').slice(0, R - 11)}`);
+      for (const m of line.modifiers ?? []) lines.push(`        ${String((m as any).kitchenPrintName ?? m.name ?? '').slice(0, R - 9)}`);
       if (line.note) lines.push(`        ! ${String(line.note).slice(0, R - 11)}`);
     }
 

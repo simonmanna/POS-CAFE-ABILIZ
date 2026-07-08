@@ -83,3 +83,12 @@ export function useDeleteProduct() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
   });
 }
+
+export function useRestoreProduct() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.patch(`/products/${id}/restore`, {})).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['products'] }),
+  });
+}

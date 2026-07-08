@@ -10,7 +10,7 @@ describe('PosModifiersService', () => {
 
   beforeEach(() => {
     const tx = { modifierGroup: { create: jest.fn(), update: jest.fn(), findFirst: jest.fn() }, modifier: { update: jest.fn(), create: jest.fn() }, auditLog: { create: jest.fn() } };
-    prisma = { client: { $transaction: jest.fn((cb: any) => cb(tx)), modifierGroup: { findFirst: jest.fn(), findMany: jest.fn() }, modifier: { findFirst: jest.fn() }, productModifierGroup: { count: jest.fn(), findMany: jest.fn() }, menuItemModifierGroup: { count: jest.fn(), findMany: jest.fn() }, combo: { findFirst: jest.fn(), update: jest.fn(), create: jest.fn() }, comboItem: { deleteMany: jest.fn(), create: jest.fn() }, documentLineModifier: { findMany: jest.fn() } } } as any;
+    prisma = { client: { $transaction: jest.fn((cb: any) => cb(tx)), modifierGroup: { findFirst: jest.fn(), findMany: jest.fn() }, modifier: { findFirst: jest.fn() }, productModifierGroup: { count: jest.fn(), findMany: jest.fn() }, menuItemModifierGroup: { count: jest.fn(), findMany: jest.fn() }, orderItemModifier: { count: jest.fn().mockResolvedValue(0) }, invoiceItemModifier: { count: jest.fn().mockResolvedValue(0) }, documentLineModifier: { count: jest.fn().mockResolvedValue(0), findMany: jest.fn() }, combo: { findFirst: jest.fn(), update: jest.fn(), create: jest.fn() }, comboItem: { deleteMany: jest.fn(), create: jest.fn() } } } as any;
     tenant = { organizationId: orgId, userId: 'test-user', optionalOrganizationId: orgId };
     audit = { recordInTx: jest.fn(), record: jest.fn() };
     svc = new PosModifiersService(prisma as any, tenant as any, audit as any);
@@ -70,6 +70,23 @@ describe('PosModifiersService', () => {
     it('throws on negative priceDelta', async () => {
       prisma.client.modifier.findFirst.mockResolvedValueOnce(existing);
       await expect(svc.updateModifier('m1', { priceDelta: -1 })).rejects.toThrow('Modifier priceDelta cannot be negative');
+    });
+  });
+
+  describe('deleteModifier', () => {
+    it('throws conflict if modifier is used in orders', async () => {
+      const existing = { id: 'm1', organizationId: orgId, name: 'Extra Cheese', priceDelta: 2, deletedAt: null };
+      prisma.client.modifier.findFirst.mockResolvedValueOnce(existing);
+      prisma.client.orderItemModifier.count.mockResolvedValueOnce(3);
+      await expect(svc.deleteModifier('m1')).rejects.toThrow('used in 3 historical order line(s). Deactivate instead');
+    });
+
+    it('allows deletion if modifier has no order usage', async () => {
+      const existing = { id: 'm1', organizationId: orgId, name: 'Extra Cheese', priceDelta: 2, deletedAt: null };
+      prisma.client.modifier.findFirst.mockResolvedValueOnce(existing);
+      const txx = { modifier: { update: jest.fn().mockResolvedValue(existing) }, auditLog: { create: jest.fn() } };
+      prisma.client.$transaction.mockImplementationOnce((cb: any) => cb(txx));
+      await expect(svc.deleteModifier('m1')).resolves.not.toThrow();
     });
   });
 

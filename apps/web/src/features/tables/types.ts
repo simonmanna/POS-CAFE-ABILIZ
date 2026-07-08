@@ -7,7 +7,8 @@ export type PosTableStatus =
   | 'available'
   | 'occupied'
   | 'reserved'
-  | 'out_of_service';
+  | 'out_of_service'
+  | 'cleaning';
 
 export type PosTableShape = 'square' | 'rectangle' | 'circle';
 
@@ -85,8 +86,10 @@ export interface PosTable {
   height: number;
   status: PosTableStatus;
   notes: string | null;
+  sortOrder: number;
   active: boolean;
   assignedWaiterId: string | null;
+  qrCodeUrl: string | null;
   mergedIntoId: string | null;
   mergedAt: string | null;
   mergedById: string | null;
@@ -103,6 +106,7 @@ export interface PosTableStats {
   occupied: number;
   reserved: number;
   out_of_service: number;
+  cleaning: number;
   occupancyPct: number;
 }
 
@@ -120,6 +124,8 @@ export interface CreateTableInput {
   notes?: string;
   active?: boolean;
   assignedWaiterId?: string;
+  sortOrder?: number;
+  qrCodeUrl?: string;
 }
 
 export interface UpdateTableInput extends Partial<CreateTableInput> {}

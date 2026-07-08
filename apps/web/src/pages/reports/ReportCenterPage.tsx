@@ -146,7 +146,7 @@ const SalesReportTab: React.FC<{
     }),
     { subtotal: 0, discount: 0, totalAmount: 0 },
   );
-  const hdr = ['Order #', 'Invoice #', 'Sale Date', 'Subtotal', 'Discount', 'Total Amount', 'Waiter'];
+  const hdr = ['Order #', 'Invoice #', 'Sale Date', 'Time', 'Subtotal', 'Discount', 'Total Amount', 'Waiter'];
   return (
     <div className="space-y-4">
       <div className="flex items-end gap-2 flex-wrap">
@@ -160,11 +160,11 @@ const SalesReportTab: React.FC<{
           {rows.length > 0 && (
             <div className="flex gap-1">
               <Button variant="outline" size="sm" onClick={() => {
-                const d = rows.map((r: SalesReportRow) => [r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(), String(Number(r.subtotal).toFixed(2)), String(Number(r.discount).toFixed(2)), String(Number(r.totalAmount).toFixed(2)), r.waiterName ?? '—']);
+                const d = rows.map((r: SalesReportRow) => [r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(), r.time || new Date(r.saleDate).toLocaleTimeString(), String(Number(r.subtotal).toFixed(2)), String(Number(r.discount).toFixed(2)), String(Number(r.totalAmount).toFixed(2)), r.waiterName ?? '—']);
                 exportCSV(`sales-report-${fromDate}-${toDate}.csv`, hdr, d);
               }}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
               <Button variant="outline" size="sm" onClick={() => {
-                const d = rows.map((r: SalesReportRow) => [r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(), fmt(r.subtotal), fmt(r.discount), fmt(r.totalAmount), r.waiterName ?? '—']);
+                const d = rows.map((r: SalesReportRow) => [r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(), r.time || new Date(r.saleDate).toLocaleTimeString(), fmt(r.subtotal), fmt(r.discount), fmt(r.totalAmount), r.waiterName ?? '—']);
                 exportPDF(`sales-report-${fromDate}-${toDate}.pdf`, `Sales Report — ${fromDate} → ${toDate}`, hdr, d);
               }}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
             </div>
@@ -176,6 +176,7 @@ const SalesReportTab: React.FC<{
             <table className="w-full text-sm">
               <thead><tr className="text-left border-b border-slate-200 text-slate-600">
                 <th className="py-2 pr-3">Order #</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Sale Date</th>
+                <th className="py-2 pr-3">Time</th>
                 <th className="py-2 pr-3 text-right">Subtotal</th><th className="py-2 pr-3 text-right">Discount</th><th className="py-2 pr-3 text-right">Total Amount</th>
                 <th className="py-2 pr-3">Waiter</th>
               </tr></thead>
@@ -184,6 +185,7 @@ const SalesReportTab: React.FC<{
                   <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
                   <td className="py-2 pr-3 font-mono text-xs">{r.invoiceNumber}</td>
                   <td className="py-2 pr-3 text-xs">{new Date(r.saleDate).toLocaleDateString()}</td>
+                  <td className="py-2 pr-3 text-xs">{r.time || new Date(r.saleDate).toLocaleTimeString()}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(r.subtotal)}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(r.discount)}</td>
                   <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
@@ -191,7 +193,7 @@ const SalesReportTab: React.FC<{
                 </tr>
               ))}</tbody>
               <tfoot><tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                <td className="py-2 pr-3" colSpan={3}>Total</td>
+                <td className="py-2 pr-3" colSpan={4}>Total</td>
                 <td className="py-2 pr-3 text-right font-mono">{fmt(totals.subtotal)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{fmt(totals.discount)}</td>
                 <td className="py-2 pr-3 text-right font-mono">{fmt(totals.totalAmount)}</td>
@@ -217,7 +219,7 @@ const ItemsReportTab: React.FC<{
   const { data: _raw, isLoading } = useSoldItems(fromDate, toDate, categoryId, undefined, orderType);
   const items: SoldItem[] = (_raw ?? []) as SoldItem[];
   const grandTotal = items.reduce((s: number, i: SoldItem) => s + Number(i.totalAmount), 0);
-  const hdr = ['Order #', 'Invoice #', 'Sale Date', 'Item', 'Category', 'Unit Price', 'Discount %', 'Qty', 'Total Amount', 'Waiter'];
+  const hdr = ['Order #', 'Invoice #', 'Sale Date', 'Time', 'Item', 'Category', 'Unit Price', 'Discount %', 'Qty', 'Total Amount', 'Waiter'];
   return (
     <div className="space-y-4">
       <div className="flex items-end gap-2 flex-wrap">
@@ -239,11 +241,11 @@ const ItemsReportTab: React.FC<{
           {items.length > 0 && (
             <div className="flex gap-1">
               <Button variant="outline" size="sm" onClick={() => {
-                const d = items.map((it: SoldItem) => [it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(), it.item, it.categoryName ?? '—', String(Number(it.unitPrice).toFixed(2)), it.discountPercent, String(Number(it.quantity).toFixed(2)), String(Number(it.totalAmount).toFixed(2)), it.waiterName ?? '—']);
+                const d = items.map((it: SoldItem) => [it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(), it.time || new Date(it.saleDate).toLocaleTimeString(), it.item, it.categoryName ?? '—', String(Number(it.unitPrice).toFixed(2)), it.discountPercent, String(Number(it.quantity).toFixed(2)), String(Number(it.totalAmount).toFixed(2)), it.waiterName ?? '—']);
                 exportCSV(`items-report-${fromDate}-${toDate}.csv`, hdr, d);
               }}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
               <Button variant="outline" size="sm" onClick={() => {
-                const d = items.map((it: SoldItem) => [it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(), it.item, it.categoryName ?? '—', fmt(it.unitPrice), `${it.discountPercent}%`, String(Number(it.quantity).toFixed(2)), fmt(it.totalAmount), it.waiterName ?? '—']);
+                const d = items.map((it: SoldItem) => [it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(), it.time || new Date(it.saleDate).toLocaleTimeString(), it.item, it.categoryName ?? '—', fmt(it.unitPrice), `${it.discountPercent}%`, String(Number(it.quantity).toFixed(2)), fmt(it.totalAmount), it.waiterName ?? '—']);
                 exportPDF(`items-report-${fromDate}-${toDate}.pdf`, `Item Sales Report — ${fromDate} → ${toDate}`, hdr, d);
               }}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
             </div>
@@ -255,6 +257,7 @@ const ItemsReportTab: React.FC<{
             <table className="w-full text-sm">
               <thead><tr className="text-left border-b border-slate-200 text-slate-600">
                 <th className="py-2 pr-3">Order #</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Sale Date</th>
+                <th className="py-2 pr-3">Time</th>
                 <th className="py-2 pr-3">Item</th><th className="py-2 pr-3">Category</th><th className="py-2 pr-3 text-right">Unit Price</th>
                 <th className="py-2 pr-3 text-right">Disc %</th><th className="py-2 pr-3 text-right">Qty</th><th className="py-2 pr-3 text-right">Total</th>
                 <th className="py-2 pr-3">Waiter</th>
@@ -264,6 +267,7 @@ const ItemsReportTab: React.FC<{
                   <td className="py-2 pr-3 font-mono text-xs">{it.orderNumber}</td>
                   <td className="py-2 pr-3 font-mono text-xs">{it.invoiceNumber}</td>
                   <td className="py-2 pr-3 text-xs">{new Date(it.saleDate).toLocaleDateString()}</td>
+                  <td className="py-2 pr-3 text-xs">{it.time || new Date(it.saleDate).toLocaleTimeString()}</td>
                   <td className="py-2 pr-3 font-semibold">{it.item}</td>
                   <td className="py-2 pr-3 text-xs">{it.categoryName ?? '—'}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(it.unitPrice)}</td>

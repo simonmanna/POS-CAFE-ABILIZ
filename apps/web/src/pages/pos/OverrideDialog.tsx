@@ -8,6 +8,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useVerifyOverride } from './api';
 
+export interface OverrideResult {
+  managerId: string;
+  pin: string;
+}
+
 interface Props {
   open: boolean;
   /** What is being overridden. Recorded in audit + event. */
@@ -15,8 +20,8 @@ interface Props {
   /** Optional title override. */
   title?: string;
   onClose: () => void;
-  /** Resolves with the verified manager id, or null if cancelled/failed. */
-  onVerified: (managerId: string | null) => void;
+  /** Resolves with the verified manager result (id + pin), or null if cancelled/failed. */
+  onVerified: (result: OverrideResult | null) => void;
 }
 
 const KIND_LABEL: Record<Props['kind'], string> = {
@@ -51,7 +56,7 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
         password: usePassword ? password : undefined,
         overrideKind: kind,
       });
-      onVerified(res.managerId);
+      onVerified({ managerId: res.managerId, pin });
     } catch (e: any) {
       setErr(e?.response?.data?.message || 'Invalid credentials');
     }

@@ -8,6 +8,8 @@ export class OrderLineModifierDto {
   @IsString() modifierId!: string;
   @IsString() name!: string;
   @IsNumber() priceDelta!: number;
+  // Display echo for the kitchen ticket; server re-resolves from modifierId.
+  @IsOptional() @IsString() kitchenPrintName?: string;
 }
 
 /** One cart line. Mirrors PosService.CheckoutLine but as a validated DTO. */
@@ -20,6 +22,9 @@ export class OrderLineDto {
   @IsNumber() @Min(0) unitPrice!: number;
   @IsOptional() @IsString() taxId?: string;
   @IsOptional() @IsNumber() discountPercent?: number;
+  @IsOptional() @IsIn(['percentage', 'fixed_amount']) discountType?: 'percentage' | 'fixed_amount';
+  @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
+  @IsOptional() @IsString() discountReason?: string;
   @IsOptional() @IsString() note?: string;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => OrderLineModifierDto)
   modifiers?: OrderLineModifierDto[];
@@ -85,6 +90,10 @@ export class GenerateInvoiceDto {
   @IsOptional() @IsIn(['cash', 'card', 'mobile_money', 'mixed', 'credit'])
   paymentMode?: 'cash' | 'card' | 'mobile_money' | 'mixed' | 'credit';
   @IsOptional() @IsNumber() transactionDiscountPercent?: number;
+  @IsOptional() @IsIn(['percentage', 'fixed_amount']) transactionDiscountType?: 'percentage' | 'fixed_amount';
+  @IsOptional() @IsNumber() @Min(0) transactionDiscountAmount?: number;
+  @IsOptional() @IsString() discountReason?: string;
+  @IsOptional() @IsString() overrideById?: string;
   @IsOptional() @IsString() branchId?: string;
 }
 

@@ -104,6 +104,7 @@ enum AuditAction {
   reprint
   assign
   unassign
+  restore
 }
 
 // ------------------------- System / global tables ---------------------------
@@ -1174,6 +1175,8 @@ model DocumentLineModifier {
   /// Source Modifier id when known (null if the catalogue row was later removed).
   modifierId     String?
   name           String
+  /// Kitchen-print text snapshot. Falls back to `name` when null.
+  kitchenPrintName String?
   priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
   createdAt      DateTime @default(now())
 
@@ -1295,6 +1298,14 @@ model ModifierGroup {
   organizationId String
   /// Display label, e.g. "Milk options", "Size", "Extras".
   name           String
+  /// Optional category for grouping modifiers in the admin UI, e.g. "Prep", "Milk", "Size".
+  category       String?
+  /// Description shown in the modifier picker tooltip.
+  description    String?
+  /// Hex colour for the admin UI badge, e.g. "#4f46e5".
+  color          String?
+  /// Icon name/identifier for the admin UI.
+  icon           String?
   /// ADD_ON = paid extras prominently shown as "What extra is added?"
   /// MODIFIER = preparation instructions shown as "How is it prepared?"
   groupType      ModifierGroupType @default(ADD_ON)
@@ -1326,6 +1337,10 @@ model Modifier {
   groupId        String
   /// e.g. "Oat milk", "Extra shot", "Large".
   name           String
+  /// Text printed on kitchen tickets. Falls back to `name` when null.
+  kitchenPrintName String?
+  /// Description shown in the modifier picker tooltip.
+  description    String?
   /// Signed UGX added to the line price when this modifier is selected.
   /// Negative for "discount" modifiers (e.g. "No syrup" = -500).
   priceDelta     Decimal   @default(0) @db.Decimal(20, 6)
@@ -1468,6 +1483,10 @@ model MenuItem {
   /// Price the customer sees. Stored as Decimal(20,6) so it can be in any
   /// currency minor unit. NULL means "derive from MenuProduct sum" (rare).
   basePrice       Decimal? @db.Decimal(20, 6)
+  /// When true (default), this item deducts stock of its recipe ingredients
+  /// (MenuProduct rows) on sale. Set false for service/fee items that consume
+  /// no inventory. When true, at least one MenuProduct row is required.
+  isInventoryTracked Boolean @default(true)
   /// Optional tax category for this menu item. A menu item has no single stock
   /// product to inherit tax from, so this is resolved server-side at order time
   /// (a client-sent taxId still wins). NULL = untaxed unless the cart specifies one.
@@ -1601,6 +1620,8 @@ model AccompanimentGroup {
   organizationId String
   /// Display label, e.g. "Choose 1 Side", "Beverage".
   name           String
+  /// Optional category for organising groups, e.g. "Side", "Drink".
+  category       String?
   /// When true the POS enforces this selection before allowing add-to-cart.
   isRequired     Boolean   @default(true)
   /// Minimum selections required (default 1 when isRequired).
@@ -3641,6 +3662,7 @@ enum PosTableStatus {
   occupied
   reserved
   out_of_service
+  cleaning
 }
 
 enum PosTableShape {
@@ -3678,6 +3700,8 @@ model PosTable {
   /// Stable, cashier-readable identifier. Unique per org — the server uses
   /// this for "T<n>" badges in the terminal UI.
   number           Int
+  /// Manual display order for the floor map; lower sorts first, ties broken by `number`.
+  sortOrder        Int            @default(0)
   /// Number of seats (chairs). 0 = standing / counter spot.
   seats            Int            @default(2)
   /// Where the table sits. `customZone` is filled in only when zone='custom'.
@@ -3697,6 +3721,8 @@ model PosTable {
   active           Boolean        @default(true)
   /// Waiter responsible for this table (free-form assignment; null = pool).
   assignedWaiterId String?
+  /// URL for the table's QR code (used by seated guests to view menu / call waiter).
+  qrCodeUrl        String?
   /// Self-FK: when this table was merged into another, points to the target
   /// table. `null` when not merged.
   mergedIntoId     String?
@@ -3860,6 +3886,20 @@ enum ReceiptType {
   reprint
 }
 
+/// Discount scope: line-item vs invoice-level.
+enum DiscountType {
+  percentage
+  fixed_amount
+}
+
+/// Where a discount originated.
+enum DiscountSource {
+  manual
+  promotion
+  loyalty
+  coupon
+}
+
 /// Operational order — the restaurant-ops aggregate root. Created immediately
 /// when the customer starts ordering; carries the kitchen + table lifecycle.
 /// Billing is deferred: `invoiceId` is set only when the bill is generated.
@@ -3878,7 +3918,8 @@ model Order {
   branchId                   String?
   cashSessionId              String?
   guestCount                 Int?
-  notes                      String?
+  notes            String?
+  sortOrder        Int            @default(0)
   /// Set at bill generation. 1:1 with the financial Document (the Invoice).
   invoiceId                  String?     @unique
   /// Optimistic-lock token. Every item mutation bumps this; writers pass the
@@ -3891,7 +3932,11 @@ model Order {
   taxAmount                  Decimal     @default(0) @db.Decimal(20, 6)
   totalAmount                Decimal     @default(0) @db.Decimal(20, 6)
   /// Order-level discount (%) applied on top of line discounts at bill time.
-  transactionDiscountPercent Decimal     @default(0) @db.Decimal(9, 4)
+  transactionDiscountPercent Decimal         @default(0) @db.Decimal(9, 4)
+  transactionDiscountType    DiscountType    @default(percentage)
+  transactionDiscountAmount  Decimal         @default(0) @db.Decimal(20, 6)
+  discountReason             String?
+  discountSource             DiscountSource  @default(manual)
   openedAt                   DateTime    @default(now())
   closedAt                   DateTime?
   cancelledAt                DateTime?
@@ -3941,6 +3986,9 @@ model OrderItem {
   quantity               Decimal                @default(1) @db.Decimal(20, 6)
   unitPrice              Decimal                @default(0) @db.Decimal(20, 6)
   discountPercent        Decimal                @default(0) @db.Decimal(9, 4)
+  discountType           DiscountType           @default(percentage)
+  discountAmount         Decimal                @default(0) @db.Decimal(20, 6)
+  discountReason         String?
   taxId                  String?
   taxInclusive           Boolean                @default(false)
   note                   String?
@@ -3984,6 +4032,7 @@ model OrderItemModifier {
   orderItemId    String
   modifierId     String?
   name           String
+  kitchenPrintName String?
   priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
   createdAt      DateTime @default(now())
 
@@ -4053,6 +4102,13 @@ model Invoice {
   exchangeRate         Decimal                 @default(1) @db.Decimal(18, 8)
   subtotal             Decimal                 @default(0) @db.Decimal(20, 6)
   discountTotal        Decimal                 @default(0) @db.Decimal(20, 6)
+  discountType         DiscountType            @default(percentage)
+  discountValue        Decimal                 @default(0) @db.Decimal(20, 6)
+  discountSource       DiscountSource          @default(manual)
+  discountReason       String?
+  discountAppliedBy    String?
+  discountApprovedBy   String?
+  discountApprovedAt   DateTime?
   taxAmount            Decimal                 @default(0) @db.Decimal(20, 6)
   totalAmount          Decimal                 @default(0) @db.Decimal(20, 6)
   amountPaid           Decimal                 @default(0) @db.Decimal(20, 6)
@@ -4116,7 +4172,14 @@ model InvoiceItem {
   description     String
   quantity        Decimal  @default(1) @db.Decimal(20, 6)
   unitPrice       Decimal  @default(0) @db.Decimal(20, 6)
-  discountPercent Decimal  @default(0) @db.Decimal(9, 4)
+  discountPercent Decimal       @default(0) @db.Decimal(9, 4)
+  discountType    DiscountType  @default(percentage)
+  discountAmount  Decimal       @default(0) @db.Decimal(20, 6)
+  discountReason  String?
+  discountSource  DiscountSource @default(manual)
+  discountAppliedBy  String?
+  discountApprovedBy String?
+  discountApprovedAt DateTime?
   taxId           String?
   taxInclusive    Boolean  @default(false)
   subtotal        Decimal  @default(0) @db.Decimal(20, 6)
@@ -4143,6 +4206,7 @@ model InvoiceItemModifier {
   invoiceItemId  String
   modifierId     String?
   name           String
+  kitchenPrintName String?
   priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
   createdAt      DateTime @default(now())
 

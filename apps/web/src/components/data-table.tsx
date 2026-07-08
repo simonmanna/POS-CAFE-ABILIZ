@@ -23,8 +23,9 @@ interface DataTableProps<T> {
   emptyMessage?: ReactNode;
   getRowId?: (row: T) => string;
   className?: string;
-  headerRowClassName?: string;
+  compact?: boolean;
   cellClassName?: string;
+  headerRowClassName?: string;
 }
 
 /** Reusable, presentational data table. Pagination/search live in the page. */
@@ -35,8 +36,9 @@ export function DataTable<T>({
   emptyMessage = 'No records found.',
   getRowId,
   className = '',
-  headerRowClassName = '',
+  compact = false,
   cellClassName = '',
+  headerRowClassName = '',
 }: DataTableProps<T>) {
   return (
     <div className={`rounded-md border ${className}`}>
@@ -44,9 +46,7 @@ export function DataTable<T>({
         <TableHeader>
           <TableRow className={headerRowClassName}>
             {columns.map((c) => (
-              <TableHead key={c.key} className={c.className}>
-                {c.header}
-              </TableHead>
+              <TableHead key={c.key} className={compact ? 'h-8 py-2 text-xs' : c.className}>{c.header}</TableHead>
             ))}
           </TableRow>
         </TableHeader>
@@ -55,7 +55,7 @@ export function DataTable<T>({
             Array.from({ length: 6 }).map((_, i) => (
               <TableRow key={`s-${i}`}>
                 {columns.map((c) => (
-                  <TableCell key={c.key} className={cellClassName}>
+                  <TableCell key={c.key} className={compact ? 'p-2' : ''}>
                     <Skeleton className="h-4 w-full" />
                   </TableCell>
                 ))}
@@ -63,7 +63,7 @@ export function DataTable<T>({
             ))
           ) : data.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={columns.length} className="h-24 text-center text-muted-foreground">
+              <TableCell colSpan={columns.length} className={`${compact ? 'p-2' : 'h-24'} text-center text-muted-foreground`}>
                 {emptyMessage}
               </TableCell>
             </TableRow>
@@ -71,7 +71,7 @@ export function DataTable<T>({
             data.map((row, i) => (
               <TableRow key={getRowId ? getRowId(row) : i}>
                 {columns.map((c) => (
-                  <TableCell key={c.key} className={`${cellClassName} ${c.className ?? ''}`}>
+                  <TableCell key={c.key} className={`${compact ? 'p-2 text-sm' : ''} ${c.className ?? ''} ${cellClassName}`}>
                     {c.render ? c.render(row) : String((row as Record<string, unknown>)[c.key] ?? '')}
                   </TableCell>
                 ))}

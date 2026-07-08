@@ -50,12 +50,14 @@ export interface CreateTableDto {
   notes?: string;
   active?: boolean;
   assignedWaiterId?: string;
+  sortOrder?: number;
+  qrCodeUrl?: string;
 }
 
 export interface UpdateTableDto extends Partial<CreateTableDto> {}
 
 export interface SetStatusDto {
-  status: 'available' | 'occupied' | 'reserved' | 'dirty' | 'out_of_service';
+  status: 'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning';
   reason?: string;
 }
 
@@ -111,7 +113,7 @@ export class PosTablesService {
   async syncTableStatus(
     tableId: string,
     tx: any = this.prisma.client,
-  ): Promise<'available' | 'occupied' | 'reserved' | 'out_of_service'> {
+  ): Promise<'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning'> {
     // Delegates to the single item-derived invariant (shared with the Order and
     // Invoice services) so transfer / merge / split all free or occupy the table
     // from the same rule: OCCUPIED iff ≥1 active order item, else AVAILABLE.
@@ -275,7 +277,7 @@ export class PosTablesService {
         ...(filter.zone ? { zone: filter.zone as any } : {}),
         ...(filter.active === undefined ? {} : { active: filter.active }),
       },
-      orderBy: [{ number: 'asc' }, { name: 'asc' }],
+      orderBy: [{ sortOrder: 'asc' } as any, { number: 'asc' }],
       include: {
         orders: {
           where: { closedAt: null },
@@ -347,6 +349,7 @@ export class PosTablesService {
       occupied: 0,
       reserved: 0,
       out_of_service: 0,
+      cleaning: 0,
     };
     for (const g of groups) {
       out.total += g._count._all;
@@ -381,6 +384,8 @@ export class PosTablesService {
             notes: dto.notes ?? null,
             active: dto.active ?? true,
             assignedWaiterId: dto.assignedWaiterId ?? null,
+            sortOrder: dto.sortOrder ?? 0,
+            qrCodeUrl: dto.qrCodeUrl ?? null,
           },
         });
         await this.audit.recordInTx(tx, {
@@ -412,11 +417,31 @@ export class PosTablesService {
     return this.prisma.client.$transaction(async (tx: any) => {
       const existing = await tx.posTable.findFirst({ where: { id, organizationId } });
       if (!existing) throw new NotFoundException('Table not found');
+
+      // T3: Block rename when table is occupied.
+      if (existing.status === 'occupied' && dto.name !== undefined && dto.name.trim() !== existing.name) {
+        throw new BadRequestException('Cannot rename an occupied table');
+      }
+
+      // T4: Block seats reduction below max guestCount on open orders.
+      if (dto.seats !== undefined && dto.seats < existing.seats) {
+        const openOrders = await tx.posTableOrder.findMany({
+          where: { tableId: id, closedAt: null },
+          select: { guestCount: true },
+        });
+        const maxGuests = Math.max(0, ...openOrders.map((o: any) => o.guestCount ?? 0));
+        if (maxGuests > dto.seats) {
+          throw new BadRequestException(
+            `Cannot reduce seats to ${dto.seats}: open orders have ${maxGuests} guests`,
+          );
+        }
+      }
+
       const changes: Record<string, unknown> = {};
       const fields: (keyof UpdateTableDto)[] = [
         'name', 'seats', 'zone', 'customZone', 'shape',
         'posX', 'posY', 'width', 'height', 'notes', 'active',
-        'assignedWaiterId',
+        'assignedWaiterId', 'sortOrder', 'qrCodeUrl',
       ];
       for (const f of fields) {
         if (dto[f] !== undefined && (existing as any)[f] !== dto[f]) {
@@ -438,6 +463,8 @@ export class PosTablesService {
           ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
           ...(dto.active !== undefined ? { active: dto.active } : {}),
           ...(dto.assignedWaiterId !== undefined ? { assignedWaiterId: dto.assignedWaiterId } : {}),
+          ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+          ...(dto.qrCodeUrl !== undefined ? { qrCodeUrl: dto.qrCodeUrl } : {}),
         },
       });
       if (Object.keys(changes).length > 0) {
@@ -1195,7 +1222,7 @@ export class PosTablesService {
    * Close the open PosTableOrder(s) on a table after payment.
    * Table status auto-synced: no open orders → available, else occupied.
    */
-  async closeTableOrder(args: { tableId: string; orderId?: string }): Promise<{ closed: number; tableStatus: 'available' | 'occupied' | 'reserved' | 'out_of_service' }> {
+  async closeTableOrder(args: { tableId: string; orderId?: string }): Promise<{ closed: number; tableStatus: 'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning' }> {
     const organizationId = this.tenant.organizationId;
     return this.prisma.client.$transaction(async (tx: any) => {
       await tx.$queryRawUnsafe(
@@ -1203,14 +1230,21 @@ export class PosTablesService {
         args.tableId,
         organizationId,
       );
+      const existing = await tx.posTable.findFirst({ where: { id: args.tableId, organizationId } });
+      if (!existing) throw new NotFoundException('Table not found');
       const where: any = { tableId: args.tableId, closedAt: null };
       if (args.orderId) where.orderId = args.orderId;
       const closed = await tx.posTableOrder.updateMany({
         where,
         data: { closedAt: new Date() },
       });
-      // Sync status based on remaining open orders and return it
-      const tableStatus = await this.syncTableStatus(args.tableId, tx);
+      // Sync status based on remaining open orders
+      let tableStatus = await this.syncTableStatus(args.tableId, tx);
+      // T2: After payment, set cleaning instead of available (unless overridden).
+      if (tableStatus === 'available' && existing.status === 'occupied') {
+        await tx.posTable.update({ where: { id: args.tableId }, data: { status: 'cleaning' } });
+        tableStatus = 'cleaning';
+      }
       return { closed: closed.count, tableStatus };
     });
   }

@@ -34,6 +34,7 @@ export const AUDIT_ACTIONS = [
   'reprint',
   'assign',
   'unassign',
+  'restore',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

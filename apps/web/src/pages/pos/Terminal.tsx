@@ -24,7 +24,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { Coffee, LayoutGrid, Users, ArrowLeft, Printer, Clock } from 'lucide-react';
+import { Coffee, LayoutGrid, ArrowLeft, Printer, Clock } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 
 import { Topbar } from './Topbar';
@@ -41,6 +41,8 @@ import { DiscountDialog } from './DiscountDialog';
 import { LineDiscountDialog } from './LineDiscountDialog';
 import { CustomerDialog } from './CustomerDialog';
 import { OverrideDialog } from './OverrideDialog';
+import { PinConfirmDialog } from './PinConfirmDialog';
+import { DiscountReasonDialog } from './DiscountReasonDialog';
 import { ShiftOpenDialog } from './ShiftOpenDialog';
 import { ShiftCloseDialog } from './ShiftCloseDialog';
 import { ReceiptPreview, type ReceiptLine } from './ReceiptPreview';
@@ -124,7 +126,7 @@ function serverLineToCart(l: any): CartLine {
     // is already modifier-folded (so the display total is unchanged); cartLineToPayload
     // un-bakes the id-bearing deltas on the way back out, keeping the money exact.
     modifiers: Array.isArray(l.modifiers) && l.modifiers.length > 0
-      ? l.modifiers.map((m: any) => ({ modifierId: m.modifierId ?? '', name: m.name, priceDelta: Number(m.priceDelta ?? 0) }))
+      ? l.modifiers.map((m: any) => ({ modifierId: m.modifierId ?? '', name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, priceDelta: Number(m.priceDelta ?? 0) }))
       : undefined,
     variantId: l.variantId ?? undefined,
     variantName: l.variantName ?? undefined,
@@ -143,7 +145,7 @@ function cartToReceiptLines(ls: CartLine[]): ReceiptLine[] {
     unitPrice: l.unitPrice,
     discountPercent: l.discountPercent,
     note: l.note,
-    modifiers: l.modifiers?.map((m) => m.name).filter(Boolean),
+    modifiers: l.modifiers?.map((m) => (m as any).kitchenPrintName ?? m.name).filter(Boolean),
     variantName: l.variantName,
     accompanimentNames: l.accompanimentNames,
   }));
@@ -154,7 +156,7 @@ function cartToReceiptLines(ls: CartLine[]): ReceiptLine[] {
  *  stores discountPercent on DocumentLine). */
 function cartLineToPayload(l: CartLine) {
   const base = l.quantity * l.unitPrice;
-  const computedPct = l.discountType === 'fixed' && l.discountAmount
+  const computedPct = l.discountType === 'fixed_amount' && l.discountAmount
     ? base > 0 ? Math.min(100, (l.discountAmount / base) * 100) : 0
     : l.discountPercent;
   // The cart's unitPrice is DISPLAY-baked: base menu price + accompaniment impact
@@ -266,7 +268,14 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Manager override ============== */
   const [overrideKind, setOverrideKind] = useState<'discount' | 'void' | 'manual_refund' | null>(null);
-  const [overrideResolver, setOverrideResolver] = useState<((id: string | null) => void) | null>(null);
+  const [overrideResolver, setOverrideResolver] = useState<((result: {managerId: string; pin: string} | null) => void) | null>(null);
+
+  /* ============== PIN confirm (item delete) ============== */
+  const [showPinConfirm, setShowPinConfirm] = useState(false);
+  const [pendingRemoveLine, setPendingRemoveLine] = useState<CartLine | null>(null);
+
+  /* ============== Discount reason (P4) ============== */
+  const [showDiscountReason, setShowDiscountReason] = useState(false);
 
   /* ============== Receipt preview (Sprint P3) ============== */
   const [showBillPreview, setShowBillPreview] = useState(false);
@@ -282,8 +291,8 @@ const TerminalPage: React.FC = () => {
     orderTypeLabel?: string; tableLabel?: string; customerName?: string;
     invoiceNumber?: string; invoiceId?: string; receiptHtml?: string;
   } | null>(null);
-  const permissions = useAuthStore((s) => s.permissions);
-  const canReprint = permissions?.includes('pos:reports');
+  const canReprint = usePosAuthStore((s) => s.user?.permissions?.includes('pos:reports') ?? false);
+  const canDeleteItem = usePosAuthStore((s) => s.user?.permissions?.includes('pos:delete_item') ?? false);
   const [showReprint, setShowReprint] = useState<{ invoiceId: string; title: string } | null>(null);
 
   /* ============== Order type (Dine In / Takeaway / Delivery) ============== */
@@ -409,6 +418,7 @@ const TerminalPage: React.FC = () => {
   const transactionDiscountPercent = useCartStore((s) => s.transactionDiscountPercent);
   const transactionDiscountType = useCartStore((s) => s.transactionDiscountType);
   const transactionDiscountAmount = useCartStore((s) => s.transactionDiscountAmount);
+  const transactionDiscountReason = useCartStore((s) => s.transactionDiscountReason);
   const total = useCartStore(selectTotal);
   const tableId = useCartStore((s) => s.tableId);
   const addLine = useCartStore((s) => s.addLine);
@@ -803,12 +813,20 @@ const TerminalPage: React.FC = () => {
 
   const onInc = (line: CartLine) => setQuantity(line.lineId, line.quantity + 1);
   const onDec = (line: CartLine) => setQuantity(line.lineId, line.quantity - 1);
-  const onRemove = (line: CartLine) => removeLine(line.lineId);
+  const onRemove = (line: CartLine) => {
+    setPendingRemoveLine(line);
+    setShowPinConfirm(true);
+  };
+  const onPinVerified = () => {
+    if (pendingRemoveLine) removeLine(pendingRemoveLine.lineId);
+    setShowPinConfirm(false);
+    setPendingRemoveLine(null);
+  };
   const onLineDiscount = (line: CartLine) => setLineForDiscount(line);
   const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType) => {
     setDiscount(lineId, amount, type);
     if (amount > 0) {
-      toast.success(type === 'fixed' ? `Line discount UGX ${amount.toLocaleString()} applied` : `Line discount ${amount}% applied`);
+      toast.success(type === 'fixed_amount' ? `Line discount UGX ${amount.toLocaleString()} applied` : `Line discount ${amount}% applied`);
     } else {
       toast.success('Line discount cleared');
     }
@@ -819,15 +837,15 @@ const TerminalPage: React.FC = () => {
   };
 
   /* ============== Manager override helper ============== */
-  const requestOverride = useCallback((kind: 'discount' | 'void' | 'manual_refund'): Promise<string | null> => {
-    return new Promise<string | null>((resolve) => {
+  const requestOverride = useCallback((kind: 'discount' | 'void' | 'manual_refund'): Promise<{managerId: string; pin: string} | null> => {
+    return new Promise<{managerId: string; pin: string} | null>((resolve) => {
       setOverrideKind(kind);
       setOverrideResolver(() => resolve);
     });
   }, []);
 
-  const onOverrideVerified = (managerId: string | null) => {
-    if (overrideResolver) overrideResolver(managerId);
+  const onOverrideVerified = (result: {managerId: string; pin: string} | null) => {
+    if (overrideResolver) overrideResolver(result);
     setOverrideKind(null);
     setOverrideResolver(null);
   };
@@ -839,18 +857,20 @@ const TerminalPage: React.FC = () => {
   const onApplyOrderDiscountEx = (amount: number, type: DiscountType) => {
     const needsOverride = type === 'percentage' ? amount >= 10 : amount >= 50000;
     if (needsOverride) {
-      requestOverride('discount').then((mgrId) => {
-        if (!mgrId) {
+      requestOverride('discount').then((result) => {
+        if (!result) {
           toast.error('Manager override cancelled');
           return;
         }
         setTransactionDiscount(amount, type);
-        useCartStore.setState({ overrideById: mgrId });
-        toast.success(type === 'fixed' ? `UGX ${amount.toLocaleString()} discount applied with override` : `${amount}% discount applied with override`);
+        useCartStore.setState({ overrideById: result.managerId, overridePin: result.pin });
+        if (amount > 0) setShowDiscountReason(true);
+        toast.success(type === 'fixed_amount' ? `UGX ${amount.toLocaleString()} discount applied with override` : `${amount}% discount applied with override`);
       });
     } else {
       setTransactionDiscount(amount, type);
-      toast.success(type === 'fixed' ? `UGX ${amount.toLocaleString()} discount applied` : `${amount}% discount applied`);
+      if (amount > 0) setShowDiscountReason(true);
+      toast.success(type === 'fixed_amount' ? `UGX ${amount.toLocaleString()} discount applied` : `${amount}% discount applied`);
     }
   };
 
@@ -945,12 +965,12 @@ const TerminalPage: React.FC = () => {
   const onCreditSale = async () => {
     if (!customer?.id) { toast.error('Select a customer to charge on account'); return; }
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
-    const effectiveTxPct = transactionDiscountType === 'fixed' && transactionDiscountAmount > 0
+    const effectiveTxPct = transactionDiscountType === 'fixed_amount' && transactionDiscountAmount > 0
       ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
       : transactionDiscountPercent;
     const orderLines = lines.map((l) => {
       const base = l.quantity * l.unitPrice;
-      const pct = l.discountType === 'fixed' && l.discountAmount
+      const pct = l.discountType === 'fixed_amount' && l.discountAmount
         ? base > 0 ? Math.min(100, (l.discountAmount / base) * 100) : 0
         : l.discountPercent;
       return {
@@ -982,6 +1002,9 @@ const TerminalPage: React.FC = () => {
         orderId: (order as any).id,
         paymentMode: 'credit',
         transactionDiscountPercent: effectiveTxPct,
+        transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
+        transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
+        discountReason: transactionDiscountReason,
       });
       await settleCreditMut.mutateAsync({ invoiceId: (invoice as any).id, partnerId: customer.id });
       toast.success(`Charged ${fmt((invoice as any).totalAmount ?? total)} to ${customer.name}'s account`);
@@ -1015,9 +1038,9 @@ const TerminalPage: React.FC = () => {
     }
   };
 
-  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; overrideById?: string }) => {
+  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; overrideById?: string; overridePin?: string }) => {
     /* Compute effective transaction discount percent (handles fixed-amount). */
-    const effectiveTxPct = transactionDiscountType === 'fixed' && transactionDiscountAmount > 0
+    const effectiveTxPct = transactionDiscountType === 'fixed_amount' && transactionDiscountAmount > 0
       ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
       : transactionDiscountPercent;
     /* One stable Idempotency-Key per cart — reused across every settle attempt
@@ -1042,6 +1065,9 @@ const TerminalPage: React.FC = () => {
           tableId,
           tenders: input.tenders,
           transactionDiscountPercent: effectiveTxPct,
+          transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
+          transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
+          discountReason: transactionDiscountReason,
           cashSessionId: session?.id,
           _idemKey: idemKey,
         });
@@ -1091,7 +1117,7 @@ const TerminalPage: React.FC = () => {
 
     const checkoutLines = lines.map((l) => {
       const base = l.quantity * l.unitPrice;
-      const pct = l.discountType === 'fixed' && l.discountAmount
+      const pct = l.discountType === 'fixed_amount' && l.discountAmount
         ? base > 0 ? Math.min(100, (l.discountAmount / base) * 100) : 0
         : l.discountPercent;
       return {
@@ -1103,6 +1129,9 @@ const TerminalPage: React.FC = () => {
         unitPrice: l.unitPrice,
         taxId: l.taxId,
         discountPercent: pct > 0 ? pct : undefined,
+        discountType: l.discountType,
+        discountAmount: l.discountAmount,
+        discountReason: l.discountReason,
         note: l.note,
         modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
         comboId: l.comboId,
@@ -1115,7 +1144,11 @@ const TerminalPage: React.FC = () => {
       lines: checkoutLines,
       tenders: input.tenders,
       transactionDiscountPercent: effectiveTxPct,
+      transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
+      transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
+      discountReason: transactionDiscountReason,
       overrideById: input.overrideById,
+      overridePin: input.overridePin,
       cashSessionId: session?.id,
       branchId: undefined,
       reference: undefined,
@@ -1182,9 +1215,9 @@ const TerminalPage: React.FC = () => {
       }
       // If the backend says manager override is required, prompt and retry.
       if (/manager override/i.test(msg) && !input.overrideById) {
-        const mgrId: string | null = await requestOverride('discount');
-        if (mgrId) {
-          await onSettle({ ...input, overrideById: mgrId });
+        const result = await requestOverride('discount');
+        if (result) {
+          await onSettle({ ...input, overrideById: result.managerId, overridePin: result.pin });
           return;
         }
       }
@@ -1441,44 +1474,44 @@ const TerminalPage: React.FC = () => {
                             type="button"
                             onClick={() => handleTableClick(t)}
                             className={`relative rounded-xl border p-5 text-left transition-all duration-200
-                              min-h-[200px] sm:min-h-[220px] flex flex-col
+                              min-h-[140px] sm:min-h-[140px] flex flex-col
                               hover:shadow-xl hover:-translate-y-1
-                              ${t.status === 'occupied' ? 'bg-orange-50/40 border-orange-200' : t.status === 'reserved' ? 'bg-blue-50/30 border-blue-200' : t.status === 'out_of_service' ? 'bg-slate-100 border-slate-300' : 'bg-white border-slate-200 hover:border-indigo-300'}
-                              ${hasLocal ? 'border-l-[3px] border-l-amber-400' : ''}
+                              ${t.status === 'occupied' ? 'bg-orange-50/80 border-orange-300' : t.status === 'reserved' ? 'bg-blue-50/30 border-blue-200' : t.status === 'out_of_service' ? 'bg-slate-100 border-slate-300' : 'bg-emerald-50 border-emerald-300 border-l-4'}
                             `}
                           >
-                            {/* Zone pill */}
-                            <div className="mb-3">
-                              <span className="text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
-                                {zoneLabel}
-                              </span>
-                            </div>
+                            {/* Occupied top indicator */}
+                            {t.status === 'occupied' && (
+                              <div className="absolute top-0 left-0 right-0 h-1.5 rounded-t-xl bg-orange-400" />
+                            )}
 
-                            {/* Table number + name */}
-                            <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">
-                              T{t.number}
-                            </div>
-                            <div className="text-[17px] font-bold text-slate-800 leading-tight mb-auto">
+                            {/* Draft badge */}
+                            {hasLocal && (
+                              <div className="absolute top-2 left-2 z-10">
+                                <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+                                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                                  Draft
+                                </span>
+                              </div>
+                            )}
+
+                            <div className="text-[17px] font-bold text-slate-800 leading-tight mb-1">
                               {t.name}
                             </div>
 
-                            {/* Seats + status badge */}
-                            <div className="flex items-center justify-between mt-3 mb-2">
-                              <span className="flex items-center gap-1 text-[11px] text-slate-500">
-                                <Users className="w-3.5 h-3.5" /> {t.seats} seats
+                            {/* Zone label below name */}
+                            <div className="text-[10px] font-medium text-slate-400 capitalize mb-auto">
+                              {zoneLabel} - T{t.number}
+                            </div>
+
+                            {/* Table code (replaces seats) + status */}
+                            <div className="flex items-center justify-between mt-2">
+                              <span className="text-[11px] font-bold text-slate-600 bg-white/70 px-2 py-1 rounded border border-slate-200 font-mono tracking-wider">
+                                {t.name}
                               </span>
                               <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${meta.pill}`}>
                                 {statusLabel}
                               </span>
                             </div>
-
-                            {/* Bottom accent bar */}
-                            <div className={`h-[3px] w-full rounded-b-xl mt-2 ${
-                              t.status === 'occupied' ? 'bg-orange-300'
-                              : t.status === 'reserved' ? 'bg-blue-300'
-                              : t.status === 'out_of_service' ? 'bg-slate-400'
-                              : 'bg-emerald-300'
-                            }`} />
 
                             {/* Order footer */}
                             {combinedCount > 0 ? (
@@ -1492,14 +1525,6 @@ const TerminalPage: React.FC = () => {
                             ) : (
                               <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-slate-400 font-medium">
                                 Tap to open
-                              </div>
-                            )}
-
-                            {/* Draft indicator */}
-                            {hasLocal && (
-                              <div className="mt-2 text-[10px] text-amber-600 font-semibold flex items-center gap-1">
-                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                                Draft · {tableCartsRef.current.get(t.id)?.lines.length ?? 0} items
                               </div>
                             )}
                           </button>
@@ -1551,7 +1576,7 @@ const TerminalPage: React.FC = () => {
             onPrintAdditionalBill={onPrintAdditionalBill}
             onInc={onInc}
             onDec={onDec}
-            onRemove={onRemove}
+            onRemove={canDeleteItem ? onRemove : undefined}
             onNote={onLineNote}
             onLineDiscount={onLineDiscount}
             onPrintBill={onPrintBill}
@@ -1619,6 +1644,14 @@ const TerminalPage: React.FC = () => {
           onApply={onLineDiscountApply}
         />
       ) : null}
+      <DiscountReasonDialog
+        open={showDiscountReason}
+        onClose={() => setShowDiscountReason(false)}
+        onSelect={(reason) => {
+          useCartStore.setState({ transactionDiscountReason: reason });
+          setShowDiscountReason(false);
+        }}
+      />
       <PaymentDialog
         open={showPayment}
         total={total}
@@ -1635,6 +1668,13 @@ const TerminalPage: React.FC = () => {
         kind={overrideKind ?? 'discount'}
         onClose={() => onOverrideVerified(null)}
         onVerified={onOverrideVerified}
+      />
+      <PinConfirmDialog
+        open={showPinConfirm}
+        title="Confirm to delete item"
+        description="Enter your PIN to remove this item from the order."
+        onClose={() => { setShowPinConfirm(false); setPendingRemoveLine(null); }}
+        onVerified={onPinVerified}
       />
 
       {/* Void item dialog */}

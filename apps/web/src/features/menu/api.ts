@@ -63,6 +63,7 @@ export interface MenuItem {
   image: string | null;
   preparationTime: number | null;
   isAvailable: boolean;
+  isInventoryTracked: boolean;
   displayOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -110,6 +111,7 @@ export interface CreateMenuItemInput {
   image?: string;
   preparationTime?: number;
   isAvailable?: boolean;
+  isInventoryTracked?: boolean;
   displayOrder?: number;
   ingredients?: IngredientInput[];
 }
@@ -123,6 +125,7 @@ export interface UpdateMenuItemInput {
   image?: string | null;
   preparationTime?: number | null;
   isAvailable?: boolean;
+  isInventoryTracked?: boolean;
   displayOrder?: number;
   ingredients?: IngredientInput[];
 }

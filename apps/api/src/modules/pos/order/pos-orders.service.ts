@@ -27,6 +27,11 @@ interface ResolvedLine {
   unitPrice: number;
   taxId: string | null;
   discountPercent: number;
+  /** 'percentage' (default) or 'fixed_amount'. */
+  discountType?: 'percentage' | 'fixed_amount';
+  /** Total fixed discount for this line (in currency). */
+  discountAmount?: number;
+  discountReason?: string | null;
   note: string | null;
   taxInclusive: boolean | undefined;
   modifiers: Array<{ modifierId: string; name: string; priceDelta: number }>;
@@ -176,6 +181,9 @@ export class PosOrdersService {
       unitPrice: number;
       taxId?: string | null;
       discountPercent?: number;
+      discountType?: 'percentage' | 'fixed_amount';
+      discountAmount?: number;
+      discountReason?: string | null;
       taxInclusive?: boolean;
       note?: string | null;
       accompanimentNames?: string[];
@@ -193,6 +201,9 @@ export class PosOrdersService {
       unitPrice: l.unitPrice,
       taxId: l.taxId ?? null,
       discountPercent: l.discountPercent ?? 0,
+      discountType: l.discountType,
+      discountAmount: l.discountAmount,
+      discountReason: l.discountReason ?? null,
       note: l.note ?? null,
       taxInclusive: l.taxInclusive,
       modifiers: l.modifiers ?? [],
@@ -584,6 +595,9 @@ export class PosOrdersService {
         unitPrice: finalUnitPrice,
         taxId,
         discountPercent: l.discountPercent ?? 0,
+        discountType: l.discountType,
+        discountAmount: l.discountAmount,
+        discountReason: l.discountReason ?? null,
         note: noteParts.length ? noteParts.join(' | ') : null,
         taxInclusive: l.taxInclusive,
         modifiers: resolvedMods,
@@ -625,6 +639,9 @@ export class PosOrdersService {
       unitPrice: Number(it.unitPrice),
       taxId: it.taxId ?? null,
       discountPercent: Number(it.discountPercent ?? 0),
+      discountType: it.discountType ?? undefined,
+      discountAmount: it.discountAmount ? Number(it.discountAmount) : undefined,
+      discountReason: it.discountReason ?? null,
       note: it.note ?? null,
       taxInclusive: it.taxInclusive,
       modifiers: (it.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId, name: m.name, priceDelta: Number(m.priceDelta) })),
@@ -671,6 +688,10 @@ export class PosOrdersService {
       unitPrice: l.unitPrice,
       taxId: l.taxId ?? undefined,
       discountPercent: l.discountPercent,
+      discountType: l.discountType,
+      discountAmount: l.discountAmount,
+      discountReason: l.discountReason ?? undefined,
+      discountSource: 'manual' as const,
       taxInclusive: l.taxInclusive,
     })));
 
@@ -694,6 +715,9 @@ export class PosOrdersService {
           quantity: p.quantity,
           unitPrice: p.unitPrice,
           discountPercent: p.discountPercent,
+          discountType: (p as any).discountType ?? 'percentage',
+          discountAmount: (p as any).discountAmount ?? 0,
+          discountReason: (p as any).discountReason ?? null,
           taxId: p.taxId,
           taxInclusive: p.taxInclusive,
           note: src?.note ?? null,
@@ -712,7 +736,7 @@ export class PosOrdersService {
       const mods = src?.modifiers ?? [];
       if (mods.length) {
         await tx.orderItemModifier.createMany({
-          data: mods.map((m) => ({ organizationId: orgId, orderItemId: item.id, modifierId: m.modifierId ?? null, name: m.name, priceDelta: m.priceDelta })),
+          data: mods.map((m) => ({ organizationId: orgId, orderItemId: item.id, modifierId: m.modifierId ?? null, name: m.name, kitchenPrintName: (m as any).kitchenPrintName ?? null, priceDelta: m.priceDelta })),
         });
       }
     }

@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PaginatedResult } from '@erp/shared';
 import { api } from '@/lib/api';
 
+export type InvoiceDiscountType = 'percentage' | 'fixed_amount';
+export type InvoiceDiscountSource = 'manual' | 'promotion' | 'loyalty' | 'coupon';
+
 export interface Invoice {
   id: string;
   documentNumber: string;
@@ -12,6 +15,13 @@ export interface Invoice {
   status: string;
   subtotal: string;
   discountTotal: string;
+  discountType: InvoiceDiscountType;
+  discountValue: string;
+  discountSource: InvoiceDiscountSource;
+  discountReason: string | null;
+  discountAppliedBy: string | null;
+  discountApprovedBy: string | null;
+  discountApprovedAt: string | null;
   taxAmount: string;
   totalAmount: string;
   amountPaid: string;
@@ -32,6 +42,13 @@ export interface InvoiceLine {
   quantity: string;
   unitPrice: string;
   discountPercent: string;
+  discountType: InvoiceDiscountType;
+  discountAmount: string;
+  discountReason: string | null;
+  discountSource: InvoiceDiscountSource;
+  discountAppliedBy: string | null;
+  discountApprovedBy: string | null;
+  discountApprovedAt: string | null;
   subtotal: string;
   taxAmount: string;
   total: string;

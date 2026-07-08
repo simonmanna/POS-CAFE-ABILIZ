@@ -7,13 +7,20 @@ import { api } from '@/lib/api';
 export interface ModifierGroupFE {
   id: string;
   name: string;
+  category: string | null;
+  description: string | null;
+  color: string | null;
+  icon: string | null;
   groupType: 'ADD_ON' | 'MODIFIER';
   minSelect: number;
   maxSelect: number;
   sortOrder: number;
+  version: number;
   modifiers: Array<{
     id: string;
     name: string;
+    kitchenPrintName: string | null;
+    description: string | null;
     priceDelta: number;
     isDefault: boolean;
     sortOrder: number;
@@ -38,11 +45,13 @@ export interface AccompanimentOptionFE {
   priceImpact: number;
   isDefault: boolean;
   sortOrder: number;
+  inventoryItemId: string | null;
 }
 
 export interface AccompanimentGroupFE {
   id: string;
   name: string;
+  category: string | null;
   isRequired: boolean;
   minSelect: number;
   maxSelect: number;
@@ -67,10 +76,24 @@ export interface ComboFE {
   items: Array<{ productId: string; productName: string; quantity: number }>;
 }
 
-export function useModifierGroups() {
+export interface PaginatedModifierGroups {
+  data: ModifierGroupFE[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export function useModifierGroups(opts?: { search?: string; isActive?: boolean; page?: number; pageSize?: number }) {
   return useQuery({
-    queryKey: ['pos-modifier-groups'],
-    queryFn: async () => (await api.get<ModifierGroupFE[]>('/pos/modifiers/groups')).data,
+    queryKey: ['pos-modifier-groups', opts],
+    queryFn: async () => {
+      const params: any = {};
+      if (opts?.search) params.search = opts.search;
+      if (opts?.isActive !== undefined) params.isActive = String(opts.isActive);
+      if (opts?.page) params.page = opts.page;
+      if (opts?.pageSize) params.pageSize = opts.pageSize;
+      return (await api.get<PaginatedModifierGroups>('/pos/modifiers/groups', { params })).data;
+    },
     staleTime: 5 * 60_000,
   });
 }
@@ -128,7 +151,7 @@ export function useCombos() {
 export function useCreateModifierGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { name: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number }) =>
+    mutationFn: async (body: { name: string; category?: string; description?: string; color?: string; icon?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number }) =>
       (await api.post('/pos/modifiers/groups', body)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-modifier-groups'] }),
   });
@@ -137,7 +160,7 @@ export function useCreateModifierGroup() {
 export function useCreateModifier() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { groupId: string; name: string; priceDelta?: number; isDefault?: boolean }) =>
+    mutationFn: async (body: { groupId: string; name: string; kitchenPrintName?: string; description?: string; priceDelta?: number; isDefault?: boolean }) =>
       (await api.post('/pos/modifiers/modifiers', body)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-modifier-groups'] }),
   });
@@ -169,7 +192,8 @@ export function useAssignModifierGroupToMenuItem() {
       const { menuItemId, ...payload } = body;
       return (await api.post(`/pos/modifiers/menu-items/${menuItemId}/groups`, payload)).data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['pos-group-menu-items', variables.modifierGroupId] });
       qc.invalidateQueries({ queryKey: ['pos-menu-item-bundle'] });
       qc.invalidateQueries({ queryKey: ['pos-modifier-groups'] });
     },
@@ -181,7 +205,8 @@ export function useUnassignModifierGroupFromMenuItem() {
   return useMutation({
     mutationFn: async (body: { menuItemId: string; modifierGroupId: string }) =>
       (await api.delete(`/pos/modifiers/menu-items/${body.menuItemId}/groups/${body.modifierGroupId}`)).data,
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ['pos-group-menu-items', variables.modifierGroupId] });
       qc.invalidateQueries({ queryKey: ['pos-menu-item-bundle'] });
       qc.invalidateQueries({ queryKey: ['pos-modifier-groups'] });
     },
@@ -237,7 +262,7 @@ export function useDeleteVariant() {
 export function useAllAccompanimentGroups() {
   return useQuery({
     queryKey: ['pos-accompaniment-groups'],
-    queryFn: async () => (await api.get<AccompanimentGroupFE[]>('/pos/menu/accompaniments/groups')).data ?? [],
+    queryFn: async () => (await api.get<{ data: AccompanimentGroupFE[] }>('/pos/menu/accompaniments/groups')).data.data ?? [],
     staleTime: 5 * 60_000,
   });
 }
@@ -362,7 +387,7 @@ function invalidateGroups(qc: ReturnType<typeof useQueryClient>) {
 export function useUpdateModifierGroup() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { id: string; name?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; isActive?: boolean; expectedVersion?: number }) => {
+    mutationFn: async (body: { id: string; name?: string; category?: string; description?: string; color?: string; icon?: string; groupType?: 'ADD_ON' | 'MODIFIER'; minSelect?: number; maxSelect?: number; sortOrder?: number; isActive?: boolean; expectedVersion?: number }) => {
       const { id, ...payload } = body;
       return (await api.patch(`/pos/modifiers/groups/${id}`, payload)).data;
     },
@@ -381,7 +406,7 @@ export function useDeleteModifierGroup() {
 export function useUpdateModifier() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { id: string; name?: string; priceDelta?: number; isDefault?: boolean; isActive?: boolean }) => {
+    mutationFn: async (body: { id: string; name?: string; kitchenPrintName?: string; description?: string; priceDelta?: number; isDefault?: boolean; sortOrder?: number; isActive?: boolean }) => {
       const { id, ...payload } = body;
       return (await api.patch(`/pos/modifiers/modifiers/${id}`, payload)).data;
     },
@@ -406,6 +431,19 @@ export function useUnassignModifierGroup() {
   });
 }
 
+/** All menu items with isAssigned flag for a given modifier group — admin checkbox UI. */
+export function useGroupMenuItems(groupId: string | null) {
+  return useQuery({
+    queryKey: ['pos-group-menu-items', groupId],
+    queryFn: async () => {
+      if (!groupId) return [];
+      return (await api.get<Array<{ id: string; name: string; isAssigned: boolean }>>(`/pos/modifiers/groups/${groupId}/menu-items`)).data;
+    },
+    enabled: !!groupId,
+    staleTime: 30_000,
+  });
+}
+
 /* ============== M-F sales report ============== */
 
 export interface ModifierSalesRow { name: string; count: number; revenue: number }
@@ -424,7 +462,7 @@ export interface KdsTicketItemFE {
   productId: string;
   productName: string;
   quantity: number;
-  modifiers: Array<{ name: string; priceDelta: number }>;
+  modifiers: Array<{ name: string; kitchenPrintName?: string | null; priceDelta: number }>;
   notes: string | null;
   station: 'bar' | 'kitchen' | 'cafe';
   variantName?: string;

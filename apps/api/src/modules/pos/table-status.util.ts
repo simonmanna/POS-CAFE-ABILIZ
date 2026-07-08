@@ -37,13 +37,13 @@ export const TABLE_HELD_ORDER_STATUSES = [
 export async function recomputeTableStatus(
   tx: any,
   tableId?: string | null,
-): Promise<'available' | 'occupied' | 'reserved' | 'out_of_service' | null> {
+): Promise<'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning' | null> {
   if (!tableId) return null;
 
   const table = await tx.posTable.findFirst({ where: { id: tableId } });
   if (!table) return null;
-  // Overrides win — a reserved/out-of-service table is not driven by item count.
-  if (table.status === 'out_of_service' || table.status === 'reserved') {
+  // Overrides win — these statuses are not driven by item count.
+  if (table.status === 'out_of_service' || table.status === 'reserved' || table.status === 'cleaning') {
     return table.status;
   }
 

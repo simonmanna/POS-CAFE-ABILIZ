@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, } from '
 import { money, date } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import {
-  useCancelInvoice,
   useCreatePayment,
   useInvoice,
   usePostInvoice,
@@ -34,7 +33,6 @@ export function InvoiceDetailPage() {
   const navigate = useNavigate();
   const { data: inv, isLoading } = useInvoice(id);
   const postInvoice = usePostInvoice();
-  const cancelInvoice = useCancelInvoice();
   const createPayment = useCreatePayment();
   const has = useAuthStore((s) => s.hasPermission);
 
@@ -140,11 +138,6 @@ export function InvoiceDetailPage() {
     setPayOpen(false);
   };
 
-  const printRef = (e: React.MouseEvent) => {
-    e.preventDefault();
-    window.print();
-  };
-
   return (
     <div className="max-w-[1600px] mx-auto space-y-0 px-1 md:px-2">
       {/* Top bar */}
@@ -163,12 +156,6 @@ export function InvoiceDetailPage() {
       <div className="rounded-t-lg bg-gradient-to-r from-sky-400 to-sky-500 px-6 py-3 flex items-center justify-between shadow-sm">
         <h1 className="text-white font-bold text-base tracking-wide">INVOICE</h1>
         <div className="flex gap-2">
-          <button
-            onClick={printRef}
-            className="flex items-center gap-1.5 text-sky-50 hover:bg-white/20 rounded px-3 py-1.5 text-sm transition-colors"
-          >
-            <Printer className="h-4 w-4" /> Print
-          </button>
           {isDraft && has(PERMISSIONS.invoice.post) && (
             <Button
               size="sm"
@@ -182,17 +169,6 @@ export function InvoiceDetailPage() {
           {canPay && has(PERMISSIONS.payment.create) && (
             <Button size="sm" className="bg-sky-700 hover:bg-sky-800 text-white shadow-sm" onClick={openPay}>
               Register Payment
-            </Button>
-          )}
-          {canModify && has(PERMISSIONS.invoice.cancel) && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-white/60 text-sky-800 hover:bg-white/30 bg-white/60"
-              onClick={() => cancelInvoice.mutate(inv.id)}
-              disabled={cancelInvoice.isPending}
-            >
-              {cancelInvoice.isPending ? 'Voiding...' : 'Void'}
             </Button>
           )}
         </div>
@@ -247,27 +223,40 @@ export function InvoiceDetailPage() {
                 <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Description</TableHead>
                 <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Quantity</TableHead>
                 <TableHead className="w-36 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Unit Price</TableHead>
-                <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Taxes</TableHead>
+                <TableHead className="w-32 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Taxes</TableHead>
+                <TableHead className="w-32 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Discount</TableHead>
                 <TableHead className="w-32 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Price</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {inv.lines.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-10 text-center text-sky-400">
+                  <TableCell colSpan={7} className="py-10 text-center text-sky-400">
                     No line items found.
                   </TableCell>
                 </TableRow>
-              ) : inv.lines.map((l, index) => (
-                <TableRow key={l.id} className="hover:bg-sky-50/40">
-                  <TableCell className="text-sky-600 text-sm font-mono">{index + 1}</TableCell>
-                  <TableCell className="font-semibold text-sm text-sky-900">{l.description}</TableCell>
-                  <TableCell className="text-right text-sm text-sky-800">{money(l.quantity)}</TableCell>
-                  <TableCell className="text-right text-sm text-sky-800">{money(l.unitPrice)}</TableCell>
-                  <TableCell className="text-right text-sm text-sky-700">{l.taxAmount && Number(l.taxAmount) > 0 ? money(l.taxAmount) : '-'}</TableCell>
-                  <TableCell className="text-right text-sm font-bold text-sky-900">{money(l.total)}</TableCell>
-                </TableRow>
-              ))}
+              ) : inv.lines.map((l, index) => {
+                const hasDiscount = Number(l.discountAmount || l.discountPercent) > 0;
+                const discountLabel = l.discountType === 'fixed_amount'
+                  ? `-${money(l.discountAmount)}`
+                  : l.discountPercent && Number(l.discountPercent) > 0
+                    ? `${Number(l.discountPercent).toFixed(1)}%`
+                    : '-';
+                return (
+                  <TableRow key={l.id} className="hover:bg-sky-50/40">
+                    <TableCell className="text-sky-600 text-sm font-mono">{index + 1}</TableCell>
+                    <TableCell className="font-semibold text-sm text-sky-900">
+                      {l.description}
+                      {l.discountReason ? <div className="text-[10px] text-slate-500 mt-0.5">({l.discountReason})</div> : null}
+                    </TableCell>
+                    <TableCell className="text-right text-sm text-sky-800">{money(l.quantity)}</TableCell>
+                    <TableCell className="text-right text-sm text-sky-800">{money(l.unitPrice)}</TableCell>
+                    <TableCell className="text-right text-sm text-sky-700">{l.taxAmount && Number(l.taxAmount) > 0 ? money(l.taxAmount) : '-'}</TableCell>
+                    <TableCell className={`text-right text-sm font-medium ${hasDiscount ? 'text-amber-700' : 'text-sky-400'}`}>{discountLabel}</TableCell>
+                    <TableCell className="text-right text-sm font-bold text-sky-900">{money(l.total)}</TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -278,8 +267,14 @@ export function InvoiceDetailPage() {
             <div className="w-80 space-y-2 pt-3 pb-3 pr-4">
               <SummaryRow label="SubTotal" value={money(inv.subtotal)} />
               {inv.discountTotal && Number(inv.discountTotal) > 0 && (
-                <SummaryRow label="Discount" value={`-${money(inv.discountTotal)}`} />
+                <SummaryRow
+                  label={`Discount ${inv.discountType === 'fixed_amount' ? '(fixed)' : inv.discountType === 'percentage' ? `(${inv.discountValue ? Number(inv.discountValue).toFixed(1) : 'pct'}%)` : ''}`}
+                  value={`-${money(inv.discountTotal)}`}
+                />
               )}
+              {inv.discountReason ? (
+                <div className="text-xs text-slate-500 pl-1">Reason: {inv.discountReason}</div>
+              ) : null}
               <SummaryRow label="Taxes" value={inv.taxAmount && Number(inv.taxAmount) > 0 ? money(inv.taxAmount) : '0.00'} />
               <div className="border-t-2 border-sky-200 pt-2">
                 <SummaryRow label="TOTAL" value={money(inv.totalAmount)} bold />

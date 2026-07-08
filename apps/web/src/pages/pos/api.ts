@@ -311,6 +311,9 @@ export interface CheckoutBody {
     unitPrice: number;
     taxId?: string;
     discountPercent?: number;
+    discountType?: 'percentage' | 'fixed_amount';
+    discountAmount?: number;
+    discountReason?: string;
     note?: string;
     modifiers?: Array<{ modifierId: string; name: string; priceDelta: number }>;
     comboId?: string;
@@ -320,7 +323,11 @@ export interface CheckoutBody {
   paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
   amountTendered?: number;
   transactionDiscountPercent?: number;
+  transactionDiscountType?: 'percentage' | 'fixed_amount';
+  transactionDiscountAmount?: number;
+  discountReason?: string;
   overrideById?: string;
+  overridePin?: string;
   cashSessionId?: string;
   branchId?: string;
   reference?: string;
@@ -408,6 +415,9 @@ export function useSettleTab() {
       paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
       amountTendered?: number;
       transactionDiscountPercent?: number;
+      transactionDiscountType?: 'percentage' | 'fixed_amount';
+      transactionDiscountAmount?: number;
+      discountReason?: string;
       cashSessionId?: string;
       _idemKey?: string;
     }) => (await api.post(`/pos/tabs/${tableId}/settle`, body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
@@ -583,6 +593,12 @@ export function useVerifyOverride() {
 export function useSetManagerPin() {
   return useMutation({
     mutationFn: async (pin: string) => (await api.post('/pos/override/pin', { pin })).data,
+  });
+}
+
+export function useVerifyPin() {
+  return useMutation({
+    mutationFn: async (pin: string) => (await api.post('/pos/override/verify-pin', { pin })).data,
   });
 }
 
@@ -815,7 +831,11 @@ export function useGenerateInvoice() {
     mutationFn: async ({ orderId, ...body }: {
       orderId: string;
       paymentMode?: 'cash' | 'card' | 'mobile_money' | 'mixed' | 'credit';
-      transactionDiscountPercent?: number; branchId?: string;
+      transactionDiscountPercent?: number;
+      transactionDiscountType?: 'percentage' | 'fixed_amount';
+      transactionDiscountAmount?: number;
+      discountReason?: string;
+      branchId?: string;
     }) => (await api.post<InvoiceResult>(`/pos/orders/${orderId}/invoice`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] });
@@ -927,6 +947,7 @@ export interface SettleSplitResult {
   change: number;
   tableClosed: boolean;
   alreadySettled?: boolean;
+  receiptHtml?: string;
 }
 
 type AssignItem = { sourceItemId: string; quantity: number };

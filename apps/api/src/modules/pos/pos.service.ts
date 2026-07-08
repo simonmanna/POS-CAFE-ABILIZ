@@ -42,6 +42,11 @@ export interface CheckoutLine {
   unitPrice: number;
   taxId?: string;
   discountPercent?: number;
+  /** 'percentage' (default) or 'fixed_amount'. When 'fixed_amount', `discountAmount` is the line discount in currency. */
+  discountType?: 'percentage' | 'fixed_amount';
+  /** Total fixed discount for this line (in currency). Ignored unless discountType === 'fixed_amount'. */
+  discountAmount?: number;
+  discountReason?: string;
   note?: string;
   /** P4: modifier add-ons. Their priceDeltas are baked into unitPrice. */
   modifiers?: CheckoutLineModifier[];
@@ -73,10 +78,18 @@ export interface CheckoutInput {
   branchId?: string;
   reference?: string;
   notes?: string;
-  /** P2: manager override required when discount > 10% (see DEFAULT_MAX_DISCOUNT_WITHOUT_OVERRIDE). */
+  /** P2: manager override required when discount is above the org's tier1 threshold. */
   overrideById?: string;
+  /** P3: manager override PIN — required when `overrideById` is set (F-OVR). */
+  overridePin?: string;
   /** P2: order-level discount (%). Applied AFTER line discounts. */
   transactionDiscountPercent?: number;
+  /** Order-level discount type. 'percentage' (default) or 'fixed_amount'. */
+  transactionDiscountType?: 'percentage' | 'fixed_amount';
+  /** Order-level fixed discount amount (in currency). Ignored unless transactionDiscountType === 'fixed_amount'. */
+  transactionDiscountAmount?: number;
+  /** Reason for the discount (required for manual discounts > 0). */
+  discountReason?: string;
   /** POS Tables (T1): table the sale is being rung on. When set, the
    *  server creates a PosTableOrder row and flips the table to OCCUPIED
    *  in the same transaction. On payment completion, the table auto-flips
@@ -161,6 +174,10 @@ export class PosService {
     try {
       invoice = await this.billing.generateInvoice(order.id, {
         transactionDiscountPercent: input.transactionDiscountPercent,
+        transactionDiscountType: input.transactionDiscountType,
+        transactionDiscountAmount: input.transactionDiscountAmount,
+        discountReason: input.discountReason,
+        overrideById: input.overrideById,
         branchId: input.branchId,
         paymentMode: input.tenders?.length
           ? this.resolvePaymentMode(input.tenders)
@@ -241,6 +258,9 @@ export class PosService {
       unitPrice: l.unitPrice,
       taxId: l.taxId,
       discountPercent: l.discountPercent,
+      discountType: l.discountType,
+      discountAmount: l.discountAmount,
+      discountReason: l.discountReason,
       note: l.note,
       modifiers: l.modifiers,
       variantId: l.variantId,
@@ -761,6 +781,11 @@ export class PosService {
     paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
     amountTendered?: number;
     transactionDiscountPercent?: number;
+    transactionDiscountType?: 'percentage' | 'fixed_amount';
+    transactionDiscountAmount?: number;
+    discountReason?: string;
+    overrideById?: string;
+    overridePin?: string;
     cashSessionId?: string;
   }) {
     const orgId = this.tenant.organizationId;
@@ -792,11 +817,23 @@ export class PosService {
       throw new BadRequestException('This table has a split in progress — settle each split bill instead.');
     }
 
+    // F-OVR: re-verify PIN if override is supplied
+    if (input.overrideById) {
+      if (!input.overridePin) throw new BadRequestException('Override PIN is required');
+      await this.overrides.verifyPinForOverride(input.overrideById, input.overridePin);
+    }
+
     // Generate the Invoice (own GL + stock at bill time) then take payment
     // (writes the Receipt + ReceiptItems and closes the order).
     let invoice: any;
     try {
-      invoice = await this.billing.generateInvoice(order.id, { transactionDiscountPercent: input.transactionDiscountPercent });
+      invoice = await this.billing.generateInvoice(order.id, {
+        transactionDiscountPercent: input.transactionDiscountPercent,
+        transactionDiscountType: input.transactionDiscountType,
+        transactionDiscountAmount: input.transactionDiscountAmount,
+        discountReason: input.discountReason,
+        overrideById: input.overrideById,
+      });
     } catch (e: any) {
       this.logger.error(`[settle] invoice generation failed for table ${input.tableId} / order ${order.id}: ${e?.message ?? e}`);
       await this.orders.cancelOrder(order.id, 'settle: invoice generation failed').catch(() => undefined);
@@ -1078,16 +1115,44 @@ export class PosService {
    * require a manager override if it exceeds the configured threshold.
    */
   private async assertDiscountAuthority(input: CheckoutInput): Promise<number> {
-    const lineMax = input.lines.reduce((m, l) => Math.max(m, l.discountPercent ?? 0), 0);
-    const tx = input.transactionDiscountPercent ?? 0;
-    const effective = Math.max(lineMax, tx);
-    if (effective <= DEFAULT_MAX_DISCOUNT_WITHOUT_OVERRIDE) return effective;
+    // 1) Gross subtotal (before line discounts) for fixed-amount → % conversion
+    const lineSubtotals = input.lines.map((l) => l.quantity * l.unitPrice);
+    const grossSubtotal = lineSubtotals.reduce((s, v) => s + v, 0);
+
+    // 2) Effective discount % per line (convert fixed_amount to % of line gross)
+    const linePcts = input.lines.map((l, i) => {
+      if (l.discountType === 'fixed_amount' && (l.discountAmount ?? 0) > 0 && lineSubtotals[i] > 0) {
+        return (l.discountAmount! / lineSubtotals[i]) * 100;
+      }
+      return l.discountPercent ?? 0;
+    });
+    const lineMax = linePcts.reduce((m, p) => Math.max(m, p), 0);
+
+    // 3) Effective transaction discount % (fixed_amount → % of gross subtotal)
+    let txPct = input.transactionDiscountPercent ?? 0;
+    if (input.transactionDiscountType === 'fixed_amount' && (input.transactionDiscountAmount ?? 0) > 0 && grossSubtotal > 0) {
+      txPct = (input.transactionDiscountAmount! / grossSubtotal) * 100;
+    }
+
+    const effective = Math.max(lineMax, txPct);
+
+    // 4) Load configurable tier threshold from org settings
+    const org = await this.prisma.raw.organization.findUnique({
+      where: { id: this.tenant.organizationId },
+      select: { settings: true },
+    });
+    const settings = (org?.settings ?? {}) as any;
+    const tier1 = Number(settings?.discountApproval?.tier1) || DEFAULT_MAX_DISCOUNT_WITHOUT_OVERRIDE;
+
+    // 5) Check authority + PIN (F-OVR)
+    if (effective <= tier1) return effective;
+
     if (!input.overrideById) {
       throw new BadRequestException(
-        `Discount ${effective}% exceeds ${DEFAULT_MAX_DISCOUNT_WITHOUT_OVERRIDE}% — manager override required`,
+        `Discount ${effective.toFixed(1)}% exceeds ${tier1}% — manager override required`,
       );
     }
-    await this.overrides.assertCanOverride(input.overrideById, 'discount');
+    await this.overrides.verifyPinForOverride(input.overrideById, input.overridePin ?? '');
     return effective;
   }
 

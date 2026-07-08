@@ -53,7 +53,9 @@ export class ProductController {
   @Delete(':id')
   @HttpCode(204)
   @RequirePermissions(PERMISSIONS.product.delete)
-  remove(@Param('id') id: string) {
-    return this.products.remove(id);
-  }
+  remove(@Param('id') id: string) { return this.products.remove(id); }
+
+  @Patch(':id/restore')
+  @RequirePermissions(PERMISSIONS.product.update)
+  restore(@Param('id') id: string) { return this.products.restore(id); }
 }

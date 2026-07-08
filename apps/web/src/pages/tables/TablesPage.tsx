@@ -70,6 +70,8 @@ const EMPTY_FORM: FormState = {
   shape: 'square',
   notes: '',
   active: true,
+  sortOrder: 0,
+  qrCodeUrl: '',
 };
 
 const ZONES: PosTableZone[] = ['indoor', 'outdoor', 'terrace', 'vip', 'garden', 'bar', 'custom'];
@@ -131,6 +133,8 @@ export const TablesPage: React.FC = () => {
       shape: table.shape,
       notes: table.notes ?? '',
       active: table.active,
+      sortOrder: table.sortOrder,
+      qrCodeUrl: table.qrCodeUrl ?? '',
     });
   }
 
@@ -248,11 +252,12 @@ export const TablesPage: React.FC = () => {
       </div>
 
       {/* ── Stats strip (kpi-tile style) ── */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
         <StatTile label="Total"          value={stats?.total ?? 0}        tone="from-slate-500 to-slate-700" />
         <StatTile label="Available"      value={stats?.available ?? 0}    tone="from-emerald-500 to-teal-500" />
         <StatTile label="Occupied"       value={stats?.occupied ?? 0}     tone="from-orange-500 to-rose-500" />
         <StatTile label="Reserved"       value={stats?.reserved ?? 0}     tone="from-blue-500 to-indigo-500" />
+        <StatTile label="Cleaning"       value={stats?.cleaning ?? 0}    tone="from-cyan-500 to-teal-500" />
         <StatTile
           label="Occupancy"
           value={`${stats?.occupancyPct ?? 0}%`}
@@ -269,7 +274,7 @@ export const TablesPage: React.FC = () => {
       <div className="glass-card p-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="section-title mr-2">Filter</span>
-          {(['all', 'available', 'occupied', 'reserved', 'out_of_service'] as const).map(
+          {(['all', 'available', 'occupied', 'reserved', 'out_of_service', 'cleaning'] as const).map(
             (k) => (
               <button
                 key={k}
@@ -352,15 +357,17 @@ export const TablesPage: React.FC = () => {
                       <div className="text-lg font-extrabold text-foreground leading-tight">
                         {table.name}
                       </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                      <span
-                        className={`inline-block w-2 h-2 rounded-full ${ZONE_DOT[table.zone] ?? 'bg-slate-300'}`}
-                      />
-                      {table.seats} seats ·{' '}
-                      {table.zone === 'custom' && table.customZone
-                        ? table.customZone
-                        : ZONE_LABEL[table.zone] ?? table.zone}
-                    </div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-slate-500 bg-white/70 px-1.5 py-0.5 rounded border border-slate-200 font-mono tracking-wider">
+                          {table.name}
+                        </span>
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${ZONE_DOT[table.zone] ?? 'bg-slate-300'}`}
+                        />
+                        {table.zone === 'custom' && table.customZone
+                          ? table.customZone
+                          : ZONE_LABEL[table.zone] ?? table.zone}
+                      </div>
                     </div>
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${meta.pill}`}
@@ -406,15 +413,26 @@ export const TablesPage: React.FC = () => {
                     >
                       <Pencil className="w-3 h-3 mr-1" /> Edit
                     </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-[11px] lift-on-hover"
-                      onClick={() => toggleOutOfService(table)}
-                    >
-                      <PowerOff className="w-3 h-3 mr-1" />
-                      {table.status === 'out_of_service' ? 'Reactivate' : 'OOS'}
-                    </Button>
+                    {table.status === 'cleaning' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] lift-on-hover"
+                        onClick={() => setStatus.mutateAsync({ id: table.id, status: 'available', reason: 'cleaning-done' }).then(() => toast.success(`T${table.number} available`)).catch((e) => toast.error(e?.response?.data?.message ?? 'Failed'))}
+                      >
+                        <Sparkles className="w-3 h-3 mr-1" /> Mark Available
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] lift-on-hover"
+                        onClick={() => toggleOutOfService(table)}
+                      >
+                        <PowerOff className="w-3 h-3 mr-1" />
+                        {table.status === 'out_of_service' ? 'Reactivate' : 'OOS'}
+                      </Button>
+                    )}
                     <Button
                       variant="ghost"
                       size="sm"
@@ -519,6 +537,20 @@ export const TablesPage: React.FC = () => {
                 />
                 Show in picker
               </label>
+            </Field>
+            <Field label="Sort Order">
+              <Input
+                type="number"
+                value={form.sortOrder ?? 0}
+                onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
+              />
+            </Field>
+            <Field label="QR Code URL">
+              <Input
+                value={form.qrCodeUrl ?? ''}
+                onChange={(e) => setForm((f) => ({ ...f, qrCodeUrl: e.target.value }))}
+                placeholder="https://menu.example.com/t/1"
+              />
             </Field>
             <Field label="Notes" className="col-span-2">
               <Input

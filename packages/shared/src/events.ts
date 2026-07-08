@@ -273,6 +273,7 @@ export interface DomainEventMap {
   'user.deleted': EntityEventPayload;
   'user.password_reset': EntityEventPayload;
   'user.unlocked': EntityEventPayload;
+  'product.restored': EntityEventPayload;
 }
 
 export type DomainEventName = keyof DomainEventMap;

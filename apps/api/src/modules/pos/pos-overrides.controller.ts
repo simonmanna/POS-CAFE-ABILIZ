@@ -14,6 +14,10 @@ class SetPinDto {
   @IsString() pin!: string;
 }
 
+class VerifyPinDto {
+  @ApiProperty() @IsString() pin!: string;
+}
+
 class VerifyOverrideDto {
   @ApiProperty() @IsEmail() email!: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() pin?: string;
@@ -42,5 +46,13 @@ export class PosOverridesController {
   @RequirePermissions('pos:read')
   verify(@Body() dto: VerifyOverrideDto) {
     return this.svc.verify(dto);
+  }
+
+  /** Current user verifies their own PIN (e.g. to delete a cart item). */
+  @Post('verify-pin')
+  @RequirePermissions('pos:read')
+  verifyPin(@CurrentUser() user: { sub: string }, @Body() dto: VerifyPinDto) {
+    if (!user?.sub) throw new BadRequestException('No user in context');
+    return this.svc.verifyCurrentUserPin(user.sub, dto.pin);
   }
 }

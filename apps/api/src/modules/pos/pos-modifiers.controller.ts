@@ -13,6 +13,10 @@ import { PosModifiersService } from './pos-modifiers.service';
 
 class CreateGroupDto {
   @ApiProperty() @IsString() name!: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() category?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() description?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() color?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() icon?: string;
   @ApiProperty({ required: false, enum: ['ADD_ON', 'MODIFIER'], default: 'ADD_ON' })
   @IsOptional() @IsIn(['ADD_ON', 'MODIFIER'])
   groupType?: 'ADD_ON' | 'MODIFIER';
@@ -24,6 +28,8 @@ class CreateGroupDto {
 class CreateModifierDto {
   @ApiProperty() @IsString() groupId!: string;
   @ApiProperty() @IsString() name!: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() kitchenPrintName?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() description?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(99999999) priceDelta?: number;
   @ApiProperty({ required: false }) @IsOptional() isDefault?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(9999) sortOrder?: number;
@@ -61,11 +67,16 @@ class AssignGroupDto {
 
 class UpdateGroupDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() name?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() category?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() description?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() color?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() icon?: string;
   @ApiProperty({ required: false, enum: ['ADD_ON', 'MODIFIER'] })
   @IsOptional() @IsIn(['ADD_ON', 'MODIFIER'])
   groupType?: 'ADD_ON' | 'MODIFIER';
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(999) minSelect?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(999) maxSelect?: number;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(9999) sortOrder?: number;
   @ApiProperty({ required: false }) @IsOptional() isActive?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() expectedVersion?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsString() ipAddress?: string;
@@ -74,8 +85,11 @@ class UpdateGroupDto {
 
 class UpdateModifierDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() name?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() kitchenPrintName?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsString() description?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(99999999) priceDelta?: number;
   @ApiProperty({ required: false }) @IsOptional() isDefault?: boolean;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(9999) sortOrder?: number;
   @ApiProperty({ required: false }) @IsOptional() isActive?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsString() expectedUpdatedAt?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() ipAddress?: string;
@@ -90,8 +104,18 @@ export class PosModifiersController {
 
   @Get('groups')
   @RequirePermissions('pos:read')
-  listGroups() {
-    return this.svc.listGroups();
+  listGroups(
+    @Query('search') search?: string,
+    @Query('isActive') isActive?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.listGroups({
+      search,
+      isActive: isActive !== undefined ? isActive === 'true' : undefined,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+    });
   }
 
   @Post('groups')
@@ -194,6 +218,13 @@ export class PosModifiersController {
   }
 
   // ─── Menu-item modifiers (MENU) ────────────────────────────────────────
+
+  /** All menu items with an isAssigned flag — for the admin checkbox UI. */
+  @Get('groups/:id/menu-items')
+  @RequirePermissions('pos:read')
+  getGroupMenuItems(@Param('id') id: string) {
+    return this.svc.getGroupMenuItems(id);
+  }
 
   @Get('menu-items/:menuItemId/bundle')
   @RequirePermissions('pos:read')
