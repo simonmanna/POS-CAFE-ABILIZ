@@ -238,21 +238,21 @@ const TableCard: React.FC<{
       </div>
 
       {/* Table number + name */}
-      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
+      <div className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-0.5">
         T{table.number}
       </div>
-      <div className="text-sm font-bold text-slate-800 leading-tight pr-14">
+      <div className="text-[24px] font-bold text-slate-800 leading-tight pr-14">
         {table.name}
       </div>
 
       {/* Zone label below name */}
-      <div className="text-[10px] font-medium text-slate-400 capitalize mb-auto">
+      <div className="text-sm font-medium text-slate-400 capitalize mb-auto">
         {ZONE_LABEL[table.zone] ?? table.zone}
       </div>
 
       {/* Table code (replaces seats) */}
       <div className="mt-2">
-        <span className="text-[11px] font-bold text-slate-600 bg-white/70 px-2 py-1 rounded border border-slate-200 font-mono tracking-wider">
+        <span className="text-sm font-bold text-slate-600 bg-white/70 px-2 py-1 rounded border border-slate-200 font-mono tracking-wider">
           {table.name}
         </span>
       </div>

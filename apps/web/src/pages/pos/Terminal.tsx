@@ -1494,18 +1494,18 @@ const TerminalPage: React.FC = () => {
                               </div>
                             )}
 
-                            <div className="text-[17px] font-bold text-slate-800 leading-tight mb-1">
+                            <div className="text-[24px] font-bold text-slate-800 leading-tight mb-1">
                               {t.name}
                             </div>
 
                             {/* Zone label below name */}
-                            <div className="text-[10px] font-medium text-slate-400 capitalize mb-auto">
+                            <div className="text-sm font-medium text-slate-400 capitalize mb-auto">
                               {zoneLabel} - T{t.number}
                             </div>
 
                             {/* Table code (replaces seats) + status */}
                             <div className="flex items-center justify-between mt-2">
-                              <span className="text-[11px] font-bold text-slate-600 bg-white/70 px-2 py-1 rounded border border-slate-200 font-mono tracking-wider">
+                              <span className="text-sm font-bold text-slate-600 bg-white/70 px-2 py-1 rounded border border-slate-200 font-mono tracking-wider">
                                 {t.name}
                               </span>
                               <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${meta.pill}`}>
@@ -1926,7 +1926,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
         <div className="w-px h-5 bg-slate-200" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-slate-800">
+            <span className="text-lg font-bold text-slate-800">
               Table {table.number}{table.name ? ` — ${table.name}` : ''}
             </span>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badge.cls}`}>
