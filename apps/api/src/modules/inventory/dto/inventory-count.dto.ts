@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 
@@ -35,6 +36,7 @@ export class SaveCountLineDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   countedQty?: number | null;
 
   @IsOptional()
@@ -48,6 +50,11 @@ export class SaveCountDraftDto {
   @ValidateNested({ each: true })
   @Type(() => SaveCountLineDto)
   lines!: SaveCountLineDto[];
+
+  /** User-visible label e.g. "Opening Count – Jul 01, 2026". */
+  @IsOptional()
+  @IsString()
+  name?: string;
 
   @IsOptional()
   @IsString()

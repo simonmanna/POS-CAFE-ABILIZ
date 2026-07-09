@@ -209,7 +209,7 @@ export class StockDocService {
   // StockAdjustment — cycle count (posts ADJUSTMENT_IN / ADJUSTMENT_OUT)
   // ===========================================================================
 
-  async createAdjustment(dto: CreateStockAdjustmentDto) {
+  async createAdjustment(dto: CreateStockAdjustmentDto, externalTx?: any) {
     await this.location(dto.locationId);
     const names = await this.productNames(dto.items.map((i) => i.productId));
     const adjCode = await this.seq.next('stock_adj', { prefix: 'ADJ-', padding: 5 });
@@ -238,28 +238,33 @@ export class StockDocService {
       }),
     );
 
-    return this.prisma.client.stockAdjustment.create({
-      data: {
-        organizationId: this.org,
-        adjCode,
-        locationId: dto.locationId,
-        reason: dto.reason ?? 'cycle_count',
-        status: 'pending',
-        notes: dto.notes ?? null,
-        performedById: this.tenant.userId ?? null,
-        createdBy: this.tenant.userId ?? null,
-        items: { create: lines },
-      },
-      include: { items: true },
-    });
+    const run = async (tx: any) =>
+      tx.stockAdjustment.create({
+        data: {
+          organizationId: this.org,
+          adjCode,
+          locationId: dto.locationId,
+          reason: dto.reason ?? 'cycle_count',
+          status: 'pending',
+          notes: dto.notes ?? null,
+          performedById: this.tenant.userId ?? null,
+          createdBy: this.tenant.userId ?? null,
+          items: { create: lines },
+        },
+        include: { items: true },
+      });
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
   }
 
-  async approveAdjustment(id: string) {
-    const doc = await this.prisma.client.stockAdjustment.findFirst({ where: { id }, include: { items: true } });
-    if (!doc) throw new NotFoundException('Adjustment not found');
-    this.assertPostable(doc.status, doc.postedAt);
+  async approveAdjustment(id: string, externalTx?: any) {
+    const run = async (tx: any) => {
+      const doc = await tx.stockAdjustment.findFirst({ where: { id }, include: { items: true } });
+      if (!doc) throw new NotFoundException('Adjustment not found');
+      if (doc.postedAt) throw new BadRequestException('Document already posted');
+      if (doc.status !== 'pending' && doc.status !== 'draft') {
+        throw new BadRequestException(`Cannot approve a ${doc.status} document`);
+      }
 
-    return this.prisma.client.$transaction(async (tx: any) => {
       for (const item of doc.items) {
         // adjust() re-reads current on-hand and counts to qtyActual — robust to
         // drift between creation and approval.
@@ -284,7 +289,8 @@ export class StockDocService {
         },
         include: { items: true },
       });
-    });
+    };
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
   }
 
   // ===========================================================================

@@ -2427,6 +2427,7 @@ model InventoryCountSession {
   id             String               @id @default(uuid())
   organizationId String
   countCode      String
+  name           String?
   locationId     String
   countType      InventoryCountType   @default(opening)
   status         InventoryCountStatus @default(draft)
@@ -2455,19 +2456,21 @@ model InventoryCountSession {
 /// One product row in a count — the physical count vs the system snapshot taken
 /// when the session started. `countedQty` is null until the supervisor enters it.
 model InventoryCountLine {
-  id             String    @id @default(uuid())
-  organizationId String
-  sessionId      String
-  productId      String
-  variantId      String?
-  productName    String
-  unit           String?
-  systemQty      Decimal   @db.Decimal(20, 6)
-  countedQty     Decimal?  @db.Decimal(20, 6)
-  variance       Decimal   @default(0) @db.Decimal(20, 6)
-  reason         String?
-  countedById    String?
-  countedAt      DateTime?
+  id               String    @id @default(uuid())
+  organizationId   String
+  sessionId        String
+  productId        String
+  variantId        String?
+  productName      String
+  parentProductId  String?
+  parentProductName String?
+  unit             String?
+  systemQty        Decimal   @db.Decimal(20, 6)
+  countedQty       Decimal?  @db.Decimal(20, 6)
+  variance         Decimal   @default(0) @db.Decimal(20, 6)
+  reason           String?
+  countedById      String?
+  countedAt        DateTime?
 
   session InventoryCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 

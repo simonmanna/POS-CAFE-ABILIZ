@@ -1,5 +1,5 @@
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { GoodsReceiptsService } from './goods-receipts.service';
 
@@ -31,6 +31,38 @@ export class GoodsReceiptsController {
     },
   ) {
     return this.svc.createAdhoc(body);
+  }
+
+  @Post()
+  @RequirePermissions('goods_receipt:create')
+  create(
+    @Body()
+    body: {
+      purchaseOrderId?: string;
+      warehouseId: string;
+      branchId?: string;
+      partnerId?: string;
+      receivedAt?: string;
+      notes?: string;
+      lines: Array<{
+        purchaseOrderLineId?: string;
+        productId?: string;
+        description: string;
+        quantity: number;
+        unitCost?: number;
+        batchNumber?: string;
+        expiryDate?: string;
+        notes?: string;
+      }>;
+    },
+  ) {
+    return this.svc.create(body);
+  }
+
+  @Patch(':id/post')
+  @RequirePermissions('goods_receipt:create')
+  post(@Param('id') id: string) {
+    return this.svc.post(id);
   }
 
   @Get()

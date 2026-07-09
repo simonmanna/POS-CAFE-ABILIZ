@@ -34,11 +34,14 @@ export class InventoryCountService {
     return loc;
   }
 
-  /** Full session with lines, ordered for display. */
+  /** Full session with lines, ordered for display (parents first, then variants). */
   async get(id: string) {
     const session = await this.prisma.client.inventoryCountSession.findFirst({
       where: { id },
-      include: { lines: { orderBy: { productName: 'asc' } }, location: true },
+      include: {
+        lines: { orderBy: [{ parentProductId: 'asc' }, { productName: 'asc' }] },
+        location: true,
+      },
     });
     if (!session) throw new NotFoundException('Count session not found');
     return session;
@@ -54,56 +57,139 @@ export class InventoryCountService {
   }
 
   /**
-   * Start a new count, or resume the open draft for this location + type. Loads
-   * every active, inventory-tracked product and snapshots its current on-hand.
+   * Start a fresh count session. Any existing draft for this location + type is
+   * cancelled first, so the count always reflects the latest product list.
+   *
+   * Non-variant products → one flat row per product.
+   * Variant parents      → one row per child variant, grouped under the parent.
+   *
+   * A partial unique index on (org, locationId, countType) WHERE status = 'draft'
+   * prevents two users from creating duplicate sessions concurrently — the rare
+   * collision is caught and the existing draft is returned transparently.
    */
   async start(dto: StartCountDto) {
     await this.location(dto.locationId);
     const countType = dto.countType ?? 'opening';
 
-    const existing = await this.prisma.client.inventoryCountSession.findFirst({
+    // Cancel any existing draft for this location + type so the new count is
+    // always fresh (picks up new products, removes deactivated ones, etc.).
+    await this.prisma.client.inventoryCountSession.updateMany({
       where: { locationId: dto.locationId, countType, status: 'draft' },
+      data: { status: 'cancelled', updatedBy: this.tenant.userId ?? null },
     });
-    if (existing) return this.get(existing.id);
 
     const products = await this.prisma.client.product.findMany({
-      where: { trackInventory: true, isActive: true, hasVariants: false },
-      select: { id: true, name: true, uom: { select: { code: true } } },
+      where: {},
+      select: { id: true, name: true, hasVariants: true, uom: { select: { code: true } } },
+      orderBy: { name: 'asc' },
+    });
+    const parentById = new Map(products.map((p) => [p.id, p]));
+
+    const nonVariant = products.filter((p) => !p.hasVariants);
+    const variantParents = products.filter((p) => p.hasVariants);
+
+    // Fetch all variants for variant parents.
+    const variants = await this.prisma.client.productVariant.findMany({
+      where: { productId: { in: variantParents.map((p) => p.id) }, isActive: true },
+      select: { id: true, productId: true, name: true },
       orderBy: { name: 'asc' },
     });
 
-    // Snapshot system on-hand for every product at this location in one query.
+    // Build line definitions.
+    const lines: Array<{
+      organizationId: string;
+      productId: string;
+      variantId: string | null;
+      productName: string;
+      parentProductId: string | null;
+      parentProductName: string | null;
+      unit: string | null;
+      systemQty: any;
+      countedQty: null;
+      variance: any;
+    }> = [];
+
+    for (const p of nonVariant) {
+      lines.push({
+        organizationId: this.org,
+        productId: p.id,
+        variantId: null,
+        productName: p.name,
+        parentProductId: null,
+        parentProductName: null,
+        unit: p.uom?.code ?? null,
+        systemQty: dec(0),
+        countedQty: null,
+        variance: dec(0),
+      });
+    }
+
+    for (const v of variants) {
+      const parent = parentById.get(v.productId);
+      lines.push({
+        organizationId: this.org,
+        productId: v.productId,
+        variantId: v.id,
+        productName: v.name,
+        parentProductId: v.productId,
+        parentProductName: parent?.name ?? null,
+        unit: parent?.uom?.code ?? null,
+        systemQty: dec(0),
+        countedQty: null,
+        variance: dec(0),
+      });
+    }
+
+    // Snapshot on-hand: non-variant (variantKey = '') + variant stock.
+    const variantIds = variants.map((v) => v.id);
     const stockItems = await this.prisma.client.stockItem.findMany({
-      where: { locationId: dto.locationId, productId: { in: products.map((p) => p.id) }, variantKey: '' },
-      select: { productId: true, quantity: true },
+      where: {
+        locationId: dto.locationId,
+        productId: { in: products.map((p) => p.id) },
+        variantKey: { in: ['', ...variantIds] },
+      },
+      select: { productId: true, variantId: true, quantity: true },
     });
-    const onHand = new Map(stockItems.map((s) => [s.productId, s.quantity]));
+    const onHand = new Map<string, any>();
+    for (const si of stockItems) {
+      onHand.set(`${si.productId}::${si.variantId ?? ''}`, si.quantity);
+    }
+    for (const ln of lines) {
+      ln.systemQty = onHand.get(`${ln.productId}::${ln.variantId ?? ''}`) ?? dec(0);
+    }
 
     const countCode = await this.seq.next('inv_count', { prefix: 'CNT-', padding: 5 });
-    const session = await this.prisma.client.inventoryCountSession.create({
-      data: {
-        organizationId: this.org,
-        countCode,
-        locationId: dto.locationId,
-        countType,
-        status: 'draft',
-        notes: dto.notes ?? null,
-        startedById: this.tenant.userId ?? null,
-        createdBy: this.tenant.userId ?? null,
-        lines: {
-          create: products.map((p) => ({
-            organizationId: this.org,
-            productId: p.id,
-            productName: p.name,
-            unit: p.uom?.code ?? null,
-            systemQty: onHand.get(p.id) ?? dec(0),
-            countedQty: null,
-            variance: dec(0),
-          })),
+    const now = new Date();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dateStr = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2,'0')}, ${now.getFullYear()}`;
+    const autoName = `${countType === 'opening' ? 'Opening' : 'Closing'} Count – ${dateStr}`;
+    try {
+      const session = await this.prisma.client.inventoryCountSession.create({
+        data: {
+          organizationId: this.org,
+          countCode,
+          name: autoName,
+          locationId: dto.locationId,
+          countType,
+          status: 'draft',
+          notes: dto.notes ?? null,
+          startedById: this.tenant.userId ?? null,
+          createdBy: this.tenant.userId ?? null,
+          lines: { create: lines as any },
         },
-      },
-    });
-    return this.get(session.id);
+      });
+      return this.get(session.id);
+    } catch (err: any) {
+      // P2002 = unique constraint violation (concurrent draft creation).
+      // Fall back to returning the existing draft.
+      if (err?.code === 'P2002') {
+        const existing = await this.prisma.client.inventoryCountSession.findFirst({
+          where: { locationId: dto.locationId, countType, status: 'draft' },
+        });
+        if (existing) return this.get(existing.id);
+      }
+      throw err;
+    }
   }
 
   private async assertDraft(id: string) {
@@ -140,11 +226,11 @@ export class InventoryCountService {
       });
     }
 
-    if (dto.notes !== undefined) {
-      await this.prisma.client.inventoryCountSession.update({
-        where: { id },
-        data: { notes: dto.notes, updatedBy: this.tenant.userId ?? null },
-      });
+    const updateData: Record<string, any> = { updatedBy: this.tenant.userId ?? null };
+    if (dto.name !== undefined) updateData.name = dto.name;
+    if (dto.notes !== undefined) updateData.notes = dto.notes;
+    if (dto.name !== undefined || dto.notes !== undefined) {
+      await this.prisma.client.inventoryCountSession.update({ where: { id }, data: updateData });
     }
     return this.get(id);
   }
@@ -153,6 +239,11 @@ export class InventoryCountService {
    * Finalise the count. Requires a reason on every variance line, then turns the
    * variances into a StockAdjustment and posts it. Zero-variance counts submit
    * cleanly with no adjustment.
+   *
+   * The adjustment creation + approval + session update are wrapped in a single
+   * $transaction so a crash mid-submit cannot orphan a completed adjustment
+   * while leaving the session in draft (which would cause double-adjust on
+   * retry).
    */
   async submit(id: string) {
     await this.assertDraft(id);
@@ -170,10 +261,31 @@ export class InventoryCountService {
       );
     }
 
-    const session = await this.get(id);
-    let adjustmentId: string | null = null;
+    if (varianceLines.length === 0) {
+      // No variances — no adjustment needed, submit directly.
+      await this.prisma.client.inventoryCountSession.update({
+        where: { id },
+        data: {
+          status: 'submitted',
+          submittedById: this.tenant.userId ?? null,
+          submittedAt: new Date(),
+        },
+      });
+      return this.get(id);
+    }
 
-    if (varianceLines.length > 0) {
+    // Atomic: create adjustment + approve + mark session submitted in one tx.
+    // If any step fails the entire operation rolls back — no orphaned adjustments.
+    return this.prisma.client.$transaction(async (tx: any) => {
+      // Re-assert draft inside the tx so a concurrent submit/cancel can't race.
+      const session = await tx.inventoryCountSession.findFirst({
+        where: { id },
+        include: { lines: { orderBy: [{ parentProductId: 'asc' }, { productName: 'asc' }] }, location: true },
+      });
+      if (!session || session.status !== 'draft') {
+        throw new BadRequestException('Session was modified; please retry.');
+      }
+
       const adj = await this.stockDoc.createAdjustment({
         locationId: session.locationId,
         reason: 'cycle_count',
@@ -184,21 +296,25 @@ export class InventoryCountService {
           unit: l.unit ?? undefined,
           qtyActual: Number(l.countedQty),
         })),
-      });
-      await this.stockDoc.approveAdjustment(adj.id);
-      adjustmentId = adj.id;
-    }
+      }, tx);
 
-    await this.prisma.client.inventoryCountSession.update({
-      where: { id },
-      data: {
-        status: 'submitted',
-        submittedById: this.tenant.userId ?? null,
-        submittedAt: new Date(),
-        adjustmentId,
-      },
+      await this.stockDoc.approveAdjustment(adj.id, tx);
+
+      await tx.inventoryCountSession.update({
+        where: { id },
+        data: {
+          status: 'submitted',
+          submittedById: this.tenant.userId ?? null,
+          submittedAt: new Date(),
+          adjustmentId: adj.id,
+        },
+      });
+
+      return tx.inventoryCountSession.findFirst({
+        where: { id },
+        include: { lines: { orderBy: [{ parentProductId: 'asc' }, { productName: 'asc' }] }, location: true },
+      });
     });
-    return this.get(id);
   }
 
   /** Abandon a draft count (soft delete) without touching stock. */

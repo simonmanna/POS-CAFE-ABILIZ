@@ -349,7 +349,7 @@ export class PurchaseOrdersService {
         const product = await tx.product.findFirst({
           where: { id: rln.productId, organizationId: orgId },
         });
-        if (!product?.trackInventory) continue;
+        if (!product) continue;
         // Use stock service's receiveCore via raw query fallback
         await this.stock.receive(
           {
