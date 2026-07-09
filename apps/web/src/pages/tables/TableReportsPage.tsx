@@ -42,7 +42,7 @@ export const TableReportsPage: React.FC = () => {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-lg font-extrabold">Utilization</h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-sm text-slate-500">
                 Occupancy % by hour of day. Total active tables:{' '}
                 {util.data?.totalActiveTables ?? '—'}
               </p>
@@ -61,7 +61,7 @@ export const TableReportsPage: React.FC = () => {
           </div>
           <HourBars hours={util.data?.hours ?? []} />
           {util.data?.peakHours?.length ? (
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-sm text-slate-500">
               Peak hours:{' '}
               {util.data.peakHours
                 .map((h) => `${h}:00 (${util.data?.hours.find((x) => x.hour === h)?.occupancyPct ?? 0}%)`)
@@ -77,7 +77,7 @@ export const TableReportsPage: React.FC = () => {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-lg font-extrabold">Revenue</h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-sm text-slate-500">
                 Sales per table and per zone for the selected date range.
               </p>
             </div>
@@ -102,12 +102,12 @@ export const TableReportsPage: React.FC = () => {
             </div>
           ) : null}
 
-          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-2">
             Top performers
           </h3>
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-200">
+              <tr className="text-sm uppercase tracking-wider text-slate-500 border-b border-slate-200">
                 <th className="text-left py-2">Table</th>
                 <th className="text-left py-2">Zone</th>
                 <th className="text-right py-2">Orders</th>
@@ -149,7 +149,7 @@ export const TableReportsPage: React.FC = () => {
           <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-lg font-extrabold">Reservations</h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-sm text-slate-500">
                 Outcome counts and rates for the selected date range.
               </p>
             </div>
@@ -176,7 +176,7 @@ export const TableReportsPage: React.FC = () => {
 
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-xs uppercase tracking-wider text-slate-500 border-b border-slate-200">
+              <tr className="text-sm uppercase tracking-wider text-slate-500 border-b border-slate-200">
                 <th className="text-left py-2">Day</th>
                 <th className="text-right py-2">Total</th>
                 <th className="text-right py-2">Completed</th>

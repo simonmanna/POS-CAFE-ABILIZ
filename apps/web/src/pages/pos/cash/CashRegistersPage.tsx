@@ -104,7 +104,7 @@ const CashRegistersPage: React.FC = () => {
       {/* Register selector */}
       {registers.length > 0 && (
         <div className="flex items-center gap-2">
-          <Label className="text-xs whitespace-nowrap">Register:</Label>
+          <Label className="text-sm whitespace-nowrap">Register:</Label>
           <select
             className="px-3 py-1.5 border border-slate-200 rounded-md text-sm font-semibold"
             value={registerId}
@@ -115,7 +115,7 @@ const CashRegistersPage: React.FC = () => {
             ))}
           </select>
           {selectedRegister && (
-            <span className="text-xs text-slate-500 ml-2">
+            <span className="text-sm text-slate-500 ml-2">
               Register: {selectedRegister.name}
             </span>
           )}
@@ -134,7 +134,7 @@ const CashRegistersPage: React.FC = () => {
           <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
             <Banknote className="h-10 w-10 mx-auto mb-2 opacity-50" />
             <p className="font-semibold">No cash registers configured</p>
-            <p className="text-xs mt-1">Ask a manager to create a cash register under Accounting.</p>
+            <p className="text-sm mt-1">Ask a manager to create a cash register under Accounting.</p>
           </div>
         )
       )}
@@ -208,7 +208,7 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
           <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
             <Power className="h-10 w-10 mx-auto mb-2 opacity-50" />
             <p className="font-semibold">Register is closed</p>
-            <p className="text-xs mt-1 mb-4">Open this register to start recording cash movements and sales.</p>
+            <p className="text-sm mt-1 mb-4">Open this register to start recording cash movements and sales.</p>
             <Button onClick={() => setShowOpenShift(true)} style={{ background: '#16a34a' }}>
               <Calculator className="h-4 w-4 mr-1" /> Open register
             </Button>
@@ -396,7 +396,7 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
       </div>
 
       {/* Session summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-xs">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-sm">
         <div><span className="text-slate-500">Float:</span> <span className="font-bold">{fmt(session.openingFloat)}</span></div>
         {session.closingExpected && <div><span className="text-slate-500">Expected:</span> <span className="font-bold">{fmt(session.closingExpected)}</span></div>}
         {session.closingCounted && <div><span className="text-slate-500">Counted:</span> <span className="font-bold">{fmt(session.closingCounted)}</span></div>}
@@ -412,7 +412,7 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
 
       {/* Movement table */}
       <div className="overflow-x-auto max-h-80 overflow-y-auto">
-        <table className="w-full text-xs">
+        <table className="w-full text-sm">
           <thead className="text-left text-slate-500 border-b border-slate-200 sticky top-0 bg-white">
             <tr>
               <th className="py-1.5 pr-2">Time</th>
@@ -543,7 +543,7 @@ const OpenShiftDialog: React.FC<{
           <Input type="number" value={openingFloat} onChange={(e) => setOpeningFloat(e.target.value)} className="mt-3 text-right text-lg h-11 font-mono font-bold" autoFocus />
           <div className="flex gap-1.5 mt-2 flex-wrap">
             {QUICK_FLOATS.map((q) => (
-              <button key={q} type="button" className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-xs font-bold" onClick={() => setOpeningFloat(String(q))}>
+              <button key={q} type="button" className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-sm font-bold" onClick={() => setOpeningFloat(String(q))}>
                 {q === 0 ? 'No float' : q.toLocaleString()}
               </button>
             ))}
@@ -650,7 +650,7 @@ const CloseShiftDialog: React.FC<{
           }>
             {variance === 0 ? <Check className="h-4 w-4" /> : null}
             Variance: {variance >= 0 ? '+' : ''}{fmt(variance)}
-            <span className="ml-auto font-normal text-xs opacity-75">
+            <span className="ml-auto font-normal text-sm opacity-75">
               {variance === 0 ? 'Drawer balanced' : variance > 0 ? 'Cashier is over' : 'Cashier is short'}
             </span>
           </div>
@@ -812,23 +812,23 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
               const needsApproval = varStatus === 'pending_review';
               return (
                 <tr key={s.id} className="border-b border-slate-100">
-                  <td className="py-2 pr-3 text-xs font-mono">{new Date(s.openedAt).toLocaleString()}</td>
-                  <td className="py-2 pr-3 text-xs font-mono">{s.closedAt ? new Date(s.closedAt).toLocaleString() : '—'}</td>
+                  <td className="py-2 pr-3 text-sm font-mono">{new Date(s.openedAt).toLocaleString()}</td>
+                  <td className="py-2 pr-3 text-sm font-mono">{s.closedAt ? new Date(s.closedAt).toLocaleString() : '—'}</td>
                   <td className="py-2 pr-3">
-                    <span className={'px-2 py-0.5 rounded-full text-xs font-bold ' + (s.status === 'open' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>
+                    <span className={'px-2 py-0.5 rounded-full text-sm font-bold ' + (s.status === 'open' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>
                       {s.status}
                     </span>
                   </td>
-                  <td className="py-2 pr-3 text-right font-mono text-xs">{fmt(s.openingFloat)}</td>
-                  <td className="py-2 pr-3 text-right font-mono text-xs">{s.closingExpected ? fmt(s.closingExpected) : '—'}</td>
-                  <td className="py-2 pr-3 text-right font-mono text-xs">{s.closingCounted ? fmt(s.closingCounted) : '—'}</td>
-                  <td className={'py-2 pr-3 text-right font-mono text-xs font-bold ' + (diff >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
+                  <td className="py-2 pr-3 text-right font-mono text-sm">{fmt(s.openingFloat)}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-sm">{s.closingExpected ? fmt(s.closingExpected) : '—'}</td>
+                  <td className="py-2 pr-3 text-right font-mono text-sm">{s.closingCounted ? fmt(s.closingCounted) : '—'}</td>
+                  <td className={'py-2 pr-3 text-right font-mono text-sm font-bold ' + (diff >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
                     {s.closingDifference ? fmt(s.closingDifference) : '—'}
                   </td>
-                  <td className="py-2 pr-3 text-xs">
+                  <td className="py-2 pr-3 text-sm">
                     {needsApproval ? (
                       <div className="flex items-center gap-1">
-                        <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800">Review</span>
+                        <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-amber-100 text-amber-800">Review</span>
                         <button
                           className="p-1 rounded hover:bg-emerald-100 text-emerald-600"
                           title="Approve variance"
@@ -845,14 +845,14 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
                         </button>
                       </div>
                     ) : varStatus === 'approved' ? (
-                      <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">Approved</span>
+                      <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-emerald-100 text-emerald-800">Approved</span>
                     ) : varStatus === 'rejected' ? (
-                      <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-800">Rejected</span>
+                      <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-rose-100 text-rose-800">Rejected</span>
                     ) : (
                       <span className="text-slate-400">—</span>
                     )}
                   </td>
-                  <td className="py-2 pr-3 text-xs">{s.movementCount}</td>
+                  <td className="py-2 pr-3 text-sm">{s.movementCount}</td>
                 </tr>
               );
             })}
@@ -862,7 +862,7 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
       {data.totalPages > 1 && (
         <div className="flex justify-center gap-2 mt-3">
           <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
-          <span className="text-xs text-slate-500 self-center">Page {page} of {data.totalPages}</span>
+          <span className="text-sm text-slate-500 self-center">Page {page} of {data.totalPages}</span>
           <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
         </div>
       )}
@@ -933,24 +933,24 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
                     const needsApproval = varStatus === 'pending_review';
                     return (
                       <tr key={s.id} className="border-b border-slate-100">
-                        <td className="py-2 pr-3 text-xs font-semibold">{s.cashRegister.code}</td>
-                        <td className="py-2 pr-3 text-xs font-mono">{new Date(s.openedAt).toLocaleString()}</td>
-                        <td className="py-2 pr-3 text-xs font-mono">{s.closedAt ? new Date(s.closedAt).toLocaleString() : '—'}</td>
+                        <td className="py-2 pr-3 text-sm font-semibold">{s.cashRegister.code}</td>
+                        <td className="py-2 pr-3 text-sm font-mono">{new Date(s.openedAt).toLocaleString()}</td>
+                        <td className="py-2 pr-3 text-sm font-mono">{s.closedAt ? new Date(s.closedAt).toLocaleString() : '—'}</td>
                         <td className="py-2 pr-3">
-                          <span className={'px-2 py-0.5 rounded-full text-xs font-bold ' + (s.status === 'open' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>
+                          <span className={'px-2 py-0.5 rounded-full text-sm font-bold ' + (s.status === 'open' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600')}>
                             {s.status}
                           </span>
                         </td>
-                        <td className="py-2 pr-3 text-right font-mono text-xs">{fmt(s.openingFloat)}</td>
-                        <td className="py-2 pr-3 text-right font-mono text-xs">{s.closingExpected ? fmt(s.closingExpected) : '—'}</td>
-                        <td className="py-2 pr-3 text-right font-mono text-xs">{s.closingCounted ? fmt(s.closingCounted) : '—'}</td>
-                        <td className={'py-2 pr-3 text-right font-mono text-xs font-bold ' + (diff >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
+                        <td className="py-2 pr-3 text-right font-mono text-sm">{fmt(s.openingFloat)}</td>
+                        <td className="py-2 pr-3 text-right font-mono text-sm">{s.closingExpected ? fmt(s.closingExpected) : '—'}</td>
+                        <td className="py-2 pr-3 text-right font-mono text-sm">{s.closingCounted ? fmt(s.closingCounted) : '—'}</td>
+                        <td className={'py-2 pr-3 text-right font-mono text-sm font-bold ' + (diff >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
                           {s.closingDifference ? fmt(s.closingDifference) : '—'}
                         </td>
-                        <td className="py-2 pr-3 text-xs">
+                        <td className="py-2 pr-3 text-sm">
                           {needsApproval ? (
                             <div className="flex items-center gap-1">
-                              <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-800">Review</span>
+                              <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-amber-100 text-amber-800">Review</span>
                               <button className="p-1 rounded hover:bg-emerald-100 text-emerald-600" title="Approve" onClick={() => handleApprove(s.id, s.varianceReason ?? '')}>
                                 <ThumbsUp className="h-3 w-3" />
                               </button>
@@ -959,14 +959,14 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
                               </button>
                             </div>
                           ) : varStatus === 'approved' ? (
-                            <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-emerald-100 text-emerald-800">Approved</span>
+                            <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-emerald-100 text-emerald-800">Approved</span>
                           ) : varStatus === 'rejected' ? (
-                            <span className="px-1.5 py-0.5 rounded text-xs font-bold bg-rose-100 text-rose-800">Rejected</span>
+                            <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-rose-100 text-rose-800">Rejected</span>
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}
                         </td>
-                        <td className="py-2 pr-3 text-xs text-slate-500 max-w-[150px] truncate">{s.notes || '—'}</td>
+                        <td className="py-2 pr-3 text-sm text-slate-500 max-w-[150px] truncate">{s.notes || '—'}</td>
                         <td className="py-2 pr-3">
                           <button className="p-1 rounded hover:bg-blue-100 text-blue-600" title="View transactions" onClick={() => setViewingSessionId(s.id)}>
                             <Eye className="h-3.5 w-3.5" />
@@ -981,7 +981,7 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
             {data.totalPages > 1 && (
               <div className="flex justify-center gap-2 mt-3">
                 <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
-                <span className="text-xs text-slate-500 self-center">Page {page} of {data.totalPages}</span>
+                <span className="text-sm text-slate-500 self-center">Page {page} of {data.totalPages}</span>
                 <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
               </div>
             )}
@@ -1067,16 +1067,16 @@ const ReconciliationView: React.FC = () => {
                       const v = Number(s.variance ?? 0);
                       return (
                         <tr key={s.sessionId} className="border-b border-slate-100">
-                          <td className="py-2 pr-3 font-semibold text-xs">{s.cashRegisterName}</td>
-                          <td className="py-2 pr-3 font-mono text-xs">{fmt(s.openingFloat)}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-xs">{fmt(s.salesTotal)}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-xs">{fmt(s.payInsTotal)}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-xs">{fmt(s.payOutsTotal)}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-xs">{fmt(s.refundsTotal)}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-xs">{fmt(s.bankedAmount)}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-xs">{fmt(s.expectedCash)}</td>
-                          <td className="py-2 pr-3 text-right font-mono text-xs">{s.actualCash ? fmt(s.actualCash) : '—'}</td>
-                          <td className={'py-2 pr-3 text-right font-mono text-xs font-bold ' + (v >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
+                          <td className="py-2 pr-3 font-semibold text-sm">{s.cashRegisterName}</td>
+                          <td className="py-2 pr-3 font-mono text-sm">{fmt(s.openingFloat)}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-sm">{fmt(s.salesTotal)}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-sm">{fmt(s.payInsTotal)}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-sm">{fmt(s.payOutsTotal)}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-sm">{fmt(s.refundsTotal)}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-sm">{fmt(s.bankedAmount)}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-sm">{fmt(s.expectedCash)}</td>
+                          <td className="py-2 pr-3 text-right font-mono text-sm">{s.actualCash ? fmt(s.actualCash) : '—'}</td>
+                          <td className={'py-2 pr-3 text-right font-mono text-sm font-bold ' + (v >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
                             {s.variance ? fmt(s.variance) : '—'}
                           </td>
                         </tr>
@@ -1140,7 +1140,7 @@ const MovementsDialog: React.FC<{
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-semibold">Cash Movements</h2>
-              <p className="text-white/75 text-xs mt-0.5">
+              <p className="text-white/75 text-sm mt-0.5">
                 Session opened {session.openedAt ? new Date(session.openedAt).toLocaleString() : '—'} · {rows.length} entries
               </p>
             </div>
@@ -1162,17 +1162,17 @@ const MovementsDialog: React.FC<{
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id} className={`border-b border-slate-100 ${r.isOpening ? 'text-slate-600 bg-slate-50/50' : ''}`}>
-                  <td className="py-2.5 pr-3 font-mono text-xs">{r.time}</td>
+                  <td className="py-2.5 pr-3 font-mono text-sm">{r.time}</td>
                   <td className="py-2.5 pr-3 flex items-center gap-1.5">
                     {r.isOpening ? <Calculator className="h-3.5 w-3.5 text-slate-400" /> : movementIcon((r as any).movementType)}
                     <span className="font-medium">{r.type}</span>
-                    {r.method && <span className="text-xs text-slate-400">({r.method})</span>}
+                    {r.method && <span className="text-sm text-slate-400">({r.method})</span>}
                   </td>
                   <td className={'py-2.5 pr-3 text-right font-mono font-bold ' + (r.isNegative && !r.isOpening ? 'text-rose-600' : r.isOpening ? 'text-slate-700' : 'text-emerald-700')}>
                     {r.isOpening ? '' : r.isNegative ? '-' : '+'}{fmt(r.amount)}
                   </td>
                   <td className="py-2.5 pr-3 text-right font-mono">{fmt(r.runningTotal)}</td>
-                  <td className="py-2.5 pr-3 text-xs text-slate-500 max-w-[220px] truncate" title={r.reason}>{r.reason || '—'}</td>
+                  <td className="py-2.5 pr-3 text-sm text-slate-500 max-w-[220px] truncate" title={r.reason}>{r.reason || '—'}</td>
                 </tr>
               ))}
               {rows.length === 0 && (
@@ -1200,7 +1200,7 @@ const ReportCard: React.FC<{ title: string; value: string; sub?: string; accent?
   <div className="pos-report-card">
     <h3>{title}</h3>
     <div className={'big ' + (accent ? 'text-emerald-600' : '')}>{value}</div>
-    {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
+    {sub && <p className="text-sm text-slate-500 mt-1">{sub}</p>}
   </div>
 );
 

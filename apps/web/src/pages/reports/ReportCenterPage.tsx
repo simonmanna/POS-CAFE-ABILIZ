@@ -122,10 +122,10 @@ const StatCard: React.FC<{
       <div className={`rounded-lg p-1.5 ${accent ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
         <Icon className="h-4 w-4" />
       </div>
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
+      <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
     </div>
     <div className={`text-lg font-bold ${accent ? 'text-emerald-600' : 'text-slate-800'}`}>{value}</div>
-    {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
+    {sub && <p className="text-sm text-slate-500 mt-0.5">{sub}</p>}
   </div>
 );
 
@@ -182,14 +182,14 @@ const SalesReportTab: React.FC<{
               </tr></thead>
               <tbody>{rows.map((r: SalesReportRow, i: number) => (
                 <tr key={i} className="border-b border-slate-100">
-                  <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
-                  <td className="py-2 pr-3 font-mono text-xs">{r.invoiceNumber}</td>
-                  <td className="py-2 pr-3 text-xs">{new Date(r.saleDate).toLocaleDateString()}</td>
-                  <td className="py-2 pr-3 text-xs">{r.time || new Date(r.saleDate).toLocaleTimeString()}</td>
+                  <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
+                  <td className="py-2 pr-3 font-mono text-sm">{r.invoiceNumber}</td>
+                  <td className="py-2 pr-3 text-sm">{new Date(r.saleDate).toLocaleDateString()}</td>
+                  <td className="py-2 pr-3 text-sm">{r.time || new Date(r.saleDate).toLocaleTimeString()}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(r.subtotal)}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(r.discount)}</td>
                   <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
-                  <td className="py-2 pr-3 text-xs">{r.waiterName ?? '—'}</td>
+                  <td className="py-2 pr-3 text-sm">{r.waiterName ?? '—'}</td>
                 </tr>
               ))}</tbody>
               <tfoot><tr className="border-t-2 border-slate-300 font-bold text-slate-800">
@@ -264,17 +264,17 @@ const ItemsReportTab: React.FC<{
               </tr></thead>
               <tbody>{items.map((it: SoldItem, i: number) => (
                 <tr key={i} className="border-b border-slate-100">
-                  <td className="py-2 pr-3 font-mono text-xs">{it.orderNumber}</td>
-                  <td className="py-2 pr-3 font-mono text-xs">{it.invoiceNumber}</td>
-                  <td className="py-2 pr-3 text-xs">{new Date(it.saleDate).toLocaleDateString()}</td>
-                  <td className="py-2 pr-3 text-xs">{it.time || new Date(it.saleDate).toLocaleTimeString()}</td>
+                  <td className="py-2 pr-3 font-mono text-sm">{it.orderNumber}</td>
+                  <td className="py-2 pr-3 font-mono text-sm">{it.invoiceNumber}</td>
+                  <td className="py-2 pr-3 text-sm">{new Date(it.saleDate).toLocaleDateString()}</td>
+                  <td className="py-2 pr-3 text-sm">{it.time || new Date(it.saleDate).toLocaleTimeString()}</td>
                   <td className="py-2 pr-3 font-semibold">{it.item}</td>
-                  <td className="py-2 pr-3 text-xs">{it.categoryName ?? '—'}</td>
+                  <td className="py-2 pr-3 text-sm">{it.categoryName ?? '—'}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(it.unitPrice)}</td>
                   <td className="py-2 pr-3 text-right font-mono">{it.discountPercent}%</td>
                   <td className="py-2 pr-3 text-right font-mono">{Number(it.quantity).toFixed(2)}</td>
                   <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(it.totalAmount)}</td>
-                  <td className="py-2 pr-3 text-xs">{it.waiterName ?? '—'}</td>
+                  <td className="py-2 pr-3 text-sm">{it.waiterName ?? '—'}</td>
                 </tr>
               ))}</tbody>
               <tfoot><tr className="border-t-2 border-slate-300 font-bold text-slate-800">
@@ -345,12 +345,12 @@ const ExpensesReportTab: React.FC<{
               </tr></thead>
               <tbody>{rows.map((r: any, i: number) => (
                 <tr key={r.id ?? i} className="border-b border-slate-100">
-                  <td className="py-2 pr-3 font-mono text-xs">{r.expenseCode}</td>
-                  <td className="py-2 pr-3 text-xs">{r.expenseDate?.slice(0, 10) ?? '—'}</td>
+                  <td className="py-2 pr-3 font-mono text-sm">{r.expenseCode}</td>
+                  <td className="py-2 pr-3 text-sm">{r.expenseDate?.slice(0, 10) ?? '—'}</td>
                   <td className="py-2 pr-3 font-semibold">{r.title}</td>
-                  <td className="py-2 pr-3 text-xs">{r.categoryName ?? r.category?.name ?? '—'}</td>
+                  <td className="py-2 pr-3 text-sm">{r.categoryName ?? r.category?.name ?? '—'}</td>
                   <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.amount)}</td>
-                  <td className="py-2 pr-3"><span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">{r.status}</span></td>
+                  <td className="py-2 pr-3"><span className="inline-block px-2 py-0.5 rounded-full text-sm font-semibold bg-slate-100 text-slate-600">{r.status}</span></td>
                 </tr>
               ))}</tbody>
               <tfoot><tr className="border-t-2 border-slate-300 font-bold text-slate-800">
@@ -408,7 +408,7 @@ const PurchasesReportTab: React.FC<{
           )}
         </div>
         {isLoading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-        {rows.length === 0 && !isLoading ? <p className="text-sm text-slate-500">No purchase orders in this date range.</p> : (
+        {rows.length === 0 && !isLoading ? <p className="text-sm text-slate-500">No purchases in this date range.</p> : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left border-b border-slate-200 text-slate-600">
@@ -418,11 +418,11 @@ const PurchasesReportTab: React.FC<{
               </tr></thead>
               <tbody>{rows.map((r: any) => (
                 <tr key={r.id} className="border-b border-slate-100">
-                  <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
-                  <td className="py-2 pr-3 text-xs">{r.orderDate?.slice(0, 10) ?? '—'}</td>
+                  <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
+                  <td className="py-2 pr-3 text-sm">{r.orderDate?.slice(0, 10) ?? '—'}</td>
                   <td className="py-2 pr-3">{r.partner?.name ?? '—'}</td>
-                  <td className="py-2 pr-3"><span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">{r.status}</span></td>
-                  <td className="py-2 pr-3 text-xs capitalize">{r.paymentType ?? '—'}</td>
+                  <td className="py-2 pr-3"><span className="inline-block px-2 py-0.5 rounded-full text-sm font-semibold bg-slate-100 text-slate-600">{r.status}</span></td>
+                  <td className="py-2 pr-3 text-sm capitalize">{r.paymentType ?? '—'}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(r.subtotal)}</td>
                   <td className="py-2 pr-3 text-right font-mono">{fmt(r.taxAmount)}</td>
                   <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
@@ -504,7 +504,7 @@ const CashFlowSummaryTab: React.FC<{
                 ))}</tbody>
               </table>
             </div>
-            <p className="text-xs text-slate-400 mt-2">
+            <p className="text-sm text-slate-400 mt-2">
               Source: Accounting GL · reconciled = {cf.reconciled ? 'Yes' : 'No'}
             </p>
           </div>
@@ -573,12 +573,12 @@ const CashFlowDetailedTab: React.FC<{
               </tr></thead>
               <tbody>{visibleRows.map((r: any) => (
                 <tr key={r.id} className="border-b border-slate-100">
-                  <td className="py-2 pr-3 font-mono text-xs">{r.paymentNumber}</td>
-                  <td className="py-2 pr-3 text-xs">{r.paymentDate}</td>
+                  <td className="py-2 pr-3 font-mono text-sm">{r.paymentNumber}</td>
+                  <td className="py-2 pr-3 text-sm">{r.paymentDate}</td>
                   <td className="py-2 pr-3">{r.partnerName}</td>
-                  <td className="py-2 pr-3 text-xs capitalize">{r.paymentMethod}</td>
+                  <td className="py-2 pr-3 text-sm capitalize">{r.paymentMethod}</td>
                   <td className={'py-2 pr-3 text-right font-mono font-bold ' + (r.direction === 'inbound' ? 'text-emerald-600' : 'text-rose-600')}>{fmt(r.amount)}</td>
-                  <td className="py-2 pr-3 text-xs text-slate-500">{r.reference ?? '—'}</td>
+                  <td className="py-2 pr-3 text-sm text-slate-500">{r.reference ?? '—'}</td>
                 </tr>
               ))}</tbody>
               <tfoot><tr className="border-t-2 border-slate-300 font-bold text-slate-800">

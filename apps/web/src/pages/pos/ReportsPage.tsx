@@ -273,7 +273,7 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
         <Clock className="h-10 w-10 mx-auto mb-2 opacity-50" />
         <p className="font-semibold">No active cash session</p>
-        <p className="text-xs mt-1">Open a shift to see live {kind}-report data.</p>
+        <p className="text-sm mt-1">Open a shift to see live {kind}-report data.</p>
       </div>
     );
   }
@@ -300,7 +300,7 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="pos-report-card">
-          <h3>By payment method <span className="text-xs font-normal text-slate-400">(all tenders, gross)</span></h3>
+          <h3>By payment method <span className="text-sm font-normal text-slate-400">(all tenders, gross)</span></h3>
           {report.byMethod.length === 0 ? (
             <p className="text-sm text-slate-500">No sales yet this shift.</p>
           ) : (
@@ -344,7 +344,7 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
         </div>
       </div>
 
-      <p className="text-xs text-slate-500">As of {new Date(report.asOf).toLocaleString()}</p>
+      <p className="text-sm text-slate-500">As of {new Date(report.asOf).toLocaleString()}</p>
     </div>
   );
 };
@@ -353,7 +353,7 @@ const ReportCard: React.FC<{ title: string; value: string; sub?: string; accent?
   <div className="pos-report-card">
     <h3>{title}</h3>
     <div className={'big ' + (accent ? 'text-emerald-600' : '')}>{value}</div>
-    {sub ? <p className="text-xs text-slate-500 mt-1">{sub}</p> : null}
+    {sub ? <p className="text-sm text-slate-500 mt-1">{sub}</p> : null}
   </div>
 );
 
@@ -381,7 +381,7 @@ const QuickPresets: React.FC<{
           <button
             key={p.label}
             className={'pos-reports-tab ' + (active ? 'active' : '')}
-            style={{ fontSize: 12, padding: '2px 8px' }}
+            style={{ fontSize: 14, padding: '2px 8px' }}
             onClick={() => { setFromDate(f); setToDate(t); }}
           >
             {p.label}
@@ -460,14 +460,14 @@ const HourlyView: React.FC<{
       <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
 
       <div className="flex flex-wrap gap-1">
-        <Label className="w-full text-xs text-slate-500 mb-1">Filter by hour:</Label>
+        <Label className="w-full text-sm text-slate-500 mb-1">Filter by hour:</Label>
         {allHours.map((h) => {
           const active = !selectedHours || selectedHours.has(h);
           return (
             <button
               key={h}
               className={'pos-reports-tab ' + (active ? 'active' : '')}
-              style={{ fontSize: 11, padding: '1px 6px' }}
+              style={{ fontSize: 13, padding: '1px 6px' }}
               onClick={() => toggleHour(h)}
             >
               {String(h).padStart(2, '0')}:00
@@ -592,7 +592,7 @@ const TopItemsView: React.FC<{
                   <tr key={it.productId || it.name} className="border-b border-slate-100">
                     <td className="py-2 pr-3 text-slate-500">{i + 1}</td>
                     <td className="py-2 pr-3 font-semibold">{it.name}</td>
-                    <td className="py-2 pr-3 text-slate-500 font-mono text-xs">{it.sku ?? '—'}</td>
+                    <td className="py-2 pr-3 text-slate-500 font-mono text-sm">{it.sku ?? '—'}</td>
                     <td className="py-2 pr-3 text-right font-mono">{it.quantity}</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(it.total)}</td>
                     <td className="py-2 pr-3 text-right font-mono">
@@ -690,14 +690,14 @@ const SalesReportView: React.FC<{
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{r.invoiceNumber}</td>
-                    <td className="py-2 pr-3 text-xs">{new Date(r.saleDate).toLocaleDateString()}</td>
-                    <td className="py-2 pr-3 text-xs">{r.time || new Date(r.saleDate).toLocaleTimeString()}</td>
+                    <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
+                    <td className="py-2 pr-3 font-mono text-sm">{r.invoiceNumber}</td>
+                    <td className="py-2 pr-3 text-sm">{new Date(r.saleDate).toLocaleDateString()}</td>
+                    <td className="py-2 pr-3 text-sm">{r.time || new Date(r.saleDate).toLocaleTimeString()}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(r.subtotal)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(r.discount)}</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
-                    <td className="py-2 pr-3 text-xs">{r.waiterName ?? '—'}</td>
+                    <td className="py-2 pr-3 text-sm">{r.waiterName ?? '—'}</td>
                     <td className="py-2 pr-3 text-center">
                       <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => navigate(`/invoices/${r.id}`)}>
                         <Eye className="h-4 w-4" />
@@ -798,12 +798,12 @@ const CashierReportView: React.FC<{
                 <tbody>
                   {rows.map((r, i) => (
                     <tr key={i} className="border-b border-slate-100">
-                      <td className="py-2 pr-3 text-xs">{r.cashierName ?? '—'}</td>
-                      <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
-                      <td className="py-2 pr-3 font-mono text-xs">{r.invoiceNumber}</td>
-                      <td className="py-2 pr-3 text-xs">{r.time || ''}</td>
+                      <td className="py-2 pr-3 text-sm">{r.cashierName ?? '—'}</td>
+                      <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
+                      <td className="py-2 pr-3 font-mono text-sm">{r.invoiceNumber}</td>
+                      <td className="py-2 pr-3 text-sm">{r.time || ''}</td>
                       <td className="py-2 pr-3 text-right font-mono">{fmt(r.salesAmount)}</td>
-                      <td className="py-2 pr-3 text-xs capitalize">{r.paymentMethod ?? '—'}</td>
+                      <td className="py-2 pr-3 text-sm capitalize">{r.paymentMethod ?? '—'}</td>
                       <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.received)}</td>
                     </tr>
                   ))}
@@ -904,8 +904,8 @@ const CashierShiftSummaryView: React.FC<{
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 text-xs font-mono">{r.shift}</td>
-                    <td className="py-2 pr-3 text-xs">{r.cashierName ?? '—'}</td>
+                    <td className="py-2 pr-3 text-sm font-mono">{r.shift}</td>
+                    <td className="py-2 pr-3 text-sm">{r.cashierName ?? '—'}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(r.openingCash)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(r.sales)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(r.expectedCash)}</td>
@@ -1019,16 +1019,16 @@ const WaiterReportView: React.FC<{
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 text-xs">{r.waiterName ?? '—'}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
-                    <td className="py-2 pr-3 text-xs">{r.tableName ?? '—'}</td>
+                    <td className="py-2 pr-3 text-sm">{r.waiterName ?? '—'}</td>
+                    <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
+                    <td className="py-2 pr-3 text-sm">{r.tableName ?? '—'}</td>
                     <td className="py-2 pr-3 font-semibold">{r.item}</td>
                     <td className="py-2 pr-3 text-right font-mono">{r.quantity}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(r.unitPrice)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{r.discountPercent}%</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.total)}</td>
-                    <td className="py-2 pr-3 text-xs">{new Date(r.date).toLocaleDateString()}</td>
-                    <td className="py-2 pr-3 text-xs">{r.time || new Date(r.date).toLocaleTimeString()}</td>
+                    <td className="py-2 pr-3 text-sm">{new Date(r.date).toLocaleDateString()}</td>
+                    <td className="py-2 pr-3 text-sm">{r.time || new Date(r.date).toLocaleTimeString()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1122,13 +1122,13 @@ const OrderReportView: React.FC<{
               <tbody>
                 {rows.map((r, i) => (
                   <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 font-mono text-xs">{r.orderNumber}</td>
-                    <td className="py-2 pr-3 text-xs">{new Date(r.date).toLocaleDateString()}</td>
-                    <td className="py-2 pr-3 text-xs">{r.time || new Date(r.date).toLocaleTimeString()}</td>
-                    <td className="py-2 pr-3 text-xs">{r.tableName ?? '—'}</td>
-                    <td className="py-2 pr-3 text-xs">{r.waiterName ?? '—'}</td>
-                    <td className="py-2 pr-3 text-xs">{r.customerName ?? '—'}</td>
-                    <td className="py-2 pr-3 text-xs capitalize">{r.status}</td>
+                    <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
+                    <td className="py-2 pr-3 text-sm">{new Date(r.date).toLocaleDateString()}</td>
+                    <td className="py-2 pr-3 text-sm">{r.time || new Date(r.date).toLocaleTimeString()}</td>
+                    <td className="py-2 pr-3 text-sm">{r.tableName ?? '—'}</td>
+                    <td className="py-2 pr-3 text-sm">{r.waiterName ?? '—'}</td>
+                    <td className="py-2 pr-3 text-sm">{r.customerName ?? '—'}</td>
+                    <td className="py-2 pr-3 text-sm capitalize">{r.status}</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
                   </tr>
                 ))}
@@ -1240,17 +1240,17 @@ const ItemsReportView: React.FC<{
               <tbody>
                 {items.map((it, i) => (
                   <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 font-mono text-xs">{it.orderNumber}</td>
-                    <td className="py-2 pr-3 font-mono text-xs">{it.invoiceNumber}</td>
-                    <td className="py-2 pr-3 text-xs">{new Date(it.saleDate).toLocaleDateString()}</td>
-                    <td className="py-2 pr-3 text-xs">{it.time || new Date(it.saleDate).toLocaleTimeString()}</td>
+                    <td className="py-2 pr-3 font-mono text-sm">{it.orderNumber}</td>
+                    <td className="py-2 pr-3 font-mono text-sm">{it.invoiceNumber}</td>
+                    <td className="py-2 pr-3 text-sm">{new Date(it.saleDate).toLocaleDateString()}</td>
+                    <td className="py-2 pr-3 text-sm">{it.time || new Date(it.saleDate).toLocaleTimeString()}</td>
                     <td className="py-2 pr-3 font-semibold">{it.item}</td>
-                    <td className="py-2 pr-3 text-xs text-slate-500">{it.categoryName ?? '—'}</td>
+                    <td className="py-2 pr-3 text-sm text-slate-500">{it.categoryName ?? '—'}</td>
                     <td className="py-2 pr-3 text-right font-mono">{fmt(it.unitPrice)}</td>
                     <td className="py-2 pr-3 text-right font-mono">{it.discountPercent}%</td>
                     <td className="py-2 pr-3 text-right font-mono">{it.quantity}</td>
                     <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(it.totalAmount)}</td>
-                    <td className="py-2 pr-3 text-xs">{it.waiterName ?? '—'}</td>
+                    <td className="py-2 pr-3 text-sm">{it.waiterName ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>

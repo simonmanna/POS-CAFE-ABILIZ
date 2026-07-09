@@ -47,7 +47,7 @@
     "expenses": "Expenses",
     "supplierPayments": "Supplier Payments",
     "purchaseRequests": "Purchase Requests",
-    "purchaseOrders": "Purchase Orders",
+    "purchaseOrders": "Purchases",
     "goodsReceipts": "Goods Receipts",
     "threeWayMatch": "3-Way Match",
     "accounts": "Chart of Accounts",
@@ -115,7 +115,7 @@
       "noData": "No purchase requests yet."
     },
     "purchaseOrders": {
-      "title": "Purchase Orders",
+      "title": "Purchases",
       "description": "Buy-side commitments to suppliers. Three-way matched against receipts & bills.",
       "newPO": "New PO",
       "supplier": "Supplier",
@@ -125,7 +125,7 @@
       "billed": "Billed",
       "sendToSupplier": "Send to supplier",
       "blocked": "match(es) blocked",
-      "noData": "No purchase orders yet."
+      "noData": "No purchases yet."
     },
     "goodsReceipts": {
       "title": "Goods Receipts",

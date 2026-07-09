@@ -564,16 +564,16 @@ body.pos-terminal-fullscreen .app-shell-header {
   flex-shrink: 0;
 }
 .pos-card-name {
-  font-size: 0.85rem;
+  font-size: 1rem;
   font-weight: 600;
   color: #0f172a;
 }
 .pos-card-line {
-  font-size: 0.72rem;
+  font-size: 0.85rem;
   color: #64748b;
 }
 .pos-card-price {
-  font-size: 0.9rem;
+  font-size: 1.05rem;
   font-weight: 700;
   color: #0f172a;
   margin-left: auto;
@@ -594,7 +594,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   font-weight: 600;
 }
 .pos-card-notes {
-  font-size: 0.75rem;
+  font-size: 0.85rem;
   color: #b45309;
   background: #fef3c7;
   border-radius: 4px;
@@ -631,7 +631,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   width: 28px;
   text-align: center;
   font-weight: 800;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   font-variant-numeric: tabular-nums;
 }
 .pos-card-actions {
@@ -679,12 +679,12 @@ body.pos-terminal-fullscreen .app-shell-header {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  font-size: 0.78rem;
+  font-size: 0.88rem;
   padding: 4px 1rem;
   color: #475569;
 }
 .pos-totals-row.big {
-  font-size: 1rem;
+  font-size: 1.1rem;
   font-weight: 800;
   color: #0f172a;
   padding-top: 4px;
@@ -774,7 +774,7 @@ body.pos-terminal-fullscreen .app-shell-header {
 }
 .pos-reports-tab {
   padding: 0.6rem 1rem;
-  font-size: 0.82rem;
+  font-size: 0.9rem;
   font-weight: 700;
   color: #64748b;
   cursor: pointer;
@@ -793,7 +793,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   padding: 1rem;
 }
 .pos-report-card h3 {
-  font-size: 0.78rem;
+  font-size: 0.85rem;
   font-weight: 700;
   color: #64748b;
   text-transform: uppercase;
@@ -822,7 +822,7 @@ body.pos-terminal-fullscreen .app-shell-header {
 .pos-report-bar-label {
   width: 60px;
   text-align: right;
-  font-size: 0.7rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: #64748b;
 }
@@ -841,7 +841,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   border-radius: 7px;
 }
 .pos-report-bar-value {
-  font-size: 0.72rem;
+  font-size: 0.82rem;
   font-weight: 700;
   color: #0f172a;
   font-variant-numeric: tabular-nums;
@@ -856,7 +856,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   background: linear-gradient(90deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.04));
   border: 1px solid rgba(34, 197, 94, 0.25);
   border-radius: 10px;
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   color: #166534;
   font-weight: 600;
 }

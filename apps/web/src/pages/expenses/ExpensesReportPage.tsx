@@ -51,7 +51,7 @@ function StatusBadge({ status }: { status: string }) {
   };
   const c = cfg[status] ?? cfg.DRAFT;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold ${c.bg} ${c.text}`}>
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-sm font-semibold ${c.bg} ${c.text}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
       {c.label}
     </span>
@@ -92,7 +92,7 @@ function StatCard({
         <div className="min-w-0">
           <p className={`text-[11px] font-bold uppercase tracking-widest ${pal.sub} mb-1`}>{label}</p>
           <p className="text-lg font-bold leading-tight truncate">{value}</p>
-          {sub && <p className={`text-xs mt-0.5 ${pal.sub} opacity-90`}>{sub}</p>}
+          {sub && <p className={`text-sm mt-0.5 ${pal.sub} opacity-90`}>{sub}</p>}
         </div>
         <div className={`shrink-0 w-9 h-9 ${pal.iconBg} rounded-lg flex items-center justify-center`}>
           <Icon className="w-4 h-4 text-white" />
@@ -218,12 +218,12 @@ export default function ExpensesReportPage() {
       key: "expenseDate",
       header: "Date",
       className: "whitespace-nowrap",
-      render: (r) => <span className="font-mono text-xs">{date(r.expenseDate)}</span>,
+      render: (r) => <span className="font-mono text-sm">{date(r.expenseDate)}</span>,
     },
     {
       key: "expenseCode",
       header: "Code",
-      className: "font-mono text-xs text-slate-500",
+      className: "font-mono text-sm text-slate-500",
       render: (r) => r.expenseCode,
     },
     {
@@ -234,7 +234,7 @@ export default function ExpensesReportPage() {
     {
       key: "category",
       header: "Category",
-      render: (r) => <span className="text-xs">{categoryLabel(r)}</span>,
+      render: (r) => <span className="text-sm">{categoryLabel(r)}</span>,
     },
     {
       key: "amount",
@@ -254,7 +254,7 @@ export default function ExpensesReportPage() {
         const n = r.createdBy?.staff
           ? r.createdBy.staff.firstName
           : "—";
-        return <span className="text-xs text-slate-500">{n}</span>;
+        return <span className="text-sm text-slate-500">{n}</span>;
       },
     },
   ];
@@ -372,7 +372,7 @@ export default function ExpensesReportPage() {
 
         {/* Pagination */}
         <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100">
-          <p className="text-xs text-slate-500">
+          <p className="text-sm text-slate-500">
             Showing {total === 0 ? 0 : (page - 1) * 20 + 1}–
             {Math.min(page * 20, total)} of {total}
           </p>
@@ -395,7 +395,7 @@ export default function ExpensesReportPage() {
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
               </Button>
-            <span className="text-xs text-slate-600 px-1.5 font-medium">
+            <span className="text-sm text-slate-600 px-1.5 font-medium">
               {page} / {totalPages}
             </span>
             <Button
