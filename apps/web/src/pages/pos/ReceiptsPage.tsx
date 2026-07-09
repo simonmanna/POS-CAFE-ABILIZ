@@ -101,7 +101,7 @@ export function ReceiptsPage() {
         />
       </div>
 
-      <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} getRowId={(r) => r.id} />
+      <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} getRowId={(r) => r.id} compact />
 
       {meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">

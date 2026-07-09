@@ -36,7 +36,7 @@ function StockStatusBanner({ data }: { data: InventoryItemDetail }) {
     <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
       <TrendingDown className="h-4 w-4 flex-shrink-0" />
       <span className="font-semibold">Out of Stock</span>
-      <span className="text-red-600">— Current quantity is 0. Create a purchase order to restock.</span>
+      <span className="text-red-600">— Current quantity is 0. Create a purchase to restock.</span>
     </div>
   );
   if (low) return (
@@ -235,7 +235,7 @@ function TabLocations({ data }: { data: InventoryItemDetail }) {
       <CardContent className="py-16 flex flex-col items-center text-muted-foreground gap-2">
         <MapPin className="h-10 w-10 opacity-30" />
         <p className="font-semibold">No location stock records</p>
-        <p className="text-xs">Stock will be tracked per location once received via purchase orders</p>
+        <p className="text-xs">Stock will be tracked per location once received via purchases</p>
       </CardContent>
     </Card>
   );
@@ -397,7 +397,7 @@ function TabPurchaseOrders({ data }: { data: InventoryItemDetail }) {
     <Card>
       <CardContent className="py-16 flex flex-col items-center text-muted-foreground gap-2">
         <ShoppingCart className="h-10 w-10 opacity-30" />
-        <p className="font-semibold">No purchase orders found</p>
+        <p className="font-semibold">No purchases found</p>
         <p className="text-xs">This item hasn't been ordered yet</p>
       </CardContent>
     </Card>
@@ -452,7 +452,7 @@ export default function InventoryDetailPage() {
     { id: 'locations', label: 'Locations & Qty', icon: MapPin, count: data?.items.length },
     { id: 'transactions', label: 'Transactions', icon: Activity, count: data?.recentLedger.length },
     { id: 'menu-usage', label: 'Menu Usage', icon: UtensilsCrossed, count: data?.menuProducts.length },
-    { id: 'purchases', label: 'Purchase Orders', icon: ShoppingCart, count: data?.purchaseOrderLines.length },
+    { id: 'purchases', label: 'Purchases', icon: ShoppingCart, count: data?.purchaseOrderLines.length },
   ];
 
   if (isLoading) {
@@ -518,7 +518,7 @@ export default function InventoryDetailPage() {
                 <DropdownMenuContent align="end" className="w-44">
                   <DropdownMenuItem onClick={() => navigate('/inventory/adjustments')}><Package className="h-4 w-4 mr-2 text-primary" />New Adjustment</DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigate('/procurement/purchase-orders')}><ShoppingCart className="h-4 w-4 mr-2 text-primary" />Purchase Orders</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => navigate('/procurement/purchase-orders')}><ShoppingCart className="h-4 w-4 mr-2 text-primary" />Purchases</DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>

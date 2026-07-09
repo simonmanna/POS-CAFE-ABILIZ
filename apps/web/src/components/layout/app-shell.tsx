@@ -33,6 +33,7 @@ import {
   BookText,
   ScrollText,
   Smartphone,
+  MapPin,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
@@ -93,6 +94,27 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: 'Inventory',
+    items: [
+      { to: '/inventory', label: 'Stock Levels', icon: Package, permission: 'inventory:read' },
+      { to: '/inventory/ledger', label: 'Stock Ledger', icon: ScrollText, permission: 'inventory:read' },
+      { to: '/inventory/count', label: 'Stock Count', icon: ClipboardList, permission: 'inventory_count:read' },
+      { to: '/inventory/adjustments', label: 'Stock Adjustments', icon: Scale, permission: 'inventory:move' },
+      { to: '/inventory/transfers', label: 'Stock Transfers', icon: Truck, permission: 'inventory:move' },
+      { to: '/inventory/locations', label: 'Locations', icon: MapPin, permission: PERMISSIONS.inventoryLocation.read },
+    ],
+  },
+  {
+    title: 'Purchasing',
+    items: [
+      { to: '/procurement/purchase-orders', label: 'Purchases', icon: ShoppingCart, permission: 'purchase_order:read' },
+      { to: '/procurement/goods-receipts', label: 'Goods Receipts', icon: Truck, permission: 'goods_receipt:read' },
+      // { to: '/procurement/three-way-match', label: '3-Way Match', icon: Scale, permission: 'three_way_match:read' },
+      { to: '/procurement/debit-notes', label: 'Debit Notes', icon: FilePlus2, permission: 'debit_note:read' },
+      { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote, permission: 'payment:read' },
+    ],
+  },
+  {
     title: 'Expenses',
     items: [
       { to: '/expenses', label: 'Expenses', icon: FileText, permission: PERMISSIONS.expense.read },
@@ -111,25 +133,6 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/journal-entries', label: 'Journal Entries', icon: ScrollText, permission: PERMISSIONS.journalEntry.read },
       { to: '/trial-balance', label: 'Trial Balance', icon: Scale, permission: PERMISSIONS.report.accounting },
       { to: '/reports', label: 'Report Center', icon: BarChart3, permission: PERMISSIONS.report.accounting },
-    ],
-  },
-  {
-    title: 'Inventory',
-    items: [
-      { to: '/inventory', label: 'Stock Levels', icon: Package, permission: 'inventory:read' },
-      { to: '/inventory/ledger', label: 'Stock Ledger', icon: ScrollText, permission: 'inventory:read' },
-      { to: '/inventory/count', label: 'Stock Count', icon: ClipboardList, permission: 'inventory_count:read' },
-      { to: '/inventory/adjustments', label: 'Stock Adjustments', icon: Scale, permission: 'inventory:move' },
-    ],
-  },
-  {
-    title: 'Purchasing',
-    items: [
-      { to: '/procurement/purchase-orders', label: 'Purchase Orders', icon: ShoppingCart, permission: 'purchase_order:read' },
-      { to: '/procurement/goods-receipts', label: 'Goods Receipts', icon: Truck, permission: 'goods_receipt:read' },
-      // { to: '/procurement/three-way-match', label: '3-Way Match', icon: Scale, permission: 'three_way_match:read' },
-      { to: '/procurement/debit-notes', label: 'Debit Notes', icon: FilePlus2, permission: 'debit_note:read' },
-      { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote, permission: 'payment:read' },
     ],
   },
   // {

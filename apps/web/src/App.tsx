@@ -51,14 +51,17 @@ import { PurchaseOrderReceivePage } from '@/pages/procurement/PurchaseOrderRecei
 import { PurchaseOrderPayPage } from '@/pages/procurement/PurchaseOrderPayPage';
 import { GoodsReceiptsPage } from '@/pages/procurement/goods-receipts';
 import { GoodsReceiptCreatePage } from '@/pages/procurement/goods-receipt-create';
+import GoodsReceiptDetailPage from '@/pages/procurement/goods-receipt-detail';
 import { ThreeWayMatchPage } from '@/pages/procurement/three-way-match';
 import { DebitNotesPage } from '@/pages/procurement/debit-notes';
 import { DebitNoteCreatePage } from '@/pages/procurement/debit-note-create';
 import { InventoryItemsPage } from '@/pages/inventory/InventoryItemsPage';
 import InventoryDetailPage from '@/pages/inventory/InventoryDetailPage';
 import { StockAdjustmentsPage } from '@/pages/inventory/StockAdjustmentsPage';
+import { StockTransfersPage } from '@/pages/inventory/StockTransfersPage';
 import { InventoryCountPage } from '@/pages/inventory/InventoryCountPage';
 import { StockLedgerPage } from '@/pages/inventory/StockLedgerPage';
+import LocationsPage from '@/pages/inventory/LocationsPage';
 import TerminalPage from '@/pages/pos/Terminal';
 import ReportsPage from '@/pages/pos/ReportsPage';
 import DisplayPage from '@/pages/pos/DisplayPage';
@@ -142,8 +145,10 @@ export function App() {
           <Route path="/inventory/items" element={<InventoryItemsPage />} />
           <Route path="/inventory/items/:productId" element={<InventoryDetailPage />} />
           <Route path="/inventory/adjustments" element={<StockAdjustmentsPage />} />
+          <Route path="/inventory/transfers" element={<StockTransfersPage />} />
           <Route path="/inventory/count" element={<InventoryCountPage />} />
           <Route path="/inventory/ledger" element={<StockLedgerPage />} />
+          <Route path="/inventory/locations" element={<LocationsPage />} />
           <Route path="/procurement/purchase-requests" element={<PurchaseRequestsPage />} />
           <Route path="/procurement/purchase-orders" element={<PurchaseOrdersPage />} />
           <Route path="/procurement/purchase-orders/new" element={<PurchaseOrderCreatePage />} />
@@ -152,6 +157,7 @@ export function App() {
           <Route path="/procurement/purchase-orders/:id" element={<PurchaseOrderDetailPage />} />
           <Route path="/procurement/goods-receipts" element={<GoodsReceiptsPage />} />
           <Route path="/procurement/goods-receipts/new" element={<GoodsReceiptCreatePage />} />
+          <Route path="/procurement/goods-receipts/:id" element={<GoodsReceiptDetailPage />} />
           <Route path="/procurement/three-way-match" element={<ThreeWayMatchPage />} />
           <Route path="/procurement/debit-notes" element={<DebitNotesPage />} />
           <Route path="/procurement/debit-notes/new" element={<DebitNoteCreatePage />} />

@@ -315,7 +315,7 @@ function TabPurchaseOrders({ partnerId }: { partnerId: string }) {
           <TableBody>
             {orders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No purchase orders found.</TableCell>
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No purchases found.</TableCell>
               </TableRow>
             ) : orders.map((po) => (
               <TableRow key={po.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/procurement/purchase-orders/${po.id}`)}>
@@ -567,7 +567,7 @@ function TabExpensesPurchases({ partnerId }: { partnerId: string }) {
       {/* Purchase Orders Section */}
       <Card>
         <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg flex flex-row items-center justify-between">
-          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Purchase Orders</CardTitle>
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Purchases</CardTitle>
           <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => navigate('/procurement/purchase-orders')}>
             View all POs →
           </Button>
@@ -588,7 +588,7 @@ function TabExpensesPurchases({ partnerId }: { partnerId: string }) {
               <TableBody>
                 {pos.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No purchase orders found.</TableCell>
+                    <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No purchases found.</TableCell>
                   </TableRow>
                 ) : pos.map((po) => (
                   <TableRow key={po.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/procurement/purchase-orders/${po.id}`)}>
@@ -656,7 +656,7 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
   if (isCustomer) {
     tabs.push({ value: 'statement', label: 'Statement', icon: BookOpen });
   } else {
-    tabs.push({ value: 'purchase-orders', label: 'Purchase Orders', icon: ShoppingCart });
+    tabs.push({ value: 'purchase-orders', label: 'Purchases', icon: ShoppingCart });
     tabs.push({ value: 'ledger', label: 'Ledger', icon: BookOpen });
   }
 

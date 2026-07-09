@@ -183,13 +183,13 @@ export const OrderPanel: React.FC<Props> = ({
                   <div className="pos-card-price">{fmt(lineSub)}</div>
                 </div>
                 {it.variantName && (
-                  <div className="text-[11px] font-semibold text-slate-700 px-1 truncate">{it.variantName}</div>
+                  <div className="text-sm font-semibold text-slate-700 px-1 truncate">{it.variantName}</div>
                 )}
                 {it.accompanimentNames && it.accompanimentNames.length > 0 && (
-                  <div className="text-[11px] text-slate-600 px-1 truncate">+ {it.accompanimentNames.join(", ")}</div>
+                  <div className="text-sm text-slate-600 px-1 truncate">+ {it.accompanimentNames.join(", ")}</div>
                 )}
                 {it.modifiers && it.modifiers.length > 0 ? (
-                  <div className="text-[11px] text-amber-700 px-1 truncate">
+                  <div className="text-sm text-amber-700 px-1 truncate">
                     {it.modifiers
                       .map((m) => (m as any).kitchenPrintName ?? m.name)
                       .filter(Boolean)

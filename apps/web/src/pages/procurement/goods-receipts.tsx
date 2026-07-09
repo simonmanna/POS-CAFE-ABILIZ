@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
-import { Plus, Search } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Eye, Plus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -30,6 +30,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_FILTERS = ['all', 'draft', 'posted', 'cancelled'] as const;
 
 export function GoodsReceiptsPage() {
+  const navigate = useNavigate();
   const [status, setStatus] = useState<string>('all');
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState('');
@@ -96,6 +97,16 @@ export function GoodsReceiptsPage() {
         <span className="text-sm text-muted-foreground truncate block">{g.notes ?? '—'}</span>
       ),
     },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-12',
+      render: (g) => (
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/procurement/goods-receipts/${g.id}`)}>
+          <Eye className="h-4 w-4" />
+        </Button>
+      ),
+    },
   ];
 
   const meta = data?.meta;
@@ -106,7 +117,7 @@ export function GoodsReceiptsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Goods Receipts</h1>
-          <p className="text-sm text-muted-foreground">Stock received against purchase orders (auto-generated)</p>
+          <p className="text-sm text-muted-foreground">Stock received against purchases (auto-generated)</p>
         </div>
         <Button asChild>
           <Link to="/procurement/goods-receipts/new">

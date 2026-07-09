@@ -148,13 +148,20 @@ export function PurchaseOrderCreatePage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Items</CardTitle>
-              <CardDescription>Pick a product to autofill price; otherwise enter manually.</CardDescription>
+              <CardTitle>Products</CardTitle>
+              <CardDescription>Fill products purchased</CardDescription>
             </div>
             <Button size="sm" variant="outline" onClick={addLine}><Plus className="mr-2 h-3 w-3" />Add item</Button>
           </div>
         </CardHeader>
         <CardContent>
+          <div className="grid gap-2 md:grid-cols-12 items-center text-xs text-muted-foreground font-medium px-1 pb-1 border-b mb-1">
+            <div className="md:col-span-4">Product</div>
+            <div className="md:col-span-4">Description</div>
+            <div className="md:col-span-1 text-right">Qty</div>
+            <div className="md:col-span-2 text-right">Unit Price</div>
+            <div className="md:col-span-1 text-right">Total</div>
+          </div>
           <div className="space-y-2">
             {lines.map((ln, idx) => (
               <div key={idx} className="grid gap-2 md:grid-cols-12 items-center">

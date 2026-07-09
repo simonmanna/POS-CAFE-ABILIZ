@@ -15,6 +15,7 @@ interface PO {
   lines: Array<{
     id: string; description: string; quantity: number;
     unitPrice: number; receivedQuantity: number;
+    productId?: string;
   }>;
 }
 
@@ -52,6 +53,7 @@ export function PurchaseOrderReceivePage() {
           .filter((l) => (receivedQtys[l.id] ?? 0) > 0)
           .map((l) => ({
             purchaseOrderLineId: l.id,
+            productId: l.productId,
             description: l.description,
             quantity: receivedQtys[l.id] ?? l.quantity,
             unitCost: l.unitPrice,

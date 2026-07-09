@@ -80,7 +80,7 @@ export function PurchaseOrdersPage() {
     mutationFn: async (id: string) =>
       (await api.post(`/procurement/purchase-orders/${id}/cancel`, { reason: '' })).data,
     onSuccess: () => {
-      notify.success('Purchase order cancelled');
+      notify.success('Purchase cancelled');
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
@@ -183,7 +183,7 @@ export function PurchaseOrdersPage() {
               variant="ghost"
               onClick={(e) => {
                 e.stopPropagation();
-                if (confirm('Cancel this purchase order?')) cancelMut.mutate(po.id);
+                if (confirm('Cancel this purchase?')) cancelMut.mutate(po.id);
               }}
             >
               <X className="h-3 w-3 text-destructive" />

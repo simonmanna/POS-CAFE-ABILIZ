@@ -76,7 +76,7 @@ export function PurchaseOrderDetailPage() {
   });
 
   if (po.isLoading) return <Skeleton className="h-96 w-full" />;
-  if (po.error || !po.data) return <Card><CardContent className="p-8 text-center text-destructive">Purchase order not found</CardContent></Card>;
+  if (po.error || !po.data) return <Card><CardContent className="p-8 text-center text-destructive">Purchase not found</CardContent></Card>;
 
   const data = po.data;
   const totalReceived = data.lines.reduce((s, l) => s + Number(l.receivedQuantity), 0);
@@ -349,7 +349,7 @@ export function PurchaseOrderDetailPage() {
       {/* Cancel dialog */}
       <Dialog open={showCancel} onOpenChange={setShowCancel}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Cancel Purchase Order</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Cancel Purchase</DialogTitle></DialogHeader>
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">Are you sure you want to cancel {data.orderNumber}?</p>
             <Textarea
