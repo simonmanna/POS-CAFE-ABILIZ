@@ -25,7 +25,7 @@ export function ArAgingPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">AR Aging</h1>
+        <h1 className="text-2xl font-semibold">Accounts Receivable</h1>
         <p className="text-sm text-muted-foreground">Outstanding customer balances by age (derived from open invoices).</p>
       </div>
 

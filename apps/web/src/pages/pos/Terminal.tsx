@@ -996,11 +996,12 @@ const TerminalPage: React.FC = () => {
         tableId: tableId || undefined,
         partnerId: customer.id,
         cashSessionId: session?.id,
+        guestCount: 1,
         lines: orderLines,
       });
       const invoice = await generateInvoiceMut.mutateAsync({
         orderId: (order as any).id,
-        paymentMode: 'credit',
+        // paymentMode deliberately omitted — settleCredit sets it to 'credit'
         transactionDiscountPercent: effectiveTxPct,
         transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
         transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,

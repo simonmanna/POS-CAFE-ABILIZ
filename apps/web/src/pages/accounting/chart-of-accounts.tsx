@@ -1,11 +1,22 @@
 import { useMemo, useState } from 'react';
-import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Plus, Pencil, XCircle, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { DataTable, type Column } from '@/components/data-table';
-import { useAccounts, type Account } from '@/features/accounting/api';
+import { useAccounts, useUpdateAccount, type Account } from '@/features/accounting/api';
+import { useAuthStore } from '@/stores/auth.store';
+import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
+import { AccountDialog } from './AccountDialog';
 
 const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'revenue', 'expense', 'cost_of_goods_sold', 'bank', 'cash', 'receivable', 'payable', 'tax', 'contra_asset', 'contra_liability', 'mobile_money', 'petty_cash'] as const;
 
@@ -20,11 +31,21 @@ const ACCOUNT_TYPE_LABELS: Record<string, string> = {
 export function ChartOfAccountsPage() {
   const { data, isLoading } = useAccounts();
   const allAccounts = (data?.data ?? []) as Account[];
+  const updateAccount = useUpdateAccount();
+  const auth = useAuthStore();
+
+  const canCreate = auth.hasPermission(PERMISSIONS.account.create);
+  const canUpdate = auth.hasPermission(PERMISSIONS.account.update);
+  const canDelete = auth.hasPermission(PERMISSIONS.account.delete);
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [page, setPage] = useState(1);
   const pageSize = 20;
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Account | null>(null);
+  const [deactivating, setDeactivating] = useState<Account | null>(null);
 
   const filtered = useMemo(() => {
     let list = allAccounts;
@@ -41,12 +62,37 @@ export function ChartOfAccountsPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
 
+  const openCreate = () => {
+    setEditing(null);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (a: Account) => {
+    setEditing(a);
+    setDialogOpen(true);
+  };
+
+  const confirmDeactivate = async () => {
+    if (!deactivating) return;
+    try {
+      await updateAccount.mutateAsync({ id: deactivating.id, isActive: !deactivating.isActive });
+      setDeactivating(null);
+    } catch {
+      /* toast in mutation */
+    }
+  };
+
   const columns: Column<Account>[] = [
     { key: 'code', header: 'Code' },
     {
       key: 'name',
       header: 'Name',
-      render: (a) => <span className={a.isGroup ? 'font-semibold' : ''}>{a.name}</span>,
+      render: (a) => (
+        <div className="flex items-center gap-2">
+          <span className={a.isGroup ? 'font-semibold' : ''}>{a.name}</span>
+          {!a.isActive && <Badge variant="secondary" className="text-[10px]">Inactive</Badge>}
+        </div>
+      ),
     },
     {
       key: 'accountType',
@@ -58,6 +104,34 @@ export function ChartOfAccountsPage() {
       header: 'Postable',
       render: (a) => (a.isGroup ? <span className="text-muted-foreground">Group</span> : 'Yes'),
     },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-28 text-right',
+      render: (a) => (
+        <div className="flex justify-end gap-1">
+          {canUpdate && (
+            <Button variant="ghost" size="icon" onClick={() => openEdit(a)} aria-label="Edit account" title="Edit account">
+              <Pencil className="h-4 w-4" />
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setDeactivating(a)}
+              aria-label={a.isActive ? 'Deactivate account' : 'Activate account'}
+              title={a.isActive ? 'Deactivate account' : 'Activate account'}
+            >
+              {a.isActive
+                ? <XCircle className="h-4 w-4 text-destructive" />
+                : <CheckCircle2 className="h-4 w-4 text-green-600" />
+              }
+            </Button>
+          )}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -67,6 +141,11 @@ export function ChartOfAccountsPage() {
           <h1 className="text-2xl font-semibold">Chart of Accounts</h1>
           <p className="text-sm text-muted-foreground">The ledger accounts every module posts to.</p>
         </div>
+        {canCreate && (
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" /> New Account
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
@@ -120,6 +199,47 @@ export function ChartOfAccountsPage() {
           </div>
         </div>
       )}
+
+      <AccountDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        account={editing}
+        parentOptions={allAccounts}
+      />
+
+      <Dialog open={!!deactivating} onOpenChange={(open) => !open && setDeactivating(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {deactivating?.isActive ? 'Deactivate account?' : 'Activate account?'}
+            </DialogTitle>
+            <DialogDescription>
+              {deactivating
+                ? deactivating.isActive
+                  ? `${deactivating.code} — ${deactivating.name} will be deactivated. It will no longer appear as an option for new transactions.`
+                  : `${deactivating.code} — ${deactivating.name} will be reactivated and available for use.`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeactivating(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={deactivating?.isActive ? 'destructive' : 'default'}
+              disabled={updateAccount.isPending}
+              onClick={confirmDeactivate}
+            >
+              {updateAccount.isPending
+                ? 'Saving…'
+                : deactivating?.isActive
+                  ? 'Deactivate'
+                  : 'Activate'
+              }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

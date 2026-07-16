@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PaginatedResult } from '@erp/shared';
 import { api } from '@/lib/api';
+import { notify } from '@/lib/notify';
 
 export interface Account {
   id: string;
@@ -9,6 +10,9 @@ export interface Account {
   accountType: string;
   isGroup: boolean;
   isActive: boolean;
+  description?: string;
+  parentAccountId?: string;
+  currencyId?: string;
 }
 
 export function useAccounts() {
@@ -16,6 +20,142 @@ export function useAccounts() {
     queryKey: ['accounts'],
     queryFn: async () =>
       (await api.get<PaginatedResult<Account>>('/accounts', { params: { pageSize: 200 } })).data,
+  });
+}
+
+export function useCreateAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      code: string;
+      name: string;
+      accountType: string;
+      isGroup?: boolean;
+      parentAccountId?: string;
+      description?: string;
+    }) => (await api.post<Account>('/accounts', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      notify.success('Account created');
+    },
+    onError: (e: any) =>
+      notify.error('Failed to create account', e?.response?.data?.message ?? e.message),
+  });
+}
+
+export function useUpdateAccount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...input }: {
+      id: string;
+      code?: string;
+      name?: string;
+      accountType?: string;
+      isGroup?: boolean;
+      isActive?: boolean;
+      parentAccountId?: string | null;
+      description?: string | null;
+    }) => (await api.patch<Account>(`/accounts/${id}`, input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['accounts'] });
+      notify.success('Account updated');
+    },
+    onError: (e: any) =>
+      notify.error('Failed to update account', e?.response?.data?.message ?? e.message),
+  });
+}
+
+export interface AccountMappingRow {
+  id: string;
+  key: string;
+  accountId: string;
+}
+
+export function useAccountMappings() {
+  return useQuery({
+    queryKey: ['account-mappings'],
+    queryFn: async () =>
+      (await api.get<AccountMappingRow[]>('/account-mappings')).data,
+  });
+}
+
+export interface BalanceSheetRow {
+  accountId: string;
+  code: string;
+  name: string;
+  balance: string;
+}
+
+export interface BalanceSheetSection {
+  key: string;
+  label: string;
+  type: 'asset' | 'liability' | 'equity';
+  rows: BalanceSheetRow[];
+  subtotal: string;
+}
+
+export interface BalanceSheetDetailedResult {
+  asOf: string;
+  balanced: boolean;
+  source: 'snapshot' | 'live';
+  sections: BalanceSheetSection[];
+  totals: {
+    assets: string;
+    liabilities: string;
+    equity: string;
+    liabilitiesAndEquity: string;
+  };
+}
+
+export function useBalanceSheet(asOf: string) {
+  return useQuery({
+    queryKey: ['balance-sheet', asOf],
+    queryFn: async () =>
+      (await api.get<BalanceSheetResult>('/reports/accounting/balance-sheet', { params: { asOf } })).data,
+    enabled: !!asOf,
+  });
+}
+
+export function useBalanceSheetDetailed(asOf: string) {
+  return useQuery({
+    queryKey: ['balance-sheet-detailed', asOf],
+    queryFn: async () =>
+      (await api.get<BalanceSheetDetailedResult>('/reports/accounting/balance-sheet/detailed', { params: { asOf } })).data,
+    enabled: !!asOf,
+  });
+}
+
+export interface BalanceSheetResult {
+  asOf: string;
+  totalAssets: string;
+  totalLiabilities: string;
+  totalEquity: string;
+  currentYearEarnings: string;
+  totalLiabilitiesAndEquity: string;
+  balanced: boolean;
+  source: 'snapshot' | 'live';
+}
+
+export function useRebuildSnapshots() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post('/reports/accounting/rebuild-snapshots')).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['balance-sheet'] });
+      qc.invalidateQueries({ queryKey: ['trial-balance'] });
+    },
+  });
+}
+
+export function useUpdateAccountMapping() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ key, accountId }: { key: string; accountId: string }) =>
+      (await api.put(`/account-mappings/${key}`, { accountId })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['account-mappings'] });
+    },
   });
 }
 

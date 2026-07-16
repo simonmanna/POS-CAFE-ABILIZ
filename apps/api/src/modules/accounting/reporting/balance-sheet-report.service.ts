@@ -128,6 +128,98 @@ export class BalanceSheetReportService {
     };
   }
 
+  async balanceSheetDetailed(asOf: string) {
+    const grouped = await this.prisma.client.journalLine.groupBy({
+      by: ['accountId'],
+      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: new Date(asOf) } } },
+      _sum: { baseDebit: true, baseCredit: true },
+    });
+    const accounts = await this.prisma.client.account.findMany({
+      where: { id: { in: (grouped as any[]).map((g) => g.accountId) }, isActive: true },
+    });
+    const acctById = new Map((accounts as any[]).map((a) => [a.id, a]));
+
+    const sectionDefs: Array<{
+      key: string;
+      label: string;
+      type: 'asset' | 'liability' | 'equity';
+      types: string[];
+    }> = [
+      { key: 'current_assets', label: 'Current Assets', type: 'asset', types: ['cash', 'bank', 'receivable', 'mobile_money', 'petty_cash'] },
+      { key: 'non_current_assets', label: 'Non-current Assets', type: 'asset', types: ['asset', 'contra_asset'] },
+      { key: 'current_liabilities', label: 'Current Liabilities', type: 'liability', types: ['payable', 'tax'] },
+      { key: 'long_term_liabilities', label: 'Long-term Liabilities', type: 'liability', types: ['liability', 'contra_liability'] },
+      { key: 'equity', label: "Stockholders' Equity", type: 'equity', types: ['equity'] },
+    ];
+
+    const sectionRows: Record<string, any[]> = {};
+    for (const s of sectionDefs) sectionRows[s.key] = [];
+
+    let totalAssets = ZERO;
+    let totalLiabilities = ZERO;
+    let totalEquity = ZERO;
+    let totalEarnings = ZERO;
+
+    for (const g of grouped as any[]) {
+      const acct = acctById.get(g.accountId);
+      if (!acct) continue;
+      const debit = new Prisma.Decimal(g._sum.baseDebit ?? 0);
+      const credit = new Prisma.Decimal(g._sum.baseCredit ?? 0);
+      const net = debit.minus(credit);
+      let display = net;
+      const typeStr = acct.accountType as string;
+      if (['liability', 'payable', 'tax', 'contra_liability', 'equity'].includes(typeStr)) {
+        display = net.negated();
+        if (typeStr === 'liability' || typeStr === 'payable' || typeStr === 'tax' || typeStr === 'contra_liability') {
+          totalLiabilities = totalLiabilities.plus(display);
+        } else if (typeStr === 'equity') {
+          totalEquity = totalEquity.plus(display);
+        }
+      } else if (typeStr === 'revenue' || typeStr === 'contra_revenue') {
+        totalEarnings = totalEarnings.plus(net.negated());
+      } else if (typeStr === 'cost_of_goods_sold' || typeStr === 'expense') {
+        totalEarnings = totalEarnings.minus(net);
+      } else {
+        totalAssets = totalAssets.plus(net);
+      }
+
+      for (const s of sectionDefs) {
+        if (s.types.includes(typeStr)) {
+          sectionRows[s.key].push({
+            accountId: acct.id,
+            code: acct.code,
+            name: acct.name,
+            balance: display.toString(),
+          });
+          break;
+        }
+      }
+    }
+
+    const sections = sectionDefs.map((s) => {
+      const rows = sectionRows[s.key].sort((a, b) => a.code.localeCompare(b.code));
+      let subtotal = ZERO;
+      for (const r of rows) {
+        subtotal = subtotal.plus(new Prisma.Decimal(r.balance || 0));
+      }
+      return { ...s, rows, subtotal: subtotal.toString() };
+    });
+
+    const totalLiabilitiesAndEquity = totalLiabilities.plus(totalEquity).plus(totalEarnings);
+    return {
+      asOf,
+      balanced: totalAssets.minus(totalLiabilitiesAndEquity).abs().lessThanOrEqualTo(0.01),
+      source: 'live',
+      sections,
+      totals: {
+        assets: totalAssets.toString(),
+        liabilities: totalLiabilities.toString(),
+        equity: totalEquity.toString(),
+        liabilitiesAndEquity: totalLiabilitiesAndEquity.toString(),
+      },
+    };
+  }
+
   /** Latest snapshot ≤ asOf, served only if nothing balance-affecting posted since. */
   private async findSnapshot(asOf: Date): Promise<{ organizationId: string; asOf: Date } | null> {
     const snap = await this.prisma.client.reportBalanceSheetSnapshot.findFirst({

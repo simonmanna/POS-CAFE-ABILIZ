@@ -62,10 +62,36 @@ export class IdempotencyService {
       return { replayed: false, statusCode, body };
     }
 
-    const organizationId = this.tenant.organizationId;
     const method = params.request.method;
     const path = params.request.originalUrl ?? params.request.url;
-    const requestHash = this.hashRequest(method, path, params.rawBody);
+    return this.executeWithKey({
+      key,
+      requestHash: this.hashRequest(method, path, params.rawBody),
+      method,
+      path,
+      runHandler: params.runHandler,
+    });
+  }
+
+  /**
+   * Transport-agnostic core of `execute`. Callers that are not an Express
+   * request/response pair (e.g. the sync push batch processor, which runs one
+   * idempotency key per offline operation) provide the key and request hash
+   * directly. Same semantics: pending row = distributed lock, completed row =
+   * replay cache, hash mismatch = 409.
+   */
+  async executeWithKey<T>(params: {
+    key: string;
+    requestHash: string;
+    /** Recorded on the IdempotencyRecord row for observability. */
+    method?: string;
+    path?: string;
+    runHandler: () => Promise<{ statusCode: number; body: T }>;
+  }): Promise<IdempotencyResult> {
+    const { key, requestHash } = params;
+    const method = params.method ?? 'OP';
+    const path = params.path ?? 'sync';
+    const organizationId = this.tenant.organizationId;
 
     // 1) Look for an existing record.
     const existing = await this.prisma.client.idempotencyRecord.findUnique({
@@ -152,5 +178,10 @@ export class IdempotencyService {
 
   private hashRequest(method: string, path: string, rawBody: string): string {
     return createHash('sha256').update(`${method}\n${path}\n${rawBody}`).digest('hex');
+  }
+
+  /** Stable hash for non-HTTP callers (sync push ops). */
+  hashPayload(payload: unknown): string {
+    return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
   }
 }

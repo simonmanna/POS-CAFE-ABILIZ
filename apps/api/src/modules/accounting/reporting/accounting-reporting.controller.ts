@@ -50,6 +50,11 @@ export class AccountingReportingController {
     return this.pnl.pnl({ from, to });
   }
 
+  @Get('balance-sheet/detailed')
+  balanceSheetDetailed(@Query('asOf') asOf: string) {
+    return this.balanceSheet.balanceSheetDetailed(asOf);
+  }
+
   @Get('balance-sheet')
   balanceSheetReport(@Query('asOf') asOf: string) {
     return this.balanceSheet.balanceSheet(asOf);

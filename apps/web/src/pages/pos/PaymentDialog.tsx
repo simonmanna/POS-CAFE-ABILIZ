@@ -69,14 +69,14 @@ export const PaymentDialog: React.FC<Props> = ({
   }, [open]);
 
   // Store-credit tile only appears when the selected customer carries a balance.
-  // Credit-settlement ("On Account") appears whenever a real customer is selected.
+  // Credit-settlement ("Credit") appears whenever a real customer is selected.
   const methods = useMemo(() => {
     const base = [...METHODS];
     if (storeCreditBalance > 0) {
       base.push({ key: 'store_credit', label: 'Store Credit', icon: <Gift className="h-4 w-4" />, color: '#0ea5e9' });
     }
     if (creditEnabled && onCreditSale) {
-      base.push({ key: 'credit_settlement', label: 'On Account', icon: <Wallet className="h-4 w-4" />, color: '#0284c7' });
+      base.push({ key: 'credit_settlement', label: 'Credit', icon: <Wallet className="h-4 w-4" />, color: '#0284c7' });
     }
     return base;
   }, [storeCreditBalance, creditEnabled, onCreditSale]);
@@ -156,7 +156,7 @@ export const PaymentDialog: React.FC<Props> = ({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-[760px] p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-[860px] p-0 overflow-hidden">
         <DialogHeader className="bg-gradient-to-r from-emerald-500 to-emerald-700 text-white p-4">
           <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
             <Wallet className="h-4 w-4" /> Charge
@@ -169,7 +169,7 @@ export const PaymentDialog: React.FC<Props> = ({
         <div className="grid grid-cols-1 md:grid-cols-[1fr_320px]">
           <div className="p-4 space-y-3">
             {/* Method tabs */}
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-5 gap-2">
               {methods.map((m) => (
                 <button
                   key={m.key}
@@ -328,7 +328,7 @@ export const PaymentDialog: React.FC<Props> = ({
               Request manager override
             </Button>
           ) : null}
-          {/* Postpaid credit is now a payment mode ("On Account") in the method grid. */}
+          {/* Postpaid credit is now a payment mode ("Credit") in the method grid. */}
         </DialogFooter>
       </DialogContent>
     </Dialog>

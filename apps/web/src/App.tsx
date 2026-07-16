@@ -23,8 +23,10 @@ import { ChartOfAccountsPage } from '@/pages/accounting/chart-of-accounts';
 import { CashAccountsPage } from '@/pages/accounting/cash-accounts';
 import { CashAccountDetailPage } from '@/pages/accounting/cash-account-detail';
 import { CashRegistersCrudPage } from '@/pages/accounting/cash-registers';
+import { AccountMappingsPage } from '@/pages/accounting/account-mappings';
 import { JournalEntriesPage } from '@/pages/accounting/journal-entries';
 import { TrialBalancePage } from '@/pages/accounting/trial-balance';
+import { BalanceSheetPage } from '@/pages/accounting/balance-sheet';
 import { InvoicesPage } from '@/pages/invoicing/invoices';
 import { InvoiceCreatePage } from '@/pages/invoicing/invoice-create';
 import { InvoiceDetailPage } from '@/pages/invoicing/invoice-detail';
@@ -128,11 +130,13 @@ export function App() {
           <Route path="/accounts/cash-accounts" element={<CashAccountsPage />} />
           <Route path="/accounts/cash-accounts/:id" element={<CashAccountDetailPage />} />
           <Route path="/accounts/cash-registers" element={<CashRegistersCrudPage />} />
+          <Route path="/accounts/mappings" element={<AccountMappingsPage />} />
           <Route path="/journals" element={<JournalsPage />} />
           <Route path="/journal-entries" element={<JournalEntriesPage />} />
           <Route path="/journal-entries/new" element={<JournalEntryCreatePage />} />
           <Route path="/journal-entries/:id" element={<JournalEntryDetailPage />} />
           <Route path="/trial-balance" element={<TrialBalancePage />} />
+          <Route path="/balance-sheet" element={<BalanceSheetPage />} />
           <Route path="/reports" element={<ReportCenterPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/recurring" element={<RecurringPage />} />

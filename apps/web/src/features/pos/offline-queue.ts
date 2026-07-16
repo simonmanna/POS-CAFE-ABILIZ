@@ -291,3 +291,41 @@ export function useOfflineQueue(): Omit<OfflineQueueState, 'failed'> & { replay:
 
   return { online, pending, replaying, replay };
 }
+
+/**
+ * Companion hook for the failed-sales review UI. Kept separate from
+ * useOfflineQueue so the topbar badge stays cheap; only the review
+ * dialog (and the badge count) needs this.
+ */
+export function useFailedSales(): {
+  failed: FailedSale[];
+  retry: (idempotencyKey: string) => Promise<void>;
+  discard: (idempotencyKey: string) => Promise<void>;
+  refresh: () => Promise<void>;
+} {
+  const [failed, setFailed] = useState<FailedSale[]>([]);
+
+  const refresh = async () => setFailed(await listFailed());
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      const list = await listFailed();
+      if (!cancelled) setFailed(list);
+    };
+    tick();
+    const id = setInterval(tick, 5000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  const retry = async (key: string) => {
+    await retryFailed(key);
+    await refresh();
+  };
+  const discard = async (key: string) => {
+    await discardFailed(key);
+    await refresh();
+  };
+
+  return { failed, retry, discard, refresh };
+}

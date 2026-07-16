@@ -133,6 +133,27 @@ export const ACCOUNT_MAPPING_KEYS = [
 ] as const;
 export type AccountMappingKey = (typeof ACCOUNT_MAPPING_KEYS)[number];
 
+export const ACCOUNT_MAPPING_LABELS: Record<AccountMappingKey, string> = {
+  accounts_receivable: 'Accounts Receivable',
+  accounts_payable: 'Accounts Payable',
+  sales_revenue: 'Sales Revenue',
+  default_expense: 'Default Expense',
+  sales_discount: 'Sales Discount',
+  tax_payable: 'Tax Payable',
+  tax_receivable: 'Tax Receivable',
+  default_cash: 'Default Cash',
+  default_bank: 'Default Bank',
+  rounding: 'Rounding',
+  retained_earnings: 'Retained Earnings',
+  suspense: 'Suspense',
+  cash_suspense: 'Cash Suspense',
+  stock_valuation: 'Stock Valuation',
+  cogs: 'Cost of Goods Sold',
+  grni_accrued: 'Goods Received Not Invoiced',
+  stock_adjustment_income: 'Stock Adjustment Income',
+  stock_adjustment_expense: 'Stock Adjustment Expense',
+};
+
 /** Per-product inventory costing method (M3). */
 export const COSTING_METHODS = ['AVCO', 'FIFO', 'STANDARD'] as const;
 export type CostingMethod = (typeof COSTING_METHODS)[number];
