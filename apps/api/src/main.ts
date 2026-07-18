@@ -1,5 +1,7 @@
 import 'reflect-metadata';
 import 'dotenv/config';
+import { createHash } from 'node:crypto';
+import { networkInterfaces } from 'node:os';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory, Reflector } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
@@ -9,9 +11,11 @@ import helmet from 'helmet';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
+import type { CorsOptions } from '@nestjs/common/interfaces/external/cors-options.interface';
 import { AppModule } from './app.module';
 import { GlobalExceptionFilter } from './kernel/filters/global-exception.filter';
 import { TenantContextService } from './kernel/tenancy/tenant-context.service';
+import { PrismaService } from './kernel/prisma/prisma.service';
 import { JwtTokenService, type AccessTokenPayload } from './kernel/auth/jwt-token.service';
 import { validateEnv } from './kernel/config/env';
 import { requestIdMiddleware } from './kernel/observability/request-id.middleware';
@@ -63,11 +67,24 @@ async function bootstrap(): Promise<void> {
     .split(',')
     .map((o) => o.trim())
     .filter(Boolean);
+
+  // LAN deployment: POS terminals browse to http://<lan-ip>:5173, an origin
+  // the operator cannot know in advance (DHCP moves it). Outside production,
+  // accept any private-range origin so a cafe LAN works out of the box.
+  // Production stays strict: CORS_ORIGINS must list the real origins.
+  const allowPrivateLan = process.env.NODE_ENV !== 'production' && process.env.CORS_ALLOW_LAN !== 'false';
+  const PRIVATE_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
+  const originRule: CorsOptions['origin'] = allowPrivateLan
+    ? (origin, cb) => cb(null, !origin || origins.includes(origin) || PRIVATE_ORIGIN.test(origin))
+    : origins.length > 0
+      ? origins
+      : false;
+
   app.enableCors({
-    origin: origins.length > 0 ? origins : false,
+    origin: originRule,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Idempotency-Key', 'X-Device-Label', 'X-Pos-User'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Idempotency-Key', 'X-Device-Label', 'X-Pos-User', 'X-Device-Token'],
     exposedHeaders: ['X-Request-Id', 'X-Total-Count'],
     maxAge: 86_400,
   });
@@ -79,6 +96,7 @@ async function bootstrap(): Promise<void> {
   // guards enforce.
   const tenant = app.get(TenantContextService);
   const jwt = app.get(JwtTokenService);
+  const prisma = app.get(PrismaService);
   app.use((req: Request & { auth?: AccessTokenPayload; id?: string }, _res: Response, next: NextFunction) => {
     let token: string | undefined;
     const header = req.headers['authorization'];
@@ -131,6 +149,28 @@ async function bootstrap(): Promise<void> {
         // invalid token: continue unauthenticated, guards will reject if needed
       }
     }
+
+    // P1 offline sync — device-token transport auth. An enrolled offline
+    // device (Android app / offline web terminal) authenticates /sync/* with
+    // an opaque X-Device-Token instead of a user JWT. The token is looked up
+    // by sha256 (never stored plain); a hit establishes the org boundary for
+    // the request. Identity (which cashier did what) travels per-op in the
+    // push payload, not on the transport. Lookup uses prisma.raw because the
+    // tenant context does not exist yet (same pattern as @Public endpoints).
+    const deviceHeaderRaw = req.headers['x-device-token'];
+    const deviceHeader = Array.isArray(deviceHeaderRaw) ? deviceHeaderRaw[0] : deviceHeaderRaw;
+    if (deviceHeader) {
+      const tokenHash = createHash('sha256').update(String(deviceHeader)).digest('hex');
+      void prisma.raw.posDevice
+        .findFirst({ where: { tokenHash, revokedAt: null } })
+        .then((device: { id: string; organizationId: string; branchId: string | null } | null) => {
+          if (!device) return next();
+          (req as any).posDevice = device;
+          return tenant.run({ organizationId: device.organizationId }, () => next());
+        })
+        .catch(() => next());
+      return;
+    }
     return next();
   });
 
@@ -161,10 +201,24 @@ async function bootstrap(): Promise<void> {
   app.enableShutdownHooks();
 
   const port = Number(process.env.PORT ?? 3000);
-  await app.listen(port);
-  app
-    .get(PinoLogger)
-    .log(`ERP API listening on http://localhost:${port}/api/v1 — Docs at /api/docs`);
+  // Bind all interfaces by default so POS terminals and Android devices on the
+  // cafe LAN can reach the server. Set HOST=127.0.0.1 to restrict to loopback.
+  const host = process.env.HOST ?? '0.0.0.0';
+  await app.listen(port, host);
+
+  const logger = app.get(PinoLogger);
+  logger.log(`ERP API listening on http://localhost:${port}/api/v1 — Docs at /api/docs`);
+  if (host === '0.0.0.0') {
+    // Print the LAN URLs so a device can be pointed at this machine without
+    // hunting through ipconfig.
+    for (const [name, addrs] of Object.entries(networkInterfaces())) {
+      for (const addr of addrs ?? []) {
+        if (addr.family === 'IPv4' && !addr.internal) {
+          logger.log(`  LAN (${name}): http://${addr.address}:${port}/api/v1`);
+        }
+      }
+    }
+  }
 }
 
 void bootstrap();

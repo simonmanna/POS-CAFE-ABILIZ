@@ -18,6 +18,7 @@ import { PosLoyaltyService } from './pos-loyalty.service';
 import { PosPrintLifecycleService } from './pos-print-lifecycle.service';
 import { PosReceiptsService } from './pos-receipts.service';
 import { dec } from '../../kernel/common/money';
+import { resolveOccurredAt } from '../../kernel/common/occurred-at';
 import { EVENTS } from '@erp/shared';
 import { NotificationsService } from '../../kernel/notifications/notifications.service';
 import { PosTablesService } from './pos-tables.service';
@@ -100,6 +101,10 @@ export interface CheckoutInput {
   /** Order type: dine-in, takeaway, or delivery. When omitted, inferred
    *  from tableId (table → dine_in, no table → takeaway). */
   orderType?: 'dine_in' | 'takeaway' | 'delivery';
+  /** Offline-first: when the sale was actually rung up on the device. Drives
+   *  Invoice.issueDate (GL date, report buckets) + the Payment date on replay.
+   *  Validated: not future, ≤ 7 days old. Omitted → now(). */
+  occurredAt?: string;
 }
 
 const DEFAULT_MAX_DISCOUNT_WITHOUT_OVERRIDE = 10; // %
@@ -143,6 +148,10 @@ export class PosService {
     if (!input.lines?.length) throw new BadRequestException('Cart is empty');
     const orgId = this.tenant.organizationId;
 
+    // Offline-first: validate the client business timestamp up front so a bad
+    // device clock fails the whole sale before any write happens.
+    resolveOccurredAt(input.occurredAt);
+
     // H1 — a sale that collects physical cash MUST post against an open drawer
     // session owned by the caller, otherwise the GL cash leg diverges from the
     // till (no CashMovement is written). Resolve/validate it before anything.
@@ -179,6 +188,7 @@ export class PosService {
         discountReason: input.discountReason,
         overrideById: input.overrideById,
         branchId: input.branchId,
+        occurredAt: input.occurredAt,
         paymentMode: input.tenders?.length
           ? this.resolvePaymentMode(input.tenders)
           : input.paymentMethod === 'bank' ? 'cash' : (input.paymentMethod ?? 'cash'),
@@ -198,6 +208,7 @@ export class PosService {
         paymentMethod: input.paymentMethod,
         amountTendered: input.amountTendered,
         cashSessionId: input.cashSessionId,
+        occurredAt: input.occurredAt,
       });
     } catch (e) {
       await this.billing.refund(invoice.id, 'checkout: payment failed').catch(() => undefined);
@@ -787,8 +798,12 @@ export class PosService {
     overrideById?: string;
     overridePin?: string;
     cashSessionId?: string;
+    occurredAt?: string;
   }) {
     const orgId = this.tenant.organizationId;
+
+    // Offline-first: reject a bad client timestamp before any write.
+    resolveOccurredAt(input.occurredAt);
 
     // H1 — a cash/mobile-money settle must post against an open drawer session
     // owned by the caller (so the till reconciles). Card-only tabs may settle
@@ -833,6 +848,7 @@ export class PosService {
         transactionDiscountAmount: input.transactionDiscountAmount,
         discountReason: input.discountReason,
         overrideById: input.overrideById,
+        occurredAt: input.occurredAt,
       });
     } catch (e: any) {
       this.logger.error(`[settle] invoice generation failed for table ${input.tableId} / order ${order.id}: ${e?.message ?? e}`);
@@ -846,6 +862,7 @@ export class PosService {
         paymentMethod: input.paymentMethod,
         amountTendered: input.amountTendered,
         cashSessionId: input.cashSessionId,
+        occurredAt: input.occurredAt,
       });
     } catch (e: any) {
       this.logger.error(`[settle] payment failed for invoice ${invoice.invoiceNumber} (${invoice.id}): ${e?.message ?? e}`);

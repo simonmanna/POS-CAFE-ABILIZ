@@ -1,0 +1,83 @@
+package com.poscafe.pos.data.repo
+
+import androidx.room.withTransaction
+import com.poscafe.pos.data.local.PosDatabase
+import com.poscafe.pos.data.local.entity.InventoryMovementEntity
+import com.poscafe.pos.data.local.entity.PurchaseEntity
+import com.poscafe.pos.data.local.entity.PurchaseItemEntity
+import java.time.Instant
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/**
+ * Stock purchases (goods received). A received purchase is posted atomically:
+ * the purchase header, its item lines, and one +qty `inventory_movements` row
+ * per line all land in a single transaction — on-hand still derives purely
+ * from movements, so a purchase can never leave stock and its audit trail out
+ * of step.
+ */
+@Singleton
+class PurchaseRepository @Inject constructor(
+    private val db: PosDatabase,
+) {
+    data class Line(val menuItemId: String, val name: String, val quantity: Double, val unitCost: Double)
+
+    suspend fun receive(
+        actorUserId: String?,
+        supplierId: String?,
+        reference: String?,
+        note: String?,
+        lines: List<Line>,
+    ): PurchaseEntity {
+        require(lines.isNotEmpty()) { "Add at least one item" }
+        val purchaseId = UUID.randomUUID().toString()
+        val now = Instant.now().toEpochMilli()
+        val total = lines.sumOf { it.quantity * it.unitCost }
+
+        val purchase = PurchaseEntity(
+            id = purchaseId,
+            supplierId = supplierId,
+            reference = reference?.takeIf { it.isNotBlank() },
+            status = "received",
+            totalCost = total,
+            note = note?.takeIf { it.isNotBlank() },
+            actorUserId = actorUserId,
+            occurredAt = now,
+            createdAt = now,
+        )
+        val items = lines.map {
+            PurchaseItemEntity(
+                id = UUID.randomUUID().toString(),
+                purchaseId = purchaseId,
+                menuItemId = it.menuItemId,
+                name = it.name,
+                quantity = it.quantity,
+                unitCost = it.unitCost,
+                lineTotal = it.quantity * it.unitCost,
+            )
+        }
+        val movements = lines.map {
+            InventoryMovementEntity(
+                id = UUID.randomUUID().toString(),
+                menuItemId = it.menuItemId,
+                type = "purchase",
+                qtyDelta = it.quantity,
+                unitCost = it.unitCost,
+                supplierId = supplierId,
+                reason = reference?.takeIf { r -> r.isNotBlank() }?.let { r -> "PO $r" },
+                saleLocalId = null,
+                purchaseId = purchaseId,
+                actorUserId = actorUserId,
+                occurredAt = now,
+            )
+        }
+
+        db.withTransaction {
+            db.purchaseDao().insert(purchase)
+            db.purchaseDao().insertItems(items)
+            db.inventoryDao().insertAll(movements)
+        }
+        return purchase
+    }
+}

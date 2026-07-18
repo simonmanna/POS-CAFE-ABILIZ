@@ -1,5 +1,5 @@
 import {
-  IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsPositive, IsString, Min, ValidateNested,
+  IsArray, IsBoolean, IsIn, IsISO8601, IsNumber, IsOptional, IsPositive, IsString, Min, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -95,6 +95,9 @@ export class GenerateInvoiceDto {
   @IsOptional() @IsString() discountReason?: string;
   @IsOptional() @IsString() overrideById?: string;
   @IsOptional() @IsString() branchId?: string;
+  /** Offline-first: when the sale was actually rung up. Sets Invoice.issueDate
+   *  (and therefore the GL/journal date) instead of now(). */
+  @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
 export class TenderDto {
@@ -118,6 +121,9 @@ export class ReceivePaymentDto {
   // Composite flows (checkout / split / tab settle) never set it, so their
   // strict "tenders must equal the balance" contract is preserved.
   @IsOptional() @IsBoolean() allowPartial?: boolean;
+  /** Offline-first: when the payment was actually taken. Sets the Payment date
+   *  instead of now(). */
+  @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
 /** Settle an invoice on credit (postpaid house account). */

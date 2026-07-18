@@ -1,0 +1,11 @@
+# Machine-specific SDK path — must not be committed.
+local.properties
+
+.gradle/
+build/
+app/build/
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/

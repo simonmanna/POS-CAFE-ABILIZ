@@ -66,6 +66,9 @@ const ORG_SCOPED = new Set<string>([
   'ReportTieoutSnapshot',
   // D4-3 — transactional outbox (no soft delete; rows are shipped and kept)
   'EventOutbox',
+  // P1 — offline sync (device registry + dead-lettered ops)
+  'PosDevice',
+  'SyncOpDeadLetter',
   // F.5 — Notifications, files, approvals, recurring, webhooks, feature flags
   'Notification',
   'NotificationPreference',

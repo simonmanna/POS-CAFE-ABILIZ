@@ -32,6 +32,10 @@ export interface QueuedSale {
    *  a dine-in tab settle queues '/pos/tabs/{tableId}/settle'. */
   endpoint?: string;
   payload: any; // the CheckoutBody / SettleTab body the request normally sends
+  /** FIFO ordering token. Replay follows this, not IndexedDB key order —
+   *  a cash pay-out recorded after a sale must replay after it, and a drawer
+   *  op replayed out of order lands on the wrong session balance. */
+  seq?: number;
 }
 
 /** A sale the server actively rejected (4xx). Moved out of the pending queue
@@ -116,19 +120,30 @@ async function idbClear(store: string = STORE): Promise<void> {
 
 /* ====================== Public API ====================== */
 
+function newKey(): string {
+  return (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+    ? (crypto as any).randomUUID()
+    : Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+/** Monotonic FIFO token. Derived from the queue's current max so it survives
+ *  a page reload (an in-memory counter would restart at 0 and reorder). */
+async function nextSeq(): Promise<number> {
+  const pending = await listPending();
+  return pending.reduce((max, s) => Math.max(max, s.seq ?? 0), 0) + 1;
+}
+
 export async function enqueueSale(payload: any, opts?: { endpoint?: string; idempotencyKey?: string }): Promise<QueuedSale> {
   // Reuse the cart's key when provided: if an online attempt actually committed
   // but the response was lost, the offline replay sends the SAME key and the
   // backend returns the original result instead of charging twice.
-  const idempotencyKey = opts?.idempotencyKey
-    ?? ((typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-      ? (crypto as any).randomUUID()
-      : Math.random().toString(36).slice(2) + Date.now().toString(36));
+  const idempotencyKey = opts?.idempotencyKey ?? newKey();
   const sale: QueuedSale = {
     idempotencyKey,
     createdAt: Date.now(),
     attempts: 0,
     endpoint: opts?.endpoint ?? '/pos/checkout',
+    seq: await nextSeq(),
     // The key travels ONLY as the Idempotency-Key header. Spreading it into
     // the body trips the API's forbidNonWhitelisted validation → 400 → the
     // sale would be treated as poison and lost.
@@ -138,6 +153,41 @@ export async function enqueueSale(payload: any, opts?: { endpoint?: string; idem
   };
   await idbPut(sale);
   return sale;
+}
+
+/**
+ * Queue a cash-drawer movement (pay-in / pay-out / adjustment) made while the
+ * server was unreachable. Ordering matters: these replay after the sales that
+ * preceded them, so the session's expected-cash maths reconstructs correctly.
+ */
+export async function enqueueCashMovement(payload: {
+  sessionId?: string;
+  movementType: 'pay_in' | 'pay_out' | 'adjustment';
+  amount: number;
+  reason?: string;
+  approvedById?: string;
+  approverEmail?: string;
+  managerPin?: string;
+}): Promise<QueuedSale> {
+  return enqueueSale(payload, { endpoint: '/cash-sessions/movement' });
+}
+
+/**
+ * Queue a kitchen round for a table's tab.
+ *
+ * Uses `/pos/tabs/{tableId}/items` (append) rather than `/save` (full replace):
+ * a replace replayed later would clobber whatever another terminal has since
+ * added to that tab, and would 409 on the optimistic-lock version. Appending
+ * is the only replay-safe shape.
+ */
+export async function enqueueTabRound(tableId: string, payload: {
+  lines: any[];
+  guestCount?: number;
+  partnerId?: string;
+  sendToKitchen?: boolean;
+  overrideById?: string;
+}): Promise<QueuedSale> {
+  return enqueueSale(payload, { endpoint: `/pos/tabs/${tableId}/items` });
 }
 
 export async function listPending(): Promise<QueuedSale[]> {
@@ -188,6 +238,10 @@ export async function discardFailed(idempotencyKey: string): Promise<void> {
 export async function replayAll(onResult?: (sale: QueuedSale, result: 'ok' | 'error') => void): Promise<QueuedSale[]> {
   const pending = await listPending();
   if (pending.length === 0) return [];
+  // IndexedDB getAll() returns rows in KEY order (random uuids) — replay must
+  // follow the order things actually happened. Older rows predate `seq`; fall
+  // back to createdAt for those.
+  pending.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || a.createdAt - b.createdAt);
   const unresolved: QueuedSale[] = [];
   for (const sale of pending) {
     try {

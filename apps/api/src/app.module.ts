@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { ReadOnlyMiddleware } from './kernel/common/read-only.middleware';
 import { LoggerModule } from 'nestjs-pino';
 import { KernelModule } from './kernel/kernel.module';
 import { AuthModule } from './kernel/auth/auth.module';
@@ -13,6 +14,7 @@ import { HealthModule } from './health/health.module';
 import { MetricsController } from './observability/metrics.controller';
 import { AppController } from './app.controller';
 import { PosModule } from './modules/pos/pos.module';
+import { SyncModule } from './modules/sync/sync.module';
 // import { SchoolModule } from './modules/school/school.module'; // disabled: DI wiring issues, not needed for POS testing
 
 @Module({
@@ -48,8 +50,15 @@ import { PosModule } from './modules/pos/pos.module';
     ExpensesModule,
     CrmModule,
     PosModule,
+    SyncModule,
     HealthModule,
   ],
   controllers: [AppController, MetricsController],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // P4: on the cloud reporting replica (READ_ONLY_MODE=true) this rejects
+    // every write before it reaches a handler. No-op on the cafe LAN server.
+    consumer.apply(ReadOnlyMiddleware).forRoutes('*');
+  }
+}

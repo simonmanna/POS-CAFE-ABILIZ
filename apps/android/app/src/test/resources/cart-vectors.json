@@ -1,0 +1,194 @@
+{
+  "_generatedBy": "apps/api/scripts/export-cart-vectors.ts — do not hand-edit; re-run after pricing changes",
+  "_generatedAt": "2026-07-16T20:05:26.400Z",
+  "vectors": [
+    {
+      "id": "plain",
+      "description": "single line, no tax, no discount",
+      "lines": [
+        {
+          "name": "Espresso",
+          "quantity": 2,
+          "baseUnitPrice": 5000
+        }
+      ],
+      "expected": {
+        "subtotal": 10000,
+        "discountTotal": 0,
+        "taxTotal": 0,
+        "total": 10000
+      }
+    },
+    {
+      "id": "vat18-exclusive",
+      "description": "VAT 18% added on top",
+      "lines": [
+        {
+          "name": "Latte",
+          "quantity": 1,
+          "baseUnitPrice": 10000,
+          "taxRatePercent": 18
+        }
+      ],
+      "expected": {
+        "subtotal": 10000,
+        "discountTotal": 0,
+        "taxTotal": 1800,
+        "total": 11800
+      }
+    },
+    {
+      "id": "vat18-inclusive",
+      "description": "VAT 18% already inside the price",
+      "lines": [
+        {
+          "name": "Latte",
+          "quantity": 1,
+          "baseUnitPrice": 11800,
+          "taxRatePercent": 18,
+          "taxInclusive": true
+        }
+      ],
+      "expected": {
+        "subtotal": 11800,
+        "discountTotal": 0,
+        "taxTotal": 1800,
+        "total": 11800
+      }
+    },
+    {
+      "id": "modifiers-and-accompaniments",
+      "description": "add-on deltas + accompaniment upcharges fold into the unit price",
+      "lines": [
+        {
+          "name": "Steak",
+          "quantity": 1,
+          "baseUnitPrice": 8000,
+          "modifierDeltas": [
+            1000
+          ],
+          "accompanimentImpacts": [
+            1500
+          ]
+        }
+      ],
+      "expected": {
+        "subtotal": 10500,
+        "discountTotal": 0,
+        "taxTotal": 0,
+        "total": 10500
+      }
+    },
+    {
+      "id": "line-discount",
+      "description": "10% line discount",
+      "lines": [
+        {
+          "name": "Cake",
+          "quantity": 1,
+          "baseUnitPrice": 10000,
+          "discountPercent": 10
+        }
+      ],
+      "expected": {
+        "subtotal": 10000,
+        "discountTotal": 1000,
+        "taxTotal": 0,
+        "total": 9000
+      }
+    },
+    {
+      "id": "line-plus-transaction-discount",
+      "description": "line discount THEN transaction discount (multiplicative, not additive)",
+      "transactionDiscountPercent": 10,
+      "lines": [
+        {
+          "name": "Cake",
+          "quantity": 1,
+          "baseUnitPrice": 10000,
+          "discountPercent": 10
+        }
+      ],
+      "expected": {
+        "subtotal": 10000,
+        "discountTotal": 1900,
+        "taxTotal": 0,
+        "total": 8100
+      }
+    },
+    {
+      "id": "multi-line-mixed-tax",
+      "description": "taxed + untaxed lines in one cart",
+      "lines": [
+        {
+          "name": "Latte",
+          "quantity": 2,
+          "baseUnitPrice": 10000,
+          "taxRatePercent": 18
+        },
+        {
+          "name": "Water",
+          "quantity": 1,
+          "baseUnitPrice": 2000
+        }
+      ],
+      "expected": {
+        "subtotal": 22000,
+        "discountTotal": 0,
+        "taxTotal": 3600,
+        "total": 25600
+      }
+    },
+    {
+      "id": "fractional-quantity",
+      "description": "weight-based line (0.35 kg)",
+      "lines": [
+        {
+          "name": "Beans",
+          "quantity": 0.35,
+          "baseUnitPrice": 60000,
+          "taxRatePercent": 18
+        }
+      ],
+      "expected": {
+        "subtotal": 21000,
+        "discountTotal": 0,
+        "taxTotal": 3780,
+        "total": 24780
+      }
+    },
+    {
+      "id": "everything",
+      "description": "variants + modifiers + line discount + tx discount + VAT",
+      "transactionDiscountPercent": 5,
+      "lines": [
+        {
+          "name": "Steak (Large)",
+          "quantity": 2,
+          "baseUnitPrice": 16000,
+          "modifierDeltas": [
+            1000,
+            500
+          ],
+          "accompanimentImpacts": [
+            1500
+          ],
+          "discountPercent": 10,
+          "taxRatePercent": 18
+        },
+        {
+          "name": "Juice",
+          "quantity": 3,
+          "baseUnitPrice": 4000,
+          "taxRatePercent": 18
+        }
+      ],
+      "expected": {
+        "subtotal": 50000,
+        "discountTotal": 6110,
+        "taxTotal": 7900.2,
+        "total": 51790.2
+      }
+    }
+  ]
+}

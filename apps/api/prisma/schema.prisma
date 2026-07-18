@@ -2535,6 +2535,8 @@ model CashSession {
   branchId            String?
   userId              String
   status              CashSessionStatus @default(open)
+  /// Offline-first (P1): PosDevice that ran this session offline.
+  deviceId            String?
   openedAt            DateTime          @default(now())
   closedAt            DateTime?
   openingFloat        Decimal           @default(0) @db.Decimal(20, 6)
@@ -3928,6 +3930,11 @@ model Order {
   /// Optimistic-lock token. Every item mutation bumps this; writers pass the
   /// expected value so two waiters can't clobber each other.
   version                    Int         @default(0)
+  /// Offline-first (P1): number the device printed before sync (e.g. D1-000042).
+  /// The final orderNumber is allocated at push; both stay searchable.
+  provisionalNumber          String?
+  /// Offline-first (P1): PosDevice that captured this order offline.
+  deviceId                   String?
   /// Running snapshot of the order total (recomputed on each item change) so
   /// the table picker / order panel render without re-pricing.
   subtotal                   Decimal     @default(0) @db.Decimal(20, 6)
@@ -4055,6 +4062,10 @@ model Receipt {
   organizationId String
   invoiceId      String
   receiptNumber  String
+  /// Offline-first (P1): number the device printed before sync.
+  provisionalNumber String?
+  /// Offline-first (P1): PosDevice that issued this receipt offline.
+  deviceId       String?
   type           ReceiptType @default(payment_receipt)
   /// The payment this receipt acknowledges (null for credit-issue receipts).
   paymentId      String?
@@ -4091,6 +4102,11 @@ model Invoice {
   id                   String                  @id @default(uuid())
   organizationId       String
   invoiceNumber        String
+  /// Offline-first (P1): number the device printed before sync. Final
+  /// invoiceNumber is allocated at push; both stay searchable.
+  provisionalNumber    String?
+  /// Offline-first (P1): PosDevice that captured this sale offline.
+  deviceId             String?
   /// The operational Order this invoice was billed from (1:1; back-ref of Order.invoiceId).
   orderId              String?                 @unique
   partnerId            String
@@ -4411,4 +4427,61 @@ model ExpensePayment {
 
   @@index([organizationId])
   @@index([expenseId])
+}
+
+/// ============================ Offline sync (P1) ============================
+
+/// A registered offline-capable POS client (Android tablet, offline web
+/// terminal). Registration is manager-gated; the device holds an opaque
+/// long-lived token (stored hashed, same pattern as RefreshToken) sent as
+/// `X-Device-Token` on /sync/* calls. Revoking kills sync on next contact.
+model PosDevice {
+  id             String    @id @default(uuid())
+  organizationId String
+  branchId       String?
+  name           String
+  platform       String    @default("android") // android | web
+  /// sha256 of the opaque device token (shown once at registration).
+  tokenHash      String
+  /// Short printable prefix for provisional numbers, e.g. "D1" → D1-000042.
+  prefix         String
+  registeredById String?
+  lastSeenAt     DateTime?
+  /// Highest deviceSeq successfully applied — lets the server detect gaps
+  /// and lets a re-imaged device resume without replaying history.
+  lastPushSeq    Int       @default(0)
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([organizationId, tokenHash])
+  @@unique([organizationId, prefix])
+  @@index([organizationId])
+}
+
+/// An offline sync operation the server could not apply (validation error,
+/// missing dependency, poisoned payload). NEVER silently dropped — money ops
+/// stay here until a human resolves them from the admin review screen.
+model SyncOpDeadLetter {
+  id             String    @id @default(uuid())
+  organizationId String
+  deviceId       String
+  /// Client op id (the per-op idempotency key).
+  opId           String
+  deviceSeq      Int
+  opType         String
+  actorUserId    String?
+  occurredAt     DateTime?
+  payload        Json
+  error          String
+  httpStatus     Int?
+  status         String    @default("open") // open | resolved | discarded
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([organizationId, opId])
+  @@index([organizationId, status])
+  @@index([organizationId, deviceId])
 }

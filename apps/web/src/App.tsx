@@ -14,6 +14,8 @@ import ModifiersPage from '@/pages/menu/ModifiersPage';
 import AccompanimentGroupsPage from '@/pages/menu/AccompanimentGroupsPage';
 import { SettingsPage } from '@/pages/settings';
 import { ReceiptSettingsPage } from '@/pages/pos/ReceiptSettingsPage';
+import { DevicesPage } from '@/pages/pos/DevicesPage';
+import { DeadLettersPage } from '@/pages/pos/DeadLettersPage';
 import { ApprovalsPage } from '@/pages/approvals';
 import { RecurringPage } from '@/pages/recurring';
 import { WebhooksPage } from '@/pages/webhooks';
@@ -145,6 +147,8 @@ export function App() {
           <Route path="/modules" element={<ModulesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/receipt" element={<ReceiptSettingsPage />} />
+          <Route path="/settings/devices" element={<DevicesPage />} />
+          <Route path="/settings/devices/rejected" element={<DeadLettersPage />} />
           <Route path="/inventory" element={<InventoryItemsPage />} />
           <Route path="/inventory/items" element={<InventoryItemsPage />} />
           <Route path="/inventory/items/:productId" element={<InventoryDetailPage />} />

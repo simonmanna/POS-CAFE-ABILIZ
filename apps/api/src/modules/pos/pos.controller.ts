@@ -20,6 +20,7 @@ import {
   IsArray,
   IsBoolean,
   IsIn,
+  IsISO8601,
   IsNumber,
   IsOptional,
   IsPositive,
@@ -137,6 +138,11 @@ class CheckoutDto implements CheckoutInput {
   @ApiProperty({ required: false, enum: ['dine_in', 'takeaway', 'delivery'] })
   @IsOptional() @IsIn(['dine_in', 'takeaway', 'delivery'])
   orderType?: 'dine_in' | 'takeaway' | 'delivery';
+  /** Offline-first: when the sale was actually rung up on the device (ISO-8601).
+   *  Drives Invoice.issueDate / GL date / report buckets on delayed replay.
+   *  Rejected if in the future or older than 7 days. */
+  @ApiProperty({ required: false })
+  @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
 class RefundLineDto {
@@ -197,6 +203,9 @@ class SettleTabDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() overrideById?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() overridePin?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() cashSessionId?: string;
+  /** Offline-first: when the settle actually happened on the device (ISO-8601). */
+  @ApiProperty({ required: false })
+  @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
 @ApiTags('pos')

@@ -13,7 +13,7 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
 import { CashSessionService } from './cash-session.service';
-import { IsBoolean, IsNumber, IsObject, IsOptional, IsString, Min, IsIn } from 'class-validator';
+import { IsBoolean, IsISO8601, IsNumber, IsObject, IsOptional, IsString, Min, IsIn } from 'class-validator';
 import { PaginationDto } from '../../../kernel/common/pagination.dto';
 
 class OpenSessionDto {
@@ -22,6 +22,8 @@ class OpenSessionDto {
   @IsOptional() @IsString() notes?: string;
   /** Denomination breakdown captured at open: { "50000": 3, "20000": 5, ... }. */
   @IsOptional() @IsObject() openingDenomination?: Record<string, number>;
+  /** Offline-first: when the drawer was actually opened on the device (ISO-8601). */
+  @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
 class CloseSessionDto {
@@ -34,6 +36,8 @@ class CloseSessionDto {
   @IsOptional() @IsString() approverEmail?: string;
   @IsOptional() @IsString() managerPin?: string;
   @IsOptional() @IsObject() closingDenomination?: Record<string, number>;
+  /** Offline-first: when the drawer was actually closed on the device (ISO-8601). */
+  @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
 class RecordMovementDto {
@@ -45,6 +49,8 @@ class RecordMovementDto {
   @IsOptional() @IsString() approvedById?: string;
   @IsOptional() @IsString() approverEmail?: string;
   @IsOptional() @IsString() managerPin?: string;
+  /** Offline-first: when the movement actually happened on the device (ISO-8601). */
+  @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
 class ReopenSessionDto {
@@ -146,6 +152,7 @@ export class CashSessionController {
       approverEmail: dto.approverEmail,
       managerPin: dto.managerPin,
       closingDenomination: dto.closingDenomination,
+      occurredAt: dto.occurredAt,
     });
   }
 
@@ -160,6 +167,7 @@ export class CashSessionController {
       approvedById: dto.approvedById,
       approverEmail: dto.approverEmail,
       managerPin: dto.managerPin,
+      occurredAt: dto.occurredAt,
     });
   }
 

@@ -154,6 +154,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/staff', label: 'Staff', icon: UserCog, permission: PERMISSIONS.user.read },
       { to: '/staff/roles', label: 'Roles & Permissions', icon: Shield, permission: PERMISSIONS.role.read },
+      { to: '/settings/devices', label: 'Offline devices', icon: Smartphone, permission: PERMISSIONS.organization.read },
       { to: '/settings', label: 'Settings', icon: SettingsIcon, permission: PERMISSIONS.setting.read },
     ],
   },

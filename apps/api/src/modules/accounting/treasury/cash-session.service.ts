@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { dec, ZERO } from '../../../kernel/common/money';
+import { resolveOccurredAt } from '../../../kernel/common/occurred-at';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { EventBus } from '../../../kernel/events/event-bus';
@@ -23,6 +24,8 @@ export interface OpenSessionDto {
   openingFloat?: number | string;
   notes?: string;
   openingDenomination?: Record<string, number>;
+  /** Offline-first: when the drawer was actually opened on the device. */
+  occurredAt?: string;
 }
 
 export interface CloseSessionDto {
@@ -35,12 +38,16 @@ export interface CloseSessionDto {
   approverEmail?: string;
   managerPin?: string;
   closingDenomination?: Record<string, number>;
+  /** Offline-first: when the drawer was actually closed on the device. */
+  occurredAt?: string;
 }
 
 export interface RecordMovementDto {
   movementType: 'pay_in' | 'pay_out' | 'adjustment';
   amount: number | string;
   reason?: string;
+  /** Offline-first: when the movement actually happened on the device. */
+  occurredAt?: string;
   /** For pay_out (cash leaving the drawer): approving manager + PIN. */
   approvedById?: string;
   approverEmail?: string;
@@ -172,6 +179,7 @@ export class CashSessionService {
         throw new BadRequestException(`A session is already open on register ${register.code}`);
       }
 
+      const occurredAt = resolveOccurredAt(dto.occurredAt);
       const session = await tx.cashSession.create({
         data: {
           organizationId,
@@ -181,6 +189,7 @@ export class CashSessionService {
           openingFloat: dec(dto.openingFloat ?? 0),
           openingDenomination: this.sanitizeDenomination(dto.openingDenomination),
           notes: dto.notes ?? null,
+          ...(occurredAt ? { openedAt: occurredAt } : {}),
         },
       });
 
@@ -259,7 +268,7 @@ export class CashSessionService {
         where: { id: session.id },
         data: {
           status: 'closed',
-          closedAt: new Date(),
+          closedAt: resolveOccurredAt(dto.occurredAt) ?? new Date(),
           closingCounted: counted,
           closingExpected: expected,
           closingDifference,
@@ -452,6 +461,7 @@ export class CashSessionService {
         });
       }
 
+      const occurredAt = resolveOccurredAt(dto.occurredAt);
       const movement = await tx.cashMovement.create({
         data: {
           organizationId,
@@ -460,6 +470,7 @@ export class CashSessionService {
           amount,
           reason: dto.reason ?? null,
           performedBy: this.tenant.userId ?? null,
+          ...(occurredAt ? { createdAt: occurredAt } : {}),
         },
       });
 

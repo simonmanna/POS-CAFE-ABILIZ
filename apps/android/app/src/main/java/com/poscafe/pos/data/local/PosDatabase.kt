@@ -1,0 +1,127 @@
+package com.poscafe.pos.data.local
+
+import android.content.Context
+import androidx.room.Database
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+import com.poscafe.pos.data.local.dao.*
+import com.poscafe.pos.data.local.entity.*
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
+
+@Database(
+    entities = [
+        MenuCategoryEntity::class,
+        MenuItemEntity::class,
+        MenuItemVariantEntity::class,
+        ModifierGroupEntity::class,
+        ModifierEntity::class,
+        MenuItemModifierGroupEntity::class,
+        AccompanimentGroupEntity::class,
+        AccompanimentOptionEntity::class,
+        MenuItemAccompanimentGroupEntity::class,
+        TaxEntity::class,
+        PosTableEntity::class,
+        CashRegisterEntity::class,
+        StaffEntity::class,
+        SettingEntity::class,
+        SyncStateEntity::class,
+        LocalSaleEntity::class,
+        LocalCashSessionEntity::class,
+        LocalCashMovementEntity::class,
+        OpQueueEntity::class,
+        CustomerEntity::class,
+        SupplierEntity::class,
+        InventoryMovementEntity::class,
+        PurchaseEntity::class,
+        PurchaseItemEntity::class,
+        ExpenseEntity::class,
+    ],
+    version = 3,
+    exportSchema = true,
+)
+abstract class PosDatabase : RoomDatabase() {
+    abstract fun menuDao(): MenuDao
+    abstract fun staffDao(): StaffDao
+    abstract fun tableDao(): TableDao
+    abstract fun registerDao(): RegisterDao
+    abstract fun settingsDao(): SettingsDao
+    abstract fun syncStateDao(): SyncStateDao
+    abstract fun saleDao(): SaleDao
+    abstract fun cashSessionDao(): CashSessionDao
+    abstract fun opQueueDao(): OpQueueDao
+    abstract fun customerDao(): CustomerDao
+    abstract fun supplierDao(): SupplierDao
+    abstract fun inventoryDao(): InventoryDao
+    abstract fun purchaseDao(): PurchaseDao
+    abstract fun expenseDao(): ExpenseDao
+
+    companion object {
+        /** v1 → v2: additive only (customers, suppliers, inventory movements) —
+         *  existing sales/session data must survive the upgrade. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `customers` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`phone` TEXT, `email` TEXT, `note` TEXT, `loyaltyPoints` INTEGER NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `suppliers` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`phone` TEXT, `note` TEXT, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `inventory_movements` (`id` TEXT NOT NULL, " +
+                        "`menuItemId` TEXT NOT NULL, `type` TEXT NOT NULL, `qtyDelta` REAL NOT NULL, " +
+                        "`unitCost` REAL, `supplierId` TEXT, `reason` TEXT, `saleLocalId` TEXT, " +
+                        "`actorUserId` TEXT, `occurredAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_inventory_movements_menuItemId` ON `inventory_movements` (`menuItemId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_inventory_movements_occurredAt` ON `inventory_movements` (`occurredAt`)")
+            }
+        }
+
+        /** v2 → v3: purchase documents + expense tracker (additive). */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `inventory_movements` ADD COLUMN `purchaseId` TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `purchases` (`id` TEXT NOT NULL, `supplierId` TEXT, " +
+                        "`reference` TEXT, `status` TEXT NOT NULL, `totalCost` REAL NOT NULL, `note` TEXT, " +
+                        "`actorUserId` TEXT, `occurredAt` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_purchases_occurredAt` ON `purchases` (`occurredAt`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `purchase_items` (`id` TEXT NOT NULL, `purchaseId` TEXT NOT NULL, " +
+                        "`menuItemId` TEXT NOT NULL, `name` TEXT NOT NULL, `quantity` REAL NOT NULL, " +
+                        "`unitCost` REAL NOT NULL, `lineTotal` REAL NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_purchase_items_purchaseId` ON `purchase_items` (`purchaseId`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `expenses` (`id` TEXT NOT NULL, `category` TEXT NOT NULL, " +
+                        "`description` TEXT, `amount` REAL NOT NULL, `paymentMethod` TEXT NOT NULL, " +
+                        "`supplierId` TEXT, `cashSessionLocalId` TEXT, `actorUserId` TEXT, " +
+                        "`occurredAt` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_expenses_occurredAt` ON `expenses` (`occurredAt`)")
+            }
+        }
+
+        /**
+         * SQLCipher-encrypted database. The passphrase never leaves the device:
+         * it is generated once and stored via EncryptedSharedPreferences whose
+         * master key lives in the hardware-backed Android Keystore. This is the
+         * mitigation for syncing staff PIN bcrypt hashes to the device — a
+         * stolen tablet yields ciphertext, not hashes.
+         */
+        fun build(context: Context, passphrase: ByteArray): PosDatabase {
+            System.loadLibrary("sqlcipher")
+            return Room.databaseBuilder(context, PosDatabase::class.java, "pos-cafe.db")
+                .openHelperFactory(SupportOpenHelperFactory(passphrase))
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .fallbackToDestructiveMigration()
+                .build()
+        }
+    }
+}

@@ -6,6 +6,7 @@ import { TenantContextService } from '../../../kernel/tenancy/tenant-context.ser
 import { AuditService } from '../../../kernel/audit/audit.service';
 import { EventBus } from '../../../kernel/events/event-bus';
 import { dec } from '../../../kernel/common/money';
+import { resolveOccurredAt } from '../../../kernel/common/occurred-at';
 import { DocumentBuilderService } from '../../invoicing/document/document-builder.service';
 import { SequenceService } from '../../../kernel/sequence/sequence.service';
 import { PaymentService } from '../../invoicing/payment/payment.service';
@@ -135,7 +136,9 @@ export class PosInvoiceService {
           cashSessionId: order.cashSessionId ?? null,
           waiterId: order.waiterId ?? null,
           tableId: order.tableId ?? null,
-          issueDate: new Date(),
+          // Offline-first: an offline sale replayed later keeps its original
+          // business date (drives the GL/journal date + report buckets).
+          issueDate: resolveOccurredAt(dto.occurredAt) ?? new Date(),
           subtotal: totals.subtotal,
           discountTotal: totals.discountTotal,
           discountType: txDiscType,
@@ -281,7 +284,7 @@ export class PosInvoiceService {
         }
         const payment = await this.payments.createReceipt({
           partnerId: invoice.partnerId,
-          paymentDate: new Date().toISOString(),
+          paymentDate: (resolveOccurredAt(dto.occurredAt) ?? new Date()).toISOString(),
           paymentMethod: tender.method,
           amount: tender.amount,
           reference: tender.reference,

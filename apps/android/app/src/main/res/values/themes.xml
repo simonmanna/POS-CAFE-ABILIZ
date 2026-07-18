@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns the real theming; this is just the pre-Compose window
+         shell (splash background + no action bar). -->
+    <style name="Theme.PosCafe" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#1B1B1F</item>
+        <item name="android:windowBackground">#FFFBFE</item>
+    </style>
+</resources>
