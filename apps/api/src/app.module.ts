@@ -15,6 +15,8 @@ import { MetricsController } from './observability/metrics.controller';
 import { AppController } from './app.controller';
 import { PosModule } from './modules/pos/pos.module';
 import { SyncModule } from './modules/sync/sync.module';
+import { BackupModule } from './modules/backup/backup.module';
+import { FixedAssetModule } from './modules/fixed-asset/fixed-asset.module';
 // import { SchoolModule } from './modules/school/school.module'; // disabled: DI wiring issues, not needed for POS testing
 
 @Module({
@@ -51,6 +53,8 @@ import { SyncModule } from './modules/sync/sync.module';
     CrmModule,
     PosModule,
     SyncModule,
+    BackupModule,
+    FixedAssetModule,
     HealthModule,
   ],
   controllers: [AppController, MetricsController],

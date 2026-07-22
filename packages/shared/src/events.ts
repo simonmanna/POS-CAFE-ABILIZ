@@ -110,6 +110,16 @@ export const EVENTS = {
   UserDeleted: 'user.deleted',
   UserPasswordReset: 'user.password_reset',
   UserUnlocked: 'user.unlocked',
+  // Fixed Assets
+  AssetCreated: 'fixed_asset.created',
+  AssetUpdated: 'fixed_asset.updated',
+  AssetDeleted: 'fixed_asset.deleted',
+  AssetAssigned: 'fixed_asset.assigned',
+  AssetTransferred: 'fixed_asset.transferred',
+  AssetDisposed: 'fixed_asset.disposed',
+  DepreciationRun: 'fixed_asset.depreciation_run',
+  MaintenanceDue: 'fixed_asset.maintenance_due',
+  WarrantyExpiring: 'fixed_asset.warranty_expiring',
 } as const;
 
 /** Payload emitted for a created/updated/deleted tenant entity. */
@@ -274,6 +284,16 @@ export interface DomainEventMap {
   'user.password_reset': EntityEventPayload;
   'user.unlocked': EntityEventPayload;
   'product.restored': EntityEventPayload;
+  // Fixed Assets
+  'fixed_asset.created': EntityEventPayload;
+  'fixed_asset.updated': EntityEventPayload;
+  'fixed_asset.deleted': EntityEventPayload;
+  'fixed_asset.assigned': { organizationId: string; assetId: string; assignedToId: string; assignedToType: string };
+  'fixed_asset.transferred': { organizationId: string; assetId: string; fromLocation: string; toLocation: string };
+  'fixed_asset.disposed': { organizationId: string; assetId: string; method: string; value: string };
+  'fixed_asset.depreciation_run': { organizationId: string; period: string; entriesCount: number };
+  'fixed_asset.maintenance_due': { organizationId: string; assetId: string; assetName: string; maintenanceId: string };
+  'fixed_asset.warranty_expiring': { organizationId: string; assetId: string; assetName: string; daysLeft: number };
 }
 
 export type DomainEventName = keyof DomainEventMap;

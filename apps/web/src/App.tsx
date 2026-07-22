@@ -14,6 +14,7 @@ import ModifiersPage from '@/pages/menu/ModifiersPage';
 import AccompanimentGroupsPage from '@/pages/menu/AccompanimentGroupsPage';
 import { SettingsPage } from '@/pages/settings';
 import { ReceiptSettingsPage } from '@/pages/pos/ReceiptSettingsPage';
+import { PosSettingsPage } from '@/pages/pos/SettingsPage';
 import { DevicesPage } from '@/pages/pos/DevicesPage';
 import { DeadLettersPage } from '@/pages/pos/DeadLettersPage';
 import { ApprovalsPage } from '@/pages/approvals';
@@ -21,6 +22,11 @@ import { RecurringPage } from '@/pages/recurring';
 import { WebhooksPage } from '@/pages/webhooks';
 import { FilesPage } from '@/pages/files';
 import { ModulesPage } from '@/pages/modules';
+import { BackupPage } from '@/pages/settings/BackupPage';
+import { AssetDashboardPage } from '@/pages/fixed-asset/AssetDashboardPage';
+import { AssetCategoriesPage } from '@/pages/fixed-asset/AssetCategoriesPage';
+import { AssetsPage } from '@/pages/fixed-asset/AssetsPage';
+import { AssetDetailPage } from '@/pages/fixed-asset/AssetDetailPage';
 import { ChartOfAccountsPage } from '@/pages/accounting/chart-of-accounts';
 import { CashAccountsPage } from '@/pages/accounting/cash-accounts';
 import { CashAccountDetailPage } from '@/pages/accounting/cash-account-detail';
@@ -97,6 +103,7 @@ export function App() {
           <Route path="/pos/kds" element={<KdsPage />} />
           {/* POS Cash Register Management */}
           <Route path="/pos/cash-registers" element={<CashRegistersPage />} />
+          <Route path="/pos/settings" element={<PosSettingsPage />} />
           <Route path="/tables" element={<TablesPage />} />
           <Route path="/tables/reservations" element={<ReservationsPage />} />
           <Route path="/tables/reports" element={<TableReportsPage />} />
@@ -147,8 +154,13 @@ export function App() {
           <Route path="/modules" element={<ModulesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/receipt" element={<ReceiptSettingsPage />} />
+          <Route path="/settings/backup" element={<BackupPage />} />
           <Route path="/settings/devices" element={<DevicesPage />} />
           <Route path="/settings/devices/rejected" element={<DeadLettersPage />} />
+          <Route path="/fixed-assets" element={<AssetDashboardPage />} />
+          <Route path="/fixed-assets/categories" element={<AssetCategoriesPage />} />
+          <Route path="/fixed-assets/register" element={<AssetsPage />} />
+          <Route path="/fixed-assets/:id" element={<AssetDetailPage />} />
           <Route path="/inventory" element={<InventoryItemsPage />} />
           <Route path="/inventory/items" element={<InventoryItemsPage />} />
           <Route path="/inventory/items/:productId" element={<InventoryDetailPage />} />

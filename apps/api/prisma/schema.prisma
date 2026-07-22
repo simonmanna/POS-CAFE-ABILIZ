@@ -544,6 +544,8 @@ model Product {
   barcode        String?
   name           String
   description    String?
+  /// Image URL for the product (shown in POS terminal tiles).
+  image          String?
   productType    ProductType    @default(stockable)
   costingMethod  CostingMethod  @default(AVCO)
   categoryId     String?
@@ -4484,4 +4486,472 @@ model SyncOpDeadLetter {
   @@unique([organizationId, opId])
   @@index([organizationId, status])
   @@index([organizationId, deviceId])
+}
+
+// ===========================================================================
+// Fixed Assets Management Module
+// ===========================================================================
+
+enum AssetStatus {
+  active
+  under_maintenance
+  disposed
+  lost_stolen
+  in_repair
+  reserved
+}
+
+enum AcquisitionMethod {
+  purchased
+  donated
+  leased
+  constructed
+  transferred_in
+  gifted
+}
+
+enum DepreciationMethod {
+  straight_line
+  declining_balance
+  double_declining
+  units_of_production
+  manual
+}
+
+enum DisposalMethod {
+  sold
+  scrapped
+  donated
+  lost
+  stolen
+  destroyed
+}
+
+enum MaintenanceType {
+  preventive
+  corrective
+  emergency
+  scheduled
+  calibration
+}
+
+enum AssignmentEntityType {
+  employee
+  teacher
+  student
+  department
+  branch
+  room
+  vehicle
+  clinic
+  store
+}
+
+model AssetCategory {
+  id                  String             @id @default(uuid())
+  organizationId      String
+  name                String
+  description         String?
+  parentId            String?
+  depreciationMethod  DepreciationMethod @default(straight_line)
+  defaultUsefulLife   Int                @default(60)
+  defaultResidualValue Decimal           @default(0) @db.Decimal(18, 6)
+  isActive            Boolean            @default(true)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  createdBy           String?
+  updatedBy           String?
+  deletedAt           DateTime?
+
+  parent   AssetCategory?  @relation("AssetCategoryTree", fields: [parentId], references: [id])
+  children AssetCategory[] @relation("AssetCategoryTree")
+  assets   Asset[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Asset {
+  id                String            @id @default(uuid())
+  organizationId    String
+  assetCode         String
+  barcode           String?
+  qrCode            String?
+  name              String
+  description       String?
+  serialNumber      String?
+  brand             String?
+  model             String?
+  manufacturer      String?
+  categoryId        String?
+  department        String?
+  branchId          String?
+  location          String?
+  assignedToId      String?
+  assignedToType    AssignmentEntityType?
+  assignmentDate    DateTime?
+  purchaseDate      DateTime?
+  supplierId        String?
+  invoiceNumber     String?
+  purchaseCost      Decimal?            @db.Decimal(18, 6)
+  currentValue      Decimal?            @db.Decimal(18, 6)
+  salvageValue      Decimal             @default(0) @db.Decimal(18, 6)
+  usefulLife        Int                 @default(60)
+  usefulLifeUnit    String              @default("months")
+  acquisitionMethod AcquisitionMethod   @default(purchased)
+  capitalizedCost   Decimal?            @db.Decimal(18, 6)
+  image             String?
+  notes             String?
+  customFields      Json                @default("{}")
+  status            AssetStatus         @default(active)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  createdBy         String?
+  updatedBy         String?
+  deletedAt         DateTime?
+
+  category        AssetCategory?     @relation(fields: [categoryId], references: [id])
+  acquisition     AssetAcquisition?
+  assignments     AssetAssignment[]
+  transfers       AssetTransfer[]
+  depreciations   AssetDepreciation[]
+  maintenanceLogs AssetMaintenance[]
+  repairs         AssetRepair[]
+  warranties      AssetWarranty[]
+  insurance       AssetInsurance[]
+  inspections     AssetInspection[]
+  disposals       AssetDisposal[]
+  revaluations    AssetRevaluation[]
+  checkInOuts     AssetCheckInOut[]
+  documents       AssetDocument[]
+
+  @@unique([organizationId, assetCode])
+  @@index([organizationId])
+  @@index([organizationId, categoryId])
+  @@index([organizationId, status])
+  @@index([organizationId, barcode])
+  @@index([organizationId, serialNumber])
+}
+
+model AssetAcquisition {
+  id              String            @id @default(uuid())
+  organizationId  String
+  assetId         String            @unique
+  vendor          String?
+  vendorId        String?
+  purchaseOrderId String?
+  invoiceId       String?
+  taxes           Decimal?          @db.Decimal(18, 6)
+  freight         Decimal?          @db.Decimal(18, 6)
+  installationCost Decimal?         @db.Decimal(18, 6)
+  otherCosts      Decimal?          @db.Decimal(18, 6)
+  capitalizedCost Decimal?          @db.Decimal(18, 6)
+  acquisitionDate DateTime?
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  createdBy       String?
+  updatedBy       String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+}
+
+model AssetAssignment {
+  id              String              @id @default(uuid())
+  organizationId  String
+  assetId         String
+  assignedToId    String?
+  assignedToType  AssignmentEntityType?
+  assignedToName  String?
+  assignedDate    DateTime            @default(now())
+  returnedDate    DateTime?
+  conditionBefore String?
+  conditionAfter  String?
+  responsiblePerson String?
+  notes           String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  createdBy       String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+  @@index([assignedToId])
+}
+
+model AssetTransfer {
+  id              String   @id @default(uuid())
+  organizationId  String
+  assetId         String
+  fromLocation    String?
+  toLocation      String?
+  fromBranchId    String?
+  toBranchId      String?
+  fromDepartment  String?
+  toDepartment    String?
+  fromPersonId    String?
+  toPersonId      String?
+  reason          String?
+  approvedBy      String?
+  transferDate    DateTime @default(now())
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+}
+
+model AssetDepreciation {
+  id               String             @id @default(uuid())
+  organizationId   String
+  assetId          String
+  period           String             // "2026-01", "2026", etc.
+  method           DepreciationMethod @default(straight_line)
+  assetCost        Decimal            @db.Decimal(18, 6)
+  salvageValue     Decimal            @default(0) @db.Decimal(18, 6)
+  usefulLife       Int
+  depreciationAmount Decimal           @db.Decimal(18, 6)
+  accumulatedDepr  Decimal            @db.Decimal(18, 6)
+  bookValue        Decimal            @db.Decimal(18, 6)
+  isPosted         Boolean            @default(false)
+  journalEntryId   String?
+  postedAt         DateTime?
+  notes            String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  createdBy        String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, assetId, period])
+  @@index([organizationId])
+  @@index([assetId])
+  @@index([organizationId, period])
+}
+
+model AssetMaintenance {
+  id               String         @id @default(uuid())
+  organizationId   String
+  assetId          String
+  maintenanceType  MaintenanceType @default(preventive)
+  title            String
+  description      String?
+  technician       String?
+  vendor           String?
+  scheduledDate    DateTime?
+  completedDate    DateTime?
+  cost             Decimal?       @db.Decimal(18, 6)
+  nextMaintenanceDate DateTime?
+  status           String         @default("scheduled") // scheduled, in_progress, completed, cancelled
+  notes            String?
+  attachments      Json           @default("[]")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  createdBy        String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+  @@index([assetId, status])
+}
+
+model AssetRepair {
+  id              String   @id @default(uuid())
+  organizationId  String
+  assetId         String
+  breakdownDate   DateTime
+  repairDate      DateTime?
+  description     String?
+  vendor          String?
+  sparePartsCost  Decimal? @db.Decimal(18, 6)
+  laborCost       Decimal? @db.Decimal(18, 6)
+  totalCost       Decimal? @db.Decimal(18, 6)
+  downtimeHours   Decimal? @db.Decimal(10, 2)
+  vendorInvoiceRef String?
+  status          String   @default("pending") // pending, in_progress, completed, cancelled
+  notes           String?
+  attachments     Json     @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+}
+
+model AssetWarranty {
+  id              String   @id @default(uuid())
+  organizationId  String
+  assetId         String
+  warrantyStart   DateTime
+  warrantyEnd     DateTime
+  vendor          String?
+  contactPerson   String?
+  contactPhone    String?
+  contactEmail    String?
+  terms           String?
+  coverage        String?
+  attachments     Json     @default("[]")
+  notified90d     Boolean  @default(false)
+  notified30d     Boolean  @default(false)
+  notifiedExpired Boolean  @default(false)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+  @@index([organizationId, warrantyEnd])
+}
+
+model AssetInsurance {
+  id              String   @id @default(uuid())
+  organizationId  String
+  assetId         String
+  policyNumber    String?
+  company         String?
+  premium         Decimal? @db.Decimal(18, 6)
+  coverageAmount  Decimal? @db.Decimal(18, 6)
+  startDate       DateTime?
+  renewalDate     DateTime?
+  contactPerson   String?
+  contactPhone    String?
+  notes           String?
+  attachments     Json     @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+  @@index([organizationId, renewalDate])
+}
+
+model AssetInspection {
+  id              String   @id @default(uuid())
+  organizationId  String
+  assetId         String
+  inspector       String?
+  inspectionDate  DateTime @default(now())
+  condition       String?  // working, damaged, missing, requires_repair
+  isWorking       Boolean  @default(true)
+  isDamaged       Boolean  @default(false)
+  isMissing       Boolean  @default(false)
+  requiresRepair  Boolean  @default(false)
+  photos          Json     @default("[]")
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+}
+
+model AssetDisposal {
+  id              String         @id @default(uuid())
+  organizationId  String
+  assetId         String         @unique
+  disposalMethod  DisposalMethod
+  disposalDate    DateTime       @default(now())
+  disposalValue   Decimal?       @db.Decimal(18, 6)
+  bookValueAtDisposal Decimal?   @db.Decimal(18, 6)
+  gainLoss        Decimal?       @db.Decimal(18, 6)
+  approvedBy      String?
+  reason          String?
+  notes           String?
+  documents       Json           @default("[]")
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  createdBy       String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+}
+
+model AssetRevaluation {
+  id              String   @id @default(uuid())
+  organizationId  String
+  assetId         String
+  previousValue   Decimal  @db.Decimal(18, 6)
+  newValue        Decimal  @db.Decimal(18, 6)
+  revaluationDate DateTime @default(now())
+  reason          String?
+  approvedBy      String?
+  notes           String?
+  documents       Json     @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  createdBy       String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+}
+
+model AssetCheckInOut {
+  id                String   @id @default(uuid())
+  organizationId    String
+  assetId           String
+  checkedOutTo      String?
+  checkedOutToType  String?
+  checkoutDate      DateTime @default(now())
+  expectedReturnDate DateTime?
+  returnDate        DateTime?
+  conditionBefore   String?
+  conditionAfter    String?
+  checkedOutById    String?
+  checkedInById     String?
+  status            String   @default("checked_out") // checked_out, returned, overdue
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  createdBy         String?
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
+  @@index([assetId, status])
+}
+
+model AssetDocument {
+  id             String   @id @default(uuid())
+  organizationId String
+  assetId        String
+  documentType   String?  // purchase_invoice, warranty, photo, manual, insurance, certificate, other
+  fileName       String?
+  fileId         String?
+  fileUrl        String?
+  description    String?
+  uploadedAt     DateTime @default(now())
+  uploadedBy     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([assetId])
 }

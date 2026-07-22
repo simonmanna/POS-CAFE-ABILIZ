@@ -36,6 +36,7 @@ import {
   MapPin,
   Link2,
   Landmark,
+  HardDrive,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
@@ -70,6 +71,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/pos/terminal', label: 'POS Terminal', icon: Coffee, permission: PERMISSIONS.pos.checkout },
       { to: '/pos/cash-registers', label: 'Cash Registers', icon: Banknote, permission: PERMISSIONS.cashSession.read },
+      { to: '/pos/settings', label: 'POS Settings', icon: SettingsIcon, permission: PERMISSIONS.setting.read },
       { to: '/pos/receipts', label: 'POS Receipts', icon: ScrollText, permission: PERMISSIONS.pos.read },
       { to: '/pos/reports', label: 'POS Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports },
     ],
@@ -150,11 +152,20 @@ const NAV_SECTIONS: NavSection[] = [
   //   ],
   // },
   {
+    title: 'Fixed Assets',
+    items: [
+      { to: '/fixed-assets', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.fixedAsset.read },
+      { to: '/fixed-assets/register', label: 'Asset Register', icon: Building2, permission: PERMISSIONS.fixedAsset.read },
+      { to: '/fixed-assets/categories', label: 'Categories', icon: Tag, permission: PERMISSIONS.assetCategory.read },
+    ],
+  },
+  {
     title: 'System',
     items: [
       { to: '/staff', label: 'Staff', icon: UserCog, permission: PERMISSIONS.user.read },
       { to: '/staff/roles', label: 'Roles & Permissions', icon: Shield, permission: PERMISSIONS.role.read },
       { to: '/settings/devices', label: 'Offline devices', icon: Smartphone, permission: PERMISSIONS.organization.read },
+      { to: '/settings/backup', label: 'Backup', icon: HardDrive, permission: PERMISSIONS.backup.read },
       { to: '/settings', label: 'Settings', icon: SettingsIcon, permission: PERMISSIONS.setting.read },
     ],
   },

@@ -130,6 +130,12 @@ export const ACCOUNT_MAPPING_KEYS = [
   'grni_accrued',
   'stock_adjustment_income',
   'stock_adjustment_expense',
+  // Fixed Assets
+  'fixed_asset_valuation',
+  'accumulated_depreciation',
+  'depreciation_expense',
+  'asset_gain_loss',
+  'asset_revaluation_surplus',
 ] as const;
 export type AccountMappingKey = (typeof ACCOUNT_MAPPING_KEYS)[number];
 
@@ -152,6 +158,11 @@ export const ACCOUNT_MAPPING_LABELS: Record<AccountMappingKey, string> = {
   grni_accrued: 'Goods Received Not Invoiced',
   stock_adjustment_income: 'Stock Adjustment Income',
   stock_adjustment_expense: 'Stock Adjustment Expense',
+  fixed_asset_valuation: 'Fixed Asset Valuation',
+  accumulated_depreciation: 'Accumulated Depreciation',
+  depreciation_expense: 'Depreciation Expense',
+  asset_gain_loss: 'Asset Gain/Loss',
+  asset_revaluation_surplus: 'Asset Revaluation Surplus',
 };
 
 /** Per-product inventory costing method (M3). */
@@ -288,3 +299,68 @@ export type DebitNoteReason = (typeof DEBIT_NOTE_REASONS)[number];
 
 export const SUPPORTED_LOCALES = ['en', 'es', 'fr'] as const;
 export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
+
+// ---------------------------- Fixed Assets ----------------------------------
+
+export const ASSET_STATUSES = [
+  'active',
+  'under_maintenance',
+  'disposed',
+  'lost_stolen',
+  'in_repair',
+  'reserved',
+] as const;
+export type AssetStatus = (typeof ASSET_STATUSES)[number];
+
+export const ACQUISITION_METHODS = [
+  'purchased',
+  'donated',
+  'leased',
+  'constructed',
+  'transferred_in',
+  'gifted',
+] as const;
+export type AcquisitionMethod = (typeof ACQUISITION_METHODS)[number];
+
+export const DEPRECIATION_METHODS = [
+  'straight_line',
+  'declining_balance',
+  'double_declining',
+  'units_of_production',
+  'manual',
+] as const;
+export type DepreciationMethod = (typeof DEPRECIATION_METHODS)[number];
+
+export const DISPOSAL_METHODS = [
+  'sold',
+  'scrapped',
+  'donated',
+  'lost',
+  'stolen',
+  'destroyed',
+] as const;
+export type DisposalMethod = (typeof DISPOSAL_METHODS)[number];
+
+export const MAINTENANCE_TYPES = [
+  'preventive',
+  'corrective',
+  'emergency',
+  'scheduled',
+  'calibration',
+] as const;
+export type MaintenanceType = (typeof MAINTENANCE_TYPES)[number];
+
+export const ASSIGNMENT_ENTITY_TYPES = [
+  'employee',
+  'teacher',
+  'student',
+  'department',
+  'branch',
+  'room',
+  'vehicle',
+  'clinic',
+  'store',
+] as const;
+export type AssignmentEntityType = (typeof ASSIGNMENT_ENTITY_TYPES)[number];
+
+

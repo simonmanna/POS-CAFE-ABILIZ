@@ -59,6 +59,8 @@ export class SequenceService implements OnApplicationBootstrap {
     'journal_bank',
     'journal_inv',
     'journal_adj',
+    // Fixed Assets
+    'asset',
   ] as const;
 
   constructor(

@@ -311,6 +311,33 @@ export const PERMISSIONS = {
     edit: 'menu_categories.edit',
     delete: 'menu_categories.delete',
   },
+  backup: {
+    read: 'backup:read',
+    update: 'backup:update',
+    run: 'backup:run',
+  },
+  fixedAsset: {
+    create: 'fixed_asset:create',
+    read: 'fixed_asset:read',
+    update: 'fixed_asset:update',
+    delete: 'fixed_asset:delete',
+    dispose: 'fixed_asset:dispose',
+    transfer: 'fixed_asset:transfer',
+    approveTransfer: 'fixed_asset:approve_transfer',
+  },
+  assetCategory: {
+    create: 'asset_category:create',
+    read: 'asset_category:read',
+    update: 'asset_category:update',
+    delete: 'asset_category:delete',
+  },
+  assetDepreciation: {
+    read: 'asset_depreciation:read',
+    run: 'asset_depreciation:run',
+  },
+  assetReport: {
+    read: 'asset_report:read',
+  },
   // NB: a top-level `organization` block already exists above (organization:*)
   // for the kernel-level organization entity; we do NOT redeclare it here.
 } as const;
