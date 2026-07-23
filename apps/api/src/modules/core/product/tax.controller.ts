@@ -13,8 +13,9 @@ import { PERMISSIONS, type TaxType } from '@erp/shared';
 import { PaginationDto } from '../../../kernel/common/pagination.dto';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { TaxService } from './tax.service';
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 
+/** VAT-return classification. standard | zero_rated | exempt | out_of_scope. */
 class CreateTaxDto {
   @IsString() name!: string;
   @IsOptional() @IsString() code?: string;
@@ -22,6 +23,7 @@ class CreateTaxDto {
   @IsOptional() @IsNumber() rate?: number;
   @IsOptional() @IsBoolean() isInclusive?: boolean;
   @IsOptional() @IsBoolean() isCompound?: boolean;
+  @IsOptional() @IsIn(['standard', 'zero_rated', 'exempt', 'out_of_scope']) vatCategory?: string;
   @IsOptional() @IsString() accountId?: string;
 }
 
@@ -32,6 +34,7 @@ class UpdateTaxDto {
   @IsOptional() @IsNumber() rate?: number;
   @IsOptional() @IsBoolean() isInclusive?: boolean;
   @IsOptional() @IsBoolean() isCompound?: boolean;
+  @IsOptional() @IsIn(['standard', 'zero_rated', 'exempt', 'out_of_scope']) vatCategory?: string;
   @IsOptional() @IsString() accountId?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }

@@ -128,7 +128,7 @@ export class DocumentBuilderService {
       const result = this.tax.computeLine(
         afterDiscount,
         taxRow
-          ? [{ id: taxRow.id, rate: taxRow.rate, isInclusive: taxInclusive, isCompound: taxRow.isCompound }]
+          ? [{ id: taxRow.id, rate: taxRow.rate, isInclusive: taxInclusive, isCompound: taxRow.isCompound, type: taxRow.type }]
           : [],
       );
 
@@ -252,12 +252,16 @@ export class DocumentBuilderService {
 
       if (line.taxId && !(line.taxAmount as Prisma.Decimal).isZero()) {
         const tax = await client.tax.findFirst({ where: { id: line.taxId } });
-        const taxAcc = await this.determination.taxAccount(
-          tax,
-          client,
-          kind === 'sales' ? 'tax_payable' : 'tax_receivable',
-        );
-        taxByAccount.set(taxAcc, (taxByAccount.get(taxAcc) ?? ZERO).plus(line.taxAmount));
+        // Withholding is not output tax — never book it to tax_payable/receivable
+        // here. (Its taxAmount is already 0 via the engine; this is defence-in-depth.)
+        if (tax && tax.type !== 'withholding') {
+          const taxAcc = await this.determination.taxAccount(
+            tax,
+            client,
+            kind === 'sales' ? 'tax_payable' : 'tax_receivable',
+          );
+          taxByAccount.set(taxAcc, (taxByAccount.get(taxAcc) ?? ZERO).plus(line.taxAmount));
+        }
       }
     }
 

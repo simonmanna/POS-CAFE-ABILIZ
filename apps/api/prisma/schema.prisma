@@ -832,6 +832,10 @@ model Tax {
   rate           Decimal   @default(0) @db.Decimal(9, 6)
   isInclusive    Boolean   @default(false)
   isCompound     Boolean   @default(false)
+  /// VAT-return classification, distinct from `rate = 0` ambiguity:
+  /// standard | zero_rated | exempt | out_of_scope. Lets returns separate
+  /// zero-rated (taxable at 0%, input recoverable) from exempt (not taxable).
+  vatCategory    String    @default("standard")
   accountId      String?
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())

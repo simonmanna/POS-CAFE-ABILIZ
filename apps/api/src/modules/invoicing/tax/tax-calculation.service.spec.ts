@@ -34,4 +34,27 @@ describe('TaxCalculationService', () => {
     // 10% of 100 = 10, then compound 10% of (100 + 10) = 11 -> 21
     expect(r.taxTotal.toString()).toBe('21');
   });
+
+  it('does NOT fold a withholding tax into output tax / gross', () => {
+    const r = svc.computeLine(D(100), [
+      { id: 'wht', rate: 6, isInclusive: false, isCompound: false, type: 'withholding' },
+    ]);
+    // Withholding is not output tax: net/gross unchanged, WHT reported separately.
+    expect(r.net.toString()).toBe('100');
+    expect(r.taxTotal.toString()).toBe('0');
+    expect(r.gross.toString()).toBe('100');
+    expect(r.withholdingTotal.toString()).toBe('6');
+    expect(r.withholdingBreakdown).toEqual([{ taxId: 'wht', amount: D(6) }]);
+  });
+
+  it('computes VAT and withholding on one line independently', () => {
+    const r = svc.computeLine(D(100), [
+      { id: 'vat', rate: 18, isInclusive: false, isCompound: false, type: 'vat' },
+      { id: 'wht', rate: 6, isInclusive: false, isCompound: false, type: 'withholding' },
+    ]);
+    // Gross carries VAT only; WHT (on net) is separate.
+    expect(r.taxTotal.toString()).toBe('18');
+    expect(r.gross.toString()).toBe('118');
+    expect(r.withholdingTotal.toString()).toBe('6');
+  });
 });
