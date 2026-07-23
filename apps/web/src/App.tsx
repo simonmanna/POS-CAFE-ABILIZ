@@ -84,6 +84,7 @@ import TableReportsPage from '@/pages/tables/TableReportsPage';
 import ReportCenterPage from '@/pages/reports/ReportCenterPage';
 import { StaffPage } from '@/pages/staff/StaffPage';
 import { RolesPage } from '@/pages/staff/RolesPage';
+import { TasksPage } from '@/pages/tasks/TasksPage';
 
 export function App() {
   return (
@@ -181,6 +182,7 @@ export function App() {
           <Route path="/procurement/three-way-match" element={<ThreeWayMatchPage />} />
           <Route path="/procurement/debit-notes" element={<DebitNotesPage />} />
           <Route path="/procurement/debit-notes/new" element={<DebitNoteCreatePage />} />
+          <Route path="/tasks" element={<TasksPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

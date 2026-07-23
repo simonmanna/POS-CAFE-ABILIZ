@@ -128,6 +128,12 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: 'Tasks',
+    items: [
+      { to: '/tasks', label: 'Task Board', icon: ClipboardList, permission: 'task:read' },
+    ],
+  },
+  {
     title: 'Accounting',
     items: [
       { to: '/accounts/cash-accounts', label: 'Financial Accounts', icon: Banknote, permission: PERMISSIONS.account.read },
