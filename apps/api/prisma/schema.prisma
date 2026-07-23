@@ -407,8 +407,11 @@ model User {
   updatedBy        String?
   deletedAt        DateTime?
 
-  roles         Role[]         @relation("UserRoles")
-  refreshTokens RefreshToken[]
+  roles            Role[]         @relation("UserRoles")
+  refreshTokens    RefreshToken[]
+  tasksAssigned    Task[]         @relation("TaskAssignee")
+  tasksSupervised  Task[]         @relation("TaskSupervisor")
+  tasksVerified    Task[]         @relation("TaskVerifier")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -883,6 +886,7 @@ model Branch {
   purchaseOrders   PurchaseOrder[]    @relation("PurchaseOrder_branch")
   purchaseRequests PurchaseRequest[]  @relation("PurchaseRequest_branch")
   goodsReceipts    GoodsReceiptNote[] @relation("GoodsReceipt_branch")
+  tasks            Task[]
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -5065,4 +5069,212 @@ model AssetDocument {
 
   @@index([organizationId])
   @@index([assetId])
+}
+
+// =============================================================================
+// Task Management Module — Core Models
+// =============================================================================
+
+/// A task in the operational task management system.
+model Task {
+  id               String          @id @default(uuid())
+  organizationId   String
+  branchId         String?
+  title            String
+  description      String?
+  taskType         TaskType        @default(ONE_TIME)
+  priority         TaskPriority    @default(MEDIUM)
+  status           TaskMgmtStatus  @default(PENDING)
+  category         TaskCategory?
+  area             TaskArea?
+  departmentId     String?
+  assignedToId     String?
+  assignedRole     String?
+  supervisorId     String?
+  dueDate          DateTime?
+  dueTime          String?
+  startTime        DateTime?
+  completedAt      DateTime?
+  estimatedMinutes Int?
+  actualMinutes    Int?
+  isRecurring      Boolean         @default(false)
+  recurrenceType   RecurrenceType?
+  recurrenceConfig Json?
+  parentTaskId     String?
+  recurrenceOrder  Int?
+  requiresVerification Boolean     @default(false)
+  verificationMethod    VerificationMethod?
+  verifiedById      String?
+  verifiedAt        DateTime?
+  verificationPhoto String?
+  verificationNote  String?
+  checklistProgress Int             @default(0)
+  checklistTotal    Int             @default(0)
+  photoUrls         String[]        @default([])
+  attachmentUrls    String[]        @default([])
+  generatedByEvent  String?
+  sourceReferenceId String?
+  sourceReferenceType String?
+  shiftId           String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  createdBy         String?
+  updatedBy         String?
+  deletedAt         DateTime?
+
+  branch            Branch?         @relation(fields: [branchId], references: [id])
+  assignedTo        User?           @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  supervisor        User?           @relation("TaskSupervisor", fields: [supervisorId], references: [id])
+  verifiedBy        User?           @relation("TaskVerifier", fields: [verifiedById], references: [id])
+  parentTask        Task?           @relation("TaskRecurrence", fields: [parentTaskId], references: [id])
+  children          Task[]          @relation("TaskRecurrence")
+  checklistItems    TaskChecklistItem[]
+  comments          TaskComment[]
+  activityLog       TaskActivityLog[]
+  labels            TaskLabel[]     @relation("TaskLabelLink")
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, assignedToId])
+  @@index([organizationId, branchId])
+  @@index([organizationId, dueDate])
+  @@index([organizationId, priority])
+  @@index([organizationId, createdBy])
+  @@index([organizationId, shiftId])
+  @@index([organizationId, taskType])
+  @@index([organizationId, category])
+}
+
+/// Checklist item within a task.
+model TaskChecklistItem {
+  id             String   @id @default(uuid())
+  organizationId String
+  taskId         String
+  description    String
+  isCompleted    Boolean  @default(false)
+  completedAt    DateTime?
+  completedBy    String?
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([organizationId])
+}
+
+/// Threaded comments on tasks.
+model TaskComment {
+  id             String   @id @default(uuid())
+  organizationId String
+  taskId         String
+  parentId       String?
+  content        String
+  mentions       String[] @default([])
+  attachmentUrls String[] @default([])
+  emojiReactions Json?
+  createdById    String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+
+  task   Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  parent TaskComment? @relation("CommentThread", fields: [parentId], references: [id])
+  replies TaskComment[] @relation("CommentThread")
+
+  @@index([taskId])
+  @@index([organizationId])
+}
+
+/// Activity timeline for task changes.
+model TaskActivityLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  taskId         String
+  action         String
+  field          String?
+  oldValue       String?
+  newValue       String?
+  description    String?
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([organizationId])
+}
+
+/// Labels/tags that can be applied to tasks.
+model TaskLabel {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  color          String   @default("#6366f1")
+  createdAt      DateTime @default(now())
+
+  tasks Task[] @relation("TaskLabelLink")
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+/// Auto-generation rules for tasks.
+model TaskAutoRule {
+  id               String   @id @default(uuid())
+  organizationId   String
+  name             String
+  description      String?
+  triggerEvent     String
+  triggerConfig    Json?
+  taskTitle        String
+  taskDescription  String?
+  taskType         TaskType
+  taskCategory     TaskCategory?
+  taskArea         TaskArea?
+  taskPriority     TaskPriority  @default(MEDIUM)
+  assignToRole     String?
+  assignToUserId   String?
+  branchId         String?
+  requiresVerification Boolean @default(false)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdBy        String?
+  updatedBy        String?
+
+  @@index([organizationId])
+  @@index([organizationId, triggerEvent])
+}
+
+/// Recurring task template (for recurring task type).
+model TaskRecurringTemplate {
+  id               String          @id @default(uuid())
+  organizationId   String
+  title            String
+  description      String?
+  taskType         TaskType        @default(RECURRING)
+  taskCategory     TaskCategory?
+  taskArea         TaskArea?
+  priority         TaskPriority    @default(MEDIUM)
+  recurrenceType   RecurrenceType  @default(DAILY)
+  recurrenceConfig Json?
+  estimatedMinutes Int?
+  requiresVerification Boolean     @default(false)
+  verificationMethod    VerificationMethod?
+  branchId          String?
+  departmentId      String?
+  assignToRole      String?
+  assignToUserId    String?
+  supervisorId      String?
+  checklistTemplate Json?
+  isActive          Boolean        @default(true)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  createdBy         String?
+  updatedBy         String?
+  deletedAt         DateTime?
+
+  @@index([organizationId])
 }
