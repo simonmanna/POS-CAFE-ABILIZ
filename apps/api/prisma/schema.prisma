@@ -1029,6 +1029,11 @@ model JournalEntry {
   costCenterId    String?
   reversedEntryId String? // the reversal entry that voids this one
   reversalOfId    String? // set when this entry IS a reversal of another
+  /// Phase 3 — extensible financial dimensions (generic segmentation without a
+  /// column per dimension): e.g. { cashierId, cashSessionId, registerId, campus,
+  /// term, department, project }. Branch/costCenter stay typed columns; this bag
+  /// carries the rest. Copied to each line (line-level overrides win).
+  dimensions      Json?
   postedAt        DateTime?
   postedBy        String?
   createdAt       DateTime           @default(now())
@@ -1064,6 +1069,9 @@ model JournalLine {
   /// Reporting dimensions inherited from the entry (or overridden per line).
   branchId       String?
   costCenterId   String?
+  /// Phase 3 — extensible financial dimensions (see JournalEntry.dimensions).
+  /// Inherited from the entry unless the line supplies its own.
+  dimensions     Json?
   createdAt      DateTime @default(now())
 
   entry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)

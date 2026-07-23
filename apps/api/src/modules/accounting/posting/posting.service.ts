@@ -42,6 +42,21 @@ export class PostingService {
       : this.prisma.client.$transaction((c: any) => this.doReverse(journalEntryId, options, c));
   }
 
+  /**
+   * Normalize a financial-dimensions bag to a flat map of primitive string
+   * values (Phase 3). Drops null/nested/array values; returns undefined for an
+   * empty or non-object input so the column stays NULL.
+   */
+  private normalizeDimensions(d: any): Record<string, string> | undefined {
+    if (!d || typeof d !== 'object' || Array.isArray(d)) return undefined;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(d)) {
+      if (v === null || v === undefined) continue;
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') out[String(k)] = String(v);
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+
   private async doPost(request: PostingRequest, client: any): Promise<any> {
     if (!request.lines || request.lines.length < 2) {
       throw new BadRequestException('A journal entry requires at least two lines');
@@ -109,6 +124,7 @@ export class PostingService {
       client,
     );
 
+    const entryDims = this.normalizeDimensions(request.dimensions);
     const entry = await client.journalEntry.create({
       data: {
         organizationId,
@@ -124,6 +140,7 @@ export class PostingService {
         postingKey: request.postingKey ?? null,
         branchId: request.branchId ?? null,
         costCenterId: request.costCenterId ?? null,
+        dimensions: (entryDims ?? undefined) as any,
         postedAt: new Date(),
         postedBy: this.tenant.userId ?? null,
         lines: {
@@ -140,6 +157,7 @@ export class PostingService {
             baseCredit: l.baseCredit,
             branchId: l.branchId ?? request.branchId ?? null,
             costCenterId: l.costCenterId ?? request.costCenterId ?? null,
+            dimensions: (this.normalizeDimensions(l.dimensions) ?? entryDims ?? undefined) as any,
             lineNumber: i + 1,
           })),
         },
@@ -197,6 +215,7 @@ export class PostingService {
         reversalOfId: original.id,
         branchId: original.branchId ?? null,
         costCenterId: original.costCenterId ?? null,
+        dimensions: (original.dimensions ?? undefined) as any,
         postedAt: new Date(),
         postedBy: this.tenant.userId ?? null,
         lines: {
@@ -213,6 +232,7 @@ export class PostingService {
             baseCredit: l.baseDebit,
             branchId: l.branchId ?? null,
             costCenterId: l.costCenterId ?? null,
+            dimensions: (l.dimensions ?? undefined) as any,
             lineNumber: i + 1,
           })),
         },
@@ -333,6 +353,7 @@ export class PostingService {
     await this.applyRounding(lines, client);
 
     const organizationId = this.tenant.organizationId;
+    const entryDims = this.normalizeDimensions(request.dimensions);
     return client.journalEntry.create({
       data: {
         organizationId,
@@ -346,6 +367,7 @@ export class PostingService {
         sourceId: request.sourceId ?? null,
         branchId: request.branchId ?? null,
         costCenterId: request.costCenterId ?? null,
+        dimensions: (entryDims ?? undefined) as any,
         createdBy: this.tenant.userId ?? null,
         lines: {
           create: lines.map((l, i) => ({
@@ -361,6 +383,7 @@ export class PostingService {
             baseCredit: l.baseCredit,
             branchId: l.branchId ?? request.branchId ?? null,
             costCenterId: l.costCenterId ?? request.costCenterId ?? null,
+            dimensions: (this.normalizeDimensions(l.dimensions) ?? entryDims ?? undefined) as any,
             lineNumber: i + 1,
           })),
         },

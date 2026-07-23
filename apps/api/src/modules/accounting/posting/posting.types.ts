@@ -22,6 +22,8 @@ export interface PostingLineInput {
   /** Reporting dimensions; fall back to the request-level values when omitted. */
   branchId?: string;
   costCenterId?: string;
+  /** Extensible financial dimensions for this line; falls back to the request-level bag. */
+  dimensions?: Record<string, string | number | boolean>;
 }
 
 export interface PostingRequest {
@@ -46,6 +48,12 @@ export interface PostingRequest {
   /** Reporting dimensions applied to the entry and, by default, every line. */
   branchId?: string;
   costCenterId?: string;
+  /**
+   * Extensible financial dimensions applied to the entry and, by default, every
+   * line (generic segmentation without a column per dimension). Flat map of
+   * primitive values, e.g. { cashierId, cashSessionId, registerId, campus, term }.
+   */
+  dimensions?: Record<string, string | number | boolean>;
   lines: PostingLineInput[];
 }
 

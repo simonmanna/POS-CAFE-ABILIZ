@@ -228,7 +228,13 @@ export class PosInvoiceService {
       // Post the invoice's own GL entry (Dr AR / Cr Revenue+Tax + Dr sales_discount).
       const dbItems = await tx.invoiceItem.findMany({ where: { invoiceId: inv.id } });
       const fullPrepared = txDiscValue > 0 && fullTotals?.prepared ? fullTotals.prepared : undefined;
-      const journalEntryId = await this.postInvoiceGl(tx, inv, dbItems, orderDiscountGl, fullPrepared);
+      // Phase 3 — seed financial dimensions from the POS sale so the GL is
+      // segmentable by cashier / shift / register (branch stays a typed column).
+      const glDimensions: Record<string, string> = { source: 'pos' };
+      if (order.cashSessionId) glDimensions.cashSessionId = order.cashSessionId;
+      if (order.waiterId) glDimensions.cashierId = order.waiterId;
+      if (order.deviceId) glDimensions.registerId = order.deviceId;
+      const journalEntryId = await this.postInvoiceGl(tx, inv, dbItems, orderDiscountGl, fullPrepared, glDimensions);
       await tx.invoice.update({
         where: { id: inv.id },
         data: { journalEntryId, status: 'posted', postedAt: new Date(), postedBy: this.tenant.userId ?? null },
@@ -517,7 +523,7 @@ export class PosInvoiceService {
         for (const it of invoice.items as any[]) {
           const ref = `Refund ${invoice.invoiceNumber}`;
           if (it.menuItemId) await this.receiveMenuItemRecipe(tx, it.menuItemId, Number(it.quantity), warehouse.id, ref);
-          else if (it.productId) await this.stock.receive({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: ref } as any, tx);
+          else if (it.productId) await this.stock.receiveReturn({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: ref, sourceType: 'pos_refund', sourceId: invoice.id }, tx);
           await this.receiveLineExtras(tx, it, Number(it.quantity), warehouse.id, ref);
         }
       }
@@ -653,7 +659,7 @@ export class PosInvoiceService {
         for (const { src, quantity } of selections) {
           const ref = `Refund ${invoice.invoiceNumber}`;
           if (src.menuItemId) await this.receiveMenuItemRecipe(tx, src.menuItemId, quantity, warehouse.id, ref);
-          else if (src.productId) await this.stock.receive({ productId: src.productId, locationId: warehouse.id, quantity, reference: ref } as any, tx);
+          else if (src.productId) await this.stock.receiveReturn({ productId: src.productId, locationId: warehouse.id, quantity, reference: ref, sourceType: 'pos_refund', sourceId: invoice.id }, tx);
           // H3: restock the refunded fraction's modifiers + accompaniments too.
           await this.receiveLineExtras(tx, src, quantity, warehouse.id, ref);
         }
@@ -767,7 +773,7 @@ export class PosInvoiceService {
     const move = async (productId: string) => {
       const args = { productId, locationId: warehouseId, quantity: lineQty, reference } as any;
       if (dir === 'issue') await this.stock.issue(args);
-      else await this.stock.receive(args, db);
+      else await this.stock.receiveReturn(args, db);
     };
     // Modifiers (structured on the line).
     for (const m of (item.modifiers ?? []) as any[]) {
@@ -808,7 +814,7 @@ export class PosInvoiceService {
    */
   private async postInvoiceGl(
     tx: any, invoice: any, items: any[],
-    orderDiscountAmount?: any, fullPrepared?: any[],
+    orderDiscountAmount?: any, fullPrepared?: any[], dimensions?: Record<string, string>,
   ): Promise<string> {
     // Use full (pre-discount) line items for revenue/tax breakdown when an
     // order-level discount exists, so the discount is posted as a separate
@@ -871,6 +877,7 @@ export class PosInvoiceService {
       postingType: 'primary',
       postingKey: `pos_invoice:${invoice.id}:primary`,
       branchId: invoice.branchId ?? undefined,
+      dimensions,
       lines,
     } as any, tx);
     return entry.id;
@@ -1073,7 +1080,7 @@ export class PosInvoiceService {
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
-      await this.stock.receive({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any, tx);
+      await this.stock.receiveReturn({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference, sourceType: 'pos_refund', sourceId: reference }, tx);
     }
   }
 
