@@ -340,6 +340,18 @@ export const PERMISSIONS = {
   },
   // NB: a top-level `organization` block already exists above (organization:*)
   // for the kernel-level organization entity; we do NOT redeclare it here.
+  task: {
+    create: 'task:create',
+    read: 'task:read',
+    update: 'task:update',
+    delete: 'task:delete',
+    assign: 'task:assign',
+    verify: 'task:verify',
+    reorder: 'task:reorder',
+    manageLabels: 'task:manage_labels',
+    manageTemplates: 'task:manage_templates',
+    manageAutoRules: 'task:manage_auto_rules',
+  },
 } as const;
 
 type PermissionLeaf<T> = T extends string ? T : T extends object ? PermissionLeaf<T[keyof T]> : never;

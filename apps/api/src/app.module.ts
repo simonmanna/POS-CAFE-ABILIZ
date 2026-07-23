@@ -17,6 +17,7 @@ import { PosModule } from './modules/pos/pos.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { FixedAssetModule } from './modules/fixed-asset/fixed-asset.module';
+import { TaskModule } from './modules/task/task.module';
 // import { SchoolModule } from './modules/school/school.module'; // disabled: DI wiring issues, not needed for POS testing
 
 @Module({
@@ -55,6 +56,7 @@ import { FixedAssetModule } from './modules/fixed-asset/fixed-asset.module';
     SyncModule,
     BackupModule,
     FixedAssetModule,
+    TaskModule,
     HealthModule,
   ],
   controllers: [AppController, MetricsController],
