@@ -17,6 +17,7 @@ import { ReceiptSettingsPage } from '@/pages/pos/ReceiptSettingsPage';
 import { PosSettingsPage } from '@/pages/pos/SettingsPage';
 import { DevicesPage } from '@/pages/pos/DevicesPage';
 import { DeadLettersPage } from '@/pages/pos/DeadLettersPage';
+import { PostingMonitorPage } from '@/pages/pos/PostingMonitorPage';
 import { ApprovalsPage } from '@/pages/approvals';
 import { RecurringPage } from '@/pages/recurring';
 import { WebhooksPage } from '@/pages/webhooks';
@@ -158,6 +159,7 @@ export function App() {
           <Route path="/settings/backup" element={<BackupPage />} />
           <Route path="/settings/devices" element={<DevicesPage />} />
           <Route path="/settings/devices/rejected" element={<DeadLettersPage />} />
+          <Route path="/inventory/posting-monitor" element={<PostingMonitorPage />} />
           <Route path="/fixed-assets" element={<AssetDashboardPage />} />
           <Route path="/fixed-assets/categories" element={<AssetCategoriesPage />} />
           <Route path="/fixed-assets/register" element={<AssetsPage />} />

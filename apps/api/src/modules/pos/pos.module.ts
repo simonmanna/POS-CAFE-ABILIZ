@@ -55,6 +55,9 @@ import { PosOrdersService } from './order/pos-orders.service';
 import { PosOrdersController, PosBillingController } from './order/pos-orders.controller';
 import { PosInvoiceService } from './billing/pos-invoice.service';
 import { PosCustomerStatementService, PosCustomerStatementController } from './billing/pos-customer-statement.controller';
+import { StockPostingService } from './billing/stock-posting.service';
+import { StockPostingController } from './billing/stock-posting.controller';
+import { StockPostingWorker } from './billing/stock-posting.worker';
 import { PosSplitService } from './split/pos-split.service';
 import { PosSplitController } from './split/pos-split.controller';
 import {
@@ -115,6 +118,7 @@ export const POS_PERMISSIONS = {
     PosBillingController,
     PosSplitController,
     PosCustomerStatementController,
+    StockPostingController,
   ],
   providers: [
     PosService,
@@ -122,6 +126,8 @@ export const POS_PERMISSIONS = {
     PosInvoiceService,
     PosCustomerStatementService,
     PosSplitService,
+    StockPostingService,
+    StockPostingWorker,
     PosWorkflowsInitializer,
     PosShiftService,
     PosHoldsService,

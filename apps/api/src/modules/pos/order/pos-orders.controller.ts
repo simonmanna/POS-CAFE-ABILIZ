@@ -108,6 +108,8 @@ export class PosOrdersController {
   /** Generate the bill/invoice from this order (deduct stock, post AR). */
   @Post(':id/invoice')
   @RequirePermissions('pos:checkout')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent()
   generateInvoice(@Param('id') id: string, @Body() dto: GenerateInvoiceDto) {
     return this.billing.generateInvoice(id, dto);
   }
@@ -122,6 +124,8 @@ export class PosBillingController {
   /** Receive one or more payments and settle the invoice. */
   @Post(':id/payments')
   @RequirePermissions('pos:checkout')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent()
   receivePayment(@Param('id') id: string, @Body() dto: ReceivePaymentDto) {
     return this.billing.receivePayment(id, dto);
   }
@@ -129,6 +133,8 @@ export class PosBillingController {
   /** Settle on credit (postpaid house account). */
   @Post(':id/credit')
   @RequirePermissions('pos:checkout')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent()
   settleCredit(@Param('id') id: string, @Body() dto: SettleCreditDto) {
     return this.billing.settleCredit(id, dto);
   }

@@ -35,6 +35,14 @@ export interface PostingRequest {
   /** Provenance, e.g. sourceType="invoice", sourceId=<documentId>. */
   sourceType?: string;
   sourceId?: string;
+  /** Classifies this posting for its source: "primary" (default), "reversal", "partial_refund", … */
+  postingType?: string;
+  /**
+   * GL-layer idempotency token. When provided, PostingService returns the
+   * already-posted entry with this key instead of writing a duplicate. Omit for
+   * postings that may legitimately recur for one source (e.g. partial refunds).
+   */
+  postingKey?: string;
   /** Reporting dimensions applied to the entry and, by default, every line. */
   branchId?: string;
   costCenterId?: string;

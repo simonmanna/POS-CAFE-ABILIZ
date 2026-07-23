@@ -22,6 +22,26 @@ const MODE_FROM_METHOD: Record<string, 'cash' | 'card' | 'mobile_money'> = {
   cash: 'cash', bank: 'card', card: 'card', mobile_money: 'mobile_money', store_credit: 'card',
 };
 
+/** Context threaded through durable inventory posting (Phase 1). */
+interface StockPostingCtx {
+  invoiceId: string | null;
+  invoiceNumber: string;
+  orderId: string | null;
+}
+
+/** A single sale line whose stock could not be issued → an InventoryException. */
+interface StockLineFailure {
+  kind: 'menu_recipe' | 'product' | 'line_extras' | 'whole_invoice';
+  productId: string | null;
+  menuItemId: string | null;
+  description: string | null;
+  quantity: number;
+  locationId: string | null;
+  reason: string;
+  stackTrace: string | null;
+  payload: Record<string, unknown> | null;
+}
+
 /**
  * POS billing on the **separate Invoice table** (R2). The financial Invoice is
  * fully decoupled from the generic `Document`: it owns its own GL posting
@@ -117,6 +137,13 @@ export class PosInvoiceService {
     const year = new Date().getUTCFullYear();
 
     const invoice = await this.prisma.client.$transaction(async (tx: any) => {
+      // Concurrency guard: lock the order row so two terminals can't both bill
+      // the same order (the order.invoiceId fast-path at the top is read outside
+      // this tx). Re-check invoiceId under the lock and replay if already billed.
+      await tx.$queryRawUnsafe(`SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, orderId, orgId);
+      const locked = await tx.order.findFirst({ where: { id: orderId, organizationId: orgId }, select: { invoiceId: true } });
+      if (locked?.invoiceId) return this.findInvoice(locked.invoiceId);
+
       const totals = await this.builder.prepareLines(tx, lineInputs);
       const fullTotals = txDiscValue > 0 ? await this.builder.prepareLines(tx, fullLineInputs) : null;
       const orderDiscountGl = fullTotals ? dec(fullTotals.total).minus(dec(totals.total)) : dec(0);
@@ -207,22 +234,20 @@ export class PosInvoiceService {
         data: { journalEntryId, status: 'posted', postedAt: new Date(), postedBy: this.tenant.userId ?? null },
       });
 
+      // Durable inventory posting (Phase 1). Instead of an inline, post-commit,
+      // best-effort deduction that could drift the ledger silently, enqueue a job
+      // ATOMICALLY with the invoice. A worker drains it with backoff; per-line
+      // failures surface as InventoryException. The sale is still never blocked by
+      // stock — the deduction just runs reliably out-of-band. Idempotent per
+      // invoice (@@unique[organizationId, invoiceId]).
+      await tx.stockPostingJob.create({
+        data: { organizationId: orgId, invoiceId: inv.id, invoiceNumber, orderId },
+      });
+
       return tx.invoice.findFirst({ where: { id: inv.id }, include: { items: { orderBy: { lineNumber: 'asc' } } } });
     });
 
     await this.prisma.client.order.update({ where: { id: orderId }, data: { invoiceId: invoice.id, status: 'served' } });
-
-    // Inventory deduction is BEST-EFFORT and runs AFTER the invoice commits.
-    // Business rule (on-site POS): a sale is NEVER blocked by stock. If an
-    // ingredient is missing, untracked, or at zero we still invoice and let the
-    // on-hand go negative (a restock signal). Any failure is logged, not thrown,
-    // so a costing / account-mapping / stock problem can't 500 a completed sale.
-    try {
-      await this.issueStockForItems(items, invoice.invoiceNumber);
-    } catch (e: any) {
-      this.logger.error(`[stock] deduction skipped for invoice ${invoice.invoiceNumber} (sale kept): ${e?.message ?? e}`);
-      await this.recordStockDrift(invoice.invoiceNumber, { productId: null, menuItemId: null, description: 'whole-invoice deduction', quantity: 0 }, e);
-    }
 
     // M4 — fiscalization seam. Jurisdictions such as UG (EFRIS) require each
     // invoice be signed by a fiscal device and carry a fiscal code/QR. Runs
@@ -843,6 +868,8 @@ export class PosInvoiceService {
       exchangeRate: Number(invoice.exchangeRate),
       sourceType: 'pos_invoice',
       sourceId: invoice.id,
+      postingType: 'primary',
+      postingKey: `pos_invoice:${invoice.id}:primary`,
       branchId: invoice.branchId ?? undefined,
       lines,
     } as any, tx);
@@ -868,61 +895,121 @@ export class PosInvoiceService {
     return [{ method: dto.paymentMethod ?? 'cash', amount: residual } as TenderDto];
   }
 
-  // Best-effort, post-commit (NOT inside the invoice tx). Each line is isolated
-  // in its own try/catch so one un-stocked ingredient can't stop the rest, and
-  // nothing here ever throws to the caller — the sale is already final.
-  private async issueStockForItems(items: any[], reference: string): Promise<void> {
+  /**
+   * Phase 1 — process one durable StockPostingJob. Runs inside the worker's
+   * tenant scope. A whole-run failure (e.g. no active warehouse — nothing was
+   * deducted) is retried with backoff and, once exhausted, becomes a `failed`
+   * job + a whole_invoice InventoryException that an admin can retry after
+   * fixing config. Per-line failures are recorded as InventoryException rows and
+   * do NOT fail the job (re-issuing a partially-deducted recipe would double-count).
+   */
+  async processStockPostingJob(jobId: string): Promise<void> {
+    const job = await this.prisma.client.stockPostingJob.findFirst({ where: { id: jobId } });
+    if (!job || job.status === 'done') return;
+    const ctx: StockPostingCtx = { invoiceId: job.invoiceId, invoiceNumber: job.invoiceNumber, orderId: job.orderId };
+    try {
+      const items = job.orderId
+        ? await this.prisma.client.orderItem.findMany({
+            where: { orderId: job.orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
+          })
+        : [];
+      const failures = await this.issueStockForItems(items, ctx);
+      await this.prisma.client.stockPostingJob.update({
+        where: { id: job.id },
+        data: {
+          status: 'done', processedAt: new Date(), claimToken: null, claimedAt: null,
+          lastError: failures > 0 ? `${failures} line(s) need review` : null,
+        },
+      });
+    } catch (e: any) {
+      const attempts = job.attempts + 1;
+      const msg = (e?.message ?? String(e)).slice(0, 500);
+      if (attempts >= job.maxAttempts) {
+        await this.prisma.client.stockPostingJob.update({
+          where: { id: job.id },
+          data: { status: 'failed', attempts, lastError: msg, claimToken: null, claimedAt: null, processedAt: new Date() },
+        });
+        await this.recordInventoryException(ctx, {
+          kind: 'whole_invoice', productId: null, menuItemId: null, description: 'whole-invoice stock deduction',
+          quantity: 0, locationId: null, reason: msg, stackTrace: e?.stack ?? null, payload: null,
+        });
+      } else {
+        // Exponential-ish backoff, capped at 15 min.
+        const backoffMs = Math.min(60_000 * attempts, 15 * 60_000);
+        await this.prisma.client.stockPostingJob.update({
+          where: { id: job.id },
+          data: { status: 'pending', attempts, lastError: msg, claimToken: null, claimedAt: null, nextRetryAt: new Date(Date.now() + backoffMs) },
+        });
+      }
+    }
+  }
+
+  // Deduct stock for a billed order's lines. Throws only on a SYSTEMIC failure
+  // (no active warehouse — nothing deducted, so the job may retry safely). Each
+  // line is isolated: a per-line failure is recorded as an InventoryException and
+  // counted, never thrown, so one un-stocked ingredient can't stop the rest and
+  // the sale (already final) is never affected. Returns the number of line failures.
+  private async issueStockForItems(items: any[], ctx: StockPostingCtx): Promise<number> {
     const orgId = this.tenant.organizationId;
     const warehouse = await this.prisma.client.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
-    if (!warehouse) { this.logger.warn(`[stock] no active warehouse; skipping deduction for ${reference}`); return; }
+    if (!warehouse) throw new Error('No active warehouse configured — cannot deduct stock');
+    const reference = ctx.invoiceNumber;
+    const ref = `POS bill ${reference}`;
+    let failures = 0;
     for (const it of items) {
       try {
-        const ref = `POS bill ${reference}`;
         if (it.menuItemId) {
-          await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ref);
+          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx);
         } else if (it.productId) {
           const product = await this.prisma.client.product.findFirst({ where: { id: it.productId } });
           if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
             await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: ref } as any);
           }
         }
-        // H3: deplete paid modifiers + accompaniments on the line too.
-        await this.issueLineExtras(this.prisma.client, it, Number(it.quantity), warehouse.id, ref);
       } catch (e: any) {
+        failures++;
         this.logger.error(`[stock] issue failed for "${it.description ?? it.productId ?? it.menuItemId}" on ${reference} (sale kept): ${e?.message ?? e}`);
-        await this.recordStockDrift(reference, { productId: it.productId ?? null, menuItemId: it.menuItemId ?? null, description: it.description ?? null, quantity: Number(it.quantity) }, e);
+        await this.recordInventoryException(ctx, {
+          kind: it.menuItemId ? 'menu_recipe' : 'product',
+          productId: it.productId ?? null, menuItemId: it.menuItemId ?? null, description: it.description ?? null,
+          quantity: Number(it.quantity), locationId: warehouse.id, reason: e?.message ?? String(e), stackTrace: e?.stack ?? null,
+          payload: { orderItemId: it.id, reference },
+        });
       }
+      // H3: deplete paid modifiers + accompaniments (log-only, shared with refund path).
+      await this.issueLineExtras(this.prisma.client, it, Number(it.quantity), warehouse.id, ref);
     }
+    return failures;
   }
 
   /**
-   * M3 — durable stock-drift marker. Inventory deduction is best-effort (a sale
-   * is never blocked by stock), so a silent skip could let the ledger drift from
-   * what was sold. We write an AuditLog row that back-office / a reconcile job can
-   * query (entity=Product, kind=stock_reconcile_needed) so the drift is
-   * detectable rather than only living in a log line. Never throws.
+   * Phase 1 — record a structured InventoryException (replaces the dead
+   * `stock_reconcile_needed` audit marker). A back-office work-queue item: a
+   * specific sale line whose stock could not be issued, awaiting a human decision.
+   * Never throws — recording drift must not break an already-final sale.
    */
-  private async recordStockDrift(
-    reference: string,
-    item: { productId: string | null; menuItemId: string | null; description: string | null; quantity: number },
-    e: unknown,
-  ): Promise<void> {
+  private async recordInventoryException(ctx: StockPostingCtx, f: StockLineFailure): Promise<void> {
     try {
-      await this.audit.record({
-        entity: 'Product',
-        entityId: item.productId ?? item.menuItemId ?? 'unknown',
-        action: 'update' as any,
-        newValues: {
-          kind: 'stock_reconcile_needed',
-          reference,
-          productId: item.productId,
-          menuItemId: item.menuItemId,
-          description: item.description,
-          quantity: item.quantity,
-          reason: e instanceof Error ? e.message : String(e),
+      await this.prisma.client.inventoryException.create({
+        data: {
+          organizationId: this.tenant.organizationId,
+          invoiceId: ctx.invoiceId ?? null,
+          invoiceNumber: ctx.invoiceNumber ?? null,
+          locationId: f.locationId ?? null,
+          productId: f.productId ?? null,
+          menuItemId: f.menuItemId ?? null,
+          description: f.description ?? null,
+          quantity: f.quantity ?? 0,
+          kind: f.kind,
+          reason: (f.reason ?? '').slice(0, 1000),
+          stackTrace: f.stackTrace ?? null,
+          payload: (f.payload ?? undefined) as any,
+          status: 'open',
         },
       });
-    } catch { /* never let the drift marker itself break a completed sale */ }
+    } catch (err) {
+      this.logger.error(`[stock] failed to record InventoryException for ${ctx.invoiceNumber}: ${String(err)}`);
+    }
   }
 
   /**
@@ -945,23 +1032,35 @@ export class PosInvoiceService {
     this.logger.warn(`[fiscal] provider '${provider}' set but no adapter wired — invoice ${invoice.invoiceNumber} not fiscally signed`);
   }
 
-  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {
+  /** Issue a menu item's recipe BOM. Returns the count of ingredients that failed
+   *  (each recorded as an InventoryException). Never throws — a bad ingredient
+   *  can't stop the rest, and the sale is already final. */
+  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx): Promise<number> {
     const menuItem = await this.prisma.client.menuItem.findUnique({
       where: { id: menuItemId },
       select: { isInventoryTracked: true },
     });
-    if (!menuItem?.isInventoryTracked) return;
+    if (!menuItem?.isInventoryTracked) return 0;
     const recipe = await this.prisma.client.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
+    const reference = ctx.invoiceNumber;
+    const ref = `POS bill ${reference}`;
+    let failures = 0;
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
       try {
-        await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference } as any);
+        await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference: ref } as any);
       } catch (e: any) {
+        failures++;
         this.logger.error(`[stock] recipe issue failed (menuItem ${menuItemId}, product ${ing.productId}) on ${reference} (sale kept): ${e?.message ?? e}`);
-        await this.recordStockDrift(reference, { productId: ing.productId, menuItemId, description: `recipe ingredient`, quantity: qty }, e);
+        await this.recordInventoryException(ctx, {
+          kind: 'menu_recipe', productId: ing.productId, menuItemId, description: 'recipe ingredient',
+          quantity: qty, locationId: warehouseId, reason: e?.message ?? String(e), stackTrace: e?.stack ?? null,
+          payload: { menuItemId, ingredientProductId: ing.productId, quantity: qty, reference },
+        });
       }
     }
+    return failures;
   }
 
   private async receiveMenuItemRecipe(tx: any, menuItemId: string, lineQty: number, warehouseId: string, reference: string): Promise<void> {

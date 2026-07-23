@@ -47,6 +47,18 @@ export class PostingService {
       throw new BadRequestException('A journal entry requires at least two lines');
     }
 
+    // GL-layer idempotency: if a postingKey is supplied and an entry already
+    // exists for it, replay that entry instead of writing a duplicate journal.
+    // The @@unique([organizationId, postingKey]) index is the hard backstop for
+    // the concurrent-race case (the loser's insert throws and rolls back).
+    if (request.postingKey) {
+      const existing = await client.journalEntry.findFirst({
+        where: { organizationId: this.tenant.organizationId, postingKey: request.postingKey },
+        include: { lines: true },
+      });
+      if (existing) return existing;
+    }
+
     const journal = await client.journal.findFirst({ where: { code: request.journalCode } });
     if (!journal) throw new BadRequestException(`Journal '${request.journalCode}' not found`);
 
@@ -108,6 +120,8 @@ export class PostingService {
         currencyId: request.currencyId ?? null,
         sourceType: request.sourceType ?? null,
         sourceId: request.sourceId ?? null,
+        postingType: request.postingType ?? 'primary',
+        postingKey: request.postingKey ?? null,
         branchId: request.branchId ?? null,
         costCenterId: request.costCenterId ?? null,
         postedAt: new Date(),
@@ -179,6 +193,7 @@ export class PostingService {
         currencyId: original.currencyId,
         sourceType: 'reversal',
         sourceId: original.id,
+        postingType: 'reversal',
         reversalOfId: original.id,
         branchId: original.branchId ?? null,
         costCenterId: original.costCenterId ?? null,

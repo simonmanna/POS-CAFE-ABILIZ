@@ -1009,6 +1009,16 @@ model JournalEntry {
   currencyId      String?
   sourceType      String?
   sourceId        String?
+  /// Classifies the posting for the source document: "primary" (the original
+  /// posting), "reversal", "partial_refund", etc. Descriptive; drives the
+  /// posting monitor and lets one source have several legitimate postings.
+  postingType     String             @default("primary")
+  /// GL-layer idempotency token. When set, PostingService replays the existing
+  /// entry instead of writing a duplicate journal (defence-in-depth beyond the
+  /// HTTP Idempotency-Key). Left NULL for postings that are legitimately
+  /// repeatable for one source (e.g. successive partial refunds) — NULLs are
+  /// distinct in Postgres so they never collide on the unique index below.
+  postingKey      String?
   /// Reporting dimensions (multi-branch / cost-center accounting). Optional so
   /// single-outlet orgs are unaffected; set by the posting caller.
   branchId        String?
@@ -1025,10 +1035,12 @@ model JournalEntry {
   lines   JournalLine[]
 
   @@unique([organizationId, entryNumber])
+  @@unique([organizationId, postingKey])
   @@index([organizationId])
   @@index([organizationId, postingDate])
   @@index([organizationId, branchId, postingDate])
   @@index([sourceType, sourceId])
+  @@index([organizationId, postingType])
 }
 
 model JournalLine {
@@ -4601,6 +4613,68 @@ model SyncOpDeadLetter {
   @@unique([organizationId, opId])
   @@index([organizationId, status])
   @@index([organizationId, deviceId])
+}
+
+/// Phase 1 (accounting hardening) — durable inventory posting.
+/// One job per invoice whose stock deduction runs out-of-band. POS-sale stock
+/// deduction used to run inline best-effort and drop silent audit markers on
+/// failure; it now enqueues here (atomically with the invoice) and a worker
+/// drains it with backoff. A whole-run failure (e.g. no warehouse) is retried
+/// automatically because nothing was deducted; per-line failures surface as
+/// InventoryException. Loosely coupled (no FK) like EventOutbox / SyncOpDeadLetter.
+model StockPostingJob {
+  id             String    @id @default(uuid())
+  organizationId String
+  invoiceId      String
+  invoiceNumber  String
+  orderId        String?
+  status         String    @default("pending") // pending | processing | done | failed
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(5)
+  lastError      String?
+  /// Multi-instance claim token (same pattern as EventOutbox). Cleared on release.
+  claimToken     String?
+  claimedAt      DateTime?
+  nextRetryAt    DateTime  @default(now())
+  createdAt      DateTime  @default(now())
+  processedAt    DateTime?
+
+  @@unique([organizationId, invoiceId])
+  @@index([status, nextRetryAt])
+  @@index([organizationId, status])
+}
+
+/// Phase 1 — structured inventory-exception work-queue (replaces the dead
+/// `stock_reconcile_needed` audit marker). A specific sale line whose stock
+/// could not be issued. Back-office assigns, then resolves via a manual stock
+/// adjustment (safe) or discards — every decision is audited. NOT auto-re-issued:
+/// a partially-deducted recipe cannot be blindly retried without double-counting
+/// (same principle as SyncOpDeadLetter: a human decides). Never silently expires.
+model InventoryException {
+  id             String    @id @default(uuid())
+  organizationId String
+  invoiceId      String?
+  invoiceNumber  String?
+  locationId     String?
+  productId      String?
+  menuItemId     String?
+  description    String?
+  quantity       Decimal   @default(0) @db.Decimal(20, 6)
+  /// menu_recipe | product | line_extras | whole_invoice
+  kind           String
+  reason         String
+  stackTrace     String?
+  /// Snapshot describing the failed line (ids + qty + reference) for diagnosis.
+  payload        Json?
+  status         String    @default("open") // open | resolved | discarded
+  assignedToId   String?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId, status])
+  @@index([organizationId, invoiceId])
 }
 
 // ===========================================================================
