@@ -107,6 +107,117 @@ enum AuditAction {
   restore
 }
 
+enum TaskType {
+  ONE_TIME
+  RECURRING
+  SHIFT
+  OPENING
+  CLOSING
+  CLEANING
+  MAINTENANCE
+  INVENTORY
+  AUDIT
+  PURCHASE
+  INCIDENT
+  COMPLIANCE
+  FOOD_SAFETY
+  EQUIPMENT_INSPECTION
+  CUSTOM
+}
+
+enum TaskPriority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  OPTIONAL
+}
+
+enum TaskMgmtStatus {
+  DRAFT
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  WAITING
+  REVIEW
+  VERIFIED
+  COMPLETED
+  CANCELLED
+  SKIPPED
+  OVERDUE
+}
+
+enum TaskCategory {
+  OPENING
+  CLOSING
+  CLEANING
+  KITCHEN
+  COFFEE_BAR
+  DINING_AREA
+  RETAIL_FLOOR
+  WAREHOUSE
+  INVENTORY
+  PURCHASING
+  ACCOUNTING
+  CASH_MANAGEMENT
+  SECURITY
+  MAINTENANCE
+  EQUIPMENT
+  MARKETING
+  COMPLIANCE
+  AUDIT
+  CUSTOMER_SERVICE
+  CUSTOM
+}
+
+enum TaskArea {
+  KITCHEN
+  COFFEE_STATION
+  BAR
+  DINING_AREA
+  RETAIL_FLOOR
+  WAREHOUSE
+  OFFICE
+  CASHIER
+  STORAGE
+  DELIVERY
+  RESTROOM
+  PARKING
+  OTHER
+}
+
+enum RecurrenceType {
+  HOURLY
+  EVERY_X_HOURS
+  DAILY
+  WEEKDAYS
+  WEEKENDS
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+  CUSTOM_DATES
+  SPECIFIC_SHIFT
+  AFTER_COMPLETION
+}
+
+enum TaskNotificationChannel {
+  IN_APP
+  PUSH
+  SMS
+  EMAIL
+  WHATSAPP
+  TELEGRAM
+}
+
+enum VerificationMethod {
+  MANAGER_PIN
+  PASSWORD
+  BIOMETRIC
+  DIGITAL_SIGNATURE
+  PHOTO_PROOF
+}
+
 // ------------------------- System / global tables ---------------------------
 
 /// Tenant root. This table IS the tenant, so it has no organizationId.
