@@ -71,6 +71,8 @@ import InventoryDetailPage from '@/pages/inventory/InventoryDetailPage';
 import { StockAdjustmentsPage } from '@/pages/inventory/StockAdjustmentsPage';
 import { StockTransfersPage } from '@/pages/inventory/StockTransfersPage';
 import { InventoryCountPage } from '@/pages/inventory/InventoryCountPage';
+import { BottleCountPage } from '@/pages/beverage/BottleCountPage';
+import { BeverageDashboardPage } from '@/pages/beverage/BeverageDashboardPage';
 import { StockLedgerPage } from '@/pages/inventory/StockLedgerPage';
 import LocationsPage from '@/pages/inventory/LocationsPage';
 import TerminalPage from '@/pages/pos/Terminal';
@@ -170,6 +172,8 @@ export function App() {
           <Route path="/inventory/adjustments" element={<StockAdjustmentsPage />} />
           <Route path="/inventory/transfers" element={<StockTransfersPage />} />
           <Route path="/inventory/count" element={<InventoryCountPage />} />
+          <Route path="/beverage" element={<BeverageDashboardPage />} />
+          <Route path="/beverage/count" element={<BottleCountPage />} />
           <Route path="/inventory/ledger" element={<StockLedgerPage />} />
           <Route path="/inventory/locations" element={<LocationsPage />} />
           <Route path="/procurement/purchase-requests" element={<PurchaseRequestsPage />} />

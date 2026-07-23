@@ -250,6 +250,22 @@ export type StockAdjustmentReason = (typeof STOCK_ADJUSTMENT_REASONS)[number];
 export const STOCK_DISTRIBUTION_STRATEGIES = ['FEFO', 'FIFO', 'MANUAL'] as const;
 export type StockDistributionStrategy = (typeof STOCK_DISTRIBUTION_STRATEGIES)[number];
 
+// ---- Beverage Control — digital-weight alcohol measurement ----
+/** How a product's remaining stock is measured. */
+export const MEASUREMENT_METHODS = ['count', 'manual_volume', 'digital_weight'] as const;
+export type MeasurementMethod = (typeof MEASUREMENT_METHODS)[number];
+
+/** Where a bottle weight reading came from (extensible: Bluetooth/USB later). */
+export const MEASUREMENT_SOURCES = ['MANUAL', 'SCALE', 'BLUETOOTH', 'USB', 'IMPORT', 'API'] as const;
+export type MeasurementSource = (typeof MEASUREMENT_SOURCES)[number];
+
+/** Confidence of a single weight reading, derived from the tolerance/guards. */
+export const BOTTLE_CONFIDENCE = ['GOOD', 'SUSPICIOUS', 'OUT_OF_RANGE'] as const;
+export type BottleConfidence = (typeof BOTTLE_CONFIDENCE)[number];
+
+export const BOTTLE_COUNT_TYPES = ['opening', 'closing'] as const;
+export type BottleCountType = (typeof BOTTLE_COUNT_TYPES)[number];
+
 // ---------------------------- Procurement (Phase F.6) -----------------------
 
 export const PURCHASE_REQUEST_STATUS = [

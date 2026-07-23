@@ -6,7 +6,12 @@ import {
   IsOptional,
   IsString,
 } from 'class-validator';
-import { PRODUCT_TYPES, type ProductType } from '@erp/shared';
+import {
+  MEASUREMENT_METHODS,
+  PRODUCT_TYPES,
+  type MeasurementMethod,
+  type ProductType,
+} from '@erp/shared';
 
 export class UpdateProductDto {
   @IsOptional()
@@ -64,4 +69,37 @@ export class UpdateProductDto {
   @IsOptional()
   @IsObject()
   customFields?: Record<string, unknown>;
+
+  // ---- Beverage Control (bar alcohol) — digital-weight measurement ----
+  @IsOptional()
+  @IsIn([...MEASUREMENT_METHODS])
+  measurementMethod?: MeasurementMethod;
+
+  @IsOptional()
+  @IsNumber()
+  containerVolumeMl?: number;
+
+  @IsOptional()
+  @IsNumber()
+  emptyBottleWeightG?: number;
+
+  @IsOptional()
+  @IsNumber()
+  actualEmptyWeightG?: number;
+
+  @IsOptional()
+  @IsNumber()
+  fullBottleWeightG?: number;
+
+  @IsOptional()
+  @IsNumber()
+  standardPourMl?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowPartialBottle?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  varianceToleranceG?: number;
 }

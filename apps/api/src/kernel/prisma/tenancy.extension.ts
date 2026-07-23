@@ -52,6 +52,11 @@ const ORG_SCOPED = new Set<string>([
   // Inventory count sessions (opening/closing physical counts)
   'InventoryCountSession',
   'InventoryCountLine',
+  // Beverage Control — digital-weight alcohol measurement (bar)
+  'BottleCountSession',
+  'BottleCountLine',
+  'BottleCountReading',
+  'BottleMeasurement',
   // M5 — cash sessions (CashRegister is config, sessions/movements are transactional)
   'CashRegister',
   'CashSession',
@@ -184,6 +189,8 @@ const SOFT_DELETE = new Set<string>([
   'InventoryLocation',
   // Count session header carries deletedAt (lines cascade with the session)
   'InventoryCountSession',
+  // Beverage bottle-count header carries deletedAt (lines/readings cascade)
+  'BottleCountSession',
   // M5 — cash register is config; sessions/movements use status, not soft-delete
   'CashRegister',
   // F.5 — Webhook endpoints are config; deliveries are immutable.

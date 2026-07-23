@@ -16,6 +16,17 @@ export interface Product {
   isActive: boolean;
   trackInventory: boolean;
   createdAt: string;
+  // Beverage Control (bar alcohol) — digital-weight measurement.
+  measurementMethod?: string;
+  containerVolumeMl?: string | null;
+  emptyBottleWeightG?: string | null;
+  actualEmptyWeightG?: string | null;
+  fullBottleWeightG?: string | null;
+  liquidWeightG?: string | null;
+  conversionFactorMlPerG?: string | null;
+  standardPourMl?: string | null;
+  allowPartialBottle?: boolean;
+  varianceToleranceG?: string | null;
 }
 
 export interface ProductCategory {
@@ -42,6 +53,15 @@ export interface CreateProductInput {
   costPrice?: number;
   image?: string;
   trackInventory?: boolean;
+  // Beverage Control (bar alcohol) — digital-weight measurement.
+  measurementMethod?: string;
+  containerVolumeMl?: number;
+  emptyBottleWeightG?: number;
+  actualEmptyWeightG?: number;
+  fullBottleWeightG?: number;
+  standardPourMl?: number;
+  allowPartialBottle?: boolean;
+  varianceToleranceG?: number;
 }
 
 export function useProducts(params: ListParams) {

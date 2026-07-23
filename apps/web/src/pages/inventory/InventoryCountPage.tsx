@@ -39,6 +39,7 @@ interface CountSession {
   locationId: string;
   countType: 'opening' | 'closing';
   status: 'draft' | 'submitted' | 'cancelled';
+  notes?: string | null;
   startedAt: string;
   submittedAt?: string | null;
   adjustmentId?: string | null;

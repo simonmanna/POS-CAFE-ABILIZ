@@ -850,6 +850,10 @@ async function main(): Promise<void> {
       'inventory_doc:read', 'inventory_doc:create', 'inventory_doc:approve',
       'product:read', 'products.view', 'partner:read',
       'pos:read', 'pos:reports',
+      // Beverage Control — runs bottle counts + product setup. NOT beverage:approve
+      // (segregation of duties: the person who counts cannot approve their own
+      // over-tolerance count — that stays with an Administrator/manager).
+      'beverage:read', 'beverage:count', 'beverage:setup',
     ];
     await prisma.role.upsert({
       where: { organizationId_name: { organizationId: orgId, name: 'Supervisor' } },

@@ -109,6 +109,13 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: 'Beverage Control',
+    items: [
+      { to: '/beverage', label: 'Alcohol Dashboard', icon: BarChart3, permission: PERMISSIONS.beverage.read },
+      { to: '/beverage/count', label: 'Bottle Count', icon: Scale, permission: PERMISSIONS.beverage.count },
+    ],
+  },
+  {
     title: 'Purchasing',
     items: [
       { to: '/procurement/purchase-orders', label: 'Purchases', icon: ShoppingCart, permission: 'purchase_order:read' },

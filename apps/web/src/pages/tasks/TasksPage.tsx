@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import { KanbanBoard } from '@/features/tasks/kanban/kanban-board';
 import { TaskListView } from '@/features/tasks/list/task-list-view';
 import { TaskDashboard } from '@/features/tasks/dashboard/task-dashboard';

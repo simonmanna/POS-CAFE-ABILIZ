@@ -6,6 +6,7 @@ import { AuthModule } from './kernel/auth/auth.module';
 import { CoreModule } from './modules/core/core.module';
 import { AccountingModule } from './modules/accounting/accounting.module';
 import { InventoryModule } from './modules/inventory/inventory.module';
+import { BeverageModule } from './modules/beverage/beverage.module';
 import { InvoicingModule } from './modules/invoicing/invoicing.module';
 import { ProcurementModule } from './modules/procurement/procurement.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
@@ -48,6 +49,7 @@ import { TaskModule } from './modules/task/task.module';
     CoreModule,
     AccountingModule,
     InventoryModule,
+    BeverageModule,
     InvoicingModule,
     ProcurementModule,
     ExpensesModule,

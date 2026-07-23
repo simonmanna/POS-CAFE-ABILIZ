@@ -35,6 +35,7 @@ export const AUDIT_ACTIONS = [
   'assign',
   'unassign',
   'restore',
+  'measure',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

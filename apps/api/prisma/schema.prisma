@@ -105,6 +105,8 @@ enum AuditAction {
   assign
   unassign
   restore
+  // Beverage Control — a bottle weighing/measurement event.
+  measure
 }
 
 enum TaskType {
@@ -700,6 +702,25 @@ model Product {
   /// menu still shows the same headline number; only the GL split changes.
   /// Default false (additive VAT) for backward compat.
   taxInclusive   Boolean        @default(false)
+  /// Beverage Control (bar alcohol) — how remaining stock is measured. Only
+  /// `digital_weight` products appear in the bottle-weighing count. For live ml
+  /// deduction the stock UoM should be ml and each drink's recipe
+  /// (MenuProduct.quantity) is the pour in ml.
+  measurementMethod      MeasurementMethod @default(count)
+  containerVolumeMl      Decimal?          @db.Decimal(20, 6)
+  emptyBottleWeightG     Decimal?          @db.Decimal(20, 6)
+  /// Optional measured tare override (glass weight varies bottle-to-bottle);
+  /// used instead of the nominal emptyBottleWeightG when set.
+  actualEmptyWeightG     Decimal?          @db.Decimal(20, 6)
+  fullBottleWeightG      Decimal?          @db.Decimal(20, 6)
+  /// Computed at setup = fullBottleWeightG - effectiveEmptyWeightG.
+  liquidWeightG          Decimal?          @db.Decimal(20, 6)
+  /// Computed at setup = containerVolumeMl / liquidWeightG (ml per gram).
+  conversionFactorMlPerG Decimal?          @db.Decimal(20, 10)
+  standardPourMl         Decimal?          @db.Decimal(20, 6)
+  allowPartialBottle     Boolean           @default(true)
+  /// Per-product variance tolerance in grams; falls back to the org default.
+  varianceToleranceG     Decimal?          @db.Decimal(20, 6)
   isActive       Boolean        @default(true)
   customFields   Json           @default("{}")
   createdAt      DateTime       @default(now())
@@ -2551,6 +2572,13 @@ model StockTransferItem {
 // the adjustment is the audited correction it produces.
 // =============================================================================
 
+/// Beverage Control — how a product's remaining stock is measured.
+enum MeasurementMethod {
+  count
+  manual_volume
+  digital_weight
+}
+
 enum InventoryCountType {
   opening
   closing
@@ -2616,6 +2644,122 @@ model InventoryCountLine {
   session InventoryCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, sessionId])
+  @@index([sessionId])
+}
+
+// =============================================================================
+// Beverage Control — digital-weight alcohol measurement (bar shrinkage control).
+// A separate, alcohol-only physical count: bartenders weigh open bottles, the
+// system converts grams -> remaining ml, reconciles against live system stock
+// (which POS sales already deducted in ml), and on submit posts ONLY the variance
+// as a StockAdjustment — reusing the same adjustment -> ledger -> GL -> audit path
+// as the generic inventory count. productId / locationId are stored as scalar ids
+// (no Prisma relation) so the beverage tables stay self-contained.
+// =============================================================================
+
+model BottleCountSession {
+  id             String    @id @default(uuid())
+  organizationId String
+  countCode      String
+  name           String?
+  locationId     String
+  countType      String    @default("closing") // opening | closing
+  status         String    @default("draft") // draft | submitted | cancelled
+  notes          String?
+  startedById    String?
+  startedAt      DateTime  @default(now())
+  submittedById  String?
+  submittedAt    DateTime?
+  approvedById   String?
+  approvedAt     DateTime?
+  /// StockAdjustment generated on submit (audit link). Null until submitted, or
+  /// when the count had no variance to post.
+  adjustmentId   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
+
+  lines BottleCountLine[]
+
+  @@unique([organizationId, countCode])
+  @@index([organizationId, status])
+  @@index([organizationId, locationId])
+}
+
+model BottleCountLine {
+  id              String    @id @default(uuid())
+  organizationId  String
+  sessionId       String
+  productId       String
+  productName     String
+  unit            String?
+  /// Live system remaining (StockItem quantity, in ml) snapshotted at start.
+  systemMl        Decimal   @db.Decimal(20, 6)
+  /// Sealed / unopened full bottles counted (whole units).
+  sealedFullCount Decimal   @default(0) @db.Decimal(20, 6)
+  /// sealedFullCount * containerVolumeMl + Σ(reading.remainingMl).
+  countedMl       Decimal?  @db.Decimal(20, 6)
+  varianceMl      Decimal   @default(0) @db.Decimal(20, 6)
+  varianceG       Decimal   @default(0) @db.Decimal(20, 6)
+  expectedShots   Decimal?  @db.Decimal(20, 6)
+  soldShots       Decimal?  @db.Decimal(20, 6)
+  reason          String?
+  confidence      String    @default("GOOD") // GOOD | SUSPICIOUS | OUT_OF_RANGE
+  countedById     String?
+  countedAt       DateTime?
+
+  session  BottleCountSession   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  readings BottleCountReading[]
+
+  @@index([organizationId, sessionId])
+  @@index([sessionId])
+}
+
+model BottleCountReading {
+  id              String   @id @default(uuid())
+  organizationId  String
+  lineId          String
+  /// Optional physical bottle identifier for high-value liquor traceability.
+  bottleNumber    String?
+  measuredWeightG Decimal  @db.Decimal(20, 6)
+  expectedWeightG Decimal? @db.Decimal(20, 6)
+  remainingMl     Decimal  @db.Decimal(20, 6)
+  confidence      String   @default("GOOD") // GOOD | SUSPICIOUS | OUT_OF_RANGE
+
+  line BottleCountLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, lineId])
+  @@index([lineId])
+}
+
+/// Immutable weighing log — one row per physical measurement (count or ad-hoc
+/// spot check). Powers bottle history + variance/yield reports. Grams are stored
+/// alongside ml because managers read grams faster than millilitres.
+model BottleMeasurement {
+  id                String   @id @default(uuid())
+  organizationId    String
+  productId         String
+  bottleNumber      String?
+  locationId        String
+  sessionId         String?
+  openingWeightG    Decimal? @db.Decimal(20, 6)
+  expectedWeightG   Decimal? @db.Decimal(20, 6)
+  measuredWeightG   Decimal  @db.Decimal(20, 6)
+  remainingMl       Decimal  @db.Decimal(20, 6)
+  varianceMl        Decimal  @default(0) @db.Decimal(20, 6)
+  varianceG         Decimal  @default(0) @db.Decimal(20, 6)
+  /// MANUAL | SCALE | BLUETOOTH | USB | IMPORT | API
+  measurementSource String   @default("MANUAL")
+  confidence        String   @default("GOOD")
+  measuredById      String?
+  measuredAt        DateTime @default(now())
+  remarks           String?
+  createdAt         DateTime @default(now())
+
+  @@index([organizationId, productId])
+  @@index([organizationId, locationId])
   @@index([sessionId])
 }
 

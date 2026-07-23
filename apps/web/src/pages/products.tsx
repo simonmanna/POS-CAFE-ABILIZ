@@ -38,6 +38,12 @@ import { toast } from 'sonner';
 
 const PRODUCT_TYPES = ['stockable', 'consumable', 'service', 'fee', 'subscription', 'asset'] as const;
 
+const MEASUREMENT_METHODS = [
+  { value: 'count', label: 'Count units' },
+  { value: 'manual_volume', label: 'Manual remaining volume' },
+  { value: 'digital_weight', label: 'Digital weight scale (bar alcohol)' },
+] as const;
+
 const schema = z.object({
   code: z.string().min(1, 'Code is required'),
   sku: z.string().optional().or(z.literal('')),
@@ -47,8 +53,28 @@ const schema = z.object({
   salesPrice: z.string().optional().or(z.literal('')),
   costPrice: z.string().optional().or(z.literal('')),
   trackInventory: z.boolean(),
+  // Beverage Control (bar alcohol) — digital-weight measurement.
+  measurementMethod: z.string(),
+  containerVolumeMl: z.string().optional().or(z.literal('')),
+  emptyBottleWeightG: z.string().optional().or(z.literal('')),
+  actualEmptyWeightG: z.string().optional().or(z.literal('')),
+  fullBottleWeightG: z.string().optional().or(z.literal('')),
+  standardPourMl: z.string().optional().or(z.literal('')),
+  allowPartialBottle: z.boolean(),
+  varianceToleranceG: z.string().optional().or(z.literal('')),
 });
 type FormValues = z.infer<typeof schema>;
+
+const BEVERAGE_DEFAULTS = {
+  measurementMethod: 'count',
+  containerVolumeMl: '',
+  emptyBottleWeightG: '',
+  actualEmptyWeightG: '',
+  fullBottleWeightG: '',
+  standardPourMl: '',
+  allowPartialBottle: true,
+  varianceToleranceG: '',
+} as const;
 
 export function ProductsPage() {
   const navigate = useNavigate();
@@ -111,16 +137,18 @@ export function ProductsPage() {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { code: '', sku: '', name: '', productType: 'stockable', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true },
+    defaultValues: { code: '', sku: '', name: '', productType: 'stockable', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true, ...BEVERAGE_DEFAULTS },
   });
 
   const openCreate = () => {
     setEditing(null);
-    form.reset({ code: '', sku: '', name: '', productType: 'stockable', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true });
+    form.reset({ code: '', sku: '', name: '', productType: 'stockable', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true, ...BEVERAGE_DEFAULTS });
     setPreviewSrc('');
     imageFileIdRef.current = '';
     setOpen(true);
   };
+
+  const s = (v: unknown) => (v === null || v === undefined ? '' : String(v));
 
   const openEdit = (p: Product) => {
     setEditing(p);
@@ -133,6 +161,14 @@ export function ProductsPage() {
       salesPrice: p.salesPrice ?? '',
       costPrice: p.costPrice ?? '',
       trackInventory: p.trackInventory,
+      measurementMethod: p.measurementMethod ?? 'count',
+      containerVolumeMl: s(p.containerVolumeMl),
+      emptyBottleWeightG: s(p.emptyBottleWeightG),
+      actualEmptyWeightG: s(p.actualEmptyWeightG),
+      fullBottleWeightG: s(p.fullBottleWeightG),
+      standardPourMl: s(p.standardPourMl),
+      allowPartialBottle: p.allowPartialBottle ?? true,
+      varianceToleranceG: s(p.varianceToleranceG),
     });
     const raw = p.image ?? '';
     const uuid = raw.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)?.[1] ?? '';
@@ -169,6 +205,8 @@ export function ProductsPage() {
   }, [editId, data?.data?.length, navigate]);
 
   const onSubmit = form.handleSubmit(async (values) => {
+    const numOrUndef = (v?: string) => (v !== undefined && v !== '' ? Number(v) : undefined);
+    const isWeight = values.measurementMethod === 'digital_weight';
     const data = {
       ...values,
       sku: values.sku || undefined,
@@ -176,6 +214,15 @@ export function ProductsPage() {
       salesPrice: values.salesPrice ? Number(values.salesPrice) : undefined,
       costPrice: values.costPrice ? Number(values.costPrice) : undefined,
       image: imageFileIdRef.current || (previewSrc || undefined),
+      // Beverage Control: only send bottle metrics for digital-weight products.
+      measurementMethod: values.measurementMethod,
+      containerVolumeMl: isWeight ? numOrUndef(values.containerVolumeMl) : undefined,
+      emptyBottleWeightG: isWeight ? numOrUndef(values.emptyBottleWeightG) : undefined,
+      actualEmptyWeightG: isWeight ? numOrUndef(values.actualEmptyWeightG) : undefined,
+      fullBottleWeightG: isWeight ? numOrUndef(values.fullBottleWeightG) : undefined,
+      standardPourMl: isWeight ? numOrUndef(values.standardPourMl) : undefined,
+      allowPartialBottle: isWeight ? values.allowPartialBottle : undefined,
+      varianceToleranceG: isWeight ? numOrUndef(values.varianceToleranceG) : undefined,
     };
     if (editing) {
       await updateProduct.mutateAsync({ id: editing.id, data });
@@ -421,6 +468,85 @@ export function ProductsPage() {
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input type="checkbox" {...form.register('trackInventory')} className="rounded" /> Track inventory
             </label>
+
+            {/* Beverage Control — how remaining stock is measured. */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 mb-1.5">Measurement method</Label>
+              <Select
+                value={form.watch('measurementMethod')}
+                onValueChange={(v) => form.setValue('measurementMethod', v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MEASUREMENT_METHODS.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {form.watch('measurementMethod') === 'digital_weight' && (() => {
+              const vol = Number(form.watch('containerVolumeMl')) || 0;
+              const empty = Number(form.watch('actualEmptyWeightG')) || Number(form.watch('emptyBottleWeightG')) || 0;
+              const full = Number(form.watch('fullBottleWeightG')) || 0;
+              const pour = Number(form.watch('standardPourMl')) || 0;
+              const liquid = full > empty ? full - empty : 0;
+              const factor = liquid > 0 && vol > 0 ? vol / liquid : 0;
+              const shots = pour > 0 && vol > 0 ? vol / pour : 0;
+              return (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-4">
+                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Bottle weighing setup</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="containerVolumeMl" className="text-sm">Bottle size (ml) *</Label>
+                      <Input id="containerVolumeMl" type="number" step="1" min="0" placeholder="750" {...form.register('containerVolumeMl')} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="standardPourMl" className="text-sm">Standard pour (ml)</Label>
+                      <Input id="standardPourMl" type="number" step="1" min="0" placeholder="30" {...form.register('standardPourMl')} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="emptyBottleWeightG" className="text-sm">Empty bottle (g) *</Label>
+                      <Input id="emptyBottleWeightG" type="number" step="1" min="0" placeholder="420" {...form.register('emptyBottleWeightG')} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="fullBottleWeightG" className="text-sm">Full bottle (g) *</Label>
+                      <Input id="fullBottleWeightG" type="number" step="1" min="0" placeholder="1135" {...form.register('fullBottleWeightG')} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="actualEmptyWeightG" className="text-sm">Actual empty (g)</Label>
+                      <Input id="actualEmptyWeightG" type="number" step="0.1" min="0" placeholder="optional — measured tare" {...form.register('actualEmptyWeightG')} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="varianceToleranceG" className="text-sm">Tolerance (g)</Label>
+                      <Input id="varianceToleranceG" type="number" step="0.5" min="0" placeholder="org default" {...form.register('varianceToleranceG')} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="rounded-md bg-white border border-slate-200 py-2">
+                      <div className="text-[11px] text-slate-500">Liquid weight</div>
+                      <div className="text-sm font-semibold text-slate-800">{liquid ? `${liquid.toFixed(0)} g` : '—'}</div>
+                    </div>
+                    <div className="rounded-md bg-white border border-slate-200 py-2">
+                      <div className="text-[11px] text-slate-500">Conversion</div>
+                      <div className="text-sm font-semibold text-slate-800">{factor ? `${factor.toFixed(5)} ml/g` : '—'}</div>
+                    </div>
+                    <div className="rounded-md bg-white border border-slate-200 py-2">
+                      <div className="text-[11px] text-slate-500">Shots / bottle</div>
+                      <div className="text-sm font-semibold text-slate-800">{shots ? shots.toFixed(1) : '—'}</div>
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" {...form.register('allowPartialBottle')} className="rounded" /> Allow partial bottle
+                  </label>
+                  <p className="text-[11px] text-slate-500">
+                    For live pour tracking, set this product's stock unit to <strong>ml</strong> and add each drink's pour (e.g. 30 ml) as a recipe line.
+                  </p>
+                </div>
+              );
+            })()}
             <DialogFooter className="px-5 py-3 border-t bg-slate-50 gap-2">
               <Button type="submit" disabled={createProduct.isPending || updateProduct.isPending} className="rounded-lg bg-[#3b82f6] hover:bg-[#2563eb] text-white">
                 {createProduct.isPending || updateProduct.isPending ? 'Saving...' : 'Save'}

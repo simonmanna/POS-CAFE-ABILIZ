@@ -170,6 +170,14 @@ export const PERMISSIONS = {
     submit: 'inventory_count:submit',
   },
 
+  // ---- Beverage Control — digital-weight alcohol measurement (bar) ----
+  beverage: {
+    read: 'beverage:read',
+    setup: 'beverage:setup',
+    count: 'beverage:count',
+    approve: 'beverage:approve',
+  },
+
   // ---- M5: Cash registers / sessions (foundation) ----
   cashRegister: {
     create: 'cash_register:create',

@@ -8,8 +8,18 @@ import { TenantContextService } from '../../../kernel/tenancy/tenant-context.ser
 import { AuditService } from '../../../kernel/audit/audit.service';
 import { BaseCrudService, type CrudDelegate } from '../../../kernel/common/base-crud.service';
 import { FilesService } from '../../../kernel/files/files.service';
+import { computeBottleConfig } from '../../../kernel/common/beverage-math';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+
+/** Fields that, when touched, require the beverage config to be (re)validated. */
+const BEVERAGE_FIELDS = [
+  'measurementMethod',
+  'containerVolumeMl',
+  'emptyBottleWeightG',
+  'actualEmptyWeightG',
+  'fullBottleWeightG',
+] as const;
 
 @Injectable()
 export class ProductService extends BaseCrudService<Product, CreateProductDto, UpdateProductDto> {
@@ -80,8 +90,40 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
     return { ...product, image: this.resolveImage(product.image) };
   }
 
+  /**
+   * Compute + validate the beverage (digital-weight) config. Derives
+   * liquidWeightG + conversionFactorMlPerG and stores them on the row; clears
+   * them when a product is switched away from digital_weight. On update, values
+   * are merged with the existing row so a partial edit still validates the whole
+   * bottle. Throws BadRequestException on an invalid weight/volume relationship.
+   */
+  private applyBeverageComputation(
+    data: Record<string, any>,
+    existing?: Product | null,
+  ): Record<string, any> {
+    const method = (data.measurementMethod ?? (existing as any)?.measurementMethod ?? 'count') as string;
+    if (method !== 'digital_weight') {
+      if (data.measurementMethod && data.measurementMethod !== 'digital_weight') {
+        data.liquidWeightG = null;
+        data.conversionFactorMlPerG = null;
+      }
+      return data;
+    }
+    const pick = (a: unknown, b: unknown) => (a !== undefined ? a : b);
+    const cfg = computeBottleConfig({
+      containerVolumeMl: pick(data.containerVolumeMl, (existing as any)?.containerVolumeMl) as any,
+      emptyBottleWeightG: pick(data.emptyBottleWeightG, (existing as any)?.emptyBottleWeightG) as any,
+      actualEmptyWeightG: pick(data.actualEmptyWeightG, (existing as any)?.actualEmptyWeightG) as any,
+      fullBottleWeightG: pick(data.fullBottleWeightG, (existing as any)?.fullBottleWeightG) as any,
+    });
+    data.liquidWeightG = cfg.liquidWeightG;
+    data.conversionFactorMlPerG = cfg.conversionFactorMlPerG;
+    return data;
+  }
+
   async create(dto: CreateProductDto): Promise<Product> {
-    const product = await super.create(dto);
+    const data = this.applyBeverageComputation({ ...dto });
+    const product = await super.create(data as unknown as CreateProductDto);
     this.events.publish('product.created', {
       id: product.id,
       organizationId: this.tenant.organizationId,
@@ -96,7 +138,12 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
   }
 
   async update(id: string, dto: UpdateProductDto): Promise<Product> {
-    const product = await super.update(id, dto);
+    let data: Record<string, any> = { ...dto };
+    if (BEVERAGE_FIELDS.some((k) => (dto as any)[k] !== undefined)) {
+      const existing = (await this.delegate.findFirst({ where: { id } })) as Product | null;
+      data = this.applyBeverageComputation(data, existing);
+    }
+    const product = await super.update(id, data as unknown as UpdateProductDto);
     this.events.publish('product.updated', {
       id: product.id,
       organizationId: this.tenant.organizationId,
