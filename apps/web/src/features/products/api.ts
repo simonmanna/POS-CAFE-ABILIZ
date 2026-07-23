@@ -12,6 +12,7 @@ export interface Product {
   category: { id: string; name: string } | null;
   salesPrice: string | null;
   costPrice: string | null;
+  image?: string | null;
   isActive: boolean;
   trackInventory: boolean;
   createdAt: string;
@@ -39,6 +40,7 @@ export interface CreateProductInput {
   categoryId?: string;
   salesPrice?: number;
   costPrice?: number;
+  image?: string;
   trackInventory?: boolean;
 }
 

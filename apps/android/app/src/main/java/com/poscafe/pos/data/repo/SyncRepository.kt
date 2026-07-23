@@ -42,6 +42,9 @@ class SyncRepository @Inject constructor(
         res.data["cashRegisters"]?.let { applyRegisters(it) }
         res.data["staff"]?.let { applyStaff(it) }
         res.data["settings"]?.let { applySettings(it) }
+        res.data["products"]?.let { applyProducts(it) }
+        res.data["productCategories"]?.let { applyProductCategories(it) }
+        res.data["partners"]?.let { applyPartners(it) }
 
         db.syncStateDao().put(
             SyncStateEntity(
@@ -111,6 +114,8 @@ class SyncRepository @Inject constructor(
         mapping?.get(opId)?.let { serverId ->
             db.cashSessionDao().markSync(opId, "pushed", serverId)
         }
+        // customer.upsert applied — the local row now mirrors the server.
+        mapping?.get("customerId")?.let { db.customerDao().markSynced(it) }
     }
 
     // ---------------------- pull-apply per scope ----------------------
@@ -338,11 +343,112 @@ class SyncRepository @Inject constructor(
     }
 
     private suspend fun applySettings(rows: List<JsonObject>) {
+        // Keys with a queued setting.set op are mid-flight device edits — the
+        // pull must not flip them back before the push lands (server wins once
+        // the op is applied and the next pull re-delivers the merged value).
+        val pendingKeys = db.opQueueDao().queuedOfType("setting.set")
+            .mapNotNull { op -> parsePayload(op.payloadJson)?.str("key") }
+            .toSet()
         db.settingsDao().upsertAll(
             rows.mapNotNull { row ->
                 val key = row.str("key") ?: return@mapNotNull null
+                if (key in pendingKeys) return@mapNotNull null
                 SettingEntity(key = key, valueJson = row["value"]?.toString() ?: "null")
             },
         )
+    }
+
+    /**
+     * Server customers (Partner rows, isCustomer only). Rows with a queued
+     * local edit are skipped so an offline change isn't clobbered by a pull
+     * that raced its push. Tombstones delete locally.
+     */
+    private suspend fun applyPartners(rows: List<JsonObject>) {
+        val dao = db.customerDao()
+        val pendingIds = (db.opQueueDao().queuedOfType("customer.upsert") + db.opQueueDao().queuedOfType("customer.delete"))
+            .mapNotNull { op -> parsePayload(op.payloadJson)?.let { it.str("id") ?: it.str("clientId") } }
+            .toSet()
+        for (row in rows) {
+            val id = row.str("id") ?: continue
+            if (id in pendingIds) continue
+            if (row.deleted()) { dao.delete(id); continue }
+            val customFields = row["customFields"] as? JsonObject
+            dao.upsert(
+                CustomerEntity(
+                    id = id,
+                    name = row.str("name") ?: "",
+                    phone = row.str("phone"),
+                    email = row.str("email"),
+                    note = row.str("notes"),
+                    loyaltyPoints = customFields?.int("loyaltyPoints") ?: 0,
+                    createdAt = parseEpoch(row.str("createdAt")),
+                    updatedAt = parseEpoch(row.str("updatedAt")),
+                    syncStatus = "synced",
+                ),
+            )
+        }
+    }
+
+    private fun parsePayload(payloadJson: String): JsonObject? =
+        runCatching { Json.parseToJsonElement(payloadJson) as? JsonObject }.getOrNull()
+
+    private suspend fun applyProducts(rows: List<JsonObject>) {
+        val dao = db.productDao()
+        for (row in rows) {
+            val id = row.str("id") ?: continue
+            if (row.deleted()) { dao.delete(id); continue }
+            val category = row["category"] as? JsonObject
+            val uom = row["uom"] as? JsonObject
+            val tax = row["tax"] as? JsonObject
+            dao.upsertAll(
+                listOf(
+                    ProductEntity(
+                        id = id,
+                        code = row.str("code"),
+                        sku = row.str("sku"),
+                        barcode = row.str("barcode"),
+                        name = row.str("name") ?: "",
+                        description = row.str("description"),
+                        image = row.str("image"),
+                        salesPrice = row.num("salesPrice") ?: 0.0,
+                        costPrice = row.num("costPrice") ?: 0.0,
+                        categoryId = row.str("categoryId"),
+                        categoryName = category?.str("name"),
+                        uomName = uom?.str("name"),
+                        taxId = row.str("taxId"),
+                        taxRate = tax?.num("rate") ?: 0.0,
+                        taxInclusive = row.bool("taxInclusive") ?: false,
+                        isActive = row.bool("isActive") ?: true,
+                        isService = row.bool("isService") ?: false,
+                        updatedAt = parseEpoch(row.str("updatedAt")),
+                    ),
+                ),
+            )
+        }
+    }
+
+    private suspend fun applyProductCategories(rows: List<JsonObject>) {
+        val dao = db.productCategoryDao()
+        for (row in rows) {
+            val id = row.str("id") ?: continue
+            if (row.deleted()) { dao.delete(id); continue }
+            dao.upsertAll(
+                listOf(
+                    ProductCategoryEntity(
+                        id = id,
+                        name = row.str("name") ?: "",
+                        parentId = row.str("parentId"),
+                    ),
+                ),
+            )
+        }
+    }
+
+    /** Parse ISO-8601 date string or epoch-millis number to Long. */
+    private fun parseEpoch(s: String?): Long {
+        if (s == null) return 0L
+        val n = s.toLongOrNull()
+        if (n != null) return n
+        return try { java.time.Instant.parse(s).toEpochMilli() } catch (_: Exception) { 0L }
     }
 }

@@ -127,6 +127,10 @@ export class SyncPushService {
     const refs: string[] = [];
     const sessionRef = op.payload?.cashSessionId ?? op.payload?.sessionId;
     if (typeof sessionRef === 'string' && sessionRef) refs.push(sessionRef);
+    // A sale against a customer whose upsert op dead-lettered must fail-fast
+    // with a clear 424 instead of an opaque FK error at Order create.
+    const partnerRef = op.payload?.partnerId;
+    if (typeof partnerRef === 'string' && partnerRef) refs.push(partnerRef);
     return refs;
   }
 
@@ -209,9 +213,100 @@ export class SyncPushService {
           finalNumbers: { invoiceNumber: (res as any).invoiceNumber ?? '' },
         };
       }
+      case 'customer.upsert': {
+        // Device-created customer: the client-minted uuid IS the Partner id,
+        // so sale.checkout ops can reference it with no id remapping.
+        const id = String(payload.id ?? payload.clientId ?? '');
+        if (!id) throw new HttpException('customer.upsert requires an id', 400);
+        if (!payload.name || typeof payload.name !== 'string') {
+          throw new HttpException('customer.upsert requires a name', 400);
+        }
+        const partner = await this.upsertPartner(device, id, payload);
+        return { id: partner, mapping: { customerId: partner } };
+      }
+      case 'customer.delete': {
+        const id = String(payload.id ?? '');
+        if (!id) throw new HttpException('customer.delete requires an id', 400);
+        // Soft delete — the tombstone reaches other devices via the partners
+        // pull scope instead of resurrecting the customer on the next pull.
+        await this.prisma.client.partner.updateMany({
+          where: { id, isCustomer: true },
+          data: { deletedAt: new Date() },
+        });
+        return { id };
+      }
+      case 'setting.set': {
+        // Devices hold only an X-Device-Token, so org settings they may write
+        // are tunneled through the op queue against a strict whitelist.
+        const key = String(payload.key ?? '');
+        const value = payload.value;
+        if (key !== 'pos.mode') throw new HttpException(`Device may not set setting '${key}'`, 400);
+        if (value !== 'cafe' && value !== 'retail') {
+          throw new HttpException(`Invalid pos.mode value: ${String(value)}`, 400);
+        }
+        // Single source of truth: OrganizationModule config + mirrored Setting.
+        await this.pos.updatePosSettings({ posMode: value });
+        return { id: key };
+      }
       default:
         throw new HttpException(`Unsupported sync op type: ${op.type}`, 400);
     }
+  }
+
+  /**
+   * Idempotent create-or-update of a POS customer with a client-supplied id.
+   * Loyalty points live in customFields.loyaltyPoints (Partner has no column).
+   */
+  private async upsertPartner(
+    device: RequestDevice,
+    id: string,
+    payload: Record<string, any>,
+  ): Promise<string> {
+    const existing = await this.prisma.client.partner.findFirst({ where: { id } });
+    const loyalty =
+      typeof payload.loyaltyPoints === 'number' ? { loyaltyPoints: payload.loyaltyPoints } : {};
+    if (existing) {
+      await this.prisma.client.partner.updateMany({
+        where: { id },
+        data: {
+          name: payload.name,
+          phone: payload.phone ?? null,
+          email: payload.email ?? null,
+          notes: payload.note ?? null,
+          isCustomer: true,
+          customFields: { ...((existing.customFields as Record<string, any>) ?? {}), ...loyalty },
+        },
+      });
+      return id;
+    }
+    // Partner.code is @@unique([organizationId, code]); derive it from the
+    // uuid so collisions are effectively impossible — retry longer on P2002.
+    const idHex = id.replace(/-/g, '').toUpperCase();
+    for (const len of [8, 16]) {
+      try {
+        await this.prisma.client.partner.create({
+          data: {
+            id,
+            organizationId: device.organizationId,
+            code: `POS-${idHex.slice(0, len)}`,
+            name: payload.name,
+            phone: payload.phone ?? null,
+            email: payload.email ?? null,
+            notes: payload.note ?? null,
+            isCustomer: true,
+            isCompany: false,
+            customFields: loyalty,
+          },
+        });
+        return id;
+      } catch (e: any) {
+        if (e?.code !== 'P2002') throw e;
+        // Another op may have created this exact partner id concurrently.
+        const raced = await this.prisma.client.partner.findFirst({ where: { id } });
+        if (raced) return id;
+      }
+    }
+    throw new HttpException(`Could not allocate a unique code for customer ${id}`, 409);
   }
 
   /** Record which device captured the sale + the number it printed offline. */

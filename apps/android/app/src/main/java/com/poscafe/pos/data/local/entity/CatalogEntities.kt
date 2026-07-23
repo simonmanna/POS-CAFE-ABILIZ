@@ -154,6 +154,37 @@ data class SettingEntity(
     val valueJson: String,
 )
 
+/** Retail product entity synced from server products scope. */
+@Entity(tableName = "products")
+data class ProductEntity(
+    @PrimaryKey val id: String,
+    val code: String?,
+    val sku: String?,
+    val barcode: String?,
+    val name: String,
+    val description: String?,
+    val image: String?,
+    val salesPrice: Double,
+    val costPrice: Double,
+    val categoryId: String?,
+    val categoryName: String?,
+    val uomName: String?,
+    val taxId: String?,
+    val taxRate: Double,
+    val taxInclusive: Boolean,
+    val isActive: Boolean,
+    val isService: Boolean,
+    val updatedAt: Long,
+)
+
+/** Retail product category synced from server productCategories scope. */
+@Entity(tableName = "product_categories")
+data class ProductCategoryEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val parentId: String?,
+)
+
 /** One row per pull scope: the opaque watermark cursor from the server. */
 @Entity(tableName = "sync_state")
 data class SyncStateEntity(

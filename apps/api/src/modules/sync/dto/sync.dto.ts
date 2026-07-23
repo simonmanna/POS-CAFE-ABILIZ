@@ -21,6 +21,9 @@ export const SYNC_OP_TYPES = [
   'cash_session.movement',
   'sale.checkout',
   'tab.settle',
+  'customer.upsert',
+  'customer.delete',
+  'setting.set',
 ] as const;
 export type SyncOpType = (typeof SYNC_OP_TYPES)[number];
 
@@ -79,5 +82,8 @@ export const SYNC_PULL_SCOPES = [
   'cashRegisters',
   'staff',
   'settings',
+  'products',
+  'productCategories',
+  'partners',
 ] as const;
 export type SyncPullScope = (typeof SYNC_PULL_SCOPES)[number];

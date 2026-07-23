@@ -7,6 +7,7 @@ import { EventBus } from '../../../kernel/events/event-bus';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../../kernel/audit/audit.service';
 import { BaseCrudService, type CrudDelegate } from '../../../kernel/common/base-crud.service';
+import { FilesService } from '../../../kernel/files/files.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
@@ -21,8 +22,23 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
     private readonly events: EventBus,
     private readonly tenant: TenantContextService,
     private readonly audit: AuditService,
+    private readonly files: FilesService,
   ) {
     super(prisma.client.product as unknown as CrudDelegate);
+  }
+
+  /** Resolve a stored image value to a fresh signed download URL.
+   *  Accepts bare UUID, signed URL path, or absolute URL. */
+  private resolveImage(image: string | null | undefined): string | null {
+    if (!image) return null;
+    if (image.startsWith('http')) return image;
+    const idMatch = image.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i);
+    if (!idMatch) return image;
+    try {
+      return this.files.signDownload(idMatch[1]).url;
+    } catch {
+      return null;
+    }
   }
 
   async list(query: PaginationQuery & { categoryId?: string; productType?: string }): Promise<PaginatedResult<Product>> {
@@ -54,9 +70,14 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
     ]);
 
     return {
-      data: data as Product[],
+      data: (data as Product[]).map((p) => ({ ...p, image: this.resolveImage(p.image) })),
       meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     };
+  }
+
+  async findOne(id: string): Promise<Product> {
+    const product = await super.findOne(id);
+    return { ...product, image: this.resolveImage(product.image) };
   }
 
   async create(dto: CreateProductDto): Promise<Product> {

@@ -49,9 +49,8 @@ export function useProductsForPos(params: PosProductsParams = {}) {
       const res = await api.get<{ data: PosProduct[] }>('/products', {
         params: {
           page: 1,
-          pageSize: 500,
+          pageSize: 200,
           search: params.search || undefined,
-          isActive: true,
         },
       });
       const items = res.data.data ?? [];
@@ -245,6 +244,27 @@ export function useTopItems(fromDate: string, toDate: string, limit = 20) {
     queryFn: async () =>
       (await api.get<TopItemRow[]>('/pos/reports/top-items', { params: { fromDate, toDate, limit } })).data,
     enabled: !!fromDate && !!toDate,
+  });
+}
+
+// ---- POS self-service auth ----
+
+// ---- POS Settings ----
+
+export function usePosSettings() {
+  return useQuery({
+    queryKey: ['pos-settings'],
+    queryFn: async () => (await api.get<{ posMode?: string }>('/pos/settings')).data,
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdatePosSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { posMode?: string }) =>
+      (await api.patch('/pos/settings', data)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-settings'] }),
   });
 }
 

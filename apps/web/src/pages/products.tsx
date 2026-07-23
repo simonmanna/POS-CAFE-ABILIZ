@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Edit, Eye, Plus, Search, Trash2 } from 'lucide-react';
+import { Edit, Eye, Plus, Search, Trash2, X } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +33,8 @@ import { notify } from '@/lib/notify';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCreateProduct, useDeleteProduct, useProductCategories, useProducts, useUpdateProduct, type Product } from '@/features/products/api';
+import { api, resolveAssetUrl } from '@/lib/api';
+import { toast } from 'sonner';
 
 const PRODUCT_TYPES = ['stockable', 'consumable', 'service', 'fee', 'subscription', 'asset'] as const;
 
@@ -58,6 +60,35 @@ export function ProductsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [deleting, setDeleting] = useState<Product | null>(null);
+
+  const imageFileIdRef = useRef<string>('');
+  const [previewSrc, setPreviewSrc] = useState<string>('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingImg, setUploadingImg] = useState(false);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImg(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('ownerType', 'product');
+      if (editing?.id) form.append('ownerId', editing.id);
+      const { data } = await api.post('/files/upload', form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const fileId = data.id as string | undefined;
+      if (fileId) imageFileIdRef.current = fileId;
+      const previewUrl = (data as any).downloadUrl ?? (data as any).url ?? '';
+      setPreviewSrc(resolveAssetUrl(previewUrl) ?? '');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message ?? 'Image upload failed');
+    } finally {
+      setUploadingImg(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canView = hasPermission(PERMISSIONS.products.view);
@@ -86,6 +117,8 @@ export function ProductsPage() {
   const openCreate = () => {
     setEditing(null);
     form.reset({ code: '', sku: '', name: '', productType: 'stockable', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true });
+    setPreviewSrc('');
+    imageFileIdRef.current = '';
     setOpen(true);
   };
 
@@ -101,6 +134,20 @@ export function ProductsPage() {
       costPrice: p.costPrice ?? '',
       trackInventory: p.trackInventory,
     });
+    const raw = p.image ?? '';
+    const uuid = raw.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)?.[1] ?? '';
+    if (raw.startsWith('http') || raw.startsWith('/api/v1/files/')) {
+      setPreviewSrc(resolveAssetUrl(raw) ?? '');
+      imageFileIdRef.current = uuid;
+    } else if (raw) {
+      imageFileIdRef.current = raw;
+      api.post(`/files/${encodeURIComponent(raw)}/signed-url`)
+        .then((r) => { if (r.data?.url) setPreviewSrc(resolveAssetUrl(r.data.url) ?? ''); })
+        .catch(() => setPreviewSrc(''));
+    } else {
+      setPreviewSrc('');
+      imageFileIdRef.current = '';
+    }
     setOpen(true);
   };
 
@@ -128,6 +175,7 @@ export function ProductsPage() {
       categoryId: values.categoryId || undefined,
       salesPrice: values.salesPrice ? Number(values.salesPrice) : undefined,
       costPrice: values.costPrice ? Number(values.costPrice) : undefined,
+      image: imageFileIdRef.current || (previewSrc || undefined),
     };
     if (editing) {
       await updateProduct.mutateAsync({ id: editing.id, data });
@@ -326,6 +374,38 @@ export function ProductsPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 mb-1.5">Image</Label>
+              <div className="flex items-start gap-3">
+                {previewSrc && (
+                  <img
+                    src={previewSrc}
+                    alt="Preview"
+                    className="w-16 h-16 rounded-md border border-slate-200 object-cover shrink-0"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+                <div className="flex-1 space-y-1.5">
+                  <Input
+                    id="image"
+                    placeholder="Paste image URL, or use Browse"
+                    value={previewSrc}
+                    onChange={(e) => { setPreviewSrc(e.target.value); imageFileIdRef.current = ''; }}
+                  />
+                  <div className="flex items-center gap-2">
+                    <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                    <Button type="button" size="sm" variant="outline" onClick={() => fileInputRef.current?.click()} disabled={uploadingImg}>
+                      {uploadingImg ? 'Uploading…' : 'Browse'}
+                    </Button>
+                    {previewSrc && (
+                      <Button type="button" size="sm" variant="ghost" onClick={() => { setPreviewSrc(''); imageFileIdRef.current = ''; }}>
+                        <X className="h-3 w-3 mr-1" /> Clear
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

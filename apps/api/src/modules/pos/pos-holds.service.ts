@@ -61,6 +61,7 @@ export class PosHoldsService {
       const totalAmount = this.computeTotal(dto.lines);
       const hold = await tx.posHold.create({
         data: {
+          organizationId,
           name: dto.name.trim(),
           partnerId: dto.partnerId ?? null,
           branchId: dto.branchId ?? null,
@@ -70,6 +71,7 @@ export class PosHoldsService {
           heldById: userId ?? null,
           lines: {
             create: dto.lines.map((ln, i) => ({
+              organizationId,
               productId: ln.productId ?? null,
               description: ln.description,
               quantity: ln.quantity,

@@ -14,6 +14,8 @@ import {
   User,
   AlertTriangle,
   Printer,
+  Pause,
+  ArrowLeftRight,
 } from "lucide-react";
 import { getFoodEmoji } from "./food-images";
 import {
@@ -52,6 +54,16 @@ interface Props {
   onSettleTab?: () => void;
   billAlreadyPrinted?: boolean;
   onPrintAdditionalBill?: () => void;
+  /** When true, hide cafe/restaurant-specific buttons (KOT, split, move items, settle tab). */
+  hideCafeFeatures?: boolean;
+  /** Retail: park current cart as a held order. */
+  onHold?: () => void;
+  /** Retail: open held-orders recall dialog. */
+  onHeldOrders?: () => void;
+  /** Retail: shift handover to another cashier. */
+  onHandover?: () => void;
+  /** Retail: open customer profile dialog (loyalty, store credit). */
+  onCustomerProfile?: () => void;
 }
 
 const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
@@ -84,6 +96,11 @@ export const OrderPanel: React.FC<Props> = ({
   onSettleTab,
   billAlreadyPrinted = false,
   onPrintAdditionalBill,
+  hideCafeFeatures = false,
+  onHold,
+  onHeldOrders,
+  onHandover,
+  onCustomerProfile,
 }) => {
   const lines = useCartStore((s) => s.lines);
   const transactionDiscountPercent = useCartStore(
@@ -105,7 +122,7 @@ export const OrderPanel: React.FC<Props> = ({
           </div>
         </div>
         {customerName ? (
-          <div className="pos-ord-customer ml-2">
+          <div className="pos-ord-customer ml-2 cursor-pointer" onClick={onCustomerProfile} title="View customer profile">
             <User className="h-3 w-3" />
             {customerName}
           </div>
@@ -248,14 +265,16 @@ export const OrderPanel: React.FC<Props> = ({
           <Receipt className="pos-action-icon" /> {billAlreadyPrinted ? 'Add Bill' : 'Bill'}{' '}
           {!billAlreadyPrinted && <span className="pos-kbd">F8</span>}
         </button>
-        <button
-          type="button"
-          className="pos-action-btn-pro bg-sky-600"
-          onClick={onPrintKot}
-          disabled={empty}
-        >
-          <Printer className="pos-action-icon" /> Print KOT
-        </button>
+        {!hideCafeFeatures && (
+          <button
+            type="button"
+            className="pos-action-btn-pro bg-sky-600"
+            onClick={onPrintKot}
+            disabled={empty}
+          >
+            <Printer className="pos-action-icon" /> Print KOT
+          </button>
+        )}
 
         {tableId && onSettleTab ? (
           <button
@@ -288,7 +307,7 @@ export const OrderPanel: React.FC<Props> = ({
          Discount
         </button>
 
-        {onMoveItems ? (
+        {!hideCafeFeatures && onMoveItems ? (
           <button
             type="button"
             className="pos-action-btn-pro bg-pink"
@@ -300,15 +319,51 @@ export const OrderPanel: React.FC<Props> = ({
           </button>
         ) : null}
 
-        <button
-          type="button"
-          className="pos-action-btn-pro bg-pink"
-          onClick={onSplit}
-          disabled={empty}
-          title={tableId ? "Split this table's bill into separate payments" : 'Split payment across tenders'}
-        >
-         Split
-        </button>
+        {!hideCafeFeatures && (
+          <button
+            type="button"
+            className="pos-action-btn-pro bg-pink"
+            onClick={onSplit}
+            disabled={empty}
+            title={tableId ? "Split this table's bill into separate payments" : 'Split payment across tenders'}
+          >
+           Split
+          </button>
+        )}
+
+        {hideCafeFeatures && onHold ? (
+          <button
+            type="button"
+            className="pos-action-btn-pro bg-amber"
+            onClick={onHold}
+            disabled={empty}
+            title="Park this order for later"
+          >
+            <Pause className="pos-action-icon" /> Hold
+          </button>
+        ) : null}
+
+        {hideCafeFeatures && onHeldOrders ? (
+          <button
+            type="button"
+            className="pos-action-btn-pro bg-amber"
+            onClick={onHeldOrders}
+            title="Recall a parked order"
+          >
+            <Pause className="pos-action-icon" /> Held Orders
+          </button>
+        ) : null}
+
+        {hideCafeFeatures && onHandover ? (
+          <button
+            type="button"
+            className="pos-action-btn-pro bg-purple"
+            onClick={onHandover}
+            title="Hand over shift to another cashier"
+          >
+            <ArrowLeftRight className="pos-action-icon" /> Handover
+          </button>
+        ) : null}
       </div>
     </div>
   );

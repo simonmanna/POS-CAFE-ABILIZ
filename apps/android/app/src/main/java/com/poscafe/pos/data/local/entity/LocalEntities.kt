@@ -19,6 +19,9 @@ data class CustomerEntity(
     val note: String?,
     val loyaltyPoints: Int,
     val createdAt: Long,
+    val updatedAt: Long = 0,
+    /** local = has un-pushed edits, synced = mirrors the server Partner row. */
+    val syncStatus: String = "local",
 )
 
 @Entity(tableName = "suppliers")
@@ -37,11 +40,12 @@ data class SupplierEntity(
  */
 @Entity(
     tableName = "inventory_movements",
-    indices = [Index("menuItemId"), Index("occurredAt")],
+    indices = [Index("menuItemId"), Index("productId"), Index("occurredAt")],
 )
 data class InventoryMovementEntity(
     @PrimaryKey val id: String,
     val menuItemId: String,
+    val productId: String?,
     val type: String,
     val qtyDelta: Double,
     val unitCost: Double?,
@@ -77,6 +81,7 @@ data class PurchaseItemEntity(
     @PrimaryKey val id: String,
     val purchaseId: String,
     val menuItemId: String,
+    val productId: String?,
     val name: String,
     val quantity: Double,
     val unitCost: Double,

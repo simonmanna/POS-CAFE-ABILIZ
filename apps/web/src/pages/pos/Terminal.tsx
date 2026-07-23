@@ -82,8 +82,10 @@ import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types
 import type { Customer } from './types';
 import { useAuthStore } from '@/stores/auth.store';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
+import { usePosSettings } from '@/features/pos/api';
 import { useScannerDebounce } from './scanner-debounce';
 import PosLoginScreen from './PosLoginScreen';
+import RetailTerminal from './RetailTerminal';
 
 import './pos-pro.css';
 
@@ -2013,4 +2015,12 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
   );
 };
 
-export default TerminalPage;
+/** POS mode router — renders CafeTerminal or RetailTerminal based on org config. */
+function TerminalPageRouter() {
+  const { data: settings } = usePosSettings();
+  const posMode = (settings as any)?.posMode ?? 'cafe';
+  if (posMode === 'retail') return <RetailTerminal />;
+  return <TerminalPage />;
+}
+
+export default TerminalPageRouter;

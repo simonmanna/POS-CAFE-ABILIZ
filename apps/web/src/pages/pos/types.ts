@@ -31,7 +31,7 @@ export interface Product {
   isActive: boolean;
   /** P10: when true, the displayed price already includes tax. */
   taxInclusive?: boolean;
-  /** Signed download URL for the menu-item photo (resolved by the API). */
+  /** Image URL for product/menu-item photo. */
   image?: string | null;
 }
 

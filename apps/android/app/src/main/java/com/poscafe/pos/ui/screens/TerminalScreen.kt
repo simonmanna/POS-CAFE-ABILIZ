@@ -23,10 +23,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.HourglassBottom
 import androidx.compose.material.icons.outlined.Payments
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.QrCodeScanner
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.RestaurantMenu
 import androidx.compose.material.icons.outlined.Smartphone
@@ -40,8 +45,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -50,9 +57,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.poscafe.pos.data.DeviceConfig
+import com.poscafe.pos.data.local.dao.CustomerDao
+import com.poscafe.pos.data.local.dao.HoldDao
 import com.poscafe.pos.data.local.dao.MenuDao
 import com.poscafe.pos.data.local.dao.OpQueueDao
+import com.poscafe.pos.data.local.dao.ProductCategoryDao
+import com.poscafe.pos.data.local.dao.ProductDao
 import com.poscafe.pos.data.local.dao.RegisterDao
+import com.poscafe.pos.data.local.dao.SettingsDao
 import com.poscafe.pos.data.local.dao.TableDao
 import com.poscafe.pos.data.local.entity.*
 import com.poscafe.pos.data.repo.*
@@ -61,6 +73,8 @@ import com.poscafe.pos.ui.components.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -76,6 +90,12 @@ class TerminalViewModel @Inject constructor(
     private val menuDao: MenuDao,
     tableDao: TableDao,
     private val registerDao: RegisterDao,
+    private val settingsDao: SettingsDao,
+    private val productDao: ProductDao,
+    private val productCategoryDao: ProductCategoryDao,
+    private val holdDao: HoldDao,
+    private val customerDao: CustomerDao,
+    private val customerRepo: CustomerRepository,
     opQueue: OpQueueDao,
     private val auth: AuthRepository,
     private val sales: SaleRepository,
@@ -99,8 +119,112 @@ class TerminalViewModel @Inject constructor(
     val queuedOps: StateFlow<Int> =
         opQueue.queuedCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
+    val isRetailMode: StateFlow<Boolean> =
+        settingsDao.byKeyFlow("pos.mode")
+            .map { setting ->
+                if (setting == null) false
+                else runCatching {
+                    val el = Json.parseToJsonElement(setting.valueJson)
+                    (el as? JsonPrimitive)?.content == "retail"
+                }.getOrDefault(false)
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    // ---- Retail-specific state ----
+    val selectedProductCategory = MutableStateFlow<String?>(null)
+    val productCategories: StateFlow<List<ProductCategoryEntity>> =
+        productCategoryDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    val productSearchQuery = MutableStateFlow("")
+
+    /** Grid = category browse, or name/sku/barcode contains-search while typing. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val products: StateFlow<List<ProductEntity>> =
+        combine(selectedProductCategory, productSearchQuery) { cat, query -> cat to query }
+            .flatMapLatest { (cat, query) ->
+                if (query.isBlank()) productDao.byCategory(cat) else productDao.search(query.trim())
+            }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /** Dine-in target; null = takeaway/counter sale. */
     val selectedTable = MutableStateFlow<PosTableEntity?>(null)
+
+    init {
+        // Retail has no tables — a table picked in cafe mode must never leak
+        // into a retail sale as dine_in.
+        viewModelScope.launch {
+            isRetailMode.collect { retail -> if (retail) selectedTable.value = null }
+        }
+    }
+
+    val customers: StateFlow<List<CustomerEntity>> =
+        customerDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    var selectedCustomer by mutableStateOf<CustomerEntity?>(null); private set
+
+    val holds: StateFlow<List<LocalHoldEntity>> =
+        holdDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun selectCustomer(customer: CustomerEntity?) { selectedCustomer = customer }
+
+    fun createCustomer(name: String, phone: String?) {
+        viewModelScope.launch {
+            val entity = CustomerEntity(
+                id = UUID.randomUUID().toString(),
+                name = name,
+                phone = phone?.takeIf { it.isNotBlank() },
+                email = null,
+                note = null,
+                loyaltyPoints = 0,
+                createdAt = System.currentTimeMillis(),
+            )
+            // Local upsert + customer.upsert op — the op queue is FIFO, so the
+            // Partner reaches the server before any sale that references it.
+            selectedCustomer = customerRepo.save(entity, auth.current?.userId)
+        }
+    }
+
+    // ---- Hold / park ----
+
+    private val holdJson = Json { encodeDefaults = false }
+
+    fun saveHold(name: String) {
+        if (cart.isEmpty()) return
+        viewModelScope.launch {
+            val linesJson = holdJson.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(CartEngine.CartLine.serializer()),
+                cart,
+            )
+            holdDao.insert(
+                LocalHoldEntity(
+                    id = UUID.randomUUID().toString(),
+                    name = name,
+                    linesJson = linesJson,
+                    totalAmount = totals.total,
+                    partnerId = selectedCustomer?.id,
+                    actorUserId = auth.current?.userId,
+                    createdAt = System.currentTimeMillis(),
+                    syncStatus = "local",
+                ),
+            )
+            cart = emptyList()
+        }
+    }
+
+    fun retrieveHold(hold: LocalHoldEntity) {
+        viewModelScope.launch {
+            val lines = runCatching {
+                holdJson.decodeFromString(
+                    kotlinx.serialization.builtins.ListSerializer(CartEngine.CartLine.serializer()),
+                    hold.linesJson,
+                )
+            }.getOrDefault(emptyList())
+            if (lines.isNotEmpty()) cart = lines
+        }
+    }
+
+    fun deleteHold(hold: LocalHoldEntity) {
+        viewModelScope.launch { holdDao.softDelete(hold.id) }
+    }
 
     var cart by mutableStateOf<List<CartEngine.CartLine>>(emptyList()); private set
     var error by mutableStateOf<String?>(null); private set
@@ -133,6 +257,41 @@ class TerminalViewModel @Inject constructor(
                 addSimple(item)
             } else {
                 itemConfig = ItemConfig(item, variants, modGroups, accGroups)
+            }
+        }
+    }
+
+    fun onProductTap(product: ProductEntity) {
+        val price = product.salesPrice
+        val existing = cart.find { it.productId == product.id && it.note == null }
+        cart = if (existing != null) {
+            cart.map { if (it.lineId == existing.lineId) it.copy(quantity = it.quantity + 1) else it }
+        } else {
+            cart + CartEngine.CartLine(
+                lineId = UUID.randomUUID().toString(),
+                productId = product.id,
+                name = product.name,
+                quantity = 1.0,
+                baseUnitPrice = price,
+                taxRatePercent = product.taxRate,
+                taxInclusive = product.taxInclusive,
+            )
+        }
+    }
+
+    fun onSearchQueryChanged(query: String) {
+        productSearchQuery.value = query
+        if (query.isBlank()) {
+            selectedProductCategory.value = null
+        }
+    }
+
+    fun searchProducts(query: String) {
+        viewModelScope.launch {
+            val result = productDao.byCode(query)
+            if (result != null) {
+                onProductTap(result)
+                productSearchQuery.value = ""
             }
         }
     }
@@ -193,7 +352,7 @@ class TerminalViewModel @Inject constructor(
         val user = auth.current ?: return
         if (charging) return
         val linesAtSale = cart
-        val table = selectedTable.value
+        val table = if (isRetailMode.value) null else selectedTable.value
         viewModelScope.launch {
             charging = true
             try {
@@ -206,6 +365,7 @@ class TerminalViewModel @Inject constructor(
                     cashSessionLocalId = session.value?.id,
                     tableId = table?.id,
                     orderType = if (table != null) "dine_in" else "takeaway",
+                    partnerId = selectedCustomer?.id,
                 )
                 config.printerHost?.let { host ->
                     runCatching {
@@ -264,11 +424,23 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
     val queuedOps by vm.queuedOps.collectAsStateWithLifecycle()
     val selectedTable by vm.selectedTable.collectAsStateWithLifecycle()
     val tables by vm.tables.collectAsStateWithLifecycle()
+    val isRetail by vm.isRetailMode.collectAsStateWithLifecycle()
+    val productCategories by vm.productCategories.collectAsStateWithLifecycle()
+    val products by vm.products.collectAsStateWithLifecycle()
+    val selectedProdCat by vm.selectedProductCategory.collectAsStateWithLifecycle()
+    val searchQuery by vm.productSearchQuery.collectAsStateWithLifecycle()
+    val customers by vm.customers.collectAsStateWithLifecycle()
+    val selectedCustomer = vm.selectedCustomer
 
     var showCheckout by remember { mutableStateOf(false) }
     var showCartSheet by remember { mutableStateOf(false) }
     var showTablePicker by remember { mutableStateOf(false) }
     var showOpenSession by remember { mutableStateOf(false) }
+    var showBarcodeScanner by remember { mutableStateOf(false) }
+    var showCustomerPicker by remember { mutableStateOf(false) }
+    val holdMode = remember { mutableStateOf<HoldDialogMode>(HoldDialogMode.Save) }
+    var showHoldDialog by remember { mutableStateOf(false) }
+    val holds by vm.holds.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -278,48 +450,43 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
                 cashierName = vm.cashier?.displayName ?: "",
                 sessionOpen = session != null,
                 queuedOps = if (vm.config.standalone) 0 else queuedOps,
-                table = selectedTable,
+                table = if (isRetail) null else selectedTable,
+                customer = selectedCustomer,
                 onMenu = onMenu,
-                onPickTable = { showTablePicker = true },
+                onPickTable = if (isRetail) null else ({ showTablePicker = true } as (() -> Unit)?),
+                onPickCustomer = { showCustomerPicker = true },
+                onRecallHold = { holdMode.value = HoldDialogMode.Recall; showHoldDialog = true },
                 onOpenSession = { vm.loadRegisters(); showOpenSession = true },
+                isRetailMode = isRetail,
+                searchQuery = searchQuery,
+                onSearchQueryChanged = vm::onSearchQueryChanged,
+                onSearch = vm::searchProducts,
+                onScanBarcode = { showBarcodeScanner = true },
             )
             Row(Modifier.weight(1f)) {
-                // ---- Menu ----
                 Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                    CategoryChips(
-                        categories = categories,
-                        selected = selectedCat,
-                        onSelect = { vm.selectedCategory.value = it },
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    if (menuItems.isEmpty()) {
-                        EmptyState(
-                            icon = Icons.Outlined.RestaurantMenu,
-                            title = "No items here yet",
-                            subtitle = "Pull from the server on the More tab to load the menu.",
-                            modifier = Modifier.fillMaxSize(),
+                    if (isRetail) {
+                        RetailCatalog(
+                            categories = productCategories,
+                            selectedCategory = selectedProdCat,
+                            products = products,
+                            vm = vm,
+                            haptics = haptics,
+                            serverUrl = vm.config.serverUrl,
+                            wide = wide,
                         )
                     } else {
-                        LazyVerticalGrid(
-                            columns = GridCells.Adaptive(150.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            contentPadding = PaddingValues(bottom = if (wide) 16.dp else 96.dp),
-                        ) {
-                            items(menuItems, key = { it.id }) { item ->
-                                ProductCard(
-                                    item = item,
-                                    imageUrl = resolveAssetUrl(vm.config.serverUrl, item.image),
-                                    onTap = {
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        vm.onItemTap(item)
-                                    },
-                                )
-                            }
-                        }
+                        CafeCatalog(
+                            categories = categories,
+                            selectedCat = selectedCat,
+                            menuItems = menuItems,
+                            vm = vm,
+                            haptics = haptics,
+                            serverUrl = vm.config.serverUrl,
+                            wide = wide,
+                        )
                     }
                 }
-                // ---- Cart (tablet: persistent panel) ----
                 if (wide) {
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
@@ -329,15 +496,16 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
                     ) {
                         CartPanel(
                             vm = vm,
-                            table = selectedTable,
+                            table = if (isRetail) null else selectedTable,
                             onCharge = { showCheckout = true },
+                            showHold = isRetail,
+                            onHold = { holdMode.value = HoldDialogMode.Save; showHoldDialog = true },
                         )
                     }
                 }
             }
         }
 
-        // ---- Phone: floating cart bar ----
         if (!wide && vm.cart.isNotEmpty()) {
             CartBar(
                 count = vm.cart.sumOf { it.quantity }.toInt(),
@@ -347,7 +515,6 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
             )
         }
 
-        // ---- Payment success ----
         vm.successSale?.let { sale ->
             SuccessOverlay(
                 sale = sale,
@@ -356,17 +523,18 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
         }
     }
 
-    // ---- Sheets & dialogs ----
-    vm.itemConfig?.let { config ->
-        ItemConfigSheet(
-            config = config,
-            imageUrl = resolveAssetUrl(vm.config.serverUrl, config.item.image),
-            onDismiss = { vm.dismissConfig() },
-            onAdd = { variant, mods, accs, note, qty ->
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                vm.addConfigured(config.item, variant, mods, accs, note, qty)
-            },
-        )
+    if (!isRetail) {
+        vm.itemConfig?.let { config ->
+            ItemConfigSheet(
+                config = config,
+                imageUrl = resolveAssetUrl(vm.config.serverUrl, config.item.image),
+                onDismiss = { vm.dismissConfig() },
+                onAdd = { variant, mods, accs, note, qty ->
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    vm.addConfigured(config.item, variant, mods, accs, note, qty)
+                },
+            )
+        }
     }
 
     if (showCartSheet) {
@@ -379,7 +547,7 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
                 CartPanel(vm = vm, table = vm.selectedTable.collectAsStateWithLifecycle().value, onCharge = {
                     showCartSheet = false
                     showCheckout = true
-                })
+                }, showHold = isRetail, onHold = { holdMode.value = HoldDialogMode.Save; showHoldDialog = true })
             }
         }
     }
@@ -396,7 +564,7 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
         )
     }
 
-    if (showTablePicker) {
+    if (!isRetail && showTablePicker) {
         TablePickerDialog(
             tables = tables,
             selectedId = selectedTable?.id,
@@ -412,6 +580,34 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
             onDismiss = { showOpenSession = false },
         )
     }
+
+    if (showBarcodeScanner) {
+        BarcodeScannerDialog(
+            onDismiss = { showBarcodeScanner = false },
+            onBarcodeDetected = { barcode -> vm.searchProducts(barcode) },
+        )
+    }
+
+    if (showCustomerPicker) {
+        CustomerPickerDialog(
+            customers = customers,
+            selectedId = selectedCustomer?.id,
+            onSelect = { vm.selectCustomer(it); showCustomerPicker = false },
+            onCreateCustomer = { name, phone -> vm.createCustomer(name, phone); showCustomerPicker = false },
+            onDismiss = { showCustomerPicker = false },
+        )
+    }
+
+    if (showHoldDialog) {
+        HoldDialog(
+            mode = holdMode.value,
+            holds = holds,
+            onSave = { name -> vm.saveHold(name); showHoldDialog = false },
+            onRetrieve = { hold -> vm.retrieveHold(hold); showHoldDialog = false },
+            onDelete = { hold -> vm.deleteHold(hold) },
+            onDismiss = { showHoldDialog = false },
+        )
+    }
 }
 
 // =====================================================================
@@ -424,70 +620,164 @@ private fun TerminalHeader(
     sessionOpen: Boolean,
     queuedOps: Int,
     table: PosTableEntity?,
+    customer: CustomerEntity? = null,
     onMenu: (() -> Unit)?,
-    onPickTable: () -> Unit,
+    onPickTable: (() -> Unit)?,
+    onPickCustomer: () -> Unit = {},
+    onRecallHold: () -> Unit = {},
     onOpenSession: () -> Unit,
+    isRetailMode: Boolean = false,
+    searchQuery: String = "",
+    onSearchQueryChanged: (String) -> Unit = {},
+    onSearch: (String) -> Unit = {},
+    onScanBarcode: () -> Unit = {},
 ) {
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            onMenu?.let {
-                IconButton(onClick = it) { Icon(Icons.Filled.Menu, "Menu") }
-            }
-            Column {
-                Text("New order", style = MaterialTheme.typography.headlineSmall)
-                Text(
-                    cashierName,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (queuedOps > 0) {
-                StatusPill(
-                    "$queuedOps to sync",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    container = MaterialTheme.colorScheme.surfaceContainerHigh,
-                )
-            }
-            if (!sessionOpen) {
-                Surface(
-                    onClick = onOpenSession,
-                    shape = RoundedCornerShape(999.dp),
-                    color = MaterialTheme.colorScheme.errorContainer,
-                ) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                onMenu?.let {
+                    IconButton(onClick = it) { Icon(Icons.Filled.Menu, "Menu") }
+                }
+                Column {
+                    Text(if (isRetailMode) "Retail POS" else "New order", style = MaterialTheme.typography.headlineSmall)
                     Text(
-                        "Open cash session",
-                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        cashierName,
                         style = MaterialTheme.typography.labelMedium,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            // Table selector chip
-            Surface(
-                onClick = onPickTable,
-                shape = RoundedCornerShape(999.dp),
-                color = if (table != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-            ) {
-                Row(
-                    Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Icon(
-                        Icons.Outlined.TableRestaurant, null,
-                        modifier = Modifier.size(16.dp),
-                        tint = if (table != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (queuedOps > 0) {
+                    StatusPill(
+                        "$queuedOps to sync",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        container = MaterialTheme.colorScheme.surfaceContainerHigh,
                     )
-                    Text(
-                        table?.let { "Table ${it.number}" } ?: "Takeaway",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (table != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                }
+                if (!sessionOpen) {
+                    Surface(
+                        onClick = onOpenSession,
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                    ) {
+                        Text(
+                            "Open cash session",
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+                // Customer chip
+                Surface(
+                    onClick = onPickCustomer,
+                    shape = RoundedCornerShape(999.dp),
+                    color = if (customer != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Person, null,
+                            modifier = Modifier.size(16.dp),
+                            tint = if (customer != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            customer?.name ?: "Customer",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (customer != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                if (isRetailMode) {
+                    Surface(
+                        onClick = onRecallHold,
+                        shape = RoundedCornerShape(999.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Outlined.HourglassBottom, null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "Recall",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                if (!isRetailMode) {
+                    onPickTable?.let { pickTable ->
+                        Surface(
+                            onClick = pickTable,
+                            shape = RoundedCornerShape(999.dp),
+                            color = if (table != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Icon(
+                                    Icons.Outlined.TableRestaurant, null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = if (table != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Text(
+                                    table?.let { "Table ${it.number}" } ?: "Takeaway",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (table != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (isRetailMode) {
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = onSearchQueryChanged,
+                    placeholder = { Text("Search by name, SKU, or barcode…") },
+                    leadingIcon = { Icon(Icons.Filled.Search, null, modifier = Modifier.size(20.dp)) },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { onSearchQueryChanged("") }) {
+                                Icon(Icons.Filled.Close, "Clear", modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { onSearch(searchQuery) }),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(48.dp),
+                )
+                IconButton(onClick = onScanBarcode) {
+                    Icon(
+                        Icons.Outlined.QrCodeScanner, "Scan barcode",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp),
                     )
                 }
             }
@@ -526,6 +816,140 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
             color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
         )
+    }
+}
+
+@Composable
+private fun CafeCatalog(
+    categories: List<MenuCategoryEntity>,
+    selectedCat: String?,
+    menuItems: List<MenuItemEntity>,
+    vm: TerminalViewModel,
+    haptics: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    serverUrl: String?,
+    wide: Boolean,
+) {
+    CategoryChips(categories = categories, selected = selectedCat, onSelect = { vm.selectedCategory.value = it })
+    Spacer(Modifier.height(12.dp))
+    if (menuItems.isEmpty()) {
+        EmptyState(
+            icon = Icons.Outlined.RestaurantMenu,
+            title = "No items here yet",
+            subtitle = "Pull from the server on the More tab to load the menu.",
+            modifier = Modifier.fillMaxSize(),
+        )
+    } else {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(150.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = if (wide) 16.dp else 96.dp),
+        ) {
+            items(menuItems, key = { it.id }) { item ->
+                ProductCard(
+                    item = item,
+                    imageUrl = resolveAssetUrl(serverUrl, item.image),
+                    onTap = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        vm.onItemTap(item)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RetailCatalog(
+    categories: List<ProductCategoryEntity>,
+    selectedCategory: String?,
+    products: List<ProductEntity>,
+    vm: TerminalViewModel,
+    haptics: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    serverUrl: String?,
+    wide: Boolean,
+) {
+    // Product category chips
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        CategoryChip("All", selectedCategory == null) { vm.selectedProductCategory.value = null }
+        categories.forEach { cat ->
+            CategoryChip(cat.name, selectedCategory == cat.id) { vm.selectedProductCategory.value = cat.id }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    if (products.isEmpty()) {
+        EmptyState(
+            icon = Icons.Outlined.RestaurantMenu,
+            title = "No products",
+            subtitle = "Sync products from the server, or scan a barcode above.",
+            modifier = Modifier.fillMaxSize(),
+        )
+    } else {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(150.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(bottom = if (wide) 16.dp else 96.dp),
+        ) {
+            items(products, key = { it.id }) { product ->
+                ProductTile(
+                    product = product,
+                    imageUrl = resolveAssetUrl(serverUrl, product.image),
+                    onTap = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        vm.onProductTap(product)
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProductTile(product: ProductEntity, imageUrl: String?, onTap: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    Surface(
+        onClick = onTap,
+        interactionSource = interaction,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 1.dp,
+        modifier = Modifier
+            .pressScale(interaction)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large),
+    ) {
+        Column(Modifier.padding(10.dp)) {
+            ItemImage(imageUrl, product.name, Modifier.fillMaxWidth().aspectRatio(1.25f))
+            Spacer(Modifier.height(10.dp))
+            Text(
+                product.name,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.heightIn(min = 20.dp),
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    Money.format(product.salesPrice),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Box(
+                    Modifier.size(28.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("+", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleSmall)
+                }
+            }
+        }
     }
 }
 
@@ -611,7 +1035,7 @@ private fun CartBar(count: Int, total: Double, onOpen: () -> Unit, modifier: Mod
 }
 
 @Composable
-private fun CartPanel(vm: TerminalViewModel, table: PosTableEntity?, onCharge: () -> Unit) {
+private fun CartPanel(vm: TerminalViewModel, table: PosTableEntity?, onCharge: () -> Unit, showHold: Boolean = false, onHold: () -> Unit = {}) {
     val totals = vm.totals
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -665,6 +1089,18 @@ private fun CartPanel(vm: TerminalViewModel, table: PosTableEntity?, onCharge: (
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.height(12.dp))
+        if (showHold && vm.cart.isNotEmpty()) {
+            OutlinedButton(
+                onClick = onHold,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Icon(Icons.Outlined.ReceiptLong, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("Hold order")
+            }
+            Spacer(Modifier.height(8.dp))
+        }
         PrimaryButton(
             text = if (vm.cart.isEmpty()) "Charge" else "Charge ${Money.format(totals.total)}",
             onClick = onCharge,

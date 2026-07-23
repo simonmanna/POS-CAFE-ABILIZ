@@ -23,9 +23,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.poscafe.pos.data.local.dao.MenuDao
+import com.poscafe.pos.data.local.dao.ProductDao
 import com.poscafe.pos.data.local.dao.PurchaseDao
 import com.poscafe.pos.data.local.dao.SupplierDao
 import com.poscafe.pos.data.local.entity.MenuItemEntity
+import com.poscafe.pos.data.local.entity.ProductEntity
 import com.poscafe.pos.data.local.entity.PurchaseEntity
 import com.poscafe.pos.data.local.entity.SupplierEntity
 import com.poscafe.pos.data.repo.AuthRepository
@@ -46,6 +48,7 @@ import javax.inject.Inject
 @HiltViewModel
 class PurchasesViewModel @Inject constructor(
     menuDao: MenuDao,
+    productDao: ProductDao,
     supplierDao: SupplierDao,
     purchaseDao: PurchaseDao,
     private val purchases: PurchaseRepository,
@@ -53,6 +56,8 @@ class PurchasesViewModel @Inject constructor(
 ) : ViewModel() {
     val items: StateFlow<List<MenuItemEntity>> =
         menuDao.allItemsIncludingUnavailable().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val products: StateFlow<List<ProductEntity>> =
+        productDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val suppliers: StateFlow<List<SupplierEntity>> =
         supplierDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val recent: StateFlow<List<PurchaseEntity>> =
@@ -69,25 +74,34 @@ class PurchasesViewModel @Inject constructor(
     }
 }
 
+/** Purchasable stock target — a menu item or a retail product. */
+private data class PickItem(val id: String, val name: String, val defaultCost: Double?, val isProduct: Boolean)
+
 @Composable
 fun PurchasesScreen(onBack: () -> Unit, vm: PurchasesViewModel = hiltViewModel()) {
     val items by vm.items.collectAsStateWithLifecycle()
+    val products by vm.products.collectAsStateWithLifecycle()
     val suppliers by vm.suppliers.collectAsStateWithLifecycle()
     val recent by vm.recent.collectAsStateWithLifecycle()
     val supplierNames = remember(suppliers) { suppliers.associate { it.id to it.name } }
     var building by remember { mutableStateOf(false) }
 
+    val pickItems = remember(items, products) {
+        items.map { PickItem(it.id, it.name, it.basePriceMajor, isProduct = false) } +
+            products.map { PickItem(it.id, it.name, it.costPrice.takeIf { c -> c > 0 }, isProduct = true) }
+    }
+
     ManageScaffold(
         title = "Purchases",
         onBack = onBack,
-        fabLabel = if (items.isEmpty()) null else "New purchase",
-        onFab = if (items.isEmpty()) null else ({ building = true }),
+        fabLabel = if (pickItems.isEmpty()) null else "New purchase",
+        onFab = if (pickItems.isEmpty()) null else ({ building = true }),
     ) { _ ->
-        if (items.isEmpty()) {
+        if (pickItems.isEmpty()) {
             EmptyState(
                 icon = Icons.Outlined.Inventory2,
                 title = "Add products first",
-                subtitle = "Purchases receive stock against menu items.",
+                subtitle = "Purchases receive stock against menu items or retail products.",
                 modifier = Modifier.fillMaxSize(),
             )
         } else if (recent.isEmpty()) {
@@ -141,7 +155,7 @@ fun PurchasesScreen(onBack: () -> Unit, vm: PurchasesViewModel = hiltViewModel()
 
     if (building) {
         PurchaseBuilderDialog(
-            items = items,
+            items = pickItems,
             suppliers = suppliers,
             error = vm.error,
             onReceive = { supplierId, reference, note, lines ->
@@ -154,13 +168,13 @@ fun PurchasesScreen(onBack: () -> Unit, vm: PurchasesViewModel = hiltViewModel()
 
 @Composable
 private fun PurchaseBuilderDialog(
-    items: List<MenuItemEntity>,
+    items: List<PickItem>,
     suppliers: List<SupplierEntity>,
     error: String?,
     onReceive: (supplierId: String?, reference: String?, note: String?, lines: List<PurchaseRepository.Line>) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    data class DraftLine(val item: MenuItemEntity, val qty: String, val cost: String)
+    data class DraftLine(val item: PickItem, val qty: String, val cost: String)
 
     var supplierId by remember { mutableStateOf<String?>(null) }
     var reference by remember { mutableStateOf("") }
@@ -257,7 +271,10 @@ private fun PurchaseBuilderDialog(
                         note,
                         lines.map {
                             PurchaseRepository.Line(
-                                menuItemId = it.item.id,
+                                // Product lines use menuItemId = "" + productId,
+                                // matching the sale-movement convention.
+                                menuItemId = if (it.item.isProduct) "" else it.item.id,
+                                productId = if (it.item.isProduct) it.item.id else null,
                                 name = it.item.name,
                                 quantity = it.qty.toDoubleOrNull() ?: 0.0,
                                 unitCost = it.cost.toDoubleOrNull() ?: 0.0,
@@ -274,7 +291,7 @@ private fun PurchaseBuilderDialog(
         ItemPickerDialog(
             items = items,
             onPick = { item ->
-                lines.add(DraftLine(item, "1", item.basePriceMajor?.let { "%.0f".format(it) } ?: ""))
+                lines.add(DraftLine(item, "1", item.defaultCost?.let { "%.0f".format(it) } ?: ""))
                 picking = false
             },
             onDismiss = { picking = false },
@@ -283,23 +300,40 @@ private fun PurchaseBuilderDialog(
 }
 
 @Composable
-private fun ItemPickerDialog(items: List<MenuItemEntity>, onPick: (MenuItemEntity) -> Unit, onDismiss: () -> Unit) {
+private fun ItemPickerDialog(items: List<PickItem>, onPick: (PickItem) -> Unit, onDismiss: () -> Unit) {
+    val menuItems = items.filter { !it.isProduct }
+    val productItems = items.filter { it.isProduct }
+    val showHeaders = menuItems.isNotEmpty() && productItems.isNotEmpty()
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = MaterialTheme.shapes.extraLarge,
         title = { Text("Choose item", style = MaterialTheme.typography.titleMedium) },
         text = {
             LazyColumn(Modifier.heightIn(max = 380.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                items(items, key = { it.id }) { item ->
-                    Surface(
-                        onClick = { onPick(item) },
-                        shape = MaterialTheme.shapes.medium,
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(item.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(12.dp))
+                listOf("Menu items" to menuItems, "Retail products" to productItems)
+                    .filter { it.second.isNotEmpty() }
+                    .forEach { (title, section) ->
+                        if (showHeaders) {
+                            item(key = "header-$title") {
+                                Text(
+                                    title,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 4.dp),
+                                )
+                            }
+                        }
+                        items(section, key = { it.id }) { item ->
+                            Surface(
+                                onClick = { onPick(item) },
+                                shape = MaterialTheme.shapes.medium,
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(item.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(12.dp))
+                            }
+                        }
                     }
-                }
             }
         },
         confirmButton = {},

@@ -55,6 +55,7 @@ class SaleRepository @Inject constructor(
         tableId: String? = null,
         orderType: String = "takeaway",
         transactionDiscountPercent: Double = 0.0,
+        partnerId: String? = null,
     ): CompletedSale {
         require(lines.isNotEmpty()) { "Cart is empty" }
         val totals = CartEngine.totals(lines, transactionDiscountPercent)
@@ -81,6 +82,7 @@ class SaleRepository @Inject constructor(
             // to the real session id created earlier in the same push batch.
             cashSessionLocalId?.let { put("cashSessionId", it) }
             tableId?.let { put("tableId", it) }
+            partnerId?.let { put("partnerId", it) }
             put("orderType", orderType)
             put("provisionalNumber", provisionalNumber)
             put("clientId", localId)
@@ -107,14 +109,15 @@ class SaleRepository @Inject constructor(
             ),
         )
 
-        // Movement-based stock: one 'sale' issue per catalog line. Best-effort
-        // and never blocks the sale (owner rule); negative on-hand is allowed.
+        // Movement-based stock: one 'sale' issue per catalog/product line.
+        // Best-effort and never blocks the sale; negative on-hand is allowed.
         runCatching {
             inventoryDao.insertAll(
-                lines.filter { it.menuItemId != null }.map { l ->
+                lines.filter { it.menuItemId != null || it.productId != null }.map { l ->
                     InventoryMovementEntity(
                         id = UUID.randomUUID().toString(),
-                        menuItemId = l.menuItemId!!,
+                        menuItemId = l.menuItemId ?: "",
+                        productId = l.productId,
                         type = "sale",
                         qtyDelta = -l.quantity,
                         unitCost = null,
@@ -149,6 +152,7 @@ class SaleRepository @Inject constructor(
         lines.forEach { l ->
             add(buildJsonObject {
                 l.menuItemId?.let { put("menuItemId", it) }
+                l.productId?.let { put("productId", it) }
                 put("description", l.name)
                 put("quantity", l.quantity)
                 // The server re-resolves modifier/accompaniment prices from its

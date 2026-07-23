@@ -21,7 +21,7 @@ import javax.inject.Singleton
 class PurchaseRepository @Inject constructor(
     private val db: PosDatabase,
 ) {
-    data class Line(val menuItemId: String, val name: String, val quantity: Double, val unitCost: Double)
+    data class Line(val menuItemId: String, val name: String, val quantity: Double, val unitCost: Double, val productId: String? = null)
 
     suspend fun receive(
         actorUserId: String?,
@@ -55,6 +55,7 @@ class PurchaseRepository @Inject constructor(
                 quantity = it.quantity,
                 unitCost = it.unitCost,
                 lineTotal = it.quantity * it.unitCost,
+                productId = it.productId,
             )
         }
         val movements = lines.map {
@@ -70,6 +71,7 @@ class PurchaseRepository @Inject constructor(
                 purchaseId = purchaseId,
                 actorUserId = actorUserId,
                 occurredAt = now,
+                productId = it.productId,
             )
         }
 

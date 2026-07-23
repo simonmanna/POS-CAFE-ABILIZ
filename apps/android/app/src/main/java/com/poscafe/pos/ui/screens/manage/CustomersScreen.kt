@@ -22,6 +22,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.poscafe.pos.data.local.dao.CustomerDao
 import com.poscafe.pos.data.local.entity.CustomerEntity
+import com.poscafe.pos.data.repo.AuthRepository
+import com.poscafe.pos.data.repo.CustomerRepository
 import com.poscafe.pos.ui.components.EmptyState
 import com.poscafe.pos.ui.components.StatusPill
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,13 +35,17 @@ import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
-class CustomersViewModel @Inject constructor(private val dao: CustomerDao) : ViewModel() {
+class CustomersViewModel @Inject constructor(
+    dao: CustomerDao,
+    private val repo: CustomerRepository,
+    private val auth: AuthRepository,
+) : ViewModel() {
     val customers: StateFlow<List<CustomerEntity>> =
         dao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     fun save(existing: CustomerEntity?, name: String, phone: String?, email: String?, note: String?, loyaltyPoints: Int) {
         viewModelScope.launch {
-            dao.upsert(
+            repo.save(
                 CustomerEntity(
                     id = existing?.id ?: UUID.randomUUID().toString(),
                     name = name.trim(),
@@ -49,11 +55,12 @@ class CustomersViewModel @Inject constructor(private val dao: CustomerDao) : Vie
                     loyaltyPoints = loyaltyPoints,
                     createdAt = existing?.createdAt ?: System.currentTimeMillis(),
                 ),
+                auth.current?.userId,
             )
         }
     }
 
-    fun delete(id: String) = viewModelScope.launch { dao.delete(id) }
+    fun delete(id: String) = viewModelScope.launch { repo.delete(id, auth.current?.userId) }
 }
 
 /** Local customer book + simple on-device loyalty points. */

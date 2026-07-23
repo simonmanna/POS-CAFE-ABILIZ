@@ -55,6 +55,7 @@ export interface PosProduct {
   salesPrice: string | null;
   categoryId?: string | null;
   category?: { id: string; name: string } | null;
+  image?: string | null;
   isActive: boolean;
 }
 

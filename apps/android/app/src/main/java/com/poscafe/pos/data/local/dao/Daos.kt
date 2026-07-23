@@ -111,7 +111,11 @@ interface SettingsDao {
     @Query("SELECT * FROM settings WHERE `key` = :key")
     suspend fun byKey(key: String): SettingEntity?
 
+    @Query("SELECT * FROM settings WHERE `key` = :key")
+    fun byKeyFlow(key: String): Flow<SettingEntity?>
+
     @Upsert suspend fun upsertAll(rows: List<SettingEntity>)
+    @Upsert suspend fun upsert(row: SettingEntity)
 }
 
 @Dao
@@ -177,6 +181,12 @@ interface CustomerDao {
     @Query("SELECT * FROM customers ORDER BY name")
     fun all(): Flow<List<CustomerEntity>>
 
+    @Query("SELECT * FROM customers WHERE id = :id")
+    suspend fun byId(id: String): CustomerEntity?
+
+    @Query("UPDATE customers SET syncStatus = 'synced' WHERE id = :id")
+    suspend fun markSynced(id: String)
+
     @Upsert suspend fun upsert(row: CustomerEntity)
     @Query("DELETE FROM customers WHERE id = :id") suspend fun delete(id: String)
 }
@@ -193,9 +203,13 @@ interface SupplierDao {
 @Dao
 interface InventoryDao {
     data class StockLevel(val menuItemId: String, val onHand: Double)
+    data class ProductStockLevel(val productId: String, val onHand: Double)
 
-    @Query("SELECT menuItemId, SUM(qtyDelta) AS onHand FROM inventory_movements GROUP BY menuItemId")
+    @Query("SELECT menuItemId, SUM(qtyDelta) AS onHand FROM inventory_movements WHERE productId IS NULL GROUP BY menuItemId")
     fun stockLevels(): Flow<List<StockLevel>>
+
+    @Query("SELECT productId, SUM(qtyDelta) AS onHand FROM inventory_movements WHERE productId IS NOT NULL GROUP BY productId")
+    fun productStockLevels(): Flow<List<ProductStockLevel>>
 
     @Query("SELECT * FROM inventory_movements ORDER BY occurredAt DESC LIMIT :limit")
     fun recent(limit: Int = 200): Flow<List<InventoryMovementEntity>>
@@ -235,6 +249,51 @@ interface ExpenseDao {
 }
 
 @Dao
+interface ProductDao {
+    @Query("SELECT * FROM products WHERE isActive = 1 ORDER BY name")
+    fun all(): Flow<List<ProductEntity>>
+
+    @Query("SELECT * FROM products WHERE isActive = 1 AND (:categoryId IS NULL OR categoryId = :categoryId) ORDER BY name")
+    fun byCategory(categoryId: String?): Flow<List<ProductEntity>>
+
+    @Query("SELECT * FROM products WHERE isActive = 1 AND (sku = :code OR barcode = :code) LIMIT 1")
+    suspend fun byCode(code: String): ProductEntity?
+
+    @Query("SELECT * FROM products WHERE id = :id")
+    suspend fun byId(id: String): ProductEntity?
+
+    @Query("SELECT * FROM products WHERE isActive = 1 AND (name LIKE '%' || :query || '%' OR sku LIKE '%' || :query || '%' OR barcode LIKE '%' || :query || '%') ORDER BY name")
+    fun search(query: String): Flow<List<ProductEntity>>
+
+    @Upsert suspend fun upsertAll(rows: List<ProductEntity>)
+    @Query("DELETE FROM products WHERE id = :id") suspend fun delete(id: String)
+    @Query("DELETE FROM products") suspend fun deleteAll()
+}
+
+@Dao
+interface ProductCategoryDao {
+    @Query("SELECT * FROM product_categories ORDER BY name")
+    fun all(): Flow<List<ProductCategoryEntity>>
+
+    @Upsert suspend fun upsertAll(rows: List<ProductCategoryEntity>)
+    @Query("DELETE FROM product_categories WHERE id = :id") suspend fun delete(id: String)
+    @Query("DELETE FROM product_categories") suspend fun deleteAll()
+}
+
+@Dao
+interface HoldDao {
+    @Query("SELECT * FROM local_holds WHERE syncStatus != 'deleted' ORDER BY createdAt DESC")
+    fun all(): Flow<List<LocalHoldEntity>>
+
+    @Query("SELECT * FROM local_holds WHERE id = :id")
+    suspend fun byId(id: String): LocalHoldEntity?
+
+    @Insert suspend fun insert(hold: LocalHoldEntity)
+    @Query("UPDATE local_holds SET syncStatus = 'deleted' WHERE id = :id")
+    suspend fun softDelete(id: String)
+}
+
+@Dao
 interface OpQueueDao {
     @Insert suspend fun enqueue(op: OpQueueEntity)
 
@@ -249,6 +308,9 @@ interface OpQueueDao {
 
     @Query("SELECT * FROM op_queue WHERE status = 'failed' ORDER BY deviceSeq")
     fun failed(): Flow<List<OpQueueEntity>>
+
+    @Query("SELECT * FROM op_queue WHERE status = 'queued' AND type = :type")
+    suspend fun queuedOfType(type: String): List<OpQueueEntity>
 
     @Query("UPDATE op_queue SET status = :status, attempts = attempts + 1, lastError = :error WHERE opId = :opId")
     suspend fun mark(opId: String, status: String, error: String?)

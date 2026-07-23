@@ -925,7 +925,11 @@ export class PosService {
       where: {
         organizationId: orgId,
         isActive: true,
-        OR: [{ sku: { equals: sku, mode: 'insensitive' } }, { code: { equals: sku, mode: 'insensitive' } }],
+        OR: [
+          { sku: { equals: sku, mode: 'insensitive' } },
+          { code: { equals: sku, mode: 'insensitive' } },
+          { barcode: { equals: sku, mode: 'insensitive' } },
+        ],
       },
       include: { stockItems: true },
       take: 5,
@@ -1222,5 +1226,35 @@ export class PosService {
       },
     });
     return created.id;
+  }
+
+  /** Return the POS module config (posMode, etc). */
+  async getPosSettings(): Promise<Record<string, unknown>> {
+    const mod = await this.prisma.client.organizationModule.findUnique({
+      where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: 'pos' } },
+    });
+    return (mod?.config as Record<string, unknown>) ?? { posMode: 'cafe' };
+  }
+
+  /** Update POS module config (posMode, etc). */
+  async updatePosSettings(dto: { posMode?: string }): Promise<Record<string, unknown>> {
+    const existing = await this.prisma.client.organizationModule.findUnique({
+      where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: 'pos' } },
+    });
+    const config = { ...((existing?.config as Record<string, unknown>) ?? {}), ...dto };
+    await this.prisma.client.organizationModule.upsert({
+      where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: 'pos' } },
+      update: { config: config as any },
+      create: { organizationId: this.tenant.organizationId, moduleName: 'pos', isActive: true, config: config as any },
+    });
+    // Sync the posMode as a Setting so offline devices see it via sync pull.
+    if (dto.posMode) {
+      await this.prisma.client.setting.upsert({
+        where: { organizationId_scope_key: { organizationId: this.tenant.organizationId, scope: 'organization', key: 'pos.mode' } },
+        update: { value: dto.posMode },
+        create: { organizationId: this.tenant.organizationId, scope: 'organization', key: 'pos.mode', value: dto.posMode },
+      });
+    }
+    return config;
   }
 }

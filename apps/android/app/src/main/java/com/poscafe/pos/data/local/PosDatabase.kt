@@ -37,8 +37,11 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         PurchaseEntity::class,
         PurchaseItemEntity::class,
         ExpenseEntity::class,
+        ProductEntity::class,
+        ProductCategoryEntity::class,
+        LocalHoldEntity::class,
     ],
-    version = 3,
+    version = 5,
     exportSchema = true,
 )
 abstract class PosDatabase : RoomDatabase() {
@@ -56,6 +59,9 @@ abstract class PosDatabase : RoomDatabase() {
     abstract fun inventoryDao(): InventoryDao
     abstract fun purchaseDao(): PurchaseDao
     abstract fun expenseDao(): ExpenseDao
+    abstract fun productDao(): ProductDao
+    abstract fun productCategoryDao(): ProductCategoryDao
+    abstract fun holdDao(): HoldDao
 
     companion object {
         /** v1 → v2: additive only (customers, suppliers, inventory movements) —
@@ -108,18 +114,47 @@ abstract class PosDatabase : RoomDatabase() {
             }
         }
 
-        /**
-         * SQLCipher-encrypted database. The passphrase never leaves the device:
-         * it is generated once and stored via EncryptedSharedPreferences whose
-         * master key lives in the hardware-backed Android Keystore. This is the
-         * mitigation for syncing staff PIN bcrypt hashes to the device — a
-         * stolen tablet yields ciphertext, not hashes.
-         */
+        /** v3 → v4: retail products + holds + nullable productId on movements/purchases. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `products` (`id` TEXT NOT NULL, `code` TEXT, `sku` TEXT, " +
+                        "`barcode` TEXT, `name` TEXT NOT NULL, `description` TEXT, `image` TEXT, " +
+                        "`salesPrice` REAL NOT NULL, `costPrice` REAL NOT NULL, `categoryId` TEXT, " +
+                        "`categoryName` TEXT, `uomName` TEXT, `taxId` TEXT, `taxRate` REAL NOT NULL, " +
+                        "`taxInclusive` INTEGER NOT NULL, `isActive` INTEGER NOT NULL, `isService` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `product_categories` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`parentId` TEXT, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `local_holds` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`linesJson` TEXT NOT NULL, `totalAmount` REAL NOT NULL, `partnerId` TEXT, " +
+                        "`actorUserId` TEXT, `createdAt` INTEGER NOT NULL, `syncStatus` TEXT NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("ALTER TABLE `inventory_movements` ADD COLUMN `productId` TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_inventory_movements_productId` ON `inventory_movements` (`productId`)")
+                db.execSQL("ALTER TABLE `purchase_items` ADD COLUMN `productId` TEXT")
+            }
+        }
+
+        /** v4 → v5: customer sync bookkeeping (additive). */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `customers` ADD COLUMN `updatedAt` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `customers` ADD COLUMN `syncStatus` TEXT NOT NULL DEFAULT 'local'")
+            }
+        }
+
+        /** SQLCipher-encrypted. Passphrase stored in EncryptedSharedPreferences
+         *  (Android Keystore-backed) — stolen device yields ciphertext only. */
         fun build(context: Context, passphrase: ByteArray): PosDatabase {
             System.loadLibrary("sqlcipher")
             return Room.databaseBuilder(context, PosDatabase::class.java, "pos-cafe.db")
                 .openHelperFactory(SupportOpenHelperFactory(passphrase))
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
         }

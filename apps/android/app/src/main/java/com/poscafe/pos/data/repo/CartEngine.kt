@@ -1,5 +1,6 @@
 package com.poscafe.pos.data.repo
 
+import kotlinx.serialization.Serializable
 import kotlin.math.max
 import kotlin.math.round
 
@@ -16,12 +17,13 @@ import kotlin.math.round
  */
 object CartEngine {
 
-    data class ModifierSel(val modifierId: String, val name: String, val priceDelta: Double)
-    data class AccompanimentSel(val optionId: String, val name: String, val priceImpact: Double)
+    @Serializable data class ModifierSel(val modifierId: String, val name: String, val priceDelta: Double)
+    @Serializable data class AccompanimentSel(val optionId: String, val name: String, val priceImpact: Double)
 
-    data class CartLine(
+    @Serializable data class CartLine(
         val lineId: String,
-        val menuItemId: String?,
+        val menuItemId: String? = null,
+        val productId: String? = null,
         val name: String,
         val quantity: Double,
         /** Base or variant unit price (MAJOR units), before add-ons. */

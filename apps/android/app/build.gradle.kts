@@ -83,6 +83,13 @@ dependencies {
     // Offline PIN verification against the synced bcrypt hash.
     implementation("at.favre.lib:bcrypt:0.10.2")
 
+    // Barcode scanning (ML Kit + CameraX)
+    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+    implementation("androidx.camera:camera-core:1.3.4")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
+
     // Encrypted key storage for the DB passphrase + device token.
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 

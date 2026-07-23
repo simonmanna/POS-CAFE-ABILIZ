@@ -131,9 +131,43 @@ export class SyncPullService {
           },
           orderBy: { updatedAt: 'asc' },
         });
+      case 'products':
+        return c.product.findMany({
+          where: { ...changed },
+          include: {
+            category: { select: { id: true, name: true } },
+            uom: { select: { id: true, name: true, code: true } },
+            tax: { select: { id: true, rate: true } },
+          },
+          orderBy: { updatedAt: 'asc' },
+        });
+      case 'productCategories':
+        return c.productCategory.findMany({
+          where: { ...changed },
+          orderBy: { updatedAt: 'asc' },
+        });
       case 'settings':
         return c.setting.findMany({
           where: { ...changed, key: { startsWith: 'pos.' } },
+          orderBy: { updatedAt: 'asc' },
+        });
+      case 'partners':
+        // Customers only — suppliers/employees never reach POS devices.
+        // Loyalty rides in customFields.loyaltyPoints (no dedicated column).
+        return c.partner.findMany({
+          where: { ...changed, isCustomer: true },
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            phone: true,
+            email: true,
+            notes: true,
+            customFields: true,
+            createdAt: true,
+            updatedAt: true,
+            deletedAt: true,
+          },
           orderBy: { updatedAt: 'asc' },
         });
       default:

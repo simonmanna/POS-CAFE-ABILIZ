@@ -22,9 +22,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.poscafe.pos.data.local.dao.InventoryDao
 import com.poscafe.pos.data.local.dao.MenuDao
+import com.poscafe.pos.data.local.dao.ProductDao
+import com.poscafe.pos.data.local.dao.SettingsDao
 import com.poscafe.pos.data.local.dao.SupplierDao
 import com.poscafe.pos.data.local.entity.InventoryMovementEntity
 import com.poscafe.pos.data.local.entity.MenuItemEntity
+import com.poscafe.pos.data.local.entity.ProductEntity
 import com.poscafe.pos.data.local.entity.SupplierEntity
 import com.poscafe.pos.data.repo.AuthRepository
 import com.poscafe.pos.ui.components.EmptyState
@@ -33,6 +36,7 @@ import com.poscafe.pos.ui.theme.LocalPosAccents
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -45,6 +49,8 @@ import javax.inject.Inject
 class StockViewModel @Inject constructor(
     menuDao: MenuDao,
     supplierDao: SupplierDao,
+    productDao: ProductDao,
+    settingsDao: SettingsDao,
     private val inventoryDao: InventoryDao,
     private val auth: AuthRepository,
 ) : ViewModel() {
@@ -52,14 +58,30 @@ class StockViewModel @Inject constructor(
         menuDao.allItemsIncludingUnavailable().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val levels: StateFlow<List<InventoryDao.StockLevel>> =
         inventoryDao.stockLevels().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val products: StateFlow<List<ProductEntity>> =
+        productDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val productLevels: StateFlow<List<InventoryDao.ProductStockLevel>> =
+        inventoryDao.productStockLevels().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val movements: StateFlow<List<InventoryMovementEntity>> =
         inventoryDao.recent(200).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val suppliers: StateFlow<List<SupplierEntity>> =
         supplierDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** Which catalog leads the Levels list (retail → products first). */
+    val isRetailMode: StateFlow<Boolean> = settingsDao.byKeyFlow("pos.mode")
+        .map { setting ->
+            setting?.valueJson?.let { v ->
+                runCatching {
+                    (kotlinx.serialization.json.Json.parseToJsonElement(v) as? kotlinx.serialization.json.JsonPrimitive)?.content == "retail"
+                }.getOrDefault(false)
+            } ?: false
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     /** Record a manual movement. qty is entered positive; the type sets the sign
-     *  (purchase +, waste/transfer −, adjustment carries its own direction). */
-    fun record(menuItemId: String, type: String, qty: Double, direction: Int, unitCost: Double?, supplierId: String?, reason: String?) {
+     *  (purchase +, waste/transfer −, adjustment carries its own direction).
+     *  Product rows use menuItemId = "" + productId, matching sale movements. */
+    fun record(menuItemId: String, productId: String?, type: String, qty: Double, direction: Int, unitCost: Double?, supplierId: String?, reason: String?) {
         viewModelScope.launch {
             val signed = when (type) {
                 "purchase" -> qty
@@ -78,11 +100,15 @@ class StockViewModel @Inject constructor(
                     saleLocalId = null,
                     actorUserId = auth.current?.userId,
                     occurredAt = System.currentTimeMillis(),
+                    productId = productId,
                 ),
             )
         }
     }
 }
+
+/** One row in the Levels list — either a menu item or a retail product. */
+private data class StockRow(val id: String, val name: String, val isProduct: Boolean, val onHand: Double)
 
 /** Movement-based stock: on-hand is always the sum of movements, never a
  *  stored counter. Sales deduct automatically at checkout. */
@@ -91,12 +117,26 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
     var tab by remember { mutableStateOf(0) }
     val items by vm.items.collectAsStateWithLifecycle()
     val levels by vm.levels.collectAsStateWithLifecycle()
+    val products by vm.products.collectAsStateWithLifecycle()
+    val productLevels by vm.productLevels.collectAsStateWithLifecycle()
     val movements by vm.movements.collectAsStateWithLifecycle()
     val suppliers by vm.suppliers.collectAsStateWithLifecycle()
+    val isRetail by vm.isRetailMode.collectAsStateWithLifecycle()
 
     val levelByItem = remember(levels) { levels.associate { it.menuItemId to it.onHand } }
+    val levelByProduct = remember(productLevels) { productLevels.associate { it.productId to it.onHand } }
     val itemNames = remember(items) { items.associate { it.id to it.name } }
-    var recordFor by remember { mutableStateOf<MenuItemEntity?>(null) }
+    val productNames = remember(products) { products.associate { it.id to it.name } }
+    // Levels list: both catalogs, active mode's catalog first, empty ones hidden.
+    val sections = remember(items, products, levelByItem, levelByProduct, isRetail) {
+        val menuRows = items.map { StockRow(it.id, it.name, isProduct = false, onHand = levelByItem[it.id] ?: 0.0) }
+        val productRows = products.map { StockRow(it.id, it.name, isProduct = true, onHand = levelByProduct[it.id] ?: 0.0) }
+        val ordered =
+            if (isRetail) listOf("Retail products" to productRows, "Menu items" to menuRows)
+            else listOf("Menu items" to menuRows, "Retail products" to productRows)
+        ordered.filter { it.second.isNotEmpty() }
+    }
+    var recordFor by remember { mutableStateOf<StockRow?>(null) }
 
     ManageScaffold(
         title = "Stock & inventory",
@@ -113,11 +153,11 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
         },
     ) { _ ->
         if (tab == 0) {
-            if (items.isEmpty()) {
+            if (sections.isEmpty()) {
                 EmptyState(
                     icon = Icons.Outlined.Inventory2,
                     title = "No products",
-                    subtitle = "Add menu items first — stock is tracked per item.",
+                    subtitle = "Add menu items or sync retail products — stock is tracked per item.",
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -125,36 +165,47 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp, top = 8.dp),
                 ) {
-                    items(items, key = { it.id }) { item ->
-                        val onHand = levelByItem[item.id] ?: 0.0
-                        Surface(
-                            onClick = { recordFor = item },
-                            shape = MaterialTheme.shapes.large,
-                            color = MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            ) {
+                    sections.forEach { (title, rows) ->
+                        if (sections.size > 1) {
+                            item(key = "header-$title") {
                                 Text(
-                                    item.name,
-                                    style = MaterialTheme.typography.titleSmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
+                                    title,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
                                 )
-                                val accents = LocalPosAccents.current
-                                when {
-                                    onHand <= 0 -> StatusPill(
-                                        fmtQty(onHand),
-                                        MaterialTheme.colorScheme.onErrorContainer,
-                                        MaterialTheme.colorScheme.errorContainer,
+                            }
+                        }
+                        items(rows, key = { it.id }) { row ->
+                            Surface(
+                                onClick = { recordFor = row },
+                                shape = MaterialTheme.shapes.large,
+                                color = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    Text(
+                                        row.name,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
                                     )
-                                    onHand <= 5 -> StatusPill(fmtQty(onHand), accents.warning, accents.warningContainer)
-                                    else -> StatusPill(fmtQty(onHand), accents.success, accents.successContainer)
+                                    val accents = LocalPosAccents.current
+                                    when {
+                                        row.onHand <= 0 -> StatusPill(
+                                            fmtQty(row.onHand),
+                                            MaterialTheme.colorScheme.onErrorContainer,
+                                            MaterialTheme.colorScheme.errorContainer,
+                                        )
+                                        row.onHand <= 5 -> StatusPill(fmtQty(row.onHand), accents.warning, accents.warningContainer)
+                                        else -> StatusPill(fmtQty(row.onHand), accents.success, accents.successContainer)
+                                    }
                                 }
                             }
                         }
@@ -189,7 +240,7 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
                             ) {
                                 Column(Modifier.weight(1f)) {
                                     Text(
-                                        itemNames[m.menuItemId] ?: "Unknown item",
+                                        m.productId?.let { productNames[it] } ?: itemNames[m.menuItemId] ?: "Unknown item",
                                         style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -213,13 +264,18 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
         }
     }
 
-    recordFor?.let { item ->
+    recordFor?.let { row ->
         RecordMovementDialog(
-            item = item,
-            onHand = levelByItem[item.id] ?: 0.0,
+            name = row.name,
+            onHand = row.onHand,
             suppliers = suppliers,
             onRecord = { type, qty, direction, cost, supplierId, reason ->
-                vm.record(item.id, type, qty, direction, cost, supplierId, reason)
+                vm.record(
+                    menuItemId = if (row.isProduct) "" else row.id,
+                    productId = if (row.isProduct) row.id else null,
+                    type = type, qty = qty, direction = direction,
+                    unitCost = cost, supplierId = supplierId, reason = reason,
+                )
                 recordFor = null
             },
             onDismiss = { recordFor = null },
@@ -231,7 +287,7 @@ private fun fmtQty(q: Double): String = if (q % 1.0 == 0.0) q.toInt().toString()
 
 @Composable
 private fun RecordMovementDialog(
-    item: MenuItemEntity,
+    name: String,
     onHand: Double,
     suppliers: List<SupplierEntity>,
     onRecord: (type: String, qty: Double, direction: Int, unitCost: Double?, supplierId: String?, reason: String?) -> Unit,
@@ -250,7 +306,7 @@ private fun RecordMovementDialog(
         shape = MaterialTheme.shapes.extraLarge,
         title = {
             Column {
-                Text(item.name, style = MaterialTheme.typography.headlineSmall)
+                Text(name, style = MaterialTheme.typography.headlineSmall)
                 Text(
                     "On hand: ${fmtQty(onHand)}",
                     style = MaterialTheme.typography.bodySmall,

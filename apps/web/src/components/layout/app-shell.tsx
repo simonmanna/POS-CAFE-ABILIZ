@@ -141,6 +141,14 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/reports', label: 'Report Center', icon: BarChart3, permission: PERMISSIONS.report.accounting },
     ],
   },
+  {
+    title: 'Fixed Assets',
+    items: [
+      { to: '/fixed-assets', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.fixedAsset.read },
+      { to: '/fixed-assets/register', label: 'Asset Register', icon: Building2, permission: PERMISSIONS.fixedAsset.read },
+      { to: '/fixed-assets/categories', label: 'Categories', icon: Tag, permission: PERMISSIONS.assetCategory.read },
+    ],
+  },
   // {
   //   title: 'Platform',
   //   items: [
@@ -151,14 +159,6 @@ const NAV_SECTIONS: NavSection[] = [
   //     { to: '/modules', label: 'Modules', icon: Building2 },
   //   ],
   // },
-  {
-    title: 'Fixed Assets',
-    items: [
-      { to: '/fixed-assets', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.fixedAsset.read },
-      { to: '/fixed-assets/register', label: 'Asset Register', icon: Building2, permission: PERMISSIONS.fixedAsset.read },
-      { to: '/fixed-assets/categories', label: 'Categories', icon: Tag, permission: PERMISSIONS.assetCategory.read },
-    ],
-  },
   {
     title: 'System',
     items: [

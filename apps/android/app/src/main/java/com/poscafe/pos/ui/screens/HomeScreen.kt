@@ -53,11 +53,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -88,6 +90,14 @@ fun HomeScreen(onOpenSync: () -> Unit, onLock: () -> Unit, onNavigate: (String) 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val standalone = terminalVm.config.standalone
+    val isRetail by terminalVm.isRetailMode.collectAsStateWithLifecycle()
+
+    // Retail has no dine-in tables; drop the tab and bail out of it if the
+    // mode flips (or the state restores) while Tables is selected.
+    val visibleTabs = if (isRetail) HomeTab.entries.filter { it != HomeTab.Tables } else HomeTab.entries
+    LaunchedEffect(isRetail) {
+        if (isRetail && tab == HomeTab.Tables) tab = HomeTab.Sell
+    }
 
     val openDrawer: () -> Unit = { scope.launch { drawerState.open() } }
     val navigateFromDrawer: (String) -> Unit = { route ->
@@ -111,7 +121,7 @@ fun HomeScreen(onOpenSync: () -> Unit, onLock: () -> Unit, onNavigate: (String) 
             if (useRail) {
                 Row(Modifier.fillMaxSize()) {
                     NavigationRail(containerColor = MaterialTheme.colorScheme.surface) {
-                        HomeTab.entries.forEach { t ->
+                        visibleTabs.forEach { t ->
                             NavigationRailItem(
                                 selected = tab == t,
                                 onClick = { tab = t },
@@ -131,7 +141,7 @@ fun HomeScreen(onOpenSync: () -> Unit, onLock: () -> Unit, onNavigate: (String) 
                     containerColor = MaterialTheme.colorScheme.background,
                     bottomBar = {
                         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                            HomeTab.entries.forEach { t ->
+                            visibleTabs.forEach { t ->
                                 NavigationBarItem(
                                     selected = tab == t,
                                     onClick = { tab = t },

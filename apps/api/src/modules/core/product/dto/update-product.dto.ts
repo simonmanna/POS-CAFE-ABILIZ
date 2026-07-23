@@ -58,6 +58,10 @@ export class UpdateProductDto {
   isActive?: boolean;
 
   @IsOptional()
+  @IsString()
+  image?: string;
+
+  @IsOptional()
   @IsObject()
   customFields?: Record<string, unknown>;
 }

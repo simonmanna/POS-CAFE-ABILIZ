@@ -35,6 +35,9 @@ interface Props {
   orderType?: 'dine-in' | 'takeaway' | 'delivery';
   /** Extra nodes pinned to the right cluster (e.g. the offline indicator). */
   rightExtras?: React.ReactNode;
+  /** Branding — override the default "Cafe POS" title and icon. */
+  brandTitle?: string;
+  brandIcon?: React.ReactNode;
 }
 
 const initials = (name?: string) => {
@@ -61,14 +64,16 @@ export const Topbar: React.FC<Props> = ({
   onOpenHeldOrders,
   orderType,
   rightExtras,
+  brandTitle = 'Cafe POS',
+  brandIcon,
 }) => {
   const shiftOpen = !!session && session.status === 'open';
 
   return (
     <div className="pos-topbar-pro">
       <div className="pos-brand-pro">
-        <Coffee className="h-4 w-4" />
-        <span>Cafe POS</span>
+        {brandIcon ?? <Coffee className="h-4 w-4" />}
+        <span>{brandTitle}</span>
       </div>
 
       {/* Shift indicator pill */}

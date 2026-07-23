@@ -64,6 +64,23 @@ data class LocalCashMovementEntity(
 )
 
 /**
+ * Parked (held) order stored locally. These are cart snapshots that the
+ * cashier can recall and tender. On connected devices they also sync via
+ * pos.hold / pos.recall ops so the server keeps an audit trail.
+ */
+@Entity(tableName = "local_holds")
+data class LocalHoldEntity(
+    @PrimaryKey val id: String,
+    val name: String,
+    val linesJson: String,
+    val totalAmount: Double,
+    val partnerId: String?,
+    val actorUserId: String?,
+    val createdAt: Long,
+    val syncStatus: String, // local | queued | pushed | deleted
+)
+
+/**
  * The push queue. One row per op, strictly ordered by deviceSeq. Never
  * deleted on failure — failed ops flip to `failed` and surface in the sync
  * screen (mirror of the server's dead-letter philosophy).

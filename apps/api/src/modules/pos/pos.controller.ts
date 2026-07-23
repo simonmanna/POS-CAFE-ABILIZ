@@ -12,7 +12,7 @@
  * /pos/reports/*         → PosReportsController
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Body, Controller, Get, Param, Post, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
@@ -208,6 +208,12 @@ class SettleTabDto {
   @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
+class UpdatePosSettingsDto {
+  @ApiProperty({ required: false, enum: ['cafe', 'retail'], description: 'POS mode: cafe/restaurant or retail' })
+  @IsOptional() @IsString() @IsIn(['cafe', 'retail'])
+  posMode?: string;
+}
+
 @ApiTags('pos')
 @ApiBearerAuth()
 @Controller('pos')
@@ -216,6 +222,18 @@ export class PosController {
     private readonly svc: PosService,
     private readonly billing: PosInvoiceService,
   ) {}
+
+  @Get('settings')
+  @RequirePermissions('pos:read')
+  getSettings() {
+    return this.svc.getPosSettings();
+  }
+
+  @Patch('settings')
+  @RequirePermissions('setting:update')
+  updateSettings(@Body() dto: UpdatePosSettingsDto) {
+    return this.svc.updatePosSettings(dto);
+  }
 
   @Post('checkout')
   @RequirePermissions('pos:checkout')

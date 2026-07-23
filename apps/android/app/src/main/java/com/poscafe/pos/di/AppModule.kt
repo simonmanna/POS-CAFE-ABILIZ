@@ -43,6 +43,9 @@ object AppModule {
     @Provides fun inventoryDao(db: PosDatabase): InventoryDao = db.inventoryDao()
     @Provides fun purchaseDao(db: PosDatabase): PurchaseDao = db.purchaseDao()
     @Provides fun expenseDao(db: PosDatabase): ExpenseDao = db.expenseDao()
+    @Provides fun productDao(db: PosDatabase): ProductDao = db.productDao()
+    @Provides fun productCategoryDao(db: PosDatabase): ProductCategoryDao = db.productCategoryDao()
+    @Provides fun holdDao(db: PosDatabase): HoldDao = db.holdDao()
 
     /**
      * Retrofit is built once, but the server URL is device config the cashier
