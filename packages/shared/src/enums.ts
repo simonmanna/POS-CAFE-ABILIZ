@@ -165,8 +165,13 @@ export const ACCOUNT_MAPPING_LABELS: Record<AccountMappingKey, string> = {
   asset_revaluation_surplus: 'Asset Revaluation Surplus',
 };
 
-/** Per-product inventory costing method (M3). */
-export const COSTING_METHODS = ['AVCO', 'FIFO', 'STANDARD'] as const;
+/**
+ * Per-product inventory costing method (M3).
+ * - AVCO / FIFO / STANDARD: see CostResolverService.
+ * - SPECIFIC: specific-identification — each unit/layer is costed at its own
+ *   actual receipt cost (requires serial or batch tracking to identify the layer).
+ */
+export const COSTING_METHODS = ['AVCO', 'FIFO', 'STANDARD', 'SPECIFIC'] as const;
 export type CostingMethod = (typeof COSTING_METHODS)[number];
 
 // ---------------------------- Inventory (Phase 4) ---------------------------
@@ -247,8 +252,18 @@ export const STOCK_ADJUSTMENT_REASONS = [
 ] as const;
 export type StockAdjustmentReason = (typeof STOCK_ADJUSTMENT_REASONS)[number];
 
-export const STOCK_DISTRIBUTION_STRATEGIES = ['FEFO', 'FIFO', 'MANUAL'] as const;
+/**
+ * How stock is picked when issuing a batch/serial-tracked product. Doubles as the
+ * per-product default `pickingStrategy` and the per-transaction `distStrategy`.
+ * - FEFO: nearest expiry first (default). FIFO: oldest receipt first.
+ * - MANUAL: consume only a named batch. SERIAL: consume specifically-selected serials.
+ */
+export const STOCK_DISTRIBUTION_STRATEGIES = ['FEFO', 'FIFO', 'MANUAL', 'SERIAL'] as const;
 export type StockDistributionStrategy = (typeof STOCK_DISTRIBUTION_STRATEGIES)[number];
+
+/** Lifecycle status of a single serialized stock unit (InventorySerial). */
+export const SERIAL_STATUSES = ['in_stock', 'issued', 'returned', 'scrapped'] as const;
+export type SerialStatus = (typeof SERIAL_STATUSES)[number];
 
 // ---- Beverage Control — digital-weight alcohol measurement ----
 /** How a product's remaining stock is measured. */

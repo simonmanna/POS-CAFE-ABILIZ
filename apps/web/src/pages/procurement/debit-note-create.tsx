@@ -10,6 +10,7 @@ import { notify } from '@/lib/notify';
 
 interface Partner { id: string; name: string; code: string }
 interface Product { id: string; name: string; code: string; salesPrice?: number; costPrice?: number; taxId?: string }
+interface Location { id: string; name: string; code: string; type?: string }
 
 interface Line { productId?: string; description: string; quantity: number; unitPrice: number; taxId?: string }
 
@@ -20,7 +21,12 @@ export function DebitNoteCreatePage() {
   const [partnerId, setPartnerId] = useState('');
   const [reason, setReason] = useState('correction');
   const [notes, setNotes] = useState('');
+  const [locationId, setLocationId] = useState('');
   const [lines, setLines] = useState<Line[]>([{ description: '', quantity: 1, unitPrice: 0 }]);
+
+  // A return-to-vendor (inbound + returned goods) ships stock back, so it needs
+  // to know which warehouse the goods leave from.
+  const isRtv = direction === 'inbound' && reason === 'returned_goods';
 
   const partners = useQuery<Partner[]>({
     queryKey: ['partners-all'],
@@ -30,6 +36,10 @@ export function DebitNoteCreatePage() {
     queryKey: ['products'],
     queryFn: async () => (await api.get<Product[]>('/products?pageSize=200')).data,
   });
+  const locations = useQuery<Location[]>({
+    queryKey: ['inventory-locations'],
+    queryFn: async () => (await api.get<{ data: Location[] }>('/inventory/locations')).data.data ?? [],
+  });
 
   const create = useMutation({
     mutationFn: async () =>
@@ -38,6 +48,7 @@ export function DebitNoteCreatePage() {
         partnerId,
         reason,
         notes,
+        ...(isRtv && locationId ? { locationId } : {}),
         lines: lines.filter((l) => l.description && l.quantity > 0),
       })).data,
     onSuccess: (data: any) => {
@@ -120,6 +131,24 @@ export function DebitNoteCreatePage() {
             <label className="text-sm font-medium">Notes</label>
             <Input className="mt-1" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
+          {isRtv && (
+            <div>
+              <label className="text-sm font-medium">Return from warehouse</label>
+              <select
+                value={locationId}
+                onChange={(e) => setLocationId(e.target.value)}
+                className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
+              >
+                <option value="">Default warehouse</option>
+                {locations.data?.filter((l) => l.type === 'warehouse').map((l) => (
+                  <option key={l.id} value={l.id}>{l.code} — {l.name}</option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Returned goods leave this warehouse and their value is reversed out of stock when the note is posted.
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 

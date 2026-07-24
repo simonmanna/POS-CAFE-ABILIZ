@@ -33,6 +33,11 @@ export interface Product {
   taxInclusive?: boolean;
   /** Image URL for product/menu-item photo. */
   image?: string | null;
+  /** When true, this catalog card is a combo bundle (backend expands it into
+   *  component lines at checkout). Picking it adds a single combo line. */
+  isCombo?: boolean;
+  /** Component summary shown under a combo card, e.g. "Croissant + Latte". */
+  comboSummary?: string;
 }
 
 export interface Customer {

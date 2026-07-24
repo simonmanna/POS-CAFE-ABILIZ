@@ -28,6 +28,9 @@ export class CreateDebitNoteDto {
   @ApiProperty({ required: false }) @IsOptional() @IsString() currencyCode?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() exchangeRate?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsString() notes?: string;
+  /** RTV only: the warehouse the returned goods leave from. Defaults to the
+   *  org's default warehouse when omitted. */
+  @ApiProperty({ required: false }) @IsOptional() @IsString() locationId?: string;
   @ApiProperty({ type: [DebitNoteLineDto] })
   @IsArray() @ArrayMinSize(1)
   @ValidateNested({ each: true })

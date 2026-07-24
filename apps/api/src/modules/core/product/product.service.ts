@@ -21,11 +21,26 @@ const BEVERAGE_FIELDS = [
   'fullBottleWeightG',
 ] as const;
 
+/** Fields that, when touched, require the inventory-tracking config to be re-normalized. */
+const INVENTORY_CONFIG_FIELDS = [
+  'batchTracking',
+  'expiryTracking',
+  'serialTracking',
+  'pickingStrategy',
+  'costingMethod',
+] as const;
+
 @Injectable()
 export class ProductService extends BaseCrudService<Product, CreateProductDto, UpdateProductDto> {
   protected readonly entityName = 'Product';
   protected readonly searchFields = ['code', 'sku', 'name'];
-  protected readonly defaultInclude = { category: true, uom: true, tax: true };
+  protected readonly defaultInclude = {
+    category: true,
+    uom: true,
+    purchaseUom: true,
+    salesUom: true,
+    tax: true,
+  };
 
   constructor(
     private readonly prisma: PrismaService,
@@ -121,8 +136,71 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
     return data;
   }
 
+  /**
+   * Enforce the inventory-tracking dependency rules and normalize the toggles so
+   * an impossible combination can never be persisted. Auto-corrects (rather than
+   * rejecting) where a dependent flag is implied:
+   *   - expiryTracking ⇒ batchTracking (expiry is stored on InventoryBatch)
+   *   - costingMethod FIFO ⇒ batchTracking (FIFO consumes batch cost-layers)
+   *   - costingMethod SPECIFIC ⇒ serialTracking (or batchTracking) to identify the layer
+   *   - pickingStrategy SERIAL ⇒ serialTracking
+   * On update, incoming values are merged with the existing row so a partial edit
+   * still validates the whole combination.
+   */
+  private applyInventoryConfig(
+    data: Record<string, any>,
+    existing?: Product | null,
+  ): Record<string, any> {
+    const eff = (k: string) => (data[k] !== undefined ? data[k] : (existing as any)?.[k]);
+    let batch = eff('batchTracking') as boolean | undefined;
+    const expiry = eff('expiryTracking') as boolean | undefined;
+    let serial = eff('serialTracking') as boolean | undefined;
+    const costing = eff('costingMethod') as string | undefined;
+    const picking = eff('pickingStrategy') as string | undefined;
+
+    if (expiry) batch = true;
+    if (costing === 'FIFO') batch = true;
+    if (costing === 'SPECIFIC' && !serial && !batch) serial = true;
+    if (picking === 'SERIAL') serial = true;
+
+    if (batch !== undefined) data.batchTracking = batch;
+    if (serial !== undefined) data.serialTracking = serial;
+    return data;
+  }
+
+  /**
+   * Fill any omitted inventory-config field from the org-level defaults stored in
+   * the Setting table (scope 'organization', key `inventory.default*`). Mirrors the
+   * beverage org-default pattern. Only applied on create; an explicit value always wins.
+   */
+  private async applyOrgInventoryDefaults(data: Record<string, any>): Promise<void> {
+    const fieldKeys: Array<[string, string]> = [
+      ['costingMethod', 'inventory.defaultCostingMethod'],
+      ['pickingStrategy', 'inventory.defaultPickingStrategy'],
+      ['batchTracking', 'inventory.defaultBatchTracking'],
+      ['expiryTracking', 'inventory.defaultExpiryTracking'],
+      ['serialTracking', 'inventory.defaultSerialTracking'],
+    ];
+    const missing = fieldKeys.filter(([field]) => data[field] === undefined);
+    if (missing.length === 0) return;
+    const rows = await this.prisma.raw.setting.findMany({
+      where: {
+        organizationId: this.tenant.organizationId,
+        scope: 'organization',
+        key: { in: missing.map(([, key]) => key) },
+      },
+    });
+    const byKey = new Map(rows.map((r) => [r.key, r.value as unknown]));
+    for (const [field, key] of missing) {
+      const v = byKey.get(key);
+      if (v !== undefined && v !== null) data[field] = v;
+    }
+  }
+
   async create(dto: CreateProductDto): Promise<Product> {
-    const data = this.applyBeverageComputation({ ...dto });
+    let data = this.applyBeverageComputation({ ...dto });
+    await this.applyOrgInventoryDefaults(data);
+    data = this.applyInventoryConfig(data, null);
     const product = await super.create(data as unknown as CreateProductDto);
     this.events.publish('product.created', {
       id: product.id,
@@ -139,9 +217,12 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
 
   async update(id: string, dto: UpdateProductDto): Promise<Product> {
     let data: Record<string, any> = { ...dto };
-    if (BEVERAGE_FIELDS.some((k) => (dto as any)[k] !== undefined)) {
+    const beverageTouched = BEVERAGE_FIELDS.some((k) => (dto as any)[k] !== undefined);
+    const inventoryTouched = INVENTORY_CONFIG_FIELDS.some((k) => (dto as any)[k] !== undefined);
+    if (beverageTouched || inventoryTouched) {
       const existing = (await this.delegate.findFirst({ where: { id } })) as Product | null;
-      data = this.applyBeverageComputation(data, existing);
+      if (beverageTouched) data = this.applyBeverageComputation(data, existing);
+      if (inventoryTouched) data = this.applyInventoryConfig(data, existing);
     }
     const product = await super.update(id, data as unknown as UpdateProductDto);
     this.events.publish('product.updated', {

@@ -26,6 +26,7 @@ import {
   BarChart3,
   UserCog,
   Shield,
+  ShieldCheck,
   ClipboardList,
   PanelLeftClose,
   PanelLeft,
@@ -37,6 +38,7 @@ import {
   Link2,
   Landmark,
   HardDrive,
+  Ruler,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
@@ -82,9 +84,11 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/customers', label: 'Customers', icon: Users, permission: PERMISSIONS.partners.view },
       { to: '/suppliers', label: 'Suppliers', icon: Building2, permission: PERMISSIONS.partners.view },
       { to: '/products', label: 'Products', icon: Package, permission: PERMISSIONS.products.view },
+      { to: '/uom', label: 'Units of Measure', icon: Ruler, permission: PERMISSIONS.uom.read },
       { to: '/menu', label: 'Menu', icon: Coffee, permission: PERMISSIONS.menu.view },
       { to: '/tables', label: 'Tables', icon: Coffee, permission: PERMISSIONS.menu.view },
       { to: '/menu/modifiers', label: 'Modifiers', icon: Tag, permission: PERMISSIONS.menu.view },
+      { to: '/menu/combos', label: 'Combos', icon: Package, permission: PERMISSIONS.menu.view },
       { to: '/menu/accompaniments', label: 'Accompaniments', icon: Tag, permission: PERMISSIONS.menu.view },
     ],
   },
@@ -175,6 +179,8 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'System',
     items: [
+      { to: '/approvals', label: 'Approvals', icon: ShieldCheck, permission: 'approvals:read' },
+      { to: '/approval-policies', label: 'Approval Policies', icon: Shield, permission: 'approvals:read' },
       { to: '/staff', label: 'Staff', icon: UserCog, permission: PERMISSIONS.user.read },
       { to: '/staff/roles', label: 'Roles & Permissions', icon: Shield, permission: PERMISSIONS.role.read },
       { to: '/settings/devices', label: 'Offline devices', icon: Smartphone, permission: PERMISSIONS.organization.read },

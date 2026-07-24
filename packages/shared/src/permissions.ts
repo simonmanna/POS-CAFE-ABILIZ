@@ -52,6 +52,12 @@ export const PERMISSIONS = {
     update: 'uom:update',
     delete: 'uom:delete',
   },
+  uomCategory: {
+    create: 'uom_category:create',
+    read: 'uom_category:read',
+    update: 'uom_category:update',
+    delete: 'uom_category:delete',
+  },
   tax: {
     create: 'tax:create',
     read: 'tax:read',

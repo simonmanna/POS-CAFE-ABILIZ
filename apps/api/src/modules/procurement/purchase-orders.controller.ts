@@ -81,6 +81,12 @@ export class PurchaseOrdersController {
     return this.svc.cancel(id, body?.reason);
   }
 
+  @Post(':id/activate')
+  @RequirePermissions('purchase_order:approve')
+  activate(@Param('id') id: string) {
+    return this.svc.activate(id);
+  }
+
   @Delete(':id')
   @RequirePermissions('purchase_order:delete')
   remove(@Param('id') id: string) {

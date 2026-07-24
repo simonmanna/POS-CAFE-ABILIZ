@@ -2,8 +2,8 @@ import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Kanban, List, LayoutDashboard, Calendar } from 'lucide-react';
-import { useTaskStore } from '../task.store';
-import type { TaskViewMode } from '../task.store';
+import { useTaskStore } from './task.store';
+import type { TaskViewMode } from './task.store';
 
 export function TaskViewSwitcher() {
   const { filters, setFilters } = useTaskStore();

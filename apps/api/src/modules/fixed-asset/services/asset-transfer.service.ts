@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { EventBus } from '../../../kernel/events/event-bus';
+import { ApprovalsService } from '../../../kernel/approvals/approvals.service';
 import type { CreateTransferDto } from '../dto/create-transfer.dto';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class AssetTransferService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventBus,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   async findByAsset(assetId: string): Promise<any[]> {
@@ -20,6 +22,26 @@ export class AssetTransferService {
   async create(assetId: string, dto: CreateTransferDto): Promise<any> {
     const asset = await this.prisma.client.asset.findFirst({ where: { id: assetId } });
     if (!asset) throw new NotFoundException(`Asset ${assetId} not found`);
+
+    // Approval gate
+    const approval = await this.approvals.checkOrRequestApproval({
+      entityType: 'asset_transfer',
+      entityId: assetId,
+      snapshot: {
+        assetCode: asset.assetCode,
+        assetName: asset.name,
+        fromLocation: dto.fromLocation,
+        toLocation: dto.toLocation,
+        toBranchId: dto.toBranchId,
+        reason: dto.reason,
+      },
+    });
+    if (approval?.needsApproval) {
+      throw new ForbiddenException(
+        `Asset transfer requires approval. Request ID: ${approval.requestId}.`,
+      );
+    }
+
     const data: any = { assetId, ...dto };
     if (dto.transferDate) data.transferDate = new Date(dto.transferDate);
     const transfer = await this.prisma.client.assetTransfer.create({ data });

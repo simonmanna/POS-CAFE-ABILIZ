@@ -9,31 +9,65 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { PERMISSIONS, type TaxType } from '@erp/shared';
+import { PERMISSIONS } from '@erp/shared';
 import { PaginationDto } from '../../../kernel/common/pagination.dto';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { UomService } from './uom.service';
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { UomConversionService } from './uom-conversion.service';
+import { IsBoolean, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+
+const UOM_TYPES = ['bigger', 'reference', 'smaller'] as const;
 
 class CreateUomDto {
   @IsString() code!: string;
   @IsString() name!: string;
+  @IsOptional() @IsString() symbol?: string;
+  @IsOptional() @IsString() categoryId?: string;
+  /** Legacy free-text category tag (kept until backfill completes). */
   @IsOptional() @IsString() category?: string;
+  /** Base units per 1 of this unit (reference = 1). */
+  @IsOptional() @IsNumber() factor?: number;
   @IsOptional() @IsNumber() ratio?: number;
+  @IsOptional() @IsNumber() roundingPrecision?: number;
+  @IsOptional() @IsIn([...UOM_TYPES]) uomType?: (typeof UOM_TYPES)[number];
   @IsOptional() @IsBoolean() isBase?: boolean;
 }
 
 class UpdateUomDto {
   @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() symbol?: string;
+  @IsOptional() @IsString() categoryId?: string;
   @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsNumber() factor?: number;
   @IsOptional() @IsNumber() ratio?: number;
+  @IsOptional() @IsNumber() roundingPrecision?: number;
+  @IsOptional() @IsIn([...UOM_TYPES]) uomType?: (typeof UOM_TYPES)[number];
   @IsOptional() @IsBoolean() isBase?: boolean;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 
+class ConvertUomDto {
+  @IsNumber() quantity!: number;
+  @IsString() @IsNotEmpty() fromUomId!: string;
+  @IsString() @IsNotEmpty() toUomId!: string;
+  @IsOptional() @IsString() productId?: string;
+}
+
 @Controller('uoms')
 export class UomController {
-  constructor(private readonly uoms: UomService) {}
+  constructor(
+    private readonly uoms: UomService,
+    private readonly conversion: UomConversionService,
+  ) {}
+
+  @Post('convert')
+  @RequirePermissions(PERMISSIONS.uom.read)
+  async convert(@Body() dto: ConvertUomDto) {
+    const result = await this.conversion.convert(dto.quantity, dto.fromUomId, dto.toUomId, {
+      productId: dto.productId,
+    });
+    return { result: result.toString() };
+  }
 
   @Get()
   @RequirePermissions(PERMISSIONS.uom.read)

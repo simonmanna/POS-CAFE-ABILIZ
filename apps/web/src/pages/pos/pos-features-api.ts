@@ -169,8 +169,28 @@ export function useCreateModifier() {
 export function useCreateCombo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { name: string; price: number; description?: string; items: Array<{ productId: string; quantity: number }> }) =>
+    mutationFn: async (body: { name: string; price: number; description?: string; imageUrl?: string; items: Array<{ productId: string; quantity: number }> }) =>
       (await api.post('/pos/modifiers/combos', body)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-combos'] }),
+  });
+}
+
+export function useUpdateCombo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { id: string; name?: string; price?: number; description?: string | null; imageUrl?: string | null; items?: Array<{ productId: string; quantity: number }> }) => {
+      const { id, ...payload } = body;
+      return (await api.patch(`/pos/modifiers/combos/${id}`, payload)).data;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-combos'] }),
+  });
+}
+
+/** Soft-delete (deactivates) a combo — it disappears from the active list. */
+export function useDeleteCombo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/pos/modifiers/combos/${id}`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-combos'] }),
   });
 }

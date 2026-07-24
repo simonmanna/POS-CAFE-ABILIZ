@@ -181,7 +181,8 @@ export const OrderPanel: React.FC<Props> = ({
       ) : (
 <div className="pos-order-list min-h-0">
           {lines.map((it) => {
-            const emoji = getFoodEmoji(it.name);
+            const isCombo = Boolean(it.comboId);
+            const emoji = isCombo ? '🍱' : getFoodEmoji(it.name);
             const lineSub =
               it.quantity * it.unitPrice * (1 - it.discountPercent / 100);
             return (
@@ -189,7 +190,20 @@ export const OrderPanel: React.FC<Props> = ({
                 <div className="pos-card-row">
                   <div className="pos-card-emoji">{emoji}</div>
                   <div className="flex-1 min-w-0">
-                    <div className="pos-card-name truncate">{it.name}</div>
+                    <div className="pos-card-name truncate">
+                      {it.name}
+                      {isCombo ? (
+                        <span
+                          style={{
+                            marginLeft: 6, fontSize: 9, fontWeight: 700, letterSpacing: '0.04em',
+                            color: '#fff', background: '#7c3aed', padding: '1px 5px',
+                            borderRadius: 5, verticalAlign: 'middle',
+                          }}
+                        >
+                          COMBO
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="pos-card-line">
                       @ {fmt(it.unitPrice)} · {it.quantity}×
                       {it.discountPercent > 0

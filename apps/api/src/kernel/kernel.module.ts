@@ -10,6 +10,7 @@ import { EventOutboxService } from './events/event-outbox.service';
 import { OutboxWorker } from './events/outbox.worker';
 import { AuditService } from './audit/audit.service';
 import { SettingsService } from './settings/settings.service';
+import { SettingResolverService } from './settings/setting-resolver.service';
 import { SettingsController } from './settings/settings.controller';
 import { ModuleRegistry } from './module-loader/module-registry.service';
 import { SequenceService } from './sequence/sequence.service';
@@ -68,6 +69,7 @@ import { ThreeWayMatchModule } from './three-way-match/three-way-match.module';
     OutboxWorker,
     AuditService,
     SettingsService,
+    SettingResolverService,
     ModuleRegistry,
     SequenceService,
     JwtTokenService,
@@ -90,6 +92,7 @@ import { ThreeWayMatchModule } from './three-way-match/three-way-match.module';
     OutboxWorker,
     AuditService,
     SettingsService,
+    SettingResolverService,
     ModuleRegistry,
     SequenceService,
     JwtTokenService,

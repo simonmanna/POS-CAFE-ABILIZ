@@ -40,6 +40,9 @@ export class CostResolverService {
     stockItem: { quantity: Prisma.Decimal; runningAverageCost: Prisma.Decimal } | null,
     quantity: Prisma.Decimal,
     batches?: { quantity: Prisma.Decimal; unitCost: Prisma.Decimal | null; expiryDate: Date | null; receivedAt: Date }[],
+    /** SPECIFIC only: the actual receipt unit cost of each identified unit being issued
+     *  (one entry per unit — e.g. the selected serials). Summed to the total value. */
+    specificUnitCosts?: Prisma.Decimal[],
   ): CostResolution {
     if (quantity.lte(ZERO)) {
       return { unitCost: ZERO, totalValue: ZERO };
@@ -88,6 +91,27 @@ export class CostResolverService {
       }
 
       case 'STANDARD': {
+        const unitCost = product.costPrice ?? ZERO;
+        return { unitCost, totalValue: unitCost.times(quantity) };
+      }
+
+      case 'SPECIFIC': {
+        // Specific identification: value at the actual receipt cost of the exact
+        // units being issued. `specificUnitCosts` carries one cost per unit (the
+        // selected serials). When no explicit selection is given, fall back to the
+        // FIFO batch valuation, then to the product's standard cost.
+        if (specificUnitCosts && specificUnitCosts.length > 0) {
+          const totalValue = specificUnitCosts.reduce((sum, c) => sum.plus(c), ZERO);
+          return { unitCost: totalValue.dividedBy(quantity), totalValue };
+        }
+        if (batches && batches.length > 0) {
+          return this.resolveIssueCost(
+            { costingMethod: 'FIFO', costPrice: product.costPrice },
+            stockItem,
+            quantity,
+            batches,
+          );
+        }
         const unitCost = product.costPrice ?? ZERO;
         return { unitCost, totalValue: unitCost.times(quantity) };
       }

@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { PaginationQuery } from '@erp/shared';
 import { dec } from '../../../kernel/common/money';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { EventBus } from '../../../kernel/events/event-bus';
 import { WorkflowService } from '../../../kernel/workflow/workflow.service';
+import { ApprovalsService } from '../../../kernel/approvals/approvals.service';
 import { DocumentBuilderService } from '../document/document-builder.service';
 import { CreateInvoiceDto } from './dto/invoice.dto';
 
@@ -18,6 +19,7 @@ export class InvoiceService {
     private readonly events: EventBus,
     private readonly workflow: WorkflowService,
     private readonly builder: DocumentBuilderService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   async list(
@@ -233,6 +235,18 @@ export class InvoiceService {
   }
 
   async cancel(id: string) {
+    // Approval gate
+    const approval = await this.approvals.checkOrRequestApproval({
+      entityType: 'invoice_cancel',
+      entityId: id,
+      snapshot: {},
+    });
+    if (approval?.needsApproval) {
+      throw new ForbiddenException(
+        `Invoice cancellation requires approval. Request ID: ${approval.requestId}. Please have an authorized person approve it via the approvals endpoint.`,
+      );
+    }
+
     const doc = await this.prisma.client.document.findFirst({
       where: { id, documentType: 'sales_invoice' },
       include: { allocations: true },

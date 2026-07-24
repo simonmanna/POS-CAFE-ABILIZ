@@ -7,6 +7,7 @@ import { EventBus } from '../../kernel/events/event-bus';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { NotificationsService } from '../../kernel/notifications/notifications.service';
 import { FeatureFlagsService } from '../../kernel/feature-flags/feature-flags.service';
+import { seedUomCategories } from './product/uom-seed';
 
 /**
  * F.5 — Tenant self-service.
@@ -296,18 +297,8 @@ export class OrganizationsService {
         permissions: ALL_PERMISSIONS as unknown as string[],
       },
     });
-    // Seed units of measure and tax defaults.
-    const uoms = [
-      { code: 'UNIT', name: 'Piece', category: 'unit', ratio: 1, isBase: true },
-      { code: 'KG', name: 'Kilogram', category: 'weight', ratio: 1, isBase: true },
-      { code: 'L', name: 'Liter', category: 'volume', ratio: 1, isBase: true },
-      { code: 'HR', name: 'Hour', category: 'time', ratio: 1, isBase: true },
-    ];
-    for (const u of uoms) {
-      await this.prisma.raw.unitOfMeasure.create({
-        data: { organizationId: orgId, ...u } as any,
-      });
-    }
+    // Seed UOM categories + units (factor engine) and tax defaults.
+    await seedUomCategories(this.prisma.raw, orgId);
     await this.prisma.raw.tax.create({
       data: { organizationId: orgId, name: 'No Tax', code: 'NONE', type: 'vat', rate: 0 },
     });

@@ -7,6 +7,7 @@ import {
   type JournalType,
   type ProductType,
 } from '@erp/shared';
+import { seedUomCategories } from '../src/modules/core/product/uom-seed';
 
 const prisma = new PrismaClient();
 
@@ -85,21 +86,9 @@ async function main(): Promise<void> {
     },
   });
 
-  // --- Units of measure -----------------------------------------------------
-  const uoms = [
-    { code: 'UNIT', name: 'Piece', category: 'unit', ratio: 1, isBase: true },
-    { code: 'KG', name: 'Kilogram', category: 'weight', ratio: 1, isBase: true },
-    { code: 'G', name: 'Gram', category: 'weight', ratio: 0.001, isBase: false },
-    { code: 'L', name: 'Liter', category: 'volume', ratio: 1, isBase: true },
-    { code: 'HR', name: 'Hour', category: 'time', ratio: 1, isBase: true },
-  ];
-  for (const u of uoms) {
-    await prisma.unitOfMeasure.upsert({
-      where: { organizationId_code: { organizationId: org.id, code: u.code } },
-      update: u,
-      create: { organizationId: org.id, ...u },
-    });
-  }
+  // --- Units of measure (category + factor engine) --------------------------
+  // `factor` = base (reference) units per 1 of this unit; reference unit = 1.
+  await seedUomCategories(prisma, org.id);
 
   // --- Tax ------------------------------------------------------------------
     let tax = await prisma.tax.findFirst({

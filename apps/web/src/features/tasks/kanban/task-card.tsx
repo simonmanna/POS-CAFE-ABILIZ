@@ -1,4 +1,3 @@
-import { type ReactNode } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
@@ -9,7 +8,6 @@ import {
   PRIORITY_COLORS,
   PRIORITY_LABELS,
   TASK_TYPE_ICONS,
-  getColumnColor,
 } from './column-config';
 
 interface TaskCardProps {

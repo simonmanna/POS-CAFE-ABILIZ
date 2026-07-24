@@ -30,6 +30,7 @@ import { CustomerProfileDialog } from './CustomerProfileDialog';
 import { useProductsForPos } from '@/features/pos/api';
 import { useProductCategories } from '@/features/products/api';
 import { useOpenSession, useCheckout, useStoreCredit, useReprintReceipt, useCreateOrder, useGenerateInvoice, useSettleCredit, useCreateHold } from './api';
+import { useCombos } from './pos-features-api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
 import type { Customer } from './types';
@@ -84,6 +85,31 @@ const RetailTerminal: React.FC = () => {
         image: p.image ? resolveAssetUrl(p.image) : null,
       }));
   }, [products, activeCategory, search]);
+
+  // Combo bundles (GET /pos/modifiers/combos) — span categories, so shown only
+  // in the "All" view. The backend expands the `comboId` line at checkout.
+  const { data: combos } = useCombos();
+  const comboCards = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return (combos ?? [])
+      .filter(() => !activeCategory)
+      .filter((c) => !term || c.name.toLowerCase().includes(term))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        sku: null,
+        salesPrice: Number(c.price || 0),
+        categoryId: null,
+        category: null,
+        image: resolveAssetUrl(c.imageUrl) ?? null,
+        isCombo: true,
+        comboSummary: c.items
+          .map((it) => `${it.quantity > 1 ? `${it.quantity}× ` : ''}${it.productName}`)
+          .join(' + '),
+      }));
+  }, [combos, activeCategory, search]);
+
+  const gridItems = useMemo(() => [...comboCards, ...catalogItems], [comboCards, catalogItems]);
 
   /* ============== Shift ============== */
   const { data: session, isLoading: sessionLoading, isFetching: sessionFetching, refetch: refetchSession } = useOpenSession();
@@ -234,6 +260,16 @@ const RetailTerminal: React.FC = () => {
   const onPickProduct = useCallback(
     (p: any) => {
       if (locked) return;
+      if (p.isCombo) {
+        addLine({
+          productId: p.id,
+          name: p.name,
+          quantity: 1,
+          unitPrice: Number(p.salesPrice || 0),
+          comboId: p.id,
+        });
+        return;
+      }
       addLine({
         productId: p.id,
         sku: p.sku ?? undefined,
@@ -558,7 +594,7 @@ const RetailTerminal: React.FC = () => {
                 onSelect={setActiveCategory}
               />
               <div className="relative flex-1 flex flex-col min-h-0">
-                <MenuGrid products={catalogItems as any} locked={locked} onPick={onPickProduct} />
+                <MenuGrid products={gridItems as any} locked={locked} onPick={onPickProduct} />
               </div>
             </div>
           </>

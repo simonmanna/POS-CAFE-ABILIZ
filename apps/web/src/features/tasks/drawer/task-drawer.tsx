@@ -1,16 +1,13 @@
-import { useEffect, useState } from 'react';
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Calendar,
   Clock,
@@ -26,7 +23,6 @@ import {
   Layers,
 } from 'lucide-react';
 import { useTask } from '../api';
-import { useTaskStore } from '../task.store';
 import {
   PRIORITY_COLORS,
   PRIORITY_LABELS,
@@ -71,19 +67,12 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
   const { data: task, isLoading } = useTask(taskId);
 
   return (
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full max-w-lg sm:max-w-xl overflow-y-auto">
-        {isLoading ? (
-          <div className="space-y-4 p-4">
-            <Skeleton className="h-6 w-3/4" />
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="h-32 w-full" />
-          </div>
-        ) : task ? (
-          <div className="space-y-6">
-            {/* Header */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
+    <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg sm:max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <div className="flex items-center gap-2">
+            {task && (
+              <>
                 <span className="text-lg">{TASK_TYPE_ICONS[task.taskType] ?? '📌'}</span>
                 <Badge className={`text-xs ${STATUS_COLORS[task.status] ?? ''}`}>
                   {task.status.replace('_', ' ')}
@@ -99,18 +88,30 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
                 >
                   {PRIORITY_LABELS[task.priority] ?? task.priority}
                 </Badge>
-              </div>
-              <SheetTitle className="text-xl">{task.title}</SheetTitle>
+              </>
+            )}
+          </div>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="space-y-4 p-4">
+            <Skeleton className="h-6 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="h-32 w-full" />
+          </div>
+        ) : task ? (
+          <div className="space-y-6">
+            <div>
+              <DialogTitle className="text-xl">{task.title}</DialogTitle>
               {task.description && (
-                <SheetDescription className="mt-2 whitespace-pre-wrap text-sm">
+                <DialogDescription className="mt-2 whitespace-pre-wrap text-sm">
                   {task.description}
-                </SheetDescription>
+                </DialogDescription>
               )}
             </div>
 
             <Separator />
 
-            {/* Metadata grid */}
             <div className="grid grid-cols-2 gap-3">
               <InfoRow icon={<User className="h-4 w-4" />} label="Assigned To" value={task.assignedTo ? `${task.assignedTo.firstName} ${task.assignedTo.lastName ?? ''}`.trim() : 'Unassigned'} />
               <InfoRow icon={<User className="h-4 w-4" />} label="Supervisor" value={task.supervisor ? `${task.supervisor.firstName} ${task.supervisor.lastName ?? ''}`.trim() : 'None'} />
@@ -127,7 +128,6 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
 
             <Separator />
 
-            {/* Checklist */}
             {task.checklistItems && task.checklistItems.length > 0 && (
               <div>
                 <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
@@ -152,20 +152,17 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
               </div>
             )}
 
-            {/* Attachments */}
             {(task.attachmentUrls?.length > 0 || task.photoUrls?.length > 0) && (
               <div>
                 <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
                   <Paperclip className="h-4 w-4" />
                   Attachments ({task.attachmentUrls.length + task.photoUrls.length})
                 </h4>
-                {/* Attachment list */}
               </div>
             )}
 
             <Separator />
 
-            {/* Comments */}
             {task.comments && task.comments.length > 0 && (
               <div>
                 <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
@@ -182,7 +179,6 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
 
             <Separator />
 
-            {/* Activity */}
             {task.activityLog && task.activityLog.length > 0 && (
               <div>
                 <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
@@ -202,7 +198,6 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
               </div>
             )}
 
-            {/* Verification */}
             {task.requiresVerification && (
               <div>
                 <h4 className="flex items-center gap-2 text-sm font-semibold mb-2 text-amber-600">
@@ -222,8 +217,8 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
             Task not found
           </div>
         )}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   );
 }
 

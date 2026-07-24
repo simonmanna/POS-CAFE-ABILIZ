@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { EventBus } from '../../../kernel/events/event-bus';
 import { SequenceService } from '../../../kernel/sequence/sequence.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
+import { ApprovalsService } from '../../../kernel/approvals/approvals.service';
 import type { CreateAssetDto } from '../dto/create-asset.dto';
 import type { UpdateAssetDto } from '../dto/update-asset.dto';
 import type { AssetQueryDto } from '../dto/asset-query.dto';
@@ -15,6 +16,7 @@ export class AssetService {
     private readonly events: EventBus,
     private readonly seq: SequenceService,
     private readonly tenant: TenantContextService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   private get delegate() { return this.prisma.client.asset; }
@@ -99,6 +101,25 @@ export class AssetService {
 
   async create(dto: CreateAssetDto): Promise<any> {
     const assetCode = dto.assetCode ?? await this.seq.next('asset', { prefix: 'AST-' });
+
+    // Approval gate for new asset acquisitions
+    const approval = await this.approvals.checkOrRequestApproval({
+      entityType: 'asset_acquisition',
+      entityId: `new-${assetCode}`,
+      snapshot: {
+        code: assetCode,
+        name: dto.name,
+        purchaseCost: dto.purchaseCost,
+        categoryId: dto.categoryId,
+        acquisitionMethod: dto.acquisitionMethod,
+      },
+    });
+    if (approval?.needsApproval) {
+      throw new ForbiddenException(
+        `Asset acquisition requires approval. Request ID: ${approval.requestId}.`,
+      );
+    }
+
     const data: any = { ...dto, assetCode };
     if (dto.purchaseDate) data.purchaseDate = new Date(dto.purchaseDate);
     if ((dto as any).assignmentDate) data.assignmentDate = new Date((dto as any).assignmentDate);

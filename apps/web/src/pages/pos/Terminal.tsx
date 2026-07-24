@@ -75,7 +75,7 @@ import {
   useSplitState,
 } from './api';
 import { useMenuItemsAvailable } from '@/features/menu/api';
-import { useMenuItemBundle } from './pos-features-api';
+import { useMenuItemBundle, useCombos } from './pos-features-api';
 import { api, resolveAssetUrl } from '@/lib/api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
@@ -232,6 +232,33 @@ const TerminalPage: React.FC = () => {
         image: resolveAssetUrl(it.image) ?? null,
       }));
   }, [menuPayload, activeCategory, search]);
+
+  // Combos are fixed-price bundles managed separately (GET /pos/modifiers/combos).
+  // They span categories, so we surface them only in the "All" view and let the
+  // backend expand the `comboId` line into component rows at checkout.
+  const { data: combos } = useCombos();
+  const comboCards = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return (combos ?? [])
+      .filter(() => !activeCategory)
+      .filter((c) => !term || c.name.toLowerCase().includes(term))
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        sku: null,
+        salesPrice: Number(c.price || 0),
+        categoryId: null,
+        category: null,
+        image: resolveAssetUrl(c.imageUrl) ?? null,
+        isCombo: true,
+        comboSummary: c.items
+          .map((it) => `${it.quantity > 1 ? `${it.quantity}× ` : ''}${it.productName}`)
+          .join(' + '),
+      }));
+  }, [combos, activeCategory, search]);
+
+  // Combos render first (they're specials), then the menu items.
+  const gridItems = useMemo(() => [...comboCards, ...products], [comboCards, products]);
 
   /* ============== Shift ============== */
   const { data: session, isLoading: sessionLoading, isFetching: sessionFetching, refetch: refetchSession } = useOpenSession();
@@ -727,16 +754,15 @@ const TerminalPage: React.FC = () => {
   const onPickProduct = useCallback(
     (p: any) => {
       if (locked) return;
-      // If the product has a SKU = 'combo:xxx', treat it as a combo line.
-      if (p.sku && p.sku.startsWith('combo:')) {
-        const comboId = p.sku.slice('combo:'.length);
+      // Combo card → single combo line (no variant/accompaniment/add-on steps).
+      // The backend expands `comboId` into component rows at checkout.
+      if (p.isCombo) {
         addLine({
           productId: p.id,
-          sku: p.sku,
           name: p.name,
           quantity: 1,
           unitPrice: Number(p.salesPrice || 0),
-          comboId,
+          comboId: p.id,
         });
         return;
       }
@@ -1560,7 +1586,7 @@ const TerminalPage: React.FC = () => {
                 onSelect={setActiveCategory}
               />
               <div className="relative flex-1 flex flex-col min-h-0">
-                <MenuGrid products={products as any} locked={locked} onPick={onPickProduct} />
+                <MenuGrid products={gridItems as any} locked={locked} onPick={onPickProduct} />
               </div>
             </div>
           </>

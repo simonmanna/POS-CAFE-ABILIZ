@@ -34,7 +34,9 @@ export class CreditNoteController {
   @Post(':id/post')
   @Idempotent()
   @RequirePermissions(PERMISSIONS.creditNote.post)
-  post(@Param('id') id: string) {
-    return this.creditNotes.post(id);
+  post(@Param('id') id: string, @Query('disposition') disposition?: string) {
+    // Customer-return disposition decided at post time (the goods either go back
+    // on the shelf or are written off). Anything but 'scrap' defaults to restock.
+    return this.creditNotes.post(id, disposition === 'scrap' ? 'scrap' : 'restock');
   }
 }

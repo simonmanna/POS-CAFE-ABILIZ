@@ -4,6 +4,7 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockService } from '../inventory/stock.service';
 import { PaginatedResult, PaginationQuery, DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '@erp/shared';
 
@@ -34,6 +35,7 @@ export class GoodsReceiptsService {
     private readonly sequence: SequenceService,
     private readonly events: EventBus,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
     private readonly stock: StockService,
   ) {}
 
@@ -62,9 +64,7 @@ export class GoodsReceiptsService {
           branchId: input.branchId ?? null,
           warehouseId: input.warehouseId,
           receivedAt: input.receivedAt ? new Date(input.receivedAt) : new Date(),
-          status: 'posted',
-          postedAt: new Date(),
-          postedById: this.tenant.userId ?? null,
+          status: 'draft',
           notes: input.notes,
           createdBy: this.tenant.userId ?? null,
           lines: {
@@ -84,24 +84,60 @@ export class GoodsReceiptsService {
         include: { lines: true },
       });
 
-      for (const ln of input.lines) {
-        if (!ln.productId) continue;
-        const product = await tx.product.findFirst({
-          where: { id: ln.productId, organizationId: orgId },
+      // Approval gate: if an active policy exists, the GRN stays in draft
+      // pending approval. Otherwise it auto-approves to posted.
+      const approvalResult = await this.approvals.requestApproval({
+        entityType: 'goods_receipt',
+        entityId: grn.id,
+        snapshot: {
+          receiptNumber,
+          partnerId: input.partnerId ?? null,
+          createdBy: this.tenant.userId,
+        },
+      });
+
+      if (!approvalResult) {
+        // No policy → auto-approve, GRN posted immediately with stock issue
+        await tx.goodsReceiptNote.update({
+          where: { id: grn.id },
+          data: {
+            status: 'posted',
+            postedAt: new Date(),
+            postedById: this.tenant.userId ?? null,
+          },
         });
-        if (!product) continue;
-        await this.stock.receive(
-          {
-            productId: ln.productId,
-            locationId: input.warehouseId,
-            quantity: Number(ln.quantity),
-            unitCost: ln.unitCost ?? 0,
-            batchNumber: ln.batchNumber,
-            expiryDate: ln.expiryDate ? new Date(ln.expiryDate) : undefined,
-            reference: `GRN ${receiptNumber}`,
-          } as any,
-          tx,
-        );
+        grn.status = 'posted';
+
+        for (const ln of input.lines) {
+          if (!ln.productId) continue;
+          const product = await tx.product.findFirst({
+            where: { id: ln.productId, organizationId: orgId },
+          });
+          if (!product) continue;
+          await this.stock.receive(
+            {
+              productId: ln.productId,
+              locationId: input.warehouseId,
+              quantity: Number(ln.quantity),
+              unitCost: ln.unitCost ?? 0,
+              batchNumber: ln.batchNumber,
+              expiryDate: ln.expiryDate ? new Date(ln.expiryDate) : undefined,
+              reference: `GRN ${receiptNumber}`,
+            } as any,
+            tx,
+          );
+        }
+      } else {
+        await this.audit.recordInTx(tx, {
+          entity: 'GoodsReceiptNote',
+          entityId: grn.id,
+          action: 'create',
+          newValues: {
+            receiptNumber,
+            approvalRequestId: approvalResult.id,
+            status: 'draft',
+          },
+        });
       }
 
       return grn;
@@ -110,8 +146,8 @@ export class GoodsReceiptsService {
     await this.audit.record({
       entity: 'GoodsReceiptNote',
       entityId: result.id,
-      action: 'create',
-      newValues: { receiptNumber, lines: input.lines.length },
+      action: result.status === 'posted' ? 'post' : 'create',
+      newValues: { receiptNumber, lines: input.lines.length, status: result.status },
     });
     this.events.publish('goods_receipt.posted' as any, {
       organizationId: this.tenant.organizationId,
@@ -186,6 +222,29 @@ export class GoodsReceiptsService {
     });
     if (!grn) throw new NotFoundException('Goods receipt not found');
     if (grn.status !== 'draft') throw new BadRequestException('Only draft receipts can be posted');
+
+    // Check that no pending or rejected approval blocks posting
+    const approvalReq = await this.prisma.client.approvalRequest.findFirst({
+      where: {
+        organizationId: orgId,
+        entityType: 'goods_receipt',
+        entityId: id,
+        status: { in: ['pending', 'rejected'] },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (approvalReq) {
+      if (approvalReq.status === 'pending') {
+        throw new BadRequestException(
+          `Goods receipt is pending approval (request ${approvalReq.id}) and cannot be posted yet`,
+        );
+      }
+      if (approvalReq.status === 'rejected') {
+        throw new BadRequestException(
+          'Goods receipt was rejected and cannot be posted',
+        );
+      }
+    }
 
     const result = await this.prisma.client.$transaction(async (tx) => {
       const updated = await tx.goodsReceiptNote.update({

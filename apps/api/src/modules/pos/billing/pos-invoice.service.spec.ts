@@ -139,6 +139,7 @@ describe('PosInvoiceService', () => {
       expect(mockPayments.createReceipt).toHaveBeenCalledWith(
         expect.objectContaining({ skipGlPosting: true, paymentMethod: 'cash' }),
         expect.anything(), // tx — payment joins the settlement transaction (P0-2)
+        expect.anything(), // opts (allowSessionOwnerMismatch)
       );
     });
 
@@ -148,6 +149,7 @@ describe('PosInvoiceService', () => {
       expect(mockPayments.createReceipt).toHaveBeenCalledWith(
         expect.objectContaining({ skipGlPosting: false }),
         expect.anything(),
+        expect.anything(), // opts (allowSessionOwnerMismatch)
       );
     });
 
@@ -158,6 +160,7 @@ describe('PosInvoiceService', () => {
       expect(mockPayments.createReceipt).toHaveBeenCalledWith(
         expect.objectContaining({ accountId: 'sc-acc' }),
         expect.anything(),
+        expect.anything(), // opts (allowSessionOwnerMismatch)
       );
     });
 

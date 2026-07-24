@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
@@ -30,6 +31,9 @@ export function CreditNoteDetailPage() {
   const { data: cn, isLoading } = useCreditNote(id);
   const postCreditNote = usePostCreditNote();
   const has = useAuthStore((s) => s.hasPermission);
+  // Return disposition applied at post time: restock the goods (reverses COGS)
+  // or scrap them (revenue reversed only).
+  const [disposition, setDisposition] = useState<'restock' | 'scrap'>('restock');
 
   if (isLoading || !cn) {
     return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -55,9 +59,20 @@ export function CreditNoteDetailPage() {
             Back
           </Button>
           {isDraft && has(PERMISSIONS.creditNote.post) && (
-            <Button onClick={() => postCreditNote.mutate(cn.id)} disabled={postCreditNote.isPending}>
-              Post
-            </Button>
+            <div className="flex items-center gap-2">
+              <select
+                value={disposition}
+                onChange={(e) => setDisposition(e.target.value as 'restock' | 'scrap')}
+                className="rounded border bg-background px-2 py-1 text-sm"
+                title="What happens to returned goods when this note is posted"
+              >
+                <option value="restock">Restock goods</option>
+                <option value="scrap">Scrap goods</option>
+              </select>
+              <Button onClick={() => postCreditNote.mutate({ id: cn.id, disposition })} disabled={postCreditNote.isPending}>
+                Post
+              </Button>
+            </div>
           )}
         </div>
       </div>

@@ -1,24 +1,33 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { PaginationQuery } from '@erp/shared';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { EventBus } from '../../../kernel/events/event-bus';
+import { ApprovalsService } from '../../../kernel/approvals/approvals.service';
 import { PostingService } from '../../accounting/posting/posting.service';
 import type { PostingLineInput } from '../../accounting/posting/posting.types';
+import { StockService } from '../../inventory/stock.service';
 import { DocumentBuilderService } from '../document/document-builder.service';
 import { CreateCreditNoteDto } from './dto/credit-note.dto';
+
+/** Whether a customer return goes back on the shelf or is written off. */
+export type CreditNoteDisposition = 'restock' | 'scrap';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 @Injectable()
 export class CreditNoteService {
+  private readonly logger = new Logger('CreditNoteService');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly events: EventBus,
     private readonly posting: PostingService,
     private readonly builder: DocumentBuilderService,
+    private readonly stock: StockService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   async list(query: PaginationQuery) {
@@ -52,7 +61,19 @@ export class CreditNoteService {
     return this.builder.createDocument(this.prisma.client, 'credit_note', dto, dto.lines);
   }
 
-  async post(id: string) {
+  async post(id: string, disposition: CreditNoteDisposition = 'restock') {
+    // Approval gate
+    const approval = await this.approvals.checkOrRequestApproval({
+      entityType: 'credit_note',
+      entityId: id,
+      snapshot: {},
+    });
+    if (approval?.needsApproval) {
+      throw new ForbiddenException(
+        `Credit note posting requires approval. Request ID: ${approval.requestId}. Please have an authorized person approve it via the approvals endpoint.`,
+      );
+    }
+
     return this.prisma.client.$transaction(async (tx: any) => {
       const cn = await tx.document.findFirst({
         where: { id, documentType: 'credit_note' },
@@ -126,6 +147,39 @@ export class CreditNoteService {
                 status: paid ? 'paid' : inv.status,
               },
             });
+          }
+        }
+      }
+
+      // Return disposition: 'restock' puts the goods back on the shelf and reverses
+      // the COGS that was expensed at sale (Dr Stock Valuation / Cr COGS, via the
+      // stock engine's receiveReturn); 'scrap' leaves the cost expensed because the
+      // goods are gone. Only tracked stockable/consumable lines move — mirrors the
+      // sale-issue gate. Best-effort per line: a stock hiccup can't unwind the
+      // financial reversal that already posted above.
+      if (disposition === 'restock') {
+        const warehouse = await tx.inventoryLocation.findFirst({
+          where: { organizationId: this.tenant.organizationId, type: 'warehouse', isActive: true },
+        });
+        if (warehouse) {
+          for (const ln of cn.lines as any[]) {
+            if (!ln.productId) continue;
+            const qty = Number(ln.quantity);
+            if (!(qty > 0)) continue;
+            const product = await tx.product.findFirst({ where: { id: ln.productId } });
+            if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
+              try {
+                await this.stock.receiveReturn(
+                  { productId: ln.productId, locationId: warehouse.id, quantity: qty, reference: cn.documentNumber, sourceType: 'credit_note', sourceId: cn.id, date: cn.issueDate },
+                  tx,
+                );
+              } catch (e: any) {
+                // Best-effort: a restock hiccup (e.g. a batch-tracked line with no
+                // batch context) must not unwind the financial reversal that already
+                // posted. Surfaced in logs for back-office reconciliation.
+                this.logger.warn(`credit-note ${cn.documentNumber} restock of ${ln.productId} skipped: ${e?.message ?? e}`);
+              }
+            }
           }
         }
       }

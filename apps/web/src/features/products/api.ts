@@ -8,13 +8,30 @@ export interface Product {
   sku: string | null;
   name: string;
   productType: string;
+  costingMethod: string;
   categoryId: string | null;
   category: { id: string; name: string } | null;
+  // UOM roles.
+  uomId?: string | null;
+  purchaseUomId?: string | null;
+  salesUomId?: string | null;
+  recipeUomId?: string | null;
+  productionUomId?: string | null;
+  uomConversion?: string | null;
+  reorderQty?: string | null;
+  allowFractionalSale?: boolean;
+  minSaleQty?: string | null;
+  maxSaleQty?: string | null;
   salesPrice: string | null;
   costPrice: string | null;
   image?: string | null;
   isActive: boolean;
   trackInventory: boolean;
+  // Inventory tracking configuration.
+  batchTracking?: boolean;
+  expiryTracking?: boolean;
+  serialTracking?: boolean;
+  pickingStrategy?: string;
   createdAt: string;
   // Beverage Control (bar alcohol) — digital-weight measurement.
   measurementMethod?: string;
@@ -48,11 +65,28 @@ export interface CreateProductInput {
   sku?: string;
   name: string;
   productType: string;
+  costingMethod?: string;
   categoryId?: string;
+  // UOM roles + purchasing/sale rules.
+  uomId?: string;
+  purchaseUomId?: string;
+  salesUomId?: string;
+  recipeUomId?: string;
+  productionUomId?: string;
+  uomConversion?: number;
+  reorderQty?: number;
+  allowFractionalSale?: boolean;
+  minSaleQty?: number;
+  maxSaleQty?: number;
   salesPrice?: number;
   costPrice?: number;
   image?: string;
   trackInventory?: boolean;
+  // Inventory tracking configuration.
+  batchTracking?: boolean;
+  expiryTracking?: boolean;
+  serialTracking?: boolean;
+  pickingStrategy?: string;
   // Beverage Control (bar alcohol) — digital-weight measurement.
   measurementMethod?: string;
   containerVolumeMl?: number;

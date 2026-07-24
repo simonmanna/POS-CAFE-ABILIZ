@@ -70,7 +70,8 @@ export class PosReservationsService {
   async list(filter: { date?: string; status?: string; tableId?: string } = {}) {
     const organizationId = this.tenant.organizationId;
     const where: any = { organizationId };
-    if (filter.status) where.status = filter.status;
+    const statusVal = filter.status;
+    if (statusVal && statusVal !== 'all') where.status = statusVal;
     if (filter.tableId) where.tableId = filter.tableId;
     if (filter.date) {
       const d = new Date(filter.date);

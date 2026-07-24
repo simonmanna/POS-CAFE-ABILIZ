@@ -6,6 +6,8 @@ import { EventBus } from '../../kernel/events/event-bus';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { PostingService } from '../accounting/posting/posting.service';
 import { AccountDeterminationService } from '../accounting/posting/account-determination.service';
+import { StockService } from '../inventory/stock.service';
+import { dec, ZERO } from '../../kernel/common/money';
 
 interface CreateDebitNoteInput {
   direction: 'outbound' | 'inbound';
@@ -17,6 +19,8 @@ interface CreateDebitNoteInput {
   currencyCode?: string;
   exchangeRate?: number;
   notes?: string;
+  /** RTV only: warehouse the returned goods leave from (defaults to org warehouse). */
+  locationId?: string;
   lines: Array<{
     productId?: string;
     description: string;
@@ -48,6 +52,7 @@ export class DebitNotesService {
     private readonly audit: AuditService,
     private readonly posting: PostingService,
     private readonly determination: AccountDeterminationService,
+    private readonly stock: StockService,
   ) {}
 
   async create(input: CreateDebitNoteInput) {
@@ -87,6 +92,9 @@ export class DebitNotesService {
           totalAmount: subtotal,
           status: 'draft',
           notes: input.notes,
+          // RTV warehouse is stashed here (DebitNote has no locationId column) and
+          // read back at post time by postSupplierReturn.
+          customFields: input.locationId ? { locationId: input.locationId } : {},
           createdBy: this.tenant.userId ?? null,
           lines: {
             create: input.lines.map((ln, idx) => ({
@@ -131,6 +139,12 @@ export class DebitNotesService {
     });
     if (!note) throw new NotFoundException('Debit note not found');
     if (note.status !== 'draft') throw new BadRequestException(`Cannot post debit note in status ${note.status}`);
+
+    // Return-to-vendor takes a dedicated path: it ships stock back and reverses
+    // inventory value, unlike a plain supplier debit note (pure AP/expense adjust).
+    if (note.direction === 'inbound' && note.reason === 'returned_goods') {
+      return this.postSupplierReturn(note);
+    }
 
     const journalCode = note.direction === 'outbound' ? 'SALES' : 'PURCH';
     const counterAccount =
@@ -217,6 +231,118 @@ export class DebitNotesService {
       amount: String(Number(note.totalAmount)),
     });
     return updated;
+  }
+
+  /**
+   * Return-to-vendor (RTV): an inbound debit note with reason `returned_goods`.
+   * Physically ships stock back and takes its value out of inventory:
+   *   Dr Accounts Payable          (note amount — reduces what we owe the supplier)
+   *     Cr Stock Valuation         (stock cost removed — keeps GL == InventoryLedger)
+   *     Cr Stock Adj Income        (when the supplier credits more than the goods cost)
+   *   [Dr Stock Adj Expense]       (when they credit less than cost)
+   * Stock leaves at cost via issue(return_to_supplier, skipGl); this method owns the
+   * balanced GL. Whole thing is one transaction so a stock failure can't post a
+   * half entry.
+   */
+  private async postSupplierReturn(note: any) {
+    const orgId = this.tenant.organizationId;
+
+    const updated = await this.prisma.client.$transaction(async (tx: any) => {
+      const location = await this.resolveReturnLocation(tx, note);
+      const apAccount = await this.determination.payableAccount(note.partner, tx);
+      const stockValAccount = await this.determination.mapped('stock_valuation', tx);
+
+      const postingLines: Array<{ accountId: string; debit?: string; credit?: string; partnerId?: string }> = [];
+      let totalAp = ZERO;
+
+      for (const ln of note.lines as any[]) {
+        const price = dec(ln.subtotal);
+        const qty = Number(ln.quantity);
+        const product = ln.productId
+          ? await tx.product.findFirst({ where: { id: ln.productId, organizationId: orgId } })
+          : null;
+        const isStock =
+          !!product && product.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable');
+
+        totalAp = totalAp.plus(price);
+
+        if (isStock && qty > 0 && location) {
+          const issueRes = await this.stock.issue(
+            {
+              productId: ln.productId,
+              locationId: location.id,
+              quantity: qty,
+              moveType: 'return_to_supplier',
+              skipGlPosting: true,
+              sourceType: 'debit_note',
+              sourceId: note.id,
+              reference: note.noteNumber,
+            } as any,
+            tx,
+          );
+          const cost = dec(issueRes?.totalValue ?? 0);
+          if (cost.gt(ZERO)) postingLines.push({ accountId: stockValAccount, credit: cost.toString() });
+          // Return variance: supplier credit (price) vs the stock cost removed.
+          const variance = price.minus(cost);
+          if (variance.gt(ZERO)) {
+            postingLines.push({ accountId: await this.determination.mapped('stock_adjustment_income', tx), credit: variance.toString() });
+          } else if (variance.lt(ZERO)) {
+            postingLines.push({ accountId: await this.determination.mapped('stock_adjustment_expense', tx), debit: variance.negated().toString() });
+          }
+        } else {
+          // Non-stock line on an RTV (e.g. a credited service/fee): reduce expense.
+          if (price.gt(ZERO)) postingLines.push({ accountId: await this.determination.mapped('default_expense', tx), credit: price.toString() });
+        }
+      }
+
+      if (totalAp.gt(ZERO)) {
+        postingLines.unshift({ accountId: apAccount, debit: totalAp.toString(), partnerId: note.partnerId });
+      }
+
+      await this.posting.post(
+        {
+          journalCode: 'PURCH',
+          date: note.issueDate,
+          description: `Return to vendor ${note.noteNumber}`,
+          sourceType: 'debit_note',
+          sourceId: note.id,
+          lines: postingLines,
+        } as any,
+        tx,
+      );
+
+      return tx.debitNote.update({
+        where: { id: note.id },
+        data: { status: 'posted', postedAt: new Date(), postedById: this.tenant.userId ?? null },
+      });
+    });
+
+    await this.audit.record({
+      entity: 'DebitNote',
+      entityId: note.id,
+      action: 'update',
+      newValues: { status: 'posted', kind: 'return_to_vendor' },
+    });
+    this.events.publish('debit_note.posted' as any, {
+      organizationId: orgId,
+      noteId: note.id,
+      direction: note.direction,
+      amount: String(Number(note.totalAmount)),
+    });
+    return updated;
+  }
+
+  /** RTV source warehouse: the one stashed on the note (customFields.locationId),
+   *  else the org's default active warehouse. */
+  private async resolveReturnLocation(tx: any, note: any) {
+    const stashed = note.customFields && (note.customFields as any).locationId;
+    if (stashed) {
+      const loc = await tx.inventoryLocation.findFirst({ where: { id: stashed, organizationId: this.tenant.organizationId } });
+      if (loc) return loc;
+    }
+    return tx.inventoryLocation.findFirst({
+      where: { organizationId: this.tenant.organizationId, type: 'warehouse', isActive: true },
+    });
   }
 
   async cancel(id: string) {

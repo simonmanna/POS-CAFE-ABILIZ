@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { PaginationQuery, PaymentDirection, PaymentStatus } from '@erp/shared';
 import { dec, round, ZERO } from '../../../kernel/common/money';
@@ -11,6 +11,7 @@ import { AccountDeterminationService } from '../../accounting/posting/account-de
 import { CashSessionService } from '../../accounting/treasury/cash-session.service';
 import { WorkflowService } from '../../../kernel/workflow/workflow.service';
 import { AuditService } from '../../../kernel/audit/audit.service';
+import { ApprovalsService } from '../../../kernel/approvals/approvals.service';
 import { CreatePaymentDto } from './dto/payment.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -37,6 +38,7 @@ export class PaymentService {
     private readonly cashSessions: CashSessionService,
     private readonly workflow: WorkflowService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   async list(query: PaginationQuery, direction?: PaymentDirection, partnerId?: string, dateFrom?: string, dateTo?: string) {
@@ -83,7 +85,23 @@ export class PaymentService {
     return this.record(dto, 'inbound', opts ?? {}, tx);
   }
 
-  createSupplierPayment(dto: CreatePaymentDto, tx?: any) {
+  async createSupplierPayment(dto: CreatePaymentDto, tx?: any) {
+    // Approval gate
+    const approval = await this.approvals.checkOrRequestApproval({
+      entityType: 'supplier_payment',
+      entityId: dto.partnerId,
+      snapshot: {
+        amount: dto.amount,
+        partnerId: dto.partnerId,
+        paymentMethod: dto.paymentMethod ?? 'cash',
+      },
+    });
+    if (approval?.needsApproval) {
+      throw new ForbiddenException(
+        `Vendor payment requires approval. Request ID: ${approval.requestId}. Please have an authorized person approve it via the approvals endpoint.`,
+      );
+    }
+
     return this.record(dto, 'outbound', {}, tx);
   }
 

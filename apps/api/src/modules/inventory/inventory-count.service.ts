@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { dec } from '../../kernel/common/money';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
+import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockDocService } from './stock-doc.service';
 import { SaveCountDraftDto, StartCountDto } from './dto/inventory-count.dto';
 
@@ -22,6 +23,7 @@ export class InventoryCountService {
     private readonly tenant: TenantContextService,
     private readonly seq: SequenceService,
     private readonly stockDoc: StockDocService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   private get org(): string {
@@ -247,6 +249,21 @@ export class InventoryCountService {
    */
   async submit(id: string) {
     await this.assertDraft(id);
+
+    // Approval gate for inventory count submit
+    const approval = await this.approvals.checkOrRequestApproval({
+      entityType: 'inventory_count_submit',
+      entityId: id,
+      snapshot: {
+        countId: id,
+      },
+    });
+    if (approval?.needsApproval) {
+      throw new ForbiddenException(
+        `Inventory count submission requires approval. Request ID: ${approval.requestId}.`,
+      );
+    }
+
     const lines = await this.prisma.client.inventoryCountLine.findMany({ where: { sessionId: id } });
     const counted = lines.filter((l) => l.countedQty !== null);
     if (counted.length === 0) {

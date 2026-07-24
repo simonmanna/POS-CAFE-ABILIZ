@@ -148,7 +148,41 @@ export class ApprovalsService {
     });
   }
 
-  list(query: { status?: 'pending' | 'approved' | 'rejected' | 'cancelled'; entityType?: string }) {
+  /**
+   * Check if there's a pending or approved request for (entityType, entityId).
+   * Used by single-step action gates (asset ops, invoice cancel).
+   *
+   * Returns:
+   *   { needsApproval: true, requestId }  — pending request exists (gate the action)
+   *   { needsApproval: false }            — already approved, proceed
+   *   null                                — no policy, auto-approve, proceed
+   */
+  async checkOrRequestApproval(params: {
+    entityType: string;
+    entityId: string;
+    snapshot: Record<string, unknown>;
+  }): Promise<{ needsApproval: boolean; requestId?: string } | null> {
+    const orgId = this.tenant.organizationId;
+    // First check for existing pending or approved request
+    const existing = await this.prisma.client.approvalRequest.findFirst({
+      where: {
+        organizationId: orgId,
+        entityType: params.entityType,
+        entityId: params.entityId,
+        status: { in: ['pending', 'approved'] },
+      },
+    });
+    if (existing) {
+      if (existing.status === 'approved') return { needsApproval: false };
+      return { needsApproval: true, requestId: existing.id };
+    }
+    // No existing request — check if an active policy requires one
+    const req = await this.requestApproval(params);
+    if (req) return { needsApproval: true, requestId: req.id };
+    return null; // no policy = auto-approve
+  }
+
+  async list(query: { status?: 'pending' | 'approved' | 'rejected' | 'cancelled'; entityType?: string }) {
     const where: any = { organizationId: this.tenant.organizationId };
     if (query.status) where.status = query.status;
     if (query.entityType) where.entityType = query.entityType;

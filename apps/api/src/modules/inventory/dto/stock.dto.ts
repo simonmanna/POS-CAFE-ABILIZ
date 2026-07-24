@@ -1,4 +1,5 @@
 import {
+  IsArray,
   IsDateString,
   IsIn,
   IsNotEmpty,
@@ -59,6 +60,19 @@ export class ReceiveStockDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /// Ledger move type to record (default 'receipt'). Return flows pass
+  /// 'return_in' so restocked units are distinguishable from purchase receipts.
+  @IsOptional()
+  @IsIn([...STOCK_MOVE_TYPES])
+  moveType?: StockMoveType;
+
+  /// Serial numbers captured for a serial-tracked product (one per unit; length
+  /// must equal quantity). Ignored for non-serial products.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serialNumbers?: string[];
 }
 
 /** Receipt driven by a vendor bill. Posts Dr Stock / Cr GRNI inside the bill's transaction. */
@@ -97,6 +111,12 @@ export class ReceiveFromBillDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /// Serial numbers captured for a serial-tracked product (one per received unit).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serialNumbers?: string[];
 }
 
 export class IssueStockDto {
@@ -142,6 +162,12 @@ export class IssueStockDto {
   @IsIn([...STOCK_MOVE_TYPES])
   moveType?: StockMoveType;
 
+  /// Quantitative-only issue: decrement stock + write the ledger row but skip the
+  /// Dr COGS / Cr Stock Valuation GL posting. Used by return-to-vendor, where the
+  /// calling document (debit note) owns the balanced Dr AP / Cr Stock Valuation JE.
+  @IsOptional()
+  skipGlPosting?: boolean;
+
   /// Batch distribution strategy for batch-tracked products.
   @IsOptional()
   @IsIn([...STOCK_DISTRIBUTION_STRATEGIES])
@@ -151,6 +177,13 @@ export class IssueStockDto {
   @IsOptional()
   @IsString()
   batchNumber?: string;
+
+  /// SERIAL strategy / serial-tracked product: the exact serial numbers to issue
+  /// (one per unit; length must equal quantity).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serialNumbers?: string[];
 }
 
 export class AdjustStockDto {

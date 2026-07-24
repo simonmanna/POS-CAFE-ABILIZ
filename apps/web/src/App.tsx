@@ -8,9 +8,11 @@ import { CustomersPage, CustomerDetailPage } from '@/pages/customers';
 import { SuppliersPage, SupplierDetailPage } from '@/pages/suppliers';
 import { SupplierLedgerPage } from '@/pages/purchasing/supplier-ledger';
 import { ProductsPage } from '@/pages/products';
+import { UomPage } from '@/pages/uom';
 import { MenuPage } from '@/pages/menu';
 import MenuDetailPage from '@/pages/menu/MenuDetailPage';
 import ModifiersPage from '@/pages/menu/ModifiersPage';
+import ComboListPage from '@/pages/pos/ComboListPage';
 import AccompanimentGroupsPage from '@/pages/menu/AccompanimentGroupsPage';
 import { SettingsPage } from '@/pages/settings';
 import { ReceiptSettingsPage } from '@/pages/pos/ReceiptSettingsPage';
@@ -19,6 +21,7 @@ import { DevicesPage } from '@/pages/pos/DevicesPage';
 import { DeadLettersPage } from '@/pages/pos/DeadLettersPage';
 import { PostingMonitorPage } from '@/pages/pos/PostingMonitorPage';
 import { ApprovalsPage } from '@/pages/approvals';
+import { ApprovalPoliciesPage } from '@/pages/approval-policies';
 import { RecurringPage } from '@/pages/recurring';
 import { WebhooksPage } from '@/pages/webhooks';
 import { FilesPage } from '@/pages/files';
@@ -120,9 +123,11 @@ export function App() {
           <Route path="/suppliers/:partnerId" element={<SupplierDetailPage />} />
           <Route path="/suppliers/:partnerId/ledger" element={<SupplierLedgerPage />} />
           <Route path="/products" element={<ProductsPage />} />
+          <Route path="/uom" element={<UomPage />} />
           <Route path="/menu" element={<MenuPage />} />
           <Route path="/menu/:menuItemId" element={<MenuDetailPage />} />
           <Route path="/menu/modifiers" element={<ModifiersPage />} />
+          <Route path="/menu/combos" element={<ComboListPage />} />
           <Route path="/menu/accompaniments" element={<AccompanimentGroupsPage />} />
           <Route path="/invoices" element={<InvoicesPage />} />
           <Route path="/invoices/new" element={<InvoiceCreatePage />} />
@@ -152,6 +157,7 @@ export function App() {
           <Route path="/balance-sheet" element={<BalanceSheetPage />} />
           <Route path="/reports" element={<ReportCenterPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
+          <Route path="/approval-policies" element={<ApprovalPoliciesPage />} />
           <Route path="/recurring" element={<RecurringPage />} />
           <Route path="/webhooks" element={<WebhooksPage />} />
           <Route path="/files" element={<FilesPage />} />
@@ -189,6 +195,7 @@ export function App() {
           <Route path="/procurement/debit-notes" element={<DebitNotesPage />} />
           <Route path="/procurement/debit-notes/new" element={<DebitNoteCreatePage />} />
           <Route path="/tasks" element={<TasksPage />} />
+          
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -1250,9 +1250,23 @@ export class PosService {
     // Sync the posMode as a Setting so offline devices see it via sync pull.
     if (dto.posMode) {
       await this.prisma.client.setting.upsert({
-        where: { organizationId_scope_key: { organizationId: this.tenant.organizationId, scope: 'organization', key: 'pos.mode' } },
+        where: {
+          organizationId_scopeType_scopeId_key: {
+            organizationId: this.tenant.organizationId,
+            scopeType: 'organization',
+            scopeId: '',
+            key: 'pos.mode',
+          },
+        },
         update: { value: dto.posMode },
-        create: { organizationId: this.tenant.organizationId, scope: 'organization', key: 'pos.mode', value: dto.posMode },
+        create: {
+          organizationId: this.tenant.organizationId,
+          scope: 'organization',
+          scopeType: 'organization',
+          scopeId: '',
+          key: 'pos.mode',
+          value: dto.posMode,
+        },
       });
     }
     return config;

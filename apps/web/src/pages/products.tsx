@@ -33,6 +33,7 @@ import { notify } from '@/lib/notify';
 import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCreateProduct, useDeleteProduct, useProductCategories, useProducts, useUpdateProduct, type Product } from '@/features/products/api';
+import { useUoms } from '@/features/uom/api';
 import { api, resolveAssetUrl } from '@/lib/api';
 import { toast } from 'sonner';
 
@@ -44,15 +45,66 @@ const MEASUREMENT_METHODS = [
   { value: 'digital_weight', label: 'Digital weight scale (bar alcohol)' },
 ] as const;
 
+const COSTING_METHODS = [
+  { value: 'AVCO', label: 'Average Cost (AVCO)' },
+  { value: 'FIFO', label: 'First-In, First-Out (FIFO)' },
+  { value: 'STANDARD', label: 'Standard Cost' },
+  { value: 'SPECIFIC', label: 'Specific Identification' },
+] as const;
+
+const PICKING_STRATEGIES = [
+  { value: 'FEFO', label: 'FEFO — nearest expiry first' },
+  { value: 'FIFO', label: 'FIFO — oldest receipt first' },
+  { value: 'MANUAL', label: 'Manual batch selection' },
+  { value: 'SERIAL', label: 'Serial selection' },
+] as const;
+
+const INVENTORY_DEFAULTS = {
+  batchTracking: false,
+  expiryTracking: false,
+  serialTracking: false,
+  pickingStrategy: 'FEFO',
+} as const;
+
+const UOM_DEFAULTS = {
+  uomId: '',
+  purchaseUomId: '',
+  salesUomId: '',
+  recipeUomId: '',
+  productionUomId: '',
+  uomConversion: '',
+  reorderQty: '',
+  allowFractionalSale: true,
+  minSaleQty: '',
+  maxSaleQty: '',
+} as const;
+
 const schema = z.object({
   code: z.string().min(1, 'Code is required'),
   sku: z.string().optional().or(z.literal('')),
   name: z.string().min(1, 'Name is required'),
   productType: z.string().min(1),
+  costingMethod: z.string(),
   categoryId: z.string().optional().or(z.literal('')),
   salesPrice: z.string().optional().or(z.literal('')),
   costPrice: z.string().optional().or(z.literal('')),
   trackInventory: z.boolean(),
+  // UOM roles + purchasing/sale rules.
+  uomId: z.string().optional().or(z.literal('')),
+  purchaseUomId: z.string().optional().or(z.literal('')),
+  salesUomId: z.string().optional().or(z.literal('')),
+  recipeUomId: z.string().optional().or(z.literal('')),
+  productionUomId: z.string().optional().or(z.literal('')),
+  uomConversion: z.string().optional().or(z.literal('')),
+  reorderQty: z.string().optional().or(z.literal('')),
+  allowFractionalSale: z.boolean(),
+  minSaleQty: z.string().optional().or(z.literal('')),
+  maxSaleQty: z.string().optional().or(z.literal('')),
+  // Inventory tracking configuration.
+  batchTracking: z.boolean(),
+  expiryTracking: z.boolean(),
+  serialTracking: z.boolean(),
+  pickingStrategy: z.string(),
   // Beverage Control (bar alcohol) — digital-weight measurement.
   measurementMethod: z.string(),
   containerVolumeMl: z.string().optional().or(z.literal('')),
@@ -134,15 +186,16 @@ export function ProductsPage() {
   const updateProduct = useUpdateProduct();
   const deleteProduct = useDeleteProduct();
   const { data: categories = [] } = useProductCategories();
+  const { data: units = [] } = useUoms();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { code: '', sku: '', name: '', productType: 'stockable', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true, ...BEVERAGE_DEFAULTS },
+    defaultValues: { code: '', sku: '', name: '', productType: 'stockable', costingMethod: 'AVCO', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true, ...UOM_DEFAULTS, ...INVENTORY_DEFAULTS, ...BEVERAGE_DEFAULTS },
   });
 
   const openCreate = () => {
     setEditing(null);
-    form.reset({ code: '', sku: '', name: '', productType: 'stockable', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true, ...BEVERAGE_DEFAULTS });
+    form.reset({ code: '', sku: '', name: '', productType: 'stockable', costingMethod: 'AVCO', categoryId: '', salesPrice: '', costPrice: '', trackInventory: true, ...UOM_DEFAULTS, ...INVENTORY_DEFAULTS, ...BEVERAGE_DEFAULTS });
     setPreviewSrc('');
     imageFileIdRef.current = '';
     setOpen(true);
@@ -157,10 +210,25 @@ export function ProductsPage() {
       sku: p.sku ?? '',
       name: p.name,
       productType: p.productType,
+      costingMethod: p.costingMethod ?? 'AVCO',
       categoryId: p.categoryId ?? '',
       salesPrice: p.salesPrice ?? '',
       costPrice: p.costPrice ?? '',
       trackInventory: p.trackInventory,
+      uomId: p.uomId ?? '',
+      purchaseUomId: p.purchaseUomId ?? '',
+      salesUomId: p.salesUomId ?? '',
+      recipeUomId: p.recipeUomId ?? '',
+      productionUomId: p.productionUomId ?? '',
+      uomConversion: s(p.uomConversion),
+      reorderQty: s(p.reorderQty),
+      allowFractionalSale: p.allowFractionalSale ?? true,
+      minSaleQty: s(p.minSaleQty),
+      maxSaleQty: s(p.maxSaleQty),
+      batchTracking: p.batchTracking ?? false,
+      expiryTracking: p.expiryTracking ?? false,
+      serialTracking: p.serialTracking ?? false,
+      pickingStrategy: p.pickingStrategy ?? 'FEFO',
       measurementMethod: p.measurementMethod ?? 'count',
       containerVolumeMl: s(p.containerVolumeMl),
       emptyBottleWeightG: s(p.emptyBottleWeightG),
@@ -211,6 +279,17 @@ export function ProductsPage() {
       ...values,
       sku: values.sku || undefined,
       categoryId: values.categoryId || undefined,
+      // UOM roles: empty select → undefined; numeric rules coerced.
+      uomId: values.uomId || undefined,
+      purchaseUomId: values.purchaseUomId || undefined,
+      salesUomId: values.salesUomId || undefined,
+      recipeUomId: values.recipeUomId || undefined,
+      productionUomId: values.productionUomId || undefined,
+      uomConversion: numOrUndef(values.uomConversion),
+      reorderQty: numOrUndef(values.reorderQty),
+      allowFractionalSale: values.allowFractionalSale,
+      minSaleQty: numOrUndef(values.minSaleQty),
+      maxSaleQty: numOrUndef(values.maxSaleQty),
       salesPrice: values.salesPrice ? Number(values.salesPrice) : undefined,
       costPrice: values.costPrice ? Number(values.costPrice) : undefined,
       image: imageFileIdRef.current || (previewSrc || undefined),
@@ -423,6 +502,34 @@ export function ProductsPage() {
                 </Select>
               </div>
             </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="costingMethod" className="text-sm font-medium text-slate-700 mb-1.5">Costing Method</Label>
+                <Select
+                  value={form.watch('costingMethod')}
+                  onValueChange={(v) => {
+                    form.setValue('costingMethod', v);
+                    // Cascade the tracking prerequisites so the combo is always valid.
+                    if (v === 'FIFO') form.setValue('batchTracking', true);
+                    if (v === 'SPECIFIC' && !form.watch('serialTracking') && !form.watch('batchTracking')) {
+                      form.setValue('serialTracking', true);
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COSTING_METHODS.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">FIFO requires batch tracking; Specific Identification needs serial or batch tracking.</p>
+              </div>
+              <div className="space-y-2">
+              </div>
+            </div>
             <div className="space-y-2">
               <Label className="text-sm font-medium text-slate-700 mb-1.5">Image</Label>
               <div className="flex items-start gap-3">
@@ -465,9 +572,157 @@ export function ProductsPage() {
                 <Input id="costPrice" type="number" step="1" min="0" placeholder="0" {...form.register('costPrice')} />
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" {...form.register('trackInventory')} className="rounded" /> Track inventory
-            </label>
+            {/* Units & Purchasing — base/purchase/sales/recipe/production roles. */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-4">
+              <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Units &amp; Purchasing</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Base (stock) unit</Label>
+                  <Select value={form.watch('uomId')} onValueChange={(v) => form.setValue('uomId', v)}>
+                    <SelectTrigger><SelectValue placeholder="— none —" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— none —</SelectItem>
+                      {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Sales unit</Label>
+                  <Select value={form.watch('salesUomId')} onValueChange={(v) => form.setValue('salesUomId', v)}>
+                    <SelectTrigger><SelectValue placeholder="— same as base —" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— same as base —</SelectItem>
+                      {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Purchase unit</Label>
+                  <Select value={form.watch('purchaseUomId')} onValueChange={(v) => form.setValue('purchaseUomId', v)}>
+                    <SelectTrigger><SelectValue placeholder="— same as base —" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— same as base —</SelectItem>
+                      {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="uomConversion" className="text-sm">Stock units / purchase unit</Label>
+                  <Input id="uomConversion" type="number" step="any" min="0" placeholder="e.g. 50 (1 bag = 50 kg)" {...form.register('uomConversion')} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Recipe unit</Label>
+                  <Select value={form.watch('recipeUomId')} onValueChange={(v) => form.setValue('recipeUomId', v)}>
+                    <SelectTrigger><SelectValue placeholder="— same as base —" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— same as base —</SelectItem>
+                      {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-sm">Production unit</Label>
+                  <Select value={form.watch('productionUomId')} onValueChange={(v) => form.setValue('productionUomId', v)}>
+                    <SelectTrigger><SelectValue placeholder="— same as base —" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— same as base —</SelectItem>
+                      {units.map((u) => <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="reorderQty" className="text-sm">Reorder qty (purchase units)</Label>
+                  <Input id="reorderQty" type="number" step="any" min="0" placeholder="0" {...form.register('reorderQty')} />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-4 items-end">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input type="checkbox" className="rounded" {...form.register('allowFractionalSale')} /> Allow fractional sale
+                </label>
+                <div className="space-y-1.5">
+                  <Label htmlFor="minSaleQty" className="text-sm">Min sale qty</Label>
+                  <Input id="minSaleQty" type="number" step="any" min="0" placeholder="—" {...form.register('minSaleQty')} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="maxSaleQty" className="text-sm">Max sale qty</Label>
+                  <Input id="maxSaleQty" type="number" step="any" min="0" placeholder="—" {...form.register('maxSaleQty')} />
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500">Purchase/sales/recipe units must share the base unit's category unless a product-specific conversion is defined. Manage units under <strong>Units of Measure</strong>.</p>
+            </div>
+
+            {/* Inventory Tracking — costing/picking/batch/expiry/serial configuration. */}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-4">
+              <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Inventory Tracking</p>
+
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" {...form.register('trackInventory')} className="rounded" /> Track inventory
+              </label>
+
+              <div className="space-y-2">
+                <Label htmlFor="pickingStrategy" className="text-sm">Picking strategy</Label>
+                <Select
+                  value={form.watch('pickingStrategy')}
+                  onValueChange={(v) => {
+                    form.setValue('pickingStrategy', v);
+                    if (v === 'SERIAL') form.setValue('serialTracking', true);
+                    if (v === 'MANUAL') form.setValue('batchTracking', true);
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PICKING_STRATEGIES.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Default strategy used when issuing batch/serial-tracked stock.</p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={!!form.watch('batchTracking')}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      form.setValue('batchTracking', checked);
+                      if (!checked) form.setValue('expiryTracking', false);
+                    }}
+                  /> Batch
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={!!form.watch('expiryTracking')}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      form.setValue('expiryTracking', checked);
+                      if (checked) form.setValue('batchTracking', true);
+                    }}
+                  /> Expiry
+                </label>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="rounded"
+                    checked={!!form.watch('serialTracking')}
+                    onChange={(e) => form.setValue('serialTracking', e.target.checked)}
+                  /> Serial
+                </label>
+              </div>
+
+              {form.watch('expiryTracking') && (
+                <p className="text-[11px] text-slate-500">Expiry tracking enables Batch tracking (expiry is recorded per batch).</p>
+              )}
+              {form.watch('costingMethod') === 'SPECIFIC' && !form.watch('serialTracking') && !form.watch('batchTracking') && (
+                <p className="text-[11px] text-amber-600">Specific Identification needs Serial or Batch tracking to identify each unit's cost.</p>
+              )}
+            </div>
 
             {/* Beverage Control — how remaining stock is measured. */}
             <div className="space-y-2">

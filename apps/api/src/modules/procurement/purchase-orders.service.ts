@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -9,6 +10,7 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockService } from '../inventory/stock.service';
 import type {
   CreatePODto,
@@ -28,6 +30,7 @@ export class PurchaseOrdersService {
     private readonly sequence: SequenceService,
     private readonly events: EventBus,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
     private readonly stock: StockService,
   ) {}
 
@@ -86,7 +89,7 @@ export class PurchaseOrdersService {
           subtotal,
           taxAmount,
           totalAmount: total,
-          status: 'active',
+          status: 'draft',
           paymentType: dto.paymentType ?? 'cash',
           paymentStatus: dto.paymentType === 'credit' ? 'not_paid' : null,
           notes: dto.notes,
@@ -111,6 +114,41 @@ export class PurchaseOrdersService {
         },
         include: { lines: true },
       });
+
+      // Approval gate: if an active policy exists, the PO stays in draft
+      // pending approval. Otherwise it auto-approves to active.
+      const approvalResult = await this.approvals.requestApproval({
+        entityType: 'purchase_order',
+        entityId: created.id,
+        snapshot: {
+          amount: total,
+          partnerId: dto.partnerId,
+          orderNumber,
+          createdBy: this.tenant.userId,
+        },
+      });
+
+      if (!approvalResult) {
+        // No policy → auto-approve, PO becomes active immediately
+        await tx.purchaseOrder.update({
+          where: { id: created.id },
+          data: { status: 'active' },
+        });
+        created.status = 'active';
+      } else {
+        await this.audit.recordInTx(tx, {
+          entity: 'PurchaseOrder',
+          entityId: created.id,
+          action: 'create',
+          newValues: {
+            orderNumber,
+            totalAmount: total,
+            approvalRequestId: approvalResult.id,
+            status: 'draft',
+          },
+        });
+      }
+
       return created;
     });
 
@@ -526,7 +564,7 @@ export class PurchaseOrdersService {
 
   async cancel(id: string, reason?: string) {
     const po = await this.requireOwned(id);
-    if (['received', 'cancelled'].includes(po.status))
+    if (['received', 'cancelled', 'billed', 'closed'].includes(po.status))
       throw new BadRequestException(`Cannot cancel PO in status ${po.status}`);
 
     const updated = await this.prisma.client.purchaseOrder.update({
@@ -552,6 +590,57 @@ export class PurchaseOrdersService {
     }
     await this.prisma.client.purchaseOrder.delete({ where: { id } });
     return { ok: true };
+  }
+
+  // ── Submit (approval gate) ────────────────────────────────────────────
+
+  /**
+   * Activate a draft PO after approval is granted (or if no approval is needed).
+   * Called after the approval request (if any) has been decided.
+   */
+  async activate(id: string) {
+    const po = await this.requireOwned(id);
+    if (po.status !== 'draft')
+      throw new BadRequestException(`Only draft POs can be activated, current status: ${po.status}`);
+
+    // Check there's no pending approval request
+    const pending = await this.prisma.raw.approvalRequest.findFirst({
+      where: {
+        organizationId: this.tenant.organizationId,
+        entityType: 'purchase_order',
+        entityId: id,
+        status: 'pending',
+      },
+    });
+    if (pending) {
+      throw new ForbiddenException(
+        'This purchase order is awaiting approval. Approve or reject the request first.',
+      );
+    }
+
+    const updated = await this.prisma.client.purchaseOrder.update({
+      where: { id },
+      data: {
+        status: 'active',
+        approvedAt: new Date(),
+        approvedById: this.tenant.userId ?? null,
+      },
+    });
+
+    await this.audit.record({
+      entity: 'PurchaseOrder',
+      entityId: id,
+      action: 'approve',
+      newValues: { status: 'active' },
+    });
+
+    this.events.publish('purchase_order.activated' as any, {
+      organizationId: this.tenant.organizationId,
+      orderId: id,
+      orderNumber: po.orderNumber,
+    });
+
+    return updated;
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────

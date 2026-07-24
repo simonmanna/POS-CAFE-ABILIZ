@@ -54,11 +54,32 @@ enum ProductType {
 
 /// Per-product inventory costing policy (M3). AVCO is the Odoo-style default;
 /// FIFO consumes batches in (expiry, received) order; STANDARD uses a fixed
-/// Product.costPrice. See apps/api/src/modules/inventory/costing/.
+/// Product.costPrice; SPECIFIC costs each issued unit/layer at its own actual
+/// receipt cost (needs serial or batch tracking to identify the layer).
+/// See apps/api/src/modules/inventory/costing/.
 enum CostingMethod {
   AVCO
   FIFO
   STANDARD
+  SPECIFIC
+}
+
+/// Per-product default strategy for picking batch/serial-tracked stock on issue.
+/// Mirrors @erp/shared STOCK_DISTRIBUTION_STRATEGIES. FEFO = nearest expiry first;
+/// FIFO = oldest receipt first; MANUAL = a named batch; SERIAL = selected serials.
+enum PickingStrategy {
+  FEFO
+  FIFO
+  MANUAL
+  SERIAL
+}
+
+/// Lifecycle status of a single serialized stock unit (InventorySerial).
+enum SerialStatus {
+  in_stock
+  issued
+  returned
+  scrapped
 }
 
 enum TaxType {
@@ -526,18 +547,30 @@ model LoginAttempt {
 }
 
 /// Settings at system (organizationId null), organization, or module scope.
+///
+/// Hierarchical config (ADR-005): a setting resolves most-specific-first
+/// product -> category -> warehouse -> organization. `scopeType` names the level
+/// and `scopeId` the target id at that level ("" = the whole organization, so the
+/// unique constraint stays NULL-free — Postgres treats NULLs as distinct, which
+/// would let duplicate org-level rows slip through). Legacy `scope`/`module`
+/// columns are retained for backward compatibility.
 model Setting {
   id             String   @id @default(uuid())
   organizationId String?
   scope          String   @default("organization")
   module         String?
+  /// organization | warehouse | category | product
+  scopeType      String   @default("organization")
+  /// Target id at scopeType level; "" means the whole organization.
+  scopeId        String   @default("")
   key            String
   value          Json
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  @@unique([organizationId, scope, key])
+  @@unique([organizationId, scopeType, scopeId, key])
   @@index([organizationId])
+  @@index([organizationId, scopeType, scopeId])
 }
 
 // ---------------------------- Master data -----------------------------------
@@ -556,6 +589,11 @@ model Partner {
   website             String?
   taxNumber           String?
   membershipLevel     String?
+  /// Per-customer automatic discount %, applied on every line when this partner
+  /// is attached to a POS sale. 0 = none. Highest priority in the customer
+  /// discount cascade (wins over category + membership tier). See
+  /// PartnerDiscountService.resolve().
+  discountPercentOverride Decimal   @default(0) @db.Decimal(9, 4)
   gender              String?
   receivableAccountId String?
   payableAccountId    String?
@@ -591,6 +629,10 @@ model PartnerCategory {
   organizationId String
   name           String
   parentId       String?
+  /// Group discount % inherited by all partners in this category (unless the
+  /// partner has their own override). 0 = inherit from the nearest ancestor
+  /// category with a non-zero value (walked via parentId).
+  discountPercentOverride Decimal @default(0) @db.Decimal(9, 4)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   createdBy      String?
@@ -600,6 +642,28 @@ model PartnerCategory {
   parent   PartnerCategory?  @relation("PartnerCategoryTree", fields: [parentId], references: [id])
   children PartnerCategory[] @relation("PartnerCategoryTree")
   partners Partner[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+/// Organization-defined membership tier (Bronze/Silver/Gold…). When a Partner's
+/// `membershipLevel` string matches a tier `name`, the tier's discount auto-
+/// applies on POS sale attach — the lowest-priority source in the customer
+/// discount cascade (a per-partner or category override wins over this).
+model MembershipTier {
+  id               String   @id @default(uuid())
+  organizationId   String
+  name             String
+  discountPercent  Decimal  @default(0) @db.Decimal(9, 4)
+  /// Lifetime-spend threshold for auto-promotion into this tier (informational
+  /// in Phase 1; not auto-enforced yet).
+  minLifetimeSpend Decimal  @default(0) @db.Decimal(20, 6)
+  color            String?
+  sortOrder        Int      @default(0)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -676,12 +740,31 @@ model Product {
   /// purchaseUnit (e.g. 1 case = 24 pcs → 24).
   purchaseUomId  String?
   uomConversion  Decimal        @default(1) @db.Decimal(18, 6)
+  /// Additional UOM roles. Normally within the base unit's category (convert via
+  /// UOM factors); cross-category needs a ProductUomConversion bridge. Null →
+  /// falls back to the base `uomId`. salesUom = how the cashier sells (cup/glass),
+  /// recipeUom = default recipe-line unit, productionUom = manufacturing unit.
+  salesUomId      String?
+  recipeUomId     String?
+  productionUomId String?
+  /// Sale rules enforced at POS. minSaleQty/maxSaleQty are in the sales unit.
+  allowFractionalSale Boolean  @default(true)
+  minSaleQty          Decimal? @db.Decimal(20, 6)
+  maxSaleQty          Decimal? @db.Decimal(20, 6)
   taxId          String?
   salesPrice     Decimal?       @db.Decimal(18, 6)
   costPrice      Decimal?       @db.Decimal(18, 6)
   trackInventory Boolean        @default(true)
   batchTracking  Boolean        @default(false)
-  /// F.8: which strategy DeductStock uses for batch-tracked products by default.
+  /// When true, batches require an expiry date on receipt and FEFO picking is
+  /// meaningful. Implies batchTracking (expiry is stored on InventoryBatch).
+  expiryTracking Boolean        @default(false)
+  /// When true, each physical unit is tracked as an InventorySerial (captured on
+  /// receipt, selected on issue). Enables SERIAL picking + SPECIFIC costing.
+  serialTracking Boolean        @default(false)
+  /// Default strategy DeductStock/issue uses for batch/serial-tracked products
+  /// when the transaction does not override it (dto.distStrategy).
+  pickingStrategy PickingStrategy @default(FEFO)
   hasVariants    Boolean        @default(false)
   /// Reorder qty expressed in PURCHASE units (par-based reorder report).
   reorderQty     Decimal        @default(0) @db.Decimal(20, 6)
@@ -734,11 +817,17 @@ model Product {
   supplier       Partner?               @relation("ProductSupplier", fields: [supplierId], references: [id])
   uom            UnitOfMeasure?         @relation("ProductStockUom", fields: [uomId], references: [id])
   purchaseUom    UnitOfMeasure?         @relation("ProductPurchaseUom", fields: [purchaseUomId], references: [id])
+  salesUom       UnitOfMeasure?         @relation("ProductSalesUom", fields: [salesUomId], references: [id])
+  recipeUom      UnitOfMeasure?         @relation("ProductRecipeUom", fields: [recipeUomId], references: [id])
+  productionUom  UnitOfMeasure?         @relation("ProductProductionUom", fields: [productionUomId], references: [id])
+  packagings     ProductPackaging[]
+  uomConversions ProductUomConversion[]
   tax            Tax?                   @relation(fields: [taxId], references: [id])
   variants       ProductVariant[]
   stockItems     StockItem[]
   stockBatches   InventoryBatch[]
   stockLedger    InventoryLedger[]
+  stockSerials   InventorySerial[]
   modifierGroups ProductModifierGroup[]
   comboItems     ComboItem[]
   menuProducts   MenuProduct[]
@@ -795,6 +884,7 @@ model ProductVariant {
   stockItems    StockItem[]
   stockBatches  InventoryBatch[]
   ledgerEntries InventoryLedger[]
+  stockSerials  InventorySerial[]
 
   @@unique([organizationId, productId, name])
   @@index([organizationId])
@@ -822,13 +912,50 @@ model ProductCategory {
   @@index([organizationId])
 }
 
+/// A group of units that convert into one another (Weight, Volume, Quantity…).
+/// Conversion is only allowed WITHIN a category; `referenceUom` is the factor-1
+/// unit every other member is expressed against.
+model UomCategory {
+  id             String    @id @default(uuid())
+  organizationId String
+  name           String
+  /// The reference (factor = 1) unit for this category.
+  referenceUomId String?
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
+
+  units        UnitOfMeasure[] @relation("UomCategoryUnits")
+  referenceUom UnitOfMeasure?  @relation("UomCategoryReference", fields: [referenceUomId], references: [id])
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
 model UnitOfMeasure {
   id             String    @id @default(uuid())
   organizationId String
   code           String
   name           String
+  /// Short display symbol (kg, g, L, pc). Optional.
+  symbol         String?
+  /// FK to the UOM category. Nullable during backfill; `category` (legacy free-text)
+  /// is retained until every unit is migrated.
+  categoryId     String?
   category       String    @default("unit")
-  ratio          Decimal   @default(1) @db.Decimal(18, 6)
+  /// Base (reference) units per 1 of THIS unit. Reference unit = 1. e.g. with a
+  /// gram reference: kg.factor = 1000. Convert: baseQty = qty * factor;
+  /// convert(qty, from, to) = qty * from.factor / to.factor. Backfilled from `ratio`.
+  factor            Decimal @default(1) @db.Decimal(18, 6)
+  /// Legacy conversion field (== factor); kept for backfill/back-compat.
+  ratio             Decimal @default(1) @db.Decimal(18, 6)
+  /// Rounding step for quantities in this unit (1 = whole units, 0.001 = milli).
+  roundingPrecision Decimal @default(0.000001) @db.Decimal(18, 6)
+  /// Informational: bigger | reference | smaller than the category reference.
+  uomType           String  @default("reference")
   isBase         Boolean   @default(false)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
@@ -837,11 +964,61 @@ model UnitOfMeasure {
   updatedBy      String?
   deletedAt      DateTime?
 
-  products         Product[] @relation("ProductStockUom")
-  purchaseProducts Product[] @relation("ProductPurchaseUom")
+  categoryRef            UomCategory?  @relation("UomCategoryUnits", fields: [categoryId], references: [id])
+  referenceForCategories UomCategory[] @relation("UomCategoryReference")
+  products           Product[]              @relation("ProductStockUom")
+  purchaseProducts   Product[]              @relation("ProductPurchaseUom")
+  salesProducts      Product[]              @relation("ProductSalesUom")
+  recipeProducts     Product[]              @relation("ProductRecipeUom")
+  productionProducts Product[]              @relation("ProductProductionUom")
+  uomConversionsFrom ProductUomConversion[] @relation("UomConversionFrom")
+  uomConversionsTo   ProductUomConversion[] @relation("UomConversionTo")
+  menuLines          MenuProduct[]          @relation("MenuProductUom")
 
   @@unique([organizationId, code])
   @@index([organizationId])
+  @@index([organizationId, categoryId])
+}
+
+/// A named pack of a product = a quantity of its BASE unit, optionally with its
+/// own barcode (scan the case barcode → add `quantity` base units). Packaging is
+/// separate from UOM: it does not participate in the category/factor engine.
+model ProductPackaging {
+  id             String   @id @default(uuid())
+  organizationId String
+  productId      String
+  name           String
+  /// How many BASE units one pack contains (e.g. Carton = 24).
+  quantity       Decimal  @default(1) @db.Decimal(20, 6)
+  barcode        String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, barcode])
+  @@index([organizationId, productId])
+}
+
+/// Optional per-product bridge for cross-category conversion (density): e.g. this
+/// product converts 1 L (from) = 1.03 kg (to). `factor` = `to` units per 1 `from` unit.
+model ProductUomConversion {
+  id             String   @id @default(uuid())
+  organizationId String
+  productId      String
+  fromUomId      String
+  toUomId        String
+  factor         Decimal  @db.Decimal(20, 10)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  product Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  fromUom UnitOfMeasure @relation("UomConversionFrom", fields: [fromUomId], references: [id])
+  toUom   UnitOfMeasure @relation("UomConversionTo", fields: [toUomId], references: [id])
+
+  @@unique([organizationId, productId, fromUomId, toUomId])
+  @@index([organizationId, productId])
 }
 
 model Tax {
@@ -1706,13 +1883,16 @@ model MenuProduct {
   organizationId String
   menuItemId     String
   productId      String
-  /// Quantity of the product used per single sale of this menu item.
-  /// For weight-based products (Milk 200ml) the Product's UoM carries the
-  /// unit; this is a plain integer count.
+  /// Quantity of the product used per single sale of this menu item, expressed in
+  /// `uomId` when set (e.g. 18 g), else in the ingredient's base stock unit. The
+  /// deduction path converts this to the ingredient's base unit before issuing.
   quantity       Decimal @default(1) @db.Decimal(20, 6)
+  /// Recipe-line unit (e.g. grams for a kg-based coffee). Null → the product's base unit.
+  uomId          String?
 
-  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
-  product  Product  @relation(fields: [productId], references: [id])
+  menuItem MenuItem       @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  product  Product        @relation(fields: [productId], references: [id])
+  uom      UnitOfMeasure? @relation("MenuProductUom", fields: [uomId], references: [id])
 
   @@unique([menuItemId, productId])
   @@index([organizationId])
@@ -2269,6 +2449,7 @@ model InventoryLocation {
   stockItems    StockItem[]
   batches       InventoryBatch[]
   ledgerEntries InventoryLedger[]
+  serials       InventorySerial[]
   cashRegisters CashRegister[]
   goodsReceipts GoodsReceiptNote[]
   stockOuts     StockOut[]
@@ -2332,6 +2513,7 @@ model InventoryBatch {
   variant       ProductVariant?   @relation(fields: [variantId], references: [id])
   location      InventoryLocation @relation(fields: [locationId], references: [id])
   ledgerEntries InventoryLedger[]
+  serials       InventorySerial[]
 
   @@index([organizationId])
   @@index([productId, locationId])
@@ -2347,6 +2529,9 @@ model InventoryLedger {
   variantId      String?
   locationId     String
   batchId        String?
+  /// F.8+: links a movement to the specific serialized unit it moved (serial-tracked
+  /// products). Null for non-serial movements.
+  serialId       String?
   type           StockMoveType
   /// Location on-hand BEFORE this movement (qtyAfter = balanceAfter).
   qtyBefore      Decimal       @default(0) @db.Decimal(20, 6)
@@ -2364,12 +2549,49 @@ model InventoryLedger {
   variant  ProductVariant?   @relation(fields: [variantId], references: [id])
   location InventoryLocation @relation(fields: [locationId], references: [id])
   batch    InventoryBatch?   @relation(fields: [batchId], references: [id])
+  serial   InventorySerial?  @relation(fields: [serialId], references: [id])
 
   @@index([organizationId, ledgerCode])
   @@index([organizationId])
   @@index([productId])
   @@index([locationId])
   @@index([organizationId, createdAt])
+}
+
+/// One row per serialized physical unit (only when product.serialTracking).
+/// Captured on receipt (status in_stock) and consumed on issue (status issued),
+/// carrying its own actual receipt unitCost so SPECIFIC costing is exact.
+model InventorySerial {
+  id             String       @id @default(uuid())
+  organizationId String
+  productId      String
+  variantId      String?
+  locationId     String
+  serialNumber   String
+  /// Optional link to the batch this unit belongs to (batch + serial together).
+  batchId        String?
+  /// Actual receipt cost of this unit (basis for SPECIFIC costing).
+  unitCost       Decimal?     @db.Decimal(20, 6)
+  status         SerialStatus @default(in_stock)
+  receivedAt     DateTime     @default(now())
+  issuedAt       DateTime?
+  /// sourceType:sourceId of the receipt / issue that moved this unit.
+  receiptRef     String?
+  issueRef       String?
+  notes          String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  product       Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variant       ProductVariant?   @relation(fields: [variantId], references: [id])
+  location      InventoryLocation @relation(fields: [locationId], references: [id])
+  batch         InventoryBatch?   @relation(fields: [batchId], references: [id])
+  ledgerEntries InventoryLedger[]
+
+  @@unique([organizationId, productId, serialNumber])
+  @@index([organizationId])
+  @@index([organizationId, productId, locationId, status])
+  @@index([batchId])
 }
 
 // =============================================================================
@@ -4188,6 +4410,10 @@ enum DiscountSource {
   promotion
   loyalty
   coupon
+  customer_discount
+  group_discount
+  membership_discount
+  global_promotion
 }
 
 /// Operational order — the restaurant-ops aggregate root. Created immediately

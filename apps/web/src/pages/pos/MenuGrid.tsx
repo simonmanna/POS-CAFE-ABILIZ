@@ -44,7 +44,8 @@ export const MenuGrid: React.FC<Props> = ({ products, locked, onPick }) => {
   return (
     <div className="pos-menus-grid-pro">
       {products.map((p) => {
-        const emoji = getFoodEmoji(p.name, p.category?.name);
+        const isCombo = Boolean(p.isCombo);
+        const emoji = isCombo ? '🍱' : getFoodEmoji(p.name, p.category?.name);
         const price = Number(p.salesPrice || 0);
         return (
           <button
@@ -55,7 +56,19 @@ export const MenuGrid: React.FC<Props> = ({ products, locked, onPick }) => {
             title={locked ? 'Open your shift first' : `${p.name} — ${fmt(price)}`}
             style={{ textDecoration: 'none', color: 'inherit' }}
           >
-            <div className="pos-menu-media-pro" style={{ background: tileFor(String(p.id ?? p.name)) }}>
+            <div className="pos-menu-media-pro" style={{ background: tileFor(String(p.id ?? p.name)), position: 'relative' }}>
+              {isCombo ? (
+                <span
+                  style={{
+                    position: 'absolute', top: 6, left: 6, zIndex: 2,
+                    background: '#7c3aed', color: '#fff', fontSize: 10, fontWeight: 700,
+                    letterSpacing: '0.04em', padding: '2px 6px', borderRadius: 6,
+                    boxShadow: '0 1px 2px rgba(0,0,0,.25)',
+                  }}
+                >
+                  🍱 COMBO
+                </span>
+              ) : null}
               {p.image ? (
                 <img
                   src={p.image}
@@ -76,6 +89,17 @@ export const MenuGrid: React.FC<Props> = ({ products, locked, onPick }) => {
             <div className="pos-menu-info-pro">
               <div className="pos-menu-text">
                 <div className="pos-menu-name-pro">{p.name}</div>
+                {isCombo && p.comboSummary ? (
+                  <div
+                    style={{
+                      fontSize: 11, opacity: 0.7, lineHeight: 1.2, marginTop: 2,
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}
+                    title={p.comboSummary}
+                  >
+                    {p.comboSummary}
+                  </div>
+                ) : null}
                 <div className="pos-menu-price-pro">{fmt(price)}</div>
               </div>
             </div>

@@ -1,15 +1,41 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, UserPlus, KeyRound, Mail, Loader2, Check } from 'lucide-react';
+import { Save, UserPlus, KeyRound, Mail, Loader2, Check, Boxes } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
+import { SystemConfigSection } from './settings/system-config';
+
+const COSTING_METHODS = [
+  { value: 'AVCO', label: 'Average Cost (AVCO)' },
+  { value: 'FIFO', label: 'First-In, First-Out (FIFO)' },
+  { value: 'STANDARD', label: 'Standard Cost' },
+  { value: 'SPECIFIC', label: 'Specific Identification' },
+] as const;
+
+const PICKING_STRATEGIES = [
+  { value: 'FEFO', label: 'FEFO — nearest expiry first' },
+  { value: 'FIFO', label: 'FIFO — oldest receipt first' },
+  { value: 'MANUAL', label: 'Manual batch selection' },
+  { value: 'SERIAL', label: 'Serial selection' },
+] as const;
+
+interface InventoryDefaults {
+  costingMethod: string | null;
+  pickingStrategy: string | null;
+  batchTracking: boolean;
+  expiryTracking: boolean;
+  serialTracking: boolean;
+}
 
 interface OrgDetails {
   id: string;
@@ -110,6 +136,44 @@ export function SettingsPage() {
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
   });
 
+  // ---- Inventory tracking defaults (org-level; new products inherit these) ----
+  const [invCosting, setInvCosting] = useState('');
+  const [invPicking, setInvPicking] = useState('FEFO');
+  const [invBatch, setInvBatch] = useState(false);
+  const [invExpiry, setInvExpiry] = useState(false);
+  const [invSerial, setInvSerial] = useState(false);
+  const invDefaults = useQuery<InventoryDefaults>({
+    queryKey: ['inventory-defaults'],
+    queryFn: async () => (await api.get<InventoryDefaults>('/settings/inventory-defaults')).data,
+  });
+  useEffect(() => {
+    const d = invDefaults.data;
+    if (d) {
+      setInvCosting(d.costingMethod ?? '');
+      setInvPicking(d.pickingStrategy ?? 'FEFO');
+      setInvBatch(!!d.batchTracking);
+      setInvExpiry(!!d.expiryTracking);
+      setInvSerial(!!d.serialTracking);
+    }
+  }, [invDefaults.data]);
+  const saveInvDefaults = useMutation({
+    mutationFn: async () => {
+      const payload: Record<string, unknown> = {
+        batchTracking: invBatch,
+        expiryTracking: invExpiry,
+        serialTracking: invSerial,
+      };
+      if (invCosting) payload.costingMethod = invCosting;
+      if (invPicking) payload.pickingStrategy = invPicking;
+      return (await api.put('/settings/inventory-defaults', payload)).data;
+    },
+    onSuccess: () => {
+      notify.success('Inventory defaults saved');
+      qc.invalidateQueries({ queryKey: ['inventory-defaults'] });
+    },
+    onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
+  });
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Settings</h1>
@@ -169,6 +233,78 @@ export function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Boxes className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <CardTitle>Inventory defaults</CardTitle>
+                <CardDescription>Applied to new products that don't set their own tracking config.</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {invDefaults.isLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Default costing method</label>
+                  <Select value={invCosting} onValueChange={setInvCosting}>
+                    <SelectTrigger><SelectValue placeholder="System default (AVCO)" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">System default (AVCO)</SelectItem>
+                      {COSTING_METHODS.map((m) => (
+                        <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Default picking strategy</label>
+                  <Select value={invPicking} onValueChange={setInvPicking}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {PICKING_STRATEGIES.map((s) => (
+                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="sm:col-span-2 flex flex-wrap gap-6">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={invBatch}
+                      onChange={(e) => { setInvBatch(e.target.checked); if (!e.target.checked) setInvExpiry(false); }}
+                    /> Batch tracking
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="rounded"
+                      checked={invExpiry}
+                      onChange={(e) => { setInvExpiry(e.target.checked); if (e.target.checked) setInvBatch(true); }}
+                    /> Expiry tracking
+                  </label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" className="rounded" checked={invSerial} onChange={(e) => setInvSerial(e.target.checked)} /> Serial tracking
+                  </label>
+                </div>
+                <div>
+                  <Button onClick={() => saveInvDefaults.mutate()} disabled={saveInvDefaults.isPending}>
+                    {saveInvDefaults.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                    Save defaults
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <SystemConfigSection />
 
         <Card className="lg:col-span-2">
           <CardHeader>

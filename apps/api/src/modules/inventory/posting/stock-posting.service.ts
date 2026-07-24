@@ -50,6 +50,10 @@ export class StockPostingService {
     sourceType: string;
     sourceId: string;
     description?: string;
+    /** When the caller already computed the exact consumed value (FIFO/SPECIFIC/serial
+     *  issues that decrement identified layers), pass it here so the GL leg uses it
+     *  verbatim instead of re-resolving from the now-mutated batches/serials. */
+    overrideTotalValue?: Prisma.Decimal;
     tx: any;
   }): Promise<CostResolution> {
     const qty = dec(params.quantity);
@@ -62,7 +66,10 @@ export class StockPostingService {
     });
 
     let resolution: CostResolution;
-    if (product.costingMethod === 'FIFO') {
+    if (params.overrideTotalValue !== undefined) {
+      const totalValue = dec(params.overrideTotalValue);
+      resolution = { unitCost: totalValue.gt(ZERO) ? totalValue.dividedBy(qty) : ZERO, totalValue };
+    } else if (product.costingMethod === 'FIFO') {
       if (!product.batchTracking) {
         throw new BadRequestException('FIFO costing requires batchTracking=true on the product');
       }
@@ -123,6 +130,49 @@ export class StockPostingService {
     );
 
     return resolution;
+  }
+
+  /**
+   * Return restock (customer return that goes back on the shelf): the structural
+   * inverse of postIssue — Dr Stock Valuation / Cr COGS. Reverses the COGS that
+   * was expensed when the unit was sold, at the SAME cost basis (the caller passes
+   * the original issue value; falls back to current AVCO when the sale's ledger
+   * rows can't be found). Skips the GL when the cost is zero, mirroring postIssue.
+   */
+  async postReturnRestock(params: {
+    productId: string;
+    totalValue: Prisma.Decimal.Value;
+    date: Date;
+    sourceType: string;
+    sourceId: string;
+    description?: string;
+    tx: any;
+  }): Promise<void> {
+    const totalValue = dec(params.totalValue);
+    if (totalValue.lte(ZERO)) return;
+
+    const product = await params.tx.product.findFirst({ where: { id: params.productId } });
+    const name = product?.name ?? params.productId;
+
+    const cogsAccountId = await this.determination.mapped('cogs', params.tx);
+    const stockValuationAccountId = await this.determination.mapped('stock_valuation', params.tx);
+
+    const lines: PostingLineInput[] = [
+      { accountId: stockValuationAccountId, debit: totalValue.toString(), description: params.description ?? `Return restock · ${name}` },
+      { accountId: cogsAccountId, credit: totalValue.toString(), description: params.description ?? `COGS reversal · ${name}` },
+    ];
+
+    await this.posting.post(
+      {
+        journalCode: 'INV',
+        date: params.date,
+        description: params.description ?? `Return restock ${name}`,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        lines,
+      },
+      params.tx,
+    );
   }
 
   /**

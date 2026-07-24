@@ -8,10 +8,14 @@ import {
   IsString,
 } from 'class-validator';
 import {
+  COSTING_METHODS,
   MEASUREMENT_METHODS,
   PRODUCT_TYPES,
+  STOCK_DISTRIBUTION_STRATEGIES,
+  type CostingMethod,
   type MeasurementMethod,
   type ProductType,
+  type StockDistributionStrategy,
 } from '@erp/shared';
 
 export class CreateProductDto {
@@ -43,6 +47,43 @@ export class CreateProductDto {
   @IsString()
   uomId?: string;
 
+  // ---- UOM roles + purchasing/sale rules ----
+  @IsOptional()
+  @IsString()
+  purchaseUomId?: string;
+
+  @IsOptional()
+  @IsString()
+  salesUomId?: string;
+
+  @IsOptional()
+  @IsString()
+  recipeUomId?: string;
+
+  @IsOptional()
+  @IsString()
+  productionUomId?: string;
+
+  @IsOptional()
+  @IsNumber()
+  uomConversion?: number;
+
+  @IsOptional()
+  @IsNumber()
+  reorderQty?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowFractionalSale?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  minSaleQty?: number;
+
+  @IsOptional()
+  @IsNumber()
+  maxSaleQty?: number;
+
   @IsOptional()
   @IsString()
   taxId?: string;
@@ -62,6 +103,27 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsIn([...COSTING_METHODS])
+  costingMethod?: CostingMethod;
+
+  // ---- Inventory tracking configuration ----
+  @IsOptional()
+  @IsBoolean()
+  batchTracking?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  expiryTracking?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  serialTracking?: boolean;
+
+  @IsOptional()
+  @IsIn([...STOCK_DISTRIBUTION_STRATEGIES])
+  pickingStrategy?: StockDistributionStrategy;
 
   @IsOptional()
   @IsString()

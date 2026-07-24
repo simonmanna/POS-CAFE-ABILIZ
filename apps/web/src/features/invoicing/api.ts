@@ -234,11 +234,20 @@ export function useCreateCreditNote() {
   });
 }
 
+/** Post a credit note. `disposition` decides what happens to returned goods:
+ *  'restock' (default) puts them back on the shelf and reverses COGS; 'scrap'
+ *  writes them off (revenue reversed only). */
 export function usePostCreditNote() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => (await api.post<Invoice>(`/credit-notes/${id}/post`)).data,
-    onSuccess: (_d, id) => {
+    mutationFn: async (arg: string | { id: string; disposition?: 'restock' | 'scrap' }) => {
+      const id = typeof arg === 'string' ? arg : arg.id;
+      const disposition = typeof arg === 'string' ? undefined : arg.disposition;
+      const qs = disposition ? `?disposition=${disposition}` : '';
+      return (await api.post<Invoice>(`/credit-notes/${id}/post${qs}`)).data;
+    },
+    onSuccess: (_d, arg) => {
+      const id = typeof arg === 'string' ? arg : arg.id;
       qc.invalidateQueries({ queryKey: ['credit-notes'] });
       qc.invalidateQueries({ queryKey: ['credit-note', id] });
       qc.invalidateQueries({ queryKey: ['invoices'] });

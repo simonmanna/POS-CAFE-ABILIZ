@@ -1,12 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { StockMoveType } from '@erp/shared';
+import type { StockMoveType, StockDistributionStrategy } from '@erp/shared';
 import { dec, ZERO } from '../../kernel/common/money';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { SettingResolverService } from '../../kernel/settings/setting-resolver.service';
 import { StockPostingService } from './posting/stock-posting.service';
 import { CostResolverService } from './costing/cost-resolver.service';
 import {
@@ -27,6 +28,7 @@ export class StockService {
     private readonly audit: AuditService,
     private readonly stockPosting: StockPostingService,
     private readonly costResolver: CostResolverService,
+    private readonly settings: SettingResolverService,
   ) {}
 
   /**
@@ -50,6 +52,95 @@ export class StockService {
     );
   }
 
+  /**
+   * Restock a customer return (goods back on the shelf): receive with move type
+   * `return_in` AND post the COGS reversal (Dr Stock Valuation / Cr COGS) in the
+   * same transaction — the mirror of an issue's Dr COGS / Cr Stock Valuation.
+   *
+   * The restock is valued at the product's CURRENT cost basis (AVCO running
+   * average, else STANDARD cost price) unless an explicit `unitCost` is supplied.
+   * That both (a) reverses COGS at a sensible basis and (b) prevents the receipt
+   * from diluting the running average with a zero cost — the latent bug in the
+   * old refund path, which restocked at unitCost=0. Zero-cost returns skip the GL,
+   * mirroring postIssue. Caller passes the tx so it stays atomic with the refund.
+   */
+  async receiveReturn(
+    dto: {
+      productId: string;
+      variantId?: string;
+      locationId: string;
+      quantity: number;
+      unitCost?: number;
+      reference?: string;
+      sourceType?: string;
+      sourceId?: string;
+      notes?: string;
+      date?: Date;
+      /** Serial-tracked returns: the exact units coming back (flipped to in_stock). */
+      serialNumbers?: string[];
+    },
+    externalTx?: any,
+  ) {
+    const run = async (tx: any) => {
+      const unitCost =
+        dto.unitCost != null
+          ? dec(dto.unitCost)
+          : await this.resolveCurrentCost(tx, dto.productId, dto.variantId ?? null, dto.locationId);
+
+      const res = await this.receiveCore(
+        {
+          productId: dto.productId,
+          variantId: dto.variantId,
+          locationId: dto.locationId,
+          quantity: dto.quantity,
+          unitCost: Number(unitCost),
+          reference: dto.reference,
+          sourceType: dto.sourceType,
+          sourceId: dto.sourceId,
+          notes: dto.notes,
+          moveType: 'return_in',
+          serialNumbers: dto.serialNumbers,
+        },
+        null,
+        tx,
+      );
+
+      const totalValue = unitCost.times(dec(dto.quantity));
+      if (totalValue.gt(ZERO)) {
+        await this.stockPosting.postReturnRestock({
+          productId: dto.productId,
+          totalValue,
+          date: dto.date ?? new Date(),
+          sourceType: dto.sourceType ?? 'return_restock',
+          sourceId: dto.sourceId ?? dto.reference ?? dto.productId,
+          description: `Return restock · ${dto.quantity}`,
+          tx,
+        });
+      }
+      return res;
+    };
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
+  }
+
+  /**
+   * Best cost basis for valuing a return: the location's running average when
+   * positive, else the product's standard cost price, else zero. Used by
+   * receiveReturn so a restock reverses COGS at the same basis it was expensed.
+   */
+  private async resolveCurrentCost(
+    tx: any,
+    productId: string,
+    variantId: string | null,
+    locationId: string,
+  ): Promise<Prisma.Decimal> {
+    const product = await tx.product.findFirst({ where: { id: productId } });
+    const item = await tx.stockItem.findFirst({
+      where: { organizationId: this.tenant.organizationId, productId, variantKey: variantId ?? '', locationId },
+    });
+    if (item && dec(item.runningAverageCost).gt(ZERO)) return dec(item.runningAverageCost);
+    return dec(product?.costPrice ?? 0);
+  }
+
   private async receiveCore(
     dto: ReceiveStockDto,
     billCtx: { billId: string; billDate: Date } | null,
@@ -68,8 +159,29 @@ export class StockService {
     if (dto.expiryDate && !product.batchTracking) {
       throw new BadRequestException('Expiry date is only valid for batch-tracked products');
     }
+    if (product.expiryTracking && !dto.expiryDate) {
+      throw new BadRequestException('Expiry date is required for expiry-tracked products');
+    }
     if (product.costingMethod === 'FIFO' && !product.batchTracking) {
       throw new BadRequestException('FIFO costing requires batchTracking=true on the product');
+    }
+    if (product.serialTracking) {
+      const serials = dto.serialNumbers ?? [];
+      // Serials are captured when supplied but NOT mandatory at receive: a receive
+      // path without a serial-input UI (e.g. a goods receipt) must never be blocked
+      // — units still track by quantity and the issue side auto-picks whatever
+      // serials exist. When serials ARE provided they must be unique and not exceed
+      // the received quantity.
+      if (serials.length > 0) {
+        if (new Set(serials).size !== serials.length) {
+          throw new BadRequestException('Duplicate serial numbers in the receipt');
+        }
+        if (serials.length > Number(dto.quantity)) {
+          throw new BadRequestException(
+            `Received ${dto.quantity} unit(s) but ${serials.length} serial number(s) provided`,
+          );
+        }
+      }
     }
 
     const qty = dec(dto.quantity);
@@ -128,6 +240,48 @@ export class StockService {
         batchId = batch.id;
       }
 
+      // Serial capture: one InventorySerial row per received unit (status in_stock),
+      // carrying its own receipt cost so SPECIFIC costing values it exactly on issue.
+      // Upsert (not createMany) so a return of a previously-issued unit flips its
+      // existing row back to in_stock instead of colliding on the unique serial.
+      if (product.serialTracking && dto.serialNumbers?.length) {
+        const receiptRef = billCtx
+          ? `vendor_bill:${billCtx.billId}`
+          : `${dto.sourceType ?? 'receipt'}:${dto.sourceId ?? ledgerCode}`;
+        for (const serialNumber of dto.serialNumbers) {
+          await tx.inventorySerial.upsert({
+            where: {
+              organizationId_productId_serialNumber: {
+                organizationId,
+                productId: dto.productId,
+                serialNumber,
+              },
+            },
+            create: {
+              organizationId,
+              productId: dto.productId,
+              variantId,
+              locationId: dto.locationId,
+              serialNumber,
+              batchId,
+              unitCost,
+              status: 'in_stock',
+              receiptRef,
+            },
+            update: {
+              // Return / re-receipt: bring the unit back in stock at this location.
+              locationId: dto.locationId,
+              variantId,
+              batchId,
+              status: 'in_stock',
+              issuedAt: null,
+              issueRef: null,
+              receiptRef,
+            },
+          });
+        }
+      }
+
       const currentQty = dec(stockItem.quantity);
       await tx.inventoryLedger.create({
         data: {
@@ -137,7 +291,7 @@ export class StockService {
           variantId,
           locationId: dto.locationId,
           batchId,
-          type: 'receipt',
+          type: dto.moveType ?? 'receipt',
           qtyBefore: currentQty.minus(qty),
           quantityChange: qty,
           balanceAfter: currentQty,
@@ -204,7 +358,25 @@ export class StockService {
     const variantId = dto.variantId ?? null;
     const variantKey = variantId ?? '';
     const moveType: StockMoveType = dto.moveType ?? 'issue';
-    const strategy = dto.distStrategy ?? 'FEFO';
+    // Removal strategy cascade: an explicit transaction override wins; otherwise a
+    // configured Setting override (product/category/warehouse/org) takes precedence
+    // over the product's own column, which is the final fallback before FEFO.
+    const settingCtx = {
+      productId: dto.productId,
+      categoryId: product.categoryId,
+      warehouseId: dto.locationId,
+    };
+    const strategyOverride = await this.settings.describe('inventory.defaultPickingStrategy', settingCtx);
+    const strategy = (dto.distStrategy ??
+      (strategyOverride.source !== 'default' ? (strategyOverride.value as string) : null) ??
+      product.pickingStrategy ??
+      'FEFO') as StockDistributionStrategy;
+    // Negative-stock policy: default keeps sales unblocked (owner rule). Only when an
+    // admin sets allowNegativeStock=false do we consult the product's stock policy.
+    const allowNegativeStock = await this.settings.resolveBool(
+      'inventory.allowNegativeStock',
+      settingCtx,
+    );
 
     const run = async (tx: any) => {
       let stockItem = await tx.stockItem.findFirst({
@@ -224,11 +396,168 @@ export class StockService {
         });
       }
 
+      // Strict-mode oversell guard. Skipped entirely when negative stock is allowed
+      // (the default), so the never-block-sales behaviour is unchanged out of the box.
+      if (!allowNegativeStock) {
+        const usesLayers = product.costingMethod === 'FIFO' || product.batchTracking;
+        const available = usesLayers
+          ? dec(
+              (
+                await tx.inventoryBatch.aggregate({
+                  where: {
+                    organizationId,
+                    productId: dto.productId,
+                    variantId,
+                    locationId: dto.locationId,
+                    quantity: { gt: 0 },
+                    isActive: true,
+                  },
+                  _sum: { quantity: true },
+                })
+              )._sum.quantity ?? 0,
+            )
+          : dec(stockItem.quantity);
+        if (qty.gt(available)) {
+          if (product.stockPolicy === 'block') {
+            throw new BadRequestException(
+              `Insufficient stock for ${product.name}: on hand ${available.toString()}, requested ${qty.toString()}.`,
+            );
+          }
+          if (product.stockPolicy === 'warn') {
+            console.warn(
+              `[stock] oversell ${product.sku ?? dto.productId} @ ${dto.locationId}: on hand ${available.toString()}, issuing ${qty.toString()}`,
+            );
+          }
+          // 'silent' → proceed
+        }
+      }
+
       const ledgerCode = await this.seq.next('stock_move', { prefix: 'STK/', padding: 6 }, tx);
       let totalValue = ZERO;
       let unitCost = ZERO;
 
-      if (product.costingMethod === 'FIFO' || product.batchTracking) {
+      // Whether this issue drew from identified cost-layers (batches). When true we
+      // pass the actually-consumed value straight to the GL leg so it never re-derives
+      // the cost from the now-decremented batches.
+      const usesLayerCosting = product.costingMethod === 'FIFO' || product.batchTracking;
+      const isSerialIssue = product.serialTracking;
+      if (isSerialIssue) {
+        // Serial-tracked issue: consume identified units (explicit serials, else
+        // oldest in-stock first), value each at its own receipt cost (SPECIFIC), mark
+        // it issued, and write one ledger row per unit linked to its serialId. Never
+        // blocks a sale — any shortfall of serials overflows at the product cost.
+        const requested = dto.serialNumbers ?? [];
+        let serialRows: Array<{ id: string; unitCost: any; batchId: string | null; serialNumber: string }>;
+        if (requested.length > 0) {
+          serialRows = await tx.inventorySerial.findMany({
+            where: {
+              organizationId,
+              productId: dto.productId,
+              variantId,
+              locationId: dto.locationId,
+              status: 'in_stock',
+              serialNumber: { in: requested },
+            },
+            select: { id: true, unitCost: true, batchId: true, serialNumber: true },
+          });
+          if (serialRows.length !== requested.length) {
+            const found = new Set(serialRows.map((s) => s.serialNumber));
+            const missing = requested.filter((s) => !found.has(s));
+            throw new BadRequestException(
+              `Serial number(s) not available at this location: ${missing.join(', ')}`,
+            );
+          }
+        } else {
+          serialRows = await tx.inventorySerial.findMany({
+            where: {
+              organizationId,
+              productId: dto.productId,
+              variantId,
+              locationId: dto.locationId,
+              status: 'in_stock',
+            },
+            orderBy: { receivedAt: 'asc' },
+            take: Math.max(0, Math.floor(qty.toNumber())),
+            select: { id: true, unitCost: true, batchId: true, serialNumber: true },
+          });
+        }
+
+        const issueRef = `${dto.sourceType ?? 'issue'}:${dto.sourceId ?? ledgerCode}`;
+        let runningBefore = dec(stockItem.quantity);
+        for (const s of serialRows) {
+          const sUnit = s.unitCost ? dec(s.unitCost) : dec(product.costPrice ?? 0);
+          await tx.inventorySerial.update({
+            where: { id: s.id },
+            data: { status: 'issued', issuedAt: new Date(), issueRef },
+          });
+          const after = runningBefore.minus(1);
+          await tx.stockItem.update({
+            where: { id: stockItem.id },
+            data: { quantity: { decrement: 1 } },
+          });
+          await tx.inventoryLedger.create({
+            data: {
+              organizationId,
+              ledgerCode,
+              productId: dto.productId,
+              variantId,
+              locationId: dto.locationId,
+              batchId: s.batchId ?? null,
+              serialId: s.id,
+              type: moveType,
+              qtyBefore: runningBefore,
+              quantityChange: dec(1).negated(),
+              balanceAfter: after,
+              unitCost: sUnit,
+              totalValue: sUnit,
+              referenceType: dto.sourceType ?? null,
+              referenceId: dto.sourceId ?? null,
+              notes: dto.notes ?? null,
+              performedBy: this.tenant.userId ?? null,
+            },
+          });
+          totalValue = totalValue.plus(sUnit);
+          runningBefore = after;
+        }
+
+        // Shortfall (fewer serials than requested qty): never block — overflow the
+        // remainder at product cost, mirroring the batch overflow path.
+        const covered = dec(serialRows.length);
+        if (qty.gt(covered)) {
+          const remaining = qty.minus(covered);
+          const overflowUnit = dec(product.costPrice ?? 0);
+          const overflowValue = overflowUnit.times(remaining);
+          const after = runningBefore.minus(remaining);
+          await tx.stockItem.update({
+            where: { id: stockItem.id },
+            data: { quantity: { decrement: remaining } },
+          });
+          await tx.inventoryLedger.create({
+            data: {
+              organizationId,
+              ledgerCode,
+              productId: dto.productId,
+              variantId,
+              locationId: dto.locationId,
+              batchId: null,
+              serialId: null,
+              type: moveType,
+              qtyBefore: runningBefore,
+              quantityChange: remaining.negated(),
+              balanceAfter: after,
+              unitCost: overflowUnit,
+              totalValue: overflowValue,
+              referenceType: dto.sourceType ?? null,
+              referenceId: dto.sourceId ?? null,
+              notes: dto.notes ?? null,
+              performedBy: this.tenant.userId ?? null,
+            },
+          });
+          totalValue = totalValue.plus(overflowValue);
+          runningBefore = after;
+        }
+        unitCost = totalValue.gt(ZERO) ? totalValue.dividedBy(qty) : ZERO;
+      } else if (usesLayerCosting) {
         // FEFO (default): nearest expiry first. FIFO: oldest receipt first.
         // MANUAL: restrict to the named batch only.
         const orderBy =
@@ -377,7 +706,8 @@ export class StockService {
       }
 
       // GL effect: Dr COGS / Cr Stock Valuation. Passes the same tx so it's atomic.
-      if (totalValue.gt(ZERO)) {
+      // skipGlPosting = quantitative-only (RTV: the debit note owns the balanced JE).
+      if (totalValue.gt(ZERO) && !dto.skipGlPosting) {
         await this.stockPosting.postIssue({
           productId: dto.productId,
           locationId: dto.locationId,
@@ -386,6 +716,10 @@ export class StockService {
           sourceType: dto.sourceType ?? 'stock_issue',
           sourceId: dto.sourceId ?? ledgerCode,
           description: `Stock issue · ${product.name} · ${dto.quantity}`,
+          // Layer-costed issues (FIFO/SPECIFIC/batch/serial) already computed the
+          // exact consumed value above; hand it to the GL leg so it doesn't re-resolve
+          // from the already-decremented batches.
+          overrideTotalValue: usesLayerCosting || isSerialIssue ? totalValue : undefined,
           tx,
         });
       }

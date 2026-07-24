@@ -3,6 +3,7 @@ import { dec, ZERO } from '../../kernel/common/money';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
+import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockService } from './stock.service';
 import {
   CreateStockOutDto,
@@ -25,7 +26,28 @@ export class StockDocService {
     private readonly tenant: TenantContextService,
     private readonly seq: SequenceService,
     private readonly stock: StockService,
+    private readonly approvals: ApprovalsService,
   ) {}
+
+  /**
+   * Gate a stock document behind the approval engine. Returns when it is safe to
+   * post (no policy, or an approved request exists); throws when a pending
+   * request must be decided first. Backward-compatible: with no ApprovalPolicy
+   * for `entityType`, checkOrRequestApproval returns null and posting proceeds.
+   */
+  private async gateApproval(
+    entityType: string,
+    entityId: string,
+    snapshot: Record<string, unknown>,
+    label: string,
+  ): Promise<void> {
+    const gate = await this.approvals.checkOrRequestApproval({ entityType, entityId, snapshot });
+    if (gate?.needsApproval) {
+      throw new BadRequestException(
+        `Approval required before posting ${label}. Pending approval request ${gate.requestId}.`,
+      );
+    }
+  }
 
   private get org(): string {
     return this.tenant.organizationId;
@@ -257,6 +279,22 @@ export class StockDocService {
   }
 
   async approveAdjustment(id: string, externalTx?: any) {
+    // Standalone approval is gated by the approval engine. When embedded in another
+    // flow (externalTx present, e.g. guided count submit) the caller owns approval.
+    if (!externalTx) {
+      const pre = await this.prisma.client.stockAdjustment.findFirst({
+        where: { id },
+        include: { items: true },
+      });
+      if (!pre) throw new NotFoundException('Adjustment not found');
+      const magnitude = pre.items.reduce((s, it) => s + Math.abs(Number(it.qtyDiff)), 0);
+      await this.gateApproval(
+        'stock_adjustment',
+        pre.id,
+        { amount: magnitude, adjCode: pre.adjCode, reason: pre.reason },
+        `adjustment ${pre.adjCode}`,
+      );
+    }
     const run = async (tx: any) => {
       const doc = await tx.stockAdjustment.findFirst({ where: { id }, include: { items: true } });
       if (!doc) throw new NotFoundException('Adjustment not found');
@@ -336,6 +374,14 @@ export class StockDocService {
     const doc = await this.prisma.client.stockTransfer.findFirst({ where: { id }, include: { items: true } });
     if (!doc) throw new NotFoundException('Transfer not found');
     this.assertPostable(doc.status, doc.postedAt);
+
+    const magnitude = doc.items.reduce((s, it) => s + Number(it.qtyRequested), 0);
+    await this.gateApproval(
+      'stock_transfer',
+      doc.id,
+      { amount: magnitude, transferCode: doc.transferCode },
+      `transfer ${doc.transferCode}`,
+    );
 
     return this.prisma.client.$transaction(async (tx: any) => {
       for (const item of doc.items) {
