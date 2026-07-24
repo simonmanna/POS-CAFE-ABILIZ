@@ -54,6 +54,8 @@ const ORG_SCOPED = new Set<string>([
   'StockAdjustmentItem',
   'StockTransfer',
   'StockTransferItem',
+  // Phase 3 — soft stock reservations (available-to-promise)
+  'StockReservation',
   // Inventory count sessions (opening/closing physical counts)
   'InventoryCountSession',
   'InventoryCountLine',
@@ -166,6 +168,8 @@ const ORG_SCOPED = new Set<string>([
   'Expense',
   'ExpenseCategory',
   'ExpensePayment',
+  // Phase 4 — payment terms (AR/AP term master)
+  'PaymentTerm',
 ]);
 
 /** Models with a `deletedAt` column → soft-delete filtering on reads/writes. */
@@ -222,6 +226,8 @@ const SOFT_DELETE = new Set<string>([
   'ProductModifierGroup',
   'MenuItemModifierGroup',
   'MenuItemAccompanimentGroup',
+  // Phase 4 — payment terms carry deletedAt (config master)
+  'PaymentTerm',
 ]);
 
 const WHERE_OPS = new Set<string>([

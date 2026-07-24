@@ -213,6 +213,16 @@ async function main(): Promise<void> {
     { code: 'MOMO-MTN', name: 'MTN Mobile Money', accountType: 'mobile_money', cashFlowCategory: 'operating', isDefault: true, bankName: null, accountNumber: null },
     { code: 'MOMO-AIRTEL', name: 'Airtel Money', accountType: 'mobile_money', cashFlowCategory: 'operating', bankName: null, accountNumber: null },
     { code: 'PETTY', name: 'Petty Cash', accountType: 'petty_cash', cashFlowCategory: 'operating' },
+    // --- Phase 4 (configurable accounting) additions ---
+    { code: '1490', name: 'Accumulated Depreciation', accountType: 'asset', cashFlowCategory: 'investing' },
+    { code: '1500', name: 'Stock In Transit', accountType: 'asset', cashFlowCategory: 'operating' },
+    { code: '2160', name: 'Withholding Tax Payable', accountType: 'liability', cashFlowCategory: 'operating' },
+    { code: '2170', name: 'Gift Card Liability', accountType: 'liability', cashFlowCategory: 'financing' },
+    { code: '2400', name: 'Unearned Revenue', accountType: 'liability', cashFlowCategory: 'operating' },
+    { code: '4910', name: 'Purchase Discounts Received', accountType: 'revenue', cashFlowCategory: 'operating' },
+    { code: '5600', name: 'Depreciation Expense', accountType: 'expense', cashFlowCategory: 'operating' },
+    { code: '7100', name: 'Foreign Exchange Gain', accountType: 'revenue', cashFlowCategory: 'operating' },
+    { code: '7200', name: 'Foreign Exchange Loss', accountType: 'expense', cashFlowCategory: 'operating' },
   ];
   const accountIds: Record<string, string> = {};
   for (const a of accountDefs) {
@@ -284,6 +294,17 @@ async function main(): Promise<void> {
     bad_debt: accountIds['5500'],
     // Cash flow deposit/withdraw suspense
     cash_suspense: accountIds['1900'],
+    // Phase 4 (configurable accounting) — new determination keys
+    purchase_discount: accountIds['4910'],
+    petty_cash: accountIds['PETTY'],
+    stock_in_transit: accountIds['1500'],
+    withholding_payable: accountIds['2160'],
+    gift_card_liability: accountIds['2170'],
+    unearned_revenue: accountIds['2400'],
+    depreciation_expense: accountIds['5600'],
+    accumulated_depreciation: accountIds['1490'],
+    fx_gain: accountIds['7100'],
+    fx_loss: accountIds['7200'],
   };
   for (const [key, accountId] of Object.entries(mappings)) {
     await prisma.accountMapping.upsert({

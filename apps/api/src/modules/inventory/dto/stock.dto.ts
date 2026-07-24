@@ -46,6 +46,10 @@ export class ReceiveStockDto {
   expiryDate?: string;
 
   @IsOptional()
+  @IsDateString()
+  mfgDate?: string;
+
+  @IsOptional()
   @IsString()
   reference?: string;
 

@@ -147,8 +147,14 @@ export class SyncPullService {
           orderBy: { updatedAt: 'asc' },
         });
       case 'settings':
+        // Push org-level POS + inventory settings to devices (inventory toggles
+        // like negative-stock affect the terminal). Scoped overrides stay server-side.
         return c.setting.findMany({
-          where: { ...changed, key: { startsWith: 'pos.' } },
+          where: {
+            ...changed,
+            scopeType: 'organization',
+            OR: [{ key: { startsWith: 'pos.' } }, { key: { startsWith: 'inventory.' } }],
+          },
           orderBy: { updatedAt: 'asc' },
         });
       case 'partners':

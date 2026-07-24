@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenancy/tenant-context.service';
+import { AuditService } from '../audit/audit.service';
 import {
   assertScopeAllowed,
   coerceSettingValue,
@@ -26,6 +27,7 @@ export class SettingsService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly resolver: SettingResolverService,
+    private readonly audit: AuditService,
   ) {}
 
   listForOrganization() {
@@ -98,6 +100,12 @@ export class SettingsService {
         });
 
     this.resolver.invalidate(organizationId);
+    await this.audit.record({
+      entity: 'Setting',
+      entityId: row.id,
+      action: 'update',
+      newValues: { key, scopeType, scopeId, value: toStore },
+    });
     return row;
   }
 
@@ -110,6 +118,12 @@ export class SettingsService {
       where: { organizationId, scopeType, scopeId, key },
     });
     this.resolver.invalidate(organizationId);
+    await this.audit.record({
+      entity: 'Setting',
+      entityId: `${scopeType}:${scopeId}:${key}`,
+      action: 'delete',
+      newValues: { key, scopeType, scopeId },
+    });
   }
 
   /**

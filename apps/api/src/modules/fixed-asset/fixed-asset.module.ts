@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { KernelModule } from '../../kernel/kernel.module';
+import { AccountingModule } from '../accounting/accounting.module';
 import { AssetCategoryController } from './controllers/asset-category.controller';
 import { AssetController } from './controllers/asset.controller';
 import { AssetAcquisitionController } from './controllers/asset-acquisition.controller';
@@ -33,7 +34,7 @@ import { AssetCheckInOutService } from './services/asset-checkinout.service';
 import { AssetDashboardService } from './services/asset-dashboard.service';
 
 @Module({
-  imports: [KernelModule],
+  imports: [KernelModule, AccountingModule],
   controllers: [
     AssetCategoryController,
     AssetController,

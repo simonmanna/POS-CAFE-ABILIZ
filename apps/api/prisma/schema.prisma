@@ -597,6 +597,11 @@ model Partner {
   gender              String?
   receivableAccountId String?
   payableAccountId    String?
+  /// AR credit control: limit (0 = none) and a manual hold flag that blocks new
+  /// credit sales when set. paymentTermId drives invoice due-date derivation.
+  creditLimit         Decimal       @default(0) @db.Decimal(20, 2)
+  creditHold          Boolean       @default(false)
+  paymentTermId       String?
   status              PartnerStatus @default(active)
   categoryId          String?
   notes               String?
@@ -774,6 +779,9 @@ model Product {
   /// which is uncommon - every sellable item goes somewhere.
   station        PosStation     @default(cafe)
   minQuantity    Decimal        @default(0) @db.Decimal(20, 6)
+  /// Upper stock target (0 = none). Feeds the reorder report's suggested
+  /// order-up-to quantity and over-stock alerts.
+  maxQuantity    Decimal        @default(0) @db.Decimal(20, 6)
   /// POS Phase P9: how the cashier flow handles an attempted sale that
   /// exceeds on-hand stock. Default 'silent' = current behaviour.
   stockPolicy    PosStockPolicy @default(silent)
@@ -2504,6 +2512,8 @@ model InventoryBatch {
   quantity       Decimal   @default(0) @db.Decimal(20, 6)
   unitCost       Decimal?  @db.Decimal(20, 6)
   expiryDate     DateTime?
+  /// Manufacturing date (optional). Captured on receipt for shelf-life reporting.
+  mfgDate        DateTime?
   receivedAt     DateTime  @default(now())
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
@@ -2518,6 +2528,61 @@ model InventoryBatch {
   @@index([organizationId])
   @@index([productId, locationId])
   @@index([expiryDate])
+}
+
+/// Reservation status: active holds ATP; released frees it; consumed = fulfilled.
+enum StockReservationStatus {
+  active
+  released
+  consumed
+}
+
+/// Soft stock reservation (available-to-promise). A source document (order /
+/// invoice / manual) holds quantity at a location without moving the ledger;
+/// available = on-hand - sum(active). No hard FK relations so it stays decoupled
+/// from the heavily-shared Product/Location models; org scoping via tenancy.
+model StockReservation {
+  id             String                 @id @default(uuid())
+  organizationId String
+  productId      String
+  variantId      String?
+  variantKey     String                 @default("")
+  locationId     String
+  quantity       Decimal                @db.Decimal(20, 6)
+  status         StockReservationStatus @default(active)
+  /// 'order' | 'invoice' | 'pos_tab' | 'manual'
+  sourceType     String
+  sourceId       String
+  reason         String?
+  createdById    String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  releasedAt     DateTime?
+  consumedAt     DateTime?
+
+  @@index([organizationId, productId, variantKey, locationId, status])
+  @@index([organizationId, sourceType, sourceId])
+}
+
+/// Payment term (net-N with optional early-payment discount). Referenced by
+/// Partner.paymentTermId; drives invoice due-date derivation + dunning.
+model PaymentTerm {
+  id              String    @id @default(uuid())
+  organizationId  String
+  code            String
+  name            String
+  /// Net days from invoice date to due date.
+  netDays         Int       @default(0)
+  /// Optional early-payment discount: percent if paid within discountDays.
+  discountDays    Int?
+  discountPercent Decimal?  @db.Decimal(9, 4)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
 }
 
 /// Immutable stock ledger — every movement (receipt/issue/adjustment/transfer).

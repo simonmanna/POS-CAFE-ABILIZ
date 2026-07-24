@@ -59,60 +59,76 @@ export class RevaluationService {
         include: { account: true },
       });
 
-      // Build a map: { accountId: { currencyCode: balanceInForeign } }
-      const balances = new Map<string, Map<string, Prisma.Decimal>>();
+      // Aggregate per (account, currency): the foreign-currency balance (from the
+      // transaction debit/credit columns) and the current base carrying value
+      // (baseDebit/baseCredit). Both are needed to revalue at the closing rate.
+      const balances = new Map<string, Map<string, { foreign: Prisma.Decimal; base: Prisma.Decimal }>>();
       for (const l of lines as any[]) {
         const currencyCode = l.currencyId;
         if (!currencyCode || currencyCode === baseCode) continue;
-        const accMap = balances.get(l.accountId) ?? new Map<string, Prisma.Decimal>();
-        const cur = accMap.get(currencyCode) ?? ZERO;
-        const delta = new Prisma.Decimal(l.baseDebit).minus(new Prisma.Decimal(l.baseCredit));
-        // Note: these are functional-currency amounts. We need the FOREIGN
-        // currency amount. The `currencyId` on the line is the *transaction*
-        // currency; for revaluation we need the balance valued at today's
-        // rate. Without a separate foreign-currency column on JournalLine,
-        // we approximate by using baseDebit/baseCredit / rateAtOriginalDate.
-        // For the beta MVP we leave revaluation to the user to configure; a
-        // proper implementation needs per-currency amount columns. See TODO.
-        accMap.set(currencyCode, cur.plus(delta));
+        const accMap = balances.get(l.accountId) ?? new Map<string, { foreign: Prisma.Decimal; base: Prisma.Decimal }>();
+        const cur = accMap.get(currencyCode) ?? { foreign: ZERO, base: ZERO };
+        const foreignDelta = new Prisma.Decimal(l.debit).minus(new Prisma.Decimal(l.credit));
+        const baseDelta = new Prisma.Decimal(l.baseDebit).minus(new Prisma.Decimal(l.baseCredit));
+        accMap.set(currencyCode, { foreign: cur.foreign.plus(foreignDelta), base: cur.base.plus(baseDelta) });
         balances.set(l.accountId, accMap);
       }
 
-      // Placeholder: full revaluation requires foreign-currency amount
-      // columns on JournalLine (not in the current schema). Until that's
-      // built, we record the rate snapshot in FxRevaluation but do not post
-      // a GL adjustment. This still gives operators visibility.
+      // Revalue each foreign balance to the closing rate and post the unrealized
+      // gain/loss: adjustment = foreignBalance × closingRate − currentBaseBalance.
+      //   adjustment > 0 → Dr <account> / Cr FX gain   (carrying value increases)
+      //   adjustment < 0 → Dr FX loss  / Cr <account>  (carrying value decreases)
+      // The sign rule holds for both asset (debit-balance) and liability
+      // (credit-balance) monetary accounts because base/foreign carry their sign.
+      const fxGainAcct = await this.determination.mapped('fx_gain', tx);
+      const fxLossAcct = await this.determination.mapped('fx_loss', tx);
       let revalued = 0;
       let totalGain = ZERO;
       for (const [accountId, byCurrency] of balances) {
-        for (const [currencyCode, baseBalance] of byCurrency) {
-          if (baseBalance.isZero()) continue;
+        for (const [currencyCode, bal] of byCurrency) {
+          if (bal.foreign.isZero() && bal.base.isZero()) continue;
           const closingRate = await this.currency.getRate(currencyCode, baseCode, asOf);
-          // Without the foreign amount we can't revalue exactly. We mark
-          // the row with the closing rate so downstream reports can show
-          // the rate snapshot.
+          const revaluedBase = bal.foreign.times(closingRate);
+          const adjustment = revaluedBase.minus(bal.base);
           await tx.fxRevaluation.upsert({
             where: { organizationId_fiscalPeriodId_accountId: { organizationId, fiscalPeriodId: 'adhoc', accountId } },
-            update: {
-              asOf,
-              currencyCode,
-              bookBalance: baseBalance,
-              revaluedBalance: baseBalance,
-              fxGain: ZERO,
-              rate: closingRate,
-            },
+            update: { asOf, currencyCode, bookBalance: bal.base, revaluedBalance: revaluedBase, fxGain: adjustment, rate: closingRate },
             create: {
               organizationId,
               fiscalPeriodId: 'adhoc',
               asOf,
               accountId,
               currencyCode,
-              bookBalance: baseBalance,
-              revaluedBalance: baseBalance,
-              fxGain: ZERO,
+              bookBalance: bal.base,
+              revaluedBalance: revaluedBase,
+              fxGain: adjustment,
               rate: closingRate,
             },
           });
+          if (!adjustment.isZero()) {
+            const amt = Number(adjustment.abs());
+            const postLines = adjustment.gt(ZERO)
+              ? [
+                  { accountId, debit: amt, credit: 0, description: `FX reval ${currencyCode}` },
+                  { accountId: fxGainAcct, debit: 0, credit: amt, description: 'Unrealized FX gain' },
+                ]
+              : [
+                  { accountId: fxLossAcct, debit: amt, credit: 0, description: 'Unrealized FX loss' },
+                  { accountId, debit: 0, credit: amt, description: `FX reval ${currencyCode}` },
+                ];
+            await this.posting.post(
+              {
+                journalCode: 'GEN',
+                date: asOf,
+                description: `FX revaluation ${currencyCode} @ ${closingRate}`,
+                sourceType: 'fx_revaluation',
+                sourceId: accountId,
+                lines: postLines,
+              },
+              tx,
+            );
+            totalGain = totalGain.plus(adjustment);
+          }
           revalued++;
         }
       }

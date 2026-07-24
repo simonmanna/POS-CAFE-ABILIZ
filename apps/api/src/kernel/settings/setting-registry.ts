@@ -113,9 +113,50 @@ export const SETTING_DEFINITIONS = {
     cascades: false,
     scopeLevels: ORG_ONLY,
   },
+  'inventory.reservationMode': {
+    key: 'inventory.reservationMode',
+    group: 'inventory',
+    type: 'enum',
+    label: 'Stock Reservation',
+    description:
+      'Reserve stock (available-to-promise) when a sales order or invoice is raised. Released on cancel/void.',
+    default: 'none',
+    enumValues: ['none', 'order', 'invoice'],
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'inventory.batchAutoNumber': {
+    key: 'inventory.batchAutoNumber',
+    group: 'inventory',
+    type: 'bool',
+    label: 'Auto-generate Batch Numbers',
+    description: 'When a batch-tracked receipt omits a batch number, generate one from the format below.',
+    default: false,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'inventory.batchNumberFormat': {
+    key: 'inventory.batchNumberFormat',
+    group: 'inventory',
+    type: 'string',
+    label: 'Batch Number Format',
+    description: 'Tokens: YYYY MM DD and #### (sequence). Example: YYYYMMDD-####',
+    default: 'YYYYMMDD-####',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
 
   // ---- Accounting ---------------------------------------------------------
-  // Populated in Phase 4 as each accounting toggle is wired.
+  'accounting.fiscalYearStartMonth': {
+    key: 'accounting.fiscalYearStartMonth',
+    group: 'accounting',
+    type: 'number',
+    label: 'Fiscal Year Start Month',
+    description: '1 = January … 12 = December. Used when generating fiscal periods.',
+    default: 1,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
 } as const satisfies Record<string, SettingDefinition>;
 
 export type SettingKey = keyof typeof SETTING_DEFINITIONS;

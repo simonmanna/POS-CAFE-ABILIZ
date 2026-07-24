@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { EventBus } from '../../../kernel/events/event-bus';
 import { AssetDepreciationStrategy } from './asset-depreciation.strategy';
+import { PostingService } from '../../accounting/posting/posting.service';
+import { AccountDeterminationService } from '../../accounting/posting/account-determination.service';
 import type { RunDepreciationDto } from '../dto/run-depreciation.dto';
 
 @Injectable()
@@ -10,7 +12,47 @@ export class AssetDepreciationService {
     private readonly prisma: PrismaService,
     private readonly events: EventBus,
     private readonly strategy: AssetDepreciationStrategy,
+    private readonly posting: PostingService,
+    private readonly determination: AccountDeterminationService,
   ) {}
+
+  /**
+   * Post the GL effect of a depreciation entry: Dr Depreciation Expense /
+   * Cr Accumulated Depreciation, then stamp journalEntryId. Idempotent — skips if
+   * already posted. The posting date is derived from the period so it lands in the
+   * correct (open) fiscal period.
+   */
+  private async postDepreciationJE(dep: {
+    id: string;
+    period: string;
+    depreciationAmount: any;
+    journalEntryId?: string | null;
+  }): Promise<string | null> {
+    if (dep.journalEntryId) return dep.journalEntryId;
+    const amount = Number(dep.depreciationAmount);
+    if (!(amount > 0)) return null;
+    const expenseAcct = await this.determination.mapped('depreciation_expense');
+    const accumAcct = await this.determination.mapped('accumulated_depreciation');
+    const date = /^\d{4}-\d{2}/.test(dep.period)
+      ? new Date(`${dep.period.slice(0, 7)}-01T00:00:00.000Z`)
+      : new Date();
+    const je = await this.posting.post({
+      journalCode: 'GEN',
+      date,
+      description: `Depreciation ${dep.period}`,
+      sourceType: 'asset_depreciation',
+      sourceId: dep.id,
+      lines: [
+        { accountId: expenseAcct, debit: amount, credit: 0, description: 'Depreciation expense' },
+        { accountId: accumAcct, debit: 0, credit: amount, description: 'Accumulated depreciation' },
+      ],
+    });
+    await this.prisma.client.assetDepreciation.update({
+      where: { id: dep.id },
+      data: { journalEntryId: je.id, isPosted: true, postedAt: new Date() },
+    });
+    return je.id;
+  }
 
   async findByAsset(assetId: string): Promise<any[]> {
     return this.prisma.client.assetDepreciation.findMany({
@@ -62,13 +104,22 @@ export class AssetDepreciationService {
           depreciationAmount: result.depreciationAmount,
           accumulatedDepr: result.accumulatedDepreciation,
           bookValue: result.bookValue,
-          isPosted: dto.postEntries ?? false,
+          isPosted: false,
         },
       });
       await this.prisma.client.asset.update({
         where: { id: asset.id },
         data: { currentValue: result.bookValue },
       });
+      // Post the GL effect when requested. A posting failure (e.g. closed period)
+      // leaves the entry unposted rather than aborting the whole run.
+      if (dto.postEntries) {
+        try {
+          await this.postDepreciationJE(entry);
+        } catch (e) {
+          console.warn(`[depreciation] GL post failed for ${entry.id}: ${(e as Error).message}`);
+        }
+      }
       results.push(entry);
     }
     this.events.publish('fixed_asset.depreciation_run', {
@@ -82,9 +133,7 @@ export class AssetDepreciationService {
   async postEntry(id: string): Promise<any> {
     const dep = await this.prisma.client.assetDepreciation.findFirst({ where: { id } });
     if (!dep) throw new NotFoundException(`Depreciation entry ${id} not found`);
-    return this.prisma.client.assetDepreciation.update({
-      where: { id },
-      data: { isPosted: true, postedAt: new Date() },
-    });
+    await this.postDepreciationJE(dep);
+    return this.prisma.client.assetDepreciation.findFirst({ where: { id } });
   }
 }

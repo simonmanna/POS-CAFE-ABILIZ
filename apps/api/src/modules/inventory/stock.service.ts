@@ -141,6 +141,22 @@ export class StockService {
     return dec(product?.costPrice ?? 0);
   }
 
+  /**
+   * Generate a batch number from the org format setting (tokens YYYY MM DD and a
+   * #### sequence run). Used when a batch-tracked receipt omits a batch number and
+   * auto-numbering is enabled.
+   */
+  private async generateBatchNumber(tx: any): Promise<string> {
+    const format = await this.settings.resolveString('inventory.batchNumberFormat');
+    const seq = await this.seq.next('batch_no', { prefix: '', padding: 4 }, tx);
+    const d = new Date();
+    return format
+      .replace(/YYYY/g, String(d.getFullYear()))
+      .replace(/MM/g, String(d.getMonth() + 1).padStart(2, '0'))
+      .replace(/DD/g, String(d.getDate()).padStart(2, '0'))
+      .replace(/#+/g, seq);
+  }
+
   private async receiveCore(
     dto: ReceiveStockDto,
     billCtx: { billId: string; billDate: Date } | null,
@@ -154,7 +170,11 @@ export class StockService {
     if (!location) throw new NotFoundException('Location not found');
 
     if (product.batchTracking && !dto.batchNumber) {
-      throw new BadRequestException('Batch number is required for batch-tracked products');
+      // No batch number given: allow only when auto-numbering is enabled, else block.
+      const autoNumber = await this.settings.resolveBool('inventory.batchAutoNumber');
+      if (!autoNumber) {
+        throw new BadRequestException('Batch number is required for batch-tracked products');
+      }
     }
     if (dto.expiryDate && !product.batchTracking) {
       throw new BadRequestException('Expiry date is only valid for batch-tracked products');
@@ -225,16 +245,18 @@ export class StockService {
 
       let batchId: string | null = null;
       if (product.batchTracking) {
+        const batchNumber = dto.batchNumber ?? (await this.generateBatchNumber(tx));
         const batch = await tx.inventoryBatch.create({
           data: {
             organizationId,
             productId: dto.productId,
             variantId,
             locationId: dto.locationId,
-            batchNumber: dto.batchNumber!,
+            batchNumber,
             quantity: qty,
             unitCost,
             expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
+            mfgDate: dto.mfgDate ? new Date(dto.mfgDate) : null,
           },
         });
         batchId = batch.id;
