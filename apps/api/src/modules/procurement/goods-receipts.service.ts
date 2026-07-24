@@ -120,6 +120,8 @@ export class GoodsReceiptsService {
               locationId: input.warehouseId,
               quantity: Number(ln.quantity),
               unitCost: ln.unitCost ?? 0,
+              // Line qty/cost are in the product's purchase unit → convert to base.
+              uomId: product.purchaseUomId ?? undefined,
               batchNumber: ln.batchNumber,
               expiryDate: ln.expiryDate ? new Date(ln.expiryDate) : undefined,
               reference: `GRN ${receiptNumber}`,
@@ -269,6 +271,7 @@ export class GoodsReceiptsService {
             locationId: grn.warehouseId,
             quantity: Number(ln.quantity),
             unitCost: Number(ln.unitCost),
+            uomId: product.purchaseUomId ?? undefined,
             batchNumber: ln.batchNumber,
             expiryDate: ln.expiryDate ? new Date(ln.expiryDate) : undefined,
             reference: `GRN ${grn.receiptNumber}`,

@@ -32,6 +32,14 @@ export class ProductController {
     return this.products.search(q, pageSize ? Number(pageSize) : 20);
   }
 
+  /** Resolve a scanned barcode to a product + base-unit quantity (1 for the base
+   *  barcode, or the pack size for a packaging barcode). Null if not found. */
+  @Get('resolve-barcode')
+  @RequirePermissions(PERMISSIONS.product.read)
+  resolveBarcode(@Query('code') code: string) {
+    return this.products.resolveBarcode(code);
+  }
+
   @Get(':id')
   @RequirePermissions(PERMISSIONS.product.read)
   findOne(@Param('id') id: string) {

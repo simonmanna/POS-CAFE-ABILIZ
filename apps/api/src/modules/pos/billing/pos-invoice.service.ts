@@ -523,7 +523,10 @@ export class PosInvoiceService {
         for (const it of invoice.items as any[]) {
           const ref = `Refund ${invoice.invoiceNumber}`;
           if (it.menuItemId) await this.receiveMenuItemRecipe(tx, it.menuItemId, Number(it.quantity), warehouse.id, ref);
-          else if (it.productId) await this.stock.receiveReturn({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: ref, sourceType: 'pos_refund', sourceId: invoice.id }, tx);
+          else if (it.productId) {
+            const prod = await tx.product.findFirst({ where: { id: it.productId } });
+            await this.stock.receiveReturn({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: prod?.salesUomId ?? undefined, reference: ref, sourceType: 'pos_refund', sourceId: invoice.id }, tx);
+          }
           await this.receiveLineExtras(tx, it, Number(it.quantity), warehouse.id, ref);
         }
       }
@@ -659,7 +662,10 @@ export class PosInvoiceService {
         for (const { src, quantity } of selections) {
           const ref = `Refund ${invoice.invoiceNumber}`;
           if (src.menuItemId) await this.receiveMenuItemRecipe(tx, src.menuItemId, quantity, warehouse.id, ref);
-          else if (src.productId) await this.stock.receiveReturn({ productId: src.productId, locationId: warehouse.id, quantity, reference: ref, sourceType: 'pos_refund', sourceId: invoice.id }, tx);
+          else if (src.productId) {
+            const prod = await tx.product.findFirst({ where: { id: src.productId } });
+            await this.stock.receiveReturn({ productId: src.productId, locationId: warehouse.id, quantity, uomId: prod?.salesUomId ?? undefined, reference: ref, sourceType: 'pos_refund', sourceId: invoice.id }, tx);
+          }
           // H3: restock the refunded fraction's modifiers + accompaniments too.
           await this.receiveLineExtras(tx, src, quantity, warehouse.id, ref);
         }
@@ -970,7 +976,8 @@ export class PosInvoiceService {
         } else if (it.productId) {
           const product = await this.prisma.client.product.findFirst({ where: { id: it.productId } });
           if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
-            await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), reference: ref } as any);
+            // Sell-in-sales-unit: line qty is in the product's sales unit → convert to base.
+            await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref } as any);
           }
         }
       } catch (e: any) {
@@ -1056,7 +1063,7 @@ export class PosInvoiceService {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
       try {
-        await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference: ref } as any);
+        await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, uomId: ing.uomId ?? undefined, reference: ref } as any);
       } catch (e: any) {
         failures++;
         this.logger.error(`[stock] recipe issue failed (menuItem ${menuItemId}, product ${ing.productId}) on ${reference} (sale kept): ${e?.message ?? e}`);
@@ -1080,7 +1087,7 @@ export class PosInvoiceService {
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
-      await this.stock.receiveReturn({ productId: ing.productId, locationId: warehouseId, quantity: qty, reference, sourceType: 'pos_refund', sourceId: reference }, tx);
+      await this.stock.receiveReturn({ productId: ing.productId, locationId: warehouseId, quantity: qty, uomId: ing.uomId ?? undefined, reference, sourceType: 'pos_refund', sourceId: reference }, tx);
     }
   }
 

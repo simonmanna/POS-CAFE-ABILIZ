@@ -10,6 +10,7 @@ import { AuditService } from '../../kernel/audit/audit.service';
 import { SettingResolverService } from '../../kernel/settings/setting-resolver.service';
 import { StockPostingService } from './posting/stock-posting.service';
 import { CostResolverService } from './costing/cost-resolver.service';
+import { UomConversionService } from '../core/product/uom-conversion.service';
 import {
   ReceiveStockDto,
   IssueStockDto,
@@ -29,7 +30,31 @@ export class StockService {
     private readonly stockPosting: StockPostingService,
     private readonly costResolver: CostResolverService,
     private readonly settings: SettingResolverService,
+    private readonly uomConversion: UomConversionService,
   ) {}
+
+  /**
+   * Convert an incoming (quantity, unitCost) pair expressed in `sourceUomId` into
+   * the product's base unit. Total value is preserved: unitCost is divided by the
+   * same factor the quantity is multiplied by. No-op when sourceUomId is absent or
+   * already the base unit.
+   */
+  private async toBaseQtyCost(
+    product: { id: string; uomId: string | null },
+    sourceUomId: string | null | undefined,
+    quantity: Prisma.Decimal,
+    unitCost: Prisma.Decimal,
+  ): Promise<{ quantity: Prisma.Decimal; unitCost: Prisma.Decimal }> {
+    if (!sourceUomId || !product.uomId || sourceUomId === product.uomId || quantity.lte(ZERO)) {
+      return { quantity, unitCost };
+    }
+    const baseQty = await this.uomConversion.toBase(quantity, sourceUomId, product);
+    const factor = baseQty.dividedBy(quantity); // base units per source unit
+    return {
+      quantity: baseQty,
+      unitCost: factor.gt(ZERO) ? unitCost.dividedBy(factor) : unitCost,
+    };
+  }
 
   /**
    * Manual receipt (no bill): recomputes AVCO but does NOT post to GL.
@@ -76,12 +101,22 @@ export class StockService {
       sourceId?: string;
       notes?: string;
       date?: Date;
+      /** Unit the `quantity` is expressed in (e.g. a recipe line in grams). Converted
+       *  to base here; the cost basis is already per base unit so it is NOT rescaled. */
+      uomId?: string;
       /** Serial-tracked returns: the exact units coming back (flipped to in_stock). */
       serialNumbers?: string[];
     },
     externalTx?: any,
   ) {
     const run = async (tx: any) => {
+      // Convert the return quantity to the product's base unit (cost stays per base).
+      const product = await tx.product.findFirst({ where: { id: dto.productId } });
+      const baseQty =
+        dto.uomId && product?.uomId && dto.uomId !== product.uomId
+          ? await this.uomConversion.toBase(dto.quantity, dto.uomId, { id: dto.productId, uomId: product.uomId })
+          : dec(dto.quantity);
+
       const unitCost =
         dto.unitCost != null
           ? dec(dto.unitCost)
@@ -92,7 +127,7 @@ export class StockService {
           productId: dto.productId,
           variantId: dto.variantId,
           locationId: dto.locationId,
-          quantity: dto.quantity,
+          quantity: Number(baseQty),
           unitCost: Number(unitCost),
           reference: dto.reference,
           sourceType: dto.sourceType,
@@ -105,7 +140,7 @@ export class StockService {
         tx,
       );
 
-      const totalValue = unitCost.times(dec(dto.quantity));
+      const totalValue = unitCost.times(baseQty);
       if (totalValue.gt(ZERO)) {
         await this.stockPosting.postReturnRestock({
           productId: dto.productId,
@@ -204,8 +239,13 @@ export class StockService {
       }
     }
 
-    const qty = dec(dto.quantity);
-    const unitCost = dto.unitCost != null ? dec(dto.unitCost) : ZERO;
+    // Convert a purchase-unit receipt into the base stock unit (total value kept).
+    const { quantity: qty, unitCost } = await this.toBaseQtyCost(
+      product,
+      dto.uomId,
+      dec(dto.quantity),
+      dto.unitCost != null ? dec(dto.unitCost) : ZERO,
+    );
     const variantId = dto.variantId ?? null;
     const variantKey = variantId ?? '';
 
@@ -375,7 +415,8 @@ export class StockService {
     const location = await this.prisma.client.inventoryLocation.findFirst({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundException('Location not found');
 
-    const qty = dec(dto.quantity);
+    // Convert a source-unit issue (e.g. a recipe line in grams) into the base unit.
+    const { quantity: qty } = await this.toBaseQtyCost(product, dto.uomId, dec(dto.quantity), ZERO);
     if (qty.lte(ZERO)) throw new BadRequestException('Quantity must be positive');
     const variantId = dto.variantId ?? null;
     const variantKey = variantId ?? '';
@@ -727,8 +768,18 @@ export class StockService {
         });
       }
 
-      // GL effect: Dr COGS / Cr Stock Valuation. Passes the same tx so it's atomic.
+      // GL effect: Dr {expense} / Cr Stock Valuation. Passes the same tx so it's atomic.
       // skipGlPosting = quantitative-only (RTV: the debit note owns the balanced JE).
+      // Maps StockMoveType → InventoryMovementType so waste/expiry/sample/consume
+      // use the correct movement-type account rules instead of being miscategorised as STOCK_OUT.
+      const INV_MOVE_TYPES: Record<string, string> = {
+        issue: 'STOCK_OUT',
+        waste: 'WASTE',
+        expiry_write_off: 'EXPIRY_WRITE_OFF',
+        return_to_supplier: 'RETURN_TO_SUPPLIER',
+        internal_use: 'INTERNAL_CONSUMPTION',
+        promo_sample: 'PROMO_SAMPLE',
+      };
       if (totalValue.gt(ZERO) && !dto.skipGlPosting) {
         await this.stockPosting.postIssue({
           productId: dto.productId,
@@ -738,6 +789,7 @@ export class StockService {
           sourceType: dto.sourceType ?? 'stock_issue',
           sourceId: dto.sourceId ?? ledgerCode,
           description: `Stock issue · ${product.name} · ${dto.quantity}`,
+          movementType: (INV_MOVE_TYPES[moveType] ?? 'STOCK_OUT') as any,
           // Layer-costed issues (FIFO/SPECIFIC/batch/serial) already computed the
           // exact consumed value above; hand it to the GL leg so it doesn't re-resolve
           // from the already-decremented batches.
@@ -1005,7 +1057,24 @@ export class StockService {
         },
       });
 
-      // No GL effect for intra-org transfers (same currency, same valuation account).
+      // GL effect: Dr Stock Valuation (destination) / Cr Stock Valuation (source).
+      // Uses configurable posting rules so inter-branch transfers can be routed
+      // through clearing accounts. Same-unit transfers are a wash at the org level
+      // but still produce audit entries.
+      const carriedValue = carriedAvg.times(qty);
+      if (carriedValue.gt(ZERO)) {
+        await this.stockPosting.postTransfer({
+          productId: dto.productId,
+          totalValue: carriedValue,
+          fromLocationId: dto.fromLocationId,
+          toLocationId: dto.toLocationId,
+          date: new Date(),
+          sourceType: dto.sourceType ?? 'stock_transfer',
+          sourceId: dto.sourceId ?? ledgerCode,
+          description: `Stock transfer · ${product.name} · ${dto.quantity}`,
+          tx,
+        });
+      }
 
       this.events.publish('stock.transferred', {
         organizationId,

@@ -2,6 +2,7 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
 import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 import { AccountingModule } from '../accounting/accounting.module';
+import { ProductModule } from '../core/product/product.module';
 import { LocationService } from './location.service';
 import { StockService } from './stock.service';
 import { StockDocService } from './stock-doc.service';
@@ -14,12 +15,15 @@ import { CostResolverService } from './costing/cost-resolver.service';
 import { StockPostingService } from './posting/stock-posting.service';
 import { StockReservationService } from './stock-reservation.service';
 import { StockReservationController } from './stock-reservation.controller';
+import { InventoryPostingRuleService } from './posting/posting-rule.service';
+import { InventoryPostingRuleControllerService } from './posting/posting-rule.controller';
+import { PostingRuleController } from './posting/posting-rule.http.controller';
 
 @Module({
-  imports: [AccountingModule],
-  controllers: [InventoryController, InventoryCountController, StockReservationController],
-  providers: [LocationService, StockService, StockDocService, DirectStockService, InventoryQueryService, InventoryCountService, CostResolverService, StockPostingService, StockReservationService],
-  exports: [LocationService, StockService, StockDocService, DirectStockService, InventoryQueryService, InventoryCountService, CostResolverService, StockPostingService, StockReservationService],
+  imports: [AccountingModule, ProductModule],
+  controllers: [InventoryController, InventoryCountController, StockReservationController, PostingRuleController],
+  providers: [LocationService, StockService, StockDocService, DirectStockService, InventoryQueryService, InventoryCountService, CostResolverService, StockPostingService, StockReservationService, InventoryPostingRuleService, InventoryPostingRuleControllerService],
+  exports: [LocationService, StockService, StockDocService, DirectStockService, InventoryQueryService, InventoryCountService, CostResolverService, StockPostingService, StockReservationService, InventoryPostingRuleService],
 })
 export class InventoryModule implements OnModuleInit {
   constructor(private readonly registry: ModuleRegistry) {}

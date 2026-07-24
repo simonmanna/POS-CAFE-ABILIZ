@@ -395,6 +395,7 @@ export class PurchaseOrdersService {
             locationId: dto.warehouseId,
             quantity: Number(rln.quantity),
             unitCost: rln.unitCost ?? 0,
+            uomId: product.purchaseUomId ?? undefined,
             batchNumber: rln.batchNumber,
             expiryDate: rln.expiryDate ? new Date(rln.expiryDate) : undefined,
             reference: `GRN ${receiptNumber}`,

@@ -10,18 +10,22 @@ import { StockPostingService } from './stock-posting.service';
 describe('StockPostingService.postReturnRestock', () => {
   function makeSvc() {
     const posting = { post: jest.fn().mockResolvedValue({ id: 'je1' }) };
+    const ruleService = {
+      resolve: jest.fn().mockRejectedValue(new Error('No posting rule configured')),
+    };
     const determination = {
       mapped: jest.fn(async (key: string) =>
         key === 'cogs' ? 'acc-cogs' : key === 'stock_valuation' ? 'acc-stockval' : `acc-${key}`,
       ),
     };
     const svc = new StockPostingService(
-      {} as any, // prisma (unused by this method)
+      {} as any, // prisma
       {} as any, // tenant
       {} as any, // events
       posting as any,
       determination as any,
       {} as any, // costResolver
+      ruleService as any,
     );
     return { svc, posting };
   }

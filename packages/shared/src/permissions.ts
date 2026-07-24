@@ -175,6 +175,13 @@ export const PERMISSIONS = {
     count: 'inventory_count:count',
     submit: 'inventory_count:submit',
   },
+  // ---- Configurable Inventory Posting Rules (M3) ----
+  inventoryPostingRule: {
+    read: 'inventory_posting_rule:read',
+    update: 'inventory_posting_rule:update',
+    create: 'inventory_posting_rule:create',
+    delete: 'inventory_posting_rule:delete',
+  },
 
   // ---- Beverage Control — digital-weight alcohol measurement (bar) ----
   beverage: {

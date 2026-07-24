@@ -205,8 +205,30 @@ export const STOCK_MOVE_TYPES = [
   'return_in',
   'return_to_supplier',
   'expiry_write_off',
+  'internal_use',
+  'promo_sample',
 ] as const;
 export type StockMoveType = (typeof STOCK_MOVE_TYPES)[number];
+
+// ---- M3 — Configurable Inventory Movement Types (posting rules) ----
+export const INVENTORY_MOVEMENT_TYPES = [
+  'STOCK_IN',
+  'STOCK_OUT',
+  'STOCK_TRANSFER_OUT',
+  'STOCK_TRANSFER_IN',
+  'ADJUSTMENT_GAIN',
+  'ADJUSTMENT_LOSS',
+  'WASTE',
+  'EXPIRY_WRITE_OFF',
+  'RETURN_RESTOCK',
+  'RETURN_TO_SUPPLIER',
+  'INTERNAL_CONSUMPTION',
+  'PROMO_SAMPLE',
+  'PRODUCTION_CONSUME',
+  'PRODUCTION_OUTPUT',
+  'REVALUATION',
+] as const;
+export type InventoryMovementType = (typeof INVENTORY_MOVEMENT_TYPES)[number];
 
 // ---- F.8 — Stock document wrappers ----
 export const STOCK_DOC_STATUS = [

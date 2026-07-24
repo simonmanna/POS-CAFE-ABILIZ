@@ -3,12 +3,14 @@ import { Prisma } from '@prisma/client';
 import type { PaginationQuery } from '@erp/shared';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
+import { UomConversionService } from '../core/product/uom-conversion.service';
 
 @Injectable()
 export class InventoryQueryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly uomConversion: UomConversionService,
   ) {}
 
   async listItems(query: PaginationQuery & { locationId?: string; lowStock?: string }) {
@@ -366,6 +368,8 @@ export class InventoryQueryService {
         minQuantity: true,
         reorderQty: true,
         uomConversion: true,
+        uomId: true,
+        purchaseUomId: true,
         supplierId: true,
         supplier: { select: { id: true, name: true } },
         stockItems: {
@@ -376,28 +380,39 @@ export class InventoryQueryService {
     });
 
     const ZEROD = new Prisma.Decimal(0);
-    const out = products.map((p) => {
-      const onHand = p.stockItems.reduce((s, si) => s.plus(si.quantity), ZERO_DEC);
-      const par = p.minQuantity ?? ZEROD;
-      const shortfall = par.minus(onHand);
-      const conversion = p.uomConversion && p.uomConversion.gt(0) ? p.uomConversion : new Prisma.Decimal(1);
-      const suggestPurchaseQty =
-        p.reorderQty && p.reorderQty.gt(0)
-          ? p.reorderQty
-          : shortfall.gt(0)
-            ? shortfall.dividedBy(conversion).toDecimalPlaces(2, Prisma.Decimal.ROUND_CEIL)
-            : ZEROD;
-      return {
-        productId: p.id,
-        code: p.code,
-        name: p.name,
-        onHand: Number(onHand),
-        par: Number(par),
-        belowPar: onHand.lte(par),
-        suggestedOrderQty: Number(suggestPurchaseQty),
-        supplier: p.supplier,
-      };
-    });
+    const out = await Promise.all(
+      products.map(async (p) => {
+        const onHand = p.stockItems.reduce((s, si) => s.plus(si.quantity), ZERO_DEC);
+        const par = p.minQuantity ?? ZEROD;
+        const shortfall = par.minus(onHand);
+        // Suggested order qty is expressed in PURCHASE units: prefer the per-product
+        // purchase UOM (category converter); fall back to the legacy `uomConversion`
+        // scalar (stock units per purchase unit) when no purchase UOM is set.
+        let suggestPurchaseQty = ZEROD;
+        if (p.reorderQty && p.reorderQty.gt(0)) {
+          suggestPurchaseQty = p.reorderQty;
+        } else if (shortfall.gt(0)) {
+          if (p.purchaseUomId && p.purchaseUomId !== p.uomId) {
+            suggestPurchaseQty = (
+              await this.uomConversion.fromBase(shortfall, p.purchaseUomId, { id: p.id, uomId: p.uomId })
+            ).toDecimalPlaces(2, Prisma.Decimal.ROUND_CEIL);
+          } else {
+            const conversion = p.uomConversion && p.uomConversion.gt(0) ? p.uomConversion : new Prisma.Decimal(1);
+            suggestPurchaseQty = shortfall.dividedBy(conversion).toDecimalPlaces(2, Prisma.Decimal.ROUND_CEIL);
+          }
+        }
+        return {
+          productId: p.id,
+          code: p.code,
+          name: p.name,
+          onHand: Number(onHand),
+          par: Number(par),
+          belowPar: onHand.lte(par),
+          suggestedOrderQty: Number(suggestPurchaseQty),
+          supplier: p.supplier,
+        };
+      }),
+    );
 
     return out.filter((r) => r.belowPar);
   }

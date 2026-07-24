@@ -22,6 +22,7 @@ export interface Product {
   allowFractionalSale?: boolean;
   minSaleQty?: string | null;
   maxSaleQty?: string | null;
+  packagings?: { id: string; name: string; quantity: string; barcode: string | null; isActive: boolean }[];
   salesPrice: string | null;
   costPrice: string | null;
   image?: string | null;
@@ -44,12 +45,29 @@ export interface Product {
   standardPourMl?: string | null;
   allowPartialBottle?: boolean;
   varianceToleranceG?: string | null;
+  // M3 — Inventory account overrides (optional; null = inherit).
+  incomeAccountOverrideId?: string | null;
+  expenseAccountOverrideId?: string | null;
+  inventoryAccountOverrideId?: string | null;
+  cogsAccountOverrideId?: string | null;
+  shrinkageAccountOverrideId?: string | null;
+  damageAccountOverrideId?: string | null;
+  expiryAccountOverrideId?: string | null;
+  varianceGainAccountOverrideId?: string | null;
 }
 
 export interface ProductCategory {
   id: string;
   name: string;
   parentId: string | null;
+  incomeAccountId?: string | null;
+  expenseAccountId?: string | null;
+  inventoryAccountId?: string | null;
+  cogsAccountId?: string | null;
+  shrinkageAccountId?: string | null;
+  damageAccountId?: string | null;
+  expiryAccountId?: string | null;
+  varianceGainAccountId?: string | null;
 }
 
 export interface ListParams {
@@ -78,6 +96,7 @@ export interface CreateProductInput {
   allowFractionalSale?: boolean;
   minSaleQty?: number;
   maxSaleQty?: number;
+  packagings?: { name: string; quantity: number; barcode?: string; isActive?: boolean }[];
   salesPrice?: number;
   costPrice?: number;
   image?: string;

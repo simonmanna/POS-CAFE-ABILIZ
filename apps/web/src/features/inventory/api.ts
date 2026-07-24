@@ -24,6 +24,15 @@ export interface InventoryProduct {
   updatedAt: string;
   category: { id: string; name: string; parentId: string | null } | null;
   supplier: { id: string; name: string } | null;
+  // M3 — Account overrides
+  incomeAccountOverrideId: string | null;
+  expenseAccountOverrideId: string | null;
+  inventoryAccountOverrideId: string | null;
+  cogsAccountOverrideId: string | null;
+  shrinkageAccountOverrideId: string | null;
+  damageAccountOverrideId: string | null;
+  expiryAccountOverrideId: string | null;
+  varianceGainAccountOverrideId: string | null;
 }
 
 export interface StockItemWithLocation {

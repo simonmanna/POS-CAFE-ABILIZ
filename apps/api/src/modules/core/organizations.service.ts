@@ -70,6 +70,7 @@ export class OrganizationsService {
     await this.seedChartOfAccounts(org.id);
     await this.seedJournals(org.id);
     await this.seedAdminRoleAndMappings(org.id);
+    await this.seedPostingRules(org.id);
 
     // Create the admin user (no tenant context yet).
     const user = await this.prisma.raw.user.create({
@@ -306,6 +307,81 @@ export class OrganizationsService {
     await this.prisma.raw.branch.create({
       data: { organizationId: orgId, code: 'MAIN', name: 'Head Office' },
     });
+  }
+
+  /** Seed default inventory posting rules for a new org.
+   *
+   * Each movement type gets lines that mirror the original hardcoded
+   * Dr/Cr structure, resolved via AccountMapping keys. Users can override
+   * these lines later, add product-level overrides, or change accountSource
+   * to `literal`/`category_field`/`product_field`.
+   */
+  private async seedPostingRules(orgId: string) {
+    const rules: Array<{
+      movementType: string;
+      lineIndex: number;
+      debitOrCredit: string;
+      accountSource: string;
+      accountMappingKey: string;
+    }> = [
+      // STOCK_IN (e.g. purchase receipt) → Dr Stock Valuation / Cr GRNI
+      { movementType: 'STOCK_IN', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'STOCK_IN', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'grni_accrued' },
+      // STOCK_OUT (e.g. sale/issue) → Dr COGS / Cr Stock Valuation
+      { movementType: 'STOCK_OUT', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'cogs' },
+      { movementType: 'STOCK_OUT', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // RETURN_RESTOCK (customer return) → Dr Stock Valuation / Cr COGS
+      { movementType: 'RETURN_RESTOCK', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'RETURN_RESTOCK', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'cogs' },
+      // ADJUSTMENT_GAIN (positive count diff) → Dr Stock Valuation / Cr Adj Income
+      { movementType: 'ADJUSTMENT_GAIN', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'ADJUSTMENT_GAIN', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_adjustment_income' },
+      // ADJUSTMENT_LOSS (negative count diff) → Dr Adj Expense / Cr Stock Valuation
+      { movementType: 'ADJUSTMENT_LOSS', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_adjustment_expense' },
+      { movementType: 'ADJUSTMENT_LOSS', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // WASTE → Dr Adj Expense / Cr Stock Valuation
+      { movementType: 'WASTE', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_adjustment_expense' },
+      { movementType: 'WASTE', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // EXPIRY_WRITE_OFF → Dr Expiry / Cr Stock Valuation (uses category_field fallback)
+      { movementType: 'EXPIRY_WRITE_OFF', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'category_field', accountMappingKey: 'stock_adjustment_expense' },
+      { movementType: 'EXPIRY_WRITE_OFF', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // INTERNAL_CONSUMPTION → Dr Internal Use / Cr Stock Valuation (uses category_field fallback)
+      { movementType: 'INTERNAL_CONSUMPTION', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'category_field', accountMappingKey: 'stock_adjustment_expense' },
+      { movementType: 'INTERNAL_CONSUMPTION', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // PROMO_SAMPLE → Dr Promo Expense / Cr Stock Valuation (uses category_field fallback)
+      { movementType: 'PROMO_SAMPLE', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'category_field', accountMappingKey: 'stock_adjustment_expense' },
+      { movementType: 'PROMO_SAMPLE', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // STOCK_TRANSFER → No GL (skip) — seeded with empty flag for completeness
+      { movementType: 'STOCK_TRANSFER_OUT', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'STOCK_TRANSFER_OUT', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'STOCK_TRANSFER_IN', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'STOCK_TRANSFER_IN', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // RETURN_TO_SUPPLIER → Dr GRNI / Cr Stock Valuation
+      { movementType: 'RETURN_TO_SUPPLIER', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'grni_accrued' },
+      { movementType: 'RETURN_TO_SUPPLIER', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // PRODUCTION_CONSUME → Dr WIP / Cr Stock Valuation
+      { movementType: 'PRODUCTION_CONSUME', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'PRODUCTION_CONSUME', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // PRODUCTION_OUTPUT → Dr Stock Valuation / Cr WIP
+      { movementType: 'PRODUCTION_OUTPUT', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'PRODUCTION_OUTPUT', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      // REVALUATION → Dr/Cr Stock Valuation / Dr/Cr Revaluation Surplus
+      { movementType: 'REVALUATION', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'REVALUATION', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+    ];
+
+    for (const r of rules) {
+      await this.prisma.raw.inventoryPostingRule.create({
+        data: {
+          organizationId: orgId,
+          movementType: r.movementType as any,
+          lineIndex: r.lineIndex,
+          debitOrCredit: r.debitOrCredit,
+          accountSource: r.accountSource,
+          accountMappingKey: r.accountMappingKey,
+        },
+      });
+    }
   }
 }
 

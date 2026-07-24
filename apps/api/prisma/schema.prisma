@@ -771,6 +771,15 @@ model Product {
   /// when the transaction does not override it (dto.distStrategy).
   pickingStrategy PickingStrategy @default(FEFO)
   hasVariants    Boolean        @default(false)
+  // — Per-product inventory account overrides (optional; null = inherit) —
+  incomeAccountOverrideId         String?
+  expenseAccountOverrideId        String?
+  inventoryAccountOverrideId      String?
+  cogsAccountOverrideId           String?
+  shrinkageAccountOverrideId      String?
+  damageAccountOverrideId         String?
+  expiryAccountOverrideId         String?
+  varianceGainAccountOverrideId   String?
   /// Reorder qty expressed in PURCHASE units (par-based reorder report).
   reorderQty     Decimal        @default(0) @db.Decimal(20, 6)
   /// POS P5: which station (bar / kitchen / cafe) the KDS should route
@@ -906,6 +915,15 @@ model ProductCategory {
   parentId         String?
   incomeAccountId  String?
   expenseAccountId String?
+  // — Inventory accounting defaults (M3: per-category posting rule overrides) —
+  inventoryAccountId      String?
+  cogsAccountId           String?
+  shrinkageAccountId      String?
+  damageAccountId         String?
+  expiryAccountId         String?
+  varianceGainAccountId   String?
+  promoExpenseAccountId   String?
+  internalUseAccountId    String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   createdBy        String?
@@ -2397,6 +2415,29 @@ enum StockMoveType {
   return_in
   return_to_supplier
   expiry_write_off
+  internal_use
+  promo_sample
+}
+
+/// Configurable inventory movement types for the posting rule engine.
+/// These map one-to-many to StockMoveType and drive GL account resolution.
+/// Seeded on org creation with sensible defaults.
+enum InventoryMovementType {
+  STOCK_IN
+  STOCK_OUT
+  STOCK_TRANSFER_OUT
+  STOCK_TRANSFER_IN
+  ADJUSTMENT_GAIN
+  ADJUSTMENT_LOSS
+  WASTE
+  EXPIRY_WRITE_OFF
+  RETURN_RESTOCK
+  RETURN_TO_SUPPLIER
+  INTERNAL_CONSUMPTION
+  PROMO_SAMPLE
+  PRODUCTION_CONSUME
+  PRODUCTION_OUTPUT
+  REVALUATION
 }
 
 /// Lifecycle for the new stock document wrappers (StockOut, WasteRecord,
@@ -5124,7 +5165,50 @@ model InventoryException {
   @@index([organizationId, invoiceId])
 }
 
-// ===========================================================================
+// =============================================================================
+// Configurable Inventory Posting Rules (M3 — Accounting Hardening)
+// =============================================================================
+//
+// One rule line per movement type per product level. Resolution order:
+//   1. Product override (productId set)
+//   2. Category default (categoryId set)
+//   3. Movement type default (productId + categoryId both null)
+//   4. Fallback → AccountMapping for each accountSource key
+//
+// accountSource values:
+//   'account_mapping'  → resolve via AccountMapping key (accountMappingKey)
+//   'literal'           → use literalAccountId directly
+//   'category_field'    → read from ProductCategory.{field} based on accountMappingKey
+//   'product_field'     → read from Product.{field} based on accountMappingKey
+//
+model InventoryPostingRule {
+  id               String  @id @default(uuid())
+  organizationId   String
+  movementType     InventoryMovementType
+  lineIndex        Int     @default(0)
+  /// 'debit' | 'credit'
+  debitOrCredit    String
+  /// 'account_mapping' | 'literal' | 'category_field' | 'product_field'
+  accountSource    String  @default("account_mapping")
+  /// Only when accountSource='account_mapping': e.g. 'stock_valuation', 'cogs', 'stock_adjustment_expense'
+  accountMappingKey String?
+  /// Only when accountSource='literal': direct FK into Account
+  literalAccountId String?
+  /// Scope: null = movement-type default; set = product or category override
+  productId        String?
+  categoryId       String?
+  isActive         Boolean @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  createdBy        String?
+  updatedBy        String?
+
+  @@unique([organizationId, movementType, lineIndex, productId, categoryId])
+  @@index([organizationId, movementType, productId])
+  @@index([organizationId, movementType, categoryId])
+}
+
+// =============================================================================
 // Fixed Assets Management Module
 // ===========================================================================
 

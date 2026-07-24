@@ -37,6 +37,13 @@ export class ReceiveStockDto {
   @IsNumber()
   unitCost?: number;
 
+  /// Unit the `quantity` and `unitCost` are expressed in. When set and different
+  /// from the product's base unit, both are converted to base on receipt (total
+  /// value preserved). Omit for base-unit receipts.
+  @IsOptional()
+  @IsString()
+  uomId?: string;
+
   @IsOptional()
   @IsString()
   batchNumber?: string;
@@ -139,6 +146,12 @@ export class IssueStockDto {
   @IsNumber()
   @IsPositive()
   quantity!: number;
+
+  /// Unit the `quantity` is expressed in; converted to the product base unit on
+  /// issue (e.g. a recipe line in grams for a kg-based ingredient). Omit for base.
+  @IsOptional()
+  @IsString()
+  uomId?: string;
 
   @IsOptional()
   @IsDateString()

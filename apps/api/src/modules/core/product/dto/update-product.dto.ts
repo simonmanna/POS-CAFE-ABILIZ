@@ -1,11 +1,14 @@
 import {
+  IsArray,
   IsBoolean,
   IsIn,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import {
   COSTING_METHODS,
   MEASUREMENT_METHODS,
@@ -16,6 +19,7 @@ import {
   type ProductType,
   type StockDistributionStrategy,
 } from '@erp/shared';
+import { PackagingDto } from './packaging.dto';
 
 export class UpdateProductDto {
   @IsOptional()
@@ -82,6 +86,13 @@ export class UpdateProductDto {
   @IsOptional()
   @IsNumber()
   maxSaleQty?: number;
+
+  /** Packaging rows (name + qty-of-base + optional barcode). Replaces the set on save. */
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PackagingDto)
+  packagings?: PackagingDto[];
 
   @IsOptional()
   @IsString()

@@ -57,6 +57,8 @@ import { SupplierPaymentsPage } from '@/pages/purchasing/supplier-payments';
 import { JournalsPage } from '@/pages/accounting/journals';
 import { JournalEntryCreatePage } from '@/pages/accounting/journal-entry-create';
 import { JournalEntryDetailPage } from '@/pages/accounting/journal-entry-detail';
+import { InventoryPostingRulesPage } from '@/pages/accounting/inventory-posting-rules';
+import { ProductEditPage } from '@/pages/products/ProductEditPage';
 import { PurchaseRequestsPage } from '@/pages/procurement/purchase-requests';
 import { PurchaseOrdersPage } from '@/pages/procurement/purchase-orders';
 import { PurchaseOrderCreatePage } from '@/pages/procurement/purchase-order-create';
@@ -123,6 +125,8 @@ export function App() {
           <Route path="/suppliers/:partnerId" element={<SupplierDetailPage />} />
           <Route path="/suppliers/:partnerId/ledger" element={<SupplierLedgerPage />} />
           <Route path="/products" element={<ProductsPage />} />
+          <Route path="/products/new" element={<ProductEditPage />} />
+          <Route path="/products/:id/edit" element={<ProductEditPage />} />
           <Route path="/uom" element={<UomPage />} />
           <Route path="/menu" element={<MenuPage />} />
           <Route path="/menu/:menuItemId" element={<MenuDetailPage />} />
@@ -149,6 +153,7 @@ export function App() {
           <Route path="/accounts/cash-accounts/:id" element={<CashAccountDetailPage />} />
           <Route path="/accounts/cash-registers" element={<CashRegistersCrudPage />} />
           <Route path="/accounts/mappings" element={<AccountMappingsPage />} />
+          <Route path="/accounts/posting-rules" element={<InventoryPostingRulesPage />} />
           <Route path="/journals" element={<JournalsPage />} />
           <Route path="/journal-entries" element={<JournalEntriesPage />} />
           <Route path="/journal-entries/new" element={<JournalEntryCreatePage />} />

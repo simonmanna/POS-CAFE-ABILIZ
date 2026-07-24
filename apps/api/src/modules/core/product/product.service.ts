@@ -11,6 +11,7 @@ import { FilesService } from '../../../kernel/files/files.service';
 import { computeBottleConfig } from '../../../kernel/common/beverage-math';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { PackagingDto } from './dto/packaging.dto';
 
 /** Fields that, when touched, require the beverage config to be (re)validated. */
 const BEVERAGE_FIELDS = [
@@ -39,6 +40,7 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
     uom: true,
     purchaseUom: true,
     salesUom: true,
+    packagings: true,
     tax: true,
   };
 
@@ -197,11 +199,32 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
     }
   }
 
+  /** Replace a product's packaging rows with the supplied set (delete-all + create). */
+  private async syncPackagings(productId: string, rows: PackagingDto[]): Promise<void> {
+    const organizationId = this.tenant.organizationId;
+    await this.prisma.client.productPackaging.deleteMany({ where: { productId } });
+    if (rows.length > 0) {
+      await this.prisma.client.productPackaging.createMany({
+        data: rows.map((r) => ({
+          organizationId,
+          productId,
+          name: r.name,
+          quantity: r.quantity,
+          barcode: r.barcode || null,
+          isActive: r.isActive ?? true,
+        })),
+      });
+    }
+  }
+
   async create(dto: CreateProductDto): Promise<Product> {
     let data = this.applyBeverageComputation({ ...dto });
+    const packagings = (data as any).packagings as PackagingDto[] | undefined;
+    delete (data as any).packagings;
     await this.applyOrgInventoryDefaults(data);
     data = this.applyInventoryConfig(data, null);
     const product = await super.create(data as unknown as CreateProductDto);
+    if (packagings) await this.syncPackagings(product.id, packagings);
     this.events.publish('product.created', {
       id: product.id,
       organizationId: this.tenant.organizationId,
@@ -217,6 +240,8 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
 
   async update(id: string, dto: UpdateProductDto): Promise<Product> {
     let data: Record<string, any> = { ...dto };
+    const packagings = (data as any).packagings as PackagingDto[] | undefined;
+    delete (data as any).packagings;
     const beverageTouched = BEVERAGE_FIELDS.some((k) => (dto as any)[k] !== undefined);
     const inventoryTouched = INVENTORY_CONFIG_FIELDS.some((k) => (dto as any)[k] !== undefined);
     if (beverageTouched || inventoryTouched) {
@@ -225,6 +250,7 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
       if (inventoryTouched) data = this.applyInventoryConfig(data, existing);
     }
     const product = await super.update(id, data as unknown as UpdateProductDto);
+    if (packagings) await this.syncPackagings(id, packagings);
     this.events.publish('product.updated', {
       id: product.id,
       organizationId: this.tenant.organizationId,
@@ -267,6 +293,35 @@ export class ProductService extends BaseCrudService<Product, CreateProductDto, U
       orderBy: { deletedAt: 'desc' },
       include: this.defaultInclude,
     });
+  }
+
+  /**
+   * Resolve a scanned barcode to a product and the base-unit quantity one scan
+   * represents. Matches the product's own barcode (qty 1) first, then a packaging
+   * barcode (qty = pack size, e.g. a case of 24). Returns null when not found.
+   */
+  async resolveBarcode(code: string) {
+    if (!code) return null;
+    const product = await this.prisma.client.product.findFirst({
+      where: { barcode: code, isActive: true },
+      include: { uom: true },
+    });
+    if (product) {
+      return { productId: product.id, product, quantity: 1, packaging: null };
+    }
+    const pack = await this.prisma.client.productPackaging.findFirst({
+      where: { barcode: code, isActive: true },
+      include: { product: { include: { uom: true } } },
+    });
+    if (pack) {
+      return {
+        productId: pack.productId,
+        product: pack.product,
+        quantity: Number(pack.quantity),
+        packaging: { id: pack.id, name: pack.name, quantity: Number(pack.quantity) },
+      };
+    }
+    return null;
   }
 
   async search(q: string, pageSize = 20) {

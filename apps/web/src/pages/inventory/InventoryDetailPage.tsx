@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronRight, ArrowLeft, Edit, Package, MapPin, ArrowRightLeft, FileText, AlertTriangle, TrendingDown, Activity, ShoppingCart, UtensilsCrossed, RefreshCw, MoreHorizontal } from 'lucide-react';
+import { ChevronRight, ArrowLeft, Edit, Package, MapPin, ArrowRightLeft, FileText, AlertTriangle, TrendingDown, Activity, ShoppingCart, UtensilsCrossed, RefreshCw, MoreHorizontal, BookOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -440,6 +440,106 @@ function TabPurchaseOrders({ data }: { data: InventoryItemDetail }) {
   );
 }
 
+/** Lookup label for an account mapping key. */
+const ACCOUNT_LABELS: Record<string, string> = {
+  sales_revenue: 'Sales Revenue (Income)',
+  accounts_receivable: 'Accounts Receivable',
+  cogs: 'Cost of Goods Sold (Expense)',
+  stock_valuation: 'Stock Valuation (Inventory)',
+  grni_accrued: 'GRNI Accrued',
+  stock_adjustment_income: 'Stock Adjustment Income',
+  stock_adjustment_expense: 'Stock Adjustment Expense',
+  default_cash: 'Cash (Default)',
+};
+
+interface AccField {
+  key: string;
+  label: string;
+  mappingKey: string;
+  productOverride: string | null;
+  categoryField: string | null;
+}
+
+function TabAccounting({ data }: { data: InventoryItemDetail }) {
+  const p = data.product;
+  const fields: AccField[] = [
+    { key: 'income',  label: 'Income (Revenue)',  mappingKey: 'sales_revenue',          productOverride: p.incomeAccountOverrideId, categoryField: 'incomeAccountId' },
+    { key: 'expense', label: 'Expense (COGS)',     mappingKey: 'cogs',                   productOverride: p.expenseAccountOverrideId, categoryField: 'expenseAccountId' },
+    { key: 'inventory', label: 'Inventory (Stock)', mappingKey: 'stock_valuation',       productOverride: p.inventoryAccountOverrideId, categoryField: 'inventoryAccountId' },
+    { key: 'cogs_sep', label: 'COGS (separate)',   mappingKey: 'cogs',                   productOverride: p.cogsAccountOverrideId, categoryField: 'cogsAccountId' },
+    { key: 'shrinkage', label: 'Shrinkage / Adj Loss', mappingKey: 'stock_adjustment_expense', productOverride: p.shrinkageAccountOverrideId, categoryField: 'shrinkageAccountId' },
+    { key: 'variance', label: 'Adj Gain / Variance', mappingKey: 'stock_adjustment_income',    productOverride: p.varianceGainAccountOverrideId, categoryField: 'varianceGainAccountId' },
+    { key: 'damage',   label: 'Damage Write-Off',   mappingKey: 'stock_adjustment_expense', productOverride: p.damageAccountOverrideId, categoryField: 'damageAccountId' },
+    { key: 'expiry',   label: 'Expiry Write-Off',   mappingKey: 'stock_adjustment_expense', productOverride: p.expiryAccountOverrideId, categoryField: 'expiryAccountId' },
+  ];
+  const overrideCount = fields.filter((f) => f.productOverride).length;
+
+  return (
+    <div className="space-y-4">
+      <Card className="bg-blue-50 border-blue-200">
+        <CardContent className="p-4 flex items-start gap-3">
+          <BookOpen className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="font-semibold text-blue-800 text-sm">Account Resolution Chain</p>
+            <ol className="text-xs text-blue-700 space-y-0.5 list-decimal list-inside mt-1">
+              <li><strong>Product override</strong> — set below</li>
+              <li><strong>Category default</strong> — <code className="bg-blue-100 px-1 rounded">{p.category?.name ?? '—'}</code></li>
+              <li><strong>Org Account Mapping</strong> — Accounting &gt; Account Mappings</li>
+            </ol>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-2 pt-4 px-5 flex-row items-center justify-between bg-muted/30 border-b rounded-t-lg">
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Product-Level Account Overrides</CardTitle>
+          <p className="text-xs text-muted-foreground font-medium">{overrideCount} override{overrideCount !== 1 ? 's' : ''} active</p>
+        </CardHeader>
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/30">
+              <TableHead className="text-xs font-bold text-muted-foreground uppercase">Account</TableHead>
+              <TableHead className="text-xs font-bold text-muted-foreground uppercase">Override (Product)</TableHead>
+              <TableHead className="text-xs font-bold text-muted-foreground uppercase">Category Default</TableHead>
+              <TableHead className="text-xs font-bold text-muted-foreground uppercase">Org Map Key</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {fields.map((f) => (
+              <TableRow key={f.key} className="hover:bg-muted/20">
+                <TableCell className="font-semibold text-sm">{f.label}</TableCell>
+                <TableCell>
+                  {f.productOverride ? (
+                    <Badge className="bg-indigo-100 text-indigo-700 border-indigo-200 font-mono text-xs">{f.productOverride}</Badge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic">Inherited</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground font-mono">{f.categoryField}</TableCell>
+                <TableCell>
+                  <Badge variant="outline" className="text-xs font-mono text-muted-foreground">{f.mappingKey}</Badge>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{ACCOUNT_LABELS[f.mappingKey] ?? f.mappingKey}</p>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4 flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Configure per-movement-type posting rules at <strong className="text-foreground">Accounting &gt; Posting Rules</strong>
+          </p>
+          <Button variant="outline" size="sm" onClick={() => window.open('/accounts/posting-rules', '_self')}>
+            <BookOpen className="h-4 w-4 mr-1" /> Posting Rules
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export default function InventoryDetailPage() {
   const navigate = useNavigate();
   const { productId } = useParams<{ productId: string }>();
@@ -453,6 +553,7 @@ export default function InventoryDetailPage() {
     { id: 'transactions', label: 'Transactions', icon: Activity, count: data?.recentLedger.length },
     { id: 'menu-usage', label: 'Menu Usage', icon: UtensilsCrossed, count: data?.menuProducts.length },
     { id: 'purchases', label: 'Purchases', icon: ShoppingCart, count: data?.purchaseOrderLines.length },
+    { id: 'accounting', label: 'Accounting', icon: BookOpen, count: null },
   ];
 
   if (isLoading) {
@@ -508,7 +609,7 @@ export default function InventoryDetailPage() {
                 </TooltipTrigger>
                 <TooltipContent>Refresh</TooltipContent>
               </Tooltip>
-              <Button variant="outline" size="sm" className="border-primary text-primary hover:bg-primary/10 font-semibold" onClick={() => navigate('/products', { state: { editId: productId } })}>
+              <Button variant="outline" size="sm" className="border-primary text-primary hover:bg-primary/10 font-semibold" onClick={() => navigate(`/products/${productId}/edit`)}>
                 <Edit className="h-4 w-4 mr-1.5" /> Edit
               </Button>
               <DropdownMenu>
@@ -574,6 +675,7 @@ export default function InventoryDetailPage() {
               <TabsContent value="transactions" className="mt-0 outline-none"><TabTransactions data={data} /></TabsContent>
               <TabsContent value="menu-usage" className="mt-0 outline-none"><TabMenuUsage data={data} /></TabsContent>
               <TabsContent value="purchases" className="mt-0 outline-none"><TabPurchaseOrders data={data} /></TabsContent>
+              <TabsContent value="accounting" className="mt-0 outline-none"><TabAccounting data={data} /></TabsContent>
             </div>
           </Tabs>
         </div>

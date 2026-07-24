@@ -112,13 +112,25 @@ export class StockDocService {
     return this.prisma.client.$transaction(async (tx: any) => {
       let total = ZERO;
       for (const item of doc.items) {
+        // Map StockOutCategory to StockMoveType for correct GL posting.
+        // sample/comp → promo_sample; internal_use/testing/training → internal_use;
+        // damaged/waste → waste; expired → expiry_write_off; general_use/other → issue
+        const catToMove: Record<string, string> = {
+          sample: 'promo_sample',
+          complimentary: 'promo_sample',
+          kitchen_testing: 'internal_use',
+          training: 'internal_use',
+          damaged: 'waste',
+          expired: 'expiry_write_off',
+        };
+        const mt = (catToMove[doc.category] ?? 'issue') as any;
         const res = await this.stock.issue(
           {
             productId: item.productId,
             variantId: item.variantId ?? undefined,
             locationId: doc.locationId,
             quantity: Number(item.qty),
-            moveType: 'issue',
+            moveType: mt,
             distStrategy: (item.distStrategy as any) ?? 'FEFO',
             batchNumber: item.batchNumber ?? undefined,
             sourceType: 'stock_out',
