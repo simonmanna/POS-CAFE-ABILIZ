@@ -21,6 +21,17 @@ import { FixedAssetModule } from './modules/fixed-asset/fixed-asset.module';
 import { TaskModule } from './modules/task/task.module';
 // import { SchoolModule } from './modules/school/school.module'; // disabled: DI wiring issues, not needed for POS testing
 
+/**
+ * Opt-in modules. A café upgrading to this schema gets every table, but should
+ * only run the subsystems it actually uses — hiding navigation is not enough,
+ * because a registered module still runs its `OnModuleInit`, crons, queue
+ * consumers and event handlers (BeverageModule has a boot hook). Gating the
+ * import is the only way to keep unused code fully dark.
+ *
+ * Default OFF. Flip one at a time, one restart each, once the release is stable.
+ */
+const enabled = (flag: string): boolean => process.env[flag] === 'true';
+
 @Module({
   imports: [
     LoggerModule.forRoot({
@@ -49,7 +60,6 @@ import { TaskModule } from './modules/task/task.module';
     CoreModule,
     AccountingModule,
     InventoryModule,
-    BeverageModule,
     InvoicingModule,
     ProcurementModule,
     ExpensesModule,
@@ -57,9 +67,10 @@ import { TaskModule } from './modules/task/task.module';
     PosModule,
     SyncModule,
     BackupModule,
-    FixedAssetModule,
-    TaskModule,
     HealthModule,
+    ...(enabled('ENABLE_BEVERAGE') ? [BeverageModule] : []),
+    ...(enabled('ENABLE_ASSETS') ? [FixedAssetModule] : []),
+    ...(enabled('ENABLE_TASKS') ? [TaskModule] : []),
   ],
   controllers: [AppController, MetricsController],
 })

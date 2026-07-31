@@ -72,7 +72,17 @@ interface NavItem {
 interface NavSection {
   title?: string;
   items: NavItem[];
+  /**
+   * Opt-in section, mirroring the API's ENABLE_* module gates. This is the
+   * second layer only — the API decides what actually runs. Hiding a section
+   * here without gating the module server-side would leave its routes, crons
+   * and boot hooks live.
+   */
+  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS';
 }
+
+const flagEnabled = (flag?: string): boolean =>
+  !flag || (import.meta.env as Record<string, string | undefined>)[flag] === 'true';
 
 const NAV_SECTIONS: NavSection[] = [
   { items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard }] },
@@ -121,6 +131,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Beverage Control',
+    flag: 'VITE_ENABLE_BEVERAGE',
     items: [
       { to: '/beverage', label: 'Alcohol Dashboard', icon: BarChart3, permission: PERMISSIONS.beverage.read },
       { to: '/beverage/count', label: 'Bottle Count', icon: Scale, permission: PERMISSIONS.beverage.count },
@@ -147,6 +158,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Tasks',
+    flag: 'VITE_ENABLE_TASKS',
     items: [
       { to: '/tasks', label: 'Task Board', icon: ClipboardList, permission: 'task:read' },
     ],
@@ -180,6 +192,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Fixed Assets',
+    flag: 'VITE_ENABLE_ASSETS',
     items: [
       { to: '/fixed-assets', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.fixedAsset.read },
       { to: '/fixed-assets/register', label: 'Asset Register', icon: Building2, permission: PERMISSIONS.fixedAsset.read },
@@ -211,6 +224,9 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
 ];
+
+// Flags are build-time constants under Vite, so this resolves once.
+const VISIBLE_SECTIONS = NAV_SECTIONS.filter((s) => flagEnabled(s.flag));
 
 export function AppShell() {
   const location = useLocation();
@@ -244,7 +260,7 @@ export function AppShell() {
   // Close mobile drawer on navigation.
   useEffect(() => setMobileOpen(false), [location.pathname]);
 
-  const allItems = NAV_SECTIONS.flatMap((s) => s.items);
+  const allItems = VISIBLE_SECTIONS.flatMap((s) => s.items);
   const current =
     allItems.find(
       (n) =>
@@ -261,7 +277,7 @@ export function AppShell() {
   const renderNav = (onItemClick?: () => void, collapsed = false) => {
     return (
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-1">
-        {NAV_SECTIONS.map((section, idx) => {
+        {VISIBLE_SECTIONS.map((section, idx) => {
           const items = section.items.filter(
             (i) => !i.permission || hasPermission(i.permission),
           );

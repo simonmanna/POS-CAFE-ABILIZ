@@ -231,7 +231,10 @@ export class AccountResolverService {
       if (!category) {
         throw new BadRequestException(
           `Account category '${def.categoryKey}' is missing for this organization. ` +
-            'Run the accounting backfill (prisma/backfill-account-category.ts).',
+            'The global catalog is seeded by AccountingModule at boot; if it is empty ' +
+            'the API started without it. On a database upgraded from a pre-category ' +
+            'schema, run deployment/2026-08-r1/phaseB-backfill.ts to map the existing ' +
+            'chart of accounts.',
         );
       }
       account = await client.account.create({
