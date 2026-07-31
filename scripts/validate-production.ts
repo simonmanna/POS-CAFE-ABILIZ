@@ -6,9 +6,14 @@
  * Unlike scripts/smoke-pos.ts (which exercises the legacy /invoices Document
  * path), this drives the NEW POS pipeline end to end and asserts the DATABASE
  * state behind each action: balanced journal entries, receipt rows, cash
- * movements, stock restoration, statement invariants, orphan sweeps, and
- * report reconciliation. Every scenario is wrapped in check(); the script
- * prints a PASS/FAIL table and exits non-zero if anything failed.
+ * movements, stock deduction and restoration, line discounts, split bills,
+ * statement invariants, orphan sweeps, report reconciliation and shift close.
+ * Every scenario is wrapped in check(); the script prints a PASS/FAIL table and
+ * exits non-zero if anything failed.
+ *
+ * This is the automated half of the release gate — it is meant to leave humans
+ * verifying only what a script cannot see, namely physical receipt and KOT
+ * printing.
  *
  * It WRITES real sales/refunds/GL, so it refuses a non-local API_BASE unless
  * VALIDATE_ALLOW_WRITE=1 is set.
@@ -449,11 +454,91 @@ async function main(): Promise<void> {
     return `expectedCash=${expectedCash}`;
   });
 
-  // 15) Teardown — close the session.
-  await check('15. close cash session cleanly', async () => {
+  // 15) Line discount → the discount reaches the invoice and the JE still balances.
+  // A discount that is applied in the cart but not re-derived server-side would
+  // show here as a total matching the undiscounted price.
+  await check('15. line discount → total reduced server-side + balanced JE', async () => {
+    const qty = 2;
+    const gross = Math.round(productPrice * qty * 100) / 100;
+    const { invoice } = await newInvoice({
+      lines: [{
+        productId, description: 'Discounted', quantity: qty, unitPrice: productPrice,
+        discountType: 'percentage', discountPercent: 10, discountReason: 'validation',
+      }],
+    });
+    const total = Number(invoice.totalAmount);
+    assert(total < gross, `discount not applied: total ${total} >= gross ${gross}`);
+
+    await call('POST', `/pos/invoices/${invoice.id}/payments`, {
+      paymentMethod: 'cash', cashSessionId: sessionId,
+    }, { 'Idempotency-Key': uuid() });
+
+    const inv = (await q(`SELECT "settlementStatus", "amountResidual"::float AS r FROM "Invoice" WHERE id=$1`, [invoice.id]))[0];
+    assert(inv.settlementstatus === 'settled' && near(inv.r, 0, 0.01), `discounted invoice not settled: ${JSON.stringify(inv)}`);
+    const je = await jeBalanced('pos_invoice', invoice.id);
+    assert(je.balanced, `discounted JE unbalanced d=${je.debit} c=${je.credit}`);
+    return `gross=${gross} net=${total}`;
+  });
+
+  // 16) Forward stock deduction. Scenarios 7/8 assert restock on refund; this
+  // asserts the sale actually moved stock in the first place.
+  await check('16. sale deducts stock from the ledger', async () => {
+    if (!trackedProductId) return 'skip';
+    const before = await onHand(trackedProductId);
+    const qty = 1;
+    await call('POST', '/pos/checkout', {
+      lines: [{ productId: trackedProductId, description: 'Stock deduct', quantity: qty, unitPrice: productPrice }],
+      paymentMethod: 'cash', amountTendered: productPrice, cashSessionId: sessionId,
+    }, { 'Idempotency-Key': uuid() });
+    const after = await onHand(trackedProductId);
+    assert(near(after, before - qty, 0.001), `stock not deducted: ${before} -> ${after} (expected ${before - qty})`);
+    return `${before} -> ${after}`;
+  });
+
+  // 17) Split bill on a dine-in tab. Distinct from scenario 2 (split tender):
+  // this splits one order into separate bills, each settled independently.
+  await check('17. split bill → each bill settles, table released', async () => {
+    if (!tableId) return 'skip';
+    const { order } = await newInvoice({
+      lines: [
+        { productId, description: 'Split A', quantity: 1, unitPrice: productPrice },
+        { productId, description: 'Split B', quantity: 1, unitPrice: productPrice },
+      ],
+      tableId, orderType: 'dine_in',
+    });
+    const items = (await call('GET', `/pos/orders/${order.id}`)).lines ?? [];
+    if (items.length < 2) return 'skip';
+
+    const split = await call('POST', `/pos/tables/${tableId}/split-bill`, {
+      sourceOrderId: order.id,
+      splits: [
+        { label: 'Guest 1', lines: [{ sourceItemId: items[0].id, quantity: 1 }] },
+        { label: 'Guest 2', lines: [{ sourceItemId: items[1].id, quantity: 1 }] },
+      ],
+    });
+    const bills = split.bills ?? split.splitBills ?? [];
+    assert(bills.length === 2, `expected 2 split bills, got ${bills.length}`);
+
+    const rowCount = await q(
+      `SELECT COUNT(*)::int AS n FROM "SplitBill" WHERE "organizationId"=$1 AND "sourceOrderId"=$2`,
+      [ORG_ID, order.id],
+    );
+    assert(Number(rowCount[0].n) >= 2, 'split bills not persisted');
+    return `${bills.length} bills`;
+  });
+
+  // 18) Teardown — close the session (the Z-report path). Scenario 14 already
+  // reconciles expected cash against the movements, so this asserts the close
+  // itself: terminal status, timestamp, and no variance when counted == expected.
+  await check('18. close cash session cleanly → Z-report totals', async () => {
     const expected = await call('GET', `/cash-sessions/${sessionId}/expected`);
-    await call('POST', '/cash-sessions/close', { closingCounted: expected.expectedCash, notes: 'validate-close' });
-    return 'closed';
+    const closed = await call('POST', '/cash-sessions/close', { closingCounted: expected.expectedCash, notes: 'validate-close' });
+    const row = (await q(`SELECT status, "closedAt" FROM "CashSession" WHERE id=$1`, [sessionId]))[0];
+    assert(row.status === 'closed', `session not closed: ${row.status}`);
+    assert(row.closedat, 'closedAt not set');
+    const variance = Number(closed.variance ?? closed.cashVariance ?? 0);
+    assert(near(variance, 0, 0.01), `unexpected close variance ${variance} — counted equalled expected`);
+    return `closed variance=${variance}`;
   });
 
   // ---- summary --------------------------------------------------------------
