@@ -57,8 +57,12 @@ describe('PosInvoiceService', () => {
       mockPosting as any,
       mockDetermination as any,
       mockStock as any,
+      // reservations — ATP holds are advisory; mode() returning 'none' keeps
+      // every reservation call a no-op in these unit tests.
+      { mode: jest.fn().mockResolvedValue('none'), reserve: jest.fn(), release: jest.fn(), consume: jest.fn() } as any,
       {} as any, // receipts
       { assertCanOverride: jest.fn() } as any, // overrides
+      { recordSynchronousOverride: jest.fn() } as any, // approvals
     );
   });
 

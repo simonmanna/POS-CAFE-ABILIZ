@@ -1,14 +1,13 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { AccountType, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
+import { AccountResolverService, type AccountMeta } from '../posting/account-resolver.service';
+import { cashFlowSectionOf } from './account-classification';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 const ZERO = new Prisma.Decimal(0);
-
-/** Accounts that ARE cash / cash-equivalents — the statement measures the movement of these. */
-const CASH_ACCOUNT_TYPES: AccountType[] = ['cash', 'bank', 'mobile_money', 'petty_cash'];
 
 type Section = 'operating' | 'investing' | 'financing';
 
@@ -39,7 +38,10 @@ interface DateRange {
  */
 @Injectable()
 export class CashFlowReportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accounts: AccountResolverService,
+  ) {}
 
   async cashFlow(range: DateRange) {
     const from = this.parseDate(range.from, 'from');
@@ -119,21 +121,17 @@ export class CashFlowReportService {
 
   // ---- helpers ----------------------------------------------------------
 
+  /**
+   * Cash and cash-equivalents, from the categories flagged `isCashEquivalent`
+   * rather than a hardcoded account-type list. The old list was duplicated
+   * verbatim in TreasuryCashFlowService and had to be edited in both places.
+   */
   private async cashAccountIds(): Promise<Set<string>> {
-    const accounts = await this.prisma.client.account.findMany({
-      where: { accountType: { in: CASH_ACCOUNT_TYPES } },
-      select: { id: true },
-    });
-    return new Set(accounts.map((a: any) => a.id));
+    return new Set(await this.accounts.cashEquivalentIds());
   }
 
-  private async accountMeta(ids: string[]) {
-    const unique = [...new Set(ids)];
-    const accounts = await this.prisma.client.account.findMany({
-      where: { id: { in: unique } },
-      select: { id: true, accountType: true, cashFlowCategory: true },
-    });
-    return new Map(accounts.map((a: any) => [a.id, a]));
+  private async accountMeta(ids: string[]): Promise<Map<string, AccountMeta>> {
+    return this.accounts.meta([...new Set(ids)]);
   }
 
   /** Net (debit − credit) of the cash accounts over a posting-date window. */
@@ -154,14 +152,9 @@ export class CashFlowReportService {
     return new Prisma.Decimal(agg._sum.baseDebit ?? 0).minus(agg._sum.baseCredit ?? 0);
   }
 
-  private sectionFor(account: { accountType?: string; cashFlowCategory?: string | null } | undefined): Section {
+  private sectionFor(account: AccountMeta | undefined): Section {
     if (!account) return 'operating';
-    const t = account.accountType;
-    if (t === 'revenue' || t === 'contra_revenue' || t === 'expense' || t === 'cost_of_goods_sold') {
-      return 'operating';
-    }
-    const tag = account.cashFlowCategory as Section | null | undefined;
-    return tag ?? 'operating';
+    return cashFlowSectionOf(account);
   }
 
   private parseDate(value: string | undefined, label: string, endOfDay = false): Date | undefined {

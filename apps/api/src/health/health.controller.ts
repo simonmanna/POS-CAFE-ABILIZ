@@ -1,26 +1,41 @@
-import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Inject, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { PrismaService } from '../kernel/prisma/prisma.service';
 import { Public } from '../kernel/auth/decorators/public.decorator';
+import { BackupService } from '../modules/backup/backup.service';
 
 /**
  * Health endpoints (Phase A).
  *
- * - `GET /health` (liveness): cheap, no DB. Use for k8s liveness probe.
- * - `GET /health/ready` (readiness): probes Postgres. Use for k8s readiness
- *   probe and load-balancer routing. Returns 503 if any dependency is down.
- * - `GET /health/startup` (startup): one-shot check during pod start. Returns
- *   503 until the app finishes booting. Lets k8s wait for migrations etc.
+ * - `GET /health` (liveness, alias `/health/live`): cheap, no DB. k8s liveness.
+ * - `GET /health/ready` (readiness): probes Postgres. k8s readiness and
+ *   load-balancer routing. 503 when a CRITICAL dependency is down.
+ * - `GET /health/startup`: one-shot check during pod start.
  *
  * Intentionally split so a slow DB does NOT cause k8s to kill the pod
  * (liveness stays green); it only stops routing traffic (readiness goes red).
+ *
+ * Checks are classified `critical` or `advisory`. Only critical failures set
+ * 503. Backup health is advisory on purpose: a stale backup is an operational
+ * problem, but draining every replica over it would turn a warning into an
+ * outage. It still shows up in the body as `status: "degraded"`.
  */
+type Check = { ok: boolean; latencyMs?: number; error?: string };
 @Controller('health')
 export class HealthController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(BackupService) private readonly backupService: BackupService,
+  ) {}
 
-  /** Cheap liveness probe. Returns 200 as long as the process is alive. */
+  /**
+   * Cheap liveness probe. Returns 200 as long as the process is alive.
+   * `/health/live` is an alias — container and k8s probes conventionally use it,
+   * and the Dockerfile HEALTHCHECK pointed there against a route that did not
+   * exist, so the container never reported healthy.
+   */
   @Public()
-  @Get()
+  @Get(['', 'live'])
   liveness() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   }
@@ -28,39 +43,56 @@ export class HealthController {
   /** Readiness probe — probes Postgres with a 2-second timeout. */
   @Public()
   @Get('ready')
-  async readiness() {
-    const started = Date.now();
-    const checks: Record<string, { ok: boolean; latencyMs?: number; error?: string }> = {};
-
-    // DB probe: `SELECT 1` via the raw client (tenant extension not needed
-    // for a connectivity check). Bounded by a 2s timeout.
-    const dbResult = await this.probeDb();
-    checks.database = dbResult;
-
-    const allOk = Object.values(checks).every((c) => c.ok);
-    const status = {
-      status: allOk ? 'ok' : 'degraded',
-      timestamp: new Date().toISOString(),
-      durationMs: Date.now() - started,
-      checks,
-    };
-    // The HTTP status code reflects health: 200 if all OK, 503 otherwise.
-    // We can't directly return a status code from a GET without using
-    // @Res(), so the controller relies on NestJS's default which is 200.
-    // The consumer (k8s/load-balancer) reads the body for `status`.
-    return status;
+  async readiness(@Res({ passthrough: true }) res: Response) {
+    const body = await this.collect();
+    if (!body.criticalOk) res.status(HttpStatus.SERVICE_UNAVAILABLE);
+    return body;
   }
 
   /** Startup probe — returns 200 once migrations + seed are reachable. */
   @Public()
   @Get('startup')
-  async startup() {
+  async startup(@Res({ passthrough: true }) res: Response) {
     // Same check as readiness; kept separate so k8s can wire them differently.
-    const r = await this.readiness();
-    return r;
+    return this.readiness(res);
   }
 
-  private async probeDb(): Promise<{ ok: boolean; latencyMs?: number; error?: string }> {
+  private async collect() {
+    const started = Date.now();
+
+    // DB probe: `SELECT 1` via the raw client (tenant extension not needed
+    // for a connectivity check). Bounded by a 2s timeout.
+    const critical: Record<string, Check> = { database: await this.probeDb() };
+
+    const advisory: Record<string, Check> = {};
+    try {
+      const backupHealth = await this.backupService.getHealthStatus();
+      advisory.backup = {
+        ok: backupHealth.status === 'healthy',
+        latencyMs: 0,
+        error: backupHealth.issues.join('; ') || undefined,
+      };
+    } catch (err) {
+      advisory.backup = { ok: false, error: String(err) };
+    }
+
+    const criticalOk = Object.values(critical).every((c) => c.ok);
+    const advisoryOk = Object.values(advisory).every((c) => c.ok);
+
+    return {
+      // `degraded` = serving traffic, but something needs attention.
+      status: criticalOk ? (advisoryOk ? 'ok' : 'degraded') : 'unavailable',
+      criticalOk,
+      timestamp: new Date().toISOString(),
+      durationMs: Date.now() - started,
+      // Flattened for backward compatibility with existing consumers.
+      checks: { ...critical, ...advisory },
+      critical,
+      advisory,
+    };
+  }
+
+  private async probeDb(): Promise<Check> {
     const started = Date.now();
     try {
       const timeout = new Promise<never>((_resolve, reject) =>

@@ -21,6 +21,12 @@ export const SYNC_OP_TYPES = [
   'cash_session.movement',
   'sale.checkout',
   'tab.settle',
+  'sale.refund',
+  'sale.void',
+  'reservation.create',
+  'reservation.seat',
+  'reservation.cancel',
+  'reservation.noShow',
   'customer.upsert',
   'customer.delete',
   'setting.set',
@@ -84,6 +90,8 @@ export const SYNC_PULL_SCOPES = [
   'settings',
   'products',
   'productCategories',
+  'productPackagings',
   'partners',
+  'reservations',
 ] as const;
 export type SyncPullScope = (typeof SYNC_PULL_SCOPES)[number];

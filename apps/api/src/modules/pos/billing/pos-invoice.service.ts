@@ -4,6 +4,7 @@ import { EVENTS } from '@erp/shared';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../../kernel/audit/audit.service';
+import { ApprovalsService } from '../../../kernel/approvals/approvals.service';
 import { EventBus } from '../../../kernel/events/event-bus';
 import { dec } from '../../../kernel/common/money';
 import { resolveOccurredAt } from '../../../kernel/common/occurred-at';
@@ -13,6 +14,7 @@ import { PaymentService } from '../../invoicing/payment/payment.service';
 import { PostingService } from '../../accounting/posting/posting.service';
 import { AccountDeterminationService } from '../../accounting/posting/account-determination.service';
 import { StockService } from '../../inventory/stock.service';
+import { StockReservationService } from '../../inventory/stock-reservation.service';
 import { PosReceiptsService } from '../pos-receipts.service';
 import { PosOverridesService } from '../pos-overrides.service';
 import { recomputeTableStatus } from '../table-status.util';
@@ -64,8 +66,10 @@ export class PosInvoiceService {
     private readonly posting: PostingService,
     private readonly determination: AccountDeterminationService,
     private readonly stock: StockService,
+    private readonly reservations: StockReservationService,
     private readonly receipts: PosReceiptsService,
     private readonly overrides: PosOverridesService,
+    private readonly approvals: ApprovalsService,
   ) {}
 
   /**
@@ -254,6 +258,15 @@ export class PosInvoiceService {
     });
 
     await this.prisma.client.order.update({ where: { id: orderId }, data: { invoiceId: invoice.id, status: 'served' } });
+
+    // Hold the billed quantities against available-to-promise until the async
+    // stock job actually decrements them. Without this, ATP over-promises for
+    // the whole window between billing and deduction. Runs after the invoice tx
+    // commits and is best-effort by design: a reservation is an advisory number,
+    // and a sale is never blocked by inventory bookkeeping.
+    await this.reserveForInvoice(invoice, orderId).catch((e: any) =>
+      this.logger.warn(`reservation skipped for ${invoice.invoiceNumber}: ${e?.message ?? e}`),
+    );
 
     // M4 — fiscalization seam. Jurisdictions such as UG (EFRIS) require each
     // invoice be signed by a fiscal device and carry a fiscal code/QR. Runs
@@ -492,6 +505,23 @@ export class PosInvoiceService {
     }
     if (opts?.overrideById) {
       await this.overrides.assertCanOverride(opts.overrideById, 'manual_refund');
+      // F.5b — log the synchronous manager override into the unified approval
+      // ledger. Best-effort: must never block the refund. Runs before the tx so
+      // the engine's own transaction is not nested inside this one.
+      try {
+        const inv = await this.prisma.client.invoice.findFirst({
+          where: { id: invoiceId, organizationId: orgId },
+          select: { totalAmount: true },
+        });
+        await this.approvals.recordSynchronousOverride({
+          entityType: 'pos_refund',
+          entityId: invoiceId,
+          approverId: opts.overrideById,
+          snapshot: { amount: Number(inv?.totalAmount ?? 0), reason: reason ?? null },
+        });
+      } catch (err) {
+        this.logger.warn(`Failed to record pos_refund override in approval ledger: ${String(err)}`);
+      }
     }
 
     // Partial (line-level) refund takes a distinct path — it reverses only the
@@ -565,6 +595,11 @@ export class PosInvoiceService {
       await this.createReceipt(tx, invoice, 'merchant_copy', null);
       return { total: invoice.totalAmount.toString(), closed };
     });
+
+    // Whole sale reversed — drop any surviving hold so it stops consuming ATP.
+    await this.reservations
+      .release('invoice', invoiceId)
+      .catch((e: any) => this.logger.warn(`reservation release failed for ${invoiceId}: ${e?.message ?? e}`));
 
     await this.audit.record({ entity: 'Invoice', entityId: invoiceId, action: 'cancel' as any, newValues: { kind: 'refund', reason: reason ?? null, overrideById: opts?.overrideById ?? null } });
     if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
@@ -718,6 +753,14 @@ export class PosInvoiceService {
       if (fullyRefunded) closed = await this.closeOrderForInvoice(tx, invoiceId);
       return { refundTotal: refundTotal.toString(), fullyRefunded, closed };
     });
+
+    // Fully refunded: the goods are back, so any surviving hold on this invoice
+    // must stop consuming ATP. A partial refund leaves the remaining hold intact.
+    if (result.fullyRefunded) {
+      await this.reservations
+        .release('invoice', invoiceId)
+        .catch((e: any) => this.logger.warn(`reservation release failed for ${invoiceId}: ${e?.message ?? e}`));
+    }
 
     await this.audit.record({ entity: 'Invoice', entityId: invoiceId, action: 'update' as any, newValues: { kind: 'partial_refund', reason: reason ?? null, amount: result.refundTotal, lines, overrideById: opts?.overrideById ?? null } });
     if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
@@ -909,6 +952,75 @@ export class PosInvoiceService {
   }
 
   /**
+   * Hold billed quantities against ATP for the window between billing and the
+   * async stock deduction.
+   *
+   * Gated by the `inventory.reservationMode` setting, which defaults to 'none'
+   * — a single-location café has no use for available-to-promise, while a school
+   * store or a warehouse issuing against requisitions very much does. Modes:
+   *   'none'    → no reservations at all
+   *   'invoice' → reserve once the bill is raised (implemented here)
+   *   'order'   → same, plus reserved earlier at order-save (superset)
+   *
+   * Reservations are declarative per (sourceType, sourceId, product, variant,
+   * location), so a re-bill of the same invoice sets quantities rather than
+   * stacking them.
+   */
+  private async reserveForInvoice(invoice: any, orderId: string | null): Promise<void> {
+    const mode = await this.reservations.mode();
+    if (mode === 'none') return;
+
+    const orgId = this.tenant.organizationId;
+    const warehouse = await this.prisma.client.inventoryLocation.findFirst({
+      where: { organizationId: orgId, type: 'warehouse', isActive: true },
+    });
+    if (!warehouse) return;
+
+    const items = orderId
+      ? await this.prisma.client.orderItem.findMany({ where: { orderId, cancelled: false } })
+      : [];
+
+    // Roll up per product: one order can carry the same product on several lines
+    // (different modifiers), and a menu item explodes into shared ingredients.
+    const byProduct = new Map<string, number>();
+    const add = (productId: string, qty: number) => {
+      if (!(qty > 0)) return;
+      byProduct.set(productId, (byProduct.get(productId) ?? 0) + qty);
+    };
+
+    for (const it of items as any[]) {
+      const lineQty = Number(it.quantity);
+      if (it.menuItemId) {
+        const menuItem = await this.prisma.client.menuItem.findUnique({
+          where: { id: it.menuItemId },
+          select: { isInventoryTracked: true },
+        });
+        if (!menuItem?.isInventoryTracked) continue;
+        const recipe = await this.prisma.client.menuProduct.findMany({
+          where: { menuItemId: it.menuItemId, organizationId: orgId },
+        });
+        for (const ing of recipe as any[]) add(ing.productId, Number(ing.quantity) * lineQty);
+      } else if (it.productId) {
+        const product = await this.prisma.client.product.findFirst({ where: { id: it.productId } });
+        if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
+          add(it.productId, lineQty);
+        }
+      }
+    }
+
+    for (const [productId, quantity] of byProduct) {
+      await this.reservations.reserve({
+        productId,
+        locationId: warehouse.id,
+        quantity,
+        sourceType: 'invoice',
+        sourceId: invoice.id,
+        reason: `POS bill ${invoice.invoiceNumber}`,
+      });
+    }
+  }
+
+  /**
    * Phase 1 — process one durable StockPostingJob. Runs inside the worker's
    * tenant scope. A whole-run failure (e.g. no active warehouse — nothing was
    * deducted) is retried with backoff and, once exhausted, becomes a `failed`
@@ -927,6 +1039,11 @@ export class PosInvoiceService {
           })
         : [];
       const failures = await this.issueStockForItems(items, ctx);
+      // The hold has served its purpose — the quantities are now decremented for
+      // real, so leaving the reservation active would double-count against ATP.
+      await this.reservations
+        .consume('invoice', job.invoiceId)
+        .catch((e: any) => this.logger.warn(`reservation consume failed for ${job.invoiceNumber}: ${e?.message ?? e}`));
       await this.prisma.client.stockPostingJob.update({
         where: { id: job.id },
         data: {
@@ -942,6 +1059,12 @@ export class PosInvoiceService {
           where: { id: job.id },
           data: { status: 'failed', attempts, lastError: msg, claimToken: null, claimedAt: null, processedAt: new Date() },
         });
+        // The deduction will never happen on its own now, so the hold would sit
+        // against ATP indefinitely. Release it — the InventoryException raised
+        // below is the durable record that this stock still needs correcting.
+        await this.reservations
+          .release('invoice', job.invoiceId)
+          .catch((e: any) => this.logger.warn(`reservation release failed for ${job.invoiceNumber}: ${e?.message ?? e}`));
         await this.recordInventoryException(ctx, {
           kind: 'whole_invoice', productId: null, menuItemId: null, description: 'whole-invoice stock deduction',
           quantity: 0, locationId: null, reason: msg, stackTrace: e?.stack ?? null, payload: null,

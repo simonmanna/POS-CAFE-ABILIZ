@@ -129,9 +129,18 @@ export class SettingsService {
   /**
    * Effective values for a settings group at a given scope, with the level each
    * value came from ('default' when unset). Drives the admin UI.
+   *
+   * Deprecated keys are omitted: they remain readable and writable through the
+   * per-key endpoints so existing clients do not break, but showing them in the
+   * admin UI implies the engine honors them, and it does not. Pass
+   * `includeDeprecated` to see them anyway.
    */
-  async listEffective(group: SettingGroup, ctx: SettingContext = {}) {
-    const defs = settingsForGroup(group);
+  async listEffective(
+    group: SettingGroup,
+    ctx: SettingContext = {},
+    opts: { includeDeprecated?: boolean } = {},
+  ) {
+    const defs = settingsForGroup(group).filter((d) => opts.includeDeprecated || !d.deprecated);
     return Promise.all(
       defs.map(async (def) => {
         const { value, source, scopeId } = await this.resolver.describe(def.key, ctx);

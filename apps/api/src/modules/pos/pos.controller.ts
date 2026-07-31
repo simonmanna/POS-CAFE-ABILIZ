@@ -145,21 +145,6 @@ class CheckoutDto implements CheckoutInput {
   @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
-class RefundLineDto {
-  @ApiProperty() @IsString() lineId!: string;
-  @ApiProperty() @IsNumber() @Min(0) quantity!: number;
-}
-
-class RefundDto {
-  @ApiProperty() @IsString() invoiceId!: string;
-  @ApiProperty({ required: false }) @IsOptional() @IsString() reason?: string;
-  @ApiProperty({ required: false }) @IsOptional() @IsString() cashSessionId?: string;
-  @ApiProperty({ required: false }) @IsOptional() @IsString() overrideById?: string;
-  @ApiProperty({ required: false, type: [RefundLineDto], description: 'Partial refund: subset of original lines. Omit for a full refund.' })
-  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => RefundLineDto)
-  lines?: RefundLineDto[];
-}
-
 class VoidDto {
   @ApiProperty() @IsString() reason!: string;
   @ApiProperty({ description: 'Manager user id (override is mandatory for a void).' })
@@ -244,24 +229,13 @@ export class PosController {
   }
 
   /**
-   * Refund a POS sale. Redirects to the Order→Invoice→Receipt pipeline
-   * (billing.refund) — the older Document-based path was retired when POS sales
-   * moved onto the Invoice table. Supports partial refunds via `lines`. The
-   * canonical, override-gated endpoint is POST /pos/invoices/:id/refund; this one
-   * is kept for tooling/back-compat.
+   * Void a settled POS sale. The canonical, override-gated endpoint is
+   * POST /pos/invoices/:id/refund (delegated to PosInvoiceService.refund) —
+   * the legacy Document-based POST /pos/refund was deleted as part of the
+   * POS Sprint 1 hardening (see audit F1) because it queried the legacy
+   * Document table and bypassed the new flow's FOR UPDATE + per-line
+   * over-refund guard.
    */
-  @Post('refund')
-  @RequirePermissions('pos:refund')
-  @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
-  refund(@Body() dto: RefundDto) {
-    return this.billing.refund(dto.invoiceId, dto.reason, {
-      overrideById: dto.overrideById,
-      cashSessionId: dto.cashSessionId,
-      lines: dto.lines,
-    });
-  }
-
   @Post('sales/:id/void')
   @RequirePermissions('pos:void')
   @UseInterceptors(IdempotencyInterceptor)

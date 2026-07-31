@@ -91,7 +91,7 @@ export class ExpenseCategoriesService {
     if (!ledgerAccountId) return;
     const acc = await this.prisma.client.account.findFirst({ where: { id: ledgerAccountId } });
     if (!acc) throw new BadRequestException('Ledger account not found');
-    if (acc.isGroup || !acc.isActive) {
+    if (!acc.isPostable || !acc.isActive) {
       throw new BadRequestException('Ledger account must be a postable (non-group, active) account');
     }
   }

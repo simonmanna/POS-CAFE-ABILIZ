@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../kernel/prisma/prisma.service';
 import { BALANCE_AFFECTING_STATUSES } from '../../posting/posting.types';
+import { AccountResolverService } from '../../posting/account-resolver.service';
+import { displayBalance, isProfitAndLoss } from '../account-classification';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -21,7 +23,10 @@ import { BALANCE_AFFECTING_STATUSES } from '../../posting/posting.types';
 export class SnapshotRebuildService {
   private readonly logger = new Logger('SnapshotRebuildService');
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accounts: AccountResolverService,
+  ) {}
 
   /** Rebuild snapshots for every organization, keyed on `asOf`. */
   async rebuildAll(asOf: Date = new Date()): Promise<{ orgs: number; durationMs: number }> {
@@ -61,15 +66,11 @@ export class SnapshotRebuildService {
     });
     if (grouped.length === 0) return;
 
-    const accountIds = (grouped as any[]).map((g) => g.accountId);
-    const accounts = await this.prisma.client.account.findMany({
-      where: { id: { in: accountIds } },
-    });
-    const acctById = new Map((accounts as any[]).map((a) => [a.id, a]));
+    const meta = await this.accounts.meta((grouped as any[]).map((g) => g.accountId));
 
     const rows: Prisma.ReportTrialBalanceSnapshotCreateManyInput[] = [];
     for (const g of grouped as any[]) {
-      const acct = acctById.get(g.accountId);
+      const acct = meta.get(g.accountId);
       if (!acct) continue;
       const debit = new Prisma.Decimal(g._sum.baseDebit ?? 0);
       const credit = new Prisma.Decimal(g._sum.baseCredit ?? 0);
@@ -80,7 +81,11 @@ export class SnapshotRebuildService {
         accountId: acct.id,
         accountCode: acct.code,
         accountName: acct.name,
-        accountType: acct.accountType,
+        accountCategoryKey: acct.categoryKey,
+        classification: acct.classification,
+        normalBalance: acct.normalBalance,
+        // Deprecated mirror, retained until the accountType column is dropped.
+        accountType: legacyTypeOf(acct.classification),
         debit,
         credit,
         balance,
@@ -100,35 +105,33 @@ export class SnapshotRebuildService {
       where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
       _sum: { baseDebit: true, baseCredit: true },
     });
-    const accountIds = (grouped as any[]).map((g) => g.accountId);
-    const accounts = accountIds.length
-      ? await this.prisma.client.account.findMany({ where: { id: { in: accountIds } } })
-      : [];
-    const acctById = new Map((accounts as any[]).map((a) => [a.id, a]));
+    const meta = await this.accounts.meta((grouped as any[]).map((g) => g.accountId));
 
     let revenue = new Prisma.Decimal(0);
     let contraRevenue = new Prisma.Decimal(0);
     let cogs = new Prisma.Decimal(0);
     let expense = new Prisma.Decimal(0);
     for (const g of grouped as any[]) {
-      const acct = acctById.get(g.accountId);
+      const acct = meta.get(g.accountId);
       if (!acct) continue;
       const debit = new Prisma.Decimal(g._sum.baseDebit ?? 0);
       const credit = new Prisma.Decimal(g._sum.baseCredit ?? 0);
-      const t = acct.accountType as string;
-      const bal = credit.minus(debit); // credit-normal positive
-      switch (t) {
+      // Signed the way the statement reads, from the account's normal balance.
+      const value = displayBalance(debit.minus(credit), acct);
+      switch (acct.reportSection) {
         case 'revenue':
-          revenue = revenue.plus(bal);
+        case 'other_income':
+          revenue = revenue.plus(value);
           break;
         case 'contra_revenue':
-          contraRevenue = contraRevenue.plus(bal);
+          contraRevenue = contraRevenue.plus(value);
           break;
-        case 'cost_of_goods_sold':
-          cogs = cogs.plus(debit.minus(credit));
+        case 'cogs':
+          cogs = cogs.plus(value);
           break;
-        case 'expense':
-          expense = expense.plus(debit.minus(credit));
+        case 'operating_expense':
+        case 'other_expense':
+          expense = expense.plus(value);
           break;
         default:
           break;
@@ -162,35 +165,32 @@ export class SnapshotRebuildService {
     });
     const accountIds = (grouped as any[]).map((g) => g.accountId);
     if (accountIds.length === 0) return;
-    const accounts = await this.prisma.client.account.findMany({
-      where: { id: { in: accountIds } },
-    });
-    const acctById = new Map((accounts as any[]).map((a) => [a.id, a]));
+    const meta = await this.accounts.meta(accountIds);
 
     const rows: Prisma.ReportBalanceSheetSnapshotCreateManyInput[] = [];
     for (const g of grouped as any[]) {
-      const acct = acctById.get(g.accountId);
+      const acct = meta.get(g.accountId);
       if (!acct) continue;
-      // Balance sheet accounts only — skip income/expense (those are P&L).
-      const t = acct.accountType as string;
-      if (
-        t === 'revenue' ||
-        t === 'contra_revenue' ||
-        t === 'expense' ||
-        t === 'cost_of_goods_sold'
-      ) {
-        continue;
-      }
+      // Balance sheet accounts only — skip income/expense (those are P&L),
+      // off-balance memo accounts, and group nodes (no category, hence no
+      // classification; they cannot be posted to, so this is belt-and-braces).
+      if (!acct.categoryId) continue;
+      if (isProfitAndLoss(acct.classification) || acct.classification === 'off_balance') continue;
       const debit = new Prisma.Decimal(g._sum.baseDebit ?? 0);
       const credit = new Prisma.Decimal(g._sum.baseCredit ?? 0);
-      const balance = debit.minus(credit);
+      // Persist the display balance so readers do not have to re-derive the sign.
+      const balance = displayBalance(debit.minus(credit), acct);
       rows.push({
         organizationId,
         asOf,
         accountId: acct.id,
         accountCode: acct.code,
         accountName: acct.name,
-        accountType: t,
+        accountCategoryKey: acct.categoryKey,
+        classification: acct.classification,
+        normalBalance: acct.normalBalance,
+        reportSection: acct.reportSection,
+        accountType: legacyTypeOf(acct.classification),
         balance,
       });
     }
@@ -275,5 +275,20 @@ export class SnapshotRebuildService {
       }
       throw err;
     }
+  }
+}
+/** Deprecated `accountType` mirror kept on snapshot rows for one release. */
+function legacyTypeOf(classification: string | null): string {
+  switch (classification) {
+    case 'liability':
+      return 'liability';
+    case 'equity':
+      return 'equity';
+    case 'revenue':
+      return 'revenue';
+    case 'expense':
+      return 'expense';
+    default:
+      return 'asset';
   }
 }

@@ -146,6 +146,23 @@ export class SyncPullService {
           where: { ...changed },
           orderBy: { updatedAt: 'asc' },
         });
+      case 'productPackagings':
+        // Multipack barcodes: scanning a case barcode adds `quantity` base
+        // units of the product. No deletedAt on this model — a deactivated pack
+        // (isActive=false) is removed on the device.
+        return c.productPackaging.findMany({
+          where: { ...changed },
+          select: {
+            id: true,
+            productId: true,
+            name: true,
+            quantity: true,
+            barcode: true,
+            isActive: true,
+            updatedAt: true,
+          },
+          orderBy: { updatedAt: 'asc' },
+        });
       case 'settings':
         // Push org-level POS + inventory settings to devices (inventory toggles
         // like negative-stock affect the terminal). Scoped overrides stay server-side.
@@ -173,6 +190,27 @@ export class SyncPullService {
             createdAt: true,
             updatedAt: true,
             deletedAt: true,
+          },
+          orderBy: { updatedAt: 'asc' },
+        });
+      case 'reservations':
+        // Upcoming/active bookings for the floor. A rolling 24h floor bounds the
+        // backfill; the device treats terminal statuses (cancelled/no_show/
+        // completed) as tombstones and drops them locally.
+        return c.posTableReservation.findMany({
+          where: { ...changed, startAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+          select: {
+            id: true,
+            tableId: true,
+            customerName: true,
+            phone: true,
+            partySize: true,
+            startAt: true,
+            endAt: true,
+            status: true,
+            notes: true,
+            seatedOrderId: true,
+            updatedAt: true,
           },
           orderBy: { updatedAt: 'asc' },
         });

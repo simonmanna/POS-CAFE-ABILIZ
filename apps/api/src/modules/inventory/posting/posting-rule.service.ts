@@ -5,6 +5,7 @@ import { dec, ZERO } from '../../../kernel/common/money';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import type { PostingLineInput } from '../../accounting/posting/posting.types';
+import { AccountResolverService } from '../../accounting/posting/account-resolver.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -37,6 +38,7 @@ export class InventoryPostingRuleService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
+    private readonly accounts: AccountResolverService,
   ) {}
 
   /**
@@ -237,16 +239,11 @@ export class InventoryPostingRuleService {
   }
 
   /**
-   * Resolve an AccountMapping key → account ID.
+   * Resolve an AccountMapping key -> account ID. Delegates to the shared
+   * resolver; this used to be a private copy of the same lookup.
    */
   private async resolveMapping(key: string, client: any): Promise<string> {
-    const mapping = await client.accountMapping.findFirst({ where: { key } });
-    if (!mapping) {
-      throw new BadRequestException(
-        `Account mapping '${key}' is not configured. Set it under Accounting > Account Mapping.`,
-      );
-    }
-    return mapping.accountId;
+    return this.accounts.byMapping(key, client);
   }
 
   /**

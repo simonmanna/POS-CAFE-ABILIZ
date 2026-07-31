@@ -10,6 +10,7 @@ jest.mock('otplib', () => ({
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import { describeDb } from './_setup';
+import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
 import { PosModule } from '../../src/modules/pos/pos.module';
 import { PosService } from '../../src/modules/pos/pos.service';
@@ -29,6 +30,8 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
   let organizationId: string;
   let customerId: string;
   let productId: string;
+  let cashRegisterId: string;
+  let cashSessionId: string;
 
   beforeAll(async () => {
     await prisma.$connect();
@@ -37,9 +40,10 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     customerId = (await prisma.partner.create({ data: { organizationId, code: 'POS-CUST', name: 'Pipeline Cust', isCustomer: true } })).id;
     productId = (await prisma.product.create({ data: { organizationId, code: 'POS-SVC', name: 'Coffee', productType: 'service', salesPrice: 100, costPrice: 0 } })).id;
 
-    const ar = await prisma.account.create({ data: { organizationId, code: 'POS-1300', name: 'AR', accountType: 'receivable' } });
-    const rev = await prisma.account.create({ data: { organizationId, code: 'POS-4100', name: 'Revenue', accountType: 'revenue' } });
-    const cash = await prisma.account.create({ data: { organizationId, code: 'POS-1100', name: 'Cash', accountType: 'cash' } });
+    const mk = makeAccountFactory(prisma, await ensureAccountCategories(prisma));
+    const ar = await mk(organizationId, 'POS-1300', 'AR', 'receivable');
+    const rev = await mk(organizationId, 'POS-4100', 'Revenue', 'revenue');
+    const cash = await mk(organizationId, 'POS-1100', 'Cash', 'cash');
     await prisma.journal.create({ data: { organizationId, code: 'SALES', name: 'Sales', journalType: 'sales' } });
     await prisma.journal.create({ data: { organizationId, code: 'CASH', name: 'Cash', journalType: 'cash' } });
     for (const [key, accountId] of [
@@ -47,6 +51,25 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     ] as const) {
       await prisma.accountMapping.create({ data: { organizationId, key, accountId } });
     }
+
+    // Cash and mobile-money tenders now require an open shift (PosService
+    // .requireCashSession). This spec predates that control, so it checked out
+    // against no session at all and failed before reaching a single assertion.
+    const register = await prisma.cashRegister.create({
+      data: { organizationId, code: 'POS-REG', name: 'Till 1', defaultAccountId: cash.id },
+    });
+    cashRegisterId = register.id;
+    cashSessionId = (
+      await prisma.cashSession.create({
+        data: {
+          organizationId,
+          cashRegisterId: register.id,
+          userId: 'integration-test-cashier',
+          status: 'open',
+          openingFloat: 0,
+        },
+      })
+    ).id;
 
     moduleRef = await Test.createTestingModule({ imports: [KernelModule, PosModule] }).compile();
     await moduleRef.init();
@@ -67,6 +90,10 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
       await prisma.order.deleteMany({ where: { organizationId } });
       await prisma.invoice.deleteMany({ where: { organizationId } });
       await prisma.cashMovement.deleteMany({ where: { organizationId } });
+      // Sessions reference the register, and the register references an Account,
+      // so both must go before the accounts are deleted below.
+      await prisma.cashSession.deleteMany({ where: { organizationId } });
+      await prisma.cashRegister.deleteMany({ where: { organizationId } });
       await prisma.payment.deleteMany({ where: { organizationId } });
       await prisma.journalLine.deleteMany({ where: { organizationId } });
       await prisma.journalEntry.deleteMany({ where: { organizationId } });

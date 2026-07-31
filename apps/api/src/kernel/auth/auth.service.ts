@@ -382,20 +382,18 @@ export class AuthService {
         data: { revokedAt: new Date() },
       }),
     ]);
-    await this.audit.recordInTx
-      ? // the recordInTx path requires a tx; here we use fire-and-forget for non-money events
-        this.audit.record({
-          entity: 'User',
-          entityId: user.id,
-          action: 'update',
-          newValues: { passwordChanged: true },
-        })
-      : this.audit.record({
-          entity: 'User',
-          entityId: user.id,
-          action: 'update',
-          newValues: { passwordChanged: true },
-        });
+    // Was `await this.audit.recordInTx ? A : B` with A and B identical. `await`
+    // bound to the method *reference* — always truthy — so the ternary was dead
+    // and neither branch's promise was awaited, meaning a password change could
+    // land without its audit row and reject unhandled. `recordInTx` needs a tx
+    // and there is none here, so the fire-and-forget path was always correct;
+    // it just has to be awaited.
+    await this.audit.record({
+      entity: 'User',
+      entityId: user.id,
+      action: 'update',
+      newValues: { passwordChanged: true },
+    });
     this.events.publish('user.password_changed' as any, {
       userId: user.id,
       organizationId: user.organizationId,

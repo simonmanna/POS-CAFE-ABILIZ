@@ -40,35 +40,56 @@ export class StockReservationService {
     const organizationId = this.tenant.organizationId;
     const variantKey = dto.variantId ?? '';
     const quantity = dec(dto.quantity);
-    const existing = await this.prisma.client.stockReservation.findFirst({
-      where: {
-        productId: dto.productId,
-        variantKey,
-        locationId: dto.locationId,
-        sourceType: dto.sourceType,
-        sourceId: dto.sourceId,
-        status: 'active',
-      },
-    });
-    if (existing) {
-      return this.prisma.client.stockReservation.update({
-        where: { id: existing.id },
-        data: { quantity, reason: dto.reason ?? existing.reason },
-      });
-    }
-    return this.prisma.client.stockReservation.create({
-      data: {
+
+    // F11 fix: serialise concurrent reserves against the StockItem row so two
+    // callers can't both pass an ATP check and over-reserve the same
+    // (product, variant, location). The previous read-then-write was a TOCTOU
+    // — the read saw on-hand before the competing decrement committed.
+    return this.prisma.client.$transaction(async (tx: any) => {
+      // Lock the StockItem row for the duration of this TX. Concurrent
+      // reserves / issues / transfers / adjusts of the same line block here
+      // until we commit, so the ATP computation is consistent with the
+      // decrement we are about to publish.
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM "StockItem"
+         WHERE "organizationId" = $1 AND "productId" = $2 AND "variantKey" = $3 AND "locationId" = $4
+         FOR UPDATE`,
         organizationId,
-        productId: dto.productId,
-        variantId: dto.variantId ?? null,
+        dto.productId,
         variantKey,
-        locationId: dto.locationId,
-        quantity,
-        sourceType: dto.sourceType,
-        sourceId: dto.sourceId,
-        reason: dto.reason ?? null,
-        createdById: this.tenant.userId ?? null,
-      },
+        dto.locationId,
+      );
+
+      const existing = await tx.stockReservation.findFirst({
+        where: {
+          productId: dto.productId,
+          variantKey,
+          locationId: dto.locationId,
+          sourceType: dto.sourceType,
+          sourceId: dto.sourceId,
+          status: 'active',
+        },
+      });
+      if (existing) {
+        return tx.stockReservation.update({
+          where: { id: existing.id },
+          data: { quantity, reason: dto.reason ?? existing.reason },
+        });
+      }
+      return tx.stockReservation.create({
+        data: {
+          organizationId,
+          productId: dto.productId,
+          variantId: dto.variantId ?? null,
+          variantKey,
+          locationId: dto.locationId,
+          quantity,
+          sourceType: dto.sourceType,
+          sourceId: dto.sourceId,
+          reason: dto.reason ?? null,
+          createdById: this.tenant.userId ?? null,
+        },
+      });
     });
   }
 

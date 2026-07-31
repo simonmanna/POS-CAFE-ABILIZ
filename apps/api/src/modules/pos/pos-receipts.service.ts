@@ -1271,9 +1271,27 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
   /**
    * Print the receipt to a thermal ESC/POS printer.
    * Looks up printer IP from settings (pos.printerHost, pos.printerPort).
+   *
+   * F2 hardening: mirrors `printBill()` — refuses a duplicate auto-print when
+   * `receiptPrintCount > 0` and the caller did NOT opt into the reprint path.
+   * The auto-print after settlement (`printReceiptSafe`) is unaffected because
+   * it fires exactly once on a fresh invoice (count = 0). Re-prints MUST go
+   * through the dedicated `/reprint` endpoint, which is role-gated to manager
+   * and requires a reason.
    */
   async printReceipt(invoiceId: string, userId?: string, isReprint = false): Promise<{ ok: boolean; backend: string; message?: string }> {
     const orgId = this.tenant.organizationId;
+    if (!isReprint) {
+      const inv = await this.prisma.client.invoice.findFirst({
+        where: { id: invoiceId, organizationId: orgId },
+        select: { receiptPrintCount: true },
+      });
+      if ((inv?.receiptPrintCount ?? 0) > 0) {
+        throw new ForbiddenException(
+          'Receipt already printed. Use the reprint endpoint (Admin/Manager only, with a reason).',
+        );
+      }
+    }
     const customerText = await this.buildTextReceipt(invoiceId, isReprint, 'CUSTOMER COPY');
 
     await this.printLifecycle.markReceiptPrinted(this.prisma.client, invoiceId, userId);
@@ -1426,7 +1444,7 @@ export class PosReceiptsController {
   }
 
   @Post(':invoiceId/reprint')
-  @RequirePermissions('pos:reports')
+  @RequirePermissions('pos:override')
   async reprint(@Param('invoiceId') id: string, @Body() dto: ReprintDto) {
     const userId = this.svc.tenantSvc().userId ?? undefined;
     await this.svc['assertCanReprint'](userId);
@@ -1461,7 +1479,7 @@ export class PosReceiptsController {
   }
 
   @Post(':invoiceId/reprint-bill')
-  @RequirePermissions('pos:reports')
+  @RequirePermissions('pos:override')
   async reprintBill(@Param('invoiceId') id: string, @Body() dto: ReprintDto) {
     const userId = this.svc.tenantSvc().userId ?? undefined;
     await this.svc['assertCanReprint'](userId);

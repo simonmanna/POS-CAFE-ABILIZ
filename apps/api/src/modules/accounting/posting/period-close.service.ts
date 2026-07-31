@@ -7,6 +7,7 @@ import { EventBus } from '../../../kernel/events/event-bus';
 import { AuditService } from '../../../kernel/audit/audit.service';
 import { PostingService } from './posting.service';
 import { AccountDeterminationService } from './account-determination.service';
+import { AccountResolverService } from './account-resolver.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -38,6 +39,7 @@ export class PeriodCloseService {
     private readonly audit: AuditService,
     private readonly posting: PostingService,
     private readonly determination: AccountDeterminationService,
+    private readonly accounts: AccountResolverService,
   ) {}
 
   /** Close the period: post the closing journal, flip status to closed. */
@@ -65,57 +67,51 @@ export class PeriodCloseService {
         _sum: { baseDebit: true, baseCredit: true },
       });
       const accountIds = (grouped as any[]).map((g) => g.accountId);
-      const accounts = accountIds.length
-        ? await tx.account.findMany({ where: { id: { in: accountIds } } })
-        : [];
-      const acctById = new Map((accounts as any[]).map((a) => [a.id, a]));
+      const acctById = await this.accounts.meta(accountIds);
 
-      // Compute net per account type. Credit-normal (revenue / contra_revenue)
-      // => balance = credit - debit. Debit-normal (expense / cogs) => debit - credit.
-      let totalRevenue = ZERO; // positive number
-      let totalContraRevenue = ZERO; // positive number (contra side)
-      let totalExpense = ZERO; // positive number (sum of debit-normal balances)
+      // Totals are all positive numbers, each signed by the account's own normal
+      // balance. Contra-revenue is debit-normal, so a sales discount correctly
+      // adds to `totalContraRevenue` instead of cancelling revenue silently.
+      let totalRevenue = ZERO;
+      let totalContraRevenue = ZERO;
+      let totalExpense = ZERO;
       let totalCogs = ZERO;
       const closingLines: { accountId: string; debit: Prisma.Decimal; credit: Prisma.Decimal }[] = [];
-      let unbalancedDelta = ZERO; // catches rounding < epsilon; paid into retained earnings
+      const unbalancedDelta = ZERO; // catches rounding < epsilon; paid into retained earnings
 
       for (const g of grouped as any[]) {
         const acct = acctById.get(g.accountId);
         if (!acct) continue;
         const debit = dec(g._sum.baseDebit ?? 0);
         const credit = dec(g._sum.baseCredit ?? 0);
-        const t = acct.accountType as string;
-        switch (t) {
-          case 'revenue': {
-            const bal = credit.minus(debit);
+        // Positive in the direction the account normally carries a balance.
+        const bal = acct.normalBalance === 'credit' ? credit.minus(debit) : debit.minus(credit);
+        // Zeroing an account means posting the opposite of its balance.
+        const closing =
+          acct.normalBalance === 'credit'
+            ? { accountId: acct.id, debit: bal, credit: ZERO }
+            : { accountId: acct.id, debit: ZERO, credit: bal };
+
+        switch (acct.reportSection) {
+          case 'revenue':
+          case 'other_income':
             totalRevenue = totalRevenue.plus(bal);
-            // To zero revenue: debit the revenue account by `bal`.
-            if (!bal.isZero()) closingLines.push({ accountId: acct.id, debit: bal, credit: ZERO });
             break;
-          }
-          case 'contra_revenue': {
-            const bal = credit.minus(debit);
+          case 'contra_revenue':
             totalContraRevenue = totalContraRevenue.plus(bal);
-            // Contra-revenue has credit-normal balance; zero it by debiting.
-            if (!bal.isZero()) closingLines.push({ accountId: acct.id, debit: bal, credit: ZERO });
             break;
-          }
-          case 'expense': {
-            const bal = debit.minus(credit);
+          case 'operating_expense':
+          case 'other_expense':
             totalExpense = totalExpense.plus(bal);
-            if (!bal.isZero()) closingLines.push({ accountId: acct.id, debit: ZERO, credit: bal });
             break;
-          }
-          case 'cost_of_goods_sold': {
-            const bal = debit.minus(credit);
+          case 'cogs':
             totalCogs = totalCogs.plus(bal);
-            if (!bal.isZero()) closingLines.push({ accountId: acct.id, debit: ZERO, credit: bal });
             break;
-          }
           default:
-            // Balance-sheet accounts are NOT closed.
-            break;
+            // Balance-sheet and off-balance accounts are NOT closed.
+            continue;
         }
+        if (!bal.isZero()) closingLines.push(closing);
       }
 
       if (closingLines.length === 0) {
@@ -127,24 +123,17 @@ export class PeriodCloseService {
       // Net income = (revenue − contra_revenue) − (expense + cogs).
       const netIncome = totalRevenue.minus(totalContraRevenue).minus(totalExpense).minus(totalCogs);
 
-      // Resolve the Retained Earnings account from account mapping; fall back
-      // to the first equity account if the mapping is unconfigured (so the
-      // system remains usable in dev / fresh installs).
-      let retainedEarningsId: string;
-      try {
-        retainedEarningsId = await this.determination.mapped('retained_earnings', tx);
-      } catch {
-        const fallback = await tx.account.findFirst({
-          where: { organizationId, accountType: 'equity' },
-          orderBy: { code: 'asc' },
-        });
-        if (!fallback) {
-          throw new BadRequestException(
-            `Cannot close '${period.name}': no Retained Earnings account configured (set AccountMapping key 'retained_earnings')`,
-          );
-        }
-        retainedEarningsId = fallback.id;
-      }
+      // Resolve the Retained Earnings account from the account mapping. The COA
+      // seeder wires `retained_earnings` for every organization, so an
+      // unconfigured mapping is a real misconfiguration and must not silently
+      // fall through to "whichever equity account sorts first by code" — that
+      // closed the year into an arbitrary account.
+      const retainedEarningsId = await this.determination.mapped('retained_earnings', tx).catch(() => {
+        throw new BadRequestException(
+          `Cannot close '${period.name}': no Retained Earnings account configured ` +
+            "(set AccountMapping key 'retained_earnings' under Accounting > Account Mapping)",
+        );
+      });
 
       // Mirror leg on Retained Earnings to balance the entry.
       // netIncome > 0 (profit) → credit RE / debit the income sum → balanced.

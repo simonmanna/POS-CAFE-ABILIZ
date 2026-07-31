@@ -239,7 +239,7 @@ The `AccountDeterminationService` resolves standard accounts:
 | Costing methods | AVCO, FIFO, STANDARD, SPECIFIC | AVCO, FIFO, STANDARD, SPECIFIC | Tie |
 | Periodic costing | ✅ | ❌ | Odoo |
 | Configurable GL accounts | Category-level only | 4-level resolution chain (Product → Category → Rule → Mapping) | **POS-CAFE** |
-| GL posting for all moves | ✅ All move types post to GL automatically | ⚠️ 4/13 movement types post to GL | **Odoo** |
+| GL posting for all moves | ✅ All move types post to GL automatically | ✅ All 14/14 post to GL (movementType-aware) | Tie ✅ |
 | Landed costs | ✅ Comprehensive | ❌ Missing | Odoo |
 | Inventory valuation report | ✅ Multiple methods | ❌ Missing | Odoo |
 | Multi-currency variant | ✅ | ✅ | Tie |
@@ -261,7 +261,7 @@ The `AccountDeterminationService` resolves standard accounts:
 | Split valuation | ✅ (batches/valuation types) | ❌ (Product variants exist but not for valuation) | Minor |
 | Transfer pricing | ✅ | ❌ | P2 gap |
 | Inter-company stock in transit | ✅ | ❌ | P2 gap |
-| Physical inventory | ✅ | ⚠️ (count/adj exists, no GL for adjustments is partial) | P0 gap |
+| Physical inventory | ✅ | ✅ Count/adj with GL posting for gain/loss via rule engine | Tie ✅ |
 | Document splitting | ✅ | ❌ | Beyond scope |
 
 ---
@@ -278,12 +278,11 @@ The `AccountDeterminationService` resolves standard accounts:
 7. **Configurable seeding** — default posting rules are auto-created per org on creation.
 
 ### Risks
-1. **⚠️ CRITICAL: 9 movement types don't post to GL.** This is the single blocker for "enterprise-grade." Financial statements will be materially incomplete.
-2. **No inventory valuation report.** Without this, month-end close procedures cannot certify inventory asset values.
-3. **No landed costs.** For F&B/hospitality (the user's vertical), landed cost tracking (freight, duties, insurance) is table-stakes for accurate COGS.
-4. `promoExpenseAccountId` and `internalUseAccountId` exist in the schema but are orphaned — the rule engine and UI don't use them.
-5. **SPECIFIC costing** exists in the engine but has no production workflow calling it with serial-level costs.
-6. **Inter-branch stock transfers**: The system has `branchId` on journal lines but doesn't enforce separate accounting entities per branch. Inter-branch transfers should generate inter-company or clearing entries.
+1. **No inventory valuation report.** Without this, month-end close procedures cannot certify inventory asset values.
+2. **No landed costs.** For F&B/hospitality (the user's vertical), landed cost tracking (freight, duties, insurance) is table-stakes for accurate COGS.
+3. `promoExpenseAccountId` and `internalUseAccountId` exist in the schema but are orphaned — the rule engine and UI don't use them.
+4. **SPECIFIC costing** exists in the engine but has no production workflow calling it with serial-level costs.
+5. **Inter-branch stock transfers**: The system has `branchId` on journal lines but doesn't enforce separate accounting entities per branch. Inter-branch transfers should generate inter-company or clearing entries.
 
 ---
 

@@ -101,10 +101,18 @@ describe('PosReportsService (financial accuracy)', () => {
       expect(r.byMethod[0]).toMatchObject({ method: 'cash', count: 1, total: '118.00' });
     });
 
-    it('filters legacy Document sales to POS only (sourceType=pos)', async () => {
+    it('reads POS sales from the Invoice table (R2 migration) and scopes by tenant + date range', async () => {
+      // POS Sprint 1 (F1) retired the legacy Document-based sales path — POS
+      // sales now live exclusively on the Invoice table. This assertion
+      // verifies the report reads from Invoice with the correct tenant scope
+      // and the supplied date range, and never reaches for Document.findMany.
       await svc.salesSummary('2026-06-01', '2026-06-01', 'day');
-      const where = prisma.client.document.findMany.mock.calls[0][0].where;
-      expect(where.sourceType).toBe('pos');
+      const invoiceCalls = prisma.client.invoice.findMany.mock.calls;
+      expect(invoiceCalls.length).toBeGreaterThan(0);
+      const where = invoiceCalls[0][0].where;
+      expect(where.organizationId).toBe(orgId);
+      expect(where.createdAt).toEqual({ gte: expect.any(Date), lte: expect.any(Date) });
+      expect(prisma.client.document.findMany).not.toHaveBeenCalled();
     });
   });
 });

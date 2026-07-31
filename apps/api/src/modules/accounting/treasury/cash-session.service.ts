@@ -521,6 +521,32 @@ export class CashSessionService {
     });
   }
 
+  /**
+   * Record a drawer pay-out for cash that physically left the till to settle an
+   * external document (e.g. a cash purchase order). The GL leg is owned by the
+   * caller's own journal entry (Dr AP / Cr Cash), so this intentionally does NOT
+   * call postMovementGl — writing the drawer artifact only, so the session's
+   * expected-cash and Z-report reflect the withdrawal without double-crediting
+   * cash in the GL. Best-effort: the caller passes a found session or skips.
+   */
+  async recordExternalPayOut(
+    tx: any,
+    sessionId: string,
+    amount: Prisma.Decimal,
+    reason: string,
+  ) {
+    return tx.cashMovement.create({
+      data: {
+        organizationId: this.tenant.organizationId,
+        cashSessionId: sessionId,
+        movementType: 'pay_out',
+        amount,
+        reason,
+        performedBy: this.tenant.userId ?? null,
+      },
+    });
+  }
+
   /** Get any open session on the terminal (or null). */
   async findOpen(cashRegisterId?: string) {
     const where: any = { organizationId: this.tenant.organizationId, status: 'open' };

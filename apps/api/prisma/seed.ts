@@ -1,13 +1,9 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import {
-  ALL_PERMISSIONS,
-  type AccountType,
-  type JournalType,
-  type ProductType,
-} from '@erp/shared';
+import { ALL_PERMISSIONS, type ProductType } from '@erp/shared';
 import { seedUomCategories } from '../src/modules/core/product/uom-seed';
+import { seedAccountingCore } from '../src/modules/accounting/coa/coa-seeder';
 
 const prisma = new PrismaClient();
 
@@ -175,157 +171,10 @@ async function main(): Promise<void> {
     create: { organizationId: org.id, code: 'MAIN', name: 'Head Office' },
   });
 
-  // --- Chart of accounts (Phase 2) -----------------------------------------
-  const accountDefs: { code: string; name: string; accountType: AccountType; isGroup?: boolean; cashFlowCategory?: 'operating' | 'investing' | 'financing'; isDefault?: boolean; bankName?: string | null; accountNumber?: string | null }[] = [
-    { code: '1000', name: 'Assets', accountType: 'asset', isGroup: true, cashFlowCategory: 'investing' },
-    { code: '1100', name: 'Cash', accountType: 'cash', cashFlowCategory: 'operating' },
-    { code: '1200', name: 'Bank', accountType: 'bank', cashFlowCategory: 'operating' },
-    { code: '1300', name: 'Accounts Receivable', accountType: 'receivable', cashFlowCategory: 'operating' },
-    { code: '1400', name: 'Inventory / Stock Valuation', accountType: 'asset', cashFlowCategory: 'operating' },
-    { code: '1450', name: 'Input VAT Receivable', accountType: 'asset', cashFlowCategory: 'operating' },
-    // Cash drawer pay-in / pay-out suspense — back-office reclassifies to the
-    // real counter-account later (petty cash, safe transfer, misc income…).
-    { code: '1900', name: 'Cash Clearing (Suspense)', accountType: 'asset', cashFlowCategory: 'operating' },
-    { code: '2000', name: 'Liabilities', accountType: 'liability', isGroup: true, cashFlowCategory: 'financing' },
-    { code: '2100', name: 'Accounts Payable', accountType: 'payable', cashFlowCategory: 'operating' },
-    { code: '2150', name: 'Goods Received Not Invoiced (GRNI)', accountType: 'liability', cashFlowCategory: 'operating' },
-    { code: '2200', name: 'Tax Payable', accountType: 'tax', cashFlowCategory: 'operating' },
-    { code: '2300', name: 'Store Credit Liability', accountType: 'liability', cashFlowCategory: 'financing' },
-    { code: '3000', name: 'Equity', accountType: 'equity', isGroup: true, cashFlowCategory: 'financing' },
-    { code: '3100', name: 'Retained Earnings', accountType: 'equity', cashFlowCategory: 'financing' },
-    { code: '4000', name: 'Revenue', accountType: 'revenue', isGroup: true, cashFlowCategory: 'operating' },
-    { code: '4100', name: 'Sales Revenue', accountType: 'revenue', cashFlowCategory: 'operating' },
-    // Contra-revenue: order/line discounts post here (debit) instead of reducing
-    // Sales Revenue, so gross sales and total discounts are both visible on the P&L.
-    { code: '4900', name: 'Sales Discounts', accountType: 'revenue', cashFlowCategory: 'operating' },
-    { code: '5000', name: 'Expenses', accountType: 'expense', isGroup: true, cashFlowCategory: 'operating' },
-    { code: '5100', name: 'Cost of Goods Sold', accountType: 'cost_of_goods_sold', cashFlowCategory: 'operating' },
-    { code: '5200', name: 'Operating Expenses', accountType: 'expense', cashFlowCategory: 'operating' },
-    { code: '5300', name: 'Stock Adjustment Expense', accountType: 'expense', cashFlowCategory: 'operating' },
-    { code: '4200', name: 'Stock Adjustment Income', accountType: 'revenue', cashFlowCategory: 'operating' },
-    // Cash drawer over/short at shift close (also used for manual adjustments).
-    { code: '5400', name: 'Cash Short & Over', accountType: 'expense', cashFlowCategory: 'operating' },
-    // Invoice write-offs (Dr bad debt / Cr AR) — required by POS write-off.
-    { code: '5500', name: 'Bad Debt Expense', accountType: 'expense', cashFlowCategory: 'operating' },
-    // Payment accounts used on receipts & payments (visible in POS tender selection).
-    { code: 'CASH-DEFAULT', name: 'Cash Drawer', accountType: 'cash', cashFlowCategory: 'operating', isDefault: true, bankName: null, accountNumber: null },
-    { code: 'BANK-DEFAULT', name: 'Bank Account 1', accountType: 'bank', cashFlowCategory: 'operating', isDefault: true, bankName: null, accountNumber: null },
-    { code: 'MOMO-MTN', name: 'MTN Mobile Money', accountType: 'mobile_money', cashFlowCategory: 'operating', isDefault: true, bankName: null, accountNumber: null },
-    { code: 'MOMO-AIRTEL', name: 'Airtel Money', accountType: 'mobile_money', cashFlowCategory: 'operating', bankName: null, accountNumber: null },
-    { code: 'PETTY', name: 'Petty Cash', accountType: 'petty_cash', cashFlowCategory: 'operating' },
-    // --- Phase 4 (configurable accounting) additions ---
-    { code: '1490', name: 'Accumulated Depreciation', accountType: 'asset', cashFlowCategory: 'investing' },
-    { code: '1500', name: 'Stock In Transit', accountType: 'asset', cashFlowCategory: 'operating' },
-    { code: '2160', name: 'Withholding Tax Payable', accountType: 'liability', cashFlowCategory: 'operating' },
-    { code: '2170', name: 'Gift Card Liability', accountType: 'liability', cashFlowCategory: 'financing' },
-    { code: '2400', name: 'Unearned Revenue', accountType: 'liability', cashFlowCategory: 'operating' },
-    { code: '4910', name: 'Purchase Discounts Received', accountType: 'revenue', cashFlowCategory: 'operating' },
-    { code: '5600', name: 'Depreciation Expense', accountType: 'expense', cashFlowCategory: 'operating' },
-    { code: '7100', name: 'Foreign Exchange Gain', accountType: 'revenue', cashFlowCategory: 'operating' },
-    { code: '7200', name: 'Foreign Exchange Loss', accountType: 'expense', cashFlowCategory: 'operating' },
-  ];
-  const accountIds: Record<string, string> = {};
-  for (const a of accountDefs) {
-    const account = await prisma.account.upsert({
-      where: { organizationId_code: { organizationId: org.id, code: a.code } },
-      update: { name: a.name, accountType: a.accountType, isGroup: a.isGroup ?? false, cashFlowCategory: a.cashFlowCategory ?? null, isDefault: a.isDefault ?? false, bankName: a.bankName ?? null, accountNumber: a.accountNumber ?? null },
-      create: {
-        organizationId: org.id,
-        code: a.code,
-        name: a.name,
-        accountType: a.accountType,
-        isGroup: a.isGroup ?? false,
-        cashFlowCategory: a.cashFlowCategory ?? null,
-        isDefault: a.isDefault ?? false,
-        bankName: a.bankName ?? null,
-        accountNumber: a.accountNumber ?? null,
-      },
-    });
-    accountIds[a.code] = account.id;
-  }
-
-  // --- Journals -------------------------------------------------------------
-  const journalDefs: {
-    code: string;
-    name: string;
-    journalType: JournalType;
-    defaultDebitAccountId?: string;
-  }[] = [
-    { code: 'GEN', name: 'General Journal', journalType: 'general' },
-    { code: 'SALES', name: 'Sales Journal', journalType: 'sales' },
-    { code: 'PURCH', name: 'Purchase Journal', journalType: 'purchase' },
-    { code: 'CASH', name: 'Cash Journal', journalType: 'cash', defaultDebitAccountId: accountIds['1100'] },
-    { code: 'BANK', name: 'Bank Journal', journalType: 'bank', defaultDebitAccountId: accountIds['1200'] },
-    { code: 'INV', name: 'Inventory Journal', journalType: 'general' },
-    { code: 'ADJ', name: 'Adjustment Journal', journalType: 'adjustment' },
-  ];
-  for (const j of journalDefs) {
-    await prisma.journal.upsert({
-      where: { organizationId_code: { organizationId: org.id, code: j.code } },
-      update: { name: j.name, journalType: j.journalType },
-      create: { organizationId: org.id, ...j },
-    });
-  }
-
-  // --- Account determination mappings --------------------------------------
-  const mappings: Record<string, string> = {
-    accounts_receivable: accountIds['1300'],
-    accounts_payable: accountIds['2100'],
-    sales_revenue: accountIds['4100'],
-    sales_discount: accountIds['4900'],
-    tax_payable: accountIds['2200'],
-    tax_receivable: accountIds['1450'],
-    default_cash: accountIds['1100'],
-    default_bank: accountIds['1200'],
-    default_expense: accountIds['5200'],
-    // POS P7 — store-credit redemptions post Dr this liability / Cr receivable.
-    store_credit: accountIds['2300'],
-    retained_earnings: accountIds['3100'],
-    // M3 — inventory → GL
-    stock_valuation: accountIds['1400'],
-    cogs: accountIds['5100'],
-    grni_accrued: accountIds['2150'],
-    stock_adjustment_income: accountIds['4200'],
-    stock_adjustment_expense: accountIds['5300'],
-    // M5 cash drawer → GL
-    cash_clearing: accountIds['1900'],
-    cash_short_over: accountIds['5400'],
-    // POS invoice write-off (uncollectible AR)
-    bad_debt: accountIds['5500'],
-    // Cash flow deposit/withdraw suspense
-    cash_suspense: accountIds['1900'],
-    // Phase 4 (configurable accounting) — new determination keys
-    purchase_discount: accountIds['4910'],
-    petty_cash: accountIds['PETTY'],
-    stock_in_transit: accountIds['1500'],
-    withholding_payable: accountIds['2160'],
-    gift_card_liability: accountIds['2170'],
-    unearned_revenue: accountIds['2400'],
-    depreciation_expense: accountIds['5600'],
-    accumulated_depreciation: accountIds['1490'],
-    fx_gain: accountIds['7100'],
-    fx_loss: accountIds['7200'],
-  };
-  for (const [key, accountId] of Object.entries(mappings)) {
-    await prisma.accountMapping.upsert({
-      where: { organizationId_key: { organizationId: org.id, key } },
-      update: { accountId },
-      create: { organizationId: org.id, key, accountId },
-    });
-  }
-
-  // Protect accounts wired into the posting engine: everything referenced by a
-  // mapping, plus every group header, becomes a non-deletable system account
-  // (audit fix #4). Deleting these would break posting / period-close.
-  const systemAccountIds = Array.from(new Set(Object.values(mappings)));
-  await prisma.account.updateMany({
-    where: { organizationId: org.id, id: { in: systemAccountIds } },
-    data: { isSystem: true } as any,
-  });
-  await prisma.account.updateMany({
-    where: { organizationId: org.id, isGroup: true },
-    data: { isSystem: true } as any,
-  });
+  // --- Chart of accounts, journals and GL mappings --------------------------
+  // Single source of truth shared with OrganizationsService — see
+  // src/modules/accounting/coa/coa-template.ts.
+  const { accountIds } = await seedAccountingCore(prisma, org.id);
 
   // --- Link master data to accounts ----------------------------------------
   await prisma.productCategory.update({

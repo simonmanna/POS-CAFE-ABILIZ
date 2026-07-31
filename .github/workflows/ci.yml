@@ -8,9 +8,16 @@ on:
 
 env:
   DATABASE_URL: postgresql://cafe-pos:cafe-pos@localhost:5432/cafe-pos?schema=public
+  # Shadow DB for `prisma migrate diff`. Same server, separate database.
+  SHADOW_DATABASE_URL: postgresql://cafe-pos:cafe-pos@localhost:5432/shadow?schema=public
   JWT_ACCESS_SECRET: ci-access-secret-must-be-32-chars-or-more
   JWT_REFRESH_SECRET: ci-refresh-secret-must-be-32-chars-or-more
-  NODE_ENV: production
+  JWT_POS_SECRET: ci-pos-secret-must-be-32-chars-or-more-ok
+  # NOT `production`: this job migrates and seeds a throwaway database, and
+  # claiming production while doing so hides prod-only code paths rather than
+  # exercising them. Production behaviour is asserted explicitly where it
+  # matters instead.
+  NODE_ENV: test
 
 jobs:
   test:
@@ -53,11 +60,32 @@ jobs:
       - name: Architecture boundary check
         run: pnpm lint:arch
 
+      - name: Lint
+        run: pnpm lint
+
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Prisma migrate
-        run: pnpm --filter @erp/api db:migrate
+      # `migrate deploy` applies committed migrations and fails on anything
+      # unexpected. The previous `migrate dev` would author a new migration to
+      # paper over drift, so CI could go green on a schema no migration builds.
+      - name: Prisma migrate (deploy)
+        run: pnpm --filter @erp/api db:deploy
+
+      # Drift gate: the migration folder must reproduce schema.prisma exactly.
+      # Empty output means no difference; anything else fails the build.
+      - name: Schema drift check
+        run: |
+          psql "$DATABASE_URL" -c 'CREATE DATABASE shadow;' || true
+          DIFF=$(pnpm --filter @erp/api exec prisma migrate diff \
+            --from-migrations ./prisma/migrations \
+            --to-schema-datamodel ./prisma/schema.prisma \
+            --shadow-database-url "$SHADOW_DATABASE_URL" \
+            --exit-code 2>&1) && echo "No drift." || {
+              echo "::error::schema.prisma and prisma/migrations have drifted."
+              echo "$DIFF"
+              exit 1
+            }
 
       - name: Seed
         run: pnpm --filter @erp/api db:seed
@@ -68,5 +96,8 @@ jobs:
       - name: Integration tests (DB-backed)
         run: pnpm --filter @erp/api test:integration
 
-      - name: Build
+      - name: Build API
         run: pnpm --filter @erp/api build
+
+      - name: Build web
+        run: pnpm --filter @erp/web build

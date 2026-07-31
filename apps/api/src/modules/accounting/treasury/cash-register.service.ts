@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import type { CashRegister } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
@@ -27,13 +27,20 @@ export class CashRegisterService extends BaseCrudService<CashRegister> {
         where: { organizationId_code: { organizationId: orgId, code: drawerCode } },
       });
       if (!existing) {
+        const cashCategory = await tx.accountCategory.findFirst({ where: { key: 'cash' } });
+        if (!cashCategory) {
+          throw new BadRequestException(
+            "Account category 'cash' is missing for this organization. " +
+              'Run the accounting backfill (prisma/backfill-account-category.ts).',
+          );
+        }
         const drawerAccount = await tx.account.create({
           data: {
             organizationId: orgId,
             code: drawerCode,
             name: `Cash Drawer - ${register.name}`,
-            accountType: 'cash',
-            cashFlowCategory: 'operating',
+            categoryId: cashCategory.id,
+            normalBalance: cashCategory.normalBalance,
             isDefault: false,
           },
         });

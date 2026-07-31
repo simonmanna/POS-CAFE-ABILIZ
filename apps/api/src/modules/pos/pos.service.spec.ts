@@ -15,10 +15,6 @@ describe('PosService', () => {
       tenant as any,
       {} as any, // audit
       {} as any, // events
-      {} as any, // builder
-      {} as any, // invoices
-      {} as any, // payments
-      {} as any, // creditNotes
       {} as any, // stock
       {} as any, // overrides
       {} as any, // notifications
@@ -32,6 +28,7 @@ describe('PosService', () => {
       {} as any, // tables
       {} as any, // orders
       {} as any, // billing
+      {} as any, // approvals
     );
   });
 

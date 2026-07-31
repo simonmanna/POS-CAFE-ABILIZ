@@ -35,10 +35,18 @@ import {
   ScrollText,
   Smartphone,
   MapPin,
+  Layers,
   Link2,
   Landmark,
   HardDrive,
   Ruler,
+  ArrowUpDown,
+  TrendingUp,
+  TrendingDown,
+  History,
+  CalendarDays,
+  Percent,
+  Lock,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
@@ -73,7 +81,6 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/pos/terminal', label: 'POS Terminal', icon: Coffee, permission: PERMISSIONS.pos.checkout },
       { to: '/pos/cash-registers', label: 'Cash Registers', icon: Banknote, permission: PERMISSIONS.cashSession.read },
-      { to: '/pos/settings', label: 'POS Settings', icon: SettingsIcon, permission: PERMISSIONS.setting.read },
       { to: '/pos/receipts', label: 'POS Receipts', icon: ScrollText, permission: PERMISSIONS.pos.read },
       { to: '/pos/reports', label: 'POS Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports },
     ],
@@ -149,12 +156,24 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/accounts/cash-accounts', label: 'Financial Accounts', icon: Banknote, permission: PERMISSIONS.account.read },
       { to: '/accounts', label: 'Chart of Accounts', icon: BookOpen, permission: PERMISSIONS.account.read },
+      { to: '/accounts/categories', label: 'Account Categories', icon: Layers, permission: PERMISSIONS.accountCategory.read },
       { to: '/accounts/cash-registers', label: 'Cash Registers', icon: Smartphone, permission: 'cash_register:read' },
       { to: '/accounts/mappings', label: 'Account Mappings', icon: Link2, permission: PERMISSIONS.accountMapping.read },
       { to: '/accounts/posting-rules', label: 'Posting Rules', icon: FileText, permission: PERMISSIONS.inventoryPostingRule.read },
       { to: '/journals', label: 'Journals', icon: BookText, permission: PERMISSIONS.journal.read },
       { to: '/journal-entries', label: 'Journal Entries', icon: ScrollText, permission: PERMISSIONS.journalEntry.read },
       { to: '/trial-balance', label: 'Trial Balance', icon: Scale, permission: PERMISSIONS.report.accounting },
+      { to: '/general-ledger', label: 'General Ledger', icon: ArrowUpDown, permission: PERMISSIONS.report.accounting },
+      { to: '/profit-and-loss', label: 'Profit & Loss', icon: TrendingUp, permission: PERMISSIONS.report.accounting },
+      { to: '/cash-flow', label: 'Cash Flow', icon: TrendingDown, permission: PERMISSIONS.report.accounting },
+      { to: '/tieout', label: 'Tie-Out', icon: ShieldCheck, permission: PERMISSIONS.report.accounting },
+      { to: '/audit-log', label: 'Audit Log', icon: History, permission: PERMISSIONS.auditLog.read },
+      { to: '/fiscal-periods', label: 'Fiscal Periods', icon: CalendarDays, permission: PERMISSIONS.fiscalPeriod.read },
+      { to: '/taxes', label: 'Tax Rates', icon: Percent, permission: PERMISSIONS.tax.read },
+      { to: '/cost-centers', label: 'Cost Centers', icon: Users, permission: PERMISSIONS.costCenter.read },
+      { to: '/currency', label: 'Currency', icon: Banknote, permission: PERMISSIONS.currency.read },
+      { to: '/inventory-valuation', label: 'Inventory Val.', icon: Package, permission: PERMISSIONS.report.accounting },
+      { to: '/year-end-close', label: 'Year-End Close', icon: Lock, permission: PERMISSIONS.fiscalPeriod.update },
       { to: '/balance-sheet', label: 'Balance Sheet', icon: Landmark, permission: PERMISSIONS.report.accounting },
       { to: '/reports', label: 'Report Center', icon: BarChart3, permission: PERMISSIONS.report.accounting },
     ],
@@ -181,12 +200,14 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'System',
     items: [
       { to: '/approvals', label: 'Approvals', icon: ShieldCheck, permission: 'approvals:read' },
-      { to: '/approval-policies', label: 'Approval Policies', icon: Shield, permission: 'approvals:read' },
+      { to: '/approval-workflows', label: 'Approval Workflows', icon: Shield, permission: 'approvals:read' },
+      { to: '/approval-policies', label: 'Approval Policies (legacy)', icon: Shield, permission: 'approvals:read' },
       { to: '/staff', label: 'Staff', icon: UserCog, permission: PERMISSIONS.user.read },
       { to: '/staff/roles', label: 'Roles & Permissions', icon: Shield, permission: PERMISSIONS.role.read },
       { to: '/settings/devices', label: 'Offline devices', icon: Smartphone, permission: PERMISSIONS.organization.read },
       { to: '/settings/backup', label: 'Backup', icon: HardDrive, permission: PERMISSIONS.backup.read },
-      { to: '/settings', label: 'Settings', icon: SettingsIcon, permission: PERMISSIONS.setting.read },
+      { to: '/settings/company', label: 'Company Settings', icon: Landmark, permission: PERMISSIONS.setting.read },
+      { to: '/settings/developer', label: 'Developer Settings', icon: SettingsIcon, permission: PERMISSIONS.setting.read },
     ],
   },
 ];
@@ -371,7 +392,7 @@ export function AppShell() {
         {/* Bottom section: settings + sign out, themed like the sidebar */}
         <div className="space-y-0.5 p-2" style={{ borderTop: `1px solid ${sb.sidebarBorder}` }}>
           <NavLink
-            to="/settings"
+            to="/settings/company"
             className={cn(
               'flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-all',
               collapsed && 'justify-center px-2',

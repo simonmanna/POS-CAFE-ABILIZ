@@ -667,7 +667,7 @@ export class PosOrdersService {
     const orgId = this.tenant.organizationId;
 
     let baseline: ResolvedLine[] = [];
-    let lifecycleByPid = new Map<string, any>();
+    const lifecycleByPid = new Map<string, any>();
     if (opts.append) {
       const existing = await tx.orderItem.findMany({ where: { orderId, cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' } });
       baseline = existing.map((it: any) => this.itemToResolved(it));

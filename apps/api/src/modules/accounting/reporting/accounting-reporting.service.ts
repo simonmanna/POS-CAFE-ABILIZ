@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { SnapshotRebuildService } from './snapshots/snapshot-rebuild.service';
+import { AccountResolverService } from '../posting/account-resolver.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -25,6 +26,7 @@ export class AccountingReportingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly snapshots: SnapshotRebuildService,
+    private readonly accounts: AccountResolverService,
   ) {}
 
   /** Trial Balance — snapshot-first, live-fallback. */
@@ -45,6 +47,10 @@ export class AccountingReportingService {
           accountId: r.accountId,
           code: r.accountCode,
           name: r.accountName,
+          categoryKey: r.accountCategoryKey,
+          classification: r.classification,
+          normalBalance: r.normalBalance,
+          /** @deprecated read `categoryKey` / `classification` instead. */
           accountType: r.accountType,
           debit: r.debit.toString(),
           credit: r.credit.toString(),
@@ -66,10 +72,7 @@ export class AccountingReportingService {
       where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: this.rangeFilter(range) } } as any,
       _sum: { baseDebit: true, baseCredit: true },
     });
-    const accounts = await this.prisma.client.account.findMany({
-      where: { id: { in: (grouped as any[]).map((g) => g.accountId) } },
-    });
-    const accountMap = new Map((accounts as any[]).map((a) => [a.id, a]));
+    const accountMap = await this.accounts.meta((grouped as any[]).map((g) => g.accountId));
     let totalDebit = ZERO;
     let totalCredit = ZERO;
     const rows = (grouped as any[])
@@ -83,13 +86,16 @@ export class AccountingReportingService {
           accountId: g.accountId,
           code: account?.code ?? '',
           name: account?.name ?? '',
-          accountType: account?.accountType ?? '',
+          categoryKey: account?.categoryKey ?? null,
+          classification: account?.classification ?? null,
+          normalBalance: account?.normalBalance ?? 'debit',
+          sortOrder: account?.sortOrder ?? 0,
           debit: debit.toString(),
           credit: credit.toString(),
           balance: debit.minus(credit).toString(),
         };
       })
-      .sort((a, b) => a.code.localeCompare(b.code));
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
     return {
       rows,
       totals: { debit: totalDebit.toString(), credit: totalCredit.toString() },
@@ -159,7 +165,9 @@ export class AccountingReportingService {
    */
   private async findSnapshot(asOf: Date): Promise<{ organizationId: string; asOf: Date } | null> {
     const snap = await this.prisma.client.reportTrialBalanceSnapshot.findFirst({
-      where: { asOf: { lte: asOf } },
+      // Rows written before the AccountCategory migration (schemaVersion 1) carry
+      // no category data, so they are treated as stale and the live path runs.
+      where: { asOf: { lte: asOf }, schemaVersion: { gte: 2 } },
       orderBy: { asOf: 'desc' },
       select: { organizationId: true, asOf: true },
     });

@@ -10,6 +10,12 @@ import { AccountMappingService } from './account-mapping/account-mapping.service
 import { AccountMappingController } from './account-mapping/account-mapping.controller';
 import { FiscalPeriodService } from './posting/fiscal-period.service';
 import { AccountDeterminationService } from './posting/account-determination.service';
+import { AccountResolverService } from './posting/account-resolver.service';
+import { AccountingBootstrapModule } from './coa/accounting-bootstrap.module';
+import { seedAccountCategories } from './coa/account-category-seeder';
+import { PrismaService } from '../../kernel/prisma/prisma.service';
+import { AccountCategoryController } from './account-category/account-category.controller';
+import { AccountCategoryService } from './account-category/account-category.service';
 import { PostingService } from './posting/posting.service';
 import { JournalEntryService } from './journal-entry/journal-entry.service';
 import { JournalEntryController } from './journal-entry/journal-entry.controller';
@@ -40,15 +46,21 @@ import { CurrencyController } from './currency/currency.controller';
 import { RevaluationService } from './currency/revaluation.service';
 import { AccountingWorkflowsInitializer } from './workflows/accounting-workflows.initializer';
 import { ExportController } from './reporting/export.controller';
+import { CostCenterController } from './cost-center/cost-center.controller';
+import { CostCenterService } from './cost-center/cost-center.service';
+import { FiscalPeriodCrudController } from './posting/fiscal-period-crud.controller';
+import { InventoryValuationController } from './reporting/inventory-valuation.controller';
 
 /**
  * Phase 2 — the financial engine. Exports PostingService + account
  * determination so higher modules (invoicing, POS, payroll...) post through it.
  */
 @Module({
+  imports: [AccountingBootstrapModule],
   controllers: [
     CashFlowController,
     AccountController,
+    AccountCategoryController,
     JournalController,
     AccountMappingController,
     JournalEntryController,
@@ -56,6 +68,9 @@ import { ExportController } from './reporting/export.controller';
     CashRegisterController,
     CashSessionController,
     PeriodCloseController,
+    FiscalPeriodCrudController,
+    CostCenterController,
+    InventoryValuationController,
     CurrencyController,
     BankReconciliationController,
     AccountingReportingController,
@@ -67,6 +82,8 @@ import { ExportController } from './reporting/export.controller';
     JournalService,
     AccountMappingService,
     FiscalPeriodService,
+    AccountCategoryService,
+    AccountResolverService,
     AccountDeterminationService,
     PostingService,
     JournalEntryService,
@@ -77,6 +94,7 @@ import { ExportController } from './reporting/export.controller';
     CashRegisterService,
     CashSessionService,
     PeriodCloseService,
+    CostCenterService,
     CurrencyService,
     RevaluationService,
     AccountingReportingService,
@@ -90,6 +108,8 @@ import { ExportController } from './reporting/export.controller';
   ],
   exports: [
     PostingService,
+    AccountCategoryService,
+    AccountResolverService,
     AccountDeterminationService,
     FiscalPeriodService,
     CashSessionService,
@@ -102,7 +122,11 @@ import { ExportController } from './reporting/export.controller';
   ],
 })
 export class AccountingModule implements OnModuleInit {
-  constructor(private readonly registry: ModuleRegistry) {}
+  constructor(
+    private readonly registry: ModuleRegistry,
+    private readonly prisma: PrismaService,
+    private readonly accounts: AccountResolverService,
+  ) {}
 
   onModuleInit(): void {
     this.registry.register({
@@ -110,15 +134,30 @@ export class AccountingModule implements OnModuleInit {
       version: '1.3.0',
       dependencies: ['core'],
       permissions: [
-        ...Object.values(PERMISSIONS.account),
-        ...Object.values(PERMISSIONS.journal),
-        ...Object.values(PERMISSIONS.journalEntry),
-        ...Object.values(PERMISSIONS.accountMapping),
-        ...Object.values(PERMISSIONS.bankAccount),
-        ...Object.values(PERMISSIONS.treasury),
-        ...Object.values(PERMISSIONS.cashRegister),
-        ...Object.values(PERMISSIONS.cashSession),
+        ...Object.values(PERMISSIONS.account) as string[],
+        ...Object.values(PERMISSIONS.journal) as string[],
+        ...Object.values(PERMISSIONS.journalEntry) as string[],
+        ...Object.values(PERMISSIONS.accountMapping) as string[],
+        ...Object.values(PERMISSIONS.bankAccount) as string[],
+        ...Object.values(PERMISSIONS.treasury) as string[],
+        ...Object.values(PERMISSIONS.cashRegister) as string[],
+        ...Object.values(PERMISSIONS.cashSession) as string[],
+        ...Object.values(PERMISSIONS.fiscalPeriod) as string[],
+        ...Object.values(PERMISSIONS.costCenter) as string[],
       ],
+    });
+
+    // Account categories are GLOBAL and system-managed — one row per accounting
+    // concept, shared by every tenant, with no tenant CRUD. Seed them once at
+    // boot rather than per organization. Version-gated, so re-running is a
+    // no-op. Fire-and-forget, mirroring CoreModule's permission sync.
+    setImmediate(() => {
+      seedAccountCategories(this.prisma.raw)
+        .then(() => this.accounts.reloadCategories())
+        .catch((e) =>
+          // eslint-disable-next-line no-console
+          console.warn('[AccountingModule] account category seed failed:', e?.message ?? e),
+        );
     });
   }
 }

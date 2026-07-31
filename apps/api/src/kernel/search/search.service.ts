@@ -178,7 +178,7 @@ export class SearchService {
         fields: ['code', 'name'],
         href: (id) => `/accounts?id=${id}`,
         title: (r) => `${r.code} ${r.name}`,
-        subtitle: (r) => r.accountType,
+        subtitle: (r) => r.category?.key ?? r.reportSection ?? 'account',
         trgmColumns: ['name', 'code'],
         trgmOrder: 'name',
         query: async (q, orgId) => {
@@ -329,7 +329,7 @@ export class SearchService {
         FROM "Document"       WHERE "organizationId" = $2 AND "documentType" = 'vendor_bill'
           AND "documentNumber" % (SELECT needle FROM q)
       UNION ALL
-      SELECT 'account', id::text, code || ' ' || name, "accountType"::text, '/accounts?id=' || id::text,
+      SELECT 'account', id::text, code || ' ' || name, '' AS subtitle, '/accounts?id=' || id::text,
              GREATEST(similarity(name, (SELECT needle FROM q)),
                       similarity(code, (SELECT needle FROM q)))
         FROM "Account"        WHERE "organizationId" = $2

@@ -1,6 +1,11 @@
-import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
-import { ACCOUNT_TYPES, type AccountType } from '@erp/shared';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString } from 'class-validator';
+import { CASH_FLOW_CLASSES, CONTROL_ACCOUNT_TYPES, type ControlAccountType } from '@erp/shared';
 
+/**
+ * `normalBalance` is deliberately absent — it is always mirrored from the
+ * account's category by AccountService, because every report signs balances by
+ * it.
+ */
 export class UpdateAccountDto {
   @IsOptional()
   @IsString()
@@ -11,12 +16,16 @@ export class UpdateAccountDto {
   name?: string;
 
   @IsOptional()
-  @IsIn([...ACCOUNT_TYPES])
-  accountType?: AccountType;
+  @IsString()
+  categoryId?: string;
 
   @IsOptional()
   @IsString()
-  parentAccountId?: string;
+  parentAccountId?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
 
   @IsOptional()
   @IsString()
@@ -24,7 +33,7 @@ export class UpdateAccountDto {
 
   @IsOptional()
   @IsBoolean()
-  isGroup?: boolean;
+  isPostable?: boolean;
 
   @IsOptional()
   @IsBoolean()
@@ -33,4 +42,37 @@ export class UpdateAccountDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsIn([...CASH_FLOW_CLASSES])
+  cashFlowCategory?: string;
+
+  /** Behavior overrides. Omit (or null) to inherit the category default. */
+  @IsOptional()
+  @IsBoolean()
+  allowReconciliation?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowManualPosting?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowBudgeting?: boolean;
+
+  @IsOptional()
+  @IsIn([...CONTROL_ACCOUNT_TYPES])
+  controlAccountType?: ControlAccountType;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  @IsOptional()
+  @IsString()
+  bankName?: string;
+
+  @IsOptional()
+  @IsString()
+  accountNumber?: string;
 }

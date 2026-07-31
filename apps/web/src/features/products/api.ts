@@ -147,6 +147,41 @@ export function useProductCategories() {
     queryKey: ['product-categories'],
     queryFn: async () =>
       (await api.get<PaginatedResult<ProductCategory>>('/product-categories', { params: { pageSize: 200 } })).data?.data ?? [],
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export interface CreateProductCategoryInput {
+  name: string;
+  parentId?: string;
+  incomeAccountId?: string;
+  expenseAccountId?: string;
+}
+
+export function useCreateProductCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: CreateProductCategoryInput) =>
+      (await api.post<ProductCategory>('/product-categories', input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['product-categories'] }),
+  });
+}
+
+export function useUpdateProductCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<CreateProductCategoryInput> }) =>
+      (await api.patch<ProductCategory>(`/product-categories/${id}`, data)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['product-categories'] }),
+  });
+}
+
+export function useDeleteProductCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.delete(`/product-categories/${id}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['product-categories'] }),
   });
 }
 

@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
+import { AccountResolverService } from '../posting/account-resolver.service';
+import { displayBalance } from './account-classification';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -21,7 +23,10 @@ const ZERO = new Prisma.Decimal(0);
 @Injectable()
 export class PnLReportService {
   private readonly logger = new Logger('PnLReportService');
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accounts: AccountResolverService,
+  ) {}
 
   async pnl(range: DateRange) {
     const asOf = range.to ? new Date(range.to) : new Date();
@@ -40,8 +45,12 @@ export class PnLReportService {
           cogs: pnl.cogs.toString(),
           grossProfit: grossProfit.toString(),
           expense: pnl.expense.toString(),
+          // The P&L snapshot carries four aggregate columns only, so other
+          // income/expense are folded into revenue/expense there.
           otherIncome: '0',
+          otherExpense: '0',
           operatingProfit: operatingProfit.toString(),
+          netProfit: operatingProfit.toString(),
           source: 'snapshot',
           asOf: pnl.asOf,
         };
@@ -56,39 +65,54 @@ export class PnLReportService {
       where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: this.rangeFilter(range) } },
       _sum: { baseDebit: true, baseCredit: true },
     });
-    const accounts = await this.prisma.client.account.findMany({
-      where: { id: { in: (grouped as any[]).map((g) => g.accountId) } },
-    });
-    const acctById = new Map((accounts as any[]).map((a) => [a.id, a]));
+    const meta = await this.accounts.meta((grouped as any[]).map((g) => g.accountId));
+
+    // Every bucket is keyed on the account's report section, so `contra_revenue`
+    // finally has real members: it used to be branched on here but was not a
+    // member of the AccountType enum, so sales discounts silently netted into
+    // revenue and the discount line always read zero.
     let revenue = ZERO,
       contraRevenue = ZERO,
       cogs = ZERO,
-      expense = ZERO;
+      expense = ZERO,
+      otherIncome = ZERO,
+      otherExpense = ZERO;
+
     for (const g of grouped as any[]) {
-      const acct = acctById.get(g.accountId);
-      if (!acct) continue;
+      const account = meta.get(g.accountId);
+      if (!account) continue;
       const debit = new Prisma.Decimal(g._sum.baseDebit ?? 0);
       const credit = new Prisma.Decimal(g._sum.baseCredit ?? 0);
-      const t = acct.accountType as string;
-      const bal = credit.minus(debit);
-      switch (t) {
-        case 'revenue': revenue = revenue.plus(bal); break;
-        case 'contra_revenue': contraRevenue = contraRevenue.plus(bal); break;
-        case 'cost_of_goods_sold': cogs = cogs.plus(debit.minus(credit)); break;
-        case 'expense': expense = expense.plus(debit.minus(credit)); break;
+      // Positive in the direction the statement reads: revenue positive when
+      // credited, expenses positive when debited, contra-revenue positive when
+      // debited (its category is debit-normal).
+      const value = displayBalance(debit.minus(credit), account);
+      switch (account.reportSection) {
+        case 'revenue': revenue = revenue.plus(value); break;
+        case 'contra_revenue': contraRevenue = contraRevenue.plus(value); break;
+        case 'cogs': cogs = cogs.plus(value); break;
+        case 'operating_expense': expense = expense.plus(value); break;
+        case 'other_income': otherIncome = otherIncome.plus(value); break;
+        case 'other_expense': otherExpense = otherExpense.plus(value); break;
+        default: break;
       }
     }
-    const grossProfit = revenue.minus(contraRevenue).minus(cogs);
+
+    const netRevenue = revenue.minus(contraRevenue);
+    const grossProfit = netRevenue.minus(cogs);
     const operatingProfit = grossProfit.minus(expense);
+    const netProfit = operatingProfit.plus(otherIncome).minus(otherExpense);
     return {
       revenue: revenue.toString(),
       contraRevenue: contraRevenue.toString(),
-      netRevenue: revenue.minus(contraRevenue).toString(),
+      netRevenue: netRevenue.toString(),
       cogs: cogs.toString(),
       grossProfit: grossProfit.toString(),
       expense: expense.toString(),
-      otherIncome: '0',
+      otherIncome: otherIncome.toString(),
+      otherExpense: otherExpense.toString(),
       operatingProfit: operatingProfit.toString(),
+      netProfit: netProfit.toString(),
       source: 'live',
     };
   }

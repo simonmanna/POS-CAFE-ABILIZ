@@ -35,6 +35,12 @@ export interface SettingDefinition {
   cascades: boolean;
   /** Scope levels this key may be set at (org is always allowed). */
   scopeLevels: readonly ScopeType[];
+  /**
+   * Superseded key. Still readable and writable so existing API clients do not
+   * 404, but hidden from the admin UI and ignored by the engine. The
+   * description says what replaced it.
+   */
+  deprecated?: boolean;
 }
 
 const ALL_LEVELS: readonly ScopeType[] = ['organization', 'warehouse', 'category', 'product'];
@@ -154,6 +160,102 @@ export const SETTING_DEFINITIONS = {
     label: 'Fiscal Year Start Month',
     description: '1 = January … 12 = December. Used when generating fiscal periods.',
     default: 1,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'accounting.incomeAccountId': {
+    key: 'accounting.incomeAccountId',
+    group: 'accounting',
+    type: 'string',
+    label: 'Default Income Account',
+    description: 'DEPRECATED — the posting engine never read this key. Account determination uses the AccountMapping key `sales_revenue`.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+    deprecated: true,
+  },
+  'accounting.expenseAccountId': {
+    key: 'accounting.expenseAccountId',
+    group: 'accounting',
+    type: 'string',
+    label: 'Default Expense Account',
+    description: 'DEPRECATED — the posting engine never read this key. Account determination uses the AccountMapping key `default_expense`.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+    deprecated: true,
+  },
+  'accounting.defaultSalesTaxId': {
+    key: 'accounting.defaultSalesTaxId',
+    group: 'accounting',
+    type: 'string',
+    label: 'Default Sales Tax',
+    description: 'Default tax applied to sales transactions.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'accounting.exchangeDifferenceJournalId': {
+    key: 'accounting.exchangeDifferenceJournalId',
+    group: 'accounting',
+    type: 'string',
+    label: 'Exchange Difference Journal',
+    description: 'Journal used for recording exchange rate differences.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'accounting.exchangeGainAccountId': {
+    key: 'accounting.exchangeGainAccountId',
+    group: 'accounting',
+    type: 'string',
+    label: 'Exchange Gain Account',
+    description: 'DEPRECATED — the posting engine never read this key. FX posting uses the AccountMapping key `fx_gain`.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+    deprecated: true,
+  },
+  'accounting.exchangeLossAccountId': {
+    key: 'accounting.exchangeLossAccountId',
+    group: 'accounting',
+    type: 'string',
+    label: 'Exchange Loss Account',
+    description: 'DEPRECATED — the posting engine never read this key. FX posting uses the AccountMapping key `fx_loss`.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+    deprecated: true,
+  },
+  'accounting.productIncomeAccountId': {
+    key: 'accounting.productIncomeAccountId',
+    group: 'accounting',
+    type: 'string',
+    label: 'Product Income Account',
+    description: 'DEPRECATED — the posting engine never read this key. Account determination uses the product category incomeAccountId, then the AccountMapping key `sales_revenue`.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+    deprecated: true,
+  },
+  'accounting.productExpenseAccountId': {
+    key: 'accounting.productExpenseAccountId',
+    group: 'accounting',
+    type: 'string',
+    label: 'Product Expense Account',
+    description: 'DEPRECATED — the posting engine never read this key. Account determination uses the product category expenseAccountId, then the AccountMapping key `default_expense`.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+    deprecated: true,
+  },
+  'accounting.allCurrencyCodes': {
+    key: 'accounting.allCurrencyCodes',
+    group: 'accounting',
+    type: 'json',
+    label: 'Enabled Currencies',
+    description: 'List of currency codes enabled for this organization.',
+    default: [],
     cascades: false,
     scopeLevels: ORG_ONLY,
   },

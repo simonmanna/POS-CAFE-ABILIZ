@@ -48,6 +48,22 @@ export class StockPostingWorker {
       RETURNING "id"
     `;
     if (!claimed.length) return;
+
+    // A backlog this deep means the queue is draining slower than sales arrive
+    // (or a previous instance died mid-shift). Stock deduction is asynchronous,
+    // so the only symptom is silently stale on-hand — log loudly enough that it
+    // reaches whatever aggregates the API logs.
+    if (claimed.length >= this.batchSize) {
+      const backlog = await this.prisma.raw.stockPostingJob.count({
+        where: { status: { in: ['pending', 'processing'] } },
+      });
+      if (backlog > this.batchSize) {
+        this.logger.warn(
+          `stock posting backlog: ${backlog} job(s) queued after claiming ${claimed.length} — on-hand is behind actual sales`,
+        );
+      }
+    }
+
     for (const { id } of claimed) {
       const job = await this.prisma.raw.stockPostingJob.findUnique({ where: { id }, select: { organizationId: true } });
       if (!job) continue;

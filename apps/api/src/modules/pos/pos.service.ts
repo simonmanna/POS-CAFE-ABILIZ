@@ -1,13 +1,11 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { EventBus } from '../../kernel/events/event-bus';
-import { DocumentBuilderService } from '../invoicing/document/document-builder.service';
-import { InvoiceService } from '../invoicing/invoice/invoice.service';
-import { PaymentService } from '../invoicing/payment/payment.service';
-import { CreditNoteService } from '../invoicing/credit-note/credit-note.service';
 import { StockService } from '../inventory/stock.service';
 import { PosOverridesService } from './pos-overrides.service';
 import { PosModifiersService } from './pos-modifiers.service';
@@ -118,10 +116,6 @@ export class PosService {
     private readonly tenant: TenantContextService,
     private readonly audit: AuditService,
     private readonly events: EventBus,
-    private readonly builder: DocumentBuilderService,
-    private readonly invoices: InvoiceService,
-    private readonly payments: PaymentService,
-    private readonly creditNotes: CreditNoteService,
     private readonly stock: StockService,
     private readonly overrides: PosOverridesService,
     private readonly notifications: NotificationsService,
@@ -135,7 +129,32 @@ export class PosService {
     private readonly tables: PosTablesService,
     private readonly orders: PosOrdersService,
     private readonly billing: PosInvoiceService,
+    private readonly approvals: ApprovalsService,
   ) {}
+
+  /**
+   * F.5b — Record a synchronous POS manager override (discount/refund) into the
+   * unified approval ledger. The manager PIN *is* the approval, so this never
+   * blocks the sale: it is awaited (to stay inside the request's tenant context)
+   * but can never throw. Threshold policy lives centrally in ApprovalWorkflow.
+   */
+  private async recordPosOverride(
+    entityType: 'pos_discount' | 'pos_refund',
+    approverId: string,
+    snapshot: Record<string, unknown>,
+    entityId?: string,
+  ): Promise<void> {
+    try {
+      await this.approvals.recordSynchronousOverride({
+        entityType,
+        entityId: entityId ?? randomUUID(),
+        approverId,
+        snapshot,
+      });
+    } catch (err) {
+      this.logger.warn(`Failed to record ${entityType} override in approval ledger: ${String(err)}`);
+    }
+  }
 
   /**
    * Counter sale — the canonical Order → Invoice → Receipt pipeline. Creates an
@@ -194,7 +213,14 @@ export class PosService {
           : input.paymentMethod === 'bank' ? 'cash' : (input.paymentMethod ?? 'cash'),
       });
     } catch (e) {
-      await this.orders.cancelOrder(order.id, 'checkout: invoice generation failed').catch(() => undefined);
+      await this.orders
+        .cancelOrder(order.id, 'checkout: invoice generation failed')
+        .catch((err) => this.reportCompensationFailure({
+          kind: 'cancelOrder after invoice-generation failure',
+          orderId: order.id,
+          source: 'checkout',
+          error: err,
+        }));
       throw e;
     }
 
@@ -211,7 +237,15 @@ export class PosService {
         occurredAt: input.occurredAt,
       });
     } catch (e) {
-      await this.billing.refund(invoice.id, 'checkout: payment failed').catch(() => undefined);
+      await this.billing
+        .refund(invoice.id, 'checkout: payment failed')
+        .catch((err) => this.reportCompensationFailure({
+          kind: 'auto-refund after payment failure',
+          invoiceId: invoice.id,
+          orderId: order.id,
+          source: 'checkout',
+          error: err,
+        }));
       throw e;
     }
 
@@ -341,144 +375,16 @@ export class PosService {
   }
 
   /**
-   * Refund a sale: posts a credit note (reverses revenue + tax), restocks the
-   * refunded goods, and pays the customer back via the ORIGINAL tender method
-   * (Dr Receivable, Cr Cash). Supports partial refunds via `lines`.
+   * Refund / void of a settled POS sale now goes through `PosInvoiceService.refund`
+   * (canonical endpoint: POST /pos/invoices/:id/refund). The legacy
+   * Document-table path that used to live here was deleted as part of POS
+   * Sprint 1 hardening (audit F1) because it bypassed the FOR UPDATE lock and
+   * per-line over-refund guard, and wrote credit notes that the new
+   * Invoice-side reconciliation never saw.
    *
-   * Guards (H2): refuses once the sale is already fully reversed, and refuses a
-   * refund that would exceed the remaining refundable amount.
+   * @deprecated Use {@link PosInvoiceService.refund} via the
+   *   `POST /pos/invoices/:id/refund` endpoint.
    */
-  async refund(input: {
-    invoiceId: string;
-    reason?: string;
-    cashSessionId?: string;
-    overrideById?: string;
-    /** Partial refund: subset of the original lines + quantities. Omit for a full refund. */
-    lines?: Array<{ lineId: string; quantity: number }>;
-  }) {
-    const orgId = this.tenant.organizationId;
-    const original = await this.prisma.client.document.findFirst({
-      where: { id: input.invoiceId, organizationId: orgId, documentType: 'sales_invoice' },
-      include: { lines: true },
-    });
-    if (!original) throw new NotFoundException('Original invoice not found');
-    if (input.overrideById) {
-      // Refunds beyond a cashier's authority need a manager sign-off.
-      await this.overrides.assertCanOverride(input.overrideById, 'manual_refund');
-    }
-
-    // H2 — guard against double / over-refund. Sum prior (non-cancelled) credit
-    // notes raised against this invoice; refuse once the sale is fully reversed.
-    const priorCreditNotes = await this.prisma.client.document.findMany({
-      where: {
-        organizationId: orgId,
-        documentType: 'credit_note',
-        reversedDocumentId: original.id,
-        status: { not: 'cancelled' },
-      },
-      select: { totalAmount: true },
-    });
-    const alreadyRefunded = priorCreditNotes.reduce((s, c) => s + Number(c.totalAmount), 0);
-    const originalTotal = Number((original as any).totalAmount);
-    if (alreadyRefunded >= originalTotal - 0.01) {
-      throw new ConflictException('This sale has already been fully refunded');
-    }
-
-    // Resolve the lines to reverse — a subset for a partial refund, else all.
-    const selections = input.lines?.length
-      ? input.lines.map((sel) => {
-          const src = original.lines.find((l: any) => l.id === sel.lineId);
-          if (!src) throw new BadRequestException(`Line ${sel.lineId} is not on the original invoice`);
-          const q = Number(sel.quantity);
-          if (!(q > 0) || q > Number(src.quantity)) {
-            throw new BadRequestException(`Invalid refund quantity for line ${sel.lineId}`);
-          }
-          return { src, quantity: q };
-        })
-      : original.lines.map((src: any) => ({ src, quantity: Number(src.quantity) }));
-
-    const warehouse = await this.prisma.client.inventoryLocation.findFirst({
-      where: { organizationId: orgId, type: 'warehouse', isActive: true },
-    });
-
-    // 1) Build the credit note from the refunded lines.
-    const creditNote = await this.builder.createDocument(
-      this.prisma.client,
-      'credit_note',
-      {
-        partnerId: original.partnerId,
-        branchId: original.branchId ?? undefined,
-        reference: `Refund of ${(original as any).documentNumber}`,
-        notes: input.reason,
-        issueDate: new Date().toISOString(),
-        reversedDocumentId: original.id,
-      } as any,
-      selections.map(({ src, quantity }) => ({
-        productId: src.productId,
-        description: src.description,
-        quantity,
-        unitPrice: src.unitPrice,
-        taxId: src.taxId,
-        discountPercent: src.discountPercent,
-        // P10: pass the taxInclusive flag from the original line through.
-        taxInclusive: (src as any).taxInclusive,
-      })),
-    );
-
-    const refundAmount = Number((creditNote as any).totalAmount);
-    if (alreadyRefunded + refundAmount > originalTotal + 0.01) {
-      // Discard the draft credit note we just built — it would over-refund.
-      await this.prisma.client.document
-        .update({ where: { id: creditNote.id }, data: { status: 'cancelled', notes: 'Voided: exceeds refundable amount' } })
-        .catch(() => undefined);
-      throw new BadRequestException('Refund exceeds the remaining refundable amount');
-    }
-
-    // 2) Post the credit note → Dr Revenue + Tax, Cr Receivable (reverses the sale).
-    await this.creditNotes.post(creditNote.id);
-
-    // 3) Restock the refunded quantities.
-    if (warehouse) {
-      for (const { src, quantity } of selections) {
-        if (!src.productId) continue;
-        try {
-          await this.stock.receive({
-            productId: src.productId,
-            locationId: warehouse.id,
-            quantity,
-            reference: `Refund of ${(original as any).documentNumber}`,
-          } as any);
-        } catch (e: any) { this.logger.warn(`Stock restock failed: ${e?.message}`); }
-      }
-    }
-
-    // 4) Pay the customer back via the original sale's tender method. Posts
-    //    Dr Receivable, Cr Cash — settling the credit note's receivable credit.
-    const refundMethod = await this.resolveOriginalTenderMethod(original.id);
-    const payment = await this.payments.createCustomerRefund({
-      partnerId: original.partnerId,
-      paymentDate: new Date().toISOString(),
-      paymentMethod: refundMethod,
-      amount: refundAmount,
-      reference: `Refund of ${(original as any).documentNumber}`,
-      cashSessionId: input.cashSessionId,
-    } as any);
-
-    await this.audit.record({
-      entity: 'Document',
-      entityId: original.id,
-      action: 'update' as any,
-      newValues: {
-        kind: 'pos_refund',
-        creditNoteId: creditNote.id,
-        amount: refundAmount,
-        method: refundMethod,
-        partial: !!input.lines?.length,
-      },
-    });
-
-    return { creditNoteId: creditNote.id, paymentId: (payment as any)?.id ?? null, amount: refundAmount, method: refundMethod };
-  }
 
   /**
    * Find the tender method used to settle the original sale so a refund is
@@ -504,36 +410,47 @@ export class PosService {
   }
 
   /**
-   * Void a sale = full refund. Distinct from refund() because the cashier
-   * typically voids within minutes of the sale; we still want the override
-   * gate above the discount threshold to apply (refund > 50% of shift
-   * total triggers an override prompt on the UI).
+   * Log a compensation failure when a sibling step rolls the work back.
+   * The original `.catch(() => undefined)` silently swallowed the inner error,
+   * leaving operators blind to a half-rolled-back sale. F5: write an audit row
+   * + log so a reconciliation sweep can surface stranded orders / invoices.
    */
-  async voidSale(input: { invoiceId: string; reason: string; overrideById: string }) {
-    if (!input.reason?.trim()) throw new BadRequestException('Reason is required for a void');
-    if (!input.overrideById) {
-      throw new BadRequestException('Voiding a sale requires a manager override');
+  private async reportCompensationFailure(input: {
+    kind: string;
+    invoiceId?: string;
+    orderId?: string;
+    source: 'checkout' | 'settle';
+    error: unknown;
+  }): Promise<void> {
+    const msg = input.error instanceof Error ? input.error.message : String(input.error);
+    this.logger.error(
+      `[${input.source}] ${input.kind} compensation failed: ${msg} (orderId=${input.orderId ?? '-'} invoiceId=${input.invoiceId ?? '-'})`,
+    );
+    try {
+      await this.audit.record({
+        entity: input.invoiceId ? 'Invoice' : 'Order',
+        entityId: input.invoiceId ?? input.orderId ?? '',
+        action: 'compensation_failure' as any,
+        newValues: {
+          kind: input.kind,
+          source: input.source,
+          message: msg,
+          orderId: input.orderId ?? null,
+          invoiceId: input.invoiceId ?? null,
+        },
+      });
+    } catch (auditErr: any) {
+      // Last-resort: never let audit failure cascade out of a compensation path.
+      this.logger.error(`audit.record for compensation_failure also failed: ${auditErr?.message ?? auditErr}`);
     }
-    await this.overrides.assertCanOverride(input.overrideById, 'void');
-    const result = await this.refund({
-      invoiceId: input.invoiceId,
-      reason: `VOID: ${input.reason}`,
-      overrideById: input.overrideById,
-    });
-    await this.audit.record({
-      entity: 'Document',
-      entityId: input.invoiceId,
-      action: 'cancel' as any,
-      newValues: { kind: 'pos_void', reason: input.reason, overrideById: input.overrideById },
-    });
-    this.events.publish(EVENTS.PosVoidCompleted, {
-      organizationId: this.tenant.organizationId,
-      invoiceId: input.invoiceId,
-      voidedById: input.overrideById,
-      reason: input.reason,
-    });
-    return result;
   }
+
+  /**
+   * Void a sale. The canonical endpoint POST /pos/sales/:id/void delegates
+   * straight to `PosInvoiceService.refund(... requireOverride: true ...)` —
+   * the legacy `PosService.voidSale` shim that re-routed through the deleted
+   * Document-based refund path was removed as part of POS Sprint 1 (audit F1).
+   */
 
   // ─── Open-tab dine-in (M4) ───────────────────────────────────────────────
   //
@@ -852,7 +769,14 @@ export class PosService {
       });
     } catch (e: any) {
       this.logger.error(`[settle] invoice generation failed for table ${input.tableId} / order ${order.id}: ${e?.message ?? e}`);
-      await this.orders.cancelOrder(order.id, 'settle: invoice generation failed').catch(() => undefined);
+      await this.orders
+        .cancelOrder(order.id, 'settle: invoice generation failed')
+        .catch((err) => this.reportCompensationFailure({
+          kind: 'cancelOrder after settle invoice-generation failure',
+          orderId: order.id,
+          source: 'settle',
+          error: err,
+        }));
       throw e;
     }
     let pay: any;
@@ -866,7 +790,15 @@ export class PosService {
       });
     } catch (e: any) {
       this.logger.error(`[settle] payment failed for invoice ${invoice.invoiceNumber} (${invoice.id}): ${e?.message ?? e}`);
-      await this.billing.refund(invoice.id, 'settle: payment failed').catch(() => undefined);
+      await this.billing
+        .refund(invoice.id, 'settle: payment failed')
+        .catch((err) => this.reportCompensationFailure({
+          kind: 'auto-refund after settle payment failure',
+          invoiceId: invoice.id,
+          orderId: order.id,
+          source: 'settle',
+          error: err,
+        }));
       throw e;
     }
 
@@ -1174,6 +1106,13 @@ export class PosService {
       );
     }
     await this.overrides.verifyPinForOverride(input.overrideById, input.overridePin ?? '');
+    // Log the synchronous manager override into the unified approval ledger.
+    await this.recordPosOverride('pos_discount', input.overrideById, {
+      amount: grossSubtotal,
+      effectiveDiscountPct: effective,
+      thresholdPct: tier1,
+      reason: input.discountReason ?? null,
+    });
     return effective;
   }
 

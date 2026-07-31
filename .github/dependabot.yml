@@ -1,0 +1,39 @@
+version: 2
+
+updates:
+  # One PR per week per ecosystem, grouped, so this stays reviewable rather than
+  # becoming noise everyone learns to ignore.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Patch/minor bumps are batched; majors come as individual PRs so a
+      # breaking change is never buried in a group of twelve.
+      production-deps:
+        dependency-type: production
+        update-types: [minor, patch]
+      dev-deps:
+        dependency-type: development
+        update-types: [minor, patch]
+    ignore:
+      # Prisma client and CLI must move together and are coupled to the
+      # migration baseline — bump deliberately, not automatically.
+      - dependency-name: prisma
+        update-types: [version-update:semver-major]
+      - dependency-name: '@prisma/client'
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+
+  - package-ecosystem: docker
+    directory: /infra/docker
+    schedule:
+      interval: weekly
+      day: monday

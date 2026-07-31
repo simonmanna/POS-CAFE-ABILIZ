@@ -161,7 +161,7 @@ export class RecurringService {
     });
     let lineNo = 1;
     let subtotal = 0;
-    let taxAmount = 0;
+    const taxAmount = 0;
     for (const ln of template.lines ?? []) {
       const qty = Number(ln.quantity);
       const price = Number(ln.unitPrice);

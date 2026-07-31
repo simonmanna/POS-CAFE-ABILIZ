@@ -83,6 +83,12 @@ export const PERMISSIONS = {
   auditLog: {
     read: 'audit_log:read',
   },
+  costCenter: {
+    create: 'cost_center:create',
+    read: 'cost_center:read',
+    update: 'cost_center:update',
+    delete: 'cost_center:delete',
+  },
 
   // ---- Accounting (Phase 2) ----
   account: {
@@ -90,6 +96,16 @@ export const PERMISSIONS = {
     read: 'account:read',
     update: 'account:update',
     delete: 'account:delete',
+  },
+  /** Account categories define accounting *behavior* (normal balance, statement
+   *  section, which module can auto-discover the account). They are global rows
+   *  shared by every tenant and written only by the boot seeder, so there is no
+   *  create / update / delete permission. */
+  accountCategory: {
+    create: 'account_category:create',
+    read: 'account_category:read',
+    update: 'account_category:update',
+    delete: 'account_category:delete',
   },
   journal: {
     create: 'journal:create',
@@ -138,6 +154,7 @@ export const PERMISSIONS = {
     update: 'expense:update',
     post: 'expense:post',
     cancel: 'expense:cancel',
+    approve: 'expense:approve',
   },
   payment: {
     read: 'payment:read',
@@ -274,6 +291,8 @@ export const PERMISSIONS = {
       approve: 'purchase_order:approve',
       send: 'purchase_order:send',
       cancel: 'purchase_order:cancel',
+      receive: 'purchase_order:receive',
+      pay: 'purchase_order:pay',
     },
     goodsReceipt: {
       create: 'goods_receipt:create',
@@ -292,6 +311,7 @@ export const PERMISSIONS = {
     read: 'debit_note:read',
     post: 'debit_note:post',
     cancel: 'debit_note:cancel',
+    approve: 'debit_note:approve',
   },
   files: {
     read: 'files:read',
@@ -306,6 +326,7 @@ export const PERMISSIONS = {
   approvals: {
     read: 'approvals:read',
     decide: 'approvals:decide',
+    manage: 'approvals:manage',
   },
   // ---- Frontend-facing management permissions (dot-notation) ----
   partners: {
@@ -355,6 +376,7 @@ export const PERMISSIONS = {
   assetDepreciation: {
     read: 'asset_depreciation:read',
     run: 'asset_depreciation:run',
+    approve: 'asset_depreciation:approve',
   },
   assetReport: {
     read: 'asset_report:read',

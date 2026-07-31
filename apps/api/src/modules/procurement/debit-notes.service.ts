@@ -4,6 +4,7 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { PostingService } from '../accounting/posting/posting.service';
 import { AccountDeterminationService } from '../accounting/posting/account-determination.service';
 import { StockService } from '../inventory/stock.service';
@@ -50,6 +51,7 @@ export class DebitNotesService {
     private readonly sequence: SequenceService,
     private readonly events: EventBus,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
     private readonly posting: PostingService,
     private readonly determination: AccountDeterminationService,
     private readonly stock: StockService,
@@ -67,7 +69,7 @@ export class DebitNotesService {
     const noteNumber = await this.sequence.next(`debitnote:${year}`, { prefix, padding: 5 });
 
     let subtotal = 0;
-    let taxAmount = 0;
+    const taxAmount = 0;
     for (const ln of input.lines) {
       const lineSubtotal = Number(ln.quantity) * Number(ln.unitPrice);
       subtotal += lineSubtotal;
@@ -139,6 +141,20 @@ export class DebitNotesService {
     });
     if (!note) throw new NotFoundException('Debit note not found');
     if (note.status !== 'draft') throw new BadRequestException(`Cannot post debit note in status ${note.status}`);
+
+    // Approval gate (no workflow ⇒ proceeds). Sits before the RTV branch so both
+    // paths are gated. Block-and-retry: caller re-posts once approved.
+    const amount = note.lines.reduce((s, ln) => s + Number(ln.subtotal), 0);
+    const gate = await this.approvals.checkOrRequestApproval({
+      entityType: 'debit_note',
+      entityId: note.id,
+      snapshot: { amount, direction: note.direction, reason: note.reason },
+    });
+    if (gate?.needsApproval) {
+      throw new BadRequestException(
+        `Approval required before posting debit note. Pending approval request ${gate.requestId}.`,
+      );
+    }
 
     // Return-to-vendor takes a dedicated path: it ships stock back and reverses
     // inventory value, unlike a plain supplier debit note (pure AP/expense adjust).

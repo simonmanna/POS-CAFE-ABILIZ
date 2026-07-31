@@ -27,31 +27,37 @@ export class ExportController {
     const orgId = this.tenant.organizationId;
     const date = asOf ? new Date(asOf) : new Date();
     const accounts = await this.prisma.raw.account.findMany({
-      where: { organizationId: orgId, isGroup: false, isActive: true },
+      where: { organizationId: orgId, isPostable: true, isActive: true },
       orderBy: { code: 'asc' },
     });
     const rows: any[] = await this.prisma.raw.$queryRaw`
-      SELECT a.code, a.name, a."accountType",
+      SELECT a.code, a.name, ac.key AS "categoryKey", ac.name AS "categoryName",
+        ac."classification"::text AS classification,
         COALESCE(SUM(jl."baseDebit"), 0)::text AS debit,
         COALESCE(SUM(jl."baseCredit"), 0)::text AS credit,
         COALESCE(SUM(jl."baseDebit" - jl."baseCredit"), 0)::text AS balance
       FROM "Account" a
+      LEFT JOIN "AccountCategory" ac ON ac.id = a."categoryId"
       LEFT JOIN "JournalLine" jl ON jl."accountId" = a.id
       LEFT JOIN "JournalEntry" je ON je.id = jl."journalEntryId" AND je.status IN ('posted', 'reversed') AND je."postingDate" <= ${date}
       WHERE a."organizationId" = ${orgId}
-      GROUP BY a.id, a.code, a.name, a."accountType"
-      ORDER BY a.code
+      GROUP BY a.id, a.code, a.name, a."sortOrder", ac.key, ac.name, ac."classification"
+      ORDER BY a."sortOrder", a.code
     `;
     const csv = stringify(
       rows.map((r: any) => ({
         code: r.code,
         name: r.name,
-        type: r.accountType,
+        category: r.categoryName ?? r.categoryKey ?? '',
+        classification: r.classification ?? '',
         debit: Number(r.debit).toFixed(2),
         credit: Number(r.credit).toFixed(2),
         balance: Number(r.balance).toFixed(2),
       })),
-      { header: true, columns: ['code', 'name', 'type', 'debit', 'credit', 'balance'] },
+      {
+        header: true,
+        columns: ['code', 'name', 'category', 'classification', 'debit', 'credit', 'balance'],
+      },
     );
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="trial-balance-${date.toISOString().slice(0, 10)}.csv"`);

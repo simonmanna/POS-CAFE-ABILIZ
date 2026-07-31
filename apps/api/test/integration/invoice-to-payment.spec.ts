@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { describeDb } from './_setup';
+import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 
 /**
  * D5-1: Happy-path integration test — invoice → payment → AR aging.
@@ -39,22 +40,11 @@ describeDb('integration: invoice → payment → AR aging', () => {
     productId = product.id;
 
     // CoA
-    const ar = await prisma.account.create({
-      data: { organizationId, code: 'INT-1300', name: 'AR', accountType: 'receivable' },
-    });
-    arAccountId = ar.id;
-    const revenue = await prisma.account.create({
-      data: { organizationId, code: 'INT-4100', name: 'Revenue', accountType: 'revenue' },
-    });
-    revenueAccountId = revenue.id;
-    const tax = await prisma.account.create({
-      data: { organizationId, code: 'INT-2200', name: 'Tax', accountType: 'tax' },
-    });
-    taxAccountId = tax.id;
-    const cash = await prisma.account.create({
-      data: { organizationId, code: 'INT-1100', name: 'Cash', accountType: 'cash' },
-    });
-    cashAccountId = cash.id;
+    const mk = makeAccountFactory(prisma, await ensureAccountCategories(prisma));
+    arAccountId = (await mk(organizationId, 'INT-1300', 'AR', 'receivable')).id;
+    revenueAccountId = (await mk(organizationId, 'INT-4100', 'Revenue', 'revenue')).id;
+    taxAccountId = (await mk(organizationId, 'INT-2200', 'Tax', 'tax')).id;
+    cashAccountId = (await mk(organizationId, 'INT-1100', 'Cash', 'cash')).id;
 
     // Journal
     await prisma.journal.create({

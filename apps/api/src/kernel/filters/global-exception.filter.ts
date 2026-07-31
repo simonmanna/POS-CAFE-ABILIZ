@@ -30,18 +30,33 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       exception instanceof Error ? exception.stack : String(exception),
     );
 
-    // Surface the actual cause to the client so the network tab shows something
-    // useful instead of a bare "Internal Server Error" — this makes on-site
-    // debugging possible. The short message + name are returned in every
-    // environment; the full stack is dev-only (set NODE_ENV=production to hide).
+    // Outside production, surface the cause so the network tab shows something
+    // useful instead of a bare "Internal Server Error".
+    //
+    // In production the client gets only `requestId` — exception messages carry
+    // table names, constraint names, file paths and occasionally row values, and
+    // this filter fires on the *unhandled* path where the message was never
+    // written with an audience in mind. The full detail is already in the log
+    // line above, keyed by the same requestId, so on-site debugging is "search
+    // the logs for this id" rather than "read it off the screen".
+    //
+    // EXPOSE_ERROR_DETAIL=true restores the old behaviour for a LAN deployment
+    // with no log access. It is a deliberate, opt-in trade.
     const isProd = process.env.NODE_ENV === 'production';
+    const exposeDetail = !isProd || process.env.EXPOSE_ERROR_DETAIL === 'true';
     response.status(500).json({
       message: 'Internal Server Error',
       statusCode: 500,
       requestId: request.id,
-      error: detail,
-      name,
-      ...(isProd ? {} : { stack: exception instanceof Error ? exception.stack?.split('\n').slice(0, 12) : undefined }),
+      ...(exposeDetail
+        ? {
+            error: detail,
+            name,
+            ...(isProd
+              ? {}
+              : { stack: exception instanceof Error ? exception.stack?.split('\n').slice(0, 12) : undefined }),
+          }
+        : {}),
     });
   }
 }

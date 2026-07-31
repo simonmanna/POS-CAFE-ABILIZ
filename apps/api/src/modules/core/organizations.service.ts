@@ -1,4 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
@@ -8,6 +15,10 @@ import { AuditService } from '../../kernel/audit/audit.service';
 import { NotificationsService } from '../../kernel/notifications/notifications.service';
 import { FeatureFlagsService } from '../../kernel/feature-flags/feature-flags.service';
 import { seedUomCategories } from './product/uom-seed';
+import {
+  ACCOUNTING_BOOTSTRAP,
+  type AccountingBootstrap,
+} from '../../kernel/common/org-bootstrap.tokens';
 
 /**
  * F.5 — Tenant self-service.
@@ -30,6 +41,9 @@ export class OrganizationsService {
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
     private readonly flags: FeatureFlagsService,
+    @Optional()
+    @Inject(ACCOUNTING_BOOTSTRAP)
+    private readonly accountingBootstrap?: AccountingBootstrap,
   ) {}
 
   /**
@@ -66,9 +80,12 @@ export class OrganizationsService {
       },
     });
 
-    // Seed the standard chart of accounts and journals for this org.
-    await this.seedChartOfAccounts(org.id);
-    await this.seedJournals(org.id);
+    // Seed the accounting core (categories, chart of accounts incl. hierarchy,
+    // journals, and ALL account-determination mappings) from the shared template.
+    // Injected through a kernel token because core may not import accounting.
+    if (this.accountingBootstrap) {
+      await this.accountingBootstrap.seedOrganization(org.id);
+    }
     await this.seedAdminRoleAndMappings(org.id);
     await this.seedPostingRules(org.id);
 
@@ -185,91 +202,17 @@ export class OrganizationsService {
     return { id: user.id, email: user.email, inviteToken: token };
   }
 
-  private async seedChartOfAccounts(orgId: string) {
-    const defs = [
-      { code: '1000', name: 'Assets', accountType: 'asset', isGroup: true },
-      { code: '1100', name: 'Cash', accountType: 'cash' },
-      { code: '1200', name: 'Bank', accountType: 'bank' },
-      { code: '1300', name: 'Accounts Receivable', accountType: 'receivable' },
-      { code: '1400', name: 'Inventory / Stock Valuation', accountType: 'asset' },
-      { code: '1450', name: 'Input VAT Receivable', accountType: 'asset' },
-      { code: '2000', name: 'Liabilities', accountType: 'liability', isGroup: true },
-      { code: '2100', name: 'Accounts Payable', accountType: 'payable' },
-      { code: '2150', name: 'Goods Received Not Invoiced (GRNI)', accountType: 'liability' },
-      { code: '2200', name: 'Tax Payable', accountType: 'tax' },
-      { code: '3000', name: 'Equity', accountType: 'equity', isGroup: true },
-      { code: '3100', name: 'Retained Earnings', accountType: 'equity' },
-      { code: '4000', name: 'Revenue', accountType: 'revenue', isGroup: true },
-      { code: '4100', name: 'Sales Revenue', accountType: 'revenue' },
-      { code: '4200', name: 'Stock Adjustment Income', accountType: 'revenue' },
-      { code: '5000', name: 'Expenses', accountType: 'expense', isGroup: true },
-      { code: '5100', name: 'Cost of Goods Sold', accountType: 'cost_of_goods_sold' },
-      { code: '5200', name: 'Operating Expenses', accountType: 'expense' },
-      { code: '5300', name: 'Stock Adjustment Expense', accountType: 'expense' },
-    ] as const;
-    const ids: Record<string, string> = {};
-    for (const a of defs) {
-      const row = await this.prisma.raw.account.create({
-        data: {
-          organizationId: orgId,
-          code: a.code,
-          name: a.name,
-          accountType: a.accountType as any,
-          isGroup: 'isGroup' in a ? a.isGroup : false,
-        },
-      });
-      ids[a.code] = row.id;
-    }
-    return ids;
-  }
-
-  private async seedJournals(orgId: string) {
-    const journals = [
-      { code: 'GEN', name: 'General Journal', journalType: 'general' },
-      { code: 'SALES', name: 'Sales Journal', journalType: 'sales' },
-      { code: 'PURCH', name: 'Purchase Journal', journalType: 'purchase' },
-      { code: 'CASH', name: 'Cash Journal', journalType: 'cash' },
-      { code: 'BANK', name: 'Bank Journal', journalType: 'bank' },
-      { code: 'INV', name: 'Inventory Journal', journalType: 'general' },
-      { code: 'ADJ', name: 'Adjustment Journal', journalType: 'adjustment' },
-    ] as const;
-    for (const j of journals) {
-      await this.prisma.raw.journal.create({
-        data: { organizationId: orgId, code: j.code, name: j.name, journalType: j.journalType as any },
-      });
-    }
-  }
-
   private async seedAdminRoleAndMappings(orgId: string) {
-    const accountMap: Record<string, string> = {};
-    const accounts = await this.prisma.raw.account.findMany({ where: { organizationId: orgId } });
-    for (const a of accounts) accountMap[a.code] = a.id;
-    const mappingKeys: Array<[string, string | undefined]> = [
-      ['accounts_receivable', accountMap['1300']],
-      ['accounts_payable', accountMap['2100']],
-      ['sales_revenue', accountMap['4100']],
-      ['tax_payable', accountMap['2200']],
-      ['tax_receivable', accountMap['1450']],
-      ['default_cash', accountMap['1100']],
-      ['default_bank', accountMap['1200']],
-      ['default_expense', accountMap['5200']],
-      ['retained_earnings', accountMap['3100']],
-      ['stock_valuation', accountMap['1400']],
-      ['cogs', accountMap['5100']],
-      ['grni_accrued', accountMap['2150']],
-      ['stock_adjustment_income', accountMap['4200']],
-      ['stock_adjustment_expense', accountMap['5300']],
-    ];
-    for (const [key, accountId] of mappingKeys) {
-      if (!accountId) continue;
-      await this.prisma.raw.accountMapping.create({
-        data: { organizationId: orgId, key, accountId },
-      });
-    }
     // Seed permissions catalog (global).
     const { ALL_PERMISSIONS } = await import('@erp/shared');
     for (const k of ALL_PERMISSIONS) {
-      const [resource, action] = k.split(':');
+      // Most keys are `resource:action`, but the POS block uses `resource.action`
+      // (e.g. 'partners.view'). Splitting on ':' alone left `action` undefined and
+      // Prisma rejected the upsert, which made org bootstrap fail outright.
+      const separator = k.includes(':') ? ':' : '.';
+      const idx = k.lastIndexOf(separator);
+      const resource = idx >= 0 ? k.slice(0, idx) : k;
+      const action = idx >= 0 ? k.slice(idx + 1) : k;
       await this.prisma.raw.permission.upsert({
         where: { key: k },
         update: { resource, action },

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { entityTypeLabel } from '@/lib/approval-entity-types';
 import { useState } from 'react';
 
 interface Approval {
@@ -14,9 +15,21 @@ interface Approval {
   snapshot: Record<string, unknown>;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   requiredCount: number;
-  decisions: { approverId: string; status: string; comment: string | null; decidedAt: string }[];
+  currentStep: number;
+  workflow: { name: string; steps: { stepOrder: number; name: string }[] } | null;
+  decisions: { approverId: string; status: string; comment: string | null; decidedAt: string; stepOrder?: number }[];
   createdAt: string;
   decidedAt: string | null;
+}
+
+function stepProgress(req: Approval): string | null {
+  const steps = req.workflow?.steps;
+  if (!steps?.length) return null;
+  if (req.status !== 'pending') return req.workflow!.name;
+  const sorted = [...steps].sort((a, b) => a.stepOrder - b.stepOrder);
+  const idx = sorted.findIndex((s) => s.stepOrder === req.currentStep);
+  const cur = idx >= 0 ? sorted[idx] : undefined;
+  return `Step ${idx >= 0 ? idx + 1 : 1} of ${sorted.length}${cur ? ` — ${cur.name}` : ''}`;
 }
 
 export function ApprovalsPage() {
@@ -69,10 +82,13 @@ export function ApprovalsPage() {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <CardTitle className="text-base">
-                  {req.entityType} · {String(req.snapshot.amount ?? '')}
+                  {entityTypeLabel(req.entityType)} · {String(req.snapshot.amount ?? '')}
                 </CardTitle>
                 <CardDescription>
-                  Required {req.requiredCount} approval(s) · {req.decisions.length} so far ·{' '}
+                  {stepProgress(req) && (
+                    <span className="mr-1 font-medium text-foreground">{stepProgress(req)} ·</span>
+                  )}
+                  Required {req.requiredCount} approval(s) at this step · {req.decisions.length} decision(s) ·{' '}
                   {new Date(req.createdAt).toLocaleString()}
                 </CardDescription>
               </div>

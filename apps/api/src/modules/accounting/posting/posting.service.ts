@@ -9,6 +9,7 @@ import { FiscalPeriodService } from './fiscal-period.service';
 import { normalizeLines, totals, validateLines, type NormalizedLine } from './posting.math';
 import type { PostingRequest } from './posting.types';
 import { CurrencyService } from '../currency/currency.service';
+import { AccountResolverService, toMeta } from './account-resolver.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -26,6 +27,7 @@ export class PostingService {
     private readonly sequence: SequenceService,
     private readonly fiscalPeriod: FiscalPeriodService,
     private readonly currency: CurrencyService,
+    private readonly accounts: AccountResolverService,
   ) {}
 
   async post(request: PostingRequest, tx?: any): Promise<any> {
@@ -93,19 +95,24 @@ export class PostingService {
         // No rate configured — keep the caller-supplied rate (or 1).
       }
     }
-    let lines = normalizeLines(request.lines, rate);
+    const lines = normalizeLines(request.lines, rate);
 
     const lineErrors = validateLines(lines);
     if (lineErrors.length > 0) throw new BadRequestException(lineErrors[0].message);
 
     const accountIds = [...new Set(lines.map((l) => l.accountId))];
-    const accounts = await client.account.findMany({ where: { id: { in: accountIds } } });
+    const accounts = await client.account.findMany({
+      where: { id: { in: accountIds } },
+      include: { category: true },
+    });
     if (accounts.length !== accountIds.length) {
       throw new BadRequestException('One or more accounts do not exist in this organization');
     }
-    const notPostable = accounts.find((a: any) => a.isGroup || !a.isActive);
-    if (notPostable) {
-      throw new BadRequestException(`Account ${notPostable.code} is a group/inactive account and cannot be posted to`);
+    // Postability is category-aware now: group / inactive / deprecated accounts
+    // are rejected, as are accounts whose category forbids manual posting.
+    // Entries produced by the engine itself pass `systemContext`.
+    for (const a of accounts as any[]) {
+      this.accounts.assertPostable(toMeta(a), { systemContext: true });
     }
 
     // D2-3: rounding tolerance. If the entry is unbalanced by less than
@@ -281,29 +288,11 @@ export class PostingService {
 
   /** Resolve the 'rounding' account, auto-creating a protected system account on first use. */
   private async resolveRoundingAccount(client: any): Promise<string> {
-    const organizationId = this.tenant.organizationId;
-    const mapping = await client.accountMapping.findFirst({ where: { key: 'rounding' } });
-    if (mapping) return mapping.accountId;
-    let acct = await client.account.findFirst({ where: { code: 'ROUNDING' } });
-    if (!acct) {
-      acct = await client.account.create({
-        data: {
-          organizationId,
-          code: 'ROUNDING',
-          name: 'Rounding Differences',
-          accountType: 'expense',
-          cashFlowCategory: 'operating',
-          isSystem: true,
-          isProtected: true,
-        },
-      });
-    }
-    await client.accountMapping.upsert({
-      where: { organizationId_key: { organizationId, key: 'rounding' } },
-      create: { organizationId, key: 'rounding', accountId: acct.id },
-      update: {},
-    });
-    return acct.id;
+    return this.accounts.ensureByCode(
+      'ROUNDING',
+      { name: 'Rounding Differences', categoryKey: 'other_expense', mappingKey: 'rounding' },
+      client,
+    );
   }
 
   // ─── Manual JE maker-checker (draft → post) ───────────────────────────────
@@ -341,13 +330,18 @@ export class PostingService {
     if (lineErrors.length > 0) throw new BadRequestException(lineErrors[0].message);
 
     const accountIds = [...new Set(lines.map((l) => l.accountId))];
-    const accounts = await client.account.findMany({ where: { id: { in: accountIds } } });
+    const accounts = await client.account.findMany({
+      where: { id: { in: accountIds } },
+      include: { category: true },
+    });
     if (accounts.length !== accountIds.length) {
       throw new BadRequestException('One or more accounts do not exist in this organization');
     }
-    const notPostable = accounts.find((a: any) => a.isGroup || !a.isActive);
-    if (notPostable) {
-      throw new BadRequestException(`Account ${notPostable.code} is a group/inactive account and cannot be posted to`);
+    // Postability is category-aware now: group / inactive / deprecated accounts
+    // are rejected, as are accounts whose category forbids manual posting.
+    // Entries produced by the engine itself pass `systemContext`.
+    for (const a of accounts as any[]) {
+      this.accounts.assertPostable(toMeta(a), { systemContext: true });
     }
 
     await this.applyRounding(lines, client);

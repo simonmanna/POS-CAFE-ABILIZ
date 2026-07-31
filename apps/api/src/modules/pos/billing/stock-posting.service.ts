@@ -6,6 +6,12 @@ import { AuditService } from '../../../kernel/audit/audit.service';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
+ * A job whose retry time passed this long ago should already have been claimed
+ * by the 30s worker tick. Anything older means nothing is draining the queue.
+ */
+const STALLED_QUEUE_MS = 5 * 60_000;
+
+/**
  * Phase 1 (accounting hardening) — Posting Monitor back-office API.
  *
  * Reads the durable inventory-posting queue (`StockPostingJob`) and the
@@ -39,15 +45,50 @@ export class StockPostingService {
     });
   }
 
+  /**
+   * Queue depth plus a liveness verdict.
+   *
+   * Sale stock-deduction is asynchronous, so a stopped worker is silent: sales
+   * keep succeeding, on-hand simply stops moving and every read (reorder
+   * reports, count sheets, ATP) quietly goes stale. `stalled` is the signal that
+   * jobs are due but nothing is draining them — surface it on the dashboard and
+   * treat it as a page-worthy alert, not a nice-to-have metric.
+   */
   async counts() {
-    const [pending, processing, failed, doneWithReview, openExceptions] = await Promise.all([
-      this.prisma.client.stockPostingJob.count({ where: { status: 'pending' } }),
-      this.prisma.client.stockPostingJob.count({ where: { status: 'processing' } }),
-      this.prisma.client.stockPostingJob.count({ where: { status: 'failed' } }),
-      this.prisma.client.stockPostingJob.count({ where: { status: 'done', lastError: { not: null } } }),
-      this.prisma.client.inventoryException.count({ where: { status: 'open' } }),
-    ]);
-    return { jobs: { pending, processing, failed, doneWithReview }, exceptions: { open: openExceptions } };
+    const staleAfter = new Date(Date.now() - STALLED_QUEUE_MS);
+    const [pending, processing, failed, doneWithReview, openExceptions, overdue, oldest] =
+      await Promise.all([
+        this.prisma.client.stockPostingJob.count({ where: { status: 'pending' } }),
+        this.prisma.client.stockPostingJob.count({ where: { status: 'processing' } }),
+        this.prisma.client.stockPostingJob.count({ where: { status: 'failed' } }),
+        this.prisma.client.stockPostingJob.count({ where: { status: 'done', lastError: { not: null } } }),
+        this.prisma.client.inventoryException.count({ where: { status: 'open' } }),
+        this.prisma.client.stockPostingJob.count({
+          where: { status: { in: ['pending', 'processing'] }, nextRetryAt: { lt: staleAfter } },
+        }),
+        this.prisma.client.stockPostingJob.findFirst({
+          where: { status: { in: ['pending', 'processing'] } },
+          orderBy: { createdAt: 'asc' },
+          select: { createdAt: true, invoiceNumber: true },
+        }),
+      ]);
+
+    return {
+      jobs: {
+        pending,
+        processing,
+        failed,
+        doneWithReview,
+        overdue,
+        oldestPendingAgeMs: oldest ? Date.now() - oldest.createdAt.getTime() : 0,
+        oldestPendingInvoice: oldest?.invoiceNumber ?? null,
+      },
+      exceptions: { open: openExceptions },
+      // Jobs are due but undrained → the StockPostingWorker is not running.
+      // On-hand across the whole system is drifting further behind every sale.
+      stalled: overdue > 0,
+      health: failed > 0 || overdue > 0 ? 'degraded' : openExceptions > 0 ? 'attention' : 'ok',
+    };
   }
 
   /**

@@ -63,14 +63,14 @@ export class PurchaseOrdersController {
 
   /** Step 2: Receive products against an active PO */
   @Post(':id/receive')
-  @RequirePermissions('purchase_order:create')
+  @RequirePermissions('purchase_order:receive')
   receive(@Param('id') id: string, @Body() dto: ReceivePODto) {
     return this.svc.receive(id, dto);
   }
 
   /** Step 3: Register payment (credit purchases only) */
   @Post(':id/pay')
-  @RequirePermissions('purchase_order:create')
+  @RequirePermissions('purchase_order:pay')
   pay(@Param('id') id: string, @Body() dto: PayPODto) {
     return this.svc.pay(id, dto);
   }

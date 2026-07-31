@@ -173,6 +173,30 @@ export class InventoryController {
     return this.queries.getMovementSummary(query);
   }
 
+  @Get('reports/reconciliation')
+  @RequirePermissions(PERMISSIONS.inventory.read)
+  reconciliation(
+    @Query() query: { locationId?: string; tolerance?: string; includeMatched?: string },
+  ) {
+    return this.queries.getStockReconciliation({
+      locationId: query.locationId,
+      tolerance: query.tolerance != null ? Number(query.tolerance) : undefined,
+      includeMatched: query.includeMatched === 'true',
+    });
+  }
+
+  /**
+   * Quants sitting at negative on-hand — goods sold before they were received.
+   * Sales are never blocked, so this is the operational safety net: until the
+   * covering receipt lands, those units were expensed at a stale cost basis and
+   * inventory is overstated by `valuationExposure`.
+   */
+  @Get('reports/negative-stock')
+  @RequirePermissions(PERMISSIONS.inventory.read)
+  negativeStock(@Query() query: { locationId?: string }) {
+    return this.queries.getNegativeStock({ locationId: query.locationId });
+  }
+
   // ---- F.8 Stock documents: StockOut ----
 
   @Post('stock-outs')

@@ -108,6 +108,12 @@ export class StockDocService {
     const doc = await this.prisma.client.stockOut.findFirst({ where: { id }, include: { items: true } });
     if (!doc) throw new NotFoundException('Stock-out not found');
     this.assertPostable(doc.status, doc.postedAt);
+    await this.gateApproval(
+      'stock_out',
+      doc.id,
+      { amount: Number(doc.totalValue ?? 0), lines: doc.items.length, category: doc.category },
+      'stock-out',
+    );
 
     return this.prisma.client.$transaction(async (tx: any) => {
       let total = ZERO;
@@ -199,6 +205,12 @@ export class StockDocService {
     const doc = await this.prisma.client.wasteRecord.findFirst({ where: { id }, include: { items: true } });
     if (!doc) throw new NotFoundException('Waste record not found');
     this.assertPostable(doc.status, doc.postedAt);
+    await this.gateApproval(
+      'waste',
+      doc.id,
+      { amount: Number(doc.totalValue ?? 0), lines: doc.items.length },
+      'waste',
+    );
 
     return this.prisma.client.$transaction(async (tx: any) => {
       let total = ZERO;

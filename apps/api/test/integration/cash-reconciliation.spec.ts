@@ -18,6 +18,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import { describeDb } from './_setup';
+import { ensureAccountCategories, makeAccountFactory, type TestAccountCategory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
 import { CoreModule } from '../../src/modules/core/core.module';
 import { AccountingModule } from '../../src/modules/accounting/accounting.module';
@@ -53,12 +54,15 @@ describeDb('integration: cash reconciliation (F-CASH-1 / F-CASH-2)', () => {
       data: { organizationId, code: 'GEN', name: 'General', journalType: 'general' },
     });
 
-    const mk = (code: string, name: string, accountType: any, cashFlowCategory?: string) =>
-      prisma.account.create({ data: { organizationId, code, name, accountType, cashFlowCategory: cashFlowCategory ?? null } });
-    cashId = (await mk('CASH-1100', 'Cash', 'cash', 'operating')).id;
-    bankId = (await mk('BANK-1200', 'Bank', 'bank', 'operating')).id;
+    const make = makeAccountFactory(prisma, await ensureAccountCategories(prisma));
+    const mk = (code: string, name: string, category: TestAccountCategory) =>
+      make(organizationId, code, name, category);
+    // Cash-flow section now comes from the category (cashFlowClass), not a
+    // per-account column, so 'cash'/'bank' already classify as operating.
+    cashId = (await mk('CASH-1100', 'Cash', 'cash')).id;
+    bankId = (await mk('BANK-1200', 'Bank', 'bank')).id;
     revenueId = (await mk('REV-4100', 'Revenue', 'revenue')).id;
-    expenseId = (await mk('EXP-5100', 'Expense', 'expense')).id;
+    expenseId = (await mk('EXP-5100', 'Expense', 'operating_expense')).id;
 
     const post = async (
       entryNumber: string,

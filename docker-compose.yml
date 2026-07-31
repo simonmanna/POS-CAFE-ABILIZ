@@ -47,8 +47,12 @@ services:
     environment:
       DATABASE_URL: postgresql://cafe-pos:cafe-pos@db:5432/cafe-pos?schema=public
       REDIS_URL: redis://redis:6379
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-in-prod-32-chars-minimum-secret}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-in-prod-32-chars-minimum-secret}
+      # No defaults on purpose. `:?` makes compose refuse to start when unset,
+      # which is the only reliable way to stop a shared placeholder secret from
+      # reaching production. Generate with: openssl rand -base64 48
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
+      JWT_POS_SECRET: ${JWT_POS_SECRET:?set JWT_POS_SECRET in .env}
       JWT_ACCESS_TTL: 15m
       JWT_REFRESH_TTL: 7d
       NODE_ENV: production

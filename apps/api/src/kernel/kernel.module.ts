@@ -9,9 +9,11 @@ import { EventBus } from './events/event-bus';
 import { EventOutboxService } from './events/event-outbox.service';
 import { OutboxWorker } from './events/outbox.worker';
 import { AuditService } from './audit/audit.service';
+import { AuditLogController } from './audit/audit-log.controller';
 import { SettingsService } from './settings/settings.service';
 import { SettingResolverService } from './settings/setting-resolver.service';
 import { SettingsController } from './settings/settings.controller';
+import { CompanySettingsController } from './settings/company-settings.controller';
 import { ModuleRegistry } from './module-loader/module-registry.service';
 import { SequenceService } from './sequence/sequence.service';
 import { JwtTokenService } from './auth/jwt-token.service';
@@ -60,7 +62,7 @@ import { ThreeWayMatchModule } from './three-way-match/three-way-match.module';
     CronWorkersModule,
     ThreeWayMatchModule,
   ],
-  controllers: [SettingsController],
+  controllers: [SettingsController, CompanySettingsController, AuditLogController],
   providers: [
     TenantContextService,
     PrismaService,

@@ -126,4 +126,85 @@ describe('CostResolverService', () => {
       ).not.toThrow(); // returns ZERO
     });
   });
+
+  /**
+   * Negative on-hand is a normal state here: a sale is never blocked for want of
+   * stock, so goods routinely leave before they are received. The invariant that
+   * must survive that is
+   *
+   *   StockValuation == quantity × runningAverageCost
+   *
+   * Blending a negative quantity into the weighted average used to break it: at
+   * a zero prior average the oversold units were expensed at nothing, so
+   * inventory stayed overstated and COGS understated indefinitely. Each case
+   * below asserts the invariant holds after the covering receipt.
+   */
+  describe('AVCO receipt onto negative on-hand', () => {
+    const AVCO = { costingMethod: 'AVCO' as const, costPrice: null };
+    const d = (n: number | string) => new Prisma.Decimal(n);
+
+    /** Ledger value implied after the receipt: before + receipt − correction. */
+    const impliedValuation = (
+      oldQty: number,
+      oldAvg: number,
+      recvQty: number,
+      recvCost: number,
+      correction: Prisma.Decimal,
+    ) => d(oldQty).times(oldAvg).plus(d(recvQty).times(recvCost)).minus(correction);
+
+    it('no correction on an ordinary positive-stock receipt', () => {
+      const r = svc.resolveReceiptCost(AVCO, { quantity: d(10), runningAverageCost: d(100) }, d(10), d(120));
+      expect(r.newRunningAverage?.toString()).toBe('110');
+      expect(r.costCorrection).toBeUndefined();
+    });
+
+    it('receipt fully covering the shortfall restores the invariant (zero prior average)', () => {
+      // Sold 10 with nothing on hand and no cost basis → COGS booked 0.
+      const r = svc.resolveReceiptCost(AVCO, { quantity: d(-10), runningAverageCost: d(0) }, d(20), d(100));
+
+      expect(r.newRunningAverage?.toString()).toBe('100');
+      // The 10 units expensed at zero should have cost 100 each.
+      expect(r.costCorrection?.toString()).toBe('1000');
+      // 10 units left on hand × 100 = 1000.
+      expect(impliedValuation(-10, 0, 20, 100, r.costCorrection!).toString()).toBe('1000');
+    });
+
+    it('receipt covering only part of the shortfall keeps the invariant', () => {
+      const r = svc.resolveReceiptCost(AVCO, { quantity: d(-10), runningAverageCost: d(0) }, d(5), d(100));
+
+      // Still 5 short; the latest known cost becomes the basis.
+      expect(r.newRunningAverage?.toString()).toBe('100');
+      // Valuation must be NEGATIVE — 5 units owed at 100.
+      expect(impliedValuation(-10, 0, 5, 100, r.costCorrection!).toString()).toBe('-500');
+    });
+
+    it('a second receipt finishing the shortfall lands the invariant back at zero', () => {
+      const r = svc.resolveReceiptCost(AVCO, { quantity: d(-5), runningAverageCost: d(100) }, d(5), d(100));
+
+      // Nothing to correct — the shortfall was already carried at the right cost.
+      expect(r.costCorrection).toBeUndefined();
+      // Quantity is now 0, so valuation must be 0.
+      expect(impliedValuation(-5, 100, 5, 100, r.costCorrection ?? d(0)).toString()).toBe('0');
+    });
+
+    it('corrects only the difference when a stale average was already expensed', () => {
+      // 10 units expensed at 80 apiece; they actually cost 100.
+      const r = svc.resolveReceiptCost(AVCO, { quantity: d(-10), runningAverageCost: d(80) }, d(20), d(100));
+
+      expect(r.costCorrection?.toString()).toBe('200');
+      expect(impliedValuation(-10, 80, 20, 100, r.costCorrection!).toString()).toBe('1000');
+    });
+
+    it('does not blend a negative quantity into the new average', () => {
+      // The old formula gave (-10×0 + 20×50)/10 = 100 — double the true cost.
+      const r = svc.resolveReceiptCost(AVCO, { quantity: d(-10), runningAverageCost: d(0) }, d(20), d(50));
+      expect(r.newRunningAverage?.toString()).toBe('50');
+    });
+
+    it('treats a receipt onto exactly zero on-hand as a fresh basis, with no correction', () => {
+      const r = svc.resolveReceiptCost(AVCO, { quantity: d(0), runningAverageCost: d(999) }, d(4), d(25));
+      expect(r.newRunningAverage?.toString()).toBe('25');
+      expect(r.costCorrection).toBeUndefined();
+    });
+  });
 });

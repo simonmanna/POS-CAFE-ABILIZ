@@ -245,28 +245,28 @@ enum VerificationMethod {
 
 /// Tenant root. This table IS the tenant, so it has no organizationId.
 model Organization {
-  id            String             @id @default(uuid())
-  code          String             @unique
-  name          String
-  timezone      String             @default("UTC")
-  currencyCode  String             @default("USD")
+  id                  String             @id @default(uuid())
+  code                String             @unique
+  name                String
+  timezone            String             @default("UTC")
+  currencyCode        String             @default("USD")
   /// Phase C: FK to Currency for the org's base. Defaults to "USD" via seed.
   /// Renamed relation name avoids ambiguity with other Currency refs.
-  baseCurrency  Currency?          @relation("OrgBaseCurrency", fields: [currencyCode], references: [code])
-  status        OrganizationStatus @default(active)
-  settings      Json               @default("{}")
+  baseCurrency        Currency?          @relation("OrgBaseCurrency", fields: [currencyCode], references: [code])
+  status              OrganizationStatus @default(active)
+  settings            Json               @default("{}")
   /// Books lock date (hard close). Any posting dated on or before this instant is
   /// rejected regardless of fiscal-period status. Null = no global lock.
-  booksLockDate DateTime?
+  booksLockDate       DateTime?
   /// When true, a posting date MUST fall inside a defined fiscal period; dates
   /// outside every period are rejected. Default false (periods stay optional).
-  requireFiscalPeriod Boolean        @default(false)
+  requireFiscalPeriod Boolean            @default(false)
   /// Receipt header/footer overrides (businessName, addressLine1, phone, taxId, message)
-  receiptHeader Json?
-  receiptFooter Json?
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
-  deletedAt     DateTime?
+  receiptHeader       Json?
+  receiptFooter       Json?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  deletedAt           DateTime?
 }
 
 /// Global permission catalog (resource:action). Seeded from @erp/shared.
@@ -430,11 +430,11 @@ model User {
   updatedBy        String?
   deletedAt        DateTime?
 
-  roles            Role[]         @relation("UserRoles")
-  refreshTokens    RefreshToken[]
-  tasksAssigned    Task[]         @relation("TaskAssignee")
-  tasksSupervised  Task[]         @relation("TaskSupervisor")
-  tasksVerified    Task[]         @relation("TaskVerifier")
+  roles           Role[]         @relation("UserRoles")
+  refreshTokens   RefreshToken[]
+  tasksAssigned   Task[]         @relation("TaskAssignee")
+  tasksSupervised Task[]         @relation("TaskSupervisor")
+  tasksVerified   Task[]         @relation("TaskVerifier")
 
   @@unique([organizationId, email])
   @@index([organizationId])
@@ -576,41 +576,41 @@ model Setting {
 // ---------------------------- Master data -----------------------------------
 
 model Partner {
-  id                  String        @id @default(uuid())
-  organizationId      String
-  code                String
-  name                String
-  isCompany           Boolean       @default(false)
-  isCustomer          Boolean       @default(false)
-  isSupplier          Boolean       @default(false)
-  isEmployee          Boolean       @default(false)
-  email               String?
-  phone               String?
-  website             String?
-  taxNumber           String?
-  membershipLevel     String?
+  id                      String        @id @default(uuid())
+  organizationId          String
+  code                    String
+  name                    String
+  isCompany               Boolean       @default(false)
+  isCustomer              Boolean       @default(false)
+  isSupplier              Boolean       @default(false)
+  isEmployee              Boolean       @default(false)
+  email                   String?
+  phone                   String?
+  website                 String?
+  taxNumber               String?
+  membershipLevel         String?
   /// Per-customer automatic discount %, applied on every line when this partner
   /// is attached to a POS sale. 0 = none. Highest priority in the customer
   /// discount cascade (wins over category + membership tier). See
   /// PartnerDiscountService.resolve().
-  discountPercentOverride Decimal   @default(0) @db.Decimal(9, 4)
-  gender              String?
-  receivableAccountId String?
-  payableAccountId    String?
+  discountPercentOverride Decimal       @default(0) @db.Decimal(9, 4)
+  gender                  String?
+  receivableAccountId     String?
+  payableAccountId        String?
   /// AR credit control: limit (0 = none) and a manual hold flag that blocks new
   /// credit sales when set. paymentTermId drives invoice due-date derivation.
-  creditLimit         Decimal       @default(0) @db.Decimal(20, 2)
-  creditHold          Boolean       @default(false)
-  paymentTermId       String?
-  status              PartnerStatus @default(active)
-  categoryId          String?
-  notes               String?
-  customFields        Json          @default("{}")
-  createdAt           DateTime      @default(now())
-  updatedAt           DateTime      @updatedAt
-  createdBy           String?
-  updatedBy           String?
-  deletedAt           DateTime?
+  creditLimit             Decimal       @default(0) @db.Decimal(20, 2)
+  creditHold              Boolean       @default(false)
+  paymentTermId           String?
+  status                  PartnerStatus @default(active)
+  categoryId              String?
+  notes                   String?
+  customFields            Json          @default("{}")
+  createdAt               DateTime      @default(now())
+  updatedAt               DateTime      @updatedAt
+  createdBy               String?
+  updatedBy               String?
+  deletedAt               DateTime?
 
   category         PartnerCategory?  @relation(fields: [categoryId], references: [id])
   contacts         Contact[]
@@ -630,19 +630,19 @@ model Partner {
 }
 
 model PartnerCategory {
-  id             String    @id @default(uuid())
-  organizationId String
-  name           String
-  parentId       String?
+  id                      String    @id @default(uuid())
+  organizationId          String
+  name                    String
+  parentId                String?
   /// Group discount % inherited by all partners in this category (unless the
   /// partner has their own override). 0 = inherit from the nearest ancestor
   /// category with a non-zero value (walked via parentId).
-  discountPercentOverride Decimal @default(0) @db.Decimal(9, 4)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  createdBy      String?
-  updatedBy      String?
-  deletedAt      DateTime?
+  discountPercentOverride Decimal   @default(0) @db.Decimal(9, 4)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+  createdBy               String?
+  updatedBy               String?
+  deletedAt               DateTime?
 
   parent   PartnerCategory?  @relation("PartnerCategoryTree", fields: [parentId], references: [id])
   children PartnerCategory[] @relation("PartnerCategoryTree")
@@ -721,79 +721,79 @@ model Address {
 }
 
 model Product {
-  id             String         @id @default(uuid())
-  organizationId String
-  code           String
-  sku            String?
+  id                            String            @id @default(uuid())
+  organizationId                String
+  code                          String
+  sku                           String?
   /// EAN-13 / UPC for POS barcode scanning. Org-scoped unique when present.
-  barcode        String?
-  name           String
-  description    String?
+  barcode                       String?
+  name                          String
+  description                   String?
   /// Image URL for the product (shown in POS terminal tiles).
-  image          String?
-  productType    ProductType    @default(stockable)
-  costingMethod  CostingMethod  @default(AVCO)
-  categoryId     String?
-  brandId        String?
+  image                         String?
+  productType                   ProductType       @default(stockable)
+  costingMethod                 CostingMethod     @default(AVCO)
+  categoryId                    String?
+  brandId                       String?
   /// Default vendor for reorder/PO suggestions. Reuses the Partner master
   /// (a Partner flagged as a supplier) — we do NOT introduce a separate
   /// Supplier table.
-  supplierId     String?
-  uomId          String?
+  supplierId                    String?
+  uomId                         String?
   /// F.8 dual-unit: how the product is PURCHASED (case, kg, bottle). Defaults
   /// to `uomId` (stock unit) when null. `uomConversion` = stockUnits per 1
   /// purchaseUnit (e.g. 1 case = 24 pcs → 24).
-  purchaseUomId  String?
-  uomConversion  Decimal        @default(1) @db.Decimal(18, 6)
+  purchaseUomId                 String?
+  uomConversion                 Decimal           @default(1) @db.Decimal(18, 6)
   /// Additional UOM roles. Normally within the base unit's category (convert via
   /// UOM factors); cross-category needs a ProductUomConversion bridge. Null →
   /// falls back to the base `uomId`. salesUom = how the cashier sells (cup/glass),
   /// recipeUom = default recipe-line unit, productionUom = manufacturing unit.
-  salesUomId      String?
-  recipeUomId     String?
-  productionUomId String?
+  salesUomId                    String?
+  recipeUomId                   String?
+  productionUomId               String?
   /// Sale rules enforced at POS. minSaleQty/maxSaleQty are in the sales unit.
-  allowFractionalSale Boolean  @default(true)
-  minSaleQty          Decimal? @db.Decimal(20, 6)
-  maxSaleQty          Decimal? @db.Decimal(20, 6)
-  taxId          String?
-  salesPrice     Decimal?       @db.Decimal(18, 6)
-  costPrice      Decimal?       @db.Decimal(18, 6)
-  trackInventory Boolean        @default(true)
-  batchTracking  Boolean        @default(false)
+  allowFractionalSale           Boolean           @default(true)
+  minSaleQty                    Decimal?          @db.Decimal(20, 6)
+  maxSaleQty                    Decimal?          @db.Decimal(20, 6)
+  taxId                         String?
+  salesPrice                    Decimal?          @db.Decimal(18, 6)
+  costPrice                     Decimal?          @db.Decimal(18, 6)
+  trackInventory                Boolean           @default(true)
+  batchTracking                 Boolean           @default(false)
   /// When true, batches require an expiry date on receipt and FEFO picking is
   /// meaningful. Implies batchTracking (expiry is stored on InventoryBatch).
-  expiryTracking Boolean        @default(false)
+  expiryTracking                Boolean           @default(false)
   /// When true, each physical unit is tracked as an InventorySerial (captured on
   /// receipt, selected on issue). Enables SERIAL picking + SPECIFIC costing.
-  serialTracking Boolean        @default(false)
+  serialTracking                Boolean           @default(false)
   /// Default strategy DeductStock/issue uses for batch/serial-tracked products
   /// when the transaction does not override it (dto.distStrategy).
-  pickingStrategy PickingStrategy @default(FEFO)
-  hasVariants    Boolean        @default(false)
+  pickingStrategy               PickingStrategy   @default(FEFO)
+  hasVariants                   Boolean           @default(false)
   // — Per-product inventory account overrides (optional; null = inherit) —
-  incomeAccountOverrideId         String?
-  expenseAccountOverrideId        String?
-  inventoryAccountOverrideId      String?
-  cogsAccountOverrideId           String?
-  shrinkageAccountOverrideId      String?
-  damageAccountOverrideId         String?
-  expiryAccountOverrideId         String?
-  varianceGainAccountOverrideId   String?
+  incomeAccountOverrideId       String?
+  expenseAccountOverrideId      String?
+  inventoryAccountOverrideId    String?
+  cogsAccountOverrideId         String?
+  shrinkageAccountOverrideId    String?
+  damageAccountOverrideId       String?
+  expiryAccountOverrideId       String?
+  varianceGainAccountOverrideId String?
   /// Reorder qty expressed in PURCHASE units (par-based reorder report).
-  reorderQty     Decimal        @default(0) @db.Decimal(20, 6)
+  reorderQty                    Decimal           @default(0) @db.Decimal(20, 6)
   /// POS P5: which station (bar / kitchen / cafe) the KDS should route
   /// tickets for this product to. Required for the Kitchen Display System
   /// to fan out tickets to the right screens. NULL would mean "no KDS",
   /// which is uncommon - every sellable item goes somewhere.
-  station        PosStation     @default(cafe)
-  minQuantity    Decimal        @default(0) @db.Decimal(20, 6)
+  station                       PosStation        @default(cafe)
+  minQuantity                   Decimal           @default(0) @db.Decimal(20, 6)
   /// Upper stock target (0 = none). Feeds the reorder report's suggested
   /// order-up-to quantity and over-stock alerts.
-  maxQuantity    Decimal        @default(0) @db.Decimal(20, 6)
+  maxQuantity                   Decimal           @default(0) @db.Decimal(20, 6)
   /// POS Phase P9: how the cashier flow handles an attempted sale that
   /// exceeds on-hand stock. Default 'silent' = current behaviour.
-  stockPolicy    PosStockPolicy @default(silent)
+  stockPolicy                   PosStockPolicy    @default(silent)
   /// POS Phase P10: when true, the line's `unitPrice` is the GROSS amount
   /// (VAT included). The DocumentBuilderService splits it as
   ///   net = unitPrice / (1 + taxRate/100)
@@ -801,33 +801,33 @@ model Product {
   /// and the receipt prints "(incl. tax)" beside the line. The customer's
   /// menu still shows the same headline number; only the GL split changes.
   /// Default false (additive VAT) for backward compat.
-  taxInclusive   Boolean        @default(false)
+  taxInclusive                  Boolean           @default(false)
   /// Beverage Control (bar alcohol) — how remaining stock is measured. Only
   /// `digital_weight` products appear in the bottle-weighing count. For live ml
   /// deduction the stock UoM should be ml and each drink's recipe
   /// (MenuProduct.quantity) is the pour in ml.
-  measurementMethod      MeasurementMethod @default(count)
-  containerVolumeMl      Decimal?          @db.Decimal(20, 6)
-  emptyBottleWeightG     Decimal?          @db.Decimal(20, 6)
+  measurementMethod             MeasurementMethod @default(count)
+  containerVolumeMl             Decimal?          @db.Decimal(20, 6)
+  emptyBottleWeightG            Decimal?          @db.Decimal(20, 6)
   /// Optional measured tare override (glass weight varies bottle-to-bottle);
   /// used instead of the nominal emptyBottleWeightG when set.
-  actualEmptyWeightG     Decimal?          @db.Decimal(20, 6)
-  fullBottleWeightG      Decimal?          @db.Decimal(20, 6)
+  actualEmptyWeightG            Decimal?          @db.Decimal(20, 6)
+  fullBottleWeightG             Decimal?          @db.Decimal(20, 6)
   /// Computed at setup = fullBottleWeightG - effectiveEmptyWeightG.
-  liquidWeightG          Decimal?          @db.Decimal(20, 6)
+  liquidWeightG                 Decimal?          @db.Decimal(20, 6)
   /// Computed at setup = containerVolumeMl / liquidWeightG (ml per gram).
-  conversionFactorMlPerG Decimal?          @db.Decimal(20, 10)
-  standardPourMl         Decimal?          @db.Decimal(20, 6)
-  allowPartialBottle     Boolean           @default(true)
+  conversionFactorMlPerG        Decimal?          @db.Decimal(20, 10)
+  standardPourMl                Decimal?          @db.Decimal(20, 6)
+  allowPartialBottle            Boolean           @default(true)
   /// Per-product variance tolerance in grams; falls back to the org default.
-  varianceToleranceG     Decimal?          @db.Decimal(20, 6)
-  isActive       Boolean        @default(true)
-  customFields   Json           @default("{}")
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  createdBy      String?
-  updatedBy      String?
-  deletedAt      DateTime?
+  varianceToleranceG            Decimal?          @db.Decimal(20, 6)
+  isActive                      Boolean           @default(true)
+  customFields                  Json              @default("{}")
+  createdAt                     DateTime          @default(now())
+  updatedAt                     DateTime          @updatedAt
+  createdBy                     String?
+  updatedBy                     String?
+  deletedAt                     DateTime?
 
   category       ProductCategory?       @relation(fields: [categoryId], references: [id])
   brand          Brand?                 @relation(fields: [brandId], references: [id])
@@ -909,26 +909,26 @@ model ProductVariant {
 }
 
 model ProductCategory {
-  id               String    @id @default(uuid())
-  organizationId   String
-  name             String
-  parentId         String?
-  incomeAccountId  String?
-  expenseAccountId String?
+  id                    String    @id @default(uuid())
+  organizationId        String
+  name                  String
+  parentId              String?
+  incomeAccountId       String?
+  expenseAccountId      String?
   // — Inventory accounting defaults (M3: per-category posting rule overrides) —
-  inventoryAccountId      String?
-  cogsAccountId           String?
-  shrinkageAccountId      String?
-  damageAccountId         String?
-  expiryAccountId         String?
-  varianceGainAccountId   String?
-  promoExpenseAccountId   String?
-  internalUseAccountId    String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  createdBy        String?
-  updatedBy        String?
-  deletedAt        DateTime?
+  inventoryAccountId    String?
+  cogsAccountId         String?
+  shrinkageAccountId    String?
+  damageAccountId       String?
+  expiryAccountId       String?
+  varianceGainAccountId String?
+  promoExpenseAccountId String?
+  internalUseAccountId  String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  createdBy             String?
+  updatedBy             String?
+  deletedAt             DateTime?
 
   parent   ProductCategory?  @relation("ProductCategoryTree", fields: [parentId], references: [id])
   children ProductCategory[] @relation("ProductCategoryTree")
@@ -962,44 +962,44 @@ model UomCategory {
 }
 
 model UnitOfMeasure {
-  id             String    @id @default(uuid())
-  organizationId String
-  code           String
-  name           String
+  id                String    @id @default(uuid())
+  organizationId    String
+  code              String
+  name              String
   /// Short display symbol (kg, g, L, pc). Optional.
-  symbol         String?
+  symbol            String?
   /// FK to the UOM category. Nullable during backfill; `category` (legacy free-text)
   /// is retained until every unit is migrated.
-  categoryId     String?
-  category       String    @default("unit")
+  categoryId        String?
+  category          String    @default("unit")
   /// Base (reference) units per 1 of THIS unit. Reference unit = 1. e.g. with a
   /// gram reference: kg.factor = 1000. Convert: baseQty = qty * factor;
   /// convert(qty, from, to) = qty * from.factor / to.factor. Backfilled from `ratio`.
-  factor            Decimal @default(1) @db.Decimal(18, 6)
+  factor            Decimal   @default(1) @db.Decimal(18, 6)
   /// Legacy conversion field (== factor); kept for backfill/back-compat.
-  ratio             Decimal @default(1) @db.Decimal(18, 6)
+  ratio             Decimal   @default(1) @db.Decimal(18, 6)
   /// Rounding step for quantities in this unit (1 = whole units, 0.001 = milli).
-  roundingPrecision Decimal @default(0.000001) @db.Decimal(18, 6)
+  roundingPrecision Decimal   @default(0.000001) @db.Decimal(18, 6)
   /// Informational: bigger | reference | smaller than the category reference.
-  uomType           String  @default("reference")
-  isBase         Boolean   @default(false)
-  isActive       Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  createdBy      String?
-  updatedBy      String?
-  deletedAt      DateTime?
+  uomType           String    @default("reference")
+  isBase            Boolean   @default(false)
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  createdBy         String?
+  updatedBy         String?
+  deletedAt         DateTime?
 
-  categoryRef            UomCategory?  @relation("UomCategoryUnits", fields: [categoryId], references: [id])
-  referenceForCategories UomCategory[] @relation("UomCategoryReference")
-  products           Product[]              @relation("ProductStockUom")
-  purchaseProducts   Product[]              @relation("ProductPurchaseUom")
-  salesProducts      Product[]              @relation("ProductSalesUom")
-  recipeProducts     Product[]              @relation("ProductRecipeUom")
-  productionProducts Product[]              @relation("ProductProductionUom")
-  uomConversionsFrom ProductUomConversion[] @relation("UomConversionFrom")
-  uomConversionsTo   ProductUomConversion[] @relation("UomConversionTo")
-  menuLines          MenuProduct[]          @relation("MenuProductUom")
+  categoryRef            UomCategory?           @relation("UomCategoryUnits", fields: [categoryId], references: [id])
+  referenceForCategories UomCategory[]          @relation("UomCategoryReference")
+  products               Product[]              @relation("ProductStockUom")
+  purchaseProducts       Product[]              @relation("ProductPurchaseUom")
+  salesProducts          Product[]              @relation("ProductSalesUom")
+  recipeProducts         Product[]              @relation("ProductRecipeUom")
+  productionProducts     Product[]              @relation("ProductProductionUom")
+  uomConversionsFrom     ProductUomConversion[] @relation("UomConversionFrom")
+  uomConversionsTo       ProductUomConversion[] @relation("UomConversionTo")
+  menuLines              MenuProduct[]          @relation("MenuProductUom")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -1098,6 +1098,25 @@ model FiscalPeriod {
   @@index([organizationId])
 }
 
+/// Master list of cost / profit centers for financial dimension filtering.
+/// The `costCenterId` on journal lines / transactions is a free-text reference
+/// to this table (no FK constraint, so existing data is never orphaned).
+model CostCenter {
+  id             String    @id @default(uuid())
+  organizationId String
+  code           String
+  name           String
+  type           String    @default("cost") /// "cost" | "profit"
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
 model Branch {
   id             String    @id @default(uuid())
   organizationId String
@@ -1124,22 +1143,107 @@ model Branch {
 // Phase 2 — General Ledger engine
 // =============================================================================
 
-enum AccountType {
+/// Top-level accounting nature of an account. Drives the BS-vs-P&L split.
+enum AccountClassification {
   asset
   liability
   equity
   revenue
   expense
-  cost_of_goods_sold
-  bank
-  cash
-  mobile_money
-  petty_cash
-  receivable
-  payable
+  off_balance
+}
+
+enum NormalBalance {
+  debit
+  credit
+}
+
+enum CashFlowClass {
+  operating
+  investing
+  financing
+  none
+}
+
+/// Statement line-group. Single source of truth for financial report layout.
+enum ReportSection {
+  current_assets
+  non_current_assets
+  current_liabilities
+  long_term_liabilities
+  equity
+  revenue
+  contra_revenue
+  cogs
+  operating_expense
+  other_income
+  other_expense
+  off_balance
+}
+
+/// Accounting *behavior* of an account — how the engine treats it, and which
+/// module may auto-discover it. Global (system-wide) — seeded with canonical
+/// `key`s (`isSystem`), shared by every tenant.
+///
+/// Deliberately distinct from the `Account.parentAccountId` tree, which exists
+/// purely for reporting and navigation. Modules resolve accounts by category
+/// `key` (or an AccountMapping key) — never by account name, code range, or
+/// position in the hierarchy.
+model AccountCategory {
+  id          String  @id @default(uuid())
+  key         String
+  name        String
+  description String?
+
+  classification AccountClassification
+  normalBalance  NormalBalance
+  reportSection  ReportSection
+  /// Cash-flow statement classification. Reporting default — the engine resolves
+  /// `isCashEquivalent` to pick payment and cash accounts; this field only sets
+  /// which section (operating / investing / financing) the balance falls under.
+  cashFlowClass  CashFlowClass         @default(operating)
+
+  /// Contra accounts carry the opposite normal balance of their classification.
+  isContra         Boolean @default(false)
+  /// Counts toward cash & cash equivalents (cash-flow statement, treasury).
+  isCashEquivalent Boolean @default(false)
+
+  /// Behavior defaults. Each is overridable per account via a nullable column.
+  allowReconciliation Boolean @default(false)
+  allowManualPosting  Boolean @default(true)
+  allowBudgeting      Boolean @default(false)
+
+  /// Categories are system-managed: there is no tenant CRUD. They are created
+  /// and upgraded solely by the boot seeder from ACCOUNT_CATEGORY_SEED.
+  isSystem  Boolean @default(false)
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  /// Version of this category's accounting contract. The boot seeder only
+  /// rewrites a row when the shipped template declares a higher version, which
+  /// makes upgrades deterministic and re-runnable.
+  systemVersion Int @default(1)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  createdBy String?
+  updatedBy String?
+  deletedAt DateTime?
+
+  accounts Account[]
+
+  @@unique([key])
+  @@index([classification])
+}
+
+/// Subledger control account type. `null` = not a control account.
+enum ControlAccountType {
+  ar
+  ap
+  inventory
+  fixed_assets
+  payroll
   tax
-  contra_asset
-  contra_liability
 }
 
 enum JournalType {
@@ -1159,48 +1263,73 @@ enum JournalEntryStatus {
   reversed
 }
 
-/// Chart of accounts. `isGroup` accounts are summary nodes and cannot be posted to.
+/// Chart of accounts. `isPostable` accounts accept journal postings; summary
+/// nodes (headers) set this to `false`.
 model Account {
-  id               String      @id @default(uuid())
-  organizationId   String
-  code             String
-  name             String
-  accountType      AccountType
-  parentAccountId  String?
-  currencyId       String?
-  isGroup          Boolean     @default(false)
-  isActive         Boolean     @default(true)
-  description      String?
-  /// M6 — Cash Flow classification (operating | investing | financing | null).
-  /// Only meaningful for asset / liability / equity accounts; revenue and
-  /// expense accounts are always operating.
-  cashFlowCategory String?
+  id             String @id @default(uuid())
+  organizationId String
+  code           String
+  name           String
+
+  /// Accounting behavior. Source of truth — every module resolves against this.
+  categoryId    String?
+  /// Denormalized from the category. Service-maintained, never client-writable;
+  /// reports and raw SQL need it per row without a join.
+  normalBalance NormalBalance @default(debit)
+
+  /// Reporting / navigation hierarchy ONLY. Nothing in posting or account
+  /// determination traverses this tree.
+  parentAccountId String?
+  sortOrder       Int     @default(0)
+
+  currencyId  String?
+  isPostable  Boolean @default(true)
+  isActive    Boolean @default(true)
+  description String?
+
+  /// Per-account behavior overrides. `null` = inherit the category default.
+  allowReconciliation Boolean?
+  allowManualPosting  Boolean?
+  allowBudgeting      Boolean?
+  /// Per-account report-section override. `null` = inherit `category.reportSection`.
+  reportSection       ReportSection?
+
+  /// Subledger control account type. `null` = not a control account.
+  /// Replaces the former `isControlAccount` boolean.
+  controlAccountType ControlAccountType?
+  /// Soft-retire: hidden from pickers and blocks NEW postings, history preserved.
+  deprecatedAt       DateTime?
+  /// Per-account cash-flow override. `null` = inherit `category.cashFlowClass`.
+  cashFlowCategory   String?
   /// Payment account fields — bank/provider name and account/phone number.
-  bankName         String?
-  accountNumber    String?
+  bankName           String?
+  accountNumber      String?
   /// Marks this as the default account for its type (used in POS tender selection).
-  isDefault        Boolean     @default(false)
+  isDefault          Boolean             @default(false)
   /// System accounts are created by the seed / posting engine (Retained Earnings,
   /// Rounding, control accounts). They cannot be deleted. `isProtected` additionally
   /// blocks deletion of accounts wired into an AccountMapping.
-  isSystem         Boolean     @default(false)
-  isProtected      Boolean     @default(false)
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-  createdBy        String?
-  updatedBy        String?
-  deletedAt        DateTime?
+  isSystem           Boolean             @default(false)
+  isProtected        Boolean             @default(false)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  createdBy          String?
+  updatedBy          String?
+  deletedAt          DateTime?
 
-  parent        Account?       @relation("AccountTree", fields: [parentAccountId], references: [id])
-  children      Account[]      @relation("AccountTree")
+  category      AccountCategory? @relation(fields: [categoryId], references: [id])
+  parent        Account?         @relation("AccountTree", fields: [parentAccountId], references: [id])
+  children      Account[]        @relation("AccountTree")
   journalLines  JournalLine[]
   documentLines DocumentLine[]
-  bankAccount   BankAccount?   @relation("Account_bankAccount")
-  cashRegisters CashRegister[] @relation("CashRegisterDefaultAccount")
+  mappings      AccountMapping[]
+  bankAccount   BankAccount?     @relation("Account_bankAccount")
+  cashRegisters CashRegister[]   @relation("CashRegisterDefaultAccount")
 
   @@unique([organizationId, code])
   @@index([organizationId])
-  @@index([organizationId, accountType])
+  @@index([organizationId, categoryId])
+  @@index([organizationId, parentAccountId])
 }
 
 model Journal {
@@ -1317,8 +1446,11 @@ model AccountMapping {
   updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
+  account Account @relation(fields: [accountId], references: [id])
+
   @@unique([organizationId, key])
   @@index([organizationId])
+  @@index([organizationId, accountId])
 }
 
 /// Removed in D1-1 — replaced by Postgres-native SEQUENCE objects.
@@ -1534,16 +1666,16 @@ model DocumentPrintLog {
 /// sales can be reported, independent of the price already folded into
 /// DocumentLine.unitPrice.
 model DocumentLineModifier {
-  id             String   @id @default(uuid())
-  organizationId String
-  documentLineId String
+  id               String   @id @default(uuid())
+  organizationId   String
+  documentLineId   String
   /// Source Modifier id when known (null if the catalogue row was later removed).
-  modifierId     String?
-  name           String
+  modifierId       String?
+  name             String
   /// Kitchen-print text snapshot. Falls back to `name` when null.
   kitchenPrintName String?
-  priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
-  createdAt      DateTime @default(now())
+  priceDelta       Decimal  @default(0) @db.Decimal(20, 6)
+  createdAt        DateTime @default(now())
 
   documentLine DocumentLine @relation(fields: [documentLineId], references: [id], onDelete: Cascade)
 
@@ -1697,29 +1829,29 @@ model ModifierGroup {
 }
 
 model Modifier {
-  id             String    @id @default(uuid())
-  organizationId String
-  groupId        String
+  id               String    @id @default(uuid())
+  organizationId   String
+  groupId          String
   /// e.g. "Oat milk", "Extra shot", "Large".
-  name           String
+  name             String
   /// Text printed on kitchen tickets. Falls back to `name` when null.
   kitchenPrintName String?
   /// Description shown in the modifier picker tooltip.
-  description    String?
+  description      String?
   /// Signed UGX added to the line price when this modifier is selected.
   /// Negative for "discount" modifiers (e.g. "No syrup" = -500).
-  priceDelta     Decimal   @default(0) @db.Decimal(20, 6)
+  priceDelta       Decimal   @default(0) @db.Decimal(20, 6)
   /// Optional: links this modifier to a Product so selecting it depletes stock
   /// (mirrors AccompanimentOption.inventoryItemId). Best-effort at sale time.
-  inventoryItemId String?
-  isDefault      Boolean   @default(false)
-  sortOrder      Int       @default(0)
-  isActive       Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  createdBy      String?
-  updatedBy      String?
-  deletedAt      DateTime?
+  inventoryItemId  String?
+  isDefault        Boolean   @default(false)
+  sortOrder        Int       @default(0)
+  isActive         Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdBy        String?
+  updatedBy        String?
+  deletedAt        DateTime?
 
   group ModifierGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
@@ -1838,34 +1970,34 @@ model MenuCategory {
 /// MenuProduct (e.g. Cappuccino = Espresso ×1 + Milk ×200). Has its own price
 /// which may differ from the sum of its product costs.
 model MenuItem {
-  id              String   @id @default(uuid())
-  organizationId  String
+  id                 String   @id @default(uuid())
+  organizationId     String
   /// Optional: SKUs the cashier can punch in if the barcode scanner fires.
-  code            String?
-  name            String
-  description     String?
-  categoryId      String?
+  code               String?
+  name               String
+  description        String?
+  categoryId         String?
   /// Price the customer sees. Stored as Decimal(20,6) so it can be in any
   /// currency minor unit. NULL means "derive from MenuProduct sum" (rare).
-  basePrice       Decimal? @db.Decimal(20, 6)
+  basePrice          Decimal? @db.Decimal(20, 6)
   /// When true (default), this item deducts stock of its recipe ingredients
   /// (MenuProduct rows) on sale. Set false for service/fee items that consume
   /// no inventory. When true, at least one MenuProduct row is required.
-  isInventoryTracked Boolean @default(true)
+  isInventoryTracked Boolean  @default(true)
   /// Optional tax category for this menu item. A menu item has no single stock
   /// product to inherit tax from, so this is resolved server-side at order time
   /// (a client-sent taxId still wins). NULL = untaxed unless the cart specifies one.
-  taxId           String?
-  image           String?
+  taxId              String?
+  image              String?
   /// Prep time hint for KDS — does not enforce anything, just a UI signal.
-  preparationTime Int?
-  isAvailable     Boolean  @default(true)
-  displayOrder    Int      @default(0)
+  preparationTime    Int?
+  isAvailable        Boolean  @default(true)
+  displayOrder       Int      @default(0)
   /// Optional JSONB for chef-only notes, allergen tags, etc. Keeps the model
   /// flexible without forcing schema churn for every new attribute.
-  customFields    Json     @default("{}")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  customFields       Json     @default("{}")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   category            MenuCategory?                @relation(fields: [categoryId], references: [id])
   ingredients         MenuProduct[]
@@ -2438,6 +2570,10 @@ enum InventoryMovementType {
   PRODUCTION_CONSUME
   PRODUCTION_OUTPUT
   REVALUATION
+  /// Squares up COGS/valuation after a receipt lands on negative on-hand
+  /// (goods sold before they were received). Configurable so the correction can
+  /// be routed to its own account rather than plain COGS.
+  COGS_CORRECTION
 }
 
 /// Lifecycle for the new stock document wrappers (StockOut, WasteRecord,
@@ -2953,21 +3089,21 @@ model InventoryCountSession {
 /// One product row in a count — the physical count vs the system snapshot taken
 /// when the session started. `countedQty` is null until the supervisor enters it.
 model InventoryCountLine {
-  id               String    @id @default(uuid())
-  organizationId   String
-  sessionId        String
-  productId        String
-  variantId        String?
-  productName      String
-  parentProductId  String?
+  id                String    @id @default(uuid())
+  organizationId    String
+  sessionId         String
+  productId         String
+  variantId         String?
+  productName       String
+  parentProductId   String?
   parentProductName String?
-  unit             String?
-  systemQty        Decimal   @db.Decimal(20, 6)
-  countedQty       Decimal?  @db.Decimal(20, 6)
-  variance         Decimal   @default(0) @db.Decimal(20, 6)
-  reason           String?
-  countedById      String?
-  countedAt        DateTime?
+  unit              String?
+  systemQty         Decimal   @db.Decimal(20, 6)
+  countedQty        Decimal?  @db.Decimal(20, 6)
+  variance          Decimal   @default(0) @db.Decimal(20, 6)
+  reason            String?
+  countedById       String?
+  countedAt         DateTime?
 
   session InventoryCountSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
@@ -3236,17 +3372,24 @@ model PosReportSnapshot {
 /// the running debit / credit / balance from posted entries. Reports read from
 /// this instead of live JournalLine so a 1M-row tenant returns in <500ms.
 model ReportTrialBalanceSnapshot {
-  id             String   @id @default(uuid())
-  organizationId String
-  asOf           DateTime
-  accountId      String
-  accountCode    String
-  accountName    String
-  accountType    String
-  debit          Decimal  @db.Decimal(20, 6)
-  credit         Decimal  @db.Decimal(20, 6)
-  balance        Decimal  @db.Decimal(20, 6)
-  builtAt        DateTime @default(now())
+  id                 String   @id @default(uuid())
+  organizationId     String
+  asOf               DateTime
+  accountId          String
+  accountCode        String
+  accountName        String
+  /// @deprecated legacy mirror — read `accountCategoryKey` / `classification`.
+  accountType        String
+  accountCategoryKey String?
+  classification     String?
+  normalBalance      String?
+  debit              Decimal  @db.Decimal(20, 6)
+  credit             Decimal  @db.Decimal(20, 6)
+  balance            Decimal  @db.Decimal(20, 6)
+  builtAt            DateTime @default(now())
+  /// Rows written before the AccountCategory migration are v1 and are treated as
+  /// stale by readers, which fall back to the live query and enqueue a rebuild.
+  schemaVersion      Int      @default(2)
 
   @@unique([organizationId, asOf, accountId])
   @@index([organizationId, asOf])
@@ -3273,15 +3416,22 @@ model ReportPnLSnapshot {
 /// cumulative balance for balance-sheet accounts. Reports sum revenue/expense
 /// lines through retained earnings automatically.
 model ReportBalanceSheetSnapshot {
-  id             String   @id @default(uuid())
-  organizationId String
-  asOf           DateTime
-  accountId      String
-  accountCode    String
-  accountName    String
-  accountType    String
-  balance        Decimal  @db.Decimal(20, 6)
-  builtAt        DateTime @default(now())
+  id                 String   @id @default(uuid())
+  organizationId     String
+  asOf               DateTime
+  accountId          String
+  accountCode        String
+  accountName        String
+  /// @deprecated legacy mirror — read `accountCategoryKey` / `classification`.
+  accountType        String
+  accountCategoryKey String?
+  classification     String?
+  normalBalance      String?
+  reportSection      String?
+  balance            Decimal  @db.Decimal(20, 6)
+  builtAt            DateTime @default(now())
+  /// See ReportTrialBalanceSnapshot.schemaVersion.
+  schemaVersion      Int      @default(2)
 
   @@unique([organizationId, asOf, accountId])
   @@index([organizationId, asOf])
@@ -3501,6 +3651,10 @@ model ApprovalRequest {
   /// Free-form snapshot for the UI (amount, partner, etc.).
   snapshot       Json
   policyId       String?
+  /// F.5b — which ordered workflow drives this request (null = legacy policy-driven).
+  workflowId     String?
+  /// Cursor: the stepOrder currently awaiting decisions.
+  currentStep    Int            @default(1)
   status         ApprovalStatus @default(pending)
   requiredCount  Int            @default(1)
   decidedAt      DateTime?
@@ -3509,6 +3663,7 @@ model ApprovalRequest {
   updatedAt      DateTime       @updatedAt
 
   policy    ApprovalPolicy?    @relation(fields: [policyId], references: [id])
+  workflow  ApprovalWorkflow?  @relation(fields: [workflowId], references: [id])
   decisions ApprovalDecision[]
 
   @@index([organizationId, entityType, entityId])
@@ -3520,16 +3675,20 @@ model ApprovalDecision {
   organizationId String
   requestId      String
   approverId     String
+  /// Which workflow step this decision satisfied (matches ApprovalRequest.currentStep at decision time).
+  stepOrder      Int            @default(1)
   status         ApprovalStatus
   comment        String?
   decidedAt      DateTime       @default(now())
 
   request ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-  @@unique([requestId, approverId])
+  @@unique([requestId, stepOrder, approverId])
   @@index([organizationId])
 }
 
+/// @deprecated F.5b — superseded by ApprovalWorkflow + ApprovalStep. Kept for
+/// backward-compat / data-migration source; the engine no longer reads it.
 /// Per-org rules for which documents require approval, who decides, and how
 /// many approvals are needed.
 model ApprovalPolicy {
@@ -3549,6 +3708,54 @@ model ApprovalPolicy {
   requests ApprovalRequest[]
 
   @@index([organizationId, entityType, isActive])
+}
+
+// =============================================================================
+// Phase F.5b — Multi-step approval workflows (sequential chains + amount bands)
+// =============================================================================
+
+/// Ordered approval chain for an entityType. Supersedes ApprovalPolicy.
+/// A request must clear every step whose [minAmount, maxAmount) band contains
+/// the document amount, in stepOrder order.
+model ApprovalWorkflow {
+  id                       String   @id @default(uuid())
+  organizationId           String
+  name                     String
+  entityType               String
+  /// Whole workflow applies only if amount >= this (null = any amount).
+  minAmount                Decimal? @db.Decimal(20, 6)
+  /// SoD: block an approver from deciding more than one step of the same request.
+  enforceDistinctApprovers Boolean  @default(false)
+  isActive                 Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  steps    ApprovalStep[]
+  requests ApprovalRequest[]
+
+  @@index([organizationId, entityType, isActive])
+}
+
+model ApprovalStep {
+  id                  String   @id @default(uuid())
+  organizationId      String
+  workflowId          String
+  stepOrder           Int
+  name                String
+  /// Any-of; permissions allowed to decide this step.
+  approverPermissions String[] @default([])
+  /// N-of-M distinct approvers required within this step.
+  requiredCount       Int      @default(1)
+  /// Step is active only when amount is in [minAmount, maxAmount).
+  minAmount           Decimal? @db.Decimal(20, 6)
+  maxAmount           Decimal? @db.Decimal(20, 6)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@unique([workflowId, stepOrder])
+  @@index([organizationId, workflowId])
 }
 
 // =============================================================================
@@ -4527,11 +4734,11 @@ enum DiscountSource {
 /// Billing is deferred: `invoiceId` is set only when the bill is generated.
 /// `version` enables optimistic locking against concurrent edits.
 model Order {
-  id                         String      @id @default(uuid())
+  id                         String         @id @default(uuid())
   organizationId             String
   orderNumber                String
-  orderType                  OrderType   @default(dine_in)
-  status                     OrderStatus @default(open)
+  orderType                  OrderType      @default(dine_in)
+  status                     OrderStatus    @default(open)
   /// Loose refs (no FK) to keep the aggregate decoupled — mirrors the existing
   /// PosHold / Document.tableId pattern. Integrity enforced in the service layer.
   tableId                    String?
@@ -4540,13 +4747,13 @@ model Order {
   branchId                   String?
   cashSessionId              String?
   guestCount                 Int?
-  notes            String?
-  sortOrder        Int            @default(0)
+  notes                      String?
+  sortOrder                  Int            @default(0)
   /// Set at bill generation. 1:1 with the financial Document (the Invoice).
-  invoiceId                  String?     @unique
+  invoiceId                  String?        @unique
   /// Optimistic-lock token. Every item mutation bumps this; writers pass the
   /// expected value so two waiters can't clobber each other.
-  version                    Int         @default(0)
+  version                    Int            @default(0)
   /// Offline-first (P1): number the device printed before sync (e.g. D1-000042).
   /// The final orderNumber is allocated at push; both stay searchable.
   provisionalNumber          String?
@@ -4554,17 +4761,17 @@ model Order {
   deviceId                   String?
   /// Running snapshot of the order total (recomputed on each item change) so
   /// the table picker / order panel render without re-pricing.
-  subtotal                   Decimal     @default(0) @db.Decimal(20, 6)
-  discountTotal              Decimal     @default(0) @db.Decimal(20, 6)
-  taxAmount                  Decimal     @default(0) @db.Decimal(20, 6)
-  totalAmount                Decimal     @default(0) @db.Decimal(20, 6)
+  subtotal                   Decimal        @default(0) @db.Decimal(20, 6)
+  discountTotal              Decimal        @default(0) @db.Decimal(20, 6)
+  taxAmount                  Decimal        @default(0) @db.Decimal(20, 6)
+  totalAmount                Decimal        @default(0) @db.Decimal(20, 6)
   /// Order-level discount (%) applied on top of line discounts at bill time.
-  transactionDiscountPercent Decimal         @default(0) @db.Decimal(9, 4)
-  transactionDiscountType    DiscountType    @default(percentage)
-  transactionDiscountAmount  Decimal         @default(0) @db.Decimal(20, 6)
+  transactionDiscountPercent Decimal        @default(0) @db.Decimal(9, 4)
+  transactionDiscountType    DiscountType   @default(percentage)
+  transactionDiscountAmount  Decimal        @default(0) @db.Decimal(20, 6)
   discountReason             String?
-  discountSource             DiscountSource  @default(manual)
-  openedAt                   DateTime    @default(now())
+  discountSource             DiscountSource @default(manual)
+  openedAt                   DateTime       @default(now())
   closedAt                   DateTime?
   cancelledAt                DateTime?
   cancelReason               String?
@@ -4577,12 +4784,12 @@ model Order {
   /// Bill / KOT print lifecycle for the OPEN tab (pre-settle). Receipt counters
   /// live on the Invoice once the tab is billed. Replaces the former
   /// Document.billPrintCount / kotPrintCount for POS tabs.
-  billPrintCount             Int         @default(0)
+  billPrintCount             Int            @default(0)
   billLastPrintedAt          DateTime?
-  kotPrintCount              Int         @default(0)
+  kotPrintCount              Int            @default(0)
   lastPrintedById            String?
-  createdAt                  DateTime    @default(now())
-  updatedAt                  DateTime    @updatedAt
+  createdAt                  DateTime       @default(now())
+  updatedAt                  DateTime       @updatedAt
   createdBy                  String?
   updatedBy                  String?
 
@@ -4654,14 +4861,14 @@ model OrderItem {
 /// Structured per-item modifier selection (queryable for reporting), in
 /// addition to the priceDelta already folded into OrderItem.unitPrice.
 model OrderItemModifier {
-  id             String   @id @default(uuid())
-  organizationId String
-  orderItemId    String
-  modifierId     String?
-  name           String
+  id               String   @id @default(uuid())
+  organizationId   String
+  orderItemId      String
+  modifierId       String?
+  name             String
   kitchenPrintName String?
-  priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
-  createdAt      DateTime @default(now())
+  priceDelta       Decimal  @default(0) @db.Decimal(20, 6)
+  createdAt        DateTime @default(now())
 
   orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
 
@@ -4675,24 +4882,24 @@ model OrderItemModifier {
 /// `type` distinguishes a normal payment receipt from a credit-issue receipt
 /// (postpaid sale, no cash yet) or a later settlement receipt.
 model Receipt {
-  id             String      @id @default(uuid())
-  organizationId String
-  invoiceId      String
-  receiptNumber  String
+  id                String      @id @default(uuid())
+  organizationId    String
+  invoiceId         String
+  receiptNumber     String
   /// Offline-first (P1): number the device printed before sync.
   provisionalNumber String?
   /// Offline-first (P1): PosDevice that issued this receipt offline.
-  deviceId       String?
-  type           ReceiptType @default(payment_receipt)
+  deviceId          String?
+  type              ReceiptType @default(payment_receipt)
   /// The payment this receipt acknowledges (null for credit-issue receipts).
-  paymentId      String?
-  copies         Int         @default(1)
-  printedById    String?
+  paymentId         String?
+  copies            Int         @default(1)
+  printedById       String?
   /// Required for reprints.
-  reason         String?
+  reason            String?
   /// Printer host / station label at print time.
-  printer        String?
-  createdAt      DateTime    @default(now())
+  printer           String?
+  createdAt         DateTime    @default(now())
 
   invoice Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   items   ReceiptItem[]
@@ -4794,37 +5001,37 @@ model Invoice {
 
 /// A line on a POS Invoice (mirrors DocumentLine but on the separate Invoice).
 model InvoiceItem {
-  id              String   @id @default(uuid())
-  organizationId  String
-  invoiceId       String
-  productId       String?
-  menuItemId      String?
-  variantId       String?
-  variantName     String?
+  id                     String         @id @default(uuid())
+  organizationId         String
+  invoiceId              String
+  productId              String?
+  menuItemId             String?
+  variantId              String?
+  variantName            String?
   /// Selected AccompanimentOption ids copied from the order line (stock + audit).
-  accompanimentOptionIds String[] @default([])
+  accompanimentOptionIds String[]       @default([])
   /// Revenue account resolved at posting time (for the GL credit).
-  accountId       String?
-  description     String
-  quantity        Decimal  @default(1) @db.Decimal(20, 6)
-  unitPrice       Decimal  @default(0) @db.Decimal(20, 6)
-  discountPercent Decimal       @default(0) @db.Decimal(9, 4)
-  discountType    DiscountType  @default(percentage)
-  discountAmount  Decimal       @default(0) @db.Decimal(20, 6)
-  discountReason  String?
-  discountSource  DiscountSource @default(manual)
-  discountAppliedBy  String?
-  discountApprovedBy String?
-  discountApprovedAt DateTime?
-  taxId           String?
-  taxInclusive    Boolean  @default(false)
-  subtotal        Decimal  @default(0) @db.Decimal(20, 6)
-  taxAmount       Decimal  @default(0) @db.Decimal(20, 6)
-  total           Decimal  @default(0) @db.Decimal(20, 6)
+  accountId              String?
+  description            String
+  quantity               Decimal        @default(1) @db.Decimal(20, 6)
+  unitPrice              Decimal        @default(0) @db.Decimal(20, 6)
+  discountPercent        Decimal        @default(0) @db.Decimal(9, 4)
+  discountType           DiscountType   @default(percentage)
+  discountAmount         Decimal        @default(0) @db.Decimal(20, 6)
+  discountReason         String?
+  discountSource         DiscountSource @default(manual)
+  discountAppliedBy      String?
+  discountApprovedBy     String?
+  discountApprovedAt     DateTime?
+  taxId                  String?
+  taxInclusive           Boolean        @default(false)
+  subtotal               Decimal        @default(0) @db.Decimal(20, 6)
+  taxAmount              Decimal        @default(0) @db.Decimal(20, 6)
+  total                  Decimal        @default(0) @db.Decimal(20, 6)
   /// Cumulative quantity refunded across partial refunds (per-line over-refund guard).
-  refundedQty     Decimal  @default(0) @db.Decimal(20, 6)
-  lineNumber      Int      @default(0)
-  createdAt       DateTime @default(now())
+  refundedQty            Decimal        @default(0) @db.Decimal(20, 6)
+  lineNumber             Int            @default(0)
+  createdAt              DateTime       @default(now())
 
   invoice   Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   modifiers InvoiceItemModifier[]
@@ -4837,14 +5044,14 @@ model InvoiceItem {
 
 /// Structured per-item modifier selection on an invoice line (reporting parity).
 model InvoiceItemModifier {
-  id             String   @id @default(uuid())
-  organizationId String
-  invoiceItemId  String
-  modifierId     String?
-  name           String
+  id               String   @id @default(uuid())
+  organizationId   String
+  invoiceItemId    String
+  modifierId       String?
+  name             String
   kitchenPrintName String?
-  priceDelta     Decimal  @default(0) @db.Decimal(20, 6)
-  createdAt      DateTime @default(now())
+  priceDelta       Decimal  @default(0) @db.Decimal(20, 6)
+  createdAt        DateTime @default(now())
 
   invoiceItem InvoiceItem @relation(fields: [invoiceItemId], references: [id], onDelete: Cascade)
 
@@ -5182,26 +5389,26 @@ model InventoryException {
 //   'product_field'     → read from Product.{field} based on accountMappingKey
 //
 model InventoryPostingRule {
-  id               String  @id @default(uuid())
-  organizationId   String
-  movementType     InventoryMovementType
-  lineIndex        Int     @default(0)
+  id                String                @id @default(uuid())
+  organizationId    String
+  movementType      InventoryMovementType
+  lineIndex         Int                   @default(0)
   /// 'debit' | 'credit'
-  debitOrCredit    String
+  debitOrCredit     String
   /// 'account_mapping' | 'literal' | 'category_field' | 'product_field'
-  accountSource    String  @default("account_mapping")
+  accountSource     String                @default("account_mapping")
   /// Only when accountSource='account_mapping': e.g. 'stock_valuation', 'cogs', 'stock_adjustment_expense'
   accountMappingKey String?
   /// Only when accountSource='literal': direct FK into Account
-  literalAccountId String?
+  literalAccountId  String?
   /// Scope: null = movement-type default; set = product or category override
-  productId        String?
-  categoryId       String?
-  isActive         Boolean @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  createdBy        String?
-  updatedBy        String?
+  productId         String?
+  categoryId        String?
+  isActive          Boolean               @default(true)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  createdBy         String?
+  updatedBy         String?
 
   @@unique([organizationId, movementType, lineIndex, productId, categoryId])
   @@index([organizationId, movementType, productId])
@@ -5268,20 +5475,20 @@ enum AssignmentEntityType {
 }
 
 model AssetCategory {
-  id                  String             @id @default(uuid())
-  organizationId      String
-  name                String
-  description         String?
-  parentId            String?
-  depreciationMethod  DepreciationMethod @default(straight_line)
-  defaultUsefulLife   Int                @default(60)
-  defaultResidualValue Decimal           @default(0) @db.Decimal(18, 6)
-  isActive            Boolean            @default(true)
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
-  createdBy           String?
-  updatedBy           String?
-  deletedAt           DateTime?
+  id                   String             @id @default(uuid())
+  organizationId       String
+  name                 String
+  description          String?
+  parentId             String?
+  depreciationMethod   DepreciationMethod @default(straight_line)
+  defaultUsefulLife    Int                @default(60)
+  defaultResidualValue Decimal            @default(0) @db.Decimal(18, 6)
+  isActive             Boolean            @default(true)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  createdBy            String?
+  updatedBy            String?
+  deletedAt            DateTime?
 
   parent   AssetCategory?  @relation("AssetCategoryTree", fields: [parentId], references: [id])
   children AssetCategory[] @relation("AssetCategoryTree")
@@ -5292,7 +5499,7 @@ model AssetCategory {
 }
 
 model Asset {
-  id                String            @id @default(uuid())
+  id                String                @id @default(uuid())
   organizationId    String
   assetCode         String
   barcode           String?
@@ -5313,24 +5520,24 @@ model Asset {
   purchaseDate      DateTime?
   supplierId        String?
   invoiceNumber     String?
-  purchaseCost      Decimal?            @db.Decimal(18, 6)
-  currentValue      Decimal?            @db.Decimal(18, 6)
-  salvageValue      Decimal             @default(0) @db.Decimal(18, 6)
-  usefulLife        Int                 @default(60)
-  usefulLifeUnit    String              @default("months")
-  acquisitionMethod AcquisitionMethod   @default(purchased)
-  capitalizedCost   Decimal?            @db.Decimal(18, 6)
+  purchaseCost      Decimal?              @db.Decimal(18, 6)
+  currentValue      Decimal?              @db.Decimal(18, 6)
+  salvageValue      Decimal               @default(0) @db.Decimal(18, 6)
+  usefulLife        Int                   @default(60)
+  usefulLifeUnit    String                @default("months")
+  acquisitionMethod AcquisitionMethod     @default(purchased)
+  capitalizedCost   Decimal?              @db.Decimal(18, 6)
   image             String?
   notes             String?
-  customFields      Json                @default("{}")
-  status            AssetStatus         @default(active)
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  customFields      Json                  @default("{}")
+  status            AssetStatus           @default(active)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
   createdBy         String?
   updatedBy         String?
   deletedAt         DateTime?
 
-  category        AssetCategory?     @relation(fields: [categoryId], references: [id])
+  category        AssetCategory?      @relation(fields: [categoryId], references: [id])
   acquisition     AssetAcquisition?
   assignments     AssetAssignment[]
   transfers       AssetTransfer[]
@@ -5354,24 +5561,24 @@ model Asset {
 }
 
 model AssetAcquisition {
-  id              String            @id @default(uuid())
-  organizationId  String
-  assetId         String            @unique
-  vendor          String?
-  vendorId        String?
-  purchaseOrderId String?
-  invoiceId       String?
-  taxes           Decimal?          @db.Decimal(18, 6)
-  freight         Decimal?          @db.Decimal(18, 6)
-  installationCost Decimal?         @db.Decimal(18, 6)
-  otherCosts      Decimal?          @db.Decimal(18, 6)
-  capitalizedCost Decimal?          @db.Decimal(18, 6)
-  acquisitionDate DateTime?
-  notes           String?
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
-  createdBy       String?
-  updatedBy       String?
+  id               String    @id @default(uuid())
+  organizationId   String
+  assetId          String    @unique
+  vendor           String?
+  vendorId         String?
+  purchaseOrderId  String?
+  invoiceId        String?
+  taxes            Decimal?  @db.Decimal(18, 6)
+  freight          Decimal?  @db.Decimal(18, 6)
+  installationCost Decimal?  @db.Decimal(18, 6)
+  otherCosts       Decimal?  @db.Decimal(18, 6)
+  capitalizedCost  Decimal?  @db.Decimal(18, 6)
+  acquisitionDate  DateTime?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdBy        String?
+  updatedBy        String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5380,21 +5587,21 @@ model AssetAcquisition {
 }
 
 model AssetAssignment {
-  id              String              @id @default(uuid())
-  organizationId  String
-  assetId         String
-  assignedToId    String?
-  assignedToType  AssignmentEntityType?
-  assignedToName  String?
-  assignedDate    DateTime            @default(now())
-  returnedDate    DateTime?
-  conditionBefore String?
-  conditionAfter  String?
+  id                String                @id @default(uuid())
+  organizationId    String
+  assetId           String
+  assignedToId      String?
+  assignedToType    AssignmentEntityType?
+  assignedToName    String?
+  assignedDate      DateTime              @default(now())
+  returnedDate      DateTime?
+  conditionBefore   String?
+  conditionAfter    String?
   responsiblePerson String?
-  notes           String?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  createdBy       String?
+  notes             String?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  createdBy         String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5404,24 +5611,24 @@ model AssetAssignment {
 }
 
 model AssetTransfer {
-  id              String   @id @default(uuid())
-  organizationId  String
-  assetId         String
-  fromLocation    String?
-  toLocation      String?
-  fromBranchId    String?
-  toBranchId      String?
-  fromDepartment  String?
-  toDepartment    String?
-  fromPersonId    String?
-  toPersonId      String?
-  reason          String?
-  approvedBy      String?
-  transferDate    DateTime @default(now())
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  createdBy       String?
+  id             String   @id @default(uuid())
+  organizationId String
+  assetId        String
+  fromLocation   String?
+  toLocation     String?
+  fromBranchId   String?
+  toBranchId     String?
+  fromDepartment String?
+  toDepartment   String?
+  fromPersonId   String?
+  toPersonId     String?
+  reason         String?
+  approvedBy     String?
+  transferDate   DateTime @default(now())
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5430,24 +5637,24 @@ model AssetTransfer {
 }
 
 model AssetDepreciation {
-  id               String             @id @default(uuid())
-  organizationId   String
-  assetId          String
-  period           String             // "2026-01", "2026", etc.
-  method           DepreciationMethod @default(straight_line)
-  assetCost        Decimal            @db.Decimal(18, 6)
-  salvageValue     Decimal            @default(0) @db.Decimal(18, 6)
-  usefulLife       Int
-  depreciationAmount Decimal           @db.Decimal(18, 6)
-  accumulatedDepr  Decimal            @db.Decimal(18, 6)
-  bookValue        Decimal            @db.Decimal(18, 6)
-  isPosted         Boolean            @default(false)
-  journalEntryId   String?
-  postedAt         DateTime?
-  notes            String?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-  createdBy        String?
+  id                 String             @id @default(uuid())
+  organizationId     String
+  assetId            String
+  period             String // "2026-01", "2026", etc.
+  method             DepreciationMethod @default(straight_line)
+  assetCost          Decimal            @db.Decimal(18, 6)
+  salvageValue       Decimal            @default(0) @db.Decimal(18, 6)
+  usefulLife         Int
+  depreciationAmount Decimal            @db.Decimal(18, 6)
+  accumulatedDepr    Decimal            @db.Decimal(18, 6)
+  bookValue          Decimal            @db.Decimal(18, 6)
+  isPosted           Boolean            @default(false)
+  journalEntryId     String?
+  postedAt           DateTime?
+  notes              String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  createdBy          String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5458,24 +5665,24 @@ model AssetDepreciation {
 }
 
 model AssetMaintenance {
-  id               String         @id @default(uuid())
-  organizationId   String
-  assetId          String
-  maintenanceType  MaintenanceType @default(preventive)
-  title            String
-  description      String?
-  technician       String?
-  vendor           String?
-  scheduledDate    DateTime?
-  completedDate    DateTime?
-  cost             Decimal?       @db.Decimal(18, 6)
+  id                  String          @id @default(uuid())
+  organizationId      String
+  assetId             String
+  maintenanceType     MaintenanceType @default(preventive)
+  title               String
+  description         String?
+  technician          String?
+  vendor              String?
+  scheduledDate       DateTime?
+  completedDate       DateTime?
+  cost                Decimal?        @db.Decimal(18, 6)
   nextMaintenanceDate DateTime?
-  status           String         @default("scheduled") // scheduled, in_progress, completed, cancelled
-  notes            String?
-  attachments      Json           @default("[]")
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  createdBy        String?
+  status              String          @default("scheduled") // scheduled, in_progress, completed, cancelled
+  notes               String?
+  attachments         Json            @default("[]")
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  createdBy           String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5485,24 +5692,24 @@ model AssetMaintenance {
 }
 
 model AssetRepair {
-  id              String   @id @default(uuid())
-  organizationId  String
-  assetId         String
-  breakdownDate   DateTime
-  repairDate      DateTime?
-  description     String?
-  vendor          String?
-  sparePartsCost  Decimal? @db.Decimal(18, 6)
-  laborCost       Decimal? @db.Decimal(18, 6)
-  totalCost       Decimal? @db.Decimal(18, 6)
-  downtimeHours   Decimal? @db.Decimal(10, 2)
+  id               String    @id @default(uuid())
+  organizationId   String
+  assetId          String
+  breakdownDate    DateTime
+  repairDate       DateTime?
+  description      String?
+  vendor           String?
+  sparePartsCost   Decimal?  @db.Decimal(18, 6)
+  laborCost        Decimal?  @db.Decimal(18, 6)
+  totalCost        Decimal?  @db.Decimal(18, 6)
+  downtimeHours    Decimal?  @db.Decimal(10, 2)
   vendorInvoiceRef String?
-  status          String   @default("pending") // pending, in_progress, completed, cancelled
-  notes           String?
-  attachments     Json     @default("[]")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  createdBy       String?
+  status           String    @default("pending") // pending, in_progress, completed, cancelled
+  notes            String?
+  attachments      Json      @default("[]")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdBy        String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5539,22 +5746,22 @@ model AssetWarranty {
 }
 
 model AssetInsurance {
-  id              String   @id @default(uuid())
-  organizationId  String
-  assetId         String
-  policyNumber    String?
-  company         String?
-  premium         Decimal? @db.Decimal(18, 6)
-  coverageAmount  Decimal? @db.Decimal(18, 6)
-  startDate       DateTime?
-  renewalDate     DateTime?
-  contactPerson   String?
-  contactPhone    String?
-  notes           String?
-  attachments     Json     @default("[]")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  createdBy       String?
+  id             String    @id @default(uuid())
+  organizationId String
+  assetId        String
+  policyNumber   String?
+  company        String?
+  premium        Decimal?  @db.Decimal(18, 6)
+  coverageAmount Decimal?  @db.Decimal(18, 6)
+  startDate      DateTime?
+  renewalDate    DateTime?
+  contactPerson  String?
+  contactPhone   String?
+  notes          String?
+  attachments    Json      @default("[]")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5564,21 +5771,21 @@ model AssetInsurance {
 }
 
 model AssetInspection {
-  id              String   @id @default(uuid())
-  organizationId  String
-  assetId         String
-  inspector       String?
-  inspectionDate  DateTime @default(now())
-  condition       String?  // working, damaged, missing, requires_repair
-  isWorking       Boolean  @default(true)
-  isDamaged       Boolean  @default(false)
-  isMissing       Boolean  @default(false)
-  requiresRepair  Boolean  @default(false)
-  photos          Json     @default("[]")
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  createdBy       String?
+  id             String   @id @default(uuid())
+  organizationId String
+  assetId        String
+  inspector      String?
+  inspectionDate DateTime @default(now())
+  condition      String? // working, damaged, missing, requires_repair
+  isWorking      Boolean  @default(true)
+  isDamaged      Boolean  @default(false)
+  isMissing      Boolean  @default(false)
+  requiresRepair Boolean  @default(false)
+  photos         Json     @default("[]")
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  createdBy      String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5587,21 +5794,21 @@ model AssetInspection {
 }
 
 model AssetDisposal {
-  id              String         @id @default(uuid())
-  organizationId  String
-  assetId         String         @unique
-  disposalMethod  DisposalMethod
-  disposalDate    DateTime       @default(now())
-  disposalValue   Decimal?       @db.Decimal(18, 6)
-  bookValueAtDisposal Decimal?   @db.Decimal(18, 6)
-  gainLoss        Decimal?       @db.Decimal(18, 6)
-  approvedBy      String?
-  reason          String?
-  notes           String?
-  documents       Json           @default("[]")
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  createdBy       String?
+  id                  String         @id @default(uuid())
+  organizationId      String
+  assetId             String         @unique
+  disposalMethod      DisposalMethod
+  disposalDate        DateTime       @default(now())
+  disposalValue       Decimal?       @db.Decimal(18, 6)
+  bookValueAtDisposal Decimal?       @db.Decimal(18, 6)
+  gainLoss            Decimal?       @db.Decimal(18, 6)
+  approvedBy          String?
+  reason              String?
+  notes               String?
+  documents           Json           @default("[]")
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+  createdBy           String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5631,23 +5838,23 @@ model AssetRevaluation {
 }
 
 model AssetCheckInOut {
-  id                String   @id @default(uuid())
-  organizationId    String
-  assetId           String
-  checkedOutTo      String?
-  checkedOutToType  String?
-  checkoutDate      DateTime @default(now())
+  id                 String    @id @default(uuid())
+  organizationId     String
+  assetId            String
+  checkedOutTo       String?
+  checkedOutToType   String?
+  checkoutDate       DateTime  @default(now())
   expectedReturnDate DateTime?
-  returnDate        DateTime?
-  conditionBefore   String?
-  conditionAfter    String?
-  checkedOutById    String?
-  checkedInById     String?
-  status            String   @default("checked_out") // checked_out, returned, overdue
-  notes             String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  createdBy         String?
+  returnDate         DateTime?
+  conditionBefore    String?
+  conditionAfter     String?
+  checkedOutById     String?
+  checkedInById      String?
+  status             String    @default("checked_out") // checked_out, returned, overdue
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdBy          String?
 
   asset Asset @relation(fields: [assetId], references: [id], onDelete: Cascade)
 
@@ -5660,7 +5867,7 @@ model AssetDocument {
   id             String   @id @default(uuid())
   organizationId String
   assetId        String
-  documentType   String?  // purchase_invoice, warranty, photo, manual, insurance, certificate, other
+  documentType   String? // purchase_invoice, warranty, photo, manual, insurance, certificate, other
   fileName       String?
   fileId         String?
   fileUrl        String?
@@ -5682,61 +5889,61 @@ model AssetDocument {
 
 /// A task in the operational task management system.
 model Task {
-  id               String          @id @default(uuid())
-  organizationId   String
-  branchId         String?
-  title            String
-  description      String?
-  taskType         TaskType        @default(ONE_TIME)
-  priority         TaskPriority    @default(MEDIUM)
-  status           TaskMgmtStatus  @default(PENDING)
-  category         TaskCategory?
-  area             TaskArea?
-  departmentId     String?
-  assignedToId     String?
-  assignedRole     String?
-  supervisorId     String?
-  dueDate          DateTime?
-  dueTime          String?
-  startTime        DateTime?
-  completedAt      DateTime?
-  estimatedMinutes Int?
-  actualMinutes    Int?
-  isRecurring      Boolean         @default(false)
-  recurrenceType   RecurrenceType?
-  recurrenceConfig Json?
-  parentTaskId     String?
-  recurrenceOrder  Int?
-  requiresVerification Boolean     @default(false)
-  verificationMethod    VerificationMethod?
-  verifiedById      String?
-  verifiedAt        DateTime?
-  verificationPhoto String?
-  verificationNote  String?
-  checklistProgress Int             @default(0)
-  checklistTotal    Int             @default(0)
-  photoUrls         String[]        @default([])
-  attachmentUrls    String[]        @default([])
-  generatedByEvent  String?
-  sourceReferenceId String?
-  sourceReferenceType String?
-  shiftId           String?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  createdBy         String?
-  updatedBy         String?
-  deletedAt         DateTime?
+  id                   String              @id @default(uuid())
+  organizationId       String
+  branchId             String?
+  title                String
+  description          String?
+  taskType             TaskType            @default(ONE_TIME)
+  priority             TaskPriority        @default(MEDIUM)
+  status               TaskMgmtStatus      @default(PENDING)
+  category             TaskCategory?
+  area                 TaskArea?
+  departmentId         String?
+  assignedToId         String?
+  assignedRole         String?
+  supervisorId         String?
+  dueDate              DateTime?
+  dueTime              String?
+  startTime            DateTime?
+  completedAt          DateTime?
+  estimatedMinutes     Int?
+  actualMinutes        Int?
+  isRecurring          Boolean             @default(false)
+  recurrenceType       RecurrenceType?
+  recurrenceConfig     Json?
+  parentTaskId         String?
+  recurrenceOrder      Int?
+  requiresVerification Boolean             @default(false)
+  verificationMethod   VerificationMethod?
+  verifiedById         String?
+  verifiedAt           DateTime?
+  verificationPhoto    String?
+  verificationNote     String?
+  checklistProgress    Int                 @default(0)
+  checklistTotal       Int                 @default(0)
+  photoUrls            String[]            @default([])
+  attachmentUrls       String[]            @default([])
+  generatedByEvent     String?
+  sourceReferenceId    String?
+  sourceReferenceType  String?
+  shiftId              String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  createdBy            String?
+  updatedBy            String?
+  deletedAt            DateTime?
 
-  branch            Branch?         @relation(fields: [branchId], references: [id])
-  assignedTo        User?           @relation("TaskAssignee", fields: [assignedToId], references: [id])
-  supervisor        User?           @relation("TaskSupervisor", fields: [supervisorId], references: [id])
-  verifiedBy        User?           @relation("TaskVerifier", fields: [verifiedById], references: [id])
-  parentTask        Task?           @relation("TaskRecurrence", fields: [parentTaskId], references: [id])
-  children          Task[]          @relation("TaskRecurrence")
-  checklistItems    TaskChecklistItem[]
-  comments          TaskComment[]
-  activityLog       TaskActivityLog[]
-  labels            TaskLabel[]     @relation("TaskLabelLink")
+  branch         Branch?             @relation(fields: [branchId], references: [id])
+  assignedTo     User?               @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  supervisor     User?               @relation("TaskSupervisor", fields: [supervisorId], references: [id])
+  verifiedBy     User?               @relation("TaskVerifier", fields: [verifiedById], references: [id])
+  parentTask     Task?               @relation("TaskRecurrence", fields: [parentTaskId], references: [id])
+  children       Task[]              @relation("TaskRecurrence")
+  checklistItems TaskChecklistItem[]
+  comments       TaskComment[]
+  activityLog    TaskActivityLog[]
+  labels         TaskLabel[]         @relation("TaskLabelLink")
 
   @@index([organizationId])
   @@index([organizationId, status])
@@ -5752,16 +5959,16 @@ model Task {
 
 /// Checklist item within a task.
 model TaskChecklistItem {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   taskId         String
   description    String
-  isCompleted    Boolean  @default(false)
+  isCompleted    Boolean   @default(false)
   completedAt    DateTime?
   completedBy    String?
-  sortOrder      Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
 
@@ -5771,21 +5978,21 @@ model TaskChecklistItem {
 
 /// Threaded comments on tasks.
 model TaskComment {
-  id             String   @id @default(uuid())
+  id             String    @id @default(uuid())
   organizationId String
   taskId         String
   parentId       String?
   content        String
-  mentions       String[] @default([])
-  attachmentUrls String[] @default([])
+  mentions       String[]  @default([])
+  attachmentUrls String[]  @default([])
   emojiReactions Json?
   createdById    String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   deletedAt      DateTime?
 
-  task   Task  @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  parent TaskComment? @relation("CommentThread", fields: [parentId], references: [id])
+  task    Task          @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  parent  TaskComment?  @relation("CommentThread", fields: [parentId], references: [id])
   replies TaskComment[] @relation("CommentThread")
 
   @@index([taskId])
@@ -5827,27 +6034,27 @@ model TaskLabel {
 
 /// Auto-generation rules for tasks.
 model TaskAutoRule {
-  id               String   @id @default(uuid())
-  organizationId   String
-  name             String
-  description      String?
-  triggerEvent     String
-  triggerConfig    Json?
-  taskTitle        String
-  taskDescription  String?
-  taskType         TaskType
-  taskCategory     TaskCategory?
-  taskArea         TaskArea?
-  taskPriority     TaskPriority  @default(MEDIUM)
-  assignToRole     String?
-  assignToUserId   String?
-  branchId         String?
-  requiresVerification Boolean @default(false)
-  isActive         Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  createdBy        String?
-  updatedBy        String?
+  id                   String        @id @default(uuid())
+  organizationId       String
+  name                 String
+  description          String?
+  triggerEvent         String
+  triggerConfig        Json?
+  taskTitle            String
+  taskDescription      String?
+  taskType             TaskType
+  taskCategory         TaskCategory?
+  taskArea             TaskArea?
+  taskPriority         TaskPriority  @default(MEDIUM)
+  assignToRole         String?
+  assignToUserId       String?
+  branchId             String?
+  requiresVerification Boolean       @default(false)
+  isActive             Boolean       @default(true)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  createdBy            String?
+  updatedBy            String?
 
   @@index([organizationId])
   @@index([organizationId, triggerEvent])
@@ -5855,31 +6062,31 @@ model TaskAutoRule {
 
 /// Recurring task template (for recurring task type).
 model TaskRecurringTemplate {
-  id               String          @id @default(uuid())
-  organizationId   String
-  title            String
-  description      String?
-  taskType         TaskType        @default(RECURRING)
-  taskCategory     TaskCategory?
-  taskArea         TaskArea?
-  priority         TaskPriority    @default(MEDIUM)
-  recurrenceType   RecurrenceType  @default(DAILY)
-  recurrenceConfig Json?
-  estimatedMinutes Int?
-  requiresVerification Boolean     @default(false)
-  verificationMethod    VerificationMethod?
-  branchId          String?
-  departmentId      String?
-  assignToRole      String?
-  assignToUserId    String?
-  supervisorId      String?
-  checklistTemplate Json?
-  isActive          Boolean        @default(true)
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-  createdBy         String?
-  updatedBy         String?
-  deletedAt         DateTime?
+  id                   String              @id @default(uuid())
+  organizationId       String
+  title                String
+  description          String?
+  taskType             TaskType            @default(RECURRING)
+  taskCategory         TaskCategory?
+  taskArea             TaskArea?
+  priority             TaskPriority        @default(MEDIUM)
+  recurrenceType       RecurrenceType      @default(DAILY)
+  recurrenceConfig     Json?
+  estimatedMinutes     Int?
+  requiresVerification Boolean             @default(false)
+  verificationMethod   VerificationMethod?
+  branchId             String?
+  departmentId         String?
+  assignToRole         String?
+  assignToUserId       String?
+  supervisorId         String?
+  checklistTemplate    Json?
+  isActive             Boolean             @default(true)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  createdBy            String?
+  updatedBy            String?
+  deletedAt            DateTime?
 
   @@index([organizationId])
 }

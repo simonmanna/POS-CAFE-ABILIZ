@@ -1,20 +1,20 @@
 import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { PERMISSIONS } from '@erp/shared';
-import { Public } from '../decorators/public.decorator';
 
 /**
  * Exposes the permission catalog (resource + action) for the admin UI so it
  * can render a permission matrix without bundling its own copy of the keys.
  *
- * Marked @Public so the login screen can read the catalog before the user
- * authenticates (used by sign-in page to show "you need permission X to do Y").
- * The response carries zero secrets — just static keys.
+ * Was @Public on the rationale that the login screen reads the catalog before
+ * authenticating. Nothing does: the only consumer is `usePermissionCatalog` in
+ * the staff admin screens, which is already behind auth. The response is static
+ * and carries no tenant data, but a full map of every capability in the system
+ * is free reconnaissance, so it now requires a session.
  */
 @ApiTags('auth')
 @Controller('auth/permissions')
 export class PermissionsController {
-  @Public()
   @Get()
   catalog() {
     // Flatten the nested PERMISSIONS object into the { resource, action, key }

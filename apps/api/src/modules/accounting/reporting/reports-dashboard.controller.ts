@@ -52,19 +52,21 @@ export class ReportsDashboardController {
           dueDate: { lt: now },
         },
       }),
-      // Cash position = sum of posted lines on cash + bank accounts.
+      // Cash position = sum of posted lines on cash-equivalent accounts, as
+      // flagged by their category (cash, bank, mobile money, petty cash).
       this.prisma.raw.$queryRaw<{ total: any }[]>`
         SELECT COALESCE(SUM("baseDebit" - "baseCredit"), 0)::text AS total
         FROM "JournalLine" jl
         JOIN "Account" a ON a.id = jl."accountId"
+        JOIN "AccountCategory" ac ON ac.id = a."categoryId"
         JOIN "JournalEntry" je ON je.id = jl."journalEntryId"
         WHERE jl."organizationId" = ${orgId}
           AND je.status = 'posted'
-          AND (a."accountType" IN ('cash', 'bank'))
+          AND ac."isCashEquivalent" = true
       `,
-      this.aggAccountSince(orgId, 'revenue', startOfMonth),
-      this.aggAccountSince(orgId, 'cost_of_goods_sold', startOfMonth),
-      this.aggAccountSince(orgId, 'expense', startOfMonth),
+      this.aggSectionSince(orgId, ['revenue', 'other_income'], startOfMonth),
+      this.aggSectionSince(orgId, ['cogs'], startOfMonth),
+      this.aggSectionSince(orgId, ['operating_expense', 'other_expense'], startOfMonth),
       this.arBucket(orgId, 'current'),
       this.arBucket(orgId, 'b1_30'),
       this.arBucket(orgId, 'b31_60'),
@@ -159,19 +161,27 @@ export class ReportsDashboardController {
     };
   }
 
-  private async aggAccountSince(orgId: string, accountType: string, since: Date) {
-    // For revenue, net = credit - debit (normal balance is credit).
-    // For COGS / expense, net = debit - credit.
-    const direction = accountType === 'revenue' ? 'credit' : 'debit';
+  /**
+   * Sum posted movement on every account in the given report sections, signed by
+   * each account's own normal balance. This replaces a hand-rolled
+   * `accountType === 'revenue' ? 'credit' : 'debit'` direction hack, which got
+   * contra accounts backwards.
+   */
+  private async aggSectionSince(orgId: string, sections: string[], since: Date) {
     const rows = await this.prisma.raw.$queryRaw<{ total: any }[]>`
-      SELECT COALESCE(SUM(CASE WHEN ${direction} = 'credit' THEN jl."baseCredit" - jl."baseDebit" ELSE jl."baseDebit" - jl."baseCredit" END), 0)::text AS total
+      SELECT COALESCE(SUM(
+        CASE WHEN ac."normalBalance" = 'credit'
+             THEN jl."baseCredit" - jl."baseDebit"
+             ELSE jl."baseDebit" - jl."baseCredit" END
+      ), 0)::text AS total
       FROM "JournalLine" jl
       JOIN "Account" a ON a.id = jl."accountId"
+      JOIN "AccountCategory" ac ON ac.id = a."categoryId"
       JOIN "JournalEntry" je ON je.id = jl."journalEntryId"
       WHERE jl."organizationId" = ${orgId}
         AND je.status = 'posted'
         AND je."postingDate" >= ${since}
-        AND a."accountType" = ${accountType}::"AccountType"
+        AND ac."reportSection"::text = ANY(${sections})
     `;
     return rows[0];
   }

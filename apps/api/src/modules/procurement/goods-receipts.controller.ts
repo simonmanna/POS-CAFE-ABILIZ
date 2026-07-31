@@ -33,9 +33,16 @@ export class GoodsReceiptsController {
     return this.svc.createAdhoc(body);
   }
 
+  /**
+   * Draft-only GRN. Creates the paper record and stops — stock does NOT move and
+   * nothing posts to the GL until {@link post} is called. Kept as a distinct
+   * endpoint because a receiving clerk capturing a delivery note is a real step,
+   * but it is no longer a third posting path: `create` cannot post, only `post`
+   * can, and `post` is the single audited draft→posted transition.
+   */
   @Post()
   @RequirePermissions('goods_receipt:create')
-  create(
+  createDraft(
     @Body()
     body: {
       purchaseOrderId?: string;
@@ -56,7 +63,7 @@ export class GoodsReceiptsController {
       }>;
     },
   ) {
-    return this.svc.create(body);
+    return this.svc.createDraft(body);
   }
 
   @Patch(':id/post')

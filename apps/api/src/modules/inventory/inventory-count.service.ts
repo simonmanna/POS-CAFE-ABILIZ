@@ -3,9 +3,10 @@ import { dec } from '../../kernel/common/money';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
+import { AuditService } from '../../kernel/audit/audit.service';
 import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockDocService } from './stock-doc.service';
-import { SaveCountDraftDto, StartCountDto } from './dto/inventory-count.dto';
+import { SaveCountDraftDto, StartCountDto, SubmitCountDto } from './dto/inventory-count.dto';
 
 /**
  * Inventory Count Sessions — guided physical stock count (opening / closing).
@@ -24,6 +25,7 @@ export class InventoryCountService {
     private readonly seq: SequenceService,
     private readonly stockDoc: StockDocService,
     private readonly approvals: ApprovalsService,
+    private readonly audit: AuditService,
   ) {}
 
   private get org(): string {
@@ -80,11 +82,24 @@ export class InventoryCountService {
       data: { status: 'cancelled', updatedBy: this.tenant.userId ?? null },
     });
 
+    // Only countable goods belong on a count sheet. Services and non-tracked
+    // items have no on-hand to count — including them produced sheets hundreds
+    // of rows long where every row was a guaranteed zero-variance no-op, and
+    // buried the lines that actually matter.
     const products = await this.prisma.client.product.findMany({
-      where: {},
+      where: {
+        isActive: true,
+        trackInventory: true,
+        productType: { in: ['stockable', 'consumable'] },
+      },
       select: { id: true, name: true, hasVariants: true, uom: { select: { code: true } } },
       orderBy: { name: 'asc' },
     });
+    if (products.length === 0) {
+      throw new BadRequestException(
+        'No countable products found. A product must be active, inventory-tracked, and of type stockable or consumable to appear on a count sheet.',
+      );
+    }
     const parentById = new Map(products.map((p) => [p.id, p]));
 
     const nonVariant = products.filter((p) => !p.hasVariants);
@@ -247,7 +262,75 @@ export class InventoryCountService {
    * while leaving the session in draft (which would cause double-adjust on
    * retry).
    */
-  async submit(id: string) {
+  /**
+   * Movements posted at this location AFTER a line was physically counted.
+   *
+   * A count overwrites system on-hand with the counted figure, so any such
+   * movement is silently absorbed into the variance: a sale made after the
+   * shelf was counted disappears, and genuine shrinkage is masked by it. This
+   * returns the affected lines so submit() can refuse rather than absorb.
+   *
+   * Uses each line's own `countedAt` (when the shelf was actually counted),
+   * falling back to the session start for lines saved before that column was
+   * populated. Movements from the adjustment engine itself are irrelevant here
+   * because the session is still a draft — nothing has posted yet.
+   */
+  private async movementsAfterCount(session: any, lines: any[]) {
+    const counted = lines.filter((l) => l.countedQty !== null);
+    if (counted.length === 0) return [];
+
+    const earliest = counted.reduce<Date>(
+      (min, l) => {
+        const at: Date = l.countedAt ?? session.startedAt;
+        return at < min ? at : min;
+      },
+      counted[0].countedAt ?? session.startedAt,
+    );
+
+    const moves = await this.prisma.client.inventoryLedger.groupBy({
+      by: ['productId', 'variantId'],
+      where: {
+        locationId: session.locationId,
+        createdAt: { gt: earliest },
+        productId: { in: [...new Set(counted.map((l) => l.productId))] },
+      },
+      _sum: { quantityChange: true },
+      _max: { createdAt: true },
+      _count: { _all: true },
+    });
+    if (moves.length === 0) return [];
+
+    const moveByCell = new Map(
+      moves.map((m) => [`${m.productId}::${m.variantId ?? ''}`, m]),
+    );
+    const affected: Array<{
+      lineId: string;
+      productId: string;
+      productName: string;
+      countedAt: Date;
+      movements: number;
+      netQuantityChange: string;
+    }> = [];
+    for (const l of counted) {
+      const m = moveByCell.get(`${l.productId}::${l.variantId ?? ''}`);
+      if (!m) continue;
+      const countedAt: Date = l.countedAt ?? session.startedAt;
+      // groupBy can only filter on the earliest cutoff; re-check per line so a
+      // line counted late is not flagged for a movement that predates it.
+      if (!m._max.createdAt || m._max.createdAt <= countedAt) continue;
+      affected.push({
+        lineId: l.id,
+        productId: l.productId,
+        productName: l.productName,
+        countedAt,
+        movements: m._count._all,
+        netQuantityChange: String(m._sum.quantityChange ?? 0),
+      });
+    }
+    return affected;
+  }
+
+  async submit(id: string, dto: SubmitCountDto = {}) {
     await this.assertDraft(id);
 
     // Approval gate for inventory count submit
@@ -264,10 +347,32 @@ export class InventoryCountService {
       );
     }
 
+    const sessionSnapshot = await this.get(id);
     const lines = await this.prisma.client.inventoryCountLine.findMany({ where: { sessionId: id } });
     const counted = lines.filter((l) => l.countedQty !== null);
     if (counted.length === 0) {
       throw new BadRequestException('Nothing counted yet — enter at least one physical count.');
+    }
+
+    // Never silently absorb stock that moved after it was counted. The
+    // supervisor must either re-count those lines or explicitly accept the
+    // absorption with a reason (recorded + audited).
+    const stale = await this.movementsAfterCount(sessionSnapshot, counted);
+    if (stale.length > 0 && !dto.force) {
+      const sample = stale
+        .slice(0, 5)
+        .map((s) => `${s.productName} (${s.movements} movement(s), net ${s.netQuantityChange})`)
+        .join('; ');
+      throw new BadRequestException(
+        `${stale.length} counted line(s) moved after they were counted — submitting now would overwrite those movements: ${sample}` +
+          `${stale.length > 5 ? ` …and ${stale.length - 5} more` : ''}. ` +
+          'Re-count the affected lines, or resubmit with force=true and a reason to accept the variance as counted.',
+      );
+    }
+    if (stale.length > 0 && dto.force && !dto.forceReason?.trim()) {
+      throw new BadRequestException(
+        'A reason is required to force-submit a count over lines that moved after being counted.',
+      );
     }
 
     const varianceLines = counted.filter((l) => !dec(l.variance).isZero());
@@ -286,8 +391,10 @@ export class InventoryCountService {
           status: 'submitted',
           submittedById: this.tenant.userId ?? null,
           submittedAt: new Date(),
+          ...(stale.length > 0 ? { notes: this.appendForceNote(sessionSnapshot.notes, stale, dto) } : {}),
         },
       });
+      await this.auditSubmit(id, sessionSnapshot, stale, dto, null);
       return this.get(id);
     }
 
@@ -324,14 +431,60 @@ export class InventoryCountService {
           submittedById: this.tenant.userId ?? null,
           submittedAt: new Date(),
           adjustmentId: adj.id,
+          ...(stale.length > 0 ? { notes: this.appendForceNote(session.notes, stale, dto) } : {}),
         },
       });
+
+      await this.auditSubmit(id, session, stale, dto, adj.id, tx);
 
       return tx.inventoryCountSession.findFirst({
         where: { id },
         include: { lines: { orderBy: [{ parentProductId: 'asc' }, { productName: 'asc' }] }, location: true },
       });
     });
+  }
+
+  /** Stamp the forced absorption onto the session's notes so it is visible on the record. */
+  private appendForceNote(
+    existing: string | null | undefined,
+    stale: Array<{ productName: string }>,
+    dto: SubmitCountDto,
+  ): string {
+    const note =
+      `[FORCED] ${stale.length} line(s) moved after being counted and were overwritten by this count. ` +
+      `Reason: ${dto.forceReason?.trim() ?? 'n/a'}`;
+    return existing?.trim() ? `${existing.trim()}\n${note}` : note;
+  }
+
+  /**
+   * Audit every submit, and record the full list of absorbed movements when the
+   * supervisor forced past the staleness guard — that list is the evidence trail
+   * for any later shrinkage investigation.
+   */
+  private async auditSubmit(
+    id: string,
+    session: { countCode: string; locationId: string },
+    stale: Array<Record<string, unknown>>,
+    dto: SubmitCountDto,
+    adjustmentId: string | null,
+    tx?: any,
+  ): Promise<void> {
+    const payload = {
+      entity: 'InventoryCountSession',
+      entityId: id,
+      action: 'update' as any,
+      newValues: {
+        kind: 'count_submitted',
+        countCode: session.countCode,
+        locationId: session.locationId,
+        adjustmentId,
+        forced: stale.length > 0 && dto.force === true,
+        forceReason: dto.forceReason ?? null,
+        absorbedMovements: stale.length > 0 ? stale : undefined,
+      },
+    };
+    if (tx) await this.audit.recordInTx(tx, payload);
+    else await this.audit.record(payload);
   }
 
   /** Abandon a draft count (soft delete) without touching stock. */

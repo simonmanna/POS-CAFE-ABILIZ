@@ -212,15 +212,26 @@ export class InvoicingWorkflowsInitializer implements OnModuleInit {
                   orderBy: { createdAt: 'asc' },
                 });
                 if (!location) throw new Error(`No warehouse location for stockable line ${line.product.name}`);
-                await this.stock.receiveFromBill({
-                  productId: line.productId,
-                  locationId: location.id,
-                  quantity: Number(line.quantity),
-                  unitCost: Number(line.product.costPrice ?? 0),
-                  billId: fullDoc.id,
-                  billDate: fullDoc.issueDate.toISOString(),
-                  notes: `Auto-receive for bill ${fullDoc.documentNumber}`,
-                });
+                // Value the receipt at the bill line's NET unit price, not the
+                // product's standard cost. Two reasons: the GRNI credit raised
+                // here must equal the GRNI debit the bill JE posts (line.subtotal)
+                // or the accrual never nets to zero; and receiving at a stale
+                // costPrice means the moving average never learns the real
+                // purchase price. Passing `tx` keeps the stock move atomic with
+                // the bill — it previously opened its own transaction.
+                const qty = Number(line.quantity);
+                await this.stock.receiveFromBill(
+                  {
+                    productId: line.productId,
+                    locationId: location.id,
+                    quantity: qty,
+                    unitCost: qty > 0 ? Number(line.subtotal) / qty : 0,
+                    billId: fullDoc.id,
+                    billDate: fullDoc.issueDate.toISOString(),
+                    notes: `Auto-receive for bill ${fullDoc.documentNumber}`,
+                  },
+                  tx,
+                );
               }
             }
             await tx.document.updateMany({

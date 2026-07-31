@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { EventBus } from '../../../kernel/events/event-bus';
+import { ApprovalsService } from '../../../kernel/approvals/approvals.service';
 import { AssetDepreciationStrategy } from './asset-depreciation.strategy';
 import { PostingService } from '../../accounting/posting/posting.service';
 import { AccountDeterminationService } from '../../accounting/posting/account-determination.service';
@@ -11,6 +12,7 @@ export class AssetDepreciationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly events: EventBus,
+    private readonly approvals: ApprovalsService,
     private readonly strategy: AssetDepreciationStrategy,
     private readonly posting: PostingService,
     private readonly determination: AccountDeterminationService,
@@ -133,6 +135,17 @@ export class AssetDepreciationService {
   async postEntry(id: string): Promise<any> {
     const dep = await this.prisma.client.assetDepreciation.findFirst({ where: { id } });
     if (!dep) throw new NotFoundException(`Depreciation entry ${id} not found`);
+    // Approval gate (no workflow ⇒ proceeds). Block-and-retry: caller re-posts once approved.
+    const gate = await this.approvals.checkOrRequestApproval({
+      entityType: 'depreciation_run',
+      entityId: dep.id,
+      snapshot: { amount: Number(dep.depreciationAmount ?? 0), period: dep.period },
+    });
+    if (gate?.needsApproval) {
+      throw new BadRequestException(
+        `Approval required before posting depreciation. Pending approval request ${gate.requestId}.`,
+      );
+    }
     await this.postDepreciationJE(dep);
     return this.prisma.client.assetDepreciation.findFirst({ where: { id } });
   }

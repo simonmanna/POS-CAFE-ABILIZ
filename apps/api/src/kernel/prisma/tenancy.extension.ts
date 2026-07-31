@@ -89,6 +89,9 @@ const ORG_SCOPED = new Set<string>([
   'ApprovalRequest',
   'ApprovalDecision',
   'ApprovalPolicy',
+  // F.5b — multi-step approval workflows
+  'ApprovalWorkflow',
+  'ApprovalStep',
   'RecurringDocument',
   'RecurringDocumentRun',
   'WebhookEndpoint',

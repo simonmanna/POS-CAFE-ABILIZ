@@ -14,6 +14,19 @@ export interface CostResolution {
    * new running average cost. `undefined` for FIFO/STANDARD (no recompute).
    */
   newRunningAverage?: Prisma.Decimal;
+  /**
+   * Cost correction required to restore the valuation invariant
+   * `StockValuation == quantity × runningAverageCost` after a receipt that
+   * landed on NEGATIVE on-hand.
+   *
+   * Positive → Dr COGS / Cr Stock Valuation (inventory was overstated because
+   * the oversold units were expensed at a stale/zero average).
+   * Negative → Dr Stock Valuation / Cr COGS.
+   *
+   * Zero/undefined on every normal (non-negative) receipt — the weighted-average
+   * formula is self-consistent there, so this never fires in ordinary operation.
+   */
+  costCorrection?: Prisma.Decimal;
 }
 
 /**
@@ -141,16 +154,41 @@ export class CostResolverService {
       const oldQty = stockItem?.quantity ?? ZERO;
       const oldAvg = stockItem?.runningAverageCost ?? ZERO;
       const newQty = oldQty.plus(receiptQty);
+      const receiptValue = receiptUnitCost.times(receiptQty);
       let newAvg: Prisma.Decimal;
-      if (newQty.lte(ZERO)) {
+      if (oldQty.lte(ZERO)) {
+        // On-hand is zero or negative: there is no meaningful prior cost pool to
+        // blend with. Blending a negative quantity into the weighted average is
+        // what used to drive the average to absurd values (and, at oldAvg = 0,
+        // to permanently understate COGS). The incoming cost simply becomes the
+        // new basis; the value already mis-expensed is squared up by the
+        // costCorrection below.
         newAvg = receiptUnitCost;
       } else {
-        newAvg = oldQty.times(oldAvg).plus(receiptQty.times(receiptUnitCost)).dividedBy(newQty);
+        newAvg = oldQty.times(oldAvg).plus(receiptValue).dividedBy(newQty);
       }
+
+      // Restore `StockValuation == qty × avg`. Everything the GL currently holds
+      // for this quant is `oldQty × oldAvg`; the receipt is about to debit
+      // `receiptValue`. Anything left over versus the new target belongs in COGS.
+      //
+      //   correction = (oldQty × oldAvg) + receiptValue − (newQty × newAvg)
+      //
+      // On a normal positive-stock receipt the weighted-average definition makes
+      // this identically zero, so it is only computed (and only ever non-zero)
+      // when the receipt landed on negative on-hand.
+      let costCorrection: Prisma.Decimal | undefined;
+      if (oldQty.lt(ZERO)) {
+        const before = oldQty.times(oldAvg);
+        const target = newQty.times(newAvg);
+        costCorrection = before.plus(receiptValue).minus(target);
+      }
+
       return {
         unitCost: receiptUnitCost,
-        totalValue: receiptUnitCost.times(receiptQty),
+        totalValue: receiptValue,
         newRunningAverage: newAvg,
+        ...(costCorrection && !costCorrection.isZero() ? { costCorrection } : {}),
       };
     }
 

@@ -36,7 +36,13 @@ export abstract class BaseCrudService<T = any, CreateInput = any, UpdateInput = 
   protected abstract readonly entityName: string;
   protected readonly searchFields: string[] = [];
   protected readonly defaultInclude: Record<string, unknown> | undefined = undefined;
-  protected readonly defaultOrderBy: Record<string, 'asc' | 'desc'> = { createdAt: 'desc' };
+  /**
+   * Prisma accepts an array for multi-key ordering (e.g. sortOrder then code),
+   * which the chart of accounts needs to render in statement order.
+   */
+  protected readonly defaultOrderBy:
+    | Record<string, 'asc' | 'desc'>
+    | Array<Record<string, 'asc' | 'desc'>> = { createdAt: 'desc' };
 
   protected constructor(protected readonly delegate: CrudDelegate) {}
 

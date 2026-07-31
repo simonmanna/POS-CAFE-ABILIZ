@@ -4,6 +4,8 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 import { IdempotencyService } from '../../kernel/idempotency/idempotency.service';
 import { resolveOccurredAt } from '../../kernel/common/occurred-at';
 import { PosService } from '../pos/pos.service';
+import { PosInvoiceService } from '../pos/billing/pos-invoice.service';
+import { PosReservationsService } from '../pos/pos-reservations.service';
 import { CashSessionService } from '../accounting/treasury/cash-session.service';
 import type { RequestDevice } from './device-token.guard';
 import type { SyncOpDto, SyncOpResult, SyncPushDto, SyncPushResult } from './dto/sync.dto';
@@ -33,6 +35,8 @@ export class SyncPushService {
     private readonly tenant: TenantContextService,
     private readonly idempotency: IdempotencyService,
     private readonly pos: PosService,
+    private readonly billing: PosInvoiceService,
+    private readonly reservations: PosReservationsService,
     private readonly cashSessions: CashSessionService,
   ) {}
 
@@ -131,13 +135,26 @@ export class SyncPushService {
     // with a clear 424 instead of an opaque FK error at Order create.
     const partnerRef = op.payload?.partnerId;
     if (typeof partnerRef === 'string' && partnerRef) refs.push(partnerRef);
+    // A refund/void of a sale whose sale.checkout op dead-lettered (or hasn't
+    // synced yet) must fail-fast 424 rather than hit an opaque "invoice not
+    // found". When invoiceId is a real server id it's never in failedClientIds,
+    // so this only bites the genuine same-batch broken-dependency case.
+    const invoiceRef = op.payload?.invoiceId;
+    if (typeof invoiceRef === 'string' && invoiceRef) refs.push(invoiceRef);
+    // A seat/cancel/no-show of a reservation created earlier in the same batch
+    // references it by client id — fail fast if that create dead-lettered.
+    const reservationRef = op.payload?.reservationId;
+    if (typeof reservationRef === 'string' && reservationRef) refs.push(reservationRef);
     return refs;
   }
 
   /** Swap client-minted ids for the server ids created earlier in the batch. */
   private resolveRefs(payload: Record<string, any>, clientIdMap: Map<string, string>): Record<string, any> {
     const out = { ...payload };
-    for (const key of ['cashSessionId', 'sessionId']) {
+    // invoiceId: a refund/void may reference the sale by its client-minted id
+    // when the sale.checkout applied earlier in THIS batch (device hasn't seen
+    // the server invoice id yet). sale.checkout maps clientId → server invoiceId.
+    for (const key of ['cashSessionId', 'sessionId', 'invoiceId', 'reservationId']) {
       const v = out[key];
       if (typeof v === 'string' && clientIdMap.has(v)) out[key] = clientIdMap.get(v);
     }
@@ -212,6 +229,58 @@ export class SyncPushService {
           mapping: { invoiceId: (res as any).invoiceId },
           finalNumbers: { invoiceNumber: (res as any).invoiceNumber ?? '' },
         };
+      }
+      case 'sale.refund': {
+        // Offline refund of a synced (or same-batch) sale. `invoiceId` is the
+        // server invoice id, or the sale's client id resolved via clientIdMap.
+        // `lines` (optional) carries server invoice-item ids for a partial
+        // refund; omit for a full refund.
+        if (!payload.invoiceId) throw new HttpException('sale.refund requires an invoiceId', 400);
+        const res: any = await this.billing.refund(String(payload.invoiceId), payload.reason, {
+          overrideById: payload.overrideById,
+          cashSessionId: payload.cashSessionId,
+          lines: Array.isArray(payload.lines) && payload.lines.length ? payload.lines : undefined,
+        });
+        const invId = res?.invoiceId ?? String(payload.invoiceId);
+        return { id: invId, mapping: { invoiceId: invId } };
+      }
+      case 'sale.void': {
+        // A void is a full refund with a MANDATORY manager override — the same
+        // rule the online POST /pos/sales/:id/void enforces.
+        if (!payload.invoiceId) throw new HttpException('sale.void requires an invoiceId', 400);
+        const res: any = await this.billing.refund(
+          String(payload.invoiceId),
+          `VOID: ${payload.reason ?? ''}`,
+          {
+            overrideById: payload.overrideById,
+            cashSessionId: payload.cashSessionId,
+            requireOverride: true,
+          },
+        );
+        const invId = res?.invoiceId ?? String(payload.invoiceId);
+        return { id: invId, mapping: { invoiceId: invId } };
+      }
+      case 'reservation.create': {
+        // clientId maps to the new server reservation id (applyOp records it),
+        // so later seat/cancel ops in the batch resolve their reservationId.
+        const { clientId: _rc, ...dto } = payload;
+        const r: any = await this.reservations.create(dto as any);
+        return { id: r.id, mapping: { reservationId: r.id } };
+      }
+      case 'reservation.seat': {
+        if (!payload.reservationId) throw new HttpException('reservation.seat requires a reservationId', 400);
+        const r: any = await this.reservations.seat(String(payload.reservationId), { orderId: payload.orderId });
+        return { id: r.id, mapping: { reservationId: r.id } };
+      }
+      case 'reservation.cancel': {
+        if (!payload.reservationId) throw new HttpException('reservation.cancel requires a reservationId', 400);
+        const r: any = await this.reservations.cancel(String(payload.reservationId));
+        return { id: r.id, mapping: { reservationId: r.id } };
+      }
+      case 'reservation.noShow': {
+        if (!payload.reservationId) throw new HttpException('reservation.noShow requires a reservationId', 400);
+        const r: any = await this.reservations.markNoShow(String(payload.reservationId));
+        return { id: r.id, mapping: { reservationId: r.id } };
       }
       case 'customer.upsert': {
         // Device-created customer: the client-minted uuid IS the Partner id,

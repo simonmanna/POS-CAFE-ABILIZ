@@ -46,7 +46,12 @@ Incremental catalog download.
   someone explicitly published, so it is an incomplete change feed, and its
   rows are transient worker state. `updatedAt` is complete and already indexed.
 - **Scopes**: `menuItems`, `menuCategories`, `modifierGroups`, `taxes`,
-  `posTables`, `cashRegisters`, `staff`, `settings`.
+  `posTables`, `cashRegisters`, `staff`, `settings`, `products`,
+  `productCategories`, `productPackagings`, `partners`, `reservations`.
+  (Canonical list: `SYNC_PULL_SCOPES` in `dto/sync.dto.ts`.) `productPackagings`
+  carries multipack barcodes so a scanned case adds `quantity` base units on the
+  device. `reservations` delivers upcoming/active bookings (rolling 24h floor);
+  terminal statuses (cancelled/no_show/completed) are treated as tombstones.
 - **`menuItems` is an aggregate**: item + variants + modifier-group links +
   accompaniment groups/options. Child tables have no `updatedAt` of their own,
   so child writes must touch the parent (see *Known gaps*).
@@ -75,7 +80,25 @@ The device drains its op queue in `deviceSeq` order.
 }
 ```
 
-Op types: `cash_session.open|close|movement`, `sale.checkout`, `tab.settle`.
+Op types: `cash_session.open|close|movement`, `sale.checkout`, `tab.settle`,
+`sale.refund`, `sale.void`, `reservation.create|seat|cancel|noShow`,
+`customer.upsert|delete`, `setting.set`. (Canonical list: `SYNC_OP_TYPES` in
+`dto/sync.dto.ts`.)
+
+- **`reservation.*`** book/seat/cancel/no-show a table. `reservation.create`
+  carries a client-minted `id` the server honours as the row id (like
+  `customer.upsert`), so a booking taken offline is seat/cancel-able by that
+  same id and a later pull never duplicates it. seat/cancel/no-show reference
+  `reservationId`.
+
+- **`sale.refund` / `sale.void`** reverse a settled sale (GL reversal + restock
+  + drawer cash-out), reusing `PosInvoiceService.refund`. `void` forces a
+  manager override (`overrideById`, PIN-verified on-device). The payload's
+  `invoiceId` is the server invoice id, or — when the sale settled in the *same*
+  batch and the device hasn't seen the server id yet — the sale's `clientId`,
+  which the push processor resolves the same way it resolves `cashSessionId`.
+  Partial (line-level) refunds are online-only: the device never receives
+  server invoice-item ids.
 
 Each op runs through `IdempotencyService.executeWithKey(opId)` inside a
 per-op tenant context whose identity is `actorUserId`. Handlers are thin

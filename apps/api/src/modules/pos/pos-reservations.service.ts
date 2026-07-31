@@ -28,6 +28,9 @@ import { EVENTS } from '@erp/shared';
 import { PosTablesService } from './pos-tables.service';
 
 export interface CreateReservationDto {
+  /** Offline-first: a client-minted uuid becomes the row id so a device that
+   *  booked offline can seat/cancel it by the same id (no server remap). */
+  id?: string;
   tableId: string;
   customerName: string;
   phone?: string;
@@ -148,6 +151,7 @@ export class PosReservationsService {
 
       const created = await tx.posTableReservation.create({
         data: {
+          ...(dto.id ? { id: dto.id } : {}),
           tableId: dto.tableId,
           customerName: dto.customerName.trim(),
           phone: dto.phone ?? null,

@@ -6,6 +6,9 @@ import { EventBus } from '../../kernel/events/event-bus';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockService } from '../inventory/stock.service';
+import { StockPostingService } from '../inventory/posting/stock-posting.service';
+import { PurchaseOrdersService } from './purchase-orders.service';
+import { dec, ZERO } from '../../kernel/common/money';
 import { PaginatedResult, PaginationQuery, DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '@erp/shared';
 
 interface CreateGRNInput {
@@ -37,6 +40,8 @@ export class GoodsReceiptsService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly stock: StockService,
+    private readonly stockPosting: StockPostingService,
+    private readonly purchaseOrders: PurchaseOrdersService,
   ) {}
 
   async createAdhoc(input: CreateGRNInput) {
@@ -114,18 +119,25 @@ export class GoodsReceiptsService {
             where: { id: ln.productId, organizationId: orgId },
           });
           if (!product) continue;
-          await this.stock.receive(
+          await this.stock.receiveForDocument(
             {
               productId: ln.productId,
               locationId: input.warehouseId,
               quantity: Number(ln.quantity),
-              unitCost: ln.unitCost ?? 0,
+              // Never 0: a zero-cost receipt posts a zero-value JE (inventory
+              // never capitalised) and permanently dilutes the moving average.
+              unitCost: ln.unitCost ?? Number(product.costPrice ?? 0),
               // Line qty/cost are in the product's purchase unit → convert to base.
               uomId: product.purchaseUomId ?? undefined,
               batchNumber: ln.batchNumber,
               expiryDate: ln.expiryDate ? new Date(ln.expiryDate) : undefined,
               reference: `GRN ${receiptNumber}`,
             } as any,
+            {
+              sourceType: 'goods_receipt',
+              sourceId: grn.id,
+              date: input.receivedAt ? new Date(input.receivedAt) : new Date(),
+            },
             tx,
           );
         }
@@ -160,7 +172,20 @@ export class GoodsReceiptsService {
     return result;
   }
 
-  async create(input: CreateGRNInput & { purchaseOrderId?: string }) {
+  /**
+   * Capture a delivery note as a DRAFT goods receipt. Deliberately inert: no
+   * stock movement, no GL, no PO advance. The only way a GRN affects inventory
+   * is {@link post}, which is the single audited draft→posted transition and
+   * carries the approval check + `applyReceiptToPO` over-receipt guard.
+   *
+   * The three canonical entry points are therefore:
+   *   - {@link createDraft} → {@link post} — clerk captures, supervisor posts
+   *   - {@link createAdhoc} — capture + post in one step for ad-hoc stock-ins
+   *     that reference no PO (POST /procurement/goods-receipts/adhoc)
+   *   - {@link PurchaseOrdersService.receive} — PO-driven receive that creates
+   *     and posts the GRN inside the PO's own $transaction
+   */
+  async createDraft(input: CreateGRNInput & { purchaseOrderId?: string }) {
     const orgId = this.tenant.organizationId;
     if (!input.lines?.length) throw new BadRequestException('At least one line required');
     if (!input.warehouseId) throw new BadRequestException('Warehouse required');
@@ -259,25 +284,80 @@ export class GoodsReceiptsService {
         include: { lines: true },
       });
 
+      // Advance the referenced PO (over-receipt block + receivedQuantity +
+      // status) so a GRN-screen receipt keeps the PO in sync — previously it
+      // stocked the warehouse while the PO stayed at 0 received, which let the
+      // same goods be received a second time via the PO endpoint.
+      let po: any = null;
+      if (grn.purchaseOrderId) {
+        await this.purchaseOrders.applyReceiptToPO(
+          tx,
+          grn.purchaseOrderId,
+          updated.lines.map((l: any) => ({
+            purchaseOrderLineId: l.purchaseOrderLineId ?? undefined,
+            productId: l.productId ?? undefined,
+            quantity: Number(l.quantity),
+            description: l.description,
+          })),
+        );
+        po = await tx.purchaseOrder.findFirst({
+          where: { id: grn.purchaseOrderId, organizationId: orgId },
+          include: { lines: true },
+        });
+      }
+      const poLineById = new Map<string, any>((po?.lines ?? []).map((l: any) => [l.id, l]));
+
+      let receiptNet = ZERO;
+      let receiptTax = ZERO;
       for (const ln of updated.lines) {
         if (!ln.productId) continue;
         const product = await tx.product.findFirst({
           where: { id: ln.productId, organizationId: orgId },
         });
         if (!product) continue;
-        await this.stock.receive(
+        const unitCost = Number(ln.unitCost);
+        const received = await this.stock.receiveForDocument(
           {
             productId: ln.productId,
             locationId: grn.warehouseId,
             quantity: Number(ln.quantity),
-            unitCost: Number(ln.unitCost),
+            unitCost: unitCost > 0 ? unitCost : Number(product.costPrice ?? 0),
             uomId: product.purchaseUomId ?? undefined,
             batchNumber: ln.batchNumber,
             expiryDate: ln.expiryDate ? new Date(ln.expiryDate) : undefined,
             reference: `GRN ${grn.receiptNumber}`,
           } as any,
+          {
+            sourceType: 'goods_receipt',
+            sourceId: grn.id,
+            date: grn.receivedAt ?? new Date(),
+          },
           tx,
         );
+        const lineNet = dec(received.totalValue);
+        receiptNet = receiptNet.plus(lineNet);
+        if (po) {
+          const poLine = ln.purchaseOrderLineId ? poLineById.get(ln.purchaseOrderLineId) : undefined;
+          const taxRate = poLine ? dec(poLine.taxRate ?? 0) : ZERO;
+          receiptTax = receiptTax.plus(lineNet.times(taxRate).dividedBy(100));
+        }
+      }
+
+      // Voucher to the supplier ONLY on the simple PO flow (the PO acts as the
+      // bill): Dr GRNI + Dr Input Tax / Cr AP, so GRNI nets to zero. Ad-hoc GRNs
+      // with no PO intentionally leave GRNI open as received-not-invoiced, to be
+      // cleared by a later vendor bill — vouchering them here would double-count.
+      if (po) {
+        await this.stockPosting.postReceiptVoucher({
+          partnerId: po.partnerId,
+          netTotal: receiptNet,
+          taxTotal: receiptTax,
+          date: grn.receivedAt ?? new Date(),
+          sourceType: 'goods_receipt',
+          sourceId: grn.id,
+          description: `Goods received ${grn.receiptNumber} · PO ${po.orderNumber}`,
+          tx,
+        });
       }
 
       return updated;

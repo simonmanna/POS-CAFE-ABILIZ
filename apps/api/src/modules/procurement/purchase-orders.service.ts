@@ -12,6 +12,9 @@ import { EventBus } from '../../kernel/events/event-bus';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockService } from '../inventory/stock.service';
+import { StockPostingService } from '../inventory/posting/stock-posting.service';
+import { CashSessionService } from '../accounting/treasury/cash-session.service';
+import { dec, ZERO } from '../../kernel/common/money';
 import type {
   CreatePODto,
   ReceivePODto,
@@ -32,6 +35,8 @@ export class PurchaseOrdersService {
     private readonly audit: AuditService,
     private readonly approvals: ApprovalsService,
     private readonly stock: StockService,
+    private readonly stockPosting: StockPostingService,
+    private readonly cashSession: CashSessionService,
   ) {}
 
   // ── Step 1: Register Purchase ──────────────────────────────────────────
@@ -231,6 +236,105 @@ export class PurchaseOrdersService {
 
   // ── Step 2: Receive Products ───────────────────────────────────────────
 
+  /**
+   * Apply a set of received lines to a purchase order inside an existing tx:
+   * hard over-receipt block, bump each PO line's receivedQuantity, and recompute
+   * the PO status — all under optimistic locks. The single source of truth for
+   * "receive against a PO", shared by the PO-driven receive() and the standalone
+   * goods-receipt post() so the two can never diverge (the bug this fixes: post()
+   * used to stock the warehouse while leaving the PO at 0 received, letting the
+   * same goods be received again).
+   *
+   * Lines are matched to PO lines by explicit purchaseOrderLineId, else by the
+   * first PO line with the same productId. Lines that match nothing are ignored
+   * here (they still receive stock) — only matched lines move the PO.
+   */
+  async applyReceiptToPO(
+    tx: any,
+    purchaseOrderId: string,
+    lines: Array<{ purchaseOrderLineId?: string; productId?: string; quantity: number; description?: string }>,
+  ): Promise<{ status: string }> {
+    const orgId = this.tenant.organizationId;
+    const po = await tx.purchaseOrder.findFirst({
+      where: { id: purchaseOrderId, organizationId: orgId },
+      include: { lines: true },
+    });
+    if (!po) throw new NotFoundException('Purchase order not found');
+    if (po.status === 'cancelled')
+      throw new BadRequestException('Cannot receive against a cancelled PO');
+    if (po.status === 'received')
+      throw new BadRequestException('PO is fully received');
+    if (!['active', 'partially_received'].includes(po.status))
+      throw new BadRequestException(`PO is in status "${po.status}" — cannot receive`);
+
+    const poLines = new Map<string, any>(po.lines.map((l: any) => [l.id, l]));
+    const poLinesByProduct = new Map<string, any>(
+      po.lines.filter((l: any) => l.productId).map((l: any) => [l.productId, l]),
+    );
+    const resolve = (ln: { purchaseOrderLineId?: string; productId?: string }): string | null => {
+      if (ln.purchaseOrderLineId) {
+        if (!poLines.has(ln.purchaseOrderLineId))
+          throw new BadRequestException(`PO line ${ln.purchaseOrderLineId} not found`);
+        return ln.purchaseOrderLineId;
+      }
+      if (ln.productId) {
+        const match = poLinesByProduct.get(ln.productId);
+        if (match) return match.id;
+      }
+      return null;
+    };
+
+    // Aggregate by PO line: two receipt lines can map to one PO line, and the
+    // optimistic version lock means each line may be updated only once per tx.
+    const addByLine = new Map<string, number>();
+    for (const ln of lines) {
+      const lineId = resolve(ln);
+      if (!lineId) continue;
+      addByLine.set(lineId, (addByLine.get(lineId) ?? 0) + Number(ln.quantity));
+    }
+
+    // Over-receipt is a hard block (no tolerance) — check every affected line first.
+    for (const [lineId, adding] of addByLine) {
+      const poLine = poLines.get(lineId)!;
+      const ordered = Number(poLine.quantity);
+      const already = Number(poLine.receivedQuantity);
+      if (already + adding > ordered) {
+        throw new BadRequestException(
+          `Over-receiving PO line "${poLine.description}": ordered ${ordered}, already received ${already}, trying to receive ${adding}`,
+        );
+      }
+    }
+
+    for (const [lineId, adding] of addByLine) {
+      const poLine = poLines.get(lineId)!;
+      const updated = await tx.purchaseOrderLine.updateMany({
+        where: { id: lineId, version: poLine.version },
+        data: { receivedQuantity: { increment: adding }, version: { increment: 1 } },
+      });
+      if (updated.count === 0) {
+        throw new BadRequestException(
+          `PO line "${poLine.description}" was modified by another user. Please refresh and try again.`,
+        );
+      }
+    }
+
+    const allLines = await tx.purchaseOrderLine.findMany({ where: { purchaseOrderId } });
+    const fullyReceived = allLines.every(
+      (l: any) => Number(l.receivedQuantity) >= Number(l.quantity),
+    );
+    const newStatus = fullyReceived ? 'received' : 'partially_received';
+    const updatedPo = await tx.purchaseOrder.updateMany({
+      where: { id: purchaseOrderId, organizationId: orgId, version: po.version },
+      data: { status: newStatus, version: { increment: 1 } },
+    });
+    if (updatedPo.count === 0) {
+      throw new BadRequestException(
+        'Purchase order was modified by another user. Please refresh and try again.',
+      );
+    }
+    return { status: newStatus };
+  }
+
   async receive(id: string, dto: ReceivePODto) {
     const orgId = this.tenant.organizationId;
 
@@ -283,26 +387,21 @@ export class PurchaseOrdersService {
       return null;
     }
 
-    // Resolve once and attach back so both loops use the same resolution
-    const resolvedLines = dto.lines.map((rln) => ({
-      ...rln,
-      _resolvedLineId: resolvePOLineId(rln),
-    }));
+    // Resolve once and attach back so both loops use the same resolution.
+    // `_unitCost` falls back to the ordered price when the client omits a cost:
+    // receiving at 0 would post a zero-value GL entry (inventory never
+    // capitalised) and permanently dilute the product's moving average.
+    const resolvedLines = dto.lines.map((rln) => {
+      const resolvedLineId = resolvePOLineId(rln);
+      const poLine = resolvedLineId ? poLines.get(resolvedLineId) : undefined;
+      return {
+        ...rln,
+        _resolvedLineId: resolvedLineId,
+        _unitCost: rln.unitCost ?? (poLine ? Number(poLine.unitPrice) : undefined),
+      };
+    });
 
-    // Validate each receive line against the PO line
-    for (const rln of resolvedLines) {
-      const lineId = rln._resolvedLineId;
-      if (!lineId) continue;
-      const poLine = poLines.get(lineId)!;
-      const ordered = Number(poLine.quantity);
-      const alreadyReceived = Number(poLine.receivedQuantity);
-      const nowReceiving = Number(rln.quantity);
-      if (alreadyReceived + nowReceiving > ordered) {
-        throw new BadRequestException(
-          `Over-receiving PO line "${poLine.description}": ordered ${ordered}, already received ${alreadyReceived}, trying to receive ${nowReceiving}`,
-        );
-      }
-    }
+    // Over-receipt is validated inside applyReceiptToPO (within the tx below).
 
     // Generate GRN number
     const year = new Date().getUTCFullYear();
@@ -335,7 +434,7 @@ export class PurchaseOrdersService {
               productId: rln.productId ?? null,
               description: rln.description,
               quantity: rln.quantity,
-              unitCost: rln.unitCost ?? 0,
+              unitCost: rln._unitCost ?? 0,
               batchNumber: rln.batchNumber ?? null,
               expiryDate: rln.expiryDate
                 ? new Date(rln.expiryDate)
@@ -348,28 +447,19 @@ export class PurchaseOrdersService {
         include: { lines: true },
       });
 
-      // 2. Update PO line receivedQuantity + version (concurrency guard)
-      for (const rln of resolvedLines) {
-        const lineId = rln._resolvedLineId;
-        if (!lineId) continue;
-        const poLine = poLines.get(lineId)!;
-        // Optimistic lock: only update if version matches
-        const updatedLine = await tx.purchaseOrderLine.updateMany({
-          where: {
-            id: lineId,
-            version: poLine.version,
-          },
-          data: {
-            receivedQuantity: { increment: rln.quantity },
-            version: { increment: 1 },
-          },
-        });
-        if (updatedLine.count === 0) {
-          throw new BadRequestException(
-            `PO line "${poLine.description}" was modified by another user. Please refresh and try again.`,
-          );
-        }
-      }
+      // 2. Advance the PO: over-receipt block + receivedQuantity + status, all
+      //    under optimistic locks. Shared with the standalone goods-receipt
+      //    post() so "receive against a PO" has exactly one implementation.
+      const { status: newStatus } = await this.applyReceiptToPO(
+        tx,
+        id,
+        resolvedLines.map((r) => ({
+          purchaseOrderLineId: r._resolvedLineId ?? undefined,
+          productId: r.productId ?? undefined,
+          quantity: Number(r.quantity),
+          description: r.description,
+        })),
+      );
 
       // 3. Post GRN
       await tx.goodsReceiptNote.update({
@@ -381,86 +471,127 @@ export class PurchaseOrdersService {
         },
       });
 
-      // 4. Issue stock-in for each line (only stockable products)
-      for (const rln of dto.lines) {
+      // 4. Issue stock-in for each line (only stockable products).
+      //    receiveForDocument (not receive) so the receipt capitalises into
+      //    inventory: Dr Stock Valuation / Cr GRNI, atomic in this tx, and the
+      //    ledger row carries goods_receipt:<grnId> for traceability.
+      // Accumulate the value actually capitalised, plus its input tax, so the
+      // voucher entry below credits AP with exactly what GRNI was credited.
+      let receiptNet = ZERO;
+      let receiptTax = ZERO;
+
+      for (const rln of resolvedLines) {
         if (!rln.productId) continue;
         const product = await tx.product.findFirst({
           where: { id: rln.productId, organizationId: orgId },
         });
         if (!product) continue;
-        // Use stock service's receiveCore via raw query fallback
-        await this.stock.receive(
+        // Last-resort cost when the line matched no PO line and carried no cost.
+        const unitCost = rln._unitCost ?? Number(product.costPrice ?? 0);
+        const received = await this.stock.receiveForDocument(
           {
             productId: rln.productId,
             locationId: dto.warehouseId,
             quantity: Number(rln.quantity),
-            unitCost: rln.unitCost ?? 0,
+            unitCost,
             uomId: product.purchaseUomId ?? undefined,
             batchNumber: rln.batchNumber,
             expiryDate: rln.expiryDate ? new Date(rln.expiryDate) : undefined,
             reference: `GRN ${receiptNumber}`,
           } as any,
+          {
+            sourceType: 'goods_receipt',
+            sourceId: grn.id,
+            date: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
+          },
           tx,
         );
+        const lineNet = dec(received.totalValue);
+        const poLine = rln._resolvedLineId ? poLines.get(rln._resolvedLineId) : undefined;
+        const taxRate = poLine ? dec(poLine.taxRate ?? 0) : ZERO;
+        receiptNet = receiptNet.plus(lineNet);
+        receiptTax = receiptTax.plus(lineNet.times(taxRate).dividedBy(100));
       }
 
-      // 5. Determine if PO is fully received
-      const allLines = await tx.purchaseOrderLine.findMany({
-        where: { purchaseOrderId: id },
+      // 4b. Voucher the receipt to the supplier: Dr GRNI + Dr Input Tax / Cr AP.
+      //     Closes the accrual postReceipt raised, so a received PO leaves
+      //     Dr Inventory + Dr Input Tax / Cr AP and GRNI back at zero.
+      await this.stockPosting.postReceiptVoucher({
+        partnerId: po.partnerId,
+        netTotal: receiptNet,
+        taxTotal: receiptTax,
+        date: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
+        sourceType: 'goods_receipt',
+        sourceId: grn.id,
+        description: `Goods received ${receiptNumber} · PO ${po.orderNumber}`,
+        tx,
       });
-      const fullyReceived = allLines.every(
-        (l: any) => Number(l.receivedQuantity) >= Number(l.quantity),
-      );
-      const newStatus = fullyReceived ? 'received' : 'partially_received';
 
-      // 6. Update PO status + optimistic lock on PO
-      const updatedPo = await tx.purchaseOrder.updateMany({
-        where: { id, organizationId: orgId, version: po.version },
-        data: {
+      // (PO status already advanced by applyReceiptToPO in step 2.)
+
+      // 7. If cash purchase, auto-settle payment. Only settle the portion just
+      //    received (goods can arrive across several partial receipts), so the
+      //    cash out never exceeds what has been vouchered to AP.
+      if (po.paymentType === 'cash') {
+        const settleAmount = receiptNet.plus(receiptTax);
+        if (settleAmount.gt(ZERO)) {
+          await tx.purchaseOrder.update({
+            where: { id },
+            data: {
+              totalPaid: { increment: settleAmount.toNumber() },
+              paymentStatus:
+                dec(po.totalPaid).plus(settleAmount).gte(dec(po.totalAmount)) ? 'paid' : 'partial',
+            },
+          });
+          await tx.purchasePayment.create({
+            data: {
+              organizationId: orgId,
+              purchaseOrderId: id,
+              amount: settleAmount.toNumber(),
+              paidAt: new Date(),
+              paidById: this.tenant.userId ?? null,
+              reference: `auto:GRN ${receiptNumber}`,
+            },
+          });
+          // GL: Dr AP / Cr Cash — relieve the payable the voucher just raised.
+          await this.stockPosting.postPurchasePayment({
+            partnerId: po.partnerId,
+            amount: settleAmount,
+            method: 'cash',
+            date: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
+            sourceType: 'purchase_order',
+            sourceId: id,
+            description: `Cash purchase ${po.orderNumber} · GRN ${receiptNumber}`,
+            tx,
+          });
+          // Drawer artifact (best-effort): record the pay-out on an open session
+          // so the till's expected cash reflects the withdrawal. GL already done.
+          const session = await this.cashSession.findOpen();
+          if (session) {
+            await this.cashSession.recordExternalPayOut(
+              tx, session.id, settleAmount, `Cash purchase PO ${po.orderNumber}`,
+            );
+          }
+        }
+      }
+
+      // F3 fix: write the audit row inside the TX so an audit failure rolls
+      // the whole receive back (and we never end up with a GRN that no audit
+      // row references).
+      await this.audit.recordInTx(tx, {
+        entity: 'PurchaseOrder',
+        entityId: id,
+        action: 'receive',
+        newValues: {
+          receiptNumber,
           status: newStatus,
-          version: { increment: 1 },
+          linesReceived: dto.lines.length,
         },
       });
-      if (updatedPo.count === 0) {
-        throw new BadRequestException(
-          'Purchase order was modified by another user. Please refresh and try again.',
-        );
-      }
-
-      // 7. If cash purchase, auto-settle payment
-      if (po.paymentType === 'cash') {
-        await tx.purchaseOrder.update({
-          where: { id },
-          data: {
-            totalPaid: po.totalAmount,
-            paymentStatus: 'paid',
-          },
-        });
-        await tx.purchasePayment.create({
-          data: {
-            organizationId: orgId,
-            purchaseOrderId: id,
-            amount: po.totalAmount,
-            paidAt: new Date(),
-            paidById: this.tenant.userId ?? null,
-            reference: `auto:GRN ${receiptNumber}`,
-          },
-        });
-      }
 
       return { grn, status: newStatus };
     });
 
-    await this.audit.record({
-      entity: 'PurchaseOrder',
-      entityId: id,
-      action: 'receive',
-      newValues: {
-        receiptNumber,
-        status: result.status,
-        linesReceived: dto.lines.length,
-      },
-    });
     this.events.publish('purchase_order.received' as any, {
       organizationId: orgId,
       orderId: id,
@@ -523,18 +654,46 @@ export class PurchaseOrdersService {
         },
       });
 
+      // 3. GL: Dr AP / Cr Cash|Bank — relieve the payable the receipt vouchered.
+      //    Bank is the default for a manual credit-PO settlement.
+      const method = dto.method ?? 'bank';
+      await this.stockPosting.postPurchasePayment({
+        partnerId: po.partnerId,
+        amount,
+        method,
+        date: dto.paidAt ? new Date(dto.paidAt) : new Date(),
+        sourceType: 'purchase_order',
+        sourceId: id,
+        description: `Payment PO ${po.orderNumber}${dto.reference ? ` · ${dto.reference}` : ''}`,
+        tx,
+      });
+      // Cash method: also record the drawer pay-out (best-effort, no GL — the
+      // journal above owns the cash credit).
+      if (method === 'cash') {
+        const session = await this.cashSession.findOpen(dto.cashRegisterId);
+        if (session) {
+          await this.cashSession.recordExternalPayOut(
+            tx, session.id, dec(amount), `Payment PO ${po.orderNumber}`,
+          );
+        }
+      }
+
+      // F3 fix: write the audit row inside the TX so an audit failure rolls
+      // the whole payment back.
+      await this.audit.recordInTx(tx, {
+        entity: 'PurchaseOrder',
+        entityId: id,
+        action: 'update',
+        newValues: {
+          paymentStatus: newPaymentStatus,
+          amountPaid: amount,
+          method,
+        },
+      });
+
       return payment;
     });
 
-    await this.audit.record({
-      entity: 'PurchaseOrder',
-      entityId: id,
-      action: 'update',
-      newValues: {
-        paymentStatus: newPaymentStatus,
-        amountPaid: amount,
-      },
-    });
     this.events.publish('purchase_order.paid' as any, {
       organizationId: orgId,
       orderId: id,
@@ -547,37 +706,65 @@ export class PurchaseOrdersService {
   // ── Cancel (simple flow: no approval needed) ───────────────────────────
 
   async update(id: string, dto: UpdatePODto) {
-    const po = await this.requireOwned(id);
-    if (po.status !== 'active')
-      throw new BadRequestException('Only active POs can be updated');
-    return this.prisma.client.purchaseOrder.update({
-      where: { id },
-      data: {
-        description: dto.description,
-        expectedDeliveryDate: dto.expectedDeliveryDate
-          ? new Date(dto.expectedDeliveryDate)
-          : null,
-        notes: dto.notes,
-        terms: dto.terms,
-      },
+    return this.prisma.client.$transaction(async (tx) => {
+      const po = await tx.purchaseOrder.findFirst({ where: { id, organizationId: this.tenant.organizationId } });
+      if (!po) throw new NotFoundException('Purchase order not found');
+      if (po.status !== 'active')
+        throw new BadRequestException('Only active POs can be updated');
+
+      // F4 fix: bump `version` so concurrent updates race-serialise instead of
+      // last-write-wins.
+      const updated = await tx.purchaseOrder.updateMany({
+        where: { id, organizationId: this.tenant.organizationId, version: po.version },
+        data: {
+          description: dto.description,
+          expectedDeliveryDate: dto.expectedDeliveryDate
+            ? new Date(dto.expectedDeliveryDate)
+            : null,
+          notes: dto.notes,
+          terms: dto.terms,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count === 0) {
+        throw new BadRequestException(
+          'Purchase order was modified by another user. Please refresh and try again.',
+        );
+      }
+      return tx.purchaseOrder.findFirst({ where: { id } });
     });
   }
 
   async cancel(id: string, reason?: string) {
-    const po = await this.requireOwned(id);
-    if (['received', 'cancelled', 'billed', 'closed'].includes(po.status))
-      throw new BadRequestException(`Cannot cancel PO in status ${po.status}`);
+    return this.prisma.client.$transaction(async (tx) => {
+      const po = await tx.purchaseOrder.findFirst({ where: { id, organizationId: this.tenant.organizationId } });
+      if (!po) throw new NotFoundException('Purchase order not found');
+      if (['received', 'cancelled', 'billed', 'closed'].includes(po.status))
+        throw new BadRequestException(`Cannot cancel PO in status ${po.status}`);
 
-    const updated = await this.prisma.client.purchaseOrder.update({
-      where: { id },
-      data: { status: 'cancelled', notes: reason ?? po.notes },
+      // F4 fix: bump `version` + run inside a TX so concurrent cancel/receive/activate
+      // calls don't race the status flip.
+      const updated = await tx.purchaseOrder.updateMany({
+        where: { id, organizationId: this.tenant.organizationId, version: po.version },
+        data: {
+          status: 'cancelled',
+          notes: reason ?? po.notes,
+          version: { increment: 1 },
+        },
+      });
+      if (updated.count === 0) {
+        throw new BadRequestException(
+          'Purchase order was modified by another user. Please refresh and try again.',
+        );
+      }
+      const cancelled = await tx.purchaseOrder.findFirst({ where: { id } });
+      this.events.publish('purchase_order.cancelled' as any, {
+        organizationId: this.tenant.organizationId,
+        orderId: id,
+        reason: reason ?? '',
+      });
+      return cancelled;
     });
-    this.events.publish('purchase_order.cancelled' as any, {
-      organizationId: this.tenant.organizationId,
-      orderId: id,
-      reason: reason ?? '',
-    });
-    return updated;
   }
 
   // ── Delete (draft PO only) ─────────────────────────────────────────────

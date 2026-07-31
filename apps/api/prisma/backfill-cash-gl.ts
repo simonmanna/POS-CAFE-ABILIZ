@@ -10,13 +10,13 @@
  * an existing database that pre-dates the cash-GL feature:
  *   npx ts-node prisma/backfill-cash-gl.ts
  */
-import { PrismaClient, type AccountType } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
-const ACCOUNTS: { code: string; name: string; accountType: AccountType; mappingKey: string }[] = [
-  { code: '1900', name: 'Cash Clearing (Suspense)', accountType: 'asset', mappingKey: 'cash_clearing' },
-  { code: '5400', name: 'Cash Short & Over', accountType: 'expense', mappingKey: 'cash_short_over' },
+const ACCOUNTS: { code: string; name: string; categoryKey: string; mappingKey: string }[] = [
+  { code: '1900', name: 'Cash Clearing (Suspense)', categoryKey: 'current_asset', mappingKey: 'cash_clearing' },
+  { code: '5400', name: 'Cash Short & Over', categoryKey: 'other_expense', mappingKey: 'cash_short_over' },
 ];
 
 // New cash-session permissions. Granted to any role that can already reconcile
@@ -40,15 +40,21 @@ async function main() {
   const orgs = await prisma.organization.findMany({ select: { id: true, name: true } });
   for (const org of orgs) {
     for (const a of ACCOUNTS) {
+      const category = await prisma.accountCategory.findFirst({ where: { key: a.categoryKey } });
+      if (!category) {
+        console.warn(`  ⚠ category '${a.categoryKey}' not found for account '${a.code}' — skipping`);
+        continue;
+      }
       const account = await prisma.account.upsert({
         where: { organizationId_code: { organizationId: org.id, code: a.code } },
-        update: { name: a.name, accountType: a.accountType },
+        update: { name: a.name, categoryId: category.id, normalBalance: category.normalBalance },
         create: {
           organizationId: org.id,
           code: a.code,
           name: a.name,
-          accountType: a.accountType,
-          isGroup: false,
+          categoryId: category.id,
+          normalBalance: category.normalBalance,
+          isPostable: true,
           cashFlowCategory: 'operating',
         },
       });

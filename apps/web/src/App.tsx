@@ -15,13 +15,15 @@ import ModifiersPage from '@/pages/menu/ModifiersPage';
 import ComboListPage from '@/pages/pos/ComboListPage';
 import AccompanimentGroupsPage from '@/pages/menu/AccompanimentGroupsPage';
 import { SettingsPage } from '@/pages/settings';
+import { DevCompanySettingsPage } from '@/pages/settings/DevCompanySettingsPage';
+import { CompanySettingsPage } from '@/pages/settings/CompanySettingsPage';
 import { ReceiptSettingsPage } from '@/pages/pos/ReceiptSettingsPage';
-import { PosSettingsPage } from '@/pages/pos/SettingsPage';
 import { DevicesPage } from '@/pages/pos/DevicesPage';
 import { DeadLettersPage } from '@/pages/pos/DeadLettersPage';
 import { PostingMonitorPage } from '@/pages/pos/PostingMonitorPage';
 import { ApprovalsPage } from '@/pages/approvals';
 import { ApprovalPoliciesPage } from '@/pages/approval-policies';
+import { ApprovalWorkflowsPage } from '@/pages/approval-workflows';
 import { RecurringPage } from '@/pages/recurring';
 import { WebhooksPage } from '@/pages/webhooks';
 import { FilesPage } from '@/pages/files';
@@ -32,11 +34,25 @@ import { AssetCategoriesPage } from '@/pages/fixed-asset/AssetCategoriesPage';
 import { AssetsPage } from '@/pages/fixed-asset/AssetsPage';
 import { AssetDetailPage } from '@/pages/fixed-asset/AssetDetailPage';
 import { ChartOfAccountsPage } from '@/pages/accounting/chart-of-accounts';
+import { AccountDetailPage } from '@/pages/accounting/AccountDetailPage';
 import { CashAccountsPage } from '@/pages/accounting/cash-accounts';
 import { CashAccountDetailPage } from '@/pages/accounting/cash-account-detail';
 import { CashRegistersCrudPage } from '@/pages/accounting/cash-registers';
 import { AccountMappingsPage } from '@/pages/accounting/account-mappings';
+import { AccountCategoriesPage } from '@/pages/accounting/account-categories';
 import { JournalEntriesPage } from '@/pages/accounting/journal-entries';
+import { GeneralLedgerPage } from '@/pages/accounting/general-ledger';
+import { ProfitAndLossPage } from '@/pages/accounting/profit-and-loss';
+import { CashFlowPage } from '@/pages/accounting/cash-flow';
+import { AccountLedgerPage } from '@/pages/accounting/account-ledger';
+import { TieOutPage } from '@/pages/accounting/tieout';
+import { AuditLogPage } from '@/pages/accounting/audit-log';
+import FiscalPeriodsPage from '@/pages/accounting/fiscal-periods';
+import TaxesPage from '@/pages/accounting/taxes';
+import { CostCentersPage } from '@/pages/accounting/cost-centers';
+import { CurrencyPage } from '@/pages/accounting/currency';
+import { InventoryValuationPage } from '@/pages/accounting/inventory-valuation';
+import { YearEndClosePage } from '@/pages/accounting/year-end-close';
 import { TrialBalancePage } from '@/pages/accounting/trial-balance';
 import { BalanceSheetPage } from '@/pages/accounting/balance-sheet';
 import { InvoicesPage } from '@/pages/invoicing/invoices';
@@ -55,6 +71,8 @@ import ExpensesReportPage from '@/pages/expenses/ExpensesReportPage';
 import ExpenseCategoriesPage from '@/pages/expenses/ExpenseCategoriesPage';
 import { SupplierPaymentsPage } from '@/pages/purchasing/supplier-payments';
 import { JournalsPage } from '@/pages/accounting/journals';
+import { JournalDetailPage } from '@/pages/accounting/JournalDetailPage';
+import { JournalEditPage } from '@/pages/accounting/JournalEditPage';
 import { JournalEntryCreatePage } from '@/pages/accounting/journal-entry-create';
 import { JournalEntryDetailPage } from '@/pages/accounting/journal-entry-detail';
 import { InventoryPostingRulesPage } from '@/pages/accounting/inventory-posting-rules';
@@ -93,6 +111,7 @@ import ReportCenterPage from '@/pages/reports/ReportCenterPage';
 import { StaffPage } from '@/pages/staff/StaffPage';
 import { RolesPage } from '@/pages/staff/RolesPage';
 import { TasksPage } from '@/pages/tasks/TasksPage';
+import { TaskEditPage } from '@/pages/tasks/TaskEditPage';
 
 export function App() {
   return (
@@ -112,7 +131,6 @@ export function App() {
           <Route path="/pos/kds" element={<KdsPage />} />
           {/* POS Cash Register Management */}
           <Route path="/pos/cash-registers" element={<CashRegistersPage />} />
-          <Route path="/pos/settings" element={<PosSettingsPage />} />
           <Route path="/tables" element={<TablesPage />} />
           <Route path="/tables/reservations" element={<ReservationsPage />} />
           <Route path="/tables/reports" element={<TableReportsPage />} />
@@ -149,25 +167,47 @@ export function App() {
           <Route path="/supplier-payments" element={<SupplierPaymentsPage />} />
           <Route path="/ar-aging" element={<ArAgingPage />} />
           <Route path="/accounts" element={<ChartOfAccountsPage />} />
+          <Route path="/accounts/new" element={<AccountDetailPage />} />
+          {/* Static segments must stay ahead of /accounts/:id. */}
+          <Route path="/accounts/categories" element={<AccountCategoriesPage />} />
+          <Route path="/accounts/:id" element={<AccountDetailPage />} />
           <Route path="/accounts/cash-accounts" element={<CashAccountsPage />} />
           <Route path="/accounts/cash-accounts/:id" element={<CashAccountDetailPage />} />
           <Route path="/accounts/cash-registers" element={<CashRegistersCrudPage />} />
           <Route path="/accounts/mappings" element={<AccountMappingsPage />} />
           <Route path="/accounts/posting-rules" element={<InventoryPostingRulesPage />} />
           <Route path="/journals" element={<JournalsPage />} />
+          <Route path="/journals/new" element={<JournalEditPage />} />
+          <Route path="/journals/:id" element={<JournalDetailPage />} />
+          <Route path="/journals/:id/edit" element={<JournalEditPage />} />
           <Route path="/journal-entries" element={<JournalEntriesPage />} />
           <Route path="/journal-entries/new" element={<JournalEntryCreatePage />} />
           <Route path="/journal-entries/:id" element={<JournalEntryDetailPage />} />
           <Route path="/trial-balance" element={<TrialBalancePage />} />
+          <Route path="/general-ledger" element={<GeneralLedgerPage />} />
+          <Route path="/profit-and-loss" element={<ProfitAndLossPage />} />
+          <Route path="/cash-flow" element={<CashFlowPage />} />
+          <Route path="/accounts/ledger/:id" element={<AccountLedgerPage />} />
+          <Route path="/tieout" element={<TieOutPage />} />
+          <Route path="/audit-log" element={<AuditLogPage />} />
+          <Route path="/fiscal-periods" element={<FiscalPeriodsPage />} />
+          <Route path="/taxes" element={<TaxesPage />} />
+          <Route path="/cost-centers" element={<CostCentersPage />} />
+          <Route path="/currency" element={<CurrencyPage />} />
+          <Route path="/inventory-valuation" element={<InventoryValuationPage />} />
+          <Route path="/year-end-close" element={<YearEndClosePage />} />
           <Route path="/balance-sheet" element={<BalanceSheetPage />} />
           <Route path="/reports" element={<ReportCenterPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />
+          <Route path="/approval-workflows" element={<ApprovalWorkflowsPage />} />
           <Route path="/approval-policies" element={<ApprovalPoliciesPage />} />
           <Route path="/recurring" element={<RecurringPage />} />
           <Route path="/webhooks" element={<WebhooksPage />} />
           <Route path="/files" element={<FilesPage />} />
           <Route path="/modules" element={<ModulesPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/developer" element={<DevCompanySettingsPage />} />
+          <Route path="/settings/company" element={<CompanySettingsPage />} />
           <Route path="/settings/receipt" element={<ReceiptSettingsPage />} />
           <Route path="/settings/backup" element={<BackupPage />} />
           <Route path="/settings/devices" element={<DevicesPage />} />
@@ -200,10 +240,12 @@ export function App() {
           <Route path="/procurement/debit-notes" element={<DebitNotesPage />} />
           <Route path="/procurement/debit-notes/new" element={<DebitNoteCreatePage />} />
           <Route path="/tasks" element={<TasksPage />} />
-          
-        </Route>
-      </Route>
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+                    <Route path="/tasks/new" element={<TaskEditPage />} />
+                    <Route path="/tasks/:id/edit" element={<TaskEditPage />} />
+
+                  </Route>
+                </Route>
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
   );
 }

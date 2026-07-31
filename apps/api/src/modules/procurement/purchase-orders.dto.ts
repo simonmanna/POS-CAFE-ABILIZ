@@ -202,6 +202,16 @@ export class PayPODto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @ApiProperty({ required: false, enum: ['cash', 'bank'], default: 'bank', description: 'Funds source for the GL credit. Cash also records a drawer pay-out.' })
+  @IsOptional()
+  @IsIn(['cash', 'bank'])
+  method?: 'cash' | 'bank';
+
+  @ApiProperty({ required: false, description: 'Cash method only: the till whose open session records the pay-out. Defaults to any open session.' })
+  @IsOptional()
+  @IsString()
+  cashRegisterId?: string;
 }
 
 export class UpdatePODto {

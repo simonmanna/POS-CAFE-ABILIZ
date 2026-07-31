@@ -57,7 +57,7 @@ export class CashFlowController {
   @Post()
   @RequirePermissions(PERMISSIONS.account.create)
   create(@Body() dto: CreateCashAccountDto) {
-    return this.cashFlow.create({ ...dto, accountType: dto.accountType as any });
+    return this.cashFlow.create(dto);
   }
 
   @Patch(':id')

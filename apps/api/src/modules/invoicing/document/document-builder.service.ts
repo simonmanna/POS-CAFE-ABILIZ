@@ -228,8 +228,14 @@ export class DocumentBuilderService {
   /**
    * Resolve the counter account (AR for sales, AP for purchase) plus the
    * income/expense and tax accounts (grouped) for a document.
+   *
+   * `grniAccountId` (purchase only): stockable lines are routed to GRNI-Accrued
+   * rather than an expense account, so posting the bill DEBITS the accrual the
+   * stock receipt credited — clearing it to AP instead of double-counting the
+   * purchase into both Inventory and Expense. Non-stockable lines (services,
+   * opex) still go to expense. Omit the argument to send everything to expense.
    */
-  async groupForPosting(client: any, doc: any, kind: 'sales' | 'purchase' = 'sales', _grniAccountId?: string) {
+  async groupForPosting(client: any, doc: any, kind: 'sales' | 'purchase' = 'sales', grniAccountId?: string) {
     const partner = await client.partner.findFirst({ where: { id: doc.partnerId } });
     const counterAccount =
       kind === 'sales'
@@ -240,14 +246,18 @@ export class DocumentBuilderService {
 
     for (const line of doc.lines) {
       let category: any = null;
+      let stockable = false;
       if (line.productId) {
         const p = await client.product.findFirst({ where: { id: line.productId }, include: { category: true } });
         category = p?.category ?? null;
+        stockable = Boolean(p?.trackInventory);
       }
       const itemAcc =
         kind === 'sales'
           ? await this.determination.incomeAccount({ lineAccountId: line.accountId, category }, client)
-          : await this.determination.expenseAccount({ lineAccountId: line.accountId, category }, client);
+          : stockable && grniAccountId
+            ? grniAccountId
+            : await this.determination.expenseAccount({ lineAccountId: line.accountId, category }, client);
       itemByAccount.set(itemAcc, (itemByAccount.get(itemAcc) ?? ZERO).plus(line.subtotal));
 
       if (line.taxId && !(line.taxAmount as Prisma.Decimal).isZero()) {

@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
+import { AccountResolverService } from './account-resolver.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -7,20 +8,22 @@ import { PrismaService } from '../../../kernel/prisma/prisma.service';
  * Account determination (ADR-009). Resolution order, most specific first:
  *   line override -> partner override -> product category -> tax -> org mapping.
  * Business modules call these helpers; they never hardcode account ids.
+ *
+ * This is now a thin façade over {@link AccountResolverService}, which owns the
+ * actual lookup, the category-aware validation and the metadata cache. Keeping
+ * the façade means the ~15 modules that already call `mapped(...)` need no
+ * change.
  */
 @Injectable()
 export class AccountDeterminationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly resolver: AccountResolverService,
+  ) {}
 
   /** Resolve an org-level mapping (e.g. 'accounts_receivable'); throws if unconfigured. */
   async mapped(key: string, client: any = this.prisma.client): Promise<string> {
-    const mapping = await client.accountMapping.findFirst({ where: { key } });
-    if (!mapping) {
-      throw new BadRequestException(
-        `Account mapping '${key}' is not configured. Set it under Accounting > Account Mapping.`,
-      );
-    }
-    return mapping.accountId;
+    return this.resolver.byMapping(key, client);
   }
 
   async receivableAccount(

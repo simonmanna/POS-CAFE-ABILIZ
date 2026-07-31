@@ -19,6 +19,18 @@ import {
   ReceiveFromBillDto,
 } from './dto/stock.dto';
 
+/**
+ * Identifies the source document that owns a receipt's accounting effect.
+ * Presence of this context is what makes a receipt post to the GL: it both
+ * triggers the Dr Stock Valuation / Cr GRNI entry and stamps the ledger row's
+ * referenceType/referenceId so the movement traces back to its document.
+ */
+export type GlReceiptContext = {
+  sourceType: string;
+  sourceId: string;
+  date: Date;
+};
+
 @Injectable()
 export class StockService {
   constructor(
@@ -57,23 +69,42 @@ export class StockService {
   }
 
   /**
-   * Manual receipt (no bill): recomputes AVCO but does NOT post to GL.
-   * For stockable receipts with a vendor bill, use receiveFromBill() instead
-   * — it integrates the GL effect (Dr Stock / Cr GRNI-Accrued) in one transaction.
+   * Bare receipt: recomputes AVCO and moves quantity but does NOT post to GL.
+   *
+   * Only correct for movements whose value is owned by another journal entry
+   * (or that genuinely have no accounting effect). A purchase receipt is NOT
+   * one of those — goods arriving must capitalise into inventory, so the
+   * procurement paths call {@link receiveForDocument} instead. Leaving this
+   * method GL-less was the root of the "stock expensed on sale but never
+   * capitalised on receipt" defect: Stock Valuation drifted to a permanent
+   * credit balance and the sub-ledger could never tie to the GL.
    */
   async receive(dto: ReceiveStockDto, externalTx?: any) {
     return this.receiveCore(dto, null, externalTx);
   }
 
   /**
-   * Receipt from a vendor bill: same as receive() but additionally posts the
-   * GL effect (Dr Stock Valuation / Cr GRNI-Accrued) inside the bill's
-   * transaction. The bill itself later clears the GRNI to AP.
+   * Receipt owned by a source document (goods receipt, vendor bill): same as
+   * receive() but additionally posts the GL effect (Dr Stock Valuation / Cr
+   * GRNI-Accrued) inside the caller's transaction, and stamps the ledger row
+   * with the document reference so a movement is traceable to its GRN/bill.
+   *
+   * GRNI is the accrual for "goods are here, we owe for them". It is cleared by
+   * whichever document settles the obligation — the vendor bill (Dr GRNI / Cr AP)
+   * or, for a PO with no separate bill, the PO payment (Dr GRNI / Cr Cash|Bank).
    */
-  async receiveFromBill(dto: ReceiveFromBillDto) {
+  async receiveForDocument(dto: ReceiveStockDto, glCtx: GlReceiptContext, externalTx?: any) {
+    return this.receiveCore(dto, glCtx, externalTx);
+  }
+
+  /**
+   * Receipt from a vendor bill. Thin wrapper over {@link receiveForDocument}.
+   */
+  async receiveFromBill(dto: ReceiveFromBillDto, externalTx?: any) {
     return this.receiveCore(
-      { productId: dto.productId, locationId: dto.locationId, quantity: dto.quantity, unitCost: dto.unitCost, batchNumber: dto.batchNumber, expiryDate: dto.expiryDate, notes: dto.notes },
-      { billId: dto.billId, billDate: new Date(dto.billDate) },
+      { productId: dto.productId, locationId: dto.locationId, quantity: dto.quantity, unitCost: dto.unitCost, batchNumber: dto.batchNumber, expiryDate: dto.expiryDate, notes: dto.notes, serialNumbers: dto.serialNumbers },
+      { sourceType: 'vendor_bill', sourceId: dto.billId, date: new Date(dto.billDate) },
+      externalTx,
     );
   }
 
@@ -194,7 +225,7 @@ export class StockService {
 
   private async receiveCore(
     dto: ReceiveStockDto,
-    billCtx: { billId: string; billDate: Date } | null,
+    glCtx: GlReceiptContext | null,
     externalTx?: any,
   ) {
     const organizationId = this.tenant.organizationId;
@@ -307,9 +338,7 @@ export class StockService {
       // Upsert (not createMany) so a return of a previously-issued unit flips its
       // existing row back to in_stock instead of colliding on the unique serial.
       if (product.serialTracking && dto.serialNumbers?.length) {
-        const receiptRef = billCtx
-          ? `vendor_bill:${billCtx.billId}`
-          : `${dto.sourceType ?? 'receipt'}:${dto.sourceId ?? ledgerCode}`;
+        const receiptRef = `${glCtx?.sourceType ?? dto.sourceType ?? 'receipt'}:${glCtx?.sourceId ?? dto.sourceId ?? ledgerCode}`;
         for (const serialNumber of dto.serialNumbers) {
           await tx.inventorySerial.upsert({
             where: {
@@ -359,25 +388,44 @@ export class StockService {
           balanceAfter: currentQty,
           unitCost,
           totalValue: costResolution.totalValue,
-          referenceType: billCtx ? 'vendor_bill' : (dto.sourceType ?? null),
-          referenceId: billCtx?.billId ?? (dto.sourceId ?? null),
+          referenceType: glCtx?.sourceType ?? dto.sourceType ?? null,
+          referenceId: glCtx?.sourceId ?? dto.sourceId ?? null,
           notes: dto.notes ?? null,
           performedBy: this.tenant.userId ?? null,
         },
       });
 
-      // GL effect: only when receiving against a vendor bill (GRNI flow).
-      if (billCtx) {
-        await this.stockPosting.postReceiveFromBill({
+      // GL effect (Dr Stock Valuation / Cr GRNI): only when a source document
+      // owns the receipt's accounting. A bare receive() stays quantity-only.
+      if (glCtx) {
+        await this.stockPosting.postReceipt({
           productId: dto.productId,
           quantity: qty,
           unitCost,
-          date: billCtx.billDate,
-          sourceType: 'vendor_bill',
-          sourceId: billCtx.billId,
+          date: glCtx.date,
+          sourceType: glCtx.sourceType,
+          sourceId: glCtx.sourceId,
           description: `Stock receipt · ${product.name} · ${dto.quantity}`,
           tx,
         });
+
+        // The receipt landed on negative on-hand: the units already sold were
+        // expensed at a stale (often zero) average, so inventory is overstated
+        // and COGS understated by exactly this residual. Square it up in the same
+        // transaction. Only meaningful when the receipt itself hit the GL — a
+        // bare receive() never debited Stock Valuation, so there is nothing to
+        // correct against.
+        if (costResolution.costCorrection && !costResolution.costCorrection.isZero()) {
+          await this.stockPosting.postNegativeStockCostCorrection({
+            productId: dto.productId,
+            amount: costResolution.costCorrection,
+            date: glCtx.date,
+            sourceType: glCtx.sourceType,
+            sourceId: glCtx.sourceId,
+            description: `Negative-stock cost correction · ${product.name}`,
+            tx,
+          });
+        }
       }
 
       this.events.publish('stock.received', {
@@ -401,6 +449,10 @@ export class StockService {
         ledgerCode,
         quantity: dto.quantity,
         unitCost: unitCost.toString(),
+        // Value actually capitalised into inventory (post UOM conversion). Callers
+        // that voucher the receipt against a supplier sum this so their AP credit
+        // exactly matches the GRNI credit raised here — no rounding residual.
+        totalValue: costResolution.totalValue.toString(),
         runningAverageCost: costResolution.newRunningAverage?.toString() ?? stockItem.runningAverageCost.toString(),
       };
     };
@@ -640,6 +692,11 @@ export class StockService {
           orderBy,
         });
         let remaining = qty;
+        // Location on-hand running balance. Seeds the ledger qtyBefore/balanceAfter
+        // in LOCATION terms on this path too (matching the AVCO and serial paths),
+        // instead of the batch-scoped values this branch used to write — those two
+        // meanings on one column made every batch-product stock card wrong.
+        let runningBefore = dec(stockItem.quantity);
         for (const batch of batches) {
           if (remaining.lte(ZERO)) break;
           const batchQty = dec(batch.quantity);
@@ -660,6 +717,14 @@ export class StockService {
               data: { isActive: false },
             });
           }
+          // Decrement the cached location on-hand in lock-step with the batch
+          // layer. Without this, StockItem.quantity never moved on a batch issue,
+          // so on-hand inflated on every sale and diverged from sum(batches).
+          await tx.stockItem.update({
+            where: { id: stockItem.id },
+            data: { quantity: { decrement: consumed } },
+          });
+          const afterLoc = runningBefore.minus(consumed);
           const batchUnitCost = batch.unitCost ? dec(batch.unitCost) : ZERO;
           const consumedValue = batchUnitCost.times(consumed);
           await tx.inventoryLedger.create({
@@ -671,9 +736,9 @@ export class StockService {
               locationId: dto.locationId,
               batchId: batch.id,
               type: moveType,
-              qtyBefore: batchQty,
+              qtyBefore: runningBefore,
               quantityChange: consumed.negated(),
-              balanceAfter: newBatchQty,
+              balanceAfter: afterLoc,
               unitCost: batchUnitCost,
               totalValue: consumedValue,
               referenceType: dto.sourceType ?? null,
@@ -684,6 +749,7 @@ export class StockService {
           });
           totalValue = totalValue.plus(consumedValue);
           remaining = remaining.minus(consumed);
+          runningBefore = afterLoc;
         }
         if (remaining.gt(ZERO)) {
           const consumedQty = qty.minus(remaining);
@@ -691,7 +757,7 @@ export class StockService {
             ? totalValue.dividedBy(consumedQty)
             : dec(product.costPrice ?? 0);
           const overflowValue = overflowUnitCost.times(remaining);
-          const beforeOverflow = dec(stockItem.quantity);
+          const beforeOverflow = runningBefore;
           await tx.stockItem.update({
             where: { id: stockItem.id },
             data: { quantity: { decrement: remaining } },
@@ -783,6 +849,9 @@ export class StockService {
       if (totalValue.gt(ZERO) && !dto.skipGlPosting) {
         await this.stockPosting.postIssue({
           productId: dto.productId,
+          // Cost basis is per (product, variant, location) — without this the GL
+          // leg re-resolves from a sibling variant's average.
+          variantId,
           locationId: dto.locationId,
           quantity: qty,
           date: dto.date ? new Date(dto.date) : new Date(),
@@ -1011,6 +1080,67 @@ export class StockService {
           });
 
           remaining = remaining.minus(movedQty);
+        }
+      }
+
+      // Serial-tracked products: the physical units move with the stock, so their
+      // location must move too. Without this the serials stayed at the source —
+      // the destination could never issue by serial (it fell through to the
+      // product-cost overflow path) and the source kept phantom `in_stock` rows.
+      // Batch ids are remapped to the destination copies created above.
+      if (product.serialTracking) {
+        const movingSerials = await tx.inventorySerial.findMany({
+          where: {
+            organizationId,
+            productId: dto.productId,
+            variantId,
+            locationId: dto.fromLocationId,
+            status: 'in_stock',
+          },
+          orderBy: { receivedAt: 'asc' },
+          take: Math.max(0, Math.floor(qty.toNumber())),
+          select: { id: true, batchId: true },
+        });
+        if (movingSerials.length > 0) {
+          // Map each moved serial's old batch to the destination batch with the
+          // same batchNumber (created in the batch loop above), so batch+serial
+          // products keep their lot linkage across the transfer.
+          const oldBatchIds = [...new Set(movingSerials.map((s: any) => s.batchId).filter(Boolean))] as string[];
+          const batchIdMap = new Map<string, string>();
+          if (oldBatchIds.length > 0) {
+            const oldBatches = await tx.inventoryBatch.findMany({
+              where: { id: { in: oldBatchIds }, organizationId },
+              select: { id: true, batchNumber: true },
+            });
+            const destBatches = await tx.inventoryBatch.findMany({
+              where: {
+                organizationId,
+                productId: dto.productId,
+                variantId,
+                locationId: dto.toLocationId,
+                batchNumber: { in: oldBatches.map((b: any) => b.batchNumber) },
+              },
+              orderBy: { receivedAt: 'desc' },
+              select: { id: true, batchNumber: true },
+            });
+            const destByNumber = new Map<string, string>();
+            for (const b of destBatches) {
+              if (!destByNumber.has(b.batchNumber)) destByNumber.set(b.batchNumber, b.id);
+            }
+            for (const b of oldBatches) {
+              const destId = destByNumber.get(b.batchNumber);
+              if (destId) batchIdMap.set(b.id, destId);
+            }
+          }
+          for (const s of movingSerials) {
+            await tx.inventorySerial.update({
+              where: { id: s.id },
+              data: {
+                locationId: dto.toLocationId,
+                ...(s.batchId && batchIdMap.has(s.batchId) ? { batchId: batchIdMap.get(s.batchId) } : {}),
+              },
+            });
+          }
         }
       }
 

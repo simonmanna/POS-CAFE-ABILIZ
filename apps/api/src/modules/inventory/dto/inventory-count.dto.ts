@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsNotEmpty,
   IsNumber,
@@ -59,4 +60,22 @@ export class SaveCountDraftDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+/**
+ * Submit a count. A physical count overwrites system on-hand, so any movement
+ * that happened AFTER a line was physically counted would be silently absorbed
+ * into the variance (masking shrinkage, or erasing real sales). Submit therefore
+ * refuses when such movements exist unless the supervisor explicitly accepts
+ * them via `force`.
+ */
+export class SubmitCountDto {
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+
+  /** Required when `force` is true — recorded on the session and audited. */
+  @IsOptional()
+  @IsString()
+  forceReason?: string;
 }

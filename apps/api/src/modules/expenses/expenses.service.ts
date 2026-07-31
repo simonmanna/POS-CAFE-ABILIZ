@@ -4,6 +4,7 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 import { EventBus } from '../../kernel/events/event-bus';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { PostingService } from '../accounting/posting/posting.service';
 import {
   ApproveExpenseDto,
@@ -64,6 +65,7 @@ export class ExpensesService {
     private readonly events: EventBus,
     private readonly sequence: SequenceService,
     private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
     private readonly posting: PostingService,
   ) {}
 
@@ -232,11 +234,16 @@ export class ExpensesService {
 
   // ─── Lookups for the form ───────────────────────────────────────────────────
 
-  /** Postable cash/bank/asset accounts with a GL-derived current balance. */
+  /** Postable cash / bank / other-asset accounts with a GL-derived balance. */
   async paymentAccounts() {
     const accounts = await this.prisma.client.account.findMany({
-      where: { accountType: { in: ['cash', 'bank', 'asset'] }, isGroup: false, isActive: true },
-      orderBy: { code: 'asc' },
+      where: {
+        category: { isCashEquivalent: true },
+        isPostable: true,
+        isActive: true,
+        deprecatedAt: null,
+      },
+      orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
       select: { id: true, name: true, currencyId: true },
     });
     const org = await this.prisma.client.organization
@@ -287,7 +294,7 @@ export class ExpensesService {
       : null;
     if (dto.categoryId && !category) throw new BadRequestException('Category not found');
 
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const created = await this.prisma.client.$transaction(async (tx: any) => {
       const year = new Date(dto.expenseDate).getUTCFullYear();
       const expenseCode = await this.sequence.next(
         `expense:${year}`,
@@ -301,7 +308,9 @@ export class ExpensesService {
           title: dto.title.trim(),
           description: dto.description ?? null,
           amount: dto.amount,
-          status: isCash ? 'POSTED' : 'APPROVED',
+          // Cash expenses post immediately. Credit expenses start DRAFT and are
+          // routed through the approval engine below (no workflow ⇒ APPROVED).
+          status: isCash ? 'POSTED' : 'DRAFT',
           paymentStatus: PaymentStatus.UNPAID,
           paymentType: dto.paymentType,
           expenseDate: new Date(dto.expenseDate),
@@ -341,8 +350,28 @@ export class ExpensesService {
         expenseId: expense.id,
         expenseCode,
       } as any);
-      return this.loadDecorated(tx, expense.id);
+      return expense;
     });
+
+    // Credit expenses route through the approval engine. No configured workflow
+    // ⇒ checkOrRequestApproval returns null and the expense is auto-approved
+    // (legacy behavior). A matching workflow creates a pending ApprovalRequest and
+    // the expense stays DRAFT until every applicable step is cleared.
+    if (!isCash) {
+      const gate = await this.approvals.checkOrRequestApproval({
+        entityType: 'expense',
+        entityId: created.id,
+        snapshot: { amount: Number(dto.amount), categoryId: created.categoryId, title: created.title },
+      });
+      if (!gate?.needsApproval) {
+        await this.prisma.client.expense.updateMany({
+          where: { id: created.id },
+          data: { status: 'APPROVED', approvedById: created.createdById ?? dto.createdBy ?? null },
+        });
+      }
+    }
+
+    return this.loadDecorated(this.prisma.client, created.id);
   }
 
   async update(id: string, dto: UpdateExpenseDto) {
@@ -375,10 +404,34 @@ export class ExpensesService {
   }
 
   async approve(id: string, dto: ApproveExpenseDto) {
+    const exp = await this.prisma.client.expense.findFirst({ where: { id, deletedAt: null } });
+    if (!exp) throw new NotFoundException('Expense not found');
+    if (exp.status !== 'DRAFT') throw new BadRequestException('Only draft expenses can be approved');
+
+    // When the approval engine created a pending request, decide it there — this
+    // honors multi-step chains, per-step permissions and SoD. The expense flips to
+    // APPROVED only once the whole request resolves (a mid-chain step leaves it DRAFT).
+    const pending = await this.prisma.client.approvalRequest.findFirst({
+      where: { entityType: 'expense', entityId: id, status: 'pending' },
+    });
+    if (pending) {
+      await this.approvals.decide({ requestId: pending.id, status: 'approved', comment: dto.approvalNotes });
+      const after = await this.prisma.client.approvalRequest.findFirst({ where: { id: pending.id } });
+      if (after?.status === 'approved') {
+        await this.prisma.client.expense.updateMany({
+          where: { id },
+          data: {
+            status: 'APPROVED',
+            approvedById: this.tenant.userId ?? dto.approvedBy,
+            approvalNotes: dto.approvalNotes ?? null,
+          },
+        });
+      }
+      return this.loadDecorated(this.prisma.client, id);
+    }
+
+    // Legacy path: no configured workflow / no pending request → inline approve.
     return this.prisma.client.$transaction(async (tx: any) => {
-      const exp = await tx.expense.findFirst({ where: { id, deletedAt: null } });
-      if (!exp) throw new NotFoundException('Expense not found');
-      if (exp.status !== 'DRAFT') throw new BadRequestException('Only draft expenses can be approved');
       await tx.expense.updateMany({
         where: { id },
         data: { status: 'APPROVED', approvedById: dto.approvedBy, approvalNotes: dto.approvalNotes ?? null },
@@ -394,10 +447,24 @@ export class ExpensesService {
   }
 
   async reject(id: string, reason?: string) {
+    const exp = await this.prisma.client.expense.findFirst({ where: { id, deletedAt: null } });
+    if (!exp) throw new NotFoundException('Expense not found');
+    if (exp.status !== 'DRAFT') throw new BadRequestException('Only draft expenses can be rejected');
+
+    const pending = await this.prisma.client.approvalRequest.findFirst({
+      where: { entityType: 'expense', entityId: id, status: 'pending' },
+    });
+    if (pending) {
+      // Any rejection resolves the whole request as rejected.
+      await this.approvals.decide({ requestId: pending.id, status: 'rejected', comment: reason });
+      await this.prisma.client.expense.updateMany({
+        where: { id },
+        data: { status: 'REJECTED', approvalNotes: reason ?? null },
+      });
+      return this.loadDecorated(this.prisma.client, id);
+    }
+
     return this.prisma.client.$transaction(async (tx: any) => {
-      const exp = await tx.expense.findFirst({ where: { id, deletedAt: null } });
-      if (!exp) throw new NotFoundException('Expense not found');
-      if (exp.status !== 'DRAFT') throw new BadRequestException('Only draft expenses can be rejected');
       await tx.expense.updateMany({
         where: { id },
         data: { status: 'REJECTED', approvalNotes: reason ?? null },
@@ -413,6 +480,24 @@ export class ExpensesService {
   }
 
   async pay(id: string, dto: PayExpenseDto) {
+    // Block payment until the approval engine clears the expense (no workflow ⇒
+    // proceeds; a pending multi-step chain blocks the payout).
+    const exp0 = await this.prisma.client.expense.findFirst({
+      where: { id, deletedAt: null },
+      select: { amount: true },
+    });
+    if (!exp0) throw new NotFoundException('Expense not found');
+    const gate = await this.approvals.checkOrRequestApproval({
+      entityType: 'expense',
+      entityId: id,
+      snapshot: { amount: Number(exp0.amount) },
+    });
+    if (gate?.needsApproval) {
+      throw new BadRequestException(
+        `Approval required before paying this expense. Pending approval request ${gate.requestId}.`,
+      );
+    }
+
     return this.prisma.client.$transaction(async (tx: any) => {
       const exp = await tx.expense.findFirst({ where: { id, deletedAt: null } });
       if (!exp) throw new NotFoundException('Expense not found');
@@ -514,7 +599,7 @@ export class ExpensesService {
 
     const debitAccountId = await this.resolveExpenseAccountId(tx, category);
     const creditAccount = await tx.account.findFirst({
-      where: { id: input.accountId, isGroup: false, isActive: true },
+      where: { id: input.accountId, isPostable: true, isActive: true },
     });
 
     let journalEntryId: string | null = null;
@@ -580,13 +665,22 @@ export class ExpensesService {
   private async resolveExpenseAccountId(tx: any, category: any | null): Promise<string | null> {
     if (category?.ledgerAccountId) {
       const acc = await tx.account.findFirst({
-        where: { id: category.ledgerAccountId, isGroup: false, isActive: true },
+        where: { id: category.ledgerAccountId, isPostable: true, isActive: true },
       });
       if (acc) return acc.id;
     }
+    // Fall back to the org's configured default expense account rather than
+    // "whichever expense account sorts first by code".
+    const mapping = await tx.accountMapping.findFirst({ where: { key: 'default_expense' } });
+    if (mapping) return mapping.accountId;
     const fallback = await tx.account.findFirst({
-      where: { accountType: 'expense', isGroup: false, isActive: true },
-      orderBy: { code: 'asc' },
+      where: {
+        category: { classification: 'expense' },
+        isPostable: true,
+        isActive: true,
+        deprecatedAt: null,
+      },
+      orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
     });
     return fallback?.id ?? null;
   }

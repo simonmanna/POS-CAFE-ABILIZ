@@ -47,6 +47,11 @@ export class StockPostingService {
   async postIssue(params: {
     productId: string;
     locationId: string;
+    /** Variant being issued. REQUIRED for variant products: the cost basis is
+     *  per (product, variant, location), so omitting it made the GL re-resolve
+     *  from an arbitrary sibling variant's running average while the ledger row
+     *  used the correct one — sub-ledger and GL silently disagreed. */
+    variantId?: string | null;
     quantity: Prisma.Decimal.Value;
     date: Date;
     sourceType: string;
@@ -65,8 +70,14 @@ export class StockPostingService {
 
     const product = await params.tx.product.findFirst({ where: { id: params.productId } });
     if (!product) throw new BadRequestException('Product not found');
+    const variantId = params.variantId ?? null;
     const stockItem = await params.tx.stockItem.findFirst({
-      where: { organizationId: this.tenant.organizationId, productId: params.productId, locationId: params.locationId },
+      where: {
+        organizationId: this.tenant.organizationId,
+        productId: params.productId,
+        variantKey: variantId ?? '',
+        locationId: params.locationId,
+      },
     });
 
     let resolution: CostResolution;
@@ -78,7 +89,7 @@ export class StockPostingService {
         throw new BadRequestException('FIFO costing requires batchTracking=true on the product');
       }
       const batches = await params.tx.inventoryBatch.findMany({
-        where: { organizationId: this.tenant.organizationId, productId: params.productId, locationId: params.locationId, quantity: { gt: 0 }, isActive: true },
+        where: { organizationId: this.tenant.organizationId, productId: params.productId, variantId, locationId: params.locationId, quantity: { gt: 0 }, isActive: true },
         orderBy: [{ expiryDate: 'asc', nulls: 'last' }, { receivedAt: 'asc' }],
       });
       resolution = this.costResolver.resolveIssueCost(
@@ -167,9 +178,14 @@ export class StockPostingService {
   }
 
   /**
-   * Receive stock from a vendor bill (the "GRNI accrual" leg).
+   * Capitalise a stock receipt: Dr Stock Valuation / Cr GRNI-Accrued.
+   *
+   * Used by every receipt that has an owning source document — goods receipts
+   * (PO-driven and ad-hoc) and vendor bills alike. GRNI is the partner-agnostic
+   * "goods here, not yet settled" accrual; the settling document (vendor bill →
+   * AP, or PO payment → cash) clears it.
    */
-  async postReceiveFromBill(params: {
+  async postReceipt(params: {
     productId: string;
     quantity: Prisma.Decimal.Value;
     unitCost: Prisma.Decimal.Value;
@@ -208,6 +224,172 @@ export class StockPostingService {
     }
 
     return { unitCost, totalValue, newRunningAverage: unitCost };
+  }
+
+  /**
+   * Voucher a goods receipt against the supplier: Dr GRNI + Dr Input Tax / Cr AP.
+   *
+   * {@link postReceipt} raises the GRNI accrual per line as stock lands. This
+   * closes that accrual into the supplier's payable in the same transaction, so
+   * a receipt against a known supplier leaves the books at
+   * `Dr Inventory + Dr Input Tax / Cr AP` and GRNI nets to zero — while still
+   * leaving both legs visible in the journal for audit.
+   *
+   * Skipped when the receipt has no partner (ad-hoc stock-in): GRNI correctly
+   * stays open as an unvouchered-goods accrual until someone reconciles it.
+   */
+  async postReceiptVoucher(params: {
+    partnerId: string;
+    netTotal: Prisma.Decimal.Value;
+    taxTotal?: Prisma.Decimal.Value;
+    date: Date;
+    sourceType: string;
+    sourceId: string;
+    description?: string;
+    tx: any;
+  }): Promise<void> {
+    const net = dec(params.netTotal);
+    const tax = dec(params.taxTotal ?? 0);
+    const gross = net.plus(tax);
+    if (gross.lte(ZERO)) return;
+
+    const partner = await params.tx.partner.findFirst({ where: { id: params.partnerId } });
+    const apAccount = await this.determination.payableAccount(partner, params.tx);
+    const grniAccount = await this.determination.mapped('grni_accrued', params.tx);
+
+    const lines: PostingLineInput[] = [];
+    if (net.gt(ZERO)) {
+      lines.push({ accountId: grniAccount, debit: net.toString(), description: 'GRNI clearing' });
+    }
+    if (tax.gt(ZERO)) {
+      const taxAccount = await this.determination.mapped('tax_receivable', params.tx);
+      lines.push({ accountId: taxAccount, debit: tax.toString(), description: 'Input tax' });
+    }
+    lines.push({
+      accountId: apAccount,
+      credit: gross.toString(),
+      partnerId: params.partnerId,
+      description: params.description ?? 'Goods received',
+    });
+
+    await this.posting.post(
+      {
+        journalCode: 'PURCH',
+        date: params.date,
+        description: params.description ?? 'Goods received',
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        lines,
+      } as any,
+      params.tx,
+    );
+  }
+
+  /**
+   * Settle a purchase against cash/bank: Dr AP / Cr Cash|Bank.
+   * Used by PO payments, which carry no separate vendor-bill document.
+   */
+  async postPurchasePayment(params: {
+    partnerId: string;
+    amount: Prisma.Decimal.Value;
+    method: 'cash' | 'bank';
+    date: Date;
+    sourceType: string;
+    sourceId: string;
+    description?: string;
+    tx: any;
+  }): Promise<void> {
+    const amount = dec(params.amount);
+    if (amount.lte(ZERO)) return;
+
+    const partner = await params.tx.partner.findFirst({ where: { id: params.partnerId } });
+    const apAccount = await this.determination.payableAccount(partner, params.tx);
+    const fundsAccount = await this.determination.mapped(
+      params.method === 'cash' ? 'default_cash' : 'default_bank',
+      params.tx,
+    );
+
+    await this.posting.post(
+      {
+        journalCode: params.method === 'cash' ? 'CASH' : 'BANK',
+        date: params.date,
+        description: params.description ?? 'Purchase payment',
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        lines: [
+          { accountId: apAccount, debit: amount.toString(), partnerId: params.partnerId, description: params.description ?? 'Purchase payment' },
+          { accountId: fundsAccount, credit: amount.toString(), description: params.description ?? 'Purchase payment' },
+        ],
+      } as any,
+      params.tx,
+    );
+  }
+
+  /**
+   * Negative-stock cost correction (AVCO).
+   *
+   * When goods are sold before they are received (the never-block-sales rule),
+   * the issue is expensed at whatever average was on the quant at the time —
+   * frequently zero. Inventory is then overstated and COGS understated until the
+   * goods actually arrive. On the covering receipt {@link CostResolverService}
+   * computes the residual and this posts it, restoring
+   * `StockValuation == quantity × runningAverageCost`.
+   *
+   *   amount > 0 → Dr COGS / Cr Stock Valuation (release the overstatement)
+   *   amount < 0 → Dr Stock Valuation / Cr COGS
+   *
+   * Uses the COGS_CORRECTION posting rule when configured so the correction can
+   * be routed to its own account for analysis, else falls back to plain COGS.
+   */
+  async postNegativeStockCostCorrection(params: {
+    productId: string;
+    amount: Prisma.Decimal;
+    date: Date;
+    sourceType: string;
+    sourceId: string;
+    description?: string;
+    tx: any;
+  }): Promise<void> {
+    const amount = dec(params.amount);
+    if (amount.isZero()) return;
+
+    const product = await params.tx.product.findFirst({ where: { id: params.productId } });
+    const name = product?.name ?? params.productId;
+    const magnitude = amount.abs();
+
+    const lines =
+      (await this.resolveLines('COGS_CORRECTION' as any, params.productId, magnitude, params.tx)) ??
+      (await (async (): Promise<PostingLineInput[]> => {
+        const stockValuationAccountId = await this.determination.mapped('stock_valuation', params.tx);
+        const cogsAccountId = await this.determination.mapped('cogs', params.tx);
+        const label = `Negative-stock cost correction · ${name}`;
+        return amount.gt(ZERO)
+          ? [
+              { accountId: cogsAccountId, debit: magnitude.toString(), description: label },
+              { accountId: stockValuationAccountId, credit: magnitude.toString(), description: label },
+            ]
+          : [
+              { accountId: stockValuationAccountId, debit: magnitude.toString(), description: label },
+              { accountId: cogsAccountId, credit: magnitude.toString(), description: label },
+            ];
+      })());
+
+    if (lines.length > 0) {
+      await this.posting.post(
+        {
+          journalCode: 'INV',
+          date: params.date,
+          description: params.description ?? `Negative-stock cost correction · ${name}`,
+          sourceType: params.sourceType,
+          sourceId: params.sourceId,
+          lines,
+        },
+        params.tx,
+      );
+    }
+    this.log.warn(
+      `[stock] negative-stock cost correction ${amount.toString()} posted for ${name} (${params.sourceType}:${params.sourceId})`,
+    );
   }
 
   /**
@@ -552,8 +734,25 @@ export class StockPostingService {
       const lines = await this.ruleService.resolve(movementType, productId, totalValue, { tx });
       return lines;
     } catch (err: any) {
-      if (err.message?.includes('No posting rule configured')) {
+      const message = String(err?.message ?? '');
+      // No rule configured for this movement type — the documented fallback.
+      if (message.includes('No posting rule configured')) {
         this.log.warn(`No posting rule for ${movementType}, falling back to AccountMapping defaults`);
+        return null;
+      }
+      // The generated Prisma client predates this movement type (a new enum
+      // value shipped but `prisma generate` has not been re-run). Falling back
+      // keeps stock movements posting correctly instead of failing a receipt
+      // over a lookup for a rule that cannot exist yet.
+      if (
+        err?.name === 'PrismaClientValidationError' ||
+        message.includes('Invalid value for argument') ||
+        message.includes('Invalid enum value')
+      ) {
+        this.log.warn(
+          `Posting-rule lookup rejected movement type ${movementType} (stale Prisma client?) — ` +
+            'falling back to AccountMapping defaults. Run `pnpm db:generate`.',
+        );
         return null;
       }
       throw err;

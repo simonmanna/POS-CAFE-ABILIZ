@@ -20,6 +20,20 @@ import { JwtTokenService, type AccessTokenPayload } from './kernel/auth/jwt-toke
 import { validateEnv } from './kernel/config/env';
 import { requestIdMiddleware } from './kernel/observability/request-id.middleware';
 
+/**
+ * Routes allowed to authenticate from a query-string token.
+ *
+ * Kept to Server-Sent-Events endpoints only: the browser `EventSource` API
+ * cannot attach an Authorization header, so the token has to ride in the URL.
+ * Everywhere else a URL-borne credential is a needless leak into proxy access
+ * logs, browser history and Referer headers.
+ */
+const EVENT_STREAM_PATHS = ['/pos/tables/stream', '/pos/kds/stream'];
+
+function isEventStreamPath(path: string): boolean {
+  return EVENT_STREAM_PATHS.some((p) => path.endsWith(p));
+}
+
 async function bootstrap(): Promise<void> {
   // D4-1: refuse-to-start guard. In production, missing or weak JWT secrets
   // are fatal. In dev, we warn but proceed so engineers can iterate.
@@ -68,11 +82,24 @@ async function bootstrap(): Promise<void> {
     .map((o) => o.trim())
     .filter(Boolean);
 
-  // LAN deployment: POS terminals browse to http://<lan-ip>:5173, an origin
-  // the operator cannot know in advance (DHCP moves it). Outside production,
-  // accept any private-range origin so a cafe LAN works out of the box.
-  // Production stays strict: CORS_ORIGINS must list the real origins.
-  const allowPrivateLan = process.env.NODE_ENV !== 'production' && process.env.CORS_ALLOW_LAN !== 'false';
+  // LAN deployment: POS terminals browse to http://<lan-ip>:5173, an origin the
+  // operator cannot know in advance (DHCP moves it), so any private-range origin
+  // is accepted and a cafe LAN works out of the box.
+  //
+  // Three states, because this product is deployed on-prem: on by default in
+  // dev, off by default in production, and explicitly opt-in-able for a real
+  // on-prem LAN via CORS_ALLOW_LAN=true. Note this widens `credentials: true`
+  // CORS to every host on the local network — safe on an isolated shop LAN,
+  // not safe on an internet-facing box.
+  const lanFlag = process.env.CORS_ALLOW_LAN;
+  const allowPrivateLan =
+    lanFlag === 'true' || (lanFlag !== 'false' && process.env.NODE_ENV !== 'production');
+  if (allowPrivateLan && process.env.NODE_ENV === 'production') {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[cors] CORS_ALLOW_LAN=true in production — every private-network origin may send credentialed requests.',
+    );
+  }
   const PRIVATE_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/;
   const originRule: CorsOptions['origin'] = allowPrivateLan
     ? (origin, cb) => cb(null, !origin || origins.includes(origin) || PRIVATE_ORIGIN.test(origin))
@@ -102,7 +129,10 @@ async function bootstrap(): Promise<void> {
     const header = req.headers['authorization'];
     if (header?.startsWith('Bearer ')) {
       token = header.slice('Bearer '.length);
-    } else if (req.query?.access_token) {
+    } else if (req.query?.access_token && isEventStreamPath(req.path)) {
+      // Query-string credentials leak into proxy logs, browser history and
+      // Referer headers, so they are honoured ONLY on the SSE routes, where the
+      // browser EventSource API genuinely cannot send an Authorization header.
       token = String(req.query.access_token);
     }
     if (token) {
@@ -117,7 +147,8 @@ async function bootstrap(): Promise<void> {
         // correct on a shared terminal. The bearer JWT still establishes the org
         // boundary and transport auth; the POS token only narrows the identity.
         let effective = payload;
-        const posHeaderRaw = req.headers['x-pos-user'] ?? req.query.pos_token;
+        const posHeaderRaw =
+          req.headers['x-pos-user'] ?? (isEventStreamPath(req.path) ? req.query.pos_token : undefined);
         const posHeader = Array.isArray(posHeaderRaw) ? posHeaderRaw[0] : posHeaderRaw;
         if (posHeader) {
           try {

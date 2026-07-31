@@ -1,13 +1,25 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { AccountType, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { PostingService } from '../posting/posting.service';
 import { AccountDeterminationService } from '../posting/account-determination.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 import { dec, ZERO } from '../../../kernel/common/money';
+import { AccountResolverService } from '../posting/account-resolver.service';
 
-const PAYMENT_ACCOUNT_TYPES: AccountType[] = ['cash', 'bank', 'mobile_money', 'petty_cash'];
+/**
+ * Legacy account types accepted by `createCashAccount`, mapped to the category
+ * the new account is created under. Membership in "is this a payment account"
+ * is decided by `AccountCategory.isCashEquivalent`, not by this map — see
+ * AccountResolverService.cashEquivalentIds().
+ */
+const PAYMENT_TYPE_TO_CATEGORY: Record<string, string> = {
+  cash: 'cash',
+  bank: 'bank',
+  mobile_money: 'mobile_money',
+  petty_cash: 'petty_cash',
+};
 
 @Injectable()
 export class CashFlowService {
@@ -16,6 +28,7 @@ export class CashFlowService {
     private readonly tenant: TenantContextService,
     private readonly posting: PostingService,
     private readonly determination: AccountDeterminationService,
+    private readonly accounts: AccountResolverService,
   ) {}
 
   async getCashAccounts() {
@@ -23,12 +36,15 @@ export class CashFlowService {
     const accounts = await this.prisma.client.account.findMany({
       where: {
         organizationId: orgId,
-        accountType: { in: PAYMENT_ACCOUNT_TYPES },
+        category: { isCashEquivalent: true },
         isActive: true,
         deletedAt: null,
       },
-      orderBy: { accountType: 'asc' },
-      include: { cashRegisters: { select: { id: true, name: true, code: true } } },
+      orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+      include: {
+        category: { select: { key: true, name: true } },
+        cashRegisters: { select: { id: true, name: true, code: true } },
+      },
     });
 
     const grouped = await this.prisma.client.journalLine.groupBy({
@@ -56,7 +72,7 @@ export class CashFlowService {
       id: a.id,
       code: a.code,
       name: a.name,
-      accountType: a.accountType,
+      categoryKey: (a as any).category?.key ?? null,
       currencyId: a.currencyId,
       bankName: a.bankName,
       accountNumber: a.accountNumber,
@@ -69,7 +85,7 @@ export class CashFlowService {
   async create(dto: {
     code: string;
     name: string;
-    accountType: AccountType;
+    accountType: string;
     currencyId?: string;
     bankName?: string;
     accountNumber?: string;
@@ -77,8 +93,18 @@ export class CashFlowService {
   }) {
     const orgId = this.tenant.organizationId;
     if (!dto.code || !dto.name) throw new BadRequestException('Code and name are required');
-    if (!PAYMENT_ACCOUNT_TYPES.includes(dto.accountType)) {
+    const categoryKey = PAYMENT_TYPE_TO_CATEGORY[dto.accountType];
+    if (!categoryKey) {
       throw new BadRequestException('Account type must be a payment account type');
+    }
+    const category = await this.prisma.client.accountCategory.findFirst({
+      where: { key: categoryKey },
+    });
+    if (!category) {
+      throw new BadRequestException(
+        `Account category '${categoryKey}' is missing for this organization. ` +
+          'Run the accounting backfill (prisma/backfill-account-category.ts).',
+      );
     }
 
     const existing = await this.prisma.client.account.findUnique({
@@ -88,7 +114,7 @@ export class CashFlowService {
 
     if (dto.isDefault) {
       await this.prisma.client.account.updateMany({
-        where: { organizationId: orgId, accountType: dto.accountType, isDefault: true },
+        where: { organizationId: orgId, categoryId: category.id, isDefault: true },
         data: { isDefault: false },
       });
     }
@@ -98,7 +124,8 @@ export class CashFlowService {
         organizationId: orgId,
         code: dto.code,
         name: dto.name,
-        accountType: dto.accountType,
+        categoryId: category.id,
+        normalBalance: category.normalBalance,
         currencyId: dto.currencyId ?? null,
         bankName: dto.bankName ?? null,
         accountNumber: dto.accountNumber ?? null,
@@ -121,7 +148,7 @@ export class CashFlowService {
 
     if (dto.isDefault) {
       await this.prisma.client.account.updateMany({
-        where: { organizationId: orgId, accountType: account.accountType, isDefault: true, id: { not: id } },
+        where: { organizationId: orgId, categoryId: account.categoryId, isDefault: true, id: { not: id } },
         data: { isDefault: false },
       });
     }
@@ -155,7 +182,8 @@ export class CashFlowService {
       where: { id: accountId, organizationId: orgId },
     });
     if (!account) throw new BadRequestException('Account not found');
-    if (!PAYMENT_ACCOUNT_TYPES.includes(account.accountType)) {
+    const cashIds = await this.accounts.cashEquivalentIds();
+    if (!cashIds.includes(account.id)) {
       throw new BadRequestException('Account is not a payment account');
     }
     const suspenseId = await this.determination.mapped('cash_suspense');
@@ -179,7 +207,8 @@ export class CashFlowService {
       where: { id: accountId, organizationId: orgId },
     });
     if (!account) throw new BadRequestException('Account not found');
-    if (!PAYMENT_ACCOUNT_TYPES.includes(account.accountType)) {
+    const cashIds = await this.accounts.cashEquivalentIds();
+    if (!cashIds.includes(account.id)) {
       throw new BadRequestException('Account is not a payment account');
     }
     const suspenseId = await this.determination.mapped('cash_suspense');
@@ -256,7 +285,7 @@ export class CashFlowService {
         id: account.id,
         code: account.code,
         name: account.name,
-        accountType: account.accountType,
+        categoryId: account.categoryId,
         bankName: account.bankName,
         accountNumber: account.accountNumber,
         currencyId: account.currencyId,

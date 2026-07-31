@@ -86,6 +86,36 @@ export enum RestoreScope {
   Everything = 'everything',
 }
 
+export type RestoreScopeType = 'database' | 'files' | 'config' | 'everything';
+
+export class RestoreDto {
+  @IsEnum(RestoreScope)
+  scope!: RestoreScopeType;
+
+  @IsString()
+  backupFile!: string;
+
+  @IsOptional() @IsString()
+  targetDatabase?: string;
+
+  @IsOptional() @IsBoolean()
+  verifyOnly?: boolean;
+}
+
+export class RestoreResultDto {
+  @IsBoolean()
+  success!: boolean;
+
+  @IsString()
+  message!: string;
+
+  @IsNumber()
+  durationMs!: number;
+
+  @IsOptional() @IsString()
+  error?: string;
+}
+
 export enum BackupDay {
   Sunday = 0,
   Monday = 1,

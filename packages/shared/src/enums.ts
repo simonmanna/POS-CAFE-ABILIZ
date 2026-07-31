@@ -31,6 +31,14 @@ export type AddressType = (typeof ADDRESS_TYPES)[number];
 
 // ---------------------------- Accounting (Phase 2) --------------------------
 
+/**
+ * @deprecated Legacy account type. Replaced by `AccountCategory` — see
+ * `./accounting/account-category`. This list is retained only for the
+ * Android POS client compatibility; it will be removed after the next
+ * mobile release.
+ *
+ * Mapped from AccountCategory via `legacyAccountTypeFor()`.
+ */
 export const ACCOUNT_TYPES = [
   'asset',
   'liability',
@@ -49,19 +57,6 @@ export const ACCOUNT_TYPES = [
   'contra_liability',
 ] as const;
 export type AccountType = (typeof ACCOUNT_TYPES)[number];
-
-/** Account types whose normal balance is a debit (assets, expenses...). */
-export const DEBIT_NORMAL_ACCOUNT_TYPES: AccountType[] = [
-  'asset',
-  'expense',
-  'cost_of_goods_sold',
-  'bank',
-  'cash',
-  'mobile_money',
-  'petty_cash',
-  'receivable',
-  'contra_liability',
-];
 
 export const JOURNAL_TYPES = [
   'general',
@@ -109,61 +104,12 @@ export type PaymentDirection = (typeof PAYMENT_DIRECTION)[number];
 export const PAYMENT_METHODS = ['cash', 'bank', 'mobile_money', 'card', 'cheque'] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
-/** Well-known account-determination mapping keys (org-level defaults). */
-export const ACCOUNT_MAPPING_KEYS = [
-  'accounts_receivable',
-  'accounts_payable',
-  'sales_revenue',
-  'default_expense',
-  'sales_discount',
-  'tax_payable',
-  'tax_receivable',
-  'default_cash',
-  'default_bank',
-  'rounding',
-  'retained_earnings',
-  'suspense',
-  'cash_suspense',
-  // M3 — inventory→GL
-  'stock_valuation',
-  'cogs',
-  'grni_accrued',
-  'stock_adjustment_income',
-  'stock_adjustment_expense',
-  // Fixed Assets
-  'fixed_asset_valuation',
-  'accumulated_depreciation',
-  'depreciation_expense',
-  'asset_gain_loss',
-  'asset_revaluation_surplus',
-] as const;
-export type AccountMappingKey = (typeof ACCOUNT_MAPPING_KEYS)[number];
-
-export const ACCOUNT_MAPPING_LABELS: Record<AccountMappingKey, string> = {
-  accounts_receivable: 'Accounts Receivable',
-  accounts_payable: 'Accounts Payable',
-  sales_revenue: 'Sales Revenue',
-  default_expense: 'Default Expense',
-  sales_discount: 'Sales Discount',
-  tax_payable: 'Tax Payable',
-  tax_receivable: 'Tax Receivable',
-  default_cash: 'Default Cash',
-  default_bank: 'Default Bank',
-  rounding: 'Rounding',
-  retained_earnings: 'Retained Earnings',
-  suspense: 'Suspense',
-  cash_suspense: 'Cash Suspense',
-  stock_valuation: 'Stock Valuation',
-  cogs: 'Cost of Goods Sold',
-  grni_accrued: 'Goods Received Not Invoiced',
-  stock_adjustment_income: 'Stock Adjustment Income',
-  stock_adjustment_expense: 'Stock Adjustment Expense',
-  fixed_asset_valuation: 'Fixed Asset Valuation',
-  accumulated_depreciation: 'Accumulated Depreciation',
-  depreciation_expense: 'Depreciation Expense',
-  asset_gain_loss: 'Asset Gain/Loss',
-  asset_revaluation_surplus: 'Asset Revaluation Surplus',
-};
+/**
+ * Account-determination mapping keys now live in `./accounting/account-mappings`
+ * as `ACCOUNT_MAPPING_REGISTRY` (key + label + group + expectedCategories +
+ * required). `ACCOUNT_MAPPING_KEYS` and `ACCOUNT_MAPPING_LABELS` are still
+ * exported from there as derived aliases.
+ */
 
 /**
  * Per-product inventory costing method (M3).
@@ -227,6 +173,10 @@ export const INVENTORY_MOVEMENT_TYPES = [
   'PRODUCTION_CONSUME',
   'PRODUCTION_OUTPUT',
   'REVALUATION',
+  /** Squares up COGS/valuation after a receipt lands on negative on-hand
+   *  (goods sold before they were received). See
+   *  StockPostingService.postNegativeStockCostCorrection. */
+  'COGS_CORRECTION',
 ] as const;
 export type InventoryMovementType = (typeof INVENTORY_MOVEMENT_TYPES)[number];
 

@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { ENTITY_TYPE_LABELS } from '@/lib/approval-entity-types';
 
 interface ApprovalPolicy {
   id: string;
@@ -19,20 +20,6 @@ interface ApprovalPolicy {
   isActive: boolean;
   createdAt: string;
 }
-
-const ENTITY_TYPE_LABELS: Record<string, string> = {
-  purchase_order: 'Purchase Orders',
-  goods_receipt: 'Goods Receipts',
-  credit_note: 'Credit Notes',
-  invoice_cancel: 'Invoice Cancel',
-  supplier_payment: 'Supplier Payments',
-  asset_acquisition: 'Asset Acquisition',
-  asset_disposal: 'Asset Disposal',
-  asset_transfer: 'Asset Transfer',
-  asset_revaluation: 'Asset Revaluation',
-  inventory_count_submit: 'Inventory Count Submit',
-  vendor_bill: 'Vendor Bills',
-};
 
 function EntityTypeSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (

@@ -1,4 +1,4 @@
-import { Controller, Get, Header } from '@nestjs/common';
+import { Controller, ForbiddenException, Get, Header, Headers } from '@nestjs/common';
 import { Public } from '../kernel/auth/decorators/public.decorator';
 
 /**
@@ -9,6 +9,12 @@ import { Public } from '../kernel/auth/decorators/public.decorator';
  * In production replace with `@willsoto/nestjs-prometheus` for histograms
  * (request latency, DB query time) and a real registry. For now the
  * scraper sees process uptime, current pid, and the build SHA.
+ *
+ * Access: a Prometheus scraper cannot hold a user session, so the route stays
+ * @Public but is gated on a shared bearer token (`METRICS_TOKEN`). When the
+ * token is unset the endpoint is open in dev and refuses in production —
+ * failing closed matters more once this is replaced with a real registry, since
+ * request rates and error counts are useful to an attacker.
  */
 @Controller('metrics')
 export class MetricsController {
@@ -17,7 +23,17 @@ export class MetricsController {
   @Public()
   @Get()
   @Header('Content-Type', 'text/plain; version=0.0.4; charset=utf-8')
-  metrics(): string {
+  metrics(@Headers('authorization') auth?: string): string {
+    const expected = process.env.METRICS_TOKEN;
+    if (expected) {
+      if (auth !== `Bearer ${expected}`) throw new ForbiddenException('Invalid metrics token');
+    } else if (process.env.NODE_ENV === 'production') {
+      throw new ForbiddenException('METRICS_TOKEN is not configured');
+    }
+    return this.render();
+  }
+
+  private render(): string {
     const uptimeSec = (Date.now() - this.startTime) / 1000;
     const mem = process.memoryUsage();
     const lines: string[] = [];

@@ -86,7 +86,7 @@ export class InventoryQueryService {
       uom: { select: { code: true } },
     } as const;
 
-    const mapProduct = (p: any) => {
+    const mapProduct = (p: any, reservedByProduct?: Map<string, number>) => {
       const locationBreakdown = p.stockItems.map((si: any) => ({
         locationId: si.location.id,
         code: si.location.code,
@@ -117,9 +117,30 @@ export class InventoryQueryService {
         averageCost,
         totalValue: totalCost,
         locationBreakdown,
+        // Available-to-promise. Zero unless `inventory.reservationMode` is on,
+        // in which case on-hand alone overstates what can actually be committed:
+        // billed-but-not-yet-deducted sales are already spoken for.
+        reservedQuantity: reservedByProduct?.get(p.id) ?? 0,
+        availableQuantity: totalQuantity - (reservedByProduct?.get(p.id) ?? 0),
         isLow: minQty > 0 && totalQuantity > 0 && totalQuantity <= minQty,
         isOut: totalQuantity <= 0,
       };
+    };
+
+    /** Active reservation totals per product, for the page being returned. */
+    const loadReserved = async (productIds: string[]): Promise<Map<string, number>> => {
+      if (productIds.length === 0) return new Map();
+      const groups = await this.prisma.client.stockReservation.groupBy({
+        by: ['productId'],
+        where: {
+          organizationId,
+          status: 'active',
+          productId: { in: productIds },
+          ...(query.locationId ? { locationId: query.locationId } : {}),
+        },
+        _sum: { quantity: true },
+      });
+      return new Map(groups.map((g) => [g.productId, Number(g._sum.quantity ?? 0)]));
     };
 
     const needsFilter = query.lowStock === 'true' || query.outOfStock === 'true';
@@ -131,15 +152,19 @@ export class InventoryQueryService {
         orderBy: { name: 'asc' },
       });
 
-      let filtered = allProducts.map(mapProduct);
+      let filtered = allProducts.map((p) => mapProduct(p));
       if (query.lowStock === 'true') filtered = filtered.filter((m) => m.isLow || m.isOut);
       if (query.outOfStock === 'true') filtered = filtered.filter((m) => m.isOut);
 
       const total = filtered.length;
       const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+      // Re-map only the page being returned, now with reservation totals — the
+      // filter above needs isLow/isOut, which do not depend on reservations.
+      const reserved = await loadReserved(paged.map((m) => m.id));
+      const pagedProducts = allProducts.filter((p) => paged.some((m) => m.id === p.id));
 
       return {
-        data: paged,
+        data: pagedProducts.map((p) => mapProduct(p, reserved)),
         meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
       };
     }
@@ -155,8 +180,9 @@ export class InventoryQueryService {
       this.prisma.client.product.count({ where: { ...where, ...searchWhere } }),
     ]);
 
+    const reserved = await loadReserved(data.map((p) => p.id));
     return {
-      data: data.map(mapProduct),
+      data: data.map((p) => mapProduct(p, reserved)),
       meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
     };
   }
@@ -461,6 +487,229 @@ export class InventoryQueryService {
     }
 
     return Object.values(byProduct);
+  }
+
+  /**
+   * Stock reconciliation: for every (product, variant, location) cell, compare
+   * the three sources of on-hand truth and surface any that disagree:
+   *   - cached   = StockItem.quantity           (what every read path uses)
+   *   - ledger   = Σ InventoryLedger.quantityChange (the immutable movement log)
+   *   - batches  = Σ InventoryBatch.quantity     (batch-tracked products only)
+   *
+   * After the batch-path fix these must all agree (within rounding). Persistent
+   * ledger drift means a movement bypassed the engine; batch drift means the
+   * layer sum and the cached on-hand diverged. Used to detect legacy drift and
+   * to verify the fix + the backfill.
+   *
+   * @param opts.tolerance absolute qty difference below which a cell is "OK"
+   * @param opts.includeMatched return matched cells too (default: drift only)
+   */
+  async getStockReconciliation(opts: {
+    locationId?: string;
+    tolerance?: number;
+    includeMatched?: boolean;
+  } = {}) {
+    const organizationId = this.tenant.organizationId;
+    const tolerance = new Prisma.Decimal(opts.tolerance ?? 0.000001);
+    const variantKey = (v: string | null | undefined) => v ?? '';
+    const cellKey = (p: string, v: string | null | undefined, l: string) =>
+      `${p}|${variantKey(v)}|${l}`;
+
+    const stockWhere: any = { organizationId };
+    if (opts.locationId) stockWhere.locationId = opts.locationId;
+    const ledgerWhere: any = { organizationId };
+    if (opts.locationId) ledgerWhere.locationId = opts.locationId;
+    const batchWhere: any = { organizationId };
+    if (opts.locationId) batchWhere.locationId = opts.locationId;
+
+    const [items, ledgerGroups, batchGroups] = await Promise.all([
+      this.prisma.client.stockItem.findMany({
+        where: stockWhere,
+        select: {
+          productId: true,
+          variantKey: true,
+          locationId: true,
+          quantity: true,
+          product: { select: { code: true, name: true, batchTracking: true } },
+          location: { select: { name: true } },
+        },
+      }),
+      this.prisma.client.inventoryLedger.groupBy({
+        by: ['productId', 'variantId', 'locationId'],
+        where: ledgerWhere,
+        _sum: { quantityChange: true },
+      }),
+      this.prisma.client.inventoryBatch.groupBy({
+        by: ['productId', 'variantId', 'locationId'],
+        where: batchWhere,
+        _sum: { quantity: true },
+      }),
+    ]);
+
+    const ledgerByCell = new Map<string, Prisma.Decimal>();
+    for (const g of ledgerGroups) {
+      ledgerByCell.set(cellKey(g.productId, g.variantId, g.locationId), new Prisma.Decimal(g._sum.quantityChange ?? 0));
+    }
+    const batchByCell = new Map<string, Prisma.Decimal>();
+    for (const g of batchGroups) {
+      batchByCell.set(cellKey(g.productId, g.variantId, g.locationId), new Prisma.Decimal(g._sum.quantity ?? 0));
+    }
+
+    const seen = new Set<string>();
+    const rows: any[] = [];
+    const pushRow = (r: {
+      productId: string; variantKey: string; locationId: string;
+      code?: string; name?: string; locationName?: string; batchTracking: boolean;
+      cached: Prisma.Decimal; ledger: Prisma.Decimal; batches: Prisma.Decimal | null;
+    }) => {
+      const ledgerDrift = r.cached.minus(r.ledger);
+      const batchDrift = r.batches != null ? r.cached.minus(r.batches) : null;
+      const drifted =
+        ledgerDrift.abs().gt(tolerance) || (batchDrift != null && batchDrift.abs().gt(tolerance));
+      if (!drifted && !opts.includeMatched) return;
+      rows.push({
+        productId: r.productId,
+        variantKey: r.variantKey,
+        locationId: r.locationId,
+        code: r.code ?? null,
+        name: r.name ?? null,
+        locationName: r.locationName ?? null,
+        cached: r.cached.toString(),
+        ledger: r.ledger.toString(),
+        batches: r.batches != null ? r.batches.toString() : null,
+        ledgerDrift: ledgerDrift.toString(),
+        batchDrift: batchDrift != null ? batchDrift.toString() : null,
+        drifted,
+      });
+    };
+
+    for (const it of items) {
+      const key = cellKey(it.productId, it.variantKey, it.locationId);
+      seen.add(key);
+      pushRow({
+        productId: it.productId,
+        variantKey: it.variantKey,
+        locationId: it.locationId,
+        code: it.product?.code,
+        name: it.product?.name,
+        locationName: it.location?.name,
+        batchTracking: Boolean(it.product?.batchTracking),
+        cached: new Prisma.Decimal(it.quantity),
+        ledger: ledgerByCell.get(key) ?? ZERO_DEC,
+        batches: it.product?.batchTracking ? (batchByCell.get(key) ?? ZERO_DEC) : null,
+      });
+    }
+
+    // Ledger/batch cells with no StockItem row at all — pure orphans, always drift.
+    const orphanKeys = new Set<string>();
+    for (const k of ledgerByCell.keys()) if (!seen.has(k)) orphanKeys.add(k);
+    for (const k of batchByCell.keys()) if (!seen.has(k)) orphanKeys.add(k);
+    if (orphanKeys.size > 0) {
+      const orphanProductIds = [...new Set([...orphanKeys].map((k) => k.split('|')[0]))];
+      const orphanProducts = await this.prisma.client.product.findMany({
+        where: { id: { in: orphanProductIds } },
+        select: { id: true, code: true, name: true, batchTracking: true },
+      });
+      const prodById = new Map(orphanProducts.map((p) => [p.id, p]));
+      for (const k of orphanKeys) {
+        const [productId, vk, locationId] = k.split('|');
+        const prod = prodById.get(productId);
+        pushRow({
+          productId,
+          variantKey: vk,
+          locationId,
+          code: prod?.code,
+          name: prod?.name,
+          batchTracking: Boolean(prod?.batchTracking),
+          cached: ZERO_DEC,
+          ledger: ledgerByCell.get(k) ?? ZERO_DEC,
+          batches: prod?.batchTracking ? (batchByCell.get(k) ?? ZERO_DEC) : null,
+        });
+      }
+    }
+
+    const driftedRows = rows.filter((r) => r.drifted);
+    return {
+      summary: {
+        cellsChecked: items.length + orphanKeys.size,
+        driftedCells: driftedRows.length,
+        clean: driftedRows.length === 0,
+        tolerance: tolerance.toString(),
+      },
+      rows,
+    };
+  }
+
+  /**
+   * Quants at negative on-hand — the operational consequence of the
+   * never-block-sales rule: goods left the building before they were received.
+   *
+   * Each such cell means the issued units were expensed at whatever running
+   * average existed at the time (frequently zero), so inventory is currently
+   * OVERSTATED and COGS UNDERSTATED. StockService squares this up automatically
+   * on the covering receipt (see `costCorrection` in CostResolverService), but
+   * until that receipt arrives the books carry the exposure — and a cell that
+   * stays negative for days usually means a delivery was never captured, not
+   * that the count is wrong.
+   *
+   * `valuationExposure` is the best estimate of that overstatement:
+   * |negative qty| × best-known unit cost (running average, else product cost).
+   */
+  async getNegativeStock(opts: { locationId?: string } = {}) {
+    const where: any = { organizationId: this.tenant.organizationId, quantity: { lt: 0 } };
+    if (opts.locationId) where.locationId = opts.locationId;
+
+    const items = await this.prisma.client.stockItem.findMany({
+      where,
+      select: {
+        productId: true,
+        variantKey: true,
+        locationId: true,
+        quantity: true,
+        runningAverageCost: true,
+        updatedAt: true,
+        product: { select: { code: true, name: true, costPrice: true, costingMethod: true } },
+        location: { select: { name: true } },
+      },
+      orderBy: { quantity: 'asc' },
+    });
+
+    let totalExposure = ZERO_DEC;
+    const rows = items.map((it) => {
+      const shortQty = new Prisma.Decimal(it.quantity).abs();
+      const avg = new Prisma.Decimal(it.runningAverageCost);
+      const unitCost = avg.gt(0) ? avg : new Prisma.Decimal(it.product?.costPrice ?? 0);
+      const exposure = shortQty.times(unitCost);
+      totalExposure = totalExposure.plus(exposure);
+      return {
+        productId: it.productId,
+        variantKey: it.variantKey,
+        locationId: it.locationId,
+        code: it.product?.code ?? null,
+        name: it.product?.name ?? null,
+        locationName: it.location?.name ?? null,
+        costingMethod: it.product?.costingMethod ?? null,
+        quantity: it.quantity.toString(),
+        shortBy: shortQty.toString(),
+        unitCost: unitCost.toString(),
+        // Estimated inventory overstatement / COGS understatement for this cell.
+        valuationExposure: exposure.toString(),
+        // Cells with no cost basis at all expense NOTHING on sale — the worst
+        // case, and invisible in a margin report until the receipt lands.
+        zeroCostBasis: unitCost.lte(0),
+        lastMovedAt: it.updatedAt,
+      };
+    });
+
+    return {
+      summary: {
+        cells: rows.length,
+        clean: rows.length === 0,
+        totalValuationExposure: totalExposure.toString(),
+        zeroCostBasisCells: rows.filter((r) => r.zeroCostBasis).length,
+      },
+      rows,
+    };
   }
 }
 

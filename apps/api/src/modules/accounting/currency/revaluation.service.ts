@@ -49,12 +49,16 @@ export class RevaluationService {
     const baseCode = org.currencyCode;
 
     return this.prisma.client.$transaction(async (tx) => {
-      // Find every JournalLine for monetary accounts (receivable/payable/bank/cash)
-      // in non-base currencies, posted as of `asOf`. Group by (account, currency).
+      // Find every JournalLine for monetary accounts in non-base currencies,
+      // posted as of `asOf`. Group by (account, currency).
+      //
+      // "Monetary" is now the category's `allowReconciliation` flag rather than a
+      // hardcoded type list, so an org that adds e.g. a second receivable-style
+      // category gets revalued without a code change.
       const lines = await tx.journalLine.findMany({
         where: {
           entry: { status: 'posted', postingDate: { lte: asOf } },
-          account: { isActive: true, accountType: { in: ['receivable', 'payable', 'bank', 'cash'] } },
+          account: { isActive: true, category: { allowReconciliation: true } },
         },
         include: { account: true },
       });

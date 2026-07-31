@@ -5,12 +5,15 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import {
   ChevronRight, ArrowLeft, Save, Package, Plus, Trash2,
+  DollarSign, FlaskConical, Boxes, BookOpen,
+  PackageOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -146,12 +149,30 @@ const ACCOUNT_OVERRIDE_FIELDS: AccDef[] = [
   { fieldName: 'expiryAccountOverrideId', label: 'Expiry Write-Off', categoryField: 'expiryAccountId',   mappingKey: 'stock_adjustment_expense', mappingLabel: 'Stock Adj Loss' },
 ];
 
+// ── Tab definitions matching InventoryDetailPage style ──
+
+interface TabDef {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const TABS: TabDef[] = [
+  { id: 'general', label: 'General', icon: Package },
+  { id: 'pricing-uom', label: 'Pricing & UOM', icon: DollarSign },
+  { id: 'inventory', label: 'Inventory', icon: PackageOpen },
+  { id: 'beverage', label: 'Beverage', icon: FlaskConical },
+  { id: 'packaging', label: 'Packaging', icon: Boxes },
+  { id: 'accounting', label: 'Accounting', icon: BookOpen },
+];
+
 // ---------------------------------------------------------------------------
 
 export function ProductEditPage() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
   const isNew = !id;
+  const [activeTab, setActiveTab] = useState('general');
 
   const { data: listData } = useProducts({ page: 1, pageSize: 200 });
   const existingProduct = !isNew ? listData?.data?.find((p) => p.id === id) : null;
@@ -397,19 +418,18 @@ export function ProductEditPage() {
   const title = isNew ? 'New Product' : existingProduct?.name ?? 'Edit Product';
   const subtitle = isNew
     ? 'Fill in the details to create a new product.'
-    : 'Update product details below.';
+    : existingProduct?.category?.name ?? 'Update product details below.';
 
   return (
     <div className="flex flex-col h-full">
-      {/* Breadcrumb */}
-      <div className="px-6 py-3 border-b bg-white shadow-sm">
+      {/* Breadcrumb + Header — matches InventoryDetailPage styling */}
+      <div className="px-6 py-4 border-b bg-white shadow-sm">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3">
           <button onClick={() => navigate('/products')} className="hover:text-primary transition-colors font-medium">Products</button>
           <ChevronRight className="h-3 w-3" />
           <span className="font-semibold">{isNew ? 'New Product' : existingProduct?.name}</span>
         </div>
 
-        {/* Header bar */}
         <div className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" onClick={() => navigate('/products')} className="h-8 w-8 flex-shrink-0 hover:bg-muted">
@@ -420,16 +440,19 @@ export function ProductEditPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold">{title}</h1>
                 {!isNew && existingProduct && (
-                  <Badge variant={existingProduct.isActive ? 'default' : 'secondary'} className="text-xs">
-                    {existingProduct.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
+                  <>
+                    <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-muted-foreground font-semibold">{existingProduct.code}</code>
+                    <Badge variant={existingProduct.isActive ? 'default' : 'secondary'} className="text-xs">
+                      {existingProduct.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </>
                 )}
               </div>
               <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-shrink-0">
             <Button variant="outline" size="sm" onClick={() => navigate('/products')}>
               Cancel
             </Button>
@@ -441,338 +464,371 @@ export function ProductEditPage() {
         </div>
       </div>
 
-      {/* Form content — scrollable */}
-      <div className="flex-1 overflow-auto p-6">
-        <form onSubmit={onSubmit} className="max-w-4xl mx-auto space-y-6">
-          {/* Basic Info */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Basic Information</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 py-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label htmlFor="code" className="text-sm font-medium">Code *</Label>
-                  <Input id="code" placeholder="PRD-001" {...form.register('code')} />
-                  {form.formState.errors.code && (
-                    <p className="text-sm text-destructive">{form.formState.errors.code.message}</p>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">SKU</Label>
-                  <Input placeholder="SKU-001" {...form.register('sku')} />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Name *</Label>
-                <Input placeholder="Product name" {...form.register('name')} />
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Product Type</Label>
-                  <Select value={form.watch('productType')} onValueChange={(v) => form.setValue('productType', v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PRODUCT_TYPES.map((t) => (
-                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Category</Label>
-                  <Select value={form.watch('categoryId')} onValueChange={(v) => form.setValue('categoryId', v)}>
-                    <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">None</SelectItem>
-                      {categories.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Costing Method</Label>
-                  <Select value={form.watch('costingMethod')} onValueChange={(v) => form.setValue('costingMethod', v)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {COSTING_METHODS.map((c) => (
-                        <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              {/* Image upload */}
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Image</Label>
-                <div className="flex items-center gap-3">
-                  <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                    {uploadingImg ? 'Uploading…' : 'Choose Image'}
-                  </Button>
-                  <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                  {previewSrc && (
-                    <img src={previewSrc} alt="Preview" className="h-12 w-12 object-cover rounded border" />
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Pricing */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Pricing</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Sales Price</Label>
-                  <Input type="number" step="0.01" min={0} placeholder="0.00" {...form.register('salesPrice')} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Cost Price</Label>
-                  <Input type="number" step="0.01" min={0} placeholder="0.00" {...form.register('costPrice')} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* UOM Settings */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Units of Measure</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 py-4 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Stock Unit</Label>
-                  <Select value={form.watch('uomId')} onValueChange={(v) => form.setValue('uomId', v)}>
-                    <SelectTrigger><SelectValue placeholder="Select UOM" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">None</SelectItem>
-                      {units.map((u: any) => (
-                        <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Purchase Unit</Label>
-                  <Select value={form.watch('purchaseUomId')} onValueChange={(v) => form.setValue('purchaseUomId', v)}>
-                    <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">None</SelectItem>
-                      {units.map((u: any) => (
-                        <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Sales Unit</Label>
-                  <Select value={form.watch('salesUomId')} onValueChange={(v) => form.setValue('salesUomId', v)}>
-                    <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">None</SelectItem>
-                      {units.map((u: any) => (
-                        <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Recipe Unit</Label>
-                  <Select value={form.watch('recipeUomId')} onValueChange={(v) => form.setValue('recipeUomId', v)}>
-                    <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">None</SelectItem>
-                      {units.map((u: any) => (
-                        <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Production Unit</Label>
-                  <Select value={form.watch('productionUomId')} onValueChange={(v) => form.setValue('productionUomId', v)}>
-                    <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">None</SelectItem>
-                      {units.map((u: any) => (
-                        <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">UOM Conversion</Label>
-                  <Input type="number" step="0.01" min={1} placeholder="1" {...form.register('uomConversion')} />
-                  <p className="text-[10px] text-muted-foreground">Stock units per 1 purchase unit</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Reorder Qty</Label>
-                  <Input type="number" min={0} placeholder="0" {...form.register('reorderQty')} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Min Sale Qty</Label>
-                  <Input type="number" min={0} step="0.01" placeholder="0" {...form.register('minSaleQty')} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Max Sale Qty</Label>
-                  <Input type="number" min={0} step="0.01" placeholder="0" {...form.register('maxSaleQty')} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Packaging & Barcodes */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg flex-row items-center justify-between">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Packaging &amp; Barcodes</CardTitle>
-              <Button type="button" size="sm" variant="outline" onClick={() => setPackagingRows([...packagingRows, { name: '', quantity: '', barcode: '' }])}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add pack
-              </Button>
-            </CardHeader>
-            <CardContent className="px-5 py-4 space-y-2">
-              <p className="text-[11px] text-muted-foreground">Each pack = a quantity of the stock unit. Scanning a pack barcode adds that many base units (e.g. a case of 24).</p>
-              {packagingRows.length === 0 && <p className="text-sm text-muted-foreground">No packaging defined.</p>}
-              {packagingRows.map((row, i) => (
-                <div key={i} className="grid grid-cols-[1fr_130px_1fr_auto] gap-2 items-center">
-                  <Input placeholder="Pack name (e.g. Carton)" value={row.name} onChange={(e) => updatePack(i, 'name', e.target.value)} />
-                  <Input type="number" step="any" min={0} placeholder="qty of base" value={row.quantity} onChange={(e) => updatePack(i, 'quantity', e.target.value)} />
-                  <Input placeholder="Barcode (optional)" value={row.barcode} onChange={(e) => updatePack(i, 'barcode', e.target.value)} />
-                  <Button type="button" size="icon" variant="ghost" onClick={() => setPackagingRows(packagingRows.filter((_, j) => j !== i))}>
-                    <Trash2 className="h-4 w-4 text-destructive/70" />
-                  </Button>
-                </div>
+      {/* Tabs + Form — matches InventoryDetailPage styling */}
+      <form onSubmit={onSubmit} className="flex-1 overflow-auto flex flex-col">
+        {/* Gradient tab bar */}
+        <div className="px-2 py-1 bg-gradient-to-r from-primary to-indigo-600 shadow-lg sticky top-0 z-10 mx-2 mt-1 rounded-xl border border-white/10">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="bg-transparent p-0 h-auto gap-2 rounded-none w-full justify-start border-none">
+              {TABS.map((tab) => (
+                <TabsTrigger key={tab.id} value={tab.id}
+                  className="relative px-4 py-2 rounded-lg text-sm font-medium text-white/80 hover:bg-white/15 hover:text-white transition-all duration-300 data-[state=active]:bg-white data-[state=active]:text-indigo-600 data-[state=active]:shadow-lg data-[state=active]:font-bold data-[state=active]:scale-105"
+                >
+                  <span className="flex items-center gap-2">
+                    <tab.icon className="h-4 w-4" />
+                    <span className="hidden sm:inline">{tab.label}</span>
+                  </span>
+                </TabsTrigger>
               ))}
-            </CardContent>
-          </Card>
+            </TabsList>
+          </Tabs>
+        </div>
 
-          {/* Inventory Tracking */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Inventory Tracking</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 py-4 space-y-4">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
-                <input type="checkbox" className="rounded" checked={form.watch('trackInventory')} onChange={(e) => form.setValue('trackInventory', e.target.checked)} />
-                Track Inventory
-              </label>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Picking Strategy</Label>
-                  <Select value={form.watch('pickingStrategy')} onValueChange={(v) => form.setValue('pickingStrategy', v)} disabled={!form.watch('trackInventory')}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PICKING_STRATEGIES.map((s) => (
-                        <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-6">
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input type="checkbox" className="rounded" checked={form.watch('batchTracking')} onChange={(e) => form.setValue('batchTracking', e.target.checked)} disabled={!form.watch('trackInventory')} />
-                  Batch Tracking
-                </label>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input type="checkbox" className="rounded" checked={form.watch('expiryTracking')} onChange={(e) => form.setValue('expiryTracking', e.target.checked)} disabled={!form.watch('trackInventory')} />
-                  Expiry Tracking
-                </label>
-                <label className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input type="checkbox" className="rounded" checked={form.watch('serialTracking')} onChange={(e) => form.setValue('serialTracking', e.target.checked)} disabled={!form.watch('trackInventory')} />
-                  Serial Tracking
-                </label>
-              </div>
-              {form.watch('expiryTracking') && (
-                <p className="text-[11px] text-slate-500">Expiry tracking enables Batch tracking (expiry is recorded per batch).</p>
-              )}
-              {form.watch('costingMethod') === 'SPECIFIC' && !form.watch('serialTracking') && !form.watch('batchTracking') && (
-                <p className="text-[11px] text-amber-600">Specific Identification needs Serial or Batch tracking to identify each unit's cost.</p>
-              )}
-            </CardContent>
-          </Card>
+        {/* Tab content */}
+        <div className="flex-1 overflow-auto p-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            {/* ── General Tab ── */}
+            <TabsContent value="general" className="mt-0 outline-none space-y-6">
+              {/* Basic Info */}
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Basic Information</CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 py-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="code" className="text-sm font-medium">Code *</Label>
+                      <Input id="code" placeholder="PRD-001" {...form.register('code')} />
+                      {form.formState.errors.code && (
+                        <p className="text-sm text-destructive">{form.formState.errors.code.message}</p>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">SKU</Label>
+                      <Input placeholder="SKU-001" {...form.register('sku')} />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Name *</Label>
+                    <Input placeholder="Product name" {...form.register('name')} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Product Type</Label>
+                      <Select value={form.watch('productType')} onValueChange={(v) => form.setValue('productType', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {PRODUCT_TYPES.map((t) => (
+                            <SelectItem key={t} value={t}>{t}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Category</Label>
+                      <Select value={form.watch('categoryId')} onValueChange={(v) => form.setValue('categoryId', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {categories.map((c) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Costing Method</Label>
+                      <Select value={form.watch('costingMethod')} onValueChange={(v) => form.setValue('costingMethod', v)}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {COSTING_METHODS.map((c) => (
+                            <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  {/* Image upload */}
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Image</Label>
+                    <div className="flex items-center gap-3">
+                      <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                        {uploadingImg ? 'Uploading…' : 'Choose Image'}
+                      </Button>
+                      <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                      {previewSrc && (
+                        <img src={previewSrc} alt="Preview" className="h-12 w-12 object-cover rounded border" />
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          {/* Beverage Control */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Beverage Control</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 py-4 space-y-4">
-              <div className="space-y-1.5">
-                <Label className="text-sm font-medium">Measurement Method</Label>
-                <Select value={form.watch('measurementMethod')} onValueChange={(v) => form.setValue('measurementMethod', v)}>
-                  <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {MEASUREMENT_METHODS.map((m) => (
-                      <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              {form.watch('measurementMethod') === 'digital_weight' && (
-                <div className="grid grid-cols-2 gap-4 border rounded-lg bg-slate-50 p-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Container Volume (ml)</Label>
-                    <Input type="number" min={0} step="1" placeholder="e.g. 750" {...form.register('containerVolumeMl')} />
+            {/* ── Pricing & UOM Tab ── */}
+            <TabsContent value="pricing-uom" className="mt-0 outline-none space-y-6">
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Pricing</CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 py-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Sales Price</Label>
+                      <Input type="number" step="0.01" min={0} placeholder="0.00" {...form.register('salesPrice')} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Cost Price</Label>
+                      <Input type="number" step="0.01" min={0} placeholder="0.00" {...form.register('costPrice')} />
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Empty Bottle Weight (g)</Label>
-                    <Input type="number" min={0} step="0.1" placeholder="e.g. 400" {...form.register('emptyBottleWeightG')} />
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Units of Measure</CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 py-4 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Stock Unit</Label>
+                      <Select value={form.watch('uomId')} onValueChange={(v) => form.setValue('uomId', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select UOM" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {units.map((u: any) => (
+                            <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Purchase Unit</Label>
+                      <Select value={form.watch('purchaseUomId')} onValueChange={(v) => form.setValue('purchaseUomId', v)}>
+                        <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {units.map((u: any) => (
+                            <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Sales Unit</Label>
+                      <Select value={form.watch('salesUomId')} onValueChange={(v) => form.setValue('salesUomId', v)}>
+                        <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {units.map((u: any) => (
+                            <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Recipe Unit</Label>
+                      <Select value={form.watch('recipeUomId')} onValueChange={(v) => form.setValue('recipeUomId', v)}>
+                        <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {units.map((u: any) => (
+                            <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Production Unit</Label>
+                      <Select value={form.watch('productionUomId')} onValueChange={(v) => form.setValue('productionUomId', v)}>
+                        <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {units.map((u: any) => (
+                            <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">UOM Conversion</Label>
+                      <Input type="number" step="0.01" min={1} placeholder="1" {...form.register('uomConversion')} />
+                      <p className="text-[10px] text-muted-foreground">Stock units per 1 purchase unit</p>
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Full Bottle Weight (g)</Label>
-                    <Input type="number" min={0} step="0.1" placeholder="e.g. 1150" {...form.register('fullBottleWeightG')} />
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Reorder Qty</Label>
+                      <Input type="number" min={0} placeholder="0" {...form.register('reorderQty')} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Min Sale Qty</Label>
+                      <Input type="number" min={0} step="0.01" placeholder="0" {...form.register('minSaleQty')} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Max Sale Qty</Label>
+                      <Input type="number" min={0} step="0.01" placeholder="0" {...form.register('maxSaleQty')} />
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Standard Pour (ml)</Label>
-                    <Input type="number" min={0} step="0.1" placeholder="e.g. 44" {...form.register('standardPourMl')} />
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ── Inventory Tab ── */}
+            <TabsContent value="inventory" className="mt-0 outline-none space-y-6">
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Inventory Tracking</CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 py-4 space-y-4">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" className="rounded" checked={form.watch('trackInventory')} onChange={(e) => form.setValue('trackInventory', e.target.checked)} />
+                    Track Inventory
+                  </label>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Picking Strategy</Label>
+                      <Select value={form.watch('pickingStrategy')} onValueChange={(v) => form.setValue('pickingStrategy', v)} disabled={!form.watch('trackInventory')}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          {PICKING_STRATEGIES.map((s) => (
+                            <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-sm">Variance Tolerance (g)</Label>
-                    <Input type="number" min={0} step="0.1" placeholder="e.g. 5" {...form.register('varianceToleranceG')} />
-                  </div>
-                  <div className="flex items-end">
+                  <div className="flex flex-wrap gap-6">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox" className="rounded" checked={form.watch('allowPartialBottle')} onChange={(e) => form.setValue('allowPartialBottle', e.target.checked)} />
-                      Allow Partial Bottle
+                      <input type="checkbox" className="rounded" checked={form.watch('batchTracking')} onChange={(e) => form.setValue('batchTracking', e.target.checked)} disabled={!form.watch('trackInventory')} />
+                      Batch Tracking
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" className="rounded" checked={form.watch('expiryTracking')} onChange={(e) => form.setValue('expiryTracking', e.target.checked)} disabled={!form.watch('trackInventory')} />
+                      Expiry Tracking
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="checkbox" className="rounded" checked={form.watch('serialTracking')} onChange={(e) => form.setValue('serialTracking', e.target.checked)} disabled={!form.watch('trackInventory')} />
+                      Serial Tracking
                     </label>
                   </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                  {form.watch('expiryTracking') && (
+                    <p className="text-[11px] text-slate-500">Expiry tracking enables Batch tracking (expiry is recorded per batch).</p>
+                  )}
+                  {form.watch('costingMethod') === 'SPECIFIC' && !form.watch('serialTracking') && !form.watch('batchTracking') && (
+                    <p className="text-[11px] text-amber-600">Specific Identification needs Serial or Batch tracking to identify each unit's cost.</p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          {/* Accounting Overrides */}
-          <Card>
-            <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Inventory Accounting Overrides</CardTitle>
-            </CardHeader>
-            <CardContent className="px-5 py-4 space-y-1">
-              <p className="text-[11px] text-muted-foreground mb-3">
-                Leave each field as "<span className="italic">Inherit</span>" to use the category's default (when a category is selected) or the org-level Account Mapping.
-              </p>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                {ACCOUNT_OVERRIDE_FIELDS.map(renderAccountSelect)}
-              </div>
-            </CardContent>
-          </Card>
+            {/* ── Beverage Tab ── */}
+            <TabsContent value="beverage" className="mt-0 outline-none space-y-6">
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Beverage Control</CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 py-4 space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-sm font-medium">Measurement Method</Label>
+                    <Select value={form.watch('measurementMethod')} onValueChange={(v) => form.setValue('measurementMethod', v)}>
+                      <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {MEASUREMENT_METHODS.map((m) => (
+                          <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {form.watch('measurementMethod') === 'digital_weight' && (
+                    <div className="grid grid-cols-2 gap-4 border rounded-lg bg-slate-50 p-4">
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">Container Volume (ml)</Label>
+                        <Input type="number" min={0} step="1" placeholder="e.g. 750" {...form.register('containerVolumeMl')} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">Empty Bottle Weight (g)</Label>
+                        <Input type="number" min={0} step="0.1" placeholder="e.g. 400" {...form.register('emptyBottleWeightG')} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">Full Bottle Weight (g)</Label>
+                        <Input type="number" min={0} step="0.1" placeholder="e.g. 1150" {...form.register('fullBottleWeightG')} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">Standard Pour (ml)</Label>
+                        <Input type="number" min={0} step="0.1" placeholder="e.g. 44" {...form.register('standardPourMl')} />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-sm">Variance Tolerance (g)</Label>
+                        <Input type="number" min={0} step="0.1" placeholder="e.g. 5" {...form.register('varianceToleranceG')} />
+                      </div>
+                      <div className="flex items-end">
+                        <label className="flex items-center gap-2 text-sm cursor-pointer">
+                          <input type="checkbox" className="rounded" checked={form.watch('allowPartialBottle')} onChange={(e) => form.setValue('allowPartialBottle', e.target.checked)} />
+                          Allow Partial Bottle
+                        </label>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-          {/* Bottom actions */}
-          <div className="flex items-center justify-between pb-8">
+            {/* ── Packaging Tab ── */}
+            <TabsContent value="packaging" className="mt-0 outline-none space-y-6">
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg flex-row items-center justify-between">
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Packaging &amp; Barcodes</CardTitle>
+                  <Button type="button" size="sm" variant="outline" onClick={() => setPackagingRows([...packagingRows, { name: '', quantity: '', barcode: '' }])}>
+                    <Plus className="h-3.5 w-3.5 mr-1" /> Add pack
+                  </Button>
+                </CardHeader>
+                <CardContent className="px-5 py-4 space-y-2">
+                  <p className="text-[11px] text-muted-foreground">Each pack = a quantity of the stock unit. Scanning a pack barcode adds that many base units (e.g. a case of 24).</p>
+                  {packagingRows.length === 0 && <p className="text-sm text-muted-foreground">No packaging defined.</p>}
+                  {packagingRows.map((row, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_130px_1fr_auto] gap-2 items-center">
+                      <Input placeholder="Pack name (e.g. Carton)" value={row.name} onChange={(e) => updatePack(i, 'name', e.target.value)} />
+                      <Input type="number" step="any" min={0} placeholder="qty of base" value={row.quantity} onChange={(e) => updatePack(i, 'quantity', e.target.value)} />
+                      <Input placeholder="Barcode (optional)" value={row.barcode} onChange={(e) => updatePack(i, 'barcode', e.target.value)} />
+                      <Button type="button" size="icon" variant="ghost" onClick={() => setPackagingRows(packagingRows.filter((_, j) => j !== i))}>
+                        <Trash2 className="h-4 w-4 text-destructive/70" />
+                      </Button>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* ── Accounting Tab ── */}
+            <TabsContent value="accounting" className="mt-0 outline-none space-y-6">
+              <Card>
+                <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Inventory Accounting Overrides</CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 py-4 space-y-1">
+                  <p className="text-[11px] text-muted-foreground mb-3">
+                    Leave each field as "<span className="italic">Inherit</span>" to use the category's default (when a category is selected) or the org-level Account Mapping.
+                  </p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                    {ACCOUNT_OVERRIDE_FIELDS.map(renderAccountSelect)}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+
+          {/* Bottom actions — always visible */}
+          <div className="flex items-center justify-between pt-6 pb-8 border-t mt-6">
             <Button type="button" variant="outline" onClick={() => navigate('/products')}>Cancel</Button>
             <Button type="submit" disabled={saving}>
               <Save className="h-4 w-4 mr-1.5" />
               {saving ? 'Saving…' : 'Save Product'}
             </Button>
           </div>
-        </form>
-      </div>
+        </div>
+      </form>
     </div>
   );
 }

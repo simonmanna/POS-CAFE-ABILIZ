@@ -18,8 +18,17 @@ describeDb('AuditService.recordInTx (rolls back on audit failure)', () => {
   const organizationId = '00000000-0000-0000-0000-000000000000';
 
   // Tenant context always returns this org for the test.
+  //
+  // `optionalOrganizationId` is what recordInTx actually reads. The stub used to
+  // omit it, so every call threw "called without a tenant context" — which made
+  // the roll-back test pass for the wrong reason (it asserts only *that* it
+  // threw) and the persistence test fail outright. A getter keeps it in sync
+  // with the real org id assigned in beforeAll.
   const tenantSvc = {
     organizationId,
+    get optionalOrganizationId() {
+      return this.organizationId;
+    },
     userId: 'test-user',
   } as any;
 
@@ -48,28 +57,34 @@ describeDb('AuditService.recordInTx (rolls back on audit failure)', () => {
   });
 
   it('rolls back the partner create when the audit row insert fails', async () => {
-    // Simulate audit failure: call recordInTx with a too-long entityId that
-    // exceeds the column's TEXT limit OR use a deliberately-broken tx.
-    // Simpler & deterministic: wrap recordInTx in a patch that throws.
-    const failingAudit = new AuditService(prismaSvc, tenantSvc);
-    (failingAudit as any).prisma = {
-      client: {
-        auditLog: {
-          create: jest.fn ? jest.fn().mockRejectedValue(new Error('forced audit failure')) : undefined,
+    // The failure has to happen on the transaction client, because that is what
+    // recordInTx writes through. The previous version replaced
+    // `(failingAudit as any).prisma.client.auditLog.create` — a path recordInTx
+    // never touches — so nothing ever threw and the assertion below passed only
+    // because the incomplete tenant stub was throwing for an unrelated reason.
+    //
+    // Here the real `tx` is wrapped so `auditLog.create` rejects while every
+    // other model (the partner write) still goes to the genuine transaction.
+    const failingTx = (tx: any) =>
+      new Proxy(tx, {
+        get(target, prop, receiver) {
+          if (prop === 'auditLog') {
+            return { create: () => Promise.reject(new Error('forced audit failure')) };
+          }
+          return Reflect.get(target, prop, receiver);
         },
-      },
-      raw: prisma,
-    } as any;
+      });
 
     let created: any = null;
     let threw = false;
+    let thrownMessage = '';
     try {
       await prisma.$transaction(async (tx) => {
         const p = await tx.partner.create({
           data: { organizationId: (tenantSvc as any).organizationId, code: `AUD-${Date.now()}`, name: 'Should Roll Back' },
         });
         created = p;
-        await (failingAudit as any).recordInTx(tx, {
+        await audit.recordInTx(failingTx(tx), {
           entity: 'Partner',
           entityId: p.id,
           action: 'create',
@@ -78,14 +93,16 @@ describeDb('AuditService.recordInTx (rolls back on audit failure)', () => {
       });
     } catch (err) {
       threw = true;
+      thrownMessage = err instanceof Error ? err.message : String(err);
     }
 
     expect(threw).toBe(true);
-    if (created) {
-      const found = await prisma.partner.findFirst({ where: { id: created.id } });
-      // The partner row should NOT exist — tx rolled back.
-      expect(found).toBeNull();
-    }
+    // Prove it failed for the reason under test, not an unrelated one.
+    expect(thrownMessage).toContain('forced audit failure');
+    expect(created).not.toBeNull();
+    const found = await prisma.partner.findFirst({ where: { id: created.id } });
+    // The partner row must NOT exist — the tx rolled back.
+    expect(found).toBeNull();
   });
 
   it('writes the audit row inside the same tx as the business write', async () => {

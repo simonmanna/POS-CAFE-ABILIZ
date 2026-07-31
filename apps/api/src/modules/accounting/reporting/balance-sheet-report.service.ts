@@ -1,19 +1,43 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type { ReportSection } from '@erp/shared';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
+import { AccountResolverService, type AccountMeta } from '../posting/account-resolver.service';
+import {
+  BALANCE_SHEET_SECTIONS,
+  ZERO,
+  balanceSheetSideOf,
+  displayBalance,
+  isProfitAndLoss,
+} from './account-classification';
 
-const ZERO = new Prisma.Decimal(0);
+/** Snapshot rows written before the AccountCategory migration lack category data. */
+const SNAPSHOT_SCHEMA_VERSION = 2;
+
+interface SectionTotals {
+  assets: Prisma.Decimal;
+  liabilities: Prisma.Decimal;
+  equity: Prisma.Decimal;
+  earnings: Prisma.Decimal;
+}
 
 /**
  * Balance Sheet (D3). Reads from `ReportBalanceSheetSnapshot` when available;
  * falls back to live JournalLine aggregation otherwise. As-of semantics: the
  * snapshot's `asOf` must be ≤ the requested date and within 1 minute of now.
+ *
+ * Section membership and sign both come from the account's category — see
+ * ./account-classification. This service used to carry three separate hardcoded
+ * `accountType` arrays that had to be kept in sync by hand.
  */
 @Injectable()
 export class BalanceSheetReportService {
   private readonly logger = new Logger('BalanceSheetReportService');
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accounts: AccountResolverService,
+  ) {}
 
   async balanceSheet(asOf: string) {
     const requested = new Date(asOf);
@@ -23,217 +47,194 @@ export class BalanceSheetReportService {
         where: { organizationId: snap.organizationId, asOf: snap.asOf },
         orderBy: { accountCode: 'asc' },
       });
-      let totalAssets = ZERO;
-      let totalLiabilities = ZERO;
-      let totalEquity = ZERO;
-      let totalEarnings = ZERO;
-      for (const r of rows) {
-        const bal = r.balance;
-        switch (r.accountType as string) {
-          case 'asset':
-          case 'bank':
-          case 'cash':
-          case 'receivable':
-          case 'contra_asset':
-            totalAssets = totalAssets.plus(bal);
-            break;
-          case 'liability':
-          case 'payable':
-          case 'tax':
-          case 'contra_liability':
-            totalLiabilities = totalLiabilities.plus(bal.negated());
-            break;
-          case 'equity':
-            totalEquity = totalEquity.plus(bal.negated());
-            break;
-          default:
-            break;
-        }
+      const totals = this.emptyTotals();
+      for (const r of rows as any[]) {
+        // Snapshot balances are already sign-adjusted for display.
+        this.accumulate(totals, r.reportSection as ReportSection | null, r.balance);
       }
-      // P&L rolls into equity via retained earnings in the snapshot.
-      // The snapshot builder already closed revenue/expense into RE for the
-      // relevant period. We do not add another earnings term here.
-      const totalLiabilitiesAndEquity = totalLiabilities.plus(totalEquity).plus(totalEarnings);
-      return {
-        asOf: snap.asOf,
-        totalAssets: totalAssets.toString(),
-        totalLiabilities: totalLiabilities.toString(),
-        totalEquity: totalEquity.toString(),
-        currentYearEarnings: totalEarnings.toString(),
-        totalLiabilitiesAndEquity: totalLiabilitiesAndEquity.toString(),
-        balanced: totalAssets.minus(totalLiabilitiesAndEquity).abs().lessThanOrEqualTo(0.01),
-        source: 'snapshot',
-      };
+      // The snapshot builder already closed revenue/expense into retained
+      // earnings for the period, so no extra earnings term is added here.
+      return this.summary(asOf, totals, 'snapshot');
     }
     return this.live(asOf);
   }
 
   private async live(asOf: string) {
-    const grouped = await this.prisma.client.journalLine.groupBy({
-      by: ['accountId'],
-      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: new Date(asOf) } } },
-      _sum: { baseDebit: true, baseCredit: true },
-    });
-    const accounts = await this.prisma.client.account.findMany({
-      where: { id: { in: (grouped as any[]).map((g) => g.accountId) } },
-    });
-    const acctById = new Map((accounts as any[]).map((a) => [a.id, a]));
-    let totalAssets = ZERO,
-      totalLiabilities = ZERO,
-      totalEquity = ZERO,
-      totalEarnings = ZERO;
-    for (const g of grouped as any[]) {
-      const acct = acctById.get(g.accountId);
-      if (!acct) continue;
-      const debit = new Prisma.Decimal(g._sum.baseDebit ?? 0);
-      const credit = new Prisma.Decimal(g._sum.baseCredit ?? 0);
-      const net = debit.minus(credit);
-      switch (acct.accountType as string) {
-        case 'asset':
-        case 'bank':
-        case 'cash':
-        case 'receivable':
-        case 'contra_asset':
-          totalAssets = totalAssets.plus(net);
-          break;
-        case 'liability':
-        case 'payable':
-        case 'tax':
-        case 'contra_liability':
-          totalLiabilities = totalLiabilities.plus(net.negated());
-          break;
-        case 'equity':
-          totalEquity = totalEquity.plus(net.negated());
-          break;
-        case 'revenue':
-        case 'contra_revenue':
-          totalEarnings = totalEarnings.plus(net.negated());
-          break;
-        case 'cost_of_goods_sold':
-        case 'expense':
-          totalEarnings = totalEarnings.minus(net);
-          break;
-      }
-    }
-    const totalLiabilitiesAndEquity = totalLiabilities.plus(totalEquity).plus(totalEarnings);
-    return {
-      asOf,
-      totalAssets: totalAssets.toString(),
-      totalLiabilities: totalLiabilities.toString(),
-      totalEquity: totalEquity.toString(),
-      currentYearEarnings: totalEarnings.toString(),
-      totalLiabilitiesAndEquity: totalLiabilitiesAndEquity.toString(),
-      balanced: totalAssets.minus(totalLiabilitiesAndEquity).abs().lessThanOrEqualTo(0.01),
-      source: 'live',
-    };
+    const { totals } = await this.aggregate(asOf);
+    return this.summary(asOf, totals, 'live');
   }
 
   async balanceSheetDetailed(asOf: string) {
+    const { totals, rowsBySection } = await this.aggregate(asOf, { withRows: true });
+
+    const sections = BALANCE_SHEET_SECTIONS.map((def) => {
+      const rows = rowsBySection.get(def.key) ?? [];
+      let subtotal = ZERO;
+      for (const r of rows) subtotal = subtotal.plus(new Prisma.Decimal(r.balance || 0));
+      return {
+        key: def.key,
+        label: def.label,
+        type: def.side,
+        rows,
+        subtotal: subtotal.toString(),
+      };
+    });
+
+    return { ...this.summary(asOf, totals, 'live'), sections };
+  }
+
+  /**
+   * One pass over the ledger. Groups by account, merges each account's category
+   * behavior, then buckets by report section with a category-derived sign.
+   */
+  private async aggregate(
+    asOf: string,
+    opts: { withRows?: boolean } = {},
+  ): Promise<{
+    totals: SectionTotals;
+    rowsBySection: Map<ReportSection, Array<{ accountId: string; code: string; name: string; balance: string }>>;
+  }> {
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: new Date(asOf) } } },
+      where: {
+        entry: {
+          status: { in: [...BALANCE_AFFECTING_STATUSES] },
+          postingDate: { lte: new Date(asOf) },
+        },
+      },
       _sum: { baseDebit: true, baseCredit: true },
     });
-    const accounts = await this.prisma.client.account.findMany({
-      where: { id: { in: (grouped as any[]).map((g) => g.accountId) }, isActive: true },
-    });
-    const acctById = new Map((accounts as any[]).map((a) => [a.id, a]));
 
-    const sectionDefs: Array<{
-      key: string;
-      label: string;
-      type: 'asset' | 'liability' | 'equity';
-      types: string[];
-    }> = [
-      { key: 'current_assets', label: 'Current Assets', type: 'asset', types: ['cash', 'bank', 'receivable', 'mobile_money', 'petty_cash'] },
-      { key: 'non_current_assets', label: 'Non-current Assets', type: 'asset', types: ['asset', 'contra_asset'] },
-      { key: 'current_liabilities', label: 'Current Liabilities', type: 'liability', types: ['payable', 'tax'] },
-      { key: 'long_term_liabilities', label: 'Long-term Liabilities', type: 'liability', types: ['liability', 'contra_liability'] },
-      { key: 'equity', label: "Stockholders' Equity", type: 'equity', types: ['equity'] },
-    ];
-
-    const sectionRows: Record<string, any[]> = {};
-    for (const s of sectionDefs) sectionRows[s.key] = [];
-
-    let totalAssets = ZERO;
-    let totalLiabilities = ZERO;
-    let totalEquity = ZERO;
-    let totalEarnings = ZERO;
+    const meta = await this.accounts.meta((grouped as any[]).map((g) => g.accountId));
+    const totals = this.emptyTotals();
+    const rowsBySection = new Map<
+      ReportSection,
+      Array<{ accountId: string; code: string; name: string; balance: string; sortOrder: number }>
+    >();
 
     for (const g of grouped as any[]) {
-      const acct = acctById.get(g.accountId);
-      if (!acct) continue;
+      const account = meta.get(g.accountId);
+      if (!account || !account.isActive) continue;
+
       const debit = new Prisma.Decimal(g._sum.baseDebit ?? 0);
       const credit = new Prisma.Decimal(g._sum.baseCredit ?? 0);
-      const net = debit.minus(credit);
-      let display = net;
-      const typeStr = acct.accountType as string;
-      if (['liability', 'payable', 'tax', 'contra_liability', 'equity'].includes(typeStr)) {
-        display = net.negated();
-        if (typeStr === 'liability' || typeStr === 'payable' || typeStr === 'tax' || typeStr === 'contra_liability') {
-          totalLiabilities = totalLiabilities.plus(display);
-        } else if (typeStr === 'equity') {
-          totalEquity = totalEquity.plus(display);
-        }
-      } else if (typeStr === 'revenue' || typeStr === 'contra_revenue') {
-        totalEarnings = totalEarnings.plus(net.negated());
-      } else if (typeStr === 'cost_of_goods_sold' || typeStr === 'expense') {
-        totalEarnings = totalEarnings.minus(net);
-      } else {
-        totalAssets = totalAssets.plus(net);
-      }
+      const display = displayBalance(debit.minus(credit), account);
 
-      for (const s of sectionDefs) {
-        if (s.types.includes(typeStr)) {
-          sectionRows[s.key].push({
-            accountId: acct.id,
-            code: acct.code,
-            name: acct.name,
-            balance: display.toString(),
-          });
-          break;
-        }
+      this.accumulate(totals, account.reportSection, display);
+
+      if (opts.withRows && balanceSheetSideOf(account.reportSection)) {
+        const key = account.reportSection as ReportSection;
+        const list = rowsBySection.get(key) ?? [];
+        list.push({
+          accountId: account.id,
+          code: account.code,
+          name: account.name,
+          balance: display.toString(),
+          sortOrder: account.sortOrder,
+        });
+        rowsBySection.set(key, list);
       }
     }
 
-    const sections = sectionDefs.map((s) => {
-      const rows = sectionRows[s.key].sort((a, b) => a.code.localeCompare(b.code));
-      let subtotal = ZERO;
-      for (const r of rows) {
-        subtotal = subtotal.plus(new Prisma.Decimal(r.balance || 0));
-      }
-      return { ...s, rows, subtotal: subtotal.toString() };
-    });
+    for (const list of rowsBySection.values()) {
+      list.sort((a, b) => a.sortOrder - b.sortOrder || a.code.localeCompare(b.code));
+    }
 
-    const totalLiabilitiesAndEquity = totalLiabilities.plus(totalEquity).plus(totalEarnings);
+    return { totals, rowsBySection: rowsBySection as any };
+  }
+
+  /**
+   * Add a display balance to the right total. P&L sections roll into current-year
+   * earnings; `off_balance` and uncategorized accounts are excluded from both
+   * sides so they cannot silently unbalance the statement.
+   */
+  private accumulate(
+    totals: SectionTotals,
+    section: ReportSection | null,
+    display: Prisma.Decimal | number | string,
+  ): void {
+    const value = new Prisma.Decimal(display ?? 0);
+    const side = balanceSheetSideOf(section);
+    if (side === 'asset') {
+      totals.assets = totals.assets.plus(value);
+      return;
+    }
+    if (side === 'liability') {
+      totals.liabilities = totals.liabilities.plus(value);
+      return;
+    }
+    if (side === 'equity') {
+      totals.equity = totals.equity.plus(value);
+      return;
+    }
+    // P&L: revenue and contra-revenue are already signed by normalBalance, so a
+    // discount (debit-normal contra) correctly reduces earnings.
+    switch (section) {
+      case 'revenue':
+      case 'other_income':
+        totals.earnings = totals.earnings.plus(value);
+        break;
+      case 'contra_revenue':
+      case 'cogs':
+      case 'operating_expense':
+      case 'other_expense':
+        totals.earnings = totals.earnings.minus(value);
+        break;
+      default:
+        break;
+    }
+  }
+
+  private emptyTotals(): SectionTotals {
+    return { assets: ZERO, liabilities: ZERO, equity: ZERO, earnings: ZERO };
+  }
+
+  private summary(asOf: string, t: SectionTotals, source: 'live' | 'snapshot') {
+    const totalLiabilitiesAndEquity = t.liabilities.plus(t.equity).plus(t.earnings);
     return {
       asOf,
-      balanced: totalAssets.minus(totalLiabilitiesAndEquity).abs().lessThanOrEqualTo(0.01),
-      source: 'live',
-      sections,
+      totalAssets: t.assets.toString(),
+      totalLiabilities: t.liabilities.toString(),
+      totalEquity: t.equity.toString(),
+      currentYearEarnings: t.earnings.toString(),
+      totalLiabilitiesAndEquity: totalLiabilitiesAndEquity.toString(),
+      balanced: t.assets.minus(totalLiabilitiesAndEquity).abs().lessThanOrEqualTo(0.01),
+      source,
       totals: {
-        assets: totalAssets.toString(),
-        liabilities: totalLiabilities.toString(),
-        equity: totalEquity.toString(),
+        assets: t.assets.toString(),
+        liabilities: t.liabilities.toString(),
+        equity: t.equity.toString(),
         liabilitiesAndEquity: totalLiabilitiesAndEquity.toString(),
       },
     };
   }
 
-  /** Latest snapshot ≤ asOf, served only if nothing balance-affecting posted since. */
+  /**
+   * Latest snapshot ≤ asOf, served only if nothing balance-affecting posted
+   * since. Pre-category (v1) rows are treated as stale: they carry no
+   * reportSection, so serving them would silently drop every account from its
+   * section.
+   */
   private async findSnapshot(asOf: Date): Promise<{ organizationId: string; asOf: Date } | null> {
     const snap = await this.prisma.client.reportBalanceSheetSnapshot.findFirst({
-      where: { asOf: { lte: asOf } },
+      where: { asOf: { lte: asOf }, schemaVersion: { gte: SNAPSHOT_SCHEMA_VERSION } },
       orderBy: { asOf: 'desc' },
       select: { organizationId: true, asOf: true },
     });
     if (!snap) return null;
     const newer = await this.prisma.client.journalLine.count({
       where: {
-        entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { gt: snap.asOf, lte: asOf } },
+        entry: {
+          status: { in: [...BALANCE_AFFECTING_STATUSES] },
+          postingDate: { gt: snap.asOf, lte: asOf },
+        },
       },
     });
     if (newer > 0) return null;
     return snap;
   }
 }
+
+// `isProfitAndLoss` is re-exported for the snapshot builder, which needs the
+// same revenue/expense predicate when it closes the period into retained earnings.
+export { isProfitAndLoss };

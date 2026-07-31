@@ -13,9 +13,11 @@
     "db:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "ts-node prisma/seed.ts",
+    "backfill:inventory-gl": "ts-node src/scripts/backfill-inventory-gl.ts",
+    "rls:setup-role": "ts-node scripts/setup-rls-role.ts",
     "test": "jest",
     "test:integration": "jest --testPathPattern 'test/integration'",
-    "test:e2e": "jest --config test/jest-e2e.json",
+    "_comment_test_e2e": "E2E lives at the repo root (vitest, tests/e2e) — run `pnpm test:e2e` from there. There is no jest e2e config in this package.",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\""
   },
   "prisma": {
