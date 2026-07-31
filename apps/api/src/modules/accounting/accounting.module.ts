@@ -113,6 +113,7 @@ import { InventoryValuationController } from './reporting/inventory-valuation.co
     AccountDeterminationService,
     FiscalPeriodService,
     CashSessionService,
+    CashRegisterService,
     PeriodCloseService,
     CurrencyService,
     RevaluationService,

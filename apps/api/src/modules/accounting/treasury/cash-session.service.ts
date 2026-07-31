@@ -40,6 +40,8 @@ export interface CloseSessionDto {
   closingDenomination?: Record<string, number>;
   /** Offline-first: when the drawer was actually closed on the device. */
   occurredAt?: string;
+  /** Optional session ID to close a session opened by another cashier on a shared terminal. */
+  sessionId?: string;
 }
 
 export interface RecordMovementDto {
@@ -211,13 +213,19 @@ export class CashSessionService {
   }
 
   /** Close the current open session. Computes expected vs counted. */
-  async close(dto: CloseSessionDto) {
-    const organizationId = this.tenant.organizationId;
-    const counted = dec(dto.closingCounted);
-    if (counted.isNegative()) throw new BadRequestException('Counted cash cannot be negative');
+    async close(dto: CloseSessionDto) {
+      const organizationId = this.tenant.organizationId;
+      const counted = dec(dto.closingCounted);
+      if (counted.isNegative()) throw new BadRequestException('Counted cash cannot be negative');
 
-    return this.prisma.client.$transaction(async (tx: any) => {
-      const session = await this.requireOpenSession(tx);
+      return this.prisma.client.$transaction(async (tx: any) => {
+        // If sessionId is provided, close that specific session (shared terminal - any cashier can close)
+        // Otherwise, close the caller's own open session (existing behavior)
+        const session = dto.sessionId
+          ? await tx.cashSession.findFirst({ where: { id: dto.sessionId, organizationId } })
+          : await this.requireOpenSession(tx);
+        if (!session) throw new NotFoundException('No open cash session');
+        if (session.status !== 'open') throw new BadRequestException('Session is not open');
 
       // H1 — do not close while orders are still un-settled on this session.
       const openOrders = await tx.order.count({

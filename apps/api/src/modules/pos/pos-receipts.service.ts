@@ -421,12 +421,11 @@ export class PosReceiptsService {
   // the exact content height instead: one continuous page, one cut at the end.
   // The 14mm bottom padding feeds the last lines past the tear bar/cutter.
   window.onload=function(){
-    var mm=Math.max(40,Math.ceil(document.body.scrollHeight*25.4/96)+4);
-    var s=document.createElement('style');
-    s.textContent='@page { size:72mm '+mm+'mm; margin:0; }';
-    document.head.appendChild(s);
-    try{window.print();}catch(e){}
-  };
+      var mm=Math.max(40,Math.ceil(document.body.scrollHeight*25.4/96)+4);
+      var s=document.createElement('style');
+      s.textContent='@page { size:72mm '+mm+'mm; margin:0; }';
+      document.head.appendChild(s);
+    };
 </script></body></html>`;
   }
 

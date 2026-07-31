@@ -38,6 +38,8 @@ class CloseSessionDto {
   @IsOptional() @IsObject() closingDenomination?: Record<string, number>;
   /** Offline-first: when the drawer was actually closed on the device (ISO-8601). */
   @IsOptional() @IsISO8601() occurredAt?: string;
+  /** Optional session ID to close a session opened by another cashier on a shared terminal. */
+  @IsOptional() @IsString() sessionId?: string;
 }
 
 class RecordMovementDto {
@@ -140,21 +142,22 @@ export class CashSessionController {
   }
 
   @Post('close')
-  @Idempotent()
-  @RequirePermissions(PERMISSIONS.cashSession.close)
-  close(@Body() dto: CloseSessionDto) {
-    return this.sessions.close({
-      closingCounted: dto.closingCounted,
-      notes: dto.notes,
-      varianceReason: dto.varianceReason,
-      varianceStatus: dto.varianceStatus,
-      approvedById: dto.approvedById,
-      approverEmail: dto.approverEmail,
-      managerPin: dto.managerPin,
-      closingDenomination: dto.closingDenomination,
-      occurredAt: dto.occurredAt,
-    });
-  }
+    @Idempotent()
+    @RequirePermissions(PERMISSIONS.cashSession.close)
+    close(@Body() dto: CloseSessionDto) {
+      return this.sessions.close({
+        closingCounted: dto.closingCounted,
+        notes: dto.notes,
+        varianceReason: dto.varianceReason,
+        varianceStatus: dto.varianceStatus,
+        approvedById: dto.approvedById,
+        approverEmail: dto.approverEmail,
+        managerPin: dto.managerPin,
+        closingDenomination: dto.closingDenomination,
+        occurredAt: dto.occurredAt,
+        sessionId: dto.sessionId,
+      });
+    }
 
   @Post('movement')
   @Idempotent()
