@@ -66,33 +66,36 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       ? Object.fromEntries(DENOMS.map((f) => [String(f), parseInt(denom[f] || '0', 10) || 0]).filter(([, c]) => (c as number) > 0))
       : undefined;
     try {
-      const res = await closeShift.mutateAsync({
-        closingCounted: countedNum,
-        notes: notes.trim() || undefined,
-        varianceReason: varianceReason.trim() || undefined,
-        approverEmail: showManager ? approverEmail.trim() || undefined : undefined,
-        managerPin: showManager ? managerPin.trim() || undefined : undefined,
-        closingDenomination,
-      });
+          const res = await closeShift.mutateAsync({
+            closingCounted: countedNum,
+            notes: notes.trim() || undefined,
+            varianceReason: varianceReason.trim() || undefined,
+            approverEmail: showManager ? approverEmail.trim() || undefined : undefined,
+            managerPin: showManager ? managerPin.trim() || undefined : undefined,
+            closingDenomination,
+            sessionId: session.id,
+          });
       const variance = Number((res as any)?.closingDifference ?? 0);
       setResult({ variance });
       toast.success(`Shift closed. Variance: ${fmt(variance)}`);
       onClosed();
       onClose();
     } catch (e: any) {
-      const msg = e?.response?.data?.message || 'Failed to close shift';
-      // Backend guides the flow: reveal the field it is asking for.
-      if (/variance reason/i.test(msg)) {
-        setErr('The drawer does not balance — enter a reason for the variance.');
-      } else if (/manager approval|approver|manager pin/i.test(msg)) {
-        setShowManager(true);
-        setErr('This variance is large and needs manager sign-off. Enter a manager email + PIN.');
-      } else if (/unsettled order/i.test(msg)) {
-        setErr(msg);
-      } else {
-        setErr(msg);
-      }
-    }
+          const msg = e?.response?.data?.message || 'Failed to close shift';
+          // Backend guides the flow: reveal the field it is asking for.
+          if (/variance reason/i.test(msg)) {
+            setErr('The drawer does not balance — enter a reason for the variance.');
+          } else if (/manager approval|approver|manager pin/i.test(msg)) {
+            setShowManager(true);
+            setErr('This variance is large and needs manager sign-off. Enter a manager email + PIN.');
+          } else if (/unsettled order/i.test(msg)) {
+            setErr(msg);
+          } else if (/no open cash session/i.test(msg)) {
+            setErr('There is no open shift for this register — open the register first, or ask the cashier who opened it.');
+          } else {
+            setErr(msg);
+          }
+        }
   };
 
   return (

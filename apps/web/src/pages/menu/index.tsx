@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Coffee, Edit, PlusCircle, Trash2, Search, Eye,
-  Tag, FolderOpen, List, DollarSign, Clock, Layers, RotateCcw,
+  Tag, FolderOpen, List, Layers, RotateCcw,
+  CircleDollarSign, CheckCircle2, EyeOff,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -33,6 +35,7 @@ import {
   useCreateMenuItem,
   useUpdateMenuItem,
   useDisableMenuItem,
+  useToggleAvailability,
   type MenuCategory,
   type MenuItem,
 } from '@/features/menu/api';
@@ -70,6 +73,7 @@ export function MenuPage() {
   const createItem = useCreateMenuItem();
   const updateItem = useUpdateMenuItem();
   const disableItem = useDisableMenuItem();
+  const toggleAvailability = useToggleAvailability();
 
   const allPaginatedItems = items.data?.data ?? [];
   const activeItems = useMemo(() => {
@@ -80,6 +84,17 @@ export function MenuPage() {
   }, [allPaginatedItems, selectedCat]);
 
   useEffect(() => { setPage(1); }, [debounced]);
+
+  const meta = items.data?.meta;
+  const liveCats = (cats.data ?? []).filter((c) => !c.deletedAt);
+  const deletedCats = (cats.data ?? []).filter((c) => c.deletedAt);
+
+  // Density stats — derived from the loaded page (POS menus are small).
+  const availableCount = allPaginatedItems.filter((it) => it.isAvailable).length;
+  const priced = allPaginatedItems
+    .map((it) => (it.basePrice != null ? Number(it.basePrice) : null))
+    .filter((v): v is number => v != null && !Number.isNaN(v));
+  const avgPrice = priced.length ? priced.reduce((a, b) => a + b, 0) / priced.length : null;
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
@@ -107,11 +122,19 @@ export function MenuPage() {
     }
   };
 
-  const meta = items.data?.meta;
+  const handleToggle = async (it: MenuItem) => {
+    if (!canEditMenu) return;
+    try {
+      await toggleAvailability.mutateAsync({ id: it.id, isAvailable: !it.isAvailable });
+      notify.success(it.isAvailable ? `"${it.name}" marked unavailable (86)` : `"${it.name}" is back on the menu`);
+    } catch {
+      notify.error('Could not update availability');
+    }
+  };
 
   if (!canViewMenu && !canViewCat) {
     return (
-      <div className="space-y-4 p-6">
+      <div className="space-y-4">
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-6 text-center">
           <h1 className="text-2xl font-semibold text-destructive">Access Denied</h1>
           <p className="mt-2 text-sm text-muted-foreground">You do not have permission to view the menu.</p>
@@ -120,120 +143,155 @@ export function MenuPage() {
     );
   }
 
+  const selectedCatName = liveCats.find((c) => c.id === selectedCat)?.name ?? 'All items';
+
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Menu</h1>
-          <p className="text-sm text-gray-500">
-            Build your cafe menu from existing products. Menu items are what customers order;
-            products remain the master inventory behind them.
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Menu</h1>
+          <p className="text-sm text-muted-foreground">
+            Menu items are what customers order; products remain the master inventory behind them.
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {canCreateCat && (
+            <Button size="sm" variant="outline" onClick={() => setCatDialog({ open: true })}>
+              <FolderOpen className="mr-1.5 h-3.5 w-3.5" />Add category
+            </Button>
+          )}
+          {canCreateMenu && (
+            <Button size="sm" onClick={() => setItemDialog({ open: true })}>
+              <PlusCircle className="mr-1.5 h-3.5 w-3.5" />Add menu item
+            </Button>
+          )}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-[400px_1fr] gap-6">
+      {/* KPI stats */}
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <Card className="p-2">
+          <CardContent className="flex items-center gap-2 p-0">
+            <Coffee className="h-4 w-4 shrink-0 text-sky-600" />
+            <div className="flex w-full items-center justify-between gap-1">
+              <span className="text-xs text-muted-foreground">Menu Items</span>
+              <span className="text-sm font-bold tabular-nums text-sky-600">{meta?.total ?? '—'}</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="p-2">
+          <CardContent className="flex items-center gap-2 p-0">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+            <div className="flex w-full items-center justify-between gap-1">
+              <span className="text-xs text-muted-foreground">Available</span>
+              <span className="text-sm font-bold tabular-nums text-emerald-600">{items.isLoading ? '—' : availableCount}</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="p-2">
+          <CardContent className="flex items-center gap-2 p-0">
+            <FolderOpen className="h-4 w-4 shrink-0 text-violet-600" />
+            <div className="flex w-full items-center justify-between gap-1">
+              <span className="text-xs text-muted-foreground">Categories</span>
+              <span className="text-sm font-bold tabular-nums text-violet-600">{cats.isLoading ? '—' : liveCats.length}</span>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="p-2">
+          <CardContent className="flex items-center gap-2 p-0">
+            <CircleDollarSign className="h-4 w-4 shrink-0 text-amber-600" />
+            <div className="flex w-full items-center justify-between gap-1">
+              <span className="text-xs text-muted-foreground">Avg Price</span>
+              <span className="text-sm font-bold tabular-nums text-amber-600">{avgPrice != null ? formatCurrency(avgPrice) : '—'}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[28rem_1fr]">
         {/* Categories Sidebar */}
         {canViewCat && (
-          <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-            <div className="bg-[#3b82f6] text-white p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-white/10 rounded-lg">
-                    <FolderOpen className="h-4 w-4 text-white" />
-                  </div>
-                  <h3 className="font-semibold text-sm">Categories</h3>
-                </div>
-                {canCreateCat && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setCatDialog({ open: true })}
-                    className="h-8 bg-white text-[#3b82f6] hover:bg-white/90 rounded-full px-2"
-                  >
-                    <PlusCircle className="h-4 w-4" />
-                    <span className="text-xs font-medium">Add Category</span>
-                  </Button>
-                )}
+          <div className="flex flex-col rounded-md border bg-card">
+            <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Tag className="h-4 w-4 text-muted-foreground" />
+                <h3 className="text-sm font-semibold">Categories</h3>
               </div>
+              {canCreateCat && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={() => setCatDialog({ open: true })}
+                  title="Add category"
+                >
+                  <PlusCircle className="h-4 w-4" />
+                </Button>
+              )}
             </div>
 
-            <div className="p-3 space-y-1 max-h-[600px] overflow-y-auto">
+            <div className="scroll-thin max-h-[560px] space-y-0.5 overflow-y-auto p-2">
               <button
                 type="button"
                 onClick={() => setSelectedCat(null)}
                 className={
-                  'w-full text-left rounded-lg px-3 py-2.5 text-sm transition-all ' +
-                  (selectedCat === null
-                    ? 'bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/20'
-                    : 'bg-gray-50 text-gray-700')
+                  'flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm transition-colors ' +
+                  (selectedCat === null ? 'bg-primary/10 font-medium text-primary' : 'hover:bg-muted')
                 }
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <List className="h-4 w-4" />
-                    <span className="font-medium">All items</span>
-                  </div>
-                  <Badge variant="secondary" className="bg-gray-100 text-gray-700">
-                    {activeItems.length}
-                  </Badge>
-                </div>
+                <span className="flex items-center gap-2">
+                  <List className="h-3.5 w-3.5" />All items
+                </span>
+                <Badge variant="secondary" className="tabular-nums">{allPaginatedItems.length}</Badge>
               </button>
 
               {cats.isLoading && (
-                <div className="space-y-2 pt-2">
+                <div className="space-y-1 pt-1">
                   {[0, 1, 2, 3].map((i) => (
-                    <Skeleton key={i} className="h-10 w-full rounded-lg" />
+                    <Skeleton key={i} className="h-8 w-full rounded-md" />
                   ))}
                 </div>
               )}
 
-              {cats.data?.map((c) => {
-                const count = activeItems.filter((it) => it.categoryId === c.id).length;
+              {liveCats.map((c) => {
+                const count = allPaginatedItems.filter((it) => it.categoryId === c.id).length;
+                const selected = selectedCat === c.id;
                 return (
-                  <div key={c.id} className="group flex items-center gap-1">
+                  <div key={c.id} className="group flex items-center gap-0.5">
                     <button
                       type="button"
                       onClick={() => setSelectedCat(c.id)}
                       className={
-                        'flex-1 text-left rounded-lg px-3 py-2.5 text-sm transition-all bg-gray-50 ' +
-                        (selectedCat === c.id
-                          ? 'bg-[#3b82f6]/10 text-[#3b82f6] border border-[#3b82f6]/20'
-                          : 'hover:bg-gray-50 text-gray-700')
+                        'flex flex-1 items-center justify-between gap-2 overflow-hidden rounded-md px-2.5 py-1.5 text-sm transition-colors ' +
+                        (selected ? 'bg-primary/10 font-medium text-primary' : 'hover:bg-muted')
                       }
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Tag className="h-4 w-4" />
-                          <span className="font-medium truncate">{c.name}</span>
-                        </div>
-                        <Badge
-                          variant="secondary"
-                          className={selectedCat === c.id ? 'bg-[#3b82f6]/20 text-[#3b82f6]' : 'bg-gray-100 text-gray-700'}
-                        >
-                          {count}
-                        </Badge>
-                      </div>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Tag className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{c.name}</span>
+                      </span>
+                      <Badge variant="secondary" className="tabular-nums">{count}</Badge>
                     </button>
-                    <div className="flex gap-0.5 opacity-100 transition-opacity">
+                    <div className="flex shrink-0 items-center gap-1">
                       {canEditCat && (
                         <Button
-                          size="sm"
+                          size="icon"
                           variant="ghost"
-                          className="h-7 w-7 p-0 bg-blue-50 text-blue-600"
+                          className="h-7 w-7 text-muted-foreground hover:text-primary"
                           onClick={() => setCatDialog({ open: true, category: c })}
+                          title="Edit category"
                         >
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
                       )}
                       {canDeleteCat && (
                         <Button
-                          size="sm"
+                          size="icon"
                           variant="ghost"
-                          className="h-7 w-7 p-0 bg-red-50 text-red-600"
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
                           onClick={() => setDeleteTarget({ type: 'category', id: c.id, name: c.name })}
-                          title="Soft-delete (move to bin)"
+                          title="Move to Recently deleted"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -242,31 +300,35 @@ export function MenuPage() {
                   </div>
                 );
               })}
+
+              {!cats.isLoading && liveCats.length === 0 && (
+                <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">No categories yet.</p>
+              )}
             </div>
 
-            {/* Deleted categories — restore bin */}
+            {/* Recently deleted — restore bin */}
             {canDeleteCat && (
-              <div className="p-3 pt-0">
+              <div className="border-t p-2">
                 <button
                   type="button"
                   onClick={() => setShowDeleted((v) => !v)}
-                  className="flex items-center gap-2 w-full text-left rounded-lg px-3 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-50"
+                  className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  Recently deleted
+                  Recently deleted{deletedCats.length ? ` (${deletedCats.length})` : ''}
                 </button>
                 {showDeleted && (
-                  <div className="mt-1 space-y-1">
-                    {cats.data?.filter((c) => (c as any).deletedAt).length === 0 && (
-                      <p className="text-xs text-gray-400 px-3 py-2">No deleted categories.</p>
+                  <div className="mt-1 space-y-0.5">
+                    {deletedCats.length === 0 && (
+                      <p className="px-2.5 py-1.5 text-xs text-muted-foreground">Nothing here.</p>
                     )}
-                    {(cats.data?.filter((c) => (c as any).deletedAt) ?? []).map((c) => (
-                      <div key={c.id} className="flex items-center justify-between rounded-lg px-3 py-2 bg-gray-50 opacity-60">
-                        <span className="text-sm text-gray-600 truncate">{c.name}</span>
+                    {deletedCats.map((c) => (
+                      <div key={c.id} className="flex items-center justify-between rounded-md px-2.5 py-1 text-sm text-muted-foreground">
+                        <span className="truncate">{c.name}</span>
                         <Button
-                          size="sm"
+                          size="icon"
                           variant="ghost"
-                          className="h-7 w-7 p-0 text-emerald-600 hover:bg-emerald-50"
+                          className="h-7 w-7 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-600"
                           onClick={() => handleRestore(c)}
                           disabled={restoreCategory.isPending}
                           title="Restore category"
@@ -282,93 +344,84 @@ export function MenuPage() {
           </div>
         )}
 
-        {/* Items List */}
-        <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <div className="border-b border-gray-200 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <div className="p-2 bg-[#3b82f6]/10 rounded-lg">
-                  <Coffee className="h-5 w-5 text-[#3b82f6]" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">
-                    {cats.data?.find((c) => c.id === selectedCat)?.name ?? 'All items'}
-                  </h3>
-                  <p className="text-xs text-gray-500">
-                    {meta?.total ?? 0} item{(meta?.total ?? 0) !== 1 ? 's' : ''}
-                    {debounced ? ' (filtered)' : ''}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                  <Input
-                    placeholder="Search items..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-56 pl-9 h-10 border-gray-200 rounded-lg focus:border-[#3b82f6] focus:ring-[#3b82f6]/20"
-                  />
-                </div>
-                {canCreateMenu && (
-                  <Button
-                    onClick={() => setItemDialog({ open: true })}
-                    className="gap-2 bg-[#3b82f6] hover:bg-[#2563eb] text-white"
-                  >
-                  <PlusCircle className="h-4 w-4" />
-                  Add menu item
-                  </Button>
-                )}
-              </div>
+        {/* Items */}
+        <div className="flex flex-col rounded-md border bg-card">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+            <div className="min-w-0">
+              <h3 className="truncate text-sm font-semibold">{selectedCatName}</h3>
+              <p className="text-xs text-muted-foreground">
+                {meta?.total ?? 0} item{(meta?.total ?? 0) !== 1 ? 's' : ''}{debounced ? ' (filtered)' : ''}
+              </p>
+            </div>
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search items…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-9 pl-8"
+              />
             </div>
           </div>
 
-          <div className="p-4">
-            {items.isLoading ? (
-              <div className="space-y-3">
-                {[0, 1, 2].map((i) => (
-                  <Skeleton key={i} className="h-20 w-full rounded-lg" />
-                ))}
+          {items.isLoading ? (
+            <div className="space-y-2 p-3">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <Skeleton key={i} className="h-10 w-full rounded-md" />
+              ))}
+            </div>
+          ) : activeItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-4 py-16 text-center">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+                <Coffee className="h-7 w-7 text-muted-foreground" />
               </div>
-            ) : activeItems.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100 mx-auto">
-                  <Coffee className="h-8 w-8 text-gray-400" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-800">No menu items yet</h3>
-                <p className="mt-1 text-sm text-gray-500">
-                  {search ? 'Try adjusting your search terms' : 'Add one to make it available on the POS terminal'}
-                </p>
-                {!search && canCreateMenu && (
-                  <Button
-                    onClick={() => setItemDialog({ open: true })}
-                    className="mt-4 bg-[#3b82f6] hover:bg-[#2563eb] text-white"
-                  >
-                    <PlusCircle className="mr-2 h-4 w-4" />
-                    Add Menu Item
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {activeItems.map((it) => (
-                  <ItemRow
-                    key={it.id}
-                    item={it}
-                    canEdit={canEditMenu}
-                    canDelete={canDeleteMenu}
-                    onEdit={() => setItemDialog({ open: true, item: it })}
-                    onDelete={() => setDeleteTarget({ type: 'item', id: it.id, name: it.name })}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
+              <h3 className="text-base font-semibold">No menu items{selectedCat ? ' in this category' : ''}</h3>
+              <p className="max-w-sm text-sm text-muted-foreground">
+                {search ? 'Try adjusting your search terms.' : 'Add one to make it available on the POS terminal.'}
+              </p>
+              {!search && canCreateMenu && (
+                <Button className="mt-2" size="sm" onClick={() => setItemDialog({ open: true })}>
+                  <PlusCircle className="mr-1.5 h-4 w-4" />Add menu item
+                </Button>
+              )}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
+                    <th className="px-3 py-2 text-left font-medium">Item</th>
+                    <th className="px-3 py-2 text-left font-medium">Code</th>
+                    <th className="px-3 py-2 text-left font-medium">Category</th>
+                    <th className="px-3 py-2 text-right font-medium">Price</th>
+                    <th className="px-3 py-2 text-right font-medium">Recipe</th>
+                    <th className="px-3 py-2 text-center font-medium">Status</th>
+                    <th className="px-3 py-2 text-right font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeItems.map((it) => (
+                    <ItemRow
+                      key={it.id}
+                      item={it}
+                      categoryName={liveCats.find((c) => c.id === it.categoryId)?.name ?? null}
+                      canEdit={canEditMenu}
+                      canDelete={canDeleteMenu}
+                      toggling={toggleAvailability.isPending}
+                      onToggle={() => handleToggle(it)}
+                      onEdit={() => setItemDialog({ open: true, item: it })}
+                      onDelete={() => setDeleteTarget({ type: 'item', id: it.id, name: it.name })}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Pagination */}
           {meta && meta.totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50/50">
-              <span className="text-sm text-gray-500">
+            <div className="flex items-center justify-between border-t px-3 py-2">
+              <span className="text-xs text-muted-foreground">
                 Page {meta.page} of {meta.totalPages} · {meta.total} total
               </span>
               <div className="flex items-center gap-2">
@@ -411,7 +464,7 @@ export function MenuPage() {
       <ItemDialog
         open={itemDialog.open}
         item={itemDialog.item}
-        categories={cats.data ?? []}
+        categories={liveCats}
         onOpenChange={(o) => setItemDialog((s) => ({ ...s, open: o }))}
         onSubmit={(input) =>
           new Promise<void>((resolve, reject) => {
@@ -431,36 +484,34 @@ export function MenuPage() {
 
       {/* Delete Confirmation */}
       <AlertDialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <AlertDialogContent className="p-0 gap-0">
-          <AlertDialogHeader className="bg-[#3b82f6] text-white p-6 rounded-t-lg">
+        <AlertDialogContent>
+          <AlertDialogHeader>
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/10">
-                <Trash2 className="h-5 w-5 text-white" />
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-destructive/10 text-destructive">
+                <Trash2 className="h-5 w-5" />
               </div>
               <div>
                 <AlertDialogTitle>
-                  {deleteTarget?.type === 'category' ? 'Delete Category' : 'Disable Menu Item'}
+                  {deleteTarget?.type === 'category' ? 'Delete category' : 'Disable menu item'}
                 </AlertDialogTitle>
-                <AlertDialogDescription className="text-white/80 mt-1">
+                <AlertDialogDescription>
                   This action can be undone from the Recently deleted bin.
                 </AlertDialogDescription>
               </div>
             </div>
           </AlertDialogHeader>
-          <div className="p-6">
-            <p className="text-sm text-gray-600">
-              {deleteTarget?.type === 'category'
-                ? <>Are you sure you want to delete <span className="font-semibold text-gray-800">{deleteTarget?.name}</span>? Items in this category will not be deleted and the category can be restored later.</>
-                : <>Are you sure you want to disable <span className="font-semibold text-gray-800">{deleteTarget?.name}</span>? It will disappear from the POS menu but stay in the database.</>}
-            </p>
-          </div>
-          <AlertDialogFooter className="p-6 border-t border-gray-200 bg-gray-50/50 rounded-b-lg gap-2">
-            <AlertDialogCancel className="h-11 px-6 rounded-lg border-gray-300 hover:bg-gray-100">Cancel</AlertDialogCancel>
+          <p className="text-sm text-muted-foreground">
+            {deleteTarget?.type === 'category'
+              ? <>Delete <span className="font-semibold text-foreground">{deleteTarget?.name}</span>? Items in this category are not deleted and the category can be restored later.</>
+              : <>Disable <span className="font-semibold text-foreground">{deleteTarget?.name}</span>? It disappears from the POS menu but stays in the database.</>}
+          </p>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}
-              className="h-11 px-6 rounded-lg bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {deleteTarget?.type === 'category' ? 'Delete Category' : 'Disable Item'}
+              {deleteTarget?.type === 'category' ? 'Delete category' : 'Disable item'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -470,11 +521,14 @@ export function MenuPage() {
 }
 
 function ItemRow({
-  item, canEdit, canDelete, onEdit, onDelete,
+  item, categoryName, canEdit, canDelete, toggling, onToggle, onEdit, onDelete,
 }: {
   item: MenuItem;
+  categoryName: string | null;
   canEdit: boolean;
   canDelete: boolean;
+  toggling: boolean;
+  onToggle: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
@@ -483,93 +537,104 @@ function ItemRow({
   const ingredientCount = item.ingredients?.length ?? 0;
 
   return (
-    <div
-      className="flex items-center gap-4 rounded-lg border border-gray-200 p-4 hover:border-[#3b82f6]/30 hover:bg-[#3b82f6]/5 cursor-pointer transition-all group"
-          onClick={() => navigateRow(`/menu/${item.id}`)}
-    >
-      <div
-        className={`w-1.5 self-stretch rounded-full shrink-0 ${item.isAvailable ? 'bg-[#10b981]' : 'bg-gray-300'}`}
-      />
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-semibold text-gray-900 truncate group-hover:text-[#3b82f6] transition-colors">
-            {item.name}
-          </span>
-          {item.code && (
-            <Badge variant="outline" className="font-mono text-[10px] border-gray-300 text-gray-600">
-              {item.code}
-            </Badge>
-          )}
-          {!item.isAvailable && (
-            <Badge className="bg-red-100 text-red-800 hover:bg-red-200 border-none text-[10px]">
-              Unavailable
-            </Badge>
-          )}
-        </div>
-        {item.description && (
-          <p className="text-xs text-gray-500 truncate mt-1">{item.description}</p>
-        )}
-        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-xs">
-          {priceMajor != null && (
-            <div className="flex items-center gap-1 text-gray-700">
-              <DollarSign className="h-3.5 w-3.5 text-[#10b981]" />
-              <span className="font-bold text-gray-900">{formatCurrency(priceMajor)}</span>
-            </div>
-          )}
-          {item.preparationTime != null && (
-            <div className="flex items-center gap-1 text-gray-700">
-              <Clock className="h-3.5 w-3.5 text-[#f59e0b]" />
-              <span>{item.preparationTime}m</span>
-            </div>
-          )}
-          <div className="flex items-center gap-1 text-gray-700">
-            <Layers className="h-3.5 w-3.5 text-[#8b5cf6]" />
-            <span>{ingredientCount} ingredient{ingredientCount === 1 ? '' : 's'}</span>
-          </div>
-          <div
-            className={`flex items-center gap-1 font-medium ${item.isAvailable ? 'text-[#10b981]' : 'text-gray-400'}`}
-          >
-            <div className={`h-2 w-2 rounded-full ${item.isAvailable ? 'bg-[#10b981]' : 'bg-gray-400'}`} />
-            {item.isAvailable ? 'Active' : 'Unavailable'}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-        <Button
-          size="sm"
-          variant="ghost"
+    <tr
+      className="cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/40"
       onClick={() => navigateRow(`/menu/${item.id}`)}
-          className="h-9 w-9 p-0 hover:bg-primary/10 hover:text-primary"
-          title="View details"
+    >
+      {/* Item name + description */}
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-2">
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.isAvailable ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />
+          <div className="min-w-0">
+            <div className="truncate font-medium text-foreground">{item.name}</div>
+            {item.description && (
+              <div className="truncate text-xs text-muted-foreground">{item.description}</div>
+            )}
+          </div>
+        </div>
+      </td>
+
+      {/* Code */}
+      <td className="px-3 py-2">
+        {item.code
+          ? <span className="font-mono text-xs text-muted-foreground">{item.code}</span>
+          : <span className="text-muted-foreground/50">—</span>}
+      </td>
+
+      {/* Category */}
+      <td className="px-3 py-2">
+        {categoryName
+          ? <Badge variant="outline" className="font-normal">{categoryName}</Badge>
+          : <span className="text-muted-foreground/50">—</span>}
+      </td>
+
+      {/* Price */}
+      <td className="px-3 py-2 text-right font-mono font-semibold tabular-nums">
+        {priceMajor != null ? formatCurrency(priceMajor) : <span className="font-sans text-muted-foreground/50">—</span>}
+      </td>
+
+      {/* Ingredient count */}
+      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+        <span className="inline-flex items-center gap-1"><Layers className="h-3.5 w-3.5" />{ingredientCount}</span>
+      </td>
+
+      {/* Status — clickable 86 toggle */}
+      <td className="px-3 py-2 text-center" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          disabled={!canEdit || toggling}
+          onClick={onToggle}
+          title={canEdit ? (item.isAvailable ? 'Mark unavailable (86)' : 'Mark available') : undefined}
+          className={
+            'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors ' +
+            (item.isAvailable
+              ? 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20'
+              : 'bg-muted text-muted-foreground hover:bg-muted/80') +
+            (canEdit ? ' cursor-pointer' : ' cursor-default')
+          }
         >
-          <Eye className="h-4 w-4 text-primary/70" />
-        </Button>
-        {canEdit && (
+          <span className={`h-1.5 w-1.5 rounded-full ${item.isAvailable ? 'bg-emerald-500' : 'bg-muted-foreground/50'}`} />
+          {item.isAvailable ? 'Available' : '86'}
+        </button>
+      </td>
+
+      {/* Actions */}
+      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-end gap-0.5">
           <Button
-            size="sm"
+            size="icon"
             variant="ghost"
-            onClick={onEdit}
-            className="h-9 w-9 p-0 bg-blue-50 text-blue-600 hover:bg-blue-100"
-            title="Edit item"
+            onClick={() => navigateRow(`/menu/${item.id}`)}
+            className="h-8 w-8 text-muted-foreground hover:text-primary"
+            title="View details"
           >
-            <Edit className="h-4 w-4" />
+            <Eye className="h-4 w-4" />
           </Button>
-        )}
-        {canDelete && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onDelete}
-            className="h-9 w-9 p-0 hover:bg-red-50 hover:text-red-600"
-            title="Disable item"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
-    </div>
+          {canEdit && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={onEdit}
+              className="h-8 w-8 text-muted-foreground hover:text-primary"
+              title="Edit item"
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={onDelete}
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              title="Disable item"
+            >
+              {item.isAvailable ? <Trash2 className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+            </Button>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }
 

@@ -14,7 +14,7 @@ export function usePosTablesStream() {
     if (!token) return;
 
     const posToken = getPosToken();
-    const url = new URL(SSE_URL);
+    const url = new URL(SSE_URL, window.location.origin);
     url.searchParams.set('access_token', token);
     if (posToken) url.searchParams.set('pos_token', posToken);
 

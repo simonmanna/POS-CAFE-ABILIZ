@@ -597,23 +597,29 @@ const CloseShiftDialog: React.FC<{
   const variance = Number.isFinite(countedNum) ? countedNum - expectedCash : 0;
 
   const submit = async () => {
-    setErr(null);
-    if (!Number.isFinite(countedNum) || countedNum < 0) { setErr('Counted cash must be non-negative'); return; }
-    if (variance !== 0 && !varianceReason.trim()) { setErr('A variance reason is required when the drawer is off'); return; }
-    try {
-      await closeShift.mutateAsync({
-        closingCounted: countedNum,
-        notes: notes.trim() || undefined,
-        varianceReason: variance !== 0 ? varianceReason.trim() : undefined,
-        varianceStatus: variance !== 0 ? 'pending_review' : undefined,
-      });
-      toast.success(`Register closed. Variance: ${fmt(variance)}`);
-      onClosed();
-      onClose();
-    } catch (e: any) {
-      setErr(e?.response?.data?.message || 'Failed to close register');
-    }
-  };
+      setErr(null);
+      if (!Number.isFinite(countedNum) || countedNum < 0) { setErr('Counted cash must be non-negative'); return; }
+      if (variance !== 0 && !varianceReason.trim()) { setErr('A variance reason is required when the drawer is off'); return; }
+      try {
+        await closeShift.mutateAsync({
+          closingCounted: countedNum,
+          notes: notes.trim() || undefined,
+          varianceReason: variance !== 0 ? varianceReason.trim() : undefined,
+          varianceStatus: variance !== 0 ? 'pending_review' : undefined,
+          sessionId: session.id,
+        });
+        toast.success(`Register closed. Variance: ${fmt(variance)}`);
+        onClosed();
+        onClose();
+      } catch (e: any) {
+        const msg = e?.response?.data?.message || 'Failed to close register';
+        if (/no open cash session/i.test(msg)) {
+          setErr('There is no open shift for this register — open the register first, or ask the cashier who opened it.');
+        } else {
+          setErr(msg);
+        }
+      }
+    };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>

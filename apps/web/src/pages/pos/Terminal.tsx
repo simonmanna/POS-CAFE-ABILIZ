@@ -1116,13 +1116,13 @@ const TerminalPage: React.FC = () => {
         });
         finishSettle();
       } catch (e: any) {
-        // E4: queue the settle ONLY when the network is genuinely down (no
-        // response). We deliberately do NOT queue on 5xx here — a tab settle
-        // posts + tenders server-side, so a partial failure must not be blindly
-        // replayed under a fresh idempotency key.
-        const status = e?.response?.status;
-        const networkDown = (!status || status === 0) || (typeof navigator !== 'undefined' && !navigator.onLine);
-        if (networkDown) {
+              // E4: queue the settle ONLY when the network is genuinely down (no
+              // response). We deliberately do NOT queue on 5xx here — a tab settle
+              // posts + tenders server-side, so a partial failure must not be blindly
+              // replayed under a fresh idempotency key.
+              const status = e?.response?.status;
+              const networkDown = !status || status === 0;
+              if (networkDown) {
           try {
             const queued = await enqueueSale(
               { tenders: input.tenders, cashSessionId: session?.id },
@@ -1206,15 +1206,14 @@ const TerminalPage: React.FC = () => {
       setShowPayment(false);
       refetchSession();
     } catch (e: any) {
-      const msg = e?.response?.data?.message || e?.message || 'Checkout failed';
-      // P11 offline fallback: if the network is down (no response at all,
-      // or a 5xx/timeout), queue the sale locally. The next time the cashier
-      // reconnects, the queue replays with the SAME Idempotency-Key so the
-      // backend returns the original response — no double-charge.
-      const status = e?.response?.status;
-      const isOffline = !status || status === 0 || status >= 500 || status === 408 || status === 429;
-      const networkDown = typeof navigator !== 'undefined' && !navigator.onLine;
-      if (isOffline || networkDown) {
+          const msg = e?.response?.data?.message || e?.message || 'Checkout failed';
+          // P11 offline fallback: if the network is down (no response at all,
+          // or a 5xx/timeout), queue the sale locally. The next time the cashier
+          // reconnects, the queue replays with the SAME Idempotency-Key so the
+          // backend returns the original response — no double-charge.
+          const status = e?.response?.status;
+          const isOffline = !status || status === 0 || status >= 500 || status === 408 || status === 429;
+          if (isOffline) {
         try {
           const queued = await enqueueSale(payload, { idempotencyKey: idemKey });
           toast.warning(

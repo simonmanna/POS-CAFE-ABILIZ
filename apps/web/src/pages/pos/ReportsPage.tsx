@@ -19,7 +19,16 @@ import { exportPDF } from '@/lib/export-pdf';
 const fmt = (n: number | string | null | undefined) =>
   `UGX ${Number(n || 0).toLocaleString()}`;
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+/** Local-timezone YYYY-MM-DD. Never use toISOString() here — it's UTC, so in
+ *  UTC+ zones it rolls back to "yesterday" during the early-morning hours. */
+const isoLocal = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
+
+const todayIso = () => isoLocal(new Date());
 
 /** First day (Monday) of the ISO week containing the given ISO date string. */
 function weekStartFromDay(isoDate: string): string {
@@ -28,7 +37,7 @@ function weekStartFromDay(isoDate: string): string {
   const dow = d.getDay();
   const diff = d.getDate() - dow + (dow === 0 ? -6 : 1);
   d.setDate(diff);
-  return d.toISOString().slice(0, 10);
+  return isoLocal(d);
 }
 
 /** YYYY-MM-DD for the first of a YYYY-MM month string. */
@@ -45,13 +54,15 @@ const ReportsPage: React.FC = () => {
   const [topCategoryId, setTopCategoryId] = useState<string | undefined>();
   const { data: openSession } = useOpenSession();
 
-  const { data: x, isLoading: xLoading, refetch: xRefetch, error: xError } = useXReport(openSession?.id);
-  const { data: z, isLoading: zLoading, refetch: zRefetch, error: zError } = useZReport(openSession?.id);
+  // Each report query is gated on its tab being active so a page load fires ONE
+  // request, not all ~13. Switching tabs lazily fetches (and React Query caches).
+  const { data: x, isLoading: xLoading, refetch: xRefetch, error: xError } = useXReport(openSession?.id, tab === 'x');
+  const { data: z, isLoading: zLoading, refetch: zRefetch, error: zError } = useZReport(openSession?.id, tab === 'z');
   const [hFrom, setHFrom] = useState(todayIso());
   const [hTo, setHTo] = useState(todayIso());
   const [hFilter, setHFilter] = useState<string | undefined>();
-  const { data: hourly, isLoading: hLoading } = useSalesByHour(hFrom, hTo, hFilter);
-  const { data: topItems, isLoading: tLoading } = useTopItems(fromDate, toDate, 20, topCategoryId);
+  const { data: hourly, isLoading: hLoading } = useSalesByHour(hFrom, hTo, hFilter, tab === 'hourly');
+  const { data: topItems, isLoading: tLoading } = useTopItems(fromDate, toDate, 20, topCategoryId, tab === 'top');
 
   const { data: categories } = useCategories();
 
@@ -59,44 +70,44 @@ const ReportsPage: React.FC = () => {
   const [itemsToDate, setItemsToDate] = useState(todayIso());
   const [itemsCategoryId, setItemsCategoryId] = useState<string | undefined>();
   const [itemsOrderType, setItemsOrderType] = useState<string | undefined>();
-  const { data: soldItems, isLoading: itemsLoading } = useSoldItems(itemsFromDate, itemsToDate, itemsCategoryId, undefined, itemsOrderType);
+  const { data: soldItems, isLoading: itemsLoading } = useSoldItems(itemsFromDate, itemsToDate, itemsCategoryId, undefined, itemsOrderType, tab === 'items');
 
   const [salesFromDate, setSalesFromDate] = useState(todayIso());
   const [salesToDate, setSalesToDate] = useState(todayIso());
   const [salesOrderType, setSalesOrderType] = useState<string | undefined>();
-  const { data: salesReport, isLoading: salesLoading } = useSalesReport(salesFromDate, salesToDate, undefined, undefined, undefined, salesOrderType);
+  const { data: salesReport, isLoading: salesLoading } = useSalesReport(salesFromDate, salesToDate, undefined, undefined, undefined, salesOrderType, tab === 'sales');
 
   const [ordersFromDate, setOrdersFromDate] = useState(todayIso());
   const [ordersToDate, setOrdersToDate] = useState(todayIso());
   const [ordersOrderType, setOrdersOrderType] = useState<string | undefined>();
-  const { data: orderReport, isLoading: ordersLoading } = useOrderReport(ordersFromDate, ordersToDate, ordersOrderType);
+  const { data: orderReport, isLoading: ordersLoading } = useOrderReport(ordersFromDate, ordersToDate, ordersOrderType, undefined, tab === 'orders');
 
   const [cashierFromDate, setCashierFromDate] = useState(todayIso());
   const [cashierToDate, setCashierToDate] = useState(todayIso());
   const [cashierOrderType, setCashierOrderType] = useState<string | undefined>();
-  const { data: cashierReport, isLoading: cashierLoading } = useCashierReport(cashierFromDate, cashierToDate, undefined, undefined, undefined, cashierOrderType);
+  const { data: cashierReport, isLoading: cashierLoading } = useCashierReport(cashierFromDate, cashierToDate, undefined, undefined, undefined, cashierOrderType, tab === 'cashier');
 
   const [csFromDate, setCsFromDate] = useState(todayIso());
   const [csToDate, setCsToDate] = useState(todayIso());
-  const { data: cashierShiftSummary, isLoading: csLoading } = useCashierShiftSummary(csFromDate, csToDate);
+  const { data: cashierShiftSummary, isLoading: csLoading } = useCashierShiftSummary(csFromDate, csToDate, undefined, tab === 'cashier-summary');
 
   const [waiterFromDate, setWaiterFromDate] = useState(todayIso());
   const [waiterToDate, setWaiterToDate] = useState(todayIso());
   const [waiterOrderType, setWaiterOrderType] = useState<string | undefined>();
-  const { data: waiterReport, isLoading: waiterLoading } = useWaiterReport(waiterFromDate, waiterToDate, undefined, waiterOrderType);
+  const { data: waiterReport, isLoading: waiterLoading } = useWaiterReport(waiterFromDate, waiterToDate, undefined, waiterOrderType, tab === 'waiter');
 
   // Daily / weekly / monthly sales summary with from/to ranges
   const [dailyFrom, setDailyFrom] = useState(todayIso());
   const [dailyTo, setDailyTo] = useState(todayIso());
-  const { data: daily, isLoading: dailyLoading } = useSalesSummary(dailyFrom, dailyTo, 'day');
+  const { data: daily, isLoading: dailyLoading } = useSalesSummary(dailyFrom, dailyTo, 'day', tab === 'daily');
 
-  const [weeklyFrom, setWeeklyFrom] = useState(todayIso());
+  const [weeklyFrom, setWeeklyFrom] = useState(weekStartFromDay(todayIso()));
   const [weeklyTo, setWeeklyTo] = useState(todayIso());
-  const { data: weekly, isLoading: weeklyLoading } = useSalesSummary(weeklyFrom, weeklyTo, 'week');
+  const { data: weekly, isLoading: weeklyLoading } = useSalesSummary(weeklyFrom, weeklyTo, 'week', tab === 'weekly');
 
-  const [monthlyFrom, setMonthlyFrom] = useState(todayIso());
+  const [monthlyFrom, setMonthlyFrom] = useState(monthStart(todayIso().slice(0, 7)));
   const [monthlyTo, setMonthlyTo] = useState(todayIso());
-  const { data: monthly, isLoading: monthlyLoading } = useSalesSummary(monthlyFrom, monthlyTo, 'month');
+  const { data: monthly, isLoading: monthlyLoading } = useSalesSummary(monthlyFrom, monthlyTo, 'month', tab === 'monthly');
 
   const denied = !permissions.includes('pos:reports');
 
@@ -104,7 +115,7 @@ const ReportsPage: React.FC = () => {
     <div className="pos-reports-shell">
       <div className="pos-reports-header">
         <div>
-          <Button variant="outline" size="sm" onClick={() => navigate('/pos/terminal')}>
+          <Button variant="outline" size="sm" className="no-print" onClick={() => navigate('/pos/terminal')}>
             <ArrowLeft className="h-4 w-4 mr-1" /> Back to terminal
           </Button>
           <h1 className="text-2xl font-bold mt-2 flex items-center gap-2">
@@ -112,7 +123,7 @@ const ReportsPage: React.FC = () => {
           </h1>
           <p className="text-sm text-slate-600">Live X-report, frozen Z-report, hourly buckets, and top-selling items.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 no-print">
           {tab === 'x' ? (
             <Button variant="outline" onClick={() => xRefetch()}><RefreshCw className="h-4 w-4 mr-1" /> Refresh</Button>
           ) : tab === 'z' ? (
@@ -128,7 +139,7 @@ const ReportsPage: React.FC = () => {
         </div>
       ) : (
         <>
-          <div className="pos-reports-tabs pos-reports-tabs-wide">
+          <div className="pos-reports-tabs pos-reports-tabs-wide no-print">
             <button className={'pos-reports-tab' + (tab === 'sales' ? ' active' : '')} onClick={() => setTab('sales')}>
               Sales Report
             </button>
@@ -365,11 +376,11 @@ const QuickPresets: React.FC<{
 }> = ({ fromDate, setFromDate, toDate, setToDate }) => {
   const presets = [
     { label: 'Today', get: () => { const t = todayIso(); return { f: t, t: t }; } },
-    { label: 'Yesterday', get: () => { const d = new Date(); d.setDate(d.getDate() - 1); const s = d.toISOString().slice(0, 10); return { f: s, t: s }; } },
+    { label: 'Yesterday', get: () => { const d = new Date(); d.setDate(d.getDate() - 1); const s = isoLocal(d); return { f: s, t: s }; } },
     { label: 'This Week', get: () => { const s = weekStartFromDay(todayIso()); return { f: s, t: todayIso() }; } },
     { label: 'This Month', get: () => { const s = monthStart(todayIso().slice(0, 7)); return { f: s, t: todayIso() }; } },
-    { label: 'Last 7 Days', get: () => { const d = new Date(); d.setDate(d.getDate() - 6); return { f: d.toISOString().slice(0, 10), t: todayIso() }; } },
-    { label: 'Last 30 Days', get: () => { const d = new Date(); d.setDate(d.getDate() - 29); return { f: d.toISOString().slice(0, 10), t: todayIso() }; } },
+    { label: 'Last 7 Days', get: () => { const d = new Date(); d.setDate(d.getDate() - 6); return { f: isoLocal(d), t: todayIso() }; } },
+    { label: 'Last 30 Days', get: () => { const d = new Date(); d.setDate(d.getDate() - 29); return { f: isoLocal(d), t: todayIso() }; } },
     { label: 'This Year', get: () => { const y = todayIso().slice(0, 4); return { f: y + '-01-01', t: todayIso() }; } },
   ];
   return (
