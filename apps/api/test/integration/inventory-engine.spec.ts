@@ -332,6 +332,70 @@ describeDb('integration: inventory engine', () => {
       expect(Number(dest!.runningAverageCost)).toBe(15);
     }, 60_000);
 
+    it('keeps the weighted average correct under concurrent receipts', async () => {
+      // The running average is a read-compute-write in app code. Two receipts on
+      // the same quant landing at once used to lost-update it: quantity stayed
+      // right (atomic increments) but the average took whichever writer committed
+      // last. A transaction advisory lock now serialises the recompute. Without
+      // it this assertion is flaky and usually wrong (10 or 20, not 15).
+      const product = await makeProduct('AVCO-RACE');
+
+      await asOrg(async () => {
+        await Promise.all([
+          stock.receiveForDocument(
+            { productId: product.id, locationId: mainLocationId, quantity: 10, unitCost: 10 } as any,
+            { sourceType: 'race', sourceId: 'r1', date: new Date() },
+          ),
+          stock.receiveForDocument(
+            { productId: product.id, locationId: mainLocationId, quantity: 10, unitCost: 20 } as any,
+            { sourceType: 'race', sourceId: 'r2', date: new Date() },
+          ),
+        ]);
+      });
+
+      const si = await prisma.stockItem.findFirst({
+        where: { organizationId, productId: product.id, locationId: mainLocationId },
+      });
+      expect(Number(si!.quantity)).toBe(20);
+      // (10 × 10 + 10 × 20) / 20 = 15, regardless of commit order.
+      expect(Number(si!.runningAverageCost)).toBe(15);
+    }, 60_000);
+
+    it('blends the carried cost into an existing destination average', async () => {
+      // Destination already holds stock at a different average. A transfer-in is
+      // economically a receipt at the source's carried cost, so the destination
+      // average must weight the incoming units in. Previously the dest upsert only
+      // incremented quantity and kept its old average, so the destination
+      // valuation silently drifted from the ledger.
+      const product = await makeProduct('XFER-BLEND');
+
+      await asOrg(async () => {
+        // Seed the destination with 10 @ 20 (avg 20).
+        await stock.receiveForDocument(
+          { productId: product.id, locationId: altLocationId, quantity: 10, unitCost: 20 } as any,
+          { sourceType: 'test_receipt', sourceId: 'b-dest', date: new Date() },
+        );
+        // Seed the source with 10 @ 10 (avg 10), then move all 10 across.
+        await stock.receiveForDocument(
+          { productId: product.id, locationId: mainLocationId, quantity: 10, unitCost: 10 } as any,
+          { sourceType: 'test_receipt', sourceId: 'b-src', date: new Date() },
+        );
+        await stock.transfer({
+          productId: product.id,
+          fromLocationId: mainLocationId,
+          toLocationId: altLocationId,
+          quantity: 10,
+        } as any);
+      });
+
+      expect(await onHand(product.id, altLocationId)).toBe(20);
+      const dest = await prisma.stockItem.findFirst({
+        where: { organizationId, productId: product.id, locationId: altLocationId },
+      });
+      // (10 × 20 + 10 × 10) / 20 = 15
+      expect(Number(dest!.runningAverageCost)).toBe(15);
+    }, 60_000);
+
     it('relocates serial numbers with the goods', async () => {
       const product = await makeProduct('XFER-SERIAL', { serialTracking: true, costingMethod: 'SPECIFIC' });
 

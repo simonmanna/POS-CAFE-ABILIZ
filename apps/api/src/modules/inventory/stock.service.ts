@@ -69,6 +69,28 @@ export class StockService {
   }
 
   /**
+   * Serialise the AVCO running-average recompute for one (product, variant,
+   * location) quant. The running average is a read-compute-write in application
+   * code, so two concurrent receipts — or a receipt racing a transfer-in — would
+   * lost-update it: quantity stays correct (atomic increments), the weighted
+   * average does not. A transaction-scoped Postgres advisory lock makes the
+   * recompute exclusive and releases automatically at commit/rollback. Keyed by a
+   * stable string hash, so it also covers the first-ever receipt, where there is
+   * no row yet to `SELECT … FOR UPDATE`. Only the average is protected; quantity
+   * mutations elsewhere stay lock-free.
+   */
+  private async lockQuantForAvco(
+    tx: any,
+    organizationId: string,
+    productId: string,
+    variantKey: string,
+    locationId: string,
+  ): Promise<void> {
+    const key = `avco:${organizationId}:${productId}:${variantKey}:${locationId}`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key})::bigint)`;
+  }
+
+  /**
    * Bare receipt: recomputes AVCO and moves quantity but does NOT post to GL.
    *
    * Only correct for movements whose value is owned by another journal entry
@@ -185,7 +207,10 @@ export class StockService {
       }
       return res;
     };
-    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
+    // 20s (vs Prisma's 5s default): these paths can wait on the per-quant AVCO
+    // advisory lock under contention, and a receipt/transfer must not fail just
+    // because another movement on the same quant is mid-flight.
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run, { timeout: 20_000 });
   }
 
   /**
@@ -281,6 +306,8 @@ export class StockService {
     const variantKey = variantId ?? '';
 
     const run = async (tx: any) => {
+      // Exclusive on this quant's AVCO recompute for the duration of the tx.
+      await this.lockQuantForAvco(tx, organizationId, dto.productId, variantKey, dto.locationId);
       const ledgerCode = await this.seq.next('stock_move', { prefix: 'STK/', padding: 6 }, tx);
 
       // Recompute AVCO before writing the ledger row.
@@ -456,7 +483,10 @@ export class StockService {
         runningAverageCost: costResolution.newRunningAverage?.toString() ?? stockItem.runningAverageCost.toString(),
       };
     };
-    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
+    // 20s (vs Prisma's 5s default): these paths can wait on the per-quant AVCO
+    // advisory lock under contention, and a receipt/transfer must not fail just
+    // because another movement on the same quant is mid-flight.
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run, { timeout: 20_000 });
   }
 
   async issue(dto: IssueStockDto, externalTx?: any) {
@@ -886,7 +916,10 @@ export class StockService {
 
       return { ledgerCode, quantity: dto.quantity, unitCost: unitCost.toString(), totalValue: totalValue.toString() };
     };
-    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
+    // 20s (vs Prisma's 5s default): these paths can wait on the per-quant AVCO
+    // advisory lock under contention, and a receipt/transfer must not fail just
+    // because another movement on the same quant is mid-flight.
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run, { timeout: 20_000 });
   }
 
   async adjust(dto: AdjustStockDto, externalTx?: any) {
@@ -990,7 +1023,10 @@ export class StockService {
 
       return { ledgerCode, previousQuantity: Number(currentQty), newQuantity: Number(countedQty), delta: Number(delta), unitCost: unitCost.toString() };
     };
-    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
+    // 20s (vs Prisma's 5s default): these paths can wait on the per-quant AVCO
+    // advisory lock under contention, and a receipt/transfer must not fail just
+    // because another movement on the same quant is mid-flight.
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run, { timeout: 20_000 });
   }
 
   async transfer(dto: TransferStockDto, externalTx?: any) {
@@ -1015,6 +1051,13 @@ export class StockService {
     const variantKey = variantId ?? '';
 
     const run = async (tx: any) => {
+      // Serialise the destination AVCO recompute (the transfer-in blend below is a
+      // read-compute-write on the dest average, same race as a receipt). Taken
+      // first, before the source decrement, so it is the earliest lock this tx
+      // holds. The source side uses an atomic conditional decrement and needs no
+      // such lock.
+      await this.lockQuantForAvco(tx, organizationId, dto.productId, variantKey, dto.toLocationId);
+
       const fromItem = await tx.stockItem.findFirst({
         where: { organizationId, productId: dto.productId, variantKey, locationId: dto.fromLocationId },
       });
@@ -1042,10 +1085,28 @@ export class StockService {
         );
       }
 
+      // Blend the carried cost into the destination's running average. A
+      // transfer-in is economically a receipt at the source's carried cost, so it
+      // reuses the same AVCO recompute as receiveCore (including the negative-on-
+      // hand basis reset). Without this, moving stock into a destination that
+      // already holds units at a different average silently kept the old average
+      // and the destination valuation drifted from the ledger.
+      const existingTo = await tx.stockItem.findFirst({
+        where: { organizationId, productId: dto.productId, variantKey, locationId: dto.toLocationId },
+      });
+      const destCost = this.costResolver.resolveReceiptCost(
+        { costingMethod: product.costingMethod, costPrice: product.costPrice },
+        existingTo
+          ? { quantity: dec(existingTo.quantity), runningAverageCost: dec(existingTo.runningAverageCost) }
+          : null,
+        qty,
+        carriedAvg,
+      );
+
       const toItem = await tx.stockItem.upsert({
         where: { organizationId_productId_variantKey_locationId: { organizationId, productId: dto.productId, variantKey, locationId: dto.toLocationId } },
-        create: { organizationId, productId: dto.productId, variantId, variantKey, locationId: dto.toLocationId, quantity: qty, runningAverageCost: carriedAvg },
-        update: { quantity: { increment: qty } },
+        create: { organizationId, productId: dto.productId, variantId, variantKey, locationId: dto.toLocationId, quantity: qty, runningAverageCost: destCost.newRunningAverage ?? carriedAvg },
+        update: { quantity: { increment: qty }, ...(destCost.newRunningAverage ? { runningAverageCost: destCost.newRunningAverage } : {}) },
       });
 
       if (product.batchTracking) {
@@ -1223,6 +1284,9 @@ export class StockService {
 
       return { ledgerCode, quantity: dto.quantity, fromLocationId: dto.fromLocationId, toLocationId: dto.toLocationId };
     };
-    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
+    // 20s (vs Prisma's 5s default): these paths can wait on the per-quant AVCO
+    // advisory lock under contention, and a receipt/transfer must not fail just
+    // because another movement on the same quant is mid-flight.
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run, { timeout: 20_000 });
   }
 }

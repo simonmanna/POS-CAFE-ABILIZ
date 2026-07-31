@@ -1033,24 +1033,45 @@ export class PosInvoiceService {
     if (!job || job.status === 'done') return;
     const ctx: StockPostingCtx = { invoiceId: job.invoiceId, invoiceNumber: job.invoiceNumber, orderId: job.orderId };
     try {
-      const items = job.orderId
-        ? await this.prisma.client.orderItem.findMany({
-            where: { orderId: job.orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
-          })
-        : [];
-      const failures = await this.issueStockForItems(items, ctx);
+      // Process the whole job atomically: every line's stock issue AND the final
+      // status flip commit together, or not at all. Previously each line ran in
+      // its own transaction with a separate status update, so a crash after some
+      // lines committed left the job 'processing' — and the 60s stale-reclaim
+      // then re-issued every line → double decrement + double COGS. One
+      // transaction, fronted by a FOR UPDATE lock on the job row (so a reclaim of
+      // a slow-but-alive worker serialises and sees 'done' instead of racing),
+      // makes processing exactly-once. This is background work off the cashier's
+      // path, so the wider lock span only affects queue-drain speed (monitored).
+      const outcome = await this.prisma.client.$transaction(
+        async (tx) => {
+          const locked = await tx.$queryRaw<{ status: string }[]>`
+            SELECT "status" FROM "StockPostingJob" WHERE "id" = ${job.id} FOR UPDATE`;
+          if (!locked.length || locked[0].status === 'done') return null; // finished by a racing worker
+          const items = job.orderId
+            ? await tx.orderItem.findMany({
+                where: { orderId: job.orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
+              })
+            : [];
+          const failures = await this.issueStockForItems(items, ctx, tx);
+          await tx.stockPostingJob.update({
+            where: { id: job.id },
+            data: {
+              status: 'done', processedAt: new Date(), claimToken: null, claimedAt: null,
+              lastError: failures > 0 ? `${failures} line(s) need review` : null,
+            },
+          });
+          return { failures };
+        },
+        { timeout: 30_000 },
+      );
+      if (outcome === null) return; // a concurrent worker already completed this job
       // The hold has served its purpose — the quantities are now decremented for
       // real, so leaving the reservation active would double-count against ATP.
+      // Best-effort and idempotent, so kept OUT of the money transaction above: a
+      // reservation hiccup must not roll back posted COGS.
       await this.reservations
         .consume('invoice', job.invoiceId)
         .catch((e: any) => this.logger.warn(`reservation consume failed for ${job.invoiceNumber}: ${e?.message ?? e}`));
-      await this.prisma.client.stockPostingJob.update({
-        where: { id: job.id },
-        data: {
-          status: 'done', processedAt: new Date(), claimToken: null, claimedAt: null,
-          lastError: failures > 0 ? `${failures} line(s) need review` : null,
-        },
-      });
     } catch (e: any) {
       const attempts = job.attempts + 1;
       const msg = (e?.message ?? String(e)).slice(0, 500);
@@ -1085,9 +1106,10 @@ export class PosInvoiceService {
   // line is isolated: a per-line failure is recorded as an InventoryException and
   // counted, never thrown, so one un-stocked ingredient can't stop the rest and
   // the sale (already final) is never affected. Returns the number of line failures.
-  private async issueStockForItems(items: any[], ctx: StockPostingCtx): Promise<number> {
+  private async issueStockForItems(items: any[], ctx: StockPostingCtx, tx: any): Promise<number> {
     const orgId = this.tenant.organizationId;
-    const warehouse = await this.prisma.client.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
+    const db = tx ?? this.prisma.client;
+    const warehouse = await db.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
     if (!warehouse) throw new Error('No active warehouse configured — cannot deduct stock');
     const reference = ctx.invoiceNumber;
     const ref = `POS bill ${reference}`;
@@ -1095,12 +1117,12 @@ export class PosInvoiceService {
     for (const it of items) {
       try {
         if (it.menuItemId) {
-          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx);
+          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx);
         } else if (it.productId) {
-          const product = await this.prisma.client.product.findFirst({ where: { id: it.productId } });
+          const product = await db.product.findFirst({ where: { id: it.productId } });
           if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
             // Sell-in-sales-unit: line qty is in the product's sales unit → convert to base.
-            await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref } as any);
+            await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref } as any, tx);
           }
         }
       } catch (e: any) {
@@ -1111,10 +1133,10 @@ export class PosInvoiceService {
           productId: it.productId ?? null, menuItemId: it.menuItemId ?? null, description: it.description ?? null,
           quantity: Number(it.quantity), locationId: warehouse.id, reason: e?.message ?? String(e), stackTrace: e?.stack ?? null,
           payload: { orderItemId: it.id, reference },
-        });
+        }, tx);
       }
       // H3: deplete paid modifiers + accompaniments (log-only, shared with refund path).
-      await this.issueLineExtras(this.prisma.client, it, Number(it.quantity), warehouse.id, ref);
+      await this.issueLineExtras(db, it, Number(it.quantity), warehouse.id, ref);
     }
     return failures;
   }
@@ -1125,9 +1147,9 @@ export class PosInvoiceService {
    * specific sale line whose stock could not be issued, awaiting a human decision.
    * Never throws — recording drift must not break an already-final sale.
    */
-  private async recordInventoryException(ctx: StockPostingCtx, f: StockLineFailure): Promise<void> {
+  private async recordInventoryException(ctx: StockPostingCtx, f: StockLineFailure, tx?: any): Promise<void> {
     try {
-      await this.prisma.client.inventoryException.create({
+      await (tx ?? this.prisma.client).inventoryException.create({
         data: {
           organizationId: this.tenant.organizationId,
           invoiceId: ctx.invoiceId ?? null,
@@ -1172,21 +1194,41 @@ export class PosInvoiceService {
   /** Issue a menu item's recipe BOM. Returns the count of ingredients that failed
    *  (each recorded as an InventoryException). Never throws — a bad ingredient
    *  can't stop the rest, and the sale is already final. */
-  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx): Promise<number> {
-    const menuItem = await this.prisma.client.menuItem.findUnique({
+  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx, tx: any): Promise<number> {
+    const db = tx ?? this.prisma.client;
+    const menuItem = await db.menuItem.findUnique({
       where: { id: menuItemId },
-      select: { isInventoryTracked: true },
+      select: { isInventoryTracked: true, name: true },
     });
     if (!menuItem?.isInventoryTracked) return 0;
-    const recipe = await this.prisma.client.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
+    const recipe = await db.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
     const reference = ctx.invoiceNumber;
     const ref = `POS bill ${reference}`;
+
+    // A menu item flagged inventory-tracked but with NO recipe (BOM) relieves no
+    // stock and posts no COGS. This used to return 0 silently, so the sale booked
+    // full revenue at zero cost and gross margin was overstated with nothing to
+    // flag it. Surface it as an InventoryException so it lands in the Posting
+    // Monitor and can be corrected (add a recipe, or turn inventory tracking off
+    // for this item). Counts as one failure so the job's lastError reflects it.
+    // Never blocks the sale.
+    if ((recipe as any[]).length === 0) {
+      this.logger.warn(`[stock] menu item ${menuItemId} (${menuItem.name ?? ''}) is inventory-tracked but has no recipe on ${reference} — no COGS relieved (sale kept)`);
+      await this.recordInventoryException(ctx, {
+        kind: 'menu_recipe', productId: null, menuItemId, description: menuItem.name ?? 'menu item',
+        quantity: lineQty, locationId: warehouseId,
+        reason: 'Menu item is inventory-tracked but has no recipe (BOM); COGS was not relieved. Add a recipe or turn off inventory tracking for this item.',
+        stackTrace: null, payload: { menuItemId, lineQty, reference },
+      }, tx);
+      return 1;
+    }
+
     let failures = 0;
     for (const ing of recipe as any[]) {
       const qty = Number(ing.quantity) * lineQty;
       if (!(qty > 0)) continue;
       try {
-        await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, uomId: ing.uomId ?? undefined, reference: ref } as any);
+        await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, uomId: ing.uomId ?? undefined, reference: ref } as any, tx);
       } catch (e: any) {
         failures++;
         this.logger.error(`[stock] recipe issue failed (menuItem ${menuItemId}, product ${ing.productId}) on ${reference} (sale kept): ${e?.message ?? e}`);
@@ -1194,7 +1236,7 @@ export class PosInvoiceService {
           kind: 'menu_recipe', productId: ing.productId, menuItemId, description: 'recipe ingredient',
           quantity: qty, locationId: warehouseId, reason: e?.message ?? String(e), stackTrace: e?.stack ?? null,
           payload: { menuItemId, ingredientProductId: ing.productId, quantity: qty, reference },
-        });
+        }, tx);
       }
     }
     return failures;

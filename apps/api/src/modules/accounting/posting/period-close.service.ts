@@ -54,6 +54,27 @@ export class PeriodCloseService {
         );
       }
 
+      // Revenue posts synchronously at billing, but COGS is deferred to the async
+      // stock-posting worker. Closing a period whose stock-posting jobs are still
+      // pending/processing/failed would book revenue without the matching COGS and
+      // permanently understate cost of sales for the period. Refuse until the
+      // backlog drains — `failed` jobs never post on their own, so they must be
+      // resolved in the Posting Monitor first. Scoped explicitly (StockPostingJob
+      // predates its addition to ORG_SCOPED; the filter is belt-and-suspenders).
+      const unpostedCogs = await tx.stockPostingJob.count({
+        where: {
+          organizationId,
+          status: { in: ['pending', 'processing', 'failed'] },
+          createdAt: { gte: period.startDate, lte: period.endDate },
+        },
+      });
+      if (unpostedCogs > 0) {
+        throw new BadRequestException(
+          `Cannot close '${period.name}': ${unpostedCogs} stock-posting job(s) in this period have not posted COGS yet. ` +
+            `Drain the stock-posting queue, and resolve any failed jobs in the Posting Monitor, before closing.`,
+        );
+      }
+
       // 1) Sum every revenue / contra-revenue / expense / COGS line posted in
       //    this period's date range.
       const grouped = await tx.journalLine.groupBy({

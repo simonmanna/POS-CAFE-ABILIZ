@@ -43,6 +43,13 @@ const ORG_SCOPED = new Set<string>([
   'InventoryBatch',
   'InventoryLedger',
   'InventorySerial',
+  // Deferred stock-posting queue + its exception work-list. These carry an
+  // organizationId but were never scoped, so the Posting Monitor read them with
+  // no org predicate (cross-tenant leak / IDOR by id). The drain worker reaches
+  // across orgs deliberately and does so via prisma.raw, which bypasses this
+  // extension, so scoping the typed client here does not affect it.
+  'StockPostingJob',
+  'InventoryException',
   // F.8 — inventory masters + stock document wrappers
   'Brand',
   'ProductVariant',
