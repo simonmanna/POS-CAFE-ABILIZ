@@ -28,12 +28,16 @@ import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.People
+import androidx.compose.material.icons.outlined.PointOfSale
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.RestaurantMenu
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material.icons.outlined.Storefront
 import androidx.compose.material.icons.outlined.TableRestaurant
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Percent
+import androidx.compose.material.icons.outlined.RamenDining
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -207,8 +211,18 @@ private fun DrawerContent(
             Spacer(Modifier.height(8.dp))
 
             DrawerSection("Catalog")
-            DrawerItem("Menu & products", Icons.Outlined.RestaurantMenu) { onNavigate("menu-manager") }
+            DrawerItem("Menu items", Icons.Outlined.RestaurantMenu) { onNavigate("menu-manager") }
+            DrawerItem("Retail products", Icons.Outlined.Storefront) { onNavigate("products") }
+            DrawerItem("Add-ons & modifiers", Icons.Outlined.Tune) { onNavigate("modifier-groups") }
+            DrawerItem("Accompaniments", Icons.Outlined.RamenDining) { onNavigate("accompaniment-groups") }
+            DrawerItem("Taxes", Icons.Outlined.Percent) { onNavigate("taxes") }
+            DrawerItem("Tables", Icons.Outlined.TableRestaurant) { onNavigate("tables-manager") }
             DrawerItem("Stock levels & inventory", Icons.Outlined.Inventory2) { onNavigate("stock") }
+            DrawerItem("Physical count", Icons.Outlined.Inventory2) { onNavigate("inventory-count") }
+
+            DrawerSection("Cash")
+            DrawerItem("Cash registers", Icons.Outlined.PointOfSale) { onNavigate("registers") }
+            DrawerItem("Shift history (Z-reports)", Icons.Outlined.ReceiptLong) { onNavigate("shift-history") }
 
             DrawerSection("Finance")
             DrawerItem("Purchases", Icons.Outlined.ShoppingCart) { onNavigate("purchases") }

@@ -4,9 +4,12 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import android.content.Intent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.IosShare
 import androidx.compose.material3.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -18,8 +21,10 @@ import com.poscafe.pos.data.local.dao.CashSessionDao
 import com.poscafe.pos.data.local.dao.ExpenseDao
 import com.poscafe.pos.data.local.dao.InventoryDao
 import com.poscafe.pos.data.local.dao.MenuDao
+import com.poscafe.pos.data.local.dao.ProductDao
 import com.poscafe.pos.data.local.dao.PurchaseDao
 import com.poscafe.pos.data.local.dao.SaleDao
+import com.poscafe.pos.data.local.dao.StaffDao
 import com.poscafe.pos.ui.components.KVRow
 import com.poscafe.pos.ui.components.Money
 import com.poscafe.pos.ui.components.PosCard
@@ -43,6 +48,8 @@ class ReportsViewModel @Inject constructor(
     private val menuDao: MenuDao,
     private val expenseDao: ExpenseDao,
     private val purchaseDao: PurchaseDao,
+    private val productDao: ProductDao,
+    private val staffDao: StaffDao,
 ) : ViewModel() {
 
     data class NameAmount(val name: String, val qty: Double, val amount: Double)
@@ -53,8 +60,11 @@ class ReportsViewModel @Inject constructor(
         val tax: Double,
         val avgSale: Double,
         val byMethod: List<NameAmount>,
+        val byCashier: List<NameAmount>,
         val topItems: List<NameAmount>,
         val byCategory: List<NameAmount>,
+        val cogs: Double,
+        val grossProfit: Double,
         val expenseTotal: Double,
         val byExpenseCategory: List<NameAmount>,
         val purchaseTotal: Double,
@@ -71,6 +81,29 @@ class ReportsViewModel @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true }
 
     init { load(1) }
+
+    /** Flatten the current report to CSV for share/export. */
+    fun buildCsv(): String {
+        val r = report ?: return ""
+        val sb = StringBuilder("Section,Label,Amount\n")
+        fun row(section: String, label: String, amount: Any) { sb.append(section).append(',').append(csv(label)).append(',').append(amount).append('\n') }
+        row("Summary", "Sales", r.salesCount)
+        row("Summary", "Gross takings", r.gross)
+        row("Summary", "Tax", r.tax)
+        row("Summary", "COGS", r.cogs)
+        row("Summary", "Gross profit", r.grossProfit)
+        row("Summary", "Expenses", r.expenseTotal)
+        row("Summary", "Net cash in drawer", r.netCash)
+        r.byMethod.forEach { row("Payment", it.name, it.amount) }
+        r.byCashier.forEach { row("Cashier", it.name, it.amount) }
+        r.topItems.forEach { row("Top item", it.name, it.amount) }
+        r.byCategory.forEach { row("Category", it.name, it.amount) }
+        r.byExpenseCategory.forEach { row("Expense", it.name, it.amount) }
+        return sb.toString()
+    }
+
+    private fun csv(s: String): String =
+        if (s.any { it == ',' || it == '"' || it == '\n' }) "\"${s.replace("\"", "\"\"")}\"" else s
 
     /** rangeDays = 1 → since local midnight; otherwise N calendar days back. */
     fun load(days: Int) {
@@ -150,14 +183,46 @@ class ReportsViewModel @Inject constructor(
             val cashIn = cashMovements.filter { it.movementType == "pay_in" }.sumOf { it.amount }
             val cashOut = cashMovements.filter { it.movementType == "pay_out" }.sumOf { it.amount }
 
+            // COGS from per-line cost: menu item cost is device-local; product
+            // cost is the synced costPrice. Cached to avoid repeated lookups.
+            val menuCost = mutableMapOf<String, Double>()
+            val prodCost = mutableMapOf<String, Double>()
+            var cogs = 0.0
+            sales.forEach { sale ->
+                val lines = runCatching { json.parseToJsonElement(sale.linesJson).jsonArray }.getOrNull() ?: return@forEach
+                lines.forEach { el ->
+                    val o = el.jsonObject
+                    val qty = o["quantity"]?.jsonPrimitive?.doubleOrNull ?: 1.0
+                    val menuItemId = o["menuItemId"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                    val productId = o["productId"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
+                    val unitCost = when {
+                        productId != null -> prodCost.getOrPut(productId) { productDao.byId(productId)?.costPrice ?: 0.0 }
+                        menuItemId != null -> menuCost.getOrPut(menuItemId) { menuDao.localMeta(menuItemId)?.costMajor ?: 0.0 }
+                        else -> 0.0
+                    }
+                    cogs += qty * unitCost
+                }
+            }
+
+            // Sales by cashier (attribution comes from the sale's actorUserId).
+            val cashierTotals = linkedMapOf<String, Double>()
+            sales.forEach { s -> cashierTotals[s.actorUserId] = (cashierTotals[s.actorUserId] ?: 0.0) + s.total }
+            val byCashier = cashierTotals.entries.map { (uid, amt) ->
+                val name = staffDao.byId(uid)?.let { listOfNotNull(it.firstName, it.lastName).joinToString(" ") }?.ifBlank { "Unknown" } ?: "Unknown"
+                NameAmount(name, 0.0, amt)
+            }.sortedByDescending { it.amount }
+
             report = Report(
                 salesCount = sales.size,
                 gross = gross,
                 tax = tax,
                 avgSale = if (sales.isEmpty()) 0.0 else gross / sales.size,
                 byMethod = methodTotals.entries.map { NameAmount(it.key, 0.0, it.value) }.sortedByDescending { it.amount },
+                byCashier = byCashier,
                 topItems = itemTotals.values.sortedByDescending { it.amount }.take(10),
                 byCategory = categoryRows,
+                cogs = cogs,
+                grossProfit = gross - cogs,
                 expenseTotal = expenseTotal,
                 byExpenseCategory = expenseByCategory,
                 purchaseTotal = purchaseRows.sumOf { it.totalCost },
@@ -177,12 +242,26 @@ fun ReportsScreen(onBack: () -> Unit, vm: ReportsViewModel = hiltViewModel()) {
     val r = vm.report
 
     Column(Modifier.fillMaxSize()) {
+        val context = LocalContext.current
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
             Text("Reports", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.weight(1f))
+            IconButton(
+                enabled = r != null,
+                onClick = {
+                    val csv = vm.buildCsv()
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/csv"
+                        putExtra(Intent.EXTRA_SUBJECT, "POS report")
+                        putExtra(Intent.EXTRA_TEXT, csv)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Export report"))
+                },
+            ) { Icon(Icons.Outlined.IosShare, "Export CSV") }
         }
         Row(
             Modifier.padding(horizontal = 16.dp),
@@ -221,6 +300,11 @@ fun ReportsScreen(onBack: () -> Unit, vm: ReportsViewModel = hiltViewModel()) {
                 if (r.tax > 0) KVRow("Tax collected", Money.format(r.tax))
             }
 
+            ReportSection("Sales by cashier") {
+                if (r.byCashier.isEmpty()) EmptyLine()
+                r.byCashier.forEach { KVRow(it.name, Money.format(it.amount)) }
+            }
+
             ReportSection("Top selling items") {
                 if (r.topItems.isEmpty()) EmptyLine()
                 r.topItems.forEachIndexed { i, item ->
@@ -241,6 +325,17 @@ fun ReportsScreen(onBack: () -> Unit, vm: ReportsViewModel = hiltViewModel()) {
             ReportSection("Sales by category") {
                 if (r.byCategory.isEmpty()) EmptyLine()
                 r.byCategory.forEach { KVRow(it.name, Money.format(it.amount)) }
+            }
+
+            ReportSection("Profit") {
+                KVRow("Cost of goods sold", Money.format(r.cogs))
+                KVRow(
+                    "Gross profit",
+                    Money.format(r.grossProfit),
+                    emphasize = true,
+                    valueColor = if (r.grossProfit >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                )
+                if (r.gross > 0) KVRow("Margin", "%.1f%%".format(r.grossProfit / r.gross * 100.0))
             }
 
             ReportSection("Expenses") {

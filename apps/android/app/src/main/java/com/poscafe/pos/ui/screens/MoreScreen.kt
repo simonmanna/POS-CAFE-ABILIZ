@@ -59,7 +59,7 @@ class MoreViewModel @Inject constructor(
     }
 
     fun loadRegisters() {
-        viewModelScope.launch { registers = registerDao.all() }
+        viewModelScope.launch { registers = registerDao.active() }
     }
 
     fun openSession(registerId: String, float: Double) {

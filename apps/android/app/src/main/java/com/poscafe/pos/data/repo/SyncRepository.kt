@@ -139,8 +139,10 @@ class SyncRepository @Inject constructor(
 
     private suspend fun applyCategories(rows: List<JsonObject>) {
         val dao = db.menuDao()
+        val pending = pendingIds("menuCategory.upsert", "menuCategory.delete")
         for (row in rows) {
             val id = row.str("id") ?: continue
+            if (id in pending) continue
             if (row.deleted()) { dao.deleteCategory(id); continue }
             dao.upsertCategories(
                 listOf(
@@ -157,8 +159,10 @@ class SyncRepository @Inject constructor(
 
     private suspend fun applyTaxes(rows: List<JsonObject>) {
         val dao = db.menuDao()
+        val pending = pendingIds("tax.upsert", "tax.delete")
         for (row in rows) {
             val id = row.str("id") ?: continue
+            if (id in pending) continue
             if (row.deleted()) { dao.deleteTax(id); continue }
             dao.upsertTaxes(
                 listOf(
@@ -175,8 +179,10 @@ class SyncRepository @Inject constructor(
 
     private suspend fun applyModifierGroups(rows: List<JsonObject>) {
         val dao = db.menuDao()
+        val pending = pendingIds("modifierGroup.upsert", "modifierGroup.delete")
         for (row in rows) {
             val id = row.str("id") ?: continue
+            if (id in pending) continue
             if (row.deleted()) { dao.deleteModifierGroup(id); continue }
             dao.upsertModifierGroups(
                 listOf(
@@ -213,8 +219,10 @@ class SyncRepository @Inject constructor(
 
     private suspend fun applyMenuItems(rows: List<JsonObject>) {
         val dao = db.menuDao()
+        val pending = pendingIds("menuItem.upsert", "menuItem.delete")
         for (row in rows) {
             val id = row.str("id") ?: continue
+            if (id in pending) continue
             // MenuItem "delete" is isAvailable=false — still an upsert.
             dao.upsertItems(
                 listOf(
@@ -304,9 +312,11 @@ class SyncRepository @Inject constructor(
     }
 
     private suspend fun applyTables(rows: List<JsonObject>) {
+        val pending = pendingIds("posTable.upsert", "posTable.delete")
         db.tableDao().upsertAll(
             rows.mapNotNull { row ->
                 val id = row.str("id") ?: return@mapNotNull null
+                if (id in pending) return@mapNotNull null
                 PosTableEntity(
                     id = id,
                     number = row.str("number") ?: "",
@@ -319,10 +329,22 @@ class SyncRepository @Inject constructor(
     }
 
     private suspend fun applyRegisters(rows: List<JsonObject>) {
+        // Skip registers with an un-pushed local edit, and preserve the
+        // device-local isActive/sortOrder (the server has no such columns).
+        val pending = pendingIds("cashRegister.upsert", "cashRegister.delete")
+        val existing = db.registerDao().all().associateBy { it.id }
         db.registerDao().upsertAll(
             rows.mapNotNull { row ->
                 val id = row.str("id") ?: return@mapNotNull null
-                CashRegisterEntity(id = id, code = row.str("code") ?: "", name = row.str("name"))
+                if (id in pending) return@mapNotNull null
+                val local = existing[id]
+                CashRegisterEntity(
+                    id = id,
+                    code = row.str("code") ?: local?.code ?: "",
+                    name = row.str("name") ?: local?.name,
+                    isActive = local?.isActive ?: true,
+                    sortOrder = local?.sortOrder ?: 0,
+                )
             },
         )
     }
@@ -444,10 +466,22 @@ class SyncRepository @Inject constructor(
     private fun parsePayload(payloadJson: String): JsonObject? =
         runCatching { Json.parseToJsonElement(payloadJson) as? JsonObject }.getOrNull()
 
+    /**
+     * Ids of rows with a still-queued master-data op of the given types. A pull
+     * that raced an un-pushed local edit must NOT overwrite these — the server
+     * wins only once the op has applied and the next pull re-delivers it.
+     */
+    private suspend fun pendingIds(vararg types: String): Set<String> =
+        types.flatMap { db.opQueueDao().queuedOfType(it) }
+            .mapNotNull { op -> parsePayload(op.payloadJson)?.str("id") }
+            .toSet()
+
     private suspend fun applyProducts(rows: List<JsonObject>) {
         val dao = db.productDao()
+        val pending = pendingIds("product.upsert", "product.delete")
         for (row in rows) {
             val id = row.str("id") ?: continue
+            if (id in pending) continue
             if (row.deleted()) { dao.delete(id); continue }
             val category = row["category"] as? JsonObject
             val uom = row["uom"] as? JsonObject
@@ -503,8 +537,10 @@ class SyncRepository @Inject constructor(
 
     private suspend fun applyProductCategories(rows: List<JsonObject>) {
         val dao = db.productCategoryDao()
+        val pending = pendingIds("productCategory.upsert", "productCategory.delete")
         for (row in rows) {
             val id = row.str("id") ?: continue
+            if (id in pending) continue
             if (row.deleted()) { dao.delete(id); continue }
             dao.upsertAll(
                 listOf(

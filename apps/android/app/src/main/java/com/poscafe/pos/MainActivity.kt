@@ -63,9 +63,17 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("sync") { SyncScreen(onBack = { nav.popBackStack() }) }
                         composable("menu-manager") { com.poscafe.pos.ui.screens.manage.MenuManagerScreen(onBack = { nav.popBackStack() }) }
+                        composable("products") { com.poscafe.pos.ui.screens.manage.ProductsScreen(onBack = { nav.popBackStack() }) }
+                        composable("taxes") { com.poscafe.pos.ui.screens.manage.TaxesScreen(onBack = { nav.popBackStack() }) }
+                        composable("modifier-groups") { com.poscafe.pos.ui.screens.manage.ModifierGroupsScreen(onBack = { nav.popBackStack() }) }
+                        composable("accompaniment-groups") { com.poscafe.pos.ui.screens.manage.AccompanimentGroupsScreen(onBack = { nav.popBackStack() }) }
+                        composable("tables-manager") { com.poscafe.pos.ui.screens.manage.TablesManagerScreen(onBack = { nav.popBackStack() }) }
+                        composable("registers") { com.poscafe.pos.ui.screens.manage.RegistersScreen(onBack = { nav.popBackStack() }) }
+                        composable("shift-history") { com.poscafe.pos.ui.screens.manage.ShiftHistoryScreen(onBack = { nav.popBackStack() }) }
                         composable("customers") { com.poscafe.pos.ui.screens.manage.CustomersScreen(onBack = { nav.popBackStack() }) }
                         composable("suppliers") { com.poscafe.pos.ui.screens.manage.SuppliersScreen(onBack = { nav.popBackStack() }) }
                         composable("stock") { com.poscafe.pos.ui.screens.manage.StockScreen(onBack = { nav.popBackStack() }) }
+                        composable("inventory-count") { com.poscafe.pos.ui.screens.manage.InventoryCountScreen(onBack = { nav.popBackStack() }) }
                         composable("purchases") { com.poscafe.pos.ui.screens.manage.PurchasesScreen(onBack = { nav.popBackStack() }) }
                         composable("expenses") { com.poscafe.pos.ui.screens.manage.ExpensesScreen(onBack = { nav.popBackStack() }) }
                         composable("staff") { com.poscafe.pos.ui.screens.manage.StaffScreen(onBack = { nav.popBackStack() }) }

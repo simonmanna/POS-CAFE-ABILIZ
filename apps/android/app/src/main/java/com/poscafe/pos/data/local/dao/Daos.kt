@@ -56,6 +56,43 @@ interface MenuDao {
     @Query("SELECT * FROM taxes WHERE id = :id")
     suspend fun tax(id: String): TaxEntity?
 
+    // ---- authoring: lists for editors/pickers ----
+    @Query("SELECT * FROM taxes WHERE isActive = 1 ORDER BY name")
+    fun taxes(): Flow<List<TaxEntity>>
+
+    @Query("SELECT * FROM taxes ORDER BY name")
+    fun allTaxesIncludingInactive(): Flow<List<TaxEntity>>
+
+    @Query("SELECT * FROM modifier_groups WHERE isActive = 1 ORDER BY sortOrder, name")
+    fun allModifierGroups(): Flow<List<ModifierGroupEntity>>
+
+    @Query("SELECT * FROM modifiers WHERE groupId = :groupId AND isActive = 1 ORDER BY sortOrder")
+    fun modifiersFlow(groupId: String): Flow<List<ModifierEntity>>
+
+    @Query("SELECT * FROM accompaniment_groups WHERE isActive = 1 ORDER BY sortOrder, name")
+    fun allAccompanimentGroups(): Flow<List<AccompanimentGroupEntity>>
+
+    @Query("SELECT * FROM accompaniment_options WHERE groupId = :groupId AND isActive = 1 ORDER BY sortOrder")
+    fun optionsFlow(groupId: String): Flow<List<AccompanimentOptionEntity>>
+
+    @Query("SELECT * FROM menu_item_variants WHERE menuItemId = :menuItemId AND isActive = 1 ORDER BY sortOrder")
+    suspend fun variantsAll(menuItemId: String): List<MenuItemVariantEntity>
+
+    @Query("SELECT modifierGroupId FROM menu_item_modifier_groups WHERE menuItemId = :menuItemId")
+    suspend fun assignedModifierGroupIds(menuItemId: String): List<String>
+
+    @Query("SELECT accompanimentGroupId FROM menu_item_accompaniment_groups WHERE menuItemId = :menuItemId")
+    suspend fun assignedAccompanimentGroupIds(menuItemId: String): List<String>
+
+    // ---- device-local menu-item cost/reorder (pull never touches these) ----
+    @Query("SELECT * FROM menu_item_local WHERE menuItemId = :id")
+    suspend fun localMeta(id: String): MenuItemLocalEntity?
+
+    @Query("SELECT * FROM menu_item_local")
+    fun allLocalMeta(): Flow<List<MenuItemLocalEntity>>
+
+    @Upsert suspend fun upsertLocalMeta(row: MenuItemLocalEntity)
+
     // -- pull-apply (wholesale upserts; aggregate children replaced per item) --
     @Upsert suspend fun upsertCategories(rows: List<MenuCategoryEntity>)
     @Upsert suspend fun upsertItems(rows: List<MenuItemEntity>)
@@ -74,6 +111,12 @@ interface MenuDao {
     @Query("DELETE FROM menu_items WHERE id = :id") suspend fun deleteItem(id: String)
     @Query("DELETE FROM menu_categories WHERE id = :id") suspend fun deleteCategory(id: String)
     @Query("DELETE FROM modifier_groups WHERE id = :id") suspend fun deleteModifierGroup(id: String)
+    @Query("DELETE FROM modifiers WHERE id = :id") suspend fun deleteModifier(id: String)
+    @Query("DELETE FROM modifiers WHERE groupId = :groupId") suspend fun clearModifiers(groupId: String)
+    @Query("DELETE FROM accompaniment_groups WHERE id = :id") suspend fun deleteAccompanimentGroup(id: String)
+    @Query("DELETE FROM accompaniment_options WHERE id = :id") suspend fun deleteAccompanimentOption(id: String)
+    @Query("DELETE FROM accompaniment_options WHERE groupId = :groupId") suspend fun clearAccompanimentOptions(groupId: String)
+    @Query("DELETE FROM menu_item_variants WHERE id = :id") suspend fun deleteVariant(id: String)
     @Query("DELETE FROM taxes WHERE id = :id") suspend fun deleteTax(id: String)
 }
 
@@ -103,7 +146,15 @@ interface RegisterDao {
     @Query("SELECT * FROM cash_registers")
     suspend fun all(): List<CashRegisterEntity>
 
+    @Query("SELECT * FROM cash_registers WHERE isActive = 1 ORDER BY sortOrder, code")
+    suspend fun active(): List<CashRegisterEntity>
+
+    @Query("SELECT * FROM cash_registers ORDER BY sortOrder, code")
+    fun allFlow(): Flow<List<CashRegisterEntity>>
+
     @Upsert suspend fun upsertAll(rows: List<CashRegisterEntity>)
+    @Upsert suspend fun upsert(row: CashRegisterEntity)
+    @Query("DELETE FROM cash_registers WHERE id = :id") suspend fun delete(id: String)
 }
 
 @Dao
@@ -179,6 +230,12 @@ interface CashSessionDao {
     @Query("SELECT * FROM local_cash_sessions WHERE status = 'open' LIMIT 1")
     fun openFlow(): Flow<LocalCashSessionEntity?>
 
+    @Query("SELECT * FROM local_cash_sessions ORDER BY openedAt DESC LIMIT :limit")
+    fun recent(limit: Int = 60): Flow<List<LocalCashSessionEntity>>
+
+    @Query("SELECT * FROM local_cash_sessions WHERE id = :id")
+    suspend fun byId(id: String): LocalCashSessionEntity?
+
     @Query("UPDATE local_cash_sessions SET status = 'closed', closedAt = :closedAt, closingCounted = :counted, varianceReason = :reason WHERE id = :id")
     suspend fun close(id: String, closedAt: Long, counted: Double, reason: String?)
 
@@ -234,6 +291,12 @@ interface InventoryDao {
 
     @Query("SELECT * FROM inventory_movements WHERE occurredAt >= :since")
     suspend fun since(since: Long): List<InventoryMovementEntity>
+
+    @Query("SELECT * FROM inventory_movements WHERE menuItemId = :menuItemId AND productId IS NULL ORDER BY occurredAt DESC LIMIT :limit")
+    suspend fun forMenuItem(menuItemId: String, limit: Int = 100): List<InventoryMovementEntity>
+
+    @Query("SELECT * FROM inventory_movements WHERE productId = :productId ORDER BY occurredAt DESC LIMIT :limit")
+    suspend fun forProduct(productId: String, limit: Int = 100): List<InventoryMovementEntity>
 
     @Insert suspend fun insert(row: InventoryMovementEntity)
     @Insert suspend fun insertAll(rows: List<InventoryMovementEntity>)

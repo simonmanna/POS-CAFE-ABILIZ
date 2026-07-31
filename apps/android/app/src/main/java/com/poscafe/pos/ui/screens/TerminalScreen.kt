@@ -306,6 +306,8 @@ class TerminalViewModel @Inject constructor(
     var error by mutableStateOf<String?>(null); private set
     var charging by mutableStateOf(false); private set
     var successSale by mutableStateOf<SaleRepository.CompletedSale?>(null); private set
+    /** Whole-order discount %, applied on top of any per-line discounts. */
+    var orderDiscountPercent by mutableStateOf(0.0); private set
 
     // NOTE: init block split from the one above (line 157) so that
     // `cart` and the other `by mutableStateOf` delegates are initialized
@@ -325,7 +327,7 @@ class TerminalViewModel @Inject constructor(
         }
     }
 
-    val totals: CartEngine.CartTotals get() = CartEngine.totals(cart)
+    val totals: CartEngine.CartTotals get() = CartEngine.totals(cart, orderDiscountPercent)
     val cashier get() = auth.current
 
     // ---- item configuration (variants / add-ons / accompaniments) ----
@@ -464,7 +466,15 @@ class TerminalViewModel @Inject constructor(
 
     fun removeLine(lineId: String) { cart = cart.filterNot { it.lineId == lineId } }
 
-    fun clear() { cart = emptyList() }
+    /** Per-line discount %. Folds into the line via CartEngine before tax. */
+    fun setLineDiscount(lineId: String, percent: Double) {
+        val p = percent.coerceIn(0.0, 100.0)
+        cart = cart.map { if (it.lineId == lineId) it.copy(discountPercent = p) else it }
+    }
+
+    fun setOrderDiscount(percent: Double) { orderDiscountPercent = percent.coerceIn(0.0, 100.0) }
+
+    fun clear() { cart = emptyList(); orderDiscountPercent = 0.0 }
 
     /** Split tender: settle the whole cart with one or more payment legs. */
     fun charge(tenders: List<SaleRepository.Tender>, onDone: () -> Unit) {
@@ -494,6 +504,7 @@ class TerminalViewModel @Inject constructor(
                     tableId = table?.id,
                     orderType = if (table != null) "dine_in" else "takeaway",
                     partnerId = selectedCustomer?.id,
+                    transactionDiscountPercent = orderDiscountPercent,
                 )
                 printSale(sale, billLines, tenders, user.displayName)
                 val remaining = cart.filterNot { it.lineId in lineIds }
@@ -501,6 +512,7 @@ class TerminalViewModel @Inject constructor(
                 if (remaining.isEmpty()) {
                     table?.let { tabRepo.clear(it.id) }
                     cart = emptyList()
+                    orderDiscountPercent = 0.0
                     selectedTable.value = null
                     successSale = sale
                 } else {
@@ -1269,6 +1281,24 @@ private fun CartBar(count: Int, total: Double, onOpen: () -> Unit, modifier: Mod
 @Composable
 private fun CartPanel(vm: TerminalViewModel, table: PosTableEntity?, onCharge: () -> Unit, showHold: Boolean = false, onHold: () -> Unit = {}, onSplit: () -> Unit = {}) {
     val totals = vm.totals
+    var orderDiscountDialog by remember { mutableStateOf(false) }
+    var lineDiscountFor by remember { mutableStateOf<CartEngine.CartLine?>(null) }
+    if (orderDiscountDialog) {
+        DiscountDialog(
+            title = "Order discount",
+            current = vm.orderDiscountPercent,
+            onApply = { vm.setOrderDiscount(it); orderDiscountDialog = false },
+            onDismiss = { orderDiscountDialog = false },
+        )
+    }
+    lineDiscountFor?.let { l ->
+        DiscountDialog(
+            title = "Discount — ${l.name}",
+            current = l.discountPercent,
+            onApply = { vm.setLineDiscount(l.lineId, it); lineDiscountFor = null },
+            onDismiss = { lineDiscountFor = null },
+        )
+    }
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(
             Modifier.fillMaxWidth(),
@@ -1304,6 +1334,7 @@ private fun CartPanel(vm: TerminalViewModel, table: PosTableEntity?, onCharge: (
                         onDec = { vm.changeQty(line.lineId, -1.0) },
                         onInc = { vm.changeQty(line.lineId, +1.0) },
                         onRemove = { vm.removeLine(line.lineId) },
+                        onDiscount = { lineDiscountFor = line },
                     )
                 }
             }
@@ -1315,6 +1346,17 @@ private fun CartPanel(vm: TerminalViewModel, table: PosTableEntity?, onCharge: (
             if (totals.discountTotal > 0) KVRow("Discount", "− ${Money.format(totals.discountTotal)}")
             if (totals.taxTotal > 0) KVRow("Tax", Money.format(totals.taxTotal))
             KVRow("Total", Money.format(totals.total), emphasize = true, valueColor = MaterialTheme.colorScheme.primary)
+            if (vm.cart.isNotEmpty()) {
+                TextButton(
+                    onClick = { orderDiscountDialog = true },
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        if (vm.orderDiscountPercent > 0) "Order discount ${fmtPct(vm.orderDiscountPercent)}% — edit" else "+ Add order discount",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                }
+            }
         }
         vm.error?.let {
             Spacer(Modifier.height(8.dp))
@@ -1383,6 +1425,7 @@ private fun CartLineRow(
     onDec: () -> Unit,
     onInc: () -> Unit,
     onRemove: () -> Unit,
+    onDiscount: () -> Unit = {},
 ) {
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1392,6 +1435,7 @@ private fun CartLineRow(
                     line.variantName?.let { add(it) }
                     line.accompaniments.forEach { add(it.name) }
                     line.modifiers.forEach { add(it.name) }
+                    if (line.discountPercent > 0) add("−${fmtPct(line.discountPercent)}%")
                     line.note?.let { add("“$it”") }
                 }
                 if (detail.isNotEmpty()) {
@@ -1412,12 +1456,17 @@ private fun CartLineRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Outlined.DeleteOutline, "Remove",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Outlined.DeleteOutline, "Remove",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+                TextButton(onClick = onDiscount, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(if (line.discountPercent > 0) "${fmtPct(line.discountPercent)}% off" else "Disc", style = MaterialTheme.typography.labelMedium)
+                }
             }
             QuantityStepper(
                 quantity = line.quantity.toInt(),
@@ -1427,6 +1476,52 @@ private fun CartLineRow(
             )
         }
     }
+}
+
+private fun fmtPct(p: Double): String = if (p % 1.0 == 0.0) p.toInt().toString() else "%.1f".format(p)
+
+/** Percentage discount entry — used for both a single line and the whole order. */
+@Composable
+private fun DiscountDialog(
+    title: String,
+    current: Double,
+    onApply: (Double) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var pct by remember { mutableStateOf(if (current > 0) fmtPct(current) else "") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
+        title = { Text(title, style = MaterialTheme.typography.headlineSmall) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = pct,
+                    onValueChange = { pct = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = { Text("Discount %") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(5, 10, 15, 20).forEach { q ->
+                        Surface(
+                            onClick = { pct = q.toString() },
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        ) {
+                            Text("$q%", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(shape = MaterialTheme.shapes.medium, onClick = { onApply(pct.toDoubleOrNull()?.coerceIn(0.0, 100.0) ?: 0.0) }) { Text("Apply") }
+        },
+        dismissButton = { TextButton(onClick = { onApply(0.0) }) { Text("Clear") } },
+    )
 }
 
 // =====================================================================
@@ -1777,6 +1872,25 @@ private fun CheckoutSheet(
                                     style = MaterialTheme.typography.labelLarge,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                                 )
+                            }
+                        }
+                    }
+                }
+                if (total > 0) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Split evenly", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        listOf(2, 3, 4).forEach { n ->
+                            Surface(
+                                onClick = { tendered = "%.0f".format(total / n) },
+                                shape = RoundedCornerShape(999.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            ) {
+                                Text("÷$n", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
                             }
                         }
                     }

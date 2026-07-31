@@ -131,6 +131,9 @@ data class CashRegisterEntity(
     @PrimaryKey val id: String,
     val code: String,
     val name: String?,
+    /** Deactivated registers stay for history but drop out of the open-session picker. */
+    val isActive: Boolean = true,
+    val sortOrder: Int = 0,
 )
 
 /**

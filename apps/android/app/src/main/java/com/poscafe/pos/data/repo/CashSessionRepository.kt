@@ -2,6 +2,7 @@ package com.poscafe.pos.data.repo
 
 import com.poscafe.pos.data.local.dao.CashSessionDao
 import com.poscafe.pos.data.local.dao.OpQueueDao
+import com.poscafe.pos.data.local.dao.RefundDao
 import com.poscafe.pos.data.local.dao.SaleDao
 import com.poscafe.pos.data.local.entity.LocalCashMovementEntity
 import com.poscafe.pos.data.local.entity.LocalCashSessionEntity
@@ -24,9 +25,13 @@ import javax.inject.Singleton
 class CashSessionRepository @Inject constructor(
     private val dao: CashSessionDao,
     private val saleDao: SaleDao,
+    private val refundDao: RefundDao,
     private val opQueue: OpQueueDao,
 ) {
     fun openSession(): Flow<LocalCashSessionEntity?> = dao.openFlow()
+
+    /** Recent sessions (open + closed) for the shift history list. */
+    fun recentSessions(): Flow<List<LocalCashSessionEntity>> = dao.recent()
 
     suspend fun open(actorUserId: String, cashRegisterId: String, openingFloat: Double): LocalCashSessionEntity {
         check(dao.open() == null) { "A session is already open on this device" }
@@ -143,6 +148,41 @@ class CashSessionRepository @Inject constructor(
             salesTotal = total,
             openingFloat = session.openingFloat,
             expectedCash = session.openingFloat + total + movementNet,
+        )
+    }
+
+    /** Full Z-report for a specific session (open or closed), straight from Room. */
+    data class LocalZReport(
+        val session: LocalCashSessionEntity,
+        val salesCount: Int,
+        val salesTotal: Double,
+        val refunds: Double,
+        val payIn: Double,
+        val payOut: Double,
+        val expectedCash: Double,
+        val counted: Double?,
+        val variance: Double?,
+    )
+
+    suspend fun zReport(sessionId: String): LocalZReport? {
+        val s = dao.byId(sessionId) ?: return null
+        val total = saleDao.sessionTotal(s.id)
+        val count = saleDao.sessionCount(s.id)
+        val refunds = refundDao.sessionRefundTotal(s.id)
+        val movements = dao.movements(s.id)
+        val payIn = movements.filter { it.movementType == "pay_in" }.sumOf { it.amount }
+        val payOut = movements.filter { it.movementType == "pay_out" }.sumOf { it.amount }
+        val expected = s.openingFloat + total - refunds + payIn - payOut
+        return LocalZReport(
+            session = s,
+            salesCount = count,
+            salesTotal = total,
+            refunds = refunds,
+            payIn = payIn,
+            payOut = payOut,
+            expectedCash = expected,
+            counted = s.closingCounted,
+            variance = s.closingCounted?.let { it - expected },
         )
     }
 }

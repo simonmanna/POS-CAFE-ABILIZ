@@ -117,6 +117,21 @@ data class PurchaseItemEntity(
  * a drawer pay_out movement so cash reconciliation stays honest; the expense
  * row is the record used by the expense report.
  */
+/**
+ * Device-owned augmentation of a (possibly server-authoritative) menu item.
+ * Menu items themselves are replaced wholesale by /sync/pull, so per-item cost
+ * and reorder point — which the server has no column for — live here where the
+ * pull never touches them. Keyed by the menu item id.
+ */
+@Entity(tableName = "menu_item_local")
+data class MenuItemLocalEntity(
+    @PrimaryKey val menuItemId: String,
+    /** Unit cost in MAJOR units, for COGS / margin reporting. */
+    val costMajor: Double? = null,
+    /** Low-stock threshold (on-hand units); null/0 = no alert. */
+    val reorderPoint: Double? = null,
+)
+
 @Entity(tableName = "expenses", indices = [Index("occurredAt")])
 data class ExpenseEntity(
     @PrimaryKey val id: String,

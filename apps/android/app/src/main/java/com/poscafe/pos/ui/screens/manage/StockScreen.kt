@@ -67,6 +67,16 @@ class StockViewModel @Inject constructor(
     val suppliers: StateFlow<List<SupplierEntity>> =
         supplierDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /** menuItemId → reorder threshold (device-local); drives the low-stock pill. */
+    val reorderByItem: StateFlow<Map<String, Double>> =
+        menuDao.allLocalMeta()
+            .map { list -> list.mapNotNull { m -> m.reorderPoint?.let { rp -> m.menuItemId to rp } }.toMap() }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /** Recent movements for one item — powers the per-item history sheet. */
+    suspend fun history(id: String, isProduct: Boolean): List<InventoryMovementEntity> =
+        if (isProduct) inventoryDao.forProduct(id) else inventoryDao.forMenuItem(id)
+
     /** Which catalog leads the Levels list (retail → products first). */
     val isRetailMode: StateFlow<Boolean> = settingsDao.byKeyFlow("pos.mode")
         .map { setting ->
@@ -108,7 +118,10 @@ class StockViewModel @Inject constructor(
 }
 
 /** One row in the Levels list — either a menu item or a retail product. */
-private data class StockRow(val id: String, val name: String, val isProduct: Boolean, val onHand: Double)
+private data class StockRow(val id: String, val name: String, val isProduct: Boolean, val onHand: Double, val reorder: Double? = null)
+
+/** A row is low when at/below its reorder point (or a default floor of 5). */
+private fun StockRow.isLow(): Boolean = onHand <= (reorder ?: 5.0)
 
 /** Movement-based stock: on-hand is always the sum of movements, never a
  *  stored counter. Sales deduct automatically at checkout. */
@@ -122,21 +135,25 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
     val movements by vm.movements.collectAsStateWithLifecycle()
     val suppliers by vm.suppliers.collectAsStateWithLifecycle()
     val isRetail by vm.isRetailMode.collectAsStateWithLifecycle()
+    val reorderByItem by vm.reorderByItem.collectAsStateWithLifecycle()
 
     val levelByItem = remember(levels) { levels.associate { it.menuItemId to it.onHand } }
     val levelByProduct = remember(productLevels) { productLevels.associate { it.productId to it.onHand } }
     val itemNames = remember(items) { items.associate { it.id to it.name } }
     val productNames = remember(products) { products.associate { it.id to it.name } }
+    var lowOnly by remember { mutableStateOf(false) }
     // Levels list: both catalogs, active mode's catalog first, empty ones hidden.
-    val sections = remember(items, products, levelByItem, levelByProduct, isRetail) {
-        val menuRows = items.map { StockRow(it.id, it.name, isProduct = false, onHand = levelByItem[it.id] ?: 0.0) }
+    val sections = remember(items, products, levelByItem, levelByProduct, isRetail, reorderByItem, lowOnly) {
+        val menuRows = items.map { StockRow(it.id, it.name, isProduct = false, onHand = levelByItem[it.id] ?: 0.0, reorder = reorderByItem[it.id]) }
         val productRows = products.map { StockRow(it.id, it.name, isProduct = true, onHand = levelByProduct[it.id] ?: 0.0) }
         val ordered =
             if (isRetail) listOf("Retail products" to productRows, "Menu items" to menuRows)
             else listOf("Menu items" to menuRows, "Retail products" to productRows)
-        ordered.filter { it.second.isNotEmpty() }
+        ordered.map { (title, rows) -> title to (if (lowOnly) rows.filter { it.isLow() } else rows) }
+            .filter { it.second.isNotEmpty() }
     }
     var recordFor by remember { mutableStateOf<StockRow?>(null) }
+    var detailFor by remember { mutableStateOf<StockRow?>(null) }
 
     ManageScaffold(
         title = "Stock & inventory",
@@ -153,58 +170,68 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
         },
     ) { _ ->
         if (tab == 0) {
-            if (sections.isEmpty()) {
-                EmptyState(
-                    icon = Icons.Outlined.Inventory2,
-                    title = "No products",
-                    subtitle = "Add menu items or sync retail products — stock is tracked per item.",
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp, top = 8.dp),
+            Column(Modifier.fillMaxSize()) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    sections.forEach { (title, rows) ->
-                        if (sections.size > 1) {
-                            item(key = "header-$title") {
-                                Text(
-                                    title,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
-                                )
-                            }
-                        }
-                        items(rows, key = { it.id }) { row ->
-                            Surface(
-                                onClick = { recordFor = row },
-                                shape = MaterialTheme.shapes.large,
-                                color = MaterialTheme.colorScheme.surface,
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                ) {
+                    FilterChip(selected = lowOnly, onClick = { lowOnly = !lowOnly }, label = { Text("Low stock only") })
+                    Spacer(Modifier.weight(1f))
+                    Text("Tap an item for history / adjust", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (sections.isEmpty()) {
+                    EmptyState(
+                        icon = Icons.Outlined.Inventory2,
+                        title = if (lowOnly) "Nothing low" else "No products",
+                        subtitle = if (lowOnly) "Everything is above its reorder point." else "Add menu items or sync retail products — stock is tracked per item.",
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp, top = 8.dp),
+                    ) {
+                        sections.forEach { (title, rows) ->
+                            if (sections.size > 1) {
+                                item(key = "header-$title") {
                                     Text(
-                                        row.name,
-                                        style = MaterialTheme.typography.titleSmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f),
+                                        title,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
                                     )
-                                    val accents = LocalPosAccents.current
-                                    when {
-                                        row.onHand <= 0 -> StatusPill(
-                                            fmtQty(row.onHand),
-                                            MaterialTheme.colorScheme.onErrorContainer,
-                                            MaterialTheme.colorScheme.errorContainer,
+                                }
+                            }
+                            items(rows, key = { it.id }) { row ->
+                                Surface(
+                                    onClick = { detailFor = row },
+                                    shape = MaterialTheme.shapes.large,
+                                    color = MaterialTheme.colorScheme.surface,
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Row(
+                                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    ) {
+                                        Text(
+                                            row.name,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
                                         )
-                                        row.onHand <= 5 -> StatusPill(fmtQty(row.onHand), accents.warning, accents.warningContainer)
-                                        else -> StatusPill(fmtQty(row.onHand), accents.success, accents.successContainer)
+                                        val accents = LocalPosAccents.current
+                                        when {
+                                            row.onHand <= 0 -> StatusPill(
+                                                fmtQty(row.onHand),
+                                                MaterialTheme.colorScheme.onErrorContainer,
+                                                MaterialTheme.colorScheme.errorContainer,
+                                            )
+                                            row.isLow() -> StatusPill(fmtQty(row.onHand), accents.warning, accents.warningContainer)
+                                            else -> StatusPill(fmtQty(row.onHand), accents.success, accents.successContainer)
+                                        }
                                     }
                                 }
                             }
@@ -264,6 +291,15 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
         }
     }
 
+    detailFor?.let { row ->
+        ItemHistoryDialog(
+            row = row,
+            loadHistory = { vm.history(row.id, row.isProduct) },
+            onRecord = { detailFor = null; recordFor = row },
+            onDismiss = { detailFor = null },
+        )
+    }
+
     recordFor?.let { row ->
         RecordMovementDialog(
             name = row.name,
@@ -284,6 +320,58 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
 }
 
 private fun fmtQty(q: Double): String = if (q % 1.0 == 0.0) q.toInt().toString() else "%.2f".format(q)
+
+@Composable
+private fun ItemHistoryDialog(
+    row: StockRow,
+    loadHistory: suspend () -> List<InventoryMovementEntity>,
+    onRecord: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var history by remember { mutableStateOf<List<InventoryMovementEntity>?>(null) }
+    LaunchedEffect(row.id) { history = loadHistory() }
+    val timeFmt = remember { DateTimeFormatter.ofPattern("d MMM HH:mm").withZone(ZoneId.systemDefault()) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
+        title = {
+            Column {
+                Text(row.name, style = MaterialTheme.typography.headlineSmall)
+                Text("On hand ${fmtQty(row.onHand)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        text = {
+            when (val h = history) {
+                null -> Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                else -> if (h.isEmpty()) {
+                    Text("No movements yet.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    LazyColumn(Modifier.heightIn(max = 360.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(h, key = { it.id }) { m ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(m.type.replaceFirstChar { it.uppercase() }, style = MaterialTheme.typography.bodyMedium)
+                                    Text(
+                                        "${timeFmt.format(Instant.ofEpochMilli(m.occurredAt))}${m.reason?.let { " · $it" } ?: ""}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Text(
+                                    (if (m.qtyDelta > 0) "+" else "") + fmtQty(m.qtyDelta),
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = if (m.qtyDelta >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { Button(shape = MaterialTheme.shapes.medium, onClick = onRecord) { Text("Record movement") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
 
 @Composable
 private fun RecordMovementDialog(

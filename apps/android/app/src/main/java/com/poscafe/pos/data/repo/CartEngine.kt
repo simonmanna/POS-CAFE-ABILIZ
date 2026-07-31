@@ -106,4 +106,8 @@ object CartEngine {
      *  pull-apply. Variants/modifiers/accompaniments are already MAJOR. */
     fun basePriceToMajor(basePriceMinor: Double?): Double? =
         basePriceMinor?.let { it / 100.0 }
+
+    /** Inverse of [basePriceToMajor] — server-shape a MAJOR price for a
+     *  menuItem.upsert push payload (the server stores basePrice in MINOR). */
+    fun majorToBasePrice(major: Double?): Double? = major?.let { it * 100.0 }
 }
