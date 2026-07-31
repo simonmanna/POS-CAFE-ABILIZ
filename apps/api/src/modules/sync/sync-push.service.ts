@@ -7,6 +7,8 @@ import { PosService } from '../pos/pos.service';
 import { PosInvoiceService } from '../pos/billing/pos-invoice.service';
 import { PosReservationsService } from '../pos/pos-reservations.service';
 import { CashSessionService } from '../accounting/treasury/cash-session.service';
+import { CashRegisterService } from '../accounting/treasury/cash-register.service';
+import { ProductService } from '../core/product/product.service';
 import type { RequestDevice } from './device-token.guard';
 import type { SyncOpDto, SyncOpResult, SyncPushDto, SyncPushResult } from './dto/sync.dto';
 
@@ -38,6 +40,8 @@ export class SyncPushService {
     private readonly billing: PosInvoiceService,
     private readonly reservations: PosReservationsService,
     private readonly cashSessions: CashSessionService,
+    private readonly cashRegisters: CashRegisterService,
+    private readonly products: ProductService,
   ) {}
 
   async push(device: RequestDevice, dto: SyncPushDto): Promise<SyncPushResult> {
@@ -317,9 +321,294 @@ export class SyncPushService {
         await this.pos.updatePosSettings({ posMode: value });
         return { id: key };
       }
+      // ───────────── Master-data authoring (both modes) ─────────────
+      // The device mints the row UUID and it IS the server id (no remap,
+      // like customer.upsert). Thin catalog rows are written directly (the
+      // pull reads them raw); side-effect entities (product, cashRegister)
+      // go through their services so GL/audit/events still fire.
+      case 'menuCategory.upsert': {
+        const id = this.requireId(payload);
+        await this.thinUpsert('menuCategory', id, {
+          name: payload.name,
+          parentId: payload.parentId ?? null,
+          image: payload.image ?? null,
+          icon: payload.icon ?? null,
+          displayOrder: payload.displayOrder ?? 0,
+          isActive: payload.isActive ?? true,
+        });
+        return { id, mapping: { menuCategoryId: id } };
+      }
+      case 'menuCategory.delete': {
+        const id = this.requireId(payload);
+        await this.prisma.client.menuCategory.updateMany({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+        return { id };
+      }
+      case 'menuItem.upsert':
+        return this.upsertMenuItem(payload);
+      case 'menuItem.delete': {
+        const id = this.requireId(payload);
+        // MenuItem has no deletedAt — the "delete" is isAvailable=false (matches pull).
+        await this.prisma.client.menuItem.updateMany({ where: { id }, data: { isAvailable: false } });
+        return { id };
+      }
+      case 'modifierGroup.upsert':
+        return this.upsertModifierGroup(payload);
+      case 'modifierGroup.delete': {
+        const id = this.requireId(payload);
+        await this.prisma.client.modifierGroup.updateMany({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+        return { id };
+      }
+      case 'accompanimentGroup.upsert':
+        return this.upsertAccompanimentGroup(payload);
+      case 'accompanimentGroup.delete': {
+        const id = this.requireId(payload);
+        await this.prisma.client.accompanimentGroup.updateMany({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+        return { id };
+      }
+      case 'tax.upsert': {
+        const id = this.requireId(payload);
+        await this.thinUpsert('tax', id, {
+          name: payload.name,
+          rate: payload.rate ?? 0,
+          isInclusive: payload.isInclusive ?? false,
+          isActive: payload.isActive ?? true,
+          ...(payload.code !== undefined ? { code: payload.code } : {}),
+        });
+        return { id, mapping: { taxId: id } };
+      }
+      case 'tax.delete': {
+        const id = this.requireId(payload);
+        await this.prisma.client.tax.updateMany({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+        return { id };
+      }
+      case 'productCategory.upsert': {
+        const id = this.requireId(payload);
+        await this.thinUpsert('productCategory', id, {
+          name: payload.name,
+          parentId: payload.parentId ?? null,
+        });
+        return { id, mapping: { productCategoryId: id } };
+      }
+      case 'productCategory.delete': {
+        const id = this.requireId(payload);
+        await this.prisma.client.productCategory.updateMany({ where: { id }, data: { deletedAt: new Date() } });
+        return { id };
+      }
+      case 'posTable.upsert': {
+        const id = this.requireId(payload);
+        await this.thinUpsert('posTable', id, {
+          name: payload.name ?? String(payload.number ?? ''),
+          number: Number(payload.number ?? 0),
+          sortOrder: payload.sortOrder ?? 0,
+          ...(payload.seats !== undefined ? { seats: Number(payload.seats) } : {}),
+          ...(payload.zone !== undefined ? { zone: payload.zone } : {}),
+          active: payload.active ?? true,
+        });
+        return { id, mapping: { posTableId: id } };
+      }
+      case 'posTable.delete': {
+        const id = this.requireId(payload);
+        // PosTable has no deletedAt — deactivate via `active`.
+        await this.prisma.client.posTable.updateMany({ where: { id }, data: { active: false } });
+        return { id };
+      }
+      case 'product.upsert': {
+        const id = this.requireId(payload);
+        const existing = await this.prisma.client.product.findFirst({ where: { id } });
+        const fields: Record<string, any> = {
+          name: payload.name,
+          sku: payload.sku ?? null,
+          barcode: payload.barcode ?? null,
+          description: payload.description ?? null,
+          categoryId: payload.categoryId ?? null,
+          taxId: payload.taxId ?? null,
+          salesPrice: payload.salesPrice ?? null,
+          costPrice: payload.costPrice ?? null,
+          image: payload.image ?? null,
+          isActive: payload.isActive ?? true,
+          ...(payload.productType ? { productType: payload.productType } : {}),
+        };
+        if (existing) await this.products.update(id, fields as any);
+        else await this.products.create({ id, code: payload.code ?? this.deriveCode('P', id), ...fields } as any);
+        return { id, mapping: { productId: id } };
+      }
+      case 'product.delete': {
+        const id = this.requireId(payload);
+        await this.products.remove(id);
+        return { id };
+      }
+      case 'cashRegister.upsert': {
+        const id = this.requireId(payload);
+        const existing = await this.prisma.client.cashRegister.findFirst({ where: { id } });
+        if (existing) {
+          await this.prisma.client.cashRegister.updateMany({
+            where: { id },
+            data: { name: payload.name ?? existing.name },
+          });
+        } else {
+          // Service create also provisions the GL cash-drawer account.
+          await this.cashRegisters.create({ id, code: payload.code ?? this.deriveCode('REG', id), name: payload.name ?? 'Register' });
+        }
+        return { id, mapping: { cashRegisterId: id } };
+      }
+      case 'cashRegister.delete': {
+        const id = this.requireId(payload);
+        await this.cashRegisters.remove(id);
+        return { id };
+      }
       default:
         throw new HttpException(`Unsupported sync op type: ${op.type}`, 400);
     }
+  }
+
+  /** A master-data op must carry the client-minted row id (== server id). */
+  private requireId(payload: Record<string, any>): string {
+    const id = payload.id ? String(payload.id) : '';
+    if (!id) throw new HttpException('Master-data op requires an id', 400);
+    return id;
+  }
+
+  /** Deterministic unique code from a uuid (Partner/Product/Register style). */
+  private deriveCode(prefix: string, id: string): string {
+    return `${prefix}-${id.replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+  }
+
+  /** find-then-create/update keyed by the client id, on a tenant-scoped delegate. */
+  private async thinUpsert(model: string, id: string, data: Record<string, any>): Promise<void> {
+    const delegate = (this.prisma.client as any)[model];
+    const existing = await delegate.findFirst({ where: { id } });
+    if (existing) await delegate.updateMany({ where: { id }, data });
+    else await delegate.create({ data: { id, ...data } });
+  }
+
+  /** Menu item as a full aggregate: item row + variants + group assignments. */
+  private async upsertMenuItem(payload: Record<string, any>): Promise<any> {
+    const id = this.requireId(payload);
+    await this.thinUpsert('menuItem', id, {
+      code: payload.code ?? null,
+      name: payload.name,
+      description: payload.description ?? null,
+      categoryId: payload.categoryId ?? null,
+      // basePrice arrives server-shaped (MINOR units) — stored verbatim.
+      basePrice: payload.basePrice ?? null,
+      taxId: payload.taxId ?? null,
+      image: payload.image ?? null,
+      isAvailable: payload.isAvailable ?? true,
+      displayOrder: payload.displayOrder ?? 0,
+      ...(payload.isInventoryTracked !== undefined ? { isInventoryTracked: !!payload.isInventoryTracked } : {}),
+    });
+    if (Array.isArray(payload.variants)) {
+      const keep = payload.variants.map((v: any) => String(v.id)).filter(Boolean);
+      await this.prisma.client.menuItemVariant.updateMany({
+        where: { menuItemId: id, ...(keep.length ? { id: { notIn: keep } } : {}) },
+        data: { deletedAt: new Date(), isActive: false },
+      });
+      for (const v of payload.variants) {
+        const vid = v.id ? String(v.id) : '';
+        if (!vid) continue;
+        await this.thinUpsert('menuItemVariant', vid, {
+          menuItemId: id,
+          name: v.name,
+          price: v.price ?? 0,
+          sortOrder: v.sortOrder ?? 0,
+          isActive: true,
+          deletedAt: null,
+        });
+      }
+    }
+    if (Array.isArray(payload.modifierGroupIds)) {
+      await this.reconcileGroupJoin('menuItemModifierGroup', 'modifierGroupId', id, payload.modifierGroupIds);
+    }
+    if (Array.isArray(payload.accompanimentGroupIds)) {
+      await this.reconcileGroupJoin('menuItemAccompanimentGroup', 'accompanimentGroupId', id, payload.accompanimentGroupIds);
+    }
+    return { id, mapping: { menuItemId: id } };
+  }
+
+  /** Reconcile a menu-item→group join table against the supplied id list. */
+  private async reconcileGroupJoin(model: string, fkField: string, menuItemId: string, entries: any[]): Promise<void> {
+    const delegate = (this.prisma.client as any)[model];
+    const norm = entries.map((e) => (typeof e === 'string' ? { id: e, sortOrder: 0 } : { id: String(e[fkField] ?? e.id ?? ''), sortOrder: e.sortOrder ?? 0 }));
+    const ids = norm.map((e) => e.id).filter(Boolean);
+    await delegate.updateMany({
+      where: { menuItemId, ...(ids.length ? { [fkField]: { notIn: ids } } : {}) },
+      data: { deletedAt: new Date() },
+    });
+    for (const e of norm) {
+      if (!e.id) continue;
+      const existing = await delegate.findFirst({ where: { menuItemId, [fkField]: e.id } });
+      if (existing) await delegate.updateMany({ where: { id: existing.id }, data: { deletedAt: null, sortOrder: e.sortOrder } });
+      else await delegate.create({ data: { menuItemId, [fkField]: e.id, sortOrder: e.sortOrder } });
+    }
+  }
+
+  /** Modifier group as an aggregate (group row + its modifiers). */
+  private async upsertModifierGroup(payload: Record<string, any>): Promise<any> {
+    const id = this.requireId(payload);
+    await this.thinUpsert('modifierGroup', id, {
+      name: payload.name,
+      groupType: payload.groupType ?? 'ADD_ON',
+      minSelect: payload.minSelect ?? 0,
+      maxSelect: payload.maxSelect ?? 1,
+      sortOrder: payload.sortOrder ?? 0,
+      isActive: payload.isActive ?? true,
+    });
+    if (Array.isArray(payload.modifiers)) {
+      const keep = payload.modifiers.map((m: any) => String(m.id)).filter(Boolean);
+      await this.prisma.client.modifier.updateMany({
+        where: { groupId: id, ...(keep.length ? { id: { notIn: keep } } : {}) },
+        data: { deletedAt: new Date(), isActive: false },
+      });
+      for (const m of payload.modifiers) {
+        const mid = m.id ? String(m.id) : '';
+        if (!mid) continue;
+        await this.thinUpsert('modifier', mid, {
+          groupId: id,
+          name: m.name,
+          kitchenPrintName: m.kitchenPrintName ?? null,
+          priceDelta: m.priceDelta ?? 0,
+          isDefault: m.isDefault ?? false,
+          sortOrder: m.sortOrder ?? 0,
+          isActive: true,
+          deletedAt: null,
+        });
+      }
+    }
+    return { id, mapping: { modifierGroupId: id } };
+  }
+
+  /** Accompaniment group as an aggregate (group row + its options). */
+  private async upsertAccompanimentGroup(payload: Record<string, any>): Promise<any> {
+    const id = this.requireId(payload);
+    await this.thinUpsert('accompanimentGroup', id, {
+      name: payload.name,
+      isRequired: payload.isRequired ?? true,
+      minSelect: payload.minSelect ?? 1,
+      maxSelect: payload.maxSelect ?? 1,
+      sortOrder: payload.sortOrder ?? 0,
+      isActive: payload.isActive ?? true,
+    });
+    if (Array.isArray(payload.options)) {
+      const keep = payload.options.map((o: any) => String(o.id)).filter(Boolean);
+      await this.prisma.client.accompanimentOption.updateMany({
+        where: { groupId: id, ...(keep.length ? { id: { notIn: keep } } : {}) },
+        data: { deletedAt: new Date(), isActive: false },
+      });
+      for (const o of payload.options) {
+        const oid = o.id ? String(o.id) : '';
+        if (!oid) continue;
+        await this.thinUpsert('accompanimentOption', oid, {
+          groupId: id,
+          name: o.name,
+          priceImpact: o.priceImpact ?? 0,
+          isDefault: o.isDefault ?? false,
+          sortOrder: o.sortOrder ?? 0,
+          isActive: true,
+          deletedAt: null,
+        });
+      }
+    }
+    return { id, mapping: { accompanimentGroupId: id } };
   }
 
   /**

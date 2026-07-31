@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PosModule } from '../pos/pos.module';
 import { AccountingModule } from '../accounting/accounting.module';
+import { ProductModule } from '../core/product/product.module';
 import { SyncController } from './sync.controller';
 import { SyncDevicesService } from './sync-devices.service';
 import { SyncPullService } from './sync-pull.service';
@@ -13,7 +14,7 @@ import { DeviceTokenGuard } from './device-token.guard';
  * clients (Kotlin Android app, offline web POS). See docs/sync-protocol.md.
  */
 @Module({
-  imports: [PosModule, AccountingModule],
+  imports: [PosModule, AccountingModule, ProductModule],
   controllers: [SyncController],
   providers: [SyncDevicesService, SyncPullService, SyncPushService, SyncDeadLetterService, DeviceTokenGuard],
 })

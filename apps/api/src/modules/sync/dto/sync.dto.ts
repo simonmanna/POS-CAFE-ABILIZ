@@ -30,6 +30,25 @@ export const SYNC_OP_TYPES = [
   'customer.upsert',
   'customer.delete',
   'setting.set',
+  // Master-data authoring (both modes). Client-minted UUID == server id.
+  'menuCategory.upsert',
+  'menuCategory.delete',
+  'menuItem.upsert',
+  'menuItem.delete',
+  'modifierGroup.upsert',
+  'modifierGroup.delete',
+  'accompanimentGroup.upsert',
+  'accompanimentGroup.delete',
+  'tax.upsert',
+  'tax.delete',
+  'product.upsert',
+  'product.delete',
+  'productCategory.upsert',
+  'productCategory.delete',
+  'cashRegister.upsert',
+  'cashRegister.delete',
+  'posTable.upsert',
+  'posTable.delete',
 ] as const;
 export type SyncOpType = (typeof SYNC_OP_TYPES)[number];
 
