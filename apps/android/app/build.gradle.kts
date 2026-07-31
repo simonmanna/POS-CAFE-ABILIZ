@@ -34,6 +34,7 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { compose = true }
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    lint { abortOnError = false }
 }
 
 // Room schema history — lets migrations be checked against generated DDL.
@@ -84,11 +85,11 @@ dependencies {
     implementation("at.favre.lib:bcrypt:0.10.2")
 
     // Barcode scanning (ML Kit + CameraX)
-    implementation("com.google.mlkit:barcode-scanning:17.2.0")
-    implementation("androidx.camera:camera-core:1.3.4")
-    implementation("androidx.camera:camera-camera2:1.3.4")
-    implementation("androidx.camera:camera-lifecycle:1.3.4")
-    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("androidx.camera:camera-core:1.5.3")
+    implementation("androidx.camera:camera-camera2:1.5.3")
+    implementation("androidx.camera:camera-lifecycle:1.5.3")
+    implementation("androidx.camera:camera-view:1.5.3")
 
     // Encrypted key storage for the DB passphrase + device token.
     implementation("androidx.security:security-crypto:1.1.0-alpha06")

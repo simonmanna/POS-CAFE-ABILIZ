@@ -1,6 +1,7 @@
 package com.poscafe.pos.data.local.entity
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 /**
@@ -183,6 +184,22 @@ data class ProductCategoryEntity(
     @PrimaryKey val id: String,
     val name: String,
     val parentId: String?,
+)
+
+/**
+ * A named multipack of a product (e.g. Carton = 24). Scanning its barcode adds
+ * `quantity` BASE units of the product. Synced from the productPackagings pull
+ * scope; the server has no deletedAt here, so isActive=false removes it locally.
+ */
+@Entity(tableName = "product_packagings", indices = [Index("productId"), Index("barcode")])
+data class ProductPackagingEntity(
+    @PrimaryKey val id: String,
+    val productId: String,
+    val name: String,
+    /** How many base units one pack contains. */
+    val quantity: Double,
+    val barcode: String?,
+    val isActive: Boolean,
 )
 
 /** One row per pull scope: the opaque watermark cursor from the server. */

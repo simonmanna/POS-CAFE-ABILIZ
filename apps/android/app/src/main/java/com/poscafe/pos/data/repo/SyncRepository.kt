@@ -44,7 +44,9 @@ class SyncRepository @Inject constructor(
         res.data["settings"]?.let { applySettings(it) }
         res.data["products"]?.let { applyProducts(it) }
         res.data["productCategories"]?.let { applyProductCategories(it) }
+        res.data["productPackagings"]?.let { applyProductPackagings(it) }
         res.data["partners"]?.let { applyPartners(it) }
+        res.data["reservations"]?.let { applyReservations(it) }
 
         db.syncStateDao().put(
             SyncStateEntity(
@@ -88,7 +90,10 @@ class SyncRepository @Inject constructor(
                 else -> {
                     unresolved += 1
                     db.opQueueDao().mark(result.opId, "failed", result.error)
+                    // The opId belongs to exactly one of these tables; the other
+                    // updates are harmless no-ops (WHERE id = opId matches none).
                     db.saleDao().markSync(result.opId, "failed", null, null, result.error)
+                    db.refundDao().markSync(result.opId, "failed", null, result.error)
                 }
             }
         }
@@ -108,7 +113,10 @@ class SyncRepository @Inject constructor(
         val invoiceId = mapping?.get("invoiceId")
         val invoiceNumber = finalNumbers?.get("invoiceNumber")
         if (invoiceId != null || invoiceNumber != null) {
+            // opId keys a sale (sale.checkout) OR a refund (sale.refund/void) —
+            // whichever it isn't, the update is a no-op.
             db.saleDao().markSync(opId, "pushed", invoiceId, invoiceNumber, null)
+            db.refundDao().markSync(opId, "pushed", invoiceId, null)
         }
         // cash_session.open ops key the map by the session's clientId (== opId).
         mapping?.get(opId)?.let { serverId ->
@@ -116,6 +124,9 @@ class SyncRepository @Inject constructor(
         }
         // customer.upsert applied — the local row now mirrors the server.
         mapping?.get("customerId")?.let { db.customerDao().markSynced(it) }
+        // reservation.* applied — mark the booking synced (keyed by its id, not
+        // the opId, since seat/cancel/no-show ops have their own uuid).
+        mapping?.get("reservationId")?.let { db.reservationDao().markSync(it, "synced") }
     }
 
     // ---------------------- pull-apply per scope ----------------------
@@ -389,6 +400,47 @@ class SyncRepository @Inject constructor(
         }
     }
 
+    /**
+     * Bookings for the floor. Terminal statuses (cancelled/no_show/completed)
+     * are tombstones — dropped locally. Rows with a queued local op are skipped
+     * so an offline booking/seat isn't clobbered by a pull that raced its push.
+     */
+    private suspend fun applyReservations(rows: List<JsonObject>) {
+        val dao = db.reservationDao()
+        val pendingIds = (
+            db.opQueueDao().queuedOfType("reservation.create") +
+                db.opQueueDao().queuedOfType("reservation.seat") +
+                db.opQueueDao().queuedOfType("reservation.cancel") +
+                db.opQueueDao().queuedOfType("reservation.noShow")
+            ).mapNotNull { op -> parsePayload(op.payloadJson)?.let { it.str("reservationId") ?: it.str("id") } }
+            .toSet()
+        for (row in rows) {
+            val id = row.str("id") ?: continue
+            if (id in pendingIds) continue
+            val status = row.str("status") ?: "pending"
+            if (status == "cancelled" || status == "no_show" || status == "completed") {
+                dao.delete(id); continue
+            }
+            val tableId = row.str("tableId") ?: continue
+            dao.upsert(
+                ReservationEntity(
+                    id = id,
+                    tableId = tableId,
+                    customerName = row.str("customerName") ?: "",
+                    phone = row.str("phone"),
+                    partySize = row.int("partySize") ?: 2,
+                    startAt = parseEpoch(row.str("startAt")),
+                    endAt = parseEpoch(row.str("endAt")),
+                    status = status,
+                    notes = row.str("notes"),
+                    seatedOrderId = row.str("seatedOrderId"),
+                    syncStatus = "synced",
+                    updatedAt = parseEpoch(row.str("updatedAt")),
+                ),
+            )
+        }
+    }
+
     private fun parsePayload(payloadJson: String): JsonObject? =
         runCatching { Json.parseToJsonElement(payloadJson) as? JsonObject }.getOrNull()
 
@@ -421,6 +473,28 @@ class SyncRepository @Inject constructor(
                         isActive = row.bool("isActive") ?: true,
                         isService = row.bool("isService") ?: false,
                         updatedAt = parseEpoch(row.str("updatedAt")),
+                    ),
+                ),
+            )
+        }
+    }
+
+    private suspend fun applyProductPackagings(rows: List<JsonObject>) {
+        val dao = db.productPackagingDao()
+        for (row in rows) {
+            val id = row.str("id") ?: continue
+            // No deletedAt on this model — a deactivated pack is removed locally.
+            if (row.bool("isActive") == false) { dao.delete(id); continue }
+            val productId = row.str("productId") ?: continue
+            dao.upsertAll(
+                listOf(
+                    ProductPackagingEntity(
+                        id = id,
+                        productId = productId,
+                        name = row.str("name") ?: "",
+                        quantity = row.num("quantity") ?: 1.0,
+                        barcode = row.str("barcode"),
+                        isActive = true,
                     ),
                 ),
             )

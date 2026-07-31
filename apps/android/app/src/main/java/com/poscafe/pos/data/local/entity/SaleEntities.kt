@@ -81,6 +81,58 @@ data class LocalHoldEntity(
 )
 
 /**
+ * A refund or void of a local sale, captured on-device. Mirrors the sale
+ * lifecycle: the row is written first (device wins), then a `sale.refund` /
+ * `sale.void` op replays against the server which reverses the invoice GL,
+ * restocks, and returns drawer cash. `serverInvoiceId` is the real invoice id
+ * when the sale already synced; otherwise the sale's local id (the server
+ * resolves it via the batch clientId map). Partial refunds are not yet
+ * supported offline (the device never sees server invoice-item ids).
+ */
+@Entity(tableName = "local_refunds")
+data class LocalRefundEntity(
+    /** Client-minted uuid; also the op id pushed to the server. */
+    @PrimaryKey val id: String,
+    /** The local sale this refunds/voids. */
+    val saleLocalId: String,
+    /** Server invoice id if known at creation, else the sale's local id. */
+    val serverInvoiceId: String?,
+    /** refund | void */
+    val type: String,
+    val reason: String?,
+    /** Refunded amount, for local reporting/X-report drawer reconciliation. */
+    val amount: Double,
+    /** Manager user id that authorised a void (PIN-verified on-device). */
+    val overrideById: String?,
+    val cashSessionLocalId: String?,
+    val occurredAt: Long,
+    /** queued | pushed | failed */
+    val syncStatus: String,
+    val lastError: String?,
+)
+
+/**
+ * An open dine-in tab — a cart bound to a table that persists across screens
+ * so rounds can be added over time. One row per table (the tableId is the PK).
+ * The tab lives ONLY on the device until it settles: settling emits a single
+ * `sale.checkout` (all lines, orderType=dine_in); a split emits one
+ * `sale.checkout` per bill. Firing a round prints a KOT locally (no server op).
+ */
+@Entity(tableName = "local_tabs")
+data class LocalTabEntity(
+    @PrimaryKey val tableId: String,
+    /** Serialized List<CartEngine.CartLine> — same shape holds use. */
+    val linesJson: String,
+    val guestCount: Int,
+    val partnerId: String?,
+    /** JSON array of lineIds already sent to the kitchen (fire delta tracking). */
+    val firedLineIdsJson: String,
+    val openedAt: Long,
+    val updatedAt: Long,
+    val actorUserId: String?,
+)
+
+/**
  * The push queue. One row per op, strictly ordered by deviceSeq. Never
  * deleted on failure — failed ops flip to `failed` and surface in the sync
  * screen (mirror of the server's dead-letter philosophy).

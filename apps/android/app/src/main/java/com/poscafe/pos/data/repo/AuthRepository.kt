@@ -26,19 +26,23 @@ class AuthRepository @Inject constructor(
 
     suspend fun staffList(): List<StaffEntity> = staffDao.all().filter { it.pinHash != null }
 
-    suspend fun loginWithPin(userId: String, pin: String): Result<LoggedIn> {
+    suspend fun loginWithPin(userId: String, pin: String): Result<LoggedIn> = runCatching {
         val user = staffDao.byId(userId)
-            ?: return Result.failure(IllegalArgumentException("Unknown user"))
+            ?: return@runCatching Result.failure(IllegalArgumentException("Unknown user"))
         val hash = user.pinHash
-            ?: return Result.failure(IllegalStateException("No PIN set for this user"))
+            ?: return@runCatching Result.failure(IllegalStateException("No PIN set for this user"))
 
         val attempts = failedAttempts.getOrDefault(userId, 0)
         if (attempts >= MAX_FAILED_ATTEMPTS) {
-            return Result.failure(IllegalStateException("Account locked after $MAX_FAILED_ATTEMPTS failed attempts — sync online to unlock"))
+            return@runCatching Result.failure(IllegalStateException("Account locked after $MAX_FAILED_ATTEMPTS failed attempts — sync online to unlock"))
         }
 
-        val ok = BCrypt.verifyer().verify(pin.toCharArray(), hash.toCharArray()).verified
-        return if (ok) {
+        val ok = try {
+            BCrypt.verifyer().verify(pin.toCharArray(), hash.toCharArray()).verified
+        } catch (t: Throwable) {
+            return@runCatching Result.failure(IllegalStateException("PIN verification error: ${t.message ?: t.javaClass.simpleName}"))
+        }
+        if (ok) {
             failedAttempts.remove(userId)
             val session = LoggedIn(
                 userId = user.id,
@@ -51,11 +55,36 @@ class AuthRepository @Inject constructor(
             failedAttempts[userId] = attempts + 1
             Result.failure(IllegalArgumentException("Wrong PIN"))
         }
-    }
+    }.fold({ it }, { failure -> Result.failure(failure) })
 
     fun logout() {
         current = null
     }
+
+    data class Override(val userId: String, val displayName: String)
+
+    /**
+     * Verify a manager override PIN for a refund/void WITHOUT touching the
+     * logged-in cashier. Returns the manager when the PIN matches an active
+     * staff member holding `pos:override` — the same permission the server's
+     * assertCanOverride requires. Runs on-device against the synced bcrypt
+     * hashes; the server re-validates on replay (its authority is final).
+     */
+    suspend fun verifyOverridePin(pin: String): Result<Override> = runCatching {
+        val managers = staffDao.all().filter { staff ->
+            staff.pinHash != null &&
+                "pos:override" in staff.permissions.split(',').map { it.trim() }
+        }
+        for (m in managers) {
+            val ok = try {
+                BCrypt.verifyer().verify(pin.toCharArray(), m.pinHash!!.toCharArray()).verified
+            } catch (t: Throwable) {
+                continue
+            }
+            if (ok) return@runCatching Result.success(Override(m.id, listOfNotNull(m.firstName, m.lastName).joinToString(" ")))
+        }
+        Result.failure(IllegalArgumentException("PIN not recognised for a manager with override rights"))
+    }.fold({ it }, { failure -> Result.failure(failure) })
 
     companion object {
         const val MAX_FAILED_ATTEMPTS = 10

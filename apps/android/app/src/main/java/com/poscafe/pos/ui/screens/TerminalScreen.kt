@@ -22,6 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AccountBalance
+import androidx.compose.material.icons.outlined.Loyalty
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
@@ -63,6 +65,7 @@ import com.poscafe.pos.data.local.dao.MenuDao
 import com.poscafe.pos.data.local.dao.OpQueueDao
 import com.poscafe.pos.data.local.dao.ProductCategoryDao
 import com.poscafe.pos.data.local.dao.ProductDao
+import com.poscafe.pos.data.local.dao.ProductPackagingDao
 import com.poscafe.pos.data.local.dao.RegisterDao
 import com.poscafe.pos.data.local.dao.SettingsDao
 import com.poscafe.pos.data.local.dao.TableDao
@@ -93,12 +96,14 @@ class TerminalViewModel @Inject constructor(
     private val settingsDao: SettingsDao,
     private val productDao: ProductDao,
     private val productCategoryDao: ProductCategoryDao,
+    private val productPackagingDao: ProductPackagingDao,
     private val holdDao: HoldDao,
     private val customerDao: CustomerDao,
     private val customerRepo: CustomerRepository,
     opQueue: OpQueueDao,
     private val auth: AuthRepository,
     private val sales: SaleRepository,
+    private val tabRepo: TabRepository,
     private val sessions: CashSessionRepository,
     private val printer: ReceiptPrinter,
     val config: DeviceConfig,
@@ -153,9 +158,80 @@ class TerminalViewModel @Inject constructor(
         // Retail has no tables — a table picked in cafe mode must never leak
         // into a retail sale as dine_in.
         viewModelScope.launch {
-            isRetailMode.collect { retail -> if (retail) selectedTable.value = null }
+            runCatching {
+                isRetailMode.collect { retail -> if (retail) selectedTable.value = null }
+            }.onFailure { error = "init(retail-watch): ${it.message ?: it.javaClass.simpleName}" }
         }
     }
+
+    // ---- Dine-in tabs (one open tab per table) ----
+
+    /** Table ids that currently carry an open (unsettled) tab — badges the floor. */
+    val openTabTableIds: StateFlow<List<String>> =
+        tabRepo.openTableIds().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Line ids on the current tab already sent to the kitchen. */
+    var firedLineIds by mutableStateOf<Set<String>>(emptySet()); private set
+
+    val hasUnfiredLines: Boolean get() = cart.any { it.lineId !in firedLineIds }
+
+    /** Switch tables: bank the current tab, then load the target table's tab.
+     *  Items rung up before any table was picked (takeaway-in-progress) follow
+     *  the cashier onto the table they assign, rather than being wiped. */
+    fun selectTable(table: PosTableEntity?) {
+        if (isRetailMode.value) { selectedTable.value = null; return }
+        val previous = selectedTable.value
+        if (previous?.id == table?.id) return
+        viewModelScope.launch {
+            // Unassigned items only carry over when there is no source table to
+            // bank them against; when switching tables the cart belongs to the
+            // previous table and must not leak onto the next one.
+            val carryover = if (previous == null) cart else emptyList()
+            if (previous != null) {
+                tabRepo.save(previous.id, cart, guestCount = 0, partnerId = selectedCustomer?.id, firedLineIds = firedLineIds, actorUserId = auth.current?.userId)
+            }
+            selectedTable.value = table
+            if (table != null) {
+                val tab = tabRepo.load(table.id)
+                cart = (tab?.lines ?: emptyList()) + carryover
+                firedLineIds = tab?.firedLineIds ?: emptySet()
+                tab?.partnerId?.let { pid -> selectedCustomer = customers.value.find { it.id == pid } }
+            } else {
+                cart = carryover
+                firedLineIds = emptySet()
+            }
+        }
+    }
+
+    /** Bank the tab and return to the floor without settling. */
+    fun saveTab() {
+        val table = selectedTable.value ?: return
+        viewModelScope.launch {
+            tabRepo.save(table.id, cart, guestCount = 0, partnerId = selectedCustomer?.id, firedLineIds = firedLineIds, actorUserId = auth.current?.userId)
+            cart = emptyList()
+            firedLineIds = emptySet()
+            selectedTable.value = null
+        }
+    }
+
+    /** Fire the not-yet-sent lines to the kitchen printer as a KOT round. */
+    fun fireKitchen() {
+        val table = selectedTable.value ?: return
+        val round = cart.filter { it.lineId !in firedLineIds }
+        if (round.isEmpty()) return
+        val host = config.printerHost
+        viewModelScope.launch {
+            if (host != null) {
+                runCatching { printer.printKot(host = host, title = tableLabel(table), lines = round) }
+                    .onFailure { error = "KOT print failed: ${it.message}" }
+            }
+            firedLineIds = firedLineIds + round.map { it.lineId }
+            tabRepo.save(table.id, cart, guestCount = 0, partnerId = selectedCustomer?.id, firedLineIds = firedLineIds, actorUserId = auth.current?.userId)
+        }
+    }
+
+    private fun tableLabel(table: PosTableEntity): String =
+        table.name?.takeIf { it.isNotBlank() } ?: "Table ${table.number}"
 
     val customers: StateFlow<List<CustomerEntity>> =
         customerDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -231,6 +307,24 @@ class TerminalViewModel @Inject constructor(
     var charging by mutableStateOf(false); private set
     var successSale by mutableStateOf<SaleRepository.CompletedSale?>(null); private set
 
+    // NOTE: init block split from the one above (line 157) so that
+    // `cart` and the other `by mutableStateOf` delegates are initialized
+    // BEFORE `snapshotFlow` eagerly reads their current value. Kotlin
+    // initializes class body top-to-bottom — referencing a property
+    // declared later in the class from an init block crashes with NPE
+    // because the delegate backing field is still null.
+    init {
+        viewModelScope.launch {
+            runCatching {
+                snapshotFlow { cart }.collect { lines ->
+                    val table = selectedTable.value ?: return@collect
+                    if (isRetailMode.value) return@collect
+                    tabRepo.save(table.id, lines, guestCount = 0, partnerId = selectedCustomer?.id, firedLineIds = firedLineIds, actorUserId = auth.current?.userId)
+                }
+            }.onFailure { error = "init(tab-autosave): ${it.message ?: it.javaClass.simpleName}" }
+        }
+    }
+
     val totals: CartEngine.CartTotals get() = CartEngine.totals(cart)
     val cashier get() = auth.current
 
@@ -288,12 +382,36 @@ class TerminalViewModel @Inject constructor(
 
     fun searchProducts(query: String) {
         viewModelScope.launch {
-            val result = productDao.byCode(query)
-            if (result != null) {
-                onProductTap(result)
+            // A single-unit barcode/sku wins first; otherwise try a multipack
+            // barcode (scan the case → add `quantity` base units).
+            val product = productDao.byCode(query)
+            if (product != null) {
+                onProductTap(product)
                 productSearchQuery.value = ""
+                return@launch
+            }
+            val pack = productPackagingDao.byBarcode(query.trim())
+            if (pack != null) {
+                val base = productDao.byId(pack.productId)
+                if (base != null) {
+                    addProductPack(base, pack.quantity, pack.name)
+                    productSearchQuery.value = ""
+                }
             }
         }
+    }
+
+    /** Add a whole pack = `quantity` base units of the product as one line. */
+    private fun addProductPack(product: ProductEntity, quantity: Double, packName: String) {
+        cart = cart + CartEngine.CartLine(
+            lineId = UUID.randomUUID().toString(),
+            productId = product.id,
+            name = "${product.name} · $packName",
+            quantity = quantity,
+            baseUnitPrice = product.salesPrice,
+            taxRatePercent = product.taxRate,
+            taxInclusive = product.taxInclusive,
+        )
     }
 
     fun dismissConfig() { itemConfig = null }
@@ -348,48 +466,74 @@ class TerminalViewModel @Inject constructor(
 
     fun clear() { cart = emptyList() }
 
-    fun charge(method: String, tendered: Double, reference: String?, onDone: () -> Unit) {
+    /** Split tender: settle the whole cart with one or more payment legs. */
+    fun charge(tenders: List<SaleRepository.Tender>, onDone: () -> Unit) {
+        settleLines(cart.map { it.lineId }.toSet(), tenders, onDone)
+    }
+
+    /**
+     * Settle a subset of the cart as its own sale (split bill). Passing every
+     * line id is an ordinary full checkout. Each call emits one `sale.checkout`
+     * op; the remaining lines stay on the tab until the last bill settles.
+     */
+    fun settleLines(lineIds: Set<String>, tenders: List<SaleRepository.Tender>, onDone: () -> Unit) {
         val user = auth.current ?: return
-        if (charging) return
-        val linesAtSale = cart
+        if (charging || tenders.isEmpty()) return
+        val billLines = cart.filter { it.lineId in lineIds }
+        if (billLines.isEmpty()) return
         val table = if (isRetailMode.value) null else selectedTable.value
         viewModelScope.launch {
             charging = true
             try {
                 error = null
-                val tender = SaleRepository.Tender(method, tendered, reference?.takeIf { it.isNotBlank() })
                 val sale = sales.checkout(
                     actorUserId = user.userId,
-                    lines = linesAtSale,
-                    tenders = listOf(tender),
+                    lines = billLines,
+                    tenders = tenders,
                     cashSessionLocalId = session.value?.id,
                     tableId = table?.id,
                     orderType = if (table != null) "dine_in" else "takeaway",
                     partnerId = selectedCustomer?.id,
                 )
-                config.printerHost?.let { host ->
-                    runCatching {
-                        printer.printReceipt(
-                            host = host,
-                            header = config.receiptHeader(),
-                            sale = sale,
-                            lines = linesAtSale,
-                            tenders = listOf(tender),
-                            cashierName = user.displayName,
-                            offline = !config.standalone,
-                            footer = config.receiptFooter,
-                        )
-                    }
+                printSale(sale, billLines, tenders, user.displayName)
+                val remaining = cart.filterNot { it.lineId in lineIds }
+                firedLineIds = firedLineIds - lineIds
+                if (remaining.isEmpty()) {
+                    table?.let { tabRepo.clear(it.id) }
+                    cart = emptyList()
+                    selectedTable.value = null
+                    successSale = sale
+                } else {
+                    // Split remainder stays open on the tab (auto-persisted).
+                    cart = remaining
                 }
-                cart = emptyList()
-                selectedTable.value = null
-                successSale = sale
                 onDone()
             } catch (e: Exception) {
                 error = e.message
             } finally {
                 charging = false
             }
+        }
+    }
+
+    private suspend fun printSale(
+        sale: SaleRepository.CompletedSale,
+        lines: List<CartEngine.CartLine>,
+        tenders: List<SaleRepository.Tender>,
+        cashierName: String,
+    ) {
+        val host = config.printerHost ?: return
+        runCatching {
+            printer.printReceipt(
+                host = host,
+                header = config.receiptHeader(),
+                sale = sale,
+                lines = lines,
+                tenders = tenders,
+                cashierName = cashierName,
+                offline = !config.standalone,
+                footer = config.receiptFooter,
+            )
         }
     }
 
@@ -440,6 +584,10 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
     var showCustomerPicker by remember { mutableStateOf(false) }
     val holdMode = remember { mutableStateOf<HoldDialogMode>(HoldDialogMode.Save) }
     var showHoldDialog by remember { mutableStateOf(false) }
+    var showSplit by remember { mutableStateOf(false) }
+    var splitSelection by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var splitCheckout by remember { mutableStateOf(false) }
+    var showReservations by remember { mutableStateOf(false) }
     val holds by vm.holds.collectAsStateWithLifecycle()
     val haptics = LocalHapticFeedback.current
 
@@ -500,6 +648,7 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
                             onCharge = { showCheckout = true },
                             showHold = isRetail,
                             onHold = { holdMode.value = HoldDialogMode.Save; showHoldDialog = true },
+                            onSplit = { showSplit = true },
                         )
                     }
                 }
@@ -547,7 +696,8 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
                 CartPanel(vm = vm, table = vm.selectedTable.collectAsStateWithLifecycle().value, onCharge = {
                     showCartSheet = false
                     showCheckout = true
-                }, showHold = isRetail, onHold = { holdMode.value = HoldDialogMode.Save; showHoldDialog = true })
+                }, showHold = isRetail, onHold = { holdMode.value = HoldDialogMode.Save; showHoldDialog = true },
+                    onSplit = { showCartSheet = false; showSplit = true })
             }
         }
     }
@@ -557,20 +707,49 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
             total = vm.totals.total,
             charging = vm.charging,
             error = vm.error,
+            hasCustomer = selectedCustomer != null,
             onDismiss = { showCheckout = false },
-            onCharge = { method, tendered, reference ->
-                vm.charge(method, tendered, reference) { showCheckout = false }
+            onCharge = { tenders ->
+                vm.charge(tenders) { showCheckout = false }
+            },
+        )
+    }
+
+    if (showSplit) {
+        SplitBillDialog(
+            lines = vm.cart,
+            onConfirm = { ids -> splitSelection = ids; showSplit = false; splitCheckout = true },
+            onDismiss = { showSplit = false },
+        )
+    }
+
+    if (splitCheckout) {
+        CheckoutSheet(
+            total = CartEngine.totals(vm.cart.filter { it.lineId in splitSelection }).total,
+            charging = vm.charging,
+            error = vm.error,
+            hasCustomer = selectedCustomer != null,
+            onDismiss = { splitCheckout = false },
+            onCharge = { tenders ->
+                vm.settleLines(splitSelection, tenders) { splitCheckout = false }
             },
         )
     }
 
     if (!isRetail && showTablePicker) {
+        val openTabIds by vm.openTabTableIds.collectAsStateWithLifecycle()
         TablePickerDialog(
             tables = tables,
+            openTabTableIds = openTabIds.toSet(),
             selectedId = selectedTable?.id,
-            onSelect = { vm.selectedTable.value = it; showTablePicker = false },
+            onSelect = { vm.selectTable(it); showTablePicker = false },
             onDismiss = { showTablePicker = false },
+            onReservations = { showTablePicker = false; showReservations = true },
         )
+    }
+
+    if (showReservations) {
+        ReservationsDialog(onDismiss = { showReservations = false })
     }
 
     if (showOpenSession) {
@@ -635,116 +814,114 @@ private fun TerminalHeader(
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         Row(
             Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // Left: menu + title/cashier. weight(1f) lets it yield space to the
+            // action chips so their labels never get crushed into a vertical wrap.
+            Row(
+                Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 onMenu?.let {
                     IconButton(onClick = it) { Icon(Icons.Filled.Menu, "Menu") }
                 }
-                Column {
-                    Text(if (isRetailMode) "Retail POS" else "New order", style = MaterialTheme.typography.headlineSmall)
+                Column(Modifier.weight(1f)) {
                     Text(
-                        cashierName,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (isRetailMode) "Retail POS" else "New order",
+                        style = MaterialTheme.typography.headlineSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (queuedOps > 0) {
-                    StatusPill(
-                        "$queuedOps to sync",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        container = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    )
-                }
-                if (!sessionOpen) {
-                    Surface(
-                        onClick = onOpenSession,
-                        shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.errorContainer,
-                    ) {
-                        Text(
-                            "Open cash session",
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.labelMedium,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
-                    }
-                }
-                // Customer chip
-                Surface(
-                    onClick = onPickCustomer,
-                    shape = RoundedCornerShape(999.dp),
-                    color = if (customer != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
                     Row(
-                        Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Icon(
-                            Icons.Outlined.Person, null,
-                            modifier = Modifier.size(16.dp),
-                            tint = if (customer != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
                         Text(
-                            customer?.name ?: "Customer",
+                            cashierName,
                             style = MaterialTheme.typography.labelMedium,
-                            color = if (customer != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (queuedOps > 0) {
+                            StatusPill(
+                                "$queuedOps to sync",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                container = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            )
+                        }
+                    }
+                }
+            }
+            // Right: compact chips. softWrap = false guarantees a chip label
+            // truncates with an ellipsis instead of wrapping one letter per line.
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HeaderChip(
+                    icon = Icons.Outlined.Person,
+                    label = customer?.name,
+                    fallback = "Customer",
+                    active = customer != null,
+                    onClick = onPickCustomer,
+                )
+                if (isRetailMode) {
+                    HeaderChip(
+                        icon = Icons.Outlined.HourglassBottom,
+                        label = "Recall",
+                        fallback = "Recall",
+                        active = false,
+                        onClick = onRecallHold,
+                    )
+                } else {
+                    onPickTable?.let { pickTable ->
+                        HeaderChip(
+                            icon = Icons.Outlined.TableRestaurant,
+                            label = table?.let { "Table ${it.number}" } ?: "Takeaway",
+                            fallback = "Takeaway",
+                            active = table != null,
+                            onClick = pickTable,
                         )
                     }
                 }
-                if (isRetailMode) {
-                    Surface(
-                        onClick = onRecallHold,
-                        shape = RoundedCornerShape(999.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ) {
-                        Row(
-                            Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                Icons.Outlined.HourglassBottom, null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                "Recall",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                }
-                if (!isRetailMode) {
-                    onPickTable?.let { pickTable ->
-                        Surface(
-                            onClick = pickTable,
-                            shape = RoundedCornerShape(999.dp),
-                            color = if (table != null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
-                        ) {
-                            Row(
-                                Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                Icon(
-                                    Icons.Outlined.TableRestaurant, null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = if (table != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                Text(
-                                    table?.let { "Table ${it.number}" } ?: "Takeaway",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (table != null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
+            }
+        }
+        // Cash-session warning gets its own full-width banner rather than fighting
+        // the chips for space in the top row.
+        if (!sessionOpen) {
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                onClick = onOpenSession,
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.Payments, null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                        "Cash session closed",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        "Open now",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                    )
                 }
             }
         }
@@ -785,6 +962,44 @@ private fun TerminalHeader(
     }
 }
 
+/** Compact header action chip: an icon plus a label that truncates (never
+ *  wraps) so a long customer/table name can't stretch the row vertically. */
+@Composable
+private fun HeaderChip(
+    icon: ImageVector,
+    label: String?,
+    fallback: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(999.dp),
+        color = if (active) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                icon, null,
+                modifier = Modifier.size(16.dp),
+                tint = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                label ?: fallback,
+                style = MaterialTheme.typography.labelMedium,
+                color = if (active) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 96.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun CategoryChips(
     categories: List<MenuCategoryEntity>,
@@ -807,14 +1022,18 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(999.dp),
-        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-        border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = if (selected) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shadowElevation = if (selected) 2.dp else 0.dp,
     ) {
         Text(
             label,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
         )
     }
 }
@@ -839,6 +1058,11 @@ private fun CafeCatalog(
             modifier = Modifier.fillMaxSize(),
         )
     } else {
+        // Per-item quantity already in the cart → drives the "×N" badge so the
+        // cashier sees what's been rung up without opening the cart.
+        val cartQty = vm.cart.groupBy { it.menuItemId }
+            .mapNotNull { (id, lines) -> id?.let { it to lines.sumOf { l -> l.quantity }.toInt() } }
+            .toMap()
         LazyVerticalGrid(
             columns = GridCells.Adaptive(150.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -846,9 +1070,11 @@ private fun CafeCatalog(
             contentPadding = PaddingValues(bottom = if (wide) 16.dp else 96.dp),
         ) {
             items(menuItems, key = { it.id }) { item ->
-                ProductCard(
-                    item = item,
+                CatalogCard(
                     imageUrl = resolveAssetUrl(serverUrl, item.image),
+                    name = item.name,
+                    priceLabel = Money.format(item.basePriceMajor ?: 0.0),
+                    inCartQty = cartQty[item.id] ?: 0,
                     onTap = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         vm.onItemTap(item)
@@ -888,6 +1114,9 @@ private fun RetailCatalog(
             modifier = Modifier.fillMaxSize(),
         )
     } else {
+        val cartQty = vm.cart.groupBy { it.productId }
+            .mapNotNull { (id, lines) -> id?.let { it to lines.sumOf { l -> l.quantity }.toInt() } }
+            .toMap()
         LazyVerticalGrid(
             columns = GridCells.Adaptive(150.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -895,9 +1124,11 @@ private fun RetailCatalog(
             contentPadding = PaddingValues(bottom = if (wide) 16.dp else 96.dp),
         ) {
             items(products, key = { it.id }) { product ->
-                ProductTile(
-                    product = product,
+                CatalogCard(
                     imageUrl = resolveAssetUrl(serverUrl, product.image),
+                    name = product.name,
+                    priceLabel = Money.format(product.salesPrice),
+                    inCartQty = cartQty[product.id] ?: 0,
                     onTap = {
                         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                         vm.onProductTap(product)
@@ -908,90 +1139,91 @@ private fun RetailCatalog(
     }
 }
 
+/**
+ * Shared catalog tile for both menu items and retail products. A tapped card
+ * adds one unit; the green highlight + "×N" badge on the photo make the card
+ * self-report how many are already on the bill.
+ */
 @Composable
-private fun ProductTile(product: ProductEntity, imageUrl: String?, onTap: () -> Unit) {
+private fun CatalogCard(
+    imageUrl: String?,
+    name: String,
+    priceLabel: String,
+    inCartQty: Int,
+    onTap: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
+    val inCart = inCartQty > 0
     Surface(
         onClick = onTap,
         interactionSource = interaction,
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 1.dp,
+        shadowElevation = if (inCart) 3.dp else 1.dp,
         modifier = Modifier
             .pressScale(interaction)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large),
+            .border(
+                width = if (inCart) 1.5.dp else 1.dp,
+                color = if (inCart) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
+                shape = MaterialTheme.shapes.large,
+            ),
     ) {
-        Column(Modifier.padding(10.dp)) {
-            ItemImage(imageUrl, product.name, Modifier.fillMaxWidth().aspectRatio(1.25f))
-            Spacer(Modifier.height(10.dp))
-            Text(
-                product.name,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.heightIn(min = 20.dp),
-            )
-            Spacer(Modifier.height(6.dp))
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    Money.format(product.salesPrice),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Box(
-                    Modifier.size(28.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("+", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleSmall)
+        Column(Modifier.padding(8.dp)) {
+            Box(Modifier.fillMaxWidth().aspectRatio(1.2f)) {
+                ItemImage(imageUrl, name, Modifier.fillMaxSize())
+                if (inCart) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(999.dp),
+                        shadowElevation = 2.dp,
+                        modifier = Modifier.align(Alignment.TopStart).padding(6.dp),
+                    ) {
+                        Text(
+                            "×$inCartQty",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        )
+                    }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun ProductCard(item: MenuItemEntity, imageUrl: String?, onTap: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    Surface(
-        onClick = onTap,
-        interactionSource = interaction,
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 1.dp,
-        modifier = Modifier
-            .pressScale(interaction)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, MaterialTheme.shapes.large),
-    ) {
-        Column(Modifier.padding(10.dp)) {
-            ItemImage(imageUrl, item.name, Modifier.fillMaxWidth().aspectRatio(1.25f))
             Spacer(Modifier.height(10.dp))
             Text(
-                item.name,
+                name,
                 style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.heightIn(min = 20.dp),
+                // Reserve two lines so one- and two-line cards align in the grid.
+                modifier = Modifier.heightIn(min = 40.dp),
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(4.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    Money.format(item.basePriceMajor ?: 0.0),
-                    style = MaterialTheme.typography.labelLarge,
+                    priceLabel,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
                 )
+                Spacer(Modifier.width(6.dp))
                 Box(
-                    Modifier.size(28.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
+                    Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("+", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        "+",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
             }
         }
@@ -1035,7 +1267,7 @@ private fun CartBar(count: Int, total: Double, onOpen: () -> Unit, modifier: Mod
 }
 
 @Composable
-private fun CartPanel(vm: TerminalViewModel, table: PosTableEntity?, onCharge: () -> Unit, showHold: Boolean = false, onHold: () -> Unit = {}) {
+private fun CartPanel(vm: TerminalViewModel, table: PosTableEntity?, onCharge: () -> Unit, showHold: Boolean = false, onHold: () -> Unit = {}, onSplit: () -> Unit = {}) {
     val totals = vm.totals
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Row(
@@ -1089,6 +1321,39 @@ private fun CartPanel(vm: TerminalViewModel, table: PosTableEntity?, onCharge: (
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
         Spacer(Modifier.height(12.dp))
+        // Dine-in tab controls: fire a KOT round, bank the tab, or split the bill.
+        if (table != null && vm.cart.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { vm.fireKitchen() },
+                    enabled = vm.hasUnfiredLines,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Icon(Icons.Outlined.RestaurantMenu, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Fire")
+                }
+                OutlinedButton(
+                    onClick = { vm.saveTab() },
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Icon(Icons.Outlined.TableRestaurant, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Save tab")
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            if (vm.cart.size > 1) {
+                OutlinedButton(
+                    onClick = onSplit,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                ) { Text("Split bill") }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
         if (showHold && vm.cart.isNotEmpty()) {
             OutlinedButton(
                 onClick = onHold,
@@ -1396,14 +1661,25 @@ private fun CheckoutSheet(
     total: Double,
     charging: Boolean,
     error: String?,
+    hasCustomer: Boolean,
     onDismiss: () -> Unit,
-    onCharge: (method: String, tendered: Double, reference: String?) -> Unit,
+    onCharge: (tenders: List<SaleRepository.Tender>) -> Unit,
 ) {
+    // Split tender: legs accumulate until they cover the total. The common
+    // single-payment case is still one tap — the amount field is prefilled to
+    // the remaining balance, so "Complete" commits it and fires immediately.
+    val legs = remember { mutableStateListOf<SaleRepository.Tender>() }
+    val paid = legs.sumOf { it.amount }
+    val remaining = (total - paid).coerceAtLeast(0.0)
+
     var method by remember { mutableStateOf("cash") }
-    var tendered by remember { mutableStateOf("%.0f".format(total)) }
+    var tendered by remember(remaining) { mutableStateOf("%.0f".format(remaining)) }
     var reference by remember { mutableStateOf("") }
-    val tenderedValue = tendered.toDoubleOrNull() ?: 0.0
-    val change = tenderedValue - total
+    val pending = tendered.toDoubleOrNull() ?: 0.0
+    val covered = remaining <= 0.01
+    val wouldCover = paid + pending >= total - 0.01
+    // Change is only meaningful on a cash overpay.
+    val change = (paid + pending - total).let { if (it > 0 && method == "cash") it else 0.0 }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1427,36 +1703,70 @@ private fun CheckoutSheet(
                 Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Amount due", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(Money.format(total), style = MaterialTheme.typography.displaySmall, color = MaterialTheme.colorScheme.primary)
+                    if (legs.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        KVRow("Paid", Money.format(paid))
+                        KVRow(
+                            "Remaining",
+                            Money.format(remaining),
+                            emphasize = true,
+                            valueColor = if (covered) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-            Text("Payment method", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PayMethodCard("Cash", Icons.Outlined.Payments, method == "cash", Modifier.weight(1f)) { method = "cash" }
-                PayMethodCard("Card", Icons.Outlined.CreditCard, method == "card", Modifier.weight(1f)) { method = "card" }
-                PayMethodCard("Mobile", Icons.Outlined.Smartphone, method == "mobile_money", Modifier.weight(1f)) { method = "mobile_money" }
+            // Committed tender legs (removable).
+            legs.forEachIndexed { i, leg ->
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(tenderLabel(leg.method), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(Money.format(leg.amount), style = MaterialTheme.typography.bodyMedium)
+                    IconButton(onClick = { legs.removeAt(i) }) {
+                        Icon(Icons.Outlined.DeleteOutline, "Remove", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
 
-            when (method) {
-                "cash" -> {
-                    Spacer(Modifier.height(16.dp))
-                    OutlinedTextField(
-                        value = tendered,
-                        onValueChange = { tendered = it.filter { c -> c.isDigit() || c == '.' } },
-                        label = { Text("Amount tendered") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        shape = MaterialTheme.shapes.medium,
-                        textStyle = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+            if (!covered) {
+                Spacer(Modifier.height(16.dp))
+                Text(if (legs.isEmpty()) "Payment method" else "Add payment", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PayMethodCard("Cash", Icons.Outlined.Payments, method == "cash", Modifier.weight(1f)) { method = "cash" }
+                    PayMethodCard("Card", Icons.Outlined.CreditCard, method == "card", Modifier.weight(1f)) { method = "card" }
+                    PayMethodCard("Mobile", Icons.Outlined.Smartphone, method == "mobile_money", Modifier.weight(1f)) { method = "mobile_money" }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PayMethodCard("Bank", Icons.Outlined.AccountBalance, method == "bank", Modifier.weight(1f)) { method = "bank" }
+                    if (hasCustomer) {
+                        PayMethodCard("Store credit", Icons.Outlined.Loyalty, method == "store_credit", Modifier.weight(1f)) { method = "store_credit" }
+                    } else {
+                        Spacer(Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.weight(1f))
+                }
+
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = tendered,
+                    onValueChange = { tendered = it.filter { c -> c.isDigit() || c == '.' } },
+                    label = { Text(if (method == "cash") "Amount tendered" else "Amount") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = MaterialTheme.shapes.medium,
+                    textStyle = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (method == "cash") {
                     Spacer(Modifier.height(10.dp))
                     Row(
                         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        quickCashAmounts(total).forEach { amt ->
+                        quickCashAmounts(remaining).forEach { amt ->
                             Surface(
                                 onClick = { tendered = "%.0f".format(amt) },
                                 shape = RoundedCornerShape(999.dp),
@@ -1470,23 +1780,20 @@ private fun CheckoutSheet(
                             }
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    KVRow(
-                        "Change",
-                        Money.format(if (change > 0) change else 0.0),
-                        emphasize = true,
-                        valueColor = if (change >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                    )
                 }
-                "mobile_money" -> {
-                    Spacer(Modifier.height(16.dp))
+                if (method == "card" || method == "mobile_money" || method == "bank") {
+                    Spacer(Modifier.height(10.dp))
                     OutlinedTextField(
                         value = reference,
                         onValueChange = { reference = it },
-                        label = { Text("Transaction reference (optional)") },
+                        label = { Text("Reference (optional)") },
                         shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                }
+                if (change > 0) {
+                    Spacer(Modifier.height(12.dp))
+                    KVRow("Change", Money.format(change), emphasize = true, valueColor = MaterialTheme.colorScheme.primary)
                 }
             }
 
@@ -1496,22 +1803,85 @@ private fun CheckoutSheet(
             }
 
             Spacer(Modifier.height(20.dp))
-            val cashShort = method == "cash" && tenderedValue < total - 0.01
             PrimaryButton(
                 text = when {
                     charging -> "Completing…"
-                    method == "cash" -> "Complete payment"
-                    else -> "Complete · ${Money.format(total)}"
+                    covered || wouldCover -> "Complete payment"
+                    else -> "Add payment"
                 },
                 onClick = {
-                    val amount = if (method == "cash") tenderedValue else total
-                    onCharge(method, amount, reference)
+                    if (covered && pending <= 0.0) {
+                        onCharge(legs.toList())
+                    } else if (pending > 0.0) {
+                        legs.add(SaleRepository.Tender(method, pending, reference.takeIf { it.isNotBlank() }))
+                        reference = ""
+                        if (legs.sumOf { it.amount } >= total - 0.01) onCharge(legs.toList())
+                    }
                 },
-                enabled = !charging && !cashShort,
+                enabled = !charging && (covered || pending > 0.0),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
     }
+}
+
+private fun tenderLabel(method: String): String = when (method) {
+    "cash" -> "Cash"
+    "card" -> "Card"
+    "mobile_money" -> "Mobile money"
+    "bank" -> "Bank"
+    "store_credit" -> "Store credit"
+    else -> method
+}
+
+/** Pick the lines that go on THIS bill; the rest stay on the tab. Each split
+ *  bill settles as its own sale. */
+@Composable
+private fun SplitBillDialog(
+    lines: List<CartEngine.CartLine>,
+    onConfirm: (Set<String>) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val selected = remember { mutableStateListOf<String>() }
+    val selectedTotal = CartEngine.totals(lines.filter { it.lineId in selected }).total
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
+        title = { Text("Split bill", style = MaterialTheme.typography.headlineSmall) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "Select the items for this bill. The rest stay on the tab.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                lines.forEach { line ->
+                    val checked = line.lineId in selected
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = { on -> if (on) selected.add(line.lineId) else selected.remove(line.lineId) },
+                        )
+                        Text(
+                            "${if (line.quantity % 1.0 == 0.0) line.quantity.toInt() else line.quantity} × ${line.name}",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(Money.bare(CartEngine.lineTotals(line).net), style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(selected.toSet()) },
+                enabled = selected.isNotEmpty() && selected.size < lines.size,
+                shape = MaterialTheme.shapes.medium,
+            ) { Text("Charge ${Money.format(selectedTotal)}") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable
@@ -1628,6 +1998,8 @@ fun TablePickerDialog(
     selectedId: String?,
     onSelect: (PosTableEntity?) -> Unit,
     onDismiss: () -> Unit,
+    openTabTableIds: Set<String> = emptySet(),
+    onReservations: (() -> Unit)? = null,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1679,13 +2051,22 @@ fun TablePickerDialog(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                 }
+                                if (t.id in openTabTableIds) {
+                                    Text(
+                                        "● open tab",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         },
-        confirmButton = {},
+        confirmButton = {
+            onReservations?.let { TextButton(onClick = it) { Text("Reservations") } }
+        },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
     )
 }

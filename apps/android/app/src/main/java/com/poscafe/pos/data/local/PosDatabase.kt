@@ -28,6 +28,7 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         SettingEntity::class,
         SyncStateEntity::class,
         LocalSaleEntity::class,
+        LocalRefundEntity::class,
         LocalCashSessionEntity::class,
         LocalCashMovementEntity::class,
         OpQueueEntity::class,
@@ -39,9 +40,12 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         ExpenseEntity::class,
         ProductEntity::class,
         ProductCategoryEntity::class,
+        ProductPackagingEntity::class,
         LocalHoldEntity::class,
+        LocalTabEntity::class,
+        ReservationEntity::class,
     ],
-    version = 5,
+    version = 9,
     exportSchema = true,
 )
 abstract class PosDatabase : RoomDatabase() {
@@ -52,6 +56,7 @@ abstract class PosDatabase : RoomDatabase() {
     abstract fun settingsDao(): SettingsDao
     abstract fun syncStateDao(): SyncStateDao
     abstract fun saleDao(): SaleDao
+    abstract fun refundDao(): RefundDao
     abstract fun cashSessionDao(): CashSessionDao
     abstract fun opQueueDao(): OpQueueDao
     abstract fun customerDao(): CustomerDao
@@ -61,7 +66,10 @@ abstract class PosDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
     abstract fun productDao(): ProductDao
     abstract fun productCategoryDao(): ProductCategoryDao
+    abstract fun productPackagingDao(): ProductPackagingDao
     abstract fun holdDao(): HoldDao
+    abstract fun tabDao(): TabDao
+    abstract fun reservationDao(): ReservationDao
 
     companion object {
         /** v1 → v2: additive only (customers, suppliers, inventory movements) —
@@ -148,13 +156,69 @@ abstract class PosDatabase : RoomDatabase() {
             }
         }
 
+        /** v5 → v6: offline refunds/voids (additive). Sales survive the upgrade. */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `local_refunds` (`id` TEXT NOT NULL, " +
+                        "`saleLocalId` TEXT NOT NULL, `serverInvoiceId` TEXT, `type` TEXT NOT NULL, " +
+                        "`reason` TEXT, `amount` REAL NOT NULL, `overrideById` TEXT, " +
+                        "`cashSessionLocalId` TEXT, `occurredAt` INTEGER NOT NULL, " +
+                        "`syncStatus` TEXT NOT NULL, `lastError` TEXT, PRIMARY KEY(`id`))",
+                )
+            }
+        }
+
+        /** v6 → v7: offline dine-in tabs (additive). */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `local_tabs` (`tableId` TEXT NOT NULL, " +
+                        "`linesJson` TEXT NOT NULL, `guestCount` INTEGER NOT NULL, `partnerId` TEXT, " +
+                        "`firedLineIdsJson` TEXT NOT NULL, `openedAt` INTEGER NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, `actorUserId` TEXT, PRIMARY KEY(`tableId`))",
+                )
+            }
+        }
+
+        /** v7 → v8: retail multipack barcodes (additive). */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `product_packagings` (`id` TEXT NOT NULL, " +
+                        "`productId` TEXT NOT NULL, `name` TEXT NOT NULL, `quantity` REAL NOT NULL, " +
+                        "`barcode` TEXT, `isActive` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_product_packagings_productId` ON `product_packagings` (`productId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_product_packagings_barcode` ON `product_packagings` (`barcode`)")
+            }
+        }
+
+        /** v8 → v9: table reservations (additive, synced + device-writable). */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `reservations` (`id` TEXT NOT NULL, " +
+                        "`tableId` TEXT NOT NULL, `customerName` TEXT NOT NULL, `phone` TEXT, " +
+                        "`partySize` INTEGER NOT NULL, `startAt` INTEGER NOT NULL, `endAt` INTEGER NOT NULL, " +
+                        "`status` TEXT NOT NULL, `notes` TEXT, `seatedOrderId` TEXT, " +
+                        "`syncStatus` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_reservations_tableId` ON `reservations` (`tableId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_reservations_startAt` ON `reservations` (`startAt`)")
+            }
+        }
+
         /** SQLCipher-encrypted. Passphrase stored in EncryptedSharedPreferences
          *  (Android Keystore-backed) — stolen device yields ciphertext only. */
         fun build(context: Context, passphrase: ByteArray): PosDatabase {
             System.loadLibrary("sqlcipher")
             return Room.databaseBuilder(context, PosDatabase::class.java, "pos-cafe.db")
                 .openHelperFactory(SupportOpenHelperFactory(passphrase))
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9,
+                )
                 .fallbackToDestructiveMigration()
                 .build()
         }

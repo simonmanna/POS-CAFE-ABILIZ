@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
@@ -14,6 +15,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
@@ -21,10 +24,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.poscafe.pos.data.DeviceConfig
 import com.poscafe.pos.data.local.dao.MenuDao
+import com.poscafe.pos.data.local.dao.RefundDao
 import com.poscafe.pos.data.local.dao.SaleDao
 import com.poscafe.pos.data.local.entity.LocalSaleEntity
 import com.poscafe.pos.data.repo.AuthRepository
 import com.poscafe.pos.data.repo.CartEngine
+import com.poscafe.pos.data.repo.RefundRepository
 import com.poscafe.pos.data.repo.SaleRepository
 import com.poscafe.pos.printing.ReceiptPrinter
 import com.poscafe.pos.ui.components.EmptyState
@@ -54,6 +59,8 @@ class OrdersViewModel @Inject constructor(
     private val menuDao: MenuDao,
     private val printer: ReceiptPrinter,
     private val auth: AuthRepository,
+    private val refunds: RefundRepository,
+    private val refundDao: RefundDao,
     val config: DeviceConfig,
 ) : ViewModel() {
     val sales: StateFlow<List<LocalSaleEntity>> =
@@ -62,16 +69,64 @@ class OrdersViewModel @Inject constructor(
     data class ParsedTender(val method: String, val amount: Double)
     data class ParsedSale(val lines: List<CartEngine.CartLine>, val tenders: List<ParsedTender>)
 
+    /** A refund/void awaiting a manager PIN. kind = "refund" | "void". */
+    data class PinPrompt(val sale: LocalSaleEntity, val kind: String)
+
     var detail by mutableStateOf<Pair<LocalSaleEntity, ParsedSale>?>(null); private set
     var printMessage by mutableStateOf<String?>(null); private set
+    var refundedSaleIds by mutableStateOf<Set<String>>(emptySet()); private set
+    var pinPrompt by mutableStateOf<PinPrompt?>(null); private set
+    var actionMessage by mutableStateOf<String?>(null); private set
 
     private val json = Json { ignoreUnknownKeys = true }
 
     fun openDetail(sale: LocalSaleEntity) {
-        viewModelScope.launch { detail = sale to parse(sale) }
+        viewModelScope.launch {
+            detail = sale to parse(sale)
+            if (refundDao.forSale(sale.id).isNotEmpty()) refundedSaleIds = refundedSaleIds + sale.id
+        }
     }
 
-    fun closeDetail() { detail = null; printMessage = null }
+    fun closeDetail() { detail = null; printMessage = null; pinPrompt = null; actionMessage = null }
+
+    /** Ask for a manager PIN before a refund/void. */
+    fun requestAction(kind: String) {
+        val sale = detail?.first ?: return
+        actionMessage = null
+        pinPrompt = PinPrompt(sale, kind)
+    }
+
+    fun cancelPin() { pinPrompt = null }
+
+    /**
+     * Verify the manager override PIN on-device, then queue the refund/void op.
+     * The sale row is unchanged (device wins); the server reverses GL + restocks
+     * + returns drawer cash when the op replays.
+     */
+    fun confirmAction(reason: String, pin: String) {
+        val prompt = pinPrompt ?: return
+        val cashier = auth.current ?: return
+        viewModelScope.launch {
+            actionMessage = null
+            val mgr = auth.verifyOverridePin(pin)
+            if (mgr.isFailure) {
+                actionMessage = mgr.exceptionOrNull()?.message ?: "PIN rejected"
+                return@launch
+            }
+            val override = mgr.getOrThrow()
+            runCatching {
+                if (prompt.kind == "void") {
+                    refunds.void(cashier.userId, prompt.sale.id, reason.ifBlank { null }, override.userId)
+                } else {
+                    refunds.refund(cashier.userId, prompt.sale.id, reason.ifBlank { null }, override.userId)
+                }
+            }.onSuccess {
+                refundedSaleIds = refundedSaleIds + prompt.sale.id
+                pinPrompt = null
+                printMessage = if (prompt.kind == "void") "Sale voided — queued for sync" else "Refund queued for sync"
+            }.onFailure { actionMessage = it.message ?: "Failed" }
+        }
+    }
 
     /** Rebuild cart lines from the stored checkout payload. Accompaniment
      *  names/prices are re-resolved from the catalog (ids only in the payload). */
@@ -182,8 +237,21 @@ fun OrdersScreen(onMenu: (() -> Unit)? = null, vm: OrdersViewModel = hiltViewMod
             parsed = parsed,
             timeFmt = timeFmt,
             printMessage = vm.printMessage,
+            refunded = sale.id in vm.refundedSaleIds,
+            canRefund = sale.syncStatus != "failed",
+            onRefund = { vm.requestAction("refund") },
+            onVoid = { vm.requestAction("void") },
             onReprint = { vm.reprint() },
             onDismiss = { vm.closeDetail() },
+        )
+    }
+
+    vm.pinPrompt?.let { prompt ->
+        OverridePinDialog(
+            kind = prompt.kind,
+            message = vm.actionMessage,
+            onConfirm = { reason, pin -> vm.confirmAction(reason, pin) },
+            onDismiss = { vm.cancelPin() },
         )
     }
 }
@@ -256,6 +324,10 @@ private fun SaleDetailDialog(
     parsed: OrdersViewModel.ParsedSale,
     timeFmt: DateTimeFormatter,
     printMessage: String?,
+    refunded: Boolean,
+    canRefund: Boolean,
+    onRefund: () -> Unit,
+    onVoid: () -> Unit,
     onReprint: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -311,6 +383,30 @@ private fun SaleDetailDialog(
                 printMessage?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                when {
+                    refunded -> {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Text(
+                            "Refunded / voided",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    canRefund -> {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = onRefund, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium) {
+                                Text("Refund")
+                            }
+                            OutlinedButton(
+                                onClick = onVoid,
+                                modifier = Modifier.weight(1f),
+                                shape = MaterialTheme.shapes.medium,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                            ) { Text("Void") }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -321,5 +417,61 @@ private fun SaleDetailDialog(
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
+}
+
+/** Manager-PIN gate for an offline refund/void (verified on-device against the
+ *  synced bcrypt hashes; the server re-validates the override on replay). */
+@Composable
+private fun OverridePinDialog(
+    kind: String,
+    message: String?,
+    onConfirm: (reason: String, pin: String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var reason by remember { mutableStateOf("") }
+    var pin by remember { mutableStateOf("") }
+    val isVoid = kind == "void"
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
+        title = { Text(if (isVoid) "Void sale" else "Refund sale", style = MaterialTheme.typography.headlineSmall) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "A manager PIN is required to ${if (isVoid) "void" else "refund"} this sale. The reversal queues and syncs like a sale.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it },
+                    label = { Text("Reason (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it.filter { c -> c.isDigit() }.take(8) },
+                    label = { Text("Manager PIN") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                message?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(reason, pin) },
+                enabled = pin.length >= 4,
+                shape = MaterialTheme.shapes.medium,
+                colors = if (isVoid) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error) else ButtonDefaults.buttonColors(),
+            ) { Text(if (isVoid) "Void" else "Refund") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
 }

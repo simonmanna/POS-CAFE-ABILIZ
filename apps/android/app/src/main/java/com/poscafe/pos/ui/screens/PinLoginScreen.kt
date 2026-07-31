@@ -47,10 +47,18 @@ class PinLoginViewModel @Inject constructor(private val auth: AuthRepository) : 
     fun submit(onLoggedIn: () -> Unit) {
         val user = selected ?: return
         viewModelScope.launch {
-            auth.loginWithPin(user.id, pin).fold(
-                onSuccess = { error = null; pin = ""; onLoggedIn() },
-                onFailure = { error = it.message; pin = "" },
-            )
+            try {
+                auth.loginWithPin(user.id, pin).fold(
+                    onSuccess = { error = null; pin = ""; onLoggedIn() },
+                    onFailure = { error = it.message; pin = "" },
+                )
+            } catch (t: Throwable) {
+                // Last-resort guard: ANY uncaught throw inside the login path
+                // (Keystore failure, Room open, Hilt init) would otherwise kill
+                // the process via the default uncaught-exception handler.
+                error = "Login error: ${t.message ?: t.javaClass.simpleName}"
+                pin = ""
+            }
         }
     }
 }

@@ -40,12 +40,14 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import kotlin.math.abs
 
 /** UGX money formatting — whole shillings, thousands-grouped. */
@@ -170,24 +172,36 @@ private fun StepButton(label: String, onClick: () -> Unit, size: Dp, filled: Boo
 fun ItemImage(url: String?, name: String, modifier: Modifier = Modifier) {
     val initial = remember(name) { name.trim().take(1).uppercase().ifBlank { "•" } }
     Box(modifier.clip(RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+        // Branded fallback, always painted behind the photo: a soft gradient with
+        // the item's initial in a circular chip — reads as intentional, not empty,
+        // while Coil streams the real image (or when there is none).
         Box(
             Modifier.fillMaxSize().background(
                 Brush.linearGradient(
                     listOf(
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
                         MaterialTheme.colorScheme.surfaceContainerHighest,
                     ),
                 ),
             ),
         )
-        Text(
-            initial,
-            style = MaterialTheme.typography.headlineMedium,
-            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f),
-        )
+        Box(
+            Modifier
+                .size(46.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                initial,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+            )
+        }
         if (url != null) {
+            val context = LocalContext.current
             AsyncImage(
-                model = url,
+                model = ImageRequest.Builder(context).data(url).crossfade(true).build(),
                 contentDescription = name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),

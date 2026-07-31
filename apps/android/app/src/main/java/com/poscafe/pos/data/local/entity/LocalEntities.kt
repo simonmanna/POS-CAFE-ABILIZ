@@ -34,6 +34,30 @@ data class SupplierEntity(
 )
 
 /**
+ * A table booking. Synced from the reservations pull scope AND device-writable
+ * (bookings taken offline). The id is client-minted on offline create and the
+ * server honours it as the row id, so seat/cancel/no-show reference the same id
+ * with no remap and a pull never duplicates a device-created booking.
+ */
+@Entity(tableName = "reservations", indices = [Index("tableId"), Index("startAt")])
+data class ReservationEntity(
+    @PrimaryKey val id: String,
+    val tableId: String,
+    val customerName: String,
+    val phone: String?,
+    val partySize: Int,
+    val startAt: Long,
+    val endAt: Long,
+    /** pending | seated | cancelled | no_show | completed */
+    val status: String,
+    val notes: String?,
+    val seatedOrderId: String?,
+    /** synced | queued | failed */
+    val syncStatus: String,
+    val updatedAt: Long,
+)
+
+/**
  * Movement-based inventory: on-hand is always SUM(qtyDelta), never a stored
  * counter. Types: purchase, sale, waste, adjustment, transfer.
  * qtyDelta carries the sign (+ receive, − issue).

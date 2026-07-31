@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- CameraX 1.5.x marks imageProxy.image as @ExperimentalGetImage. The
+         @file:OptIn annotation handles the Kotlin compiler side; this lint.xml
+         config prevents the Android lint tool from flagging it as an error. -->
+    <issue id="UnsafeOptInUsageError">
+        <option name="opt-in" value="androidx.camera.core.ExperimentalGetImage" />
+    </issue>
+</lint>

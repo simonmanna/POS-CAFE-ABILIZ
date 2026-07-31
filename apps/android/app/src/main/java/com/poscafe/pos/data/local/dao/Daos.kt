@@ -82,7 +82,7 @@ interface StaffDao {
     @Query("SELECT * FROM staff WHERE isActive = 1")
     suspend fun all(): List<StaffEntity>
 
-    @Query("SELECT * FROM staff WHERE id = :id")
+    @Query("SELECT * FROM staff WHERE id = :id LIMIT 1")
     suspend fun byId(id: String): StaffEntity?
 
     @Upsert suspend fun upsertAll(rows: List<StaffEntity>)
@@ -149,6 +149,24 @@ interface SaleDao {
 
     @Query("SELECT COUNT(*) FROM local_sales WHERE cashSessionLocalId = :sessionLocalId")
     suspend fun sessionCount(sessionLocalId: String): Int
+}
+
+@Dao
+interface RefundDao {
+    @Insert suspend fun insert(refund: LocalRefundEntity)
+
+    @Query("SELECT * FROM local_refunds ORDER BY occurredAt DESC LIMIT :limit")
+    fun recent(limit: Int = 50): Flow<List<LocalRefundEntity>>
+
+    @Query("SELECT * FROM local_refunds WHERE saleLocalId = :saleLocalId")
+    suspend fun forSale(saleLocalId: String): List<LocalRefundEntity>
+
+    /** Sum of refunds/voids on a session — drawer cash that left for refunds. */
+    @Query("SELECT COALESCE(SUM(amount), 0) FROM local_refunds WHERE cashSessionLocalId = :sessionLocalId")
+    suspend fun sessionRefundTotal(sessionLocalId: String): Double
+
+    @Query("UPDATE local_refunds SET syncStatus = :status, serverInvoiceId = COALESCE(:serverInvoiceId, serverInvoiceId), lastError = :error WHERE id = :id")
+    suspend fun markSync(id: String, status: String, serverInvoiceId: String?, error: String?)
 }
 
 @Dao
@@ -271,6 +289,19 @@ interface ProductDao {
 }
 
 @Dao
+interface ProductPackagingDao {
+    @Query("SELECT * FROM product_packagings WHERE isActive = 1 AND productId = :productId")
+    suspend fun forProduct(productId: String): List<ProductPackagingEntity>
+
+    @Query("SELECT * FROM product_packagings WHERE isActive = 1 AND barcode = :barcode LIMIT 1")
+    suspend fun byBarcode(barcode: String): ProductPackagingEntity?
+
+    @Upsert suspend fun upsertAll(rows: List<ProductPackagingEntity>)
+    @Query("DELETE FROM product_packagings WHERE id = :id") suspend fun delete(id: String)
+    @Query("DELETE FROM product_packagings") suspend fun deleteAll()
+}
+
+@Dao
 interface ProductCategoryDao {
     @Query("SELECT * FROM product_categories ORDER BY name")
     fun all(): Flow<List<ProductCategoryEntity>>
@@ -291,6 +322,40 @@ interface HoldDao {
     @Insert suspend fun insert(hold: LocalHoldEntity)
     @Query("UPDATE local_holds SET syncStatus = 'deleted' WHERE id = :id")
     suspend fun softDelete(id: String)
+}
+
+@Dao
+interface ReservationDao {
+    @Query("SELECT * FROM reservations WHERE status IN ('pending', 'seated') ORDER BY startAt")
+    fun active(): Flow<List<ReservationEntity>>
+
+    @Query("SELECT * FROM reservations WHERE id = :id")
+    suspend fun byId(id: String): ReservationEntity?
+
+    @Upsert suspend fun upsert(row: ReservationEntity)
+
+    @Query("UPDATE reservations SET status = :status, seatedOrderId = COALESCE(:seatedOrderId, seatedOrderId), syncStatus = :syncStatus, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setStatus(id: String, status: String, seatedOrderId: String?, syncStatus: String, updatedAt: Long)
+
+    @Query("UPDATE reservations SET syncStatus = :syncStatus WHERE id = :id")
+    suspend fun markSync(id: String, syncStatus: String)
+
+    @Query("DELETE FROM reservations WHERE id = :id") suspend fun delete(id: String)
+}
+
+@Dao
+interface TabDao {
+    @Query("SELECT * FROM local_tabs ORDER BY updatedAt DESC")
+    fun all(): Flow<List<LocalTabEntity>>
+
+    @Query("SELECT * FROM local_tabs WHERE tableId = :tableId")
+    suspend fun byTable(tableId: String): LocalTabEntity?
+
+    @Query("SELECT tableId FROM local_tabs")
+    fun openTableIds(): Flow<List<String>>
+
+    @Upsert suspend fun upsert(tab: LocalTabEntity)
+    @Query("DELETE FROM local_tabs WHERE tableId = :tableId") suspend fun delete(tableId: String)
 }
 
 @Dao

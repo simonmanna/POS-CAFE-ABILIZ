@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalGetImage::class)
+
 package com.poscafe.pos.ui.screens
 
 import android.Manifest
@@ -7,6 +9,7 @@ import android.view.ViewGroup
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.Preview
