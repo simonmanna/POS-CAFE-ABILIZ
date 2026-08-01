@@ -323,6 +323,14 @@ export interface WaiterReportRow {
   orderType?: string | null;
 }
 
+export interface ItemsByGroupRow {
+  groupId: string | null;
+  groupName: string;
+  totalQuantity: string;
+  totalAmount: string;
+  itemCount: number;
+}
+
 export { type CartLine };
 export type PaymentMethod = 'cash' | 'bank' | 'card' | 'mobile_money' | 'store_credit';
 

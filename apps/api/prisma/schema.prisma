@@ -1997,9 +1997,10 @@ model MenuItem {
   /// flexible without forcing schema churn for every new attribute.
   customFields       Json     @default("{}")
   createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  updatedAt          DateTime  @updatedAt
+   deletedAt          DateTime?
 
-  category            MenuCategory?                @relation(fields: [categoryId], references: [id])
+   category            MenuCategory?                @relation(fields: [categoryId], references: [id])
   ingredients         MenuProduct[]
   modifierGroups      MenuItemModifierGroup[]
   /// Variants that replace the base price (e.g. Small $10 / Medium $13 / Large $16).
@@ -2011,6 +2012,7 @@ model MenuItem {
   @@unique([organizationId, code])
   @@index([organizationId])
   @@index([categoryId])
+  @@index([organizationId, deletedAt])
 }
 
 /// Modifier groups (Size, Milk, Extras) attached to a sellable MenuItem. The

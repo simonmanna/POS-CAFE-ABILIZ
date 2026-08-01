@@ -155,61 +155,61 @@ export class PosMenuService {
   // ─────────────────────────── Items ────────────────────────────
 
   /** The POS terminal calls this on load. Returns the menu grouped by category,
-   *  filtered to available items only. Ingredient links are included so the
-   *  KDS can show "uses: Espresso, Milk" and the cashier can show stock hint. */
-  async listAvailable() {
-    const cats = await this.prisma.client.menuCategory.findMany({
-      where: { isActive: true, deletedAt: null },
-      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-    });
-    const items = await this.prisma.client.menuItem.findMany({
-      where: { isAvailable: true },
-      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-    });
-    return {
-      categories: cats.map((c) => ({ ...c, image: this.resolveImage(c.image) })),
-      items: items.map((it) => ({ ...it, image: this.resolveImage(it.image) })),
-    };
-  }
-
-  async listAll(query: PaginationQuery): Promise<PaginatedResult<any>> {
-    const page = Math.max(1, Number(query.page ?? 1));
-    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
-    const where: any = {};
-    if (query.search) {
-      where.OR = [
-        { name: { contains: query.search, mode: 'insensitive' } },
-        { code: { contains: query.search, mode: 'insensitive' } },
-        { description: { contains: query.search, mode: 'insensitive' } },
-      ];
+     *  filtered to available items only. Ingredient links are included so the
+     *  KDS can show "uses: Espresso, Milk" and the cashier can show stock hint. */
+    async listAvailable() {
+      const cats = await this.prisma.client.menuCategory.findMany({
+        where: { isActive: true, deletedAt: null },
+        orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+      });
+      const items = await this.prisma.client.menuItem.findMany({
+        where: { isAvailable: true, deletedAt: null },
+        orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
+      });
+      return {
+        categories: cats.map((c) => ({ ...c, image: this.resolveImage(c.image) })),
+        items: items.map((it) => ({ ...it, image: this.resolveImage(it.image) })),
+      };
     }
-    const orderBy = query.sortBy
-      ? { [query.sortBy]: query.sortOrder ?? 'asc' as const }
-      : [{ displayOrder: 'asc' as const }, { name: 'asc' as const }];
-    const [data, total] = await Promise.all([
-      this.prisma.client.menuItem.findMany({
-        where, orderBy, skip: (page - 1) * pageSize, take: pageSize,
-        include: {
-          category: true,
-          ingredients: { include: { product: { select: { id: true, code: true, name: true, station: true } } } },
-        },
-      }),
-      this.prisma.client.menuItem.count({ where }),
-    ]);
-    return {
-      data: data.map((it) => ({ ...it, image: this.resolveImage(it.image) })),
-      meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
-    };
-  }
 
-  async getOne(id: string) {
-    const item = await this.prisma.client.menuItem.findUnique({
-      where: { id },
-      include: { ingredients: { include: { product: true } }, category: true },
-    });
-    if (!item) throw new NotFoundException(`MenuItem ${id} not found`);
-    return { ...item, image: this.resolveImage(item.image) };
-  }
+    async listAll(query: PaginationQuery): Promise<PaginatedResult<any>> {
+        const page = Math.max(1, Number(query.page ?? 1));
+        const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
+        const where: any = { deletedAt: null };
+        if (query.search) {
+          where.OR = [
+            { name: { contains: query.search, mode: 'insensitive' } },
+            { code: { contains: query.search, mode: 'insensitive' } },
+            { description: { contains: query.search, mode: 'insensitive' } },
+          ];
+        }
+        const orderBy = query.sortBy
+          ? { [query.sortBy]: query.sortOrder ?? 'asc' as const }
+          : [{ displayOrder: 'asc' as const }, { name: 'asc' as const }];
+        const [data, total] = await Promise.all([
+          this.prisma.client.menuItem.findMany({
+            where, orderBy, skip: (page - 1) * pageSize, take: pageSize,
+            include: {
+              category: true,
+              ingredients: { include: { product: { select: { id: true, code: true, name: true, station: true } } } },
+            },
+          }),
+          this.prisma.client.menuItem.count({ where }),
+        ]);
+        return {
+          data: data.map((it) => ({ ...it, image: this.resolveImage(it.image) })),
+          meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+        };
+      }
+
+      async getOne(id: string) {
+        const item = await this.prisma.client.menuItem.findFirst({
+          where: { id, deletedAt: null },
+          include: { ingredients: { include: { product: true } }, category: true },
+        });
+        if (!item) throw new NotFoundException(`MenuItem ${id} not found`);
+        return { ...item, image: this.resolveImage(item.image) };
+      }
 
   async create(input: {
     code?: string;
@@ -301,16 +301,38 @@ export class PosMenuService {
   async setAvailability(id: string, isAvailable: boolean) {
     return this.prisma.client.menuItem.update({ where: { id }, data: { isAvailable } });
   }
+  /** Soft disable — just sets isAvailable=false (keeps history intact). */
+    async disable(id: string) {
+      await this.getOne(id);
+      return this.prisma.client.menuItem.update({
+        where: { id },
+        data: { isAvailable: false },
+      });
+    }
 
-  async disable(id: string) {
-    await this.getOne(id);
-    return this.prisma.client.menuItem.update({
-      where: { id },
-      data: { isAvailable: false },
-    });
-  }
+    /** Soft delete — sets deletedAt and isAvailable=false. */
+    async deleteItem(id: string) {
+      const existing = await this.prisma.client.menuItem.findFirst({ where: { id, deletedAt: null } });
+      if (!existing) throw new NotFoundException(`MenuItem ${id} not found`);
+      return this.prisma.client.menuItem.update({ where: { id }, data: { deletedAt: new Date(), isAvailable: false } });
+    }
 
-  /* ====================== Full bundle (POS terminal) ====================== */
+    /** Restore a soft-deleted menu item. */
+    async restoreItem(id: string) {
+      const existing = await this.prisma.client.menuItem.findFirst({ where: { id, deletedAt: { not: null } } });
+      if (!existing) throw new NotFoundException(`Deleted MenuItem ${id} not found`);
+      return this.prisma.client.menuItem.update({ where: { id }, data: { deletedAt: null, isAvailable: true } });
+    }
+
+    /** List all soft-deleted menu items. */
+    listDeletedItems() {
+      return this.prisma.client.menuItem.findMany({
+        where: { deletedAt: { not: null } },
+        orderBy: [{ deletedAt: 'desc' }],
+      });
+    }
+
+    /* ====================== Full bundle (POS terminal) ====================== */
 
   /**
    * Returns the complete configuration for a menu item: variants, accompaniment

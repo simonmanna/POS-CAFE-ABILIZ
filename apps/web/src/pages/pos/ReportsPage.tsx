@@ -5,13 +5,13 @@
 
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Clock, TrendingUp, RefreshCw, Printer, ArrowLeft, CalendarDays, Download, FileText, Eye } from 'lucide-react';
+import { BarChart3, Clock, TrendingUp, RefreshCw, Printer, CalendarDays, Download, FileText, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/stores/auth.store';
-import { useXReport, useZReport, useSalesByHour, useTopItems, useOpenSession, useSalesSummary, useSoldItems, useSalesReport, useCategories, useOrderReport, useCashierReport, useCashierShiftSummary, useWaiterReport } from './api';
-import type { XReport as XReportType, SalesSummaryReport, SoldItem, SalesReportRow, OrderReportRow, CashierReportRow, CashierShiftSummaryRow, WaiterReportRow } from './types';
+import { useXReport, useZReport, useSalesByHour, useTopItems, useOpenSession, useSalesSummary, useSoldItems, useSalesReport, useCategories, useOrderReport, useCashierReport, useCashierShiftSummary, useWaiterReport, useItemsByGroup } from './api';
+import type { XReport as XReportType, SalesSummaryReport, SoldItem, SalesReportRow, OrderReportRow, CashierReportRow, CashierShiftSummaryRow, WaiterReportRow, ItemsByGroupRow } from './types';
 import './pos-pro.css';
 import { exportCSV } from '@/lib/export-csv';
 import { exportPDF } from '@/lib/export-pdf';
@@ -46,9 +46,8 @@ function monthStart(ym: string): string {
 }
 
 const ReportsPage: React.FC = () => {
-  const navigate = useNavigate();
   const permissions = useAuthStore((s) => s.permissions);
-  const [tab, setTab] = useState<'sales'| 'items' | 'x' | 'z' | 'daily' | 'weekly' | 'monthly' | 'hourly' | 'top'  | 'orders' | 'cashier' | 'cashier-summary' | 'waiter'>('sales');
+  const [tab, setTab] = useState<'sales'| 'items' | 'items-by-group' | 'x' | 'z' | 'daily' | 'weekly' | 'monthly' | 'hourly' | 'top'  | 'orders' | 'cashier' | 'cashier-summary' | 'waiter'>('sales');
   const [fromDate, setFromDate] = useState(todayIso());
   const [toDate, setToDate] = useState(todayIso());
   const [topCategoryId, setTopCategoryId] = useState<string | undefined>();
@@ -92,22 +91,27 @@ const ReportsPage: React.FC = () => {
   const { data: cashierShiftSummary, isLoading: csLoading } = useCashierShiftSummary(csFromDate, csToDate, undefined, tab === 'cashier-summary');
 
   const [waiterFromDate, setWaiterFromDate] = useState(todayIso());
-  const [waiterToDate, setWaiterToDate] = useState(todayIso());
-  const [waiterOrderType, setWaiterOrderType] = useState<string | undefined>();
-  const { data: waiterReport, isLoading: waiterLoading } = useWaiterReport(waiterFromDate, waiterToDate, undefined, waiterOrderType, tab === 'waiter');
+    const [waiterToDate, setWaiterToDate] = useState(todayIso());
+    const [waiterOrderType, setWaiterOrderType] = useState<string | undefined>();
+    const { data: waiterReport, isLoading: waiterLoading } = useWaiterReport(waiterFromDate, waiterToDate, undefined, waiterOrderType, tab === 'waiter');
+
+    const [ibgFromDate, setIbgFromDate] = useState(todayIso());
+    const [ibgToDate, setIbgToDate] = useState(todayIso());
+    const [ibgOrderType, setIbgOrderType] = useState<string | undefined>();
+    const { data: itemsByGroup, isLoading: ibgLoading } = useItemsByGroup(ibgFromDate, ibgToDate, ibgOrderType, tab === 'items-by-group');
 
   // Daily / weekly / monthly sales summary with from/to ranges
-  const [dailyFrom, setDailyFrom] = useState(todayIso());
-  const [dailyTo, setDailyTo] = useState(todayIso());
-  const { data: daily, isLoading: dailyLoading } = useSalesSummary(dailyFrom, dailyTo, 'day', tab === 'daily');
+    const [dailyFrom, setDailyFrom] = useState(todayIso());
+    const [dailyTo, setDailyTo] = useState(todayIso());
+    const { data: daily, isLoading: dailyLoading } = useSalesSummary(dailyFrom, dailyTo, 'day', tab === 'daily');
 
-  const [weeklyFrom, setWeeklyFrom] = useState(weekStartFromDay(todayIso()));
-  const [weeklyTo, setWeeklyTo] = useState(todayIso());
-  const { data: weekly, isLoading: weeklyLoading } = useSalesSummary(weeklyFrom, weeklyTo, 'week', tab === 'weekly');
+    const [weeklyFrom, setWeeklyFrom] = useState(todayIso());
+    const [weeklyTo, setWeeklyTo] = useState(todayIso());
+    const { data: weekly, isLoading: weeklyLoading } = useSalesSummary(weeklyFrom, weeklyTo, 'week', tab === 'weekly');
 
-  const [monthlyFrom, setMonthlyFrom] = useState(monthStart(todayIso().slice(0, 7)));
-  const [monthlyTo, setMonthlyTo] = useState(todayIso());
-  const { data: monthly, isLoading: monthlyLoading } = useSalesSummary(monthlyFrom, monthlyTo, 'month', tab === 'monthly');
+    const [monthlyFrom, setMonthlyFrom] = useState(todayIso());
+    const [monthlyTo, setMonthlyTo] = useState(todayIso());
+    const { data: monthly, isLoading: monthlyLoading } = useSalesSummary(monthlyFrom, monthlyTo, 'month', tab === 'monthly');
 
   const denied = !permissions.includes('pos:reports');
 
@@ -115,13 +119,9 @@ const ReportsPage: React.FC = () => {
     <div className="pos-reports-shell">
       <div className="pos-reports-header">
         <div>
-          <Button variant="outline" size="sm" className="no-print" onClick={() => navigate('/pos/terminal')}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> Back to terminal
-          </Button>
-          <h1 className="text-2xl font-bold mt-2 flex items-center gap-2">
+          <h1 className="text-2xl font-bold flex items-center">
             <BarChart3 className="h-6 w-6" /> POS Reports
           </h1>
-          <p className="text-sm text-slate-600">Live X-report, frozen Z-report, hourly buckets, and top-selling items.</p>
         </div>
         <div className="flex gap-2 no-print">
           {tab === 'x' ? (
@@ -146,6 +146,9 @@ const ReportsPage: React.FC = () => {
             <button className={'pos-reports-tab' + (tab === 'items' ? ' active' : '')} onClick={() => setTab('items')}>
               Items Report
             </button>
+            <button className={'pos-reports-tab' + (tab === 'items-by-group' ? ' active' : '')} onClick={() => setTab('items-by-group')}>
+              Items by Group
+            </button>
             <button className={'pos-reports-tab' + (tab === 'orders' ? ' active' : '')} onClick={() => setTab('orders')}>
               Order Reports
             </button>
@@ -156,9 +159,9 @@ const ReportsPage: React.FC = () => {
               Cashier Shift Summary
             </button>
             <button className={'pos-reports-tab' + (tab === 'waiter' ? ' active' : '')} onClick={() => setTab('waiter')}>
-              Waiter Report
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'daily' ? ' active' : '')} onClick={() => setTab('daily')}>
+                          Waiter Report
+                        </button>
+                        <button className={'pos-reports-tab' + (tab === 'daily' ? ' active' : '')} onClick={() => setTab('daily')}>
               Daily Sales
             </button>
             <button className={'pos-reports-tab' + (tab === 'weekly' ? ' active' : '')} onClick={() => setTab('weekly')}>
@@ -234,13 +237,20 @@ const ReportsPage: React.FC = () => {
               rows={(cashierShiftSummary as CashierShiftSummaryRow[]) ?? []} loading={csLoading}
             />
           ) : tab === 'waiter' ? (
-            <WaiterReportView
-              fromDate={waiterFromDate} setFromDate={setWaiterFromDate}
-              toDate={waiterToDate} setToDate={setWaiterToDate}
-              orderType={waiterOrderType} setOrderType={setWaiterOrderType}
-              rows={(waiterReport as WaiterReportRow[]) ?? []} loading={waiterLoading}
-            />
-          ) : tab === 'orders' ? (
+                      <WaiterReportView
+                        fromDate={waiterFromDate} setFromDate={setWaiterFromDate}
+                        toDate={waiterToDate} setToDate={setWaiterToDate}
+                        orderType={waiterOrderType} setOrderType={setWaiterOrderType}
+                        rows={(waiterReport as WaiterReportRow[]) ?? []} loading={waiterLoading}
+                      />
+                    ) : tab === 'items-by-group' ? (
+                      <ItemsByGroupView
+                        fromDate={ibgFromDate} setFromDate={setIbgFromDate}
+                        toDate={ibgToDate} setToDate={setIbgToDate}
+                        orderType={ibgOrderType} setOrderType={setIbgOrderType}
+                        rows={(itemsByGroup as ItemsByGroupRow[]) ?? []} loading={ibgLoading}
+                      />
+                    ) : tab === 'orders' ? (
             <OrderReportView
               fromDate={ordersFromDate} setFromDate={setOrdersFromDate}
               toDate={ordersToDate} setToDate={setOrdersToDate}
@@ -1053,14 +1063,106 @@ const WaiterReportView: React.FC<{
                 </tr>
               </tfoot>
             </table>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            };
 
-/* ============== Order Reports ============== */
+            /* ============== Items by Group ============== */
+
+            const ItemsByGroupView: React.FC<{
+              fromDate: string; setFromDate: (d: string) => void;
+              toDate: string; setToDate: (d: string) => void;
+              orderType: string | undefined; setOrderType: (v: string | undefined) => void;
+              rows: ItemsByGroupRow[];
+              loading: boolean;
+            }> = ({ fromDate, setFromDate, toDate, setToDate, orderType, setOrderType, rows, loading }) => {
+              const grandTotalQty = rows.reduce((s, r) => s + Number(r.totalQuantity), 0);
+              const grandTotalAmt = rows.reduce((s, r) => s + Number(r.totalAmount), 0);
+              const grandTotalItems = rows.reduce((s, r) => s + r.itemCount, 0);
+  
+              const ibgCsvHeaders = ['Item Group', 'Items Count', 'Total Quantity', 'Total Amount'];
+              const handleIBGCsv = () => {
+                const data = rows.map((r) => [
+                  r.groupName, String(r.itemCount), String(Number(r.totalQuantity).toFixed(2)), String(Number(r.totalAmount).toFixed(2)),
+                ]);
+                exportCSV(`items-by-group-${fromDate}-${toDate}.csv`, ibgCsvHeaders, data);
+              };
+              const handleIBGPdf = () => {
+                const data = rows.map((r) => [
+                  r.groupName, String(r.itemCount), String(Number(r.totalQuantity).toFixed(2)), fmt(r.totalAmount),
+                ]);
+                exportPDF(`items-by-group-${fromDate}-${toDate}.pdf`, `Items by Group — ${fromDate} → ${toDate}`, ibgCsvHeaders, data);
+              };
+  
+              return (
+                <div className="space-y-4">
+                  <div className="flex items-end gap-2">
+                    <div>
+                      <Label>From</Label>
+                      <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                    </div>
+                    <div>
+                      <Label>To</Label>
+                      <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+                    </div>
+                    <OrderTypeSelect value={orderType} onChange={setOrderType} />
+                  </div>
+                  <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
+
+                  <div className="pos-report-card">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3>Items by Group — {fromDate} → {toDate}</h3>
+                      {rows.length > 0 && (
+                        <div className="flex gap-1">
+                          <Button variant="outline" size="sm" onClick={handleIBGCsv}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
+                          <Button variant="outline" size="sm" onClick={handleIBGPdf}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
+                        </div>
+                      )}
+                    </div>
+                    {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
+                    {rows.length === 0 && !loading ? (
+                      <p className="text-sm text-slate-500">No sales in this date range.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left border-b border-slate-200 text-slate-600">
+                              <th className="py-2 pr-3">Item Group</th>
+                              <th className="py-2 pr-3 text-right">Items Count</th>
+                              <th className="py-2 pr-3 text-right">Total Quantity</th>
+                              <th className="py-2 pr-3 text-right">Total Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r, i) => (
+                              <tr key={r.groupId ?? i} className="border-b border-slate-100">
+                                <td className="py-2 pr-3 font-semibold">{r.groupName}</td>
+                                <td className="py-2 pr-3 text-right font-mono">{r.itemCount}</td>
+                                <td className="py-2 pr-3 text-right font-mono">{Number(r.totalQuantity).toFixed(2)}</td>
+                                <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot>
+                            <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
+                              <td className="py-2 pr-3">Total</td>
+                              <td className="py-2 pr-3 text-right font-mono">{grandTotalItems}</td>
+                              <td className="py-2 pr-3 text-right font-mono">{grandTotalQty.toFixed(2)}</td>
+                              <td className="py-2 pr-3 text-right font-mono">{fmt(grandTotalAmt)}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            };
+
+            /* ============== Order Reports ============== */
 
 const OrderReportView: React.FC<{
   fromDate: string; setFromDate: (d: string) => void;

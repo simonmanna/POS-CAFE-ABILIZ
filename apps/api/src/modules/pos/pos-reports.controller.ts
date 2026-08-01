@@ -121,13 +121,23 @@ export class PosReportsController {
   }
 
   @Get('waiter-report')
-  @RequirePermissions('pos:reports')
-  waiterReport(
-    @Query('fromDate') fromDate: string,
-    @Query('toDate') toDate: string,
-    @Query('waiterId') waiterId?: string,
-    @Query('orderType') orderType?: string,
-  ) {
-    return this.svc.waiterReport(fromDate, toDate, waiterId, orderType);
+    @RequirePermissions('pos:reports')
+    waiterReport(
+      @Query('fromDate') fromDate: string,
+      @Query('toDate') toDate: string,
+      @Query('waiterId') waiterId?: string,
+      @Query('orderType') orderType?: string,
+    ) {
+      return this.svc.waiterReport(fromDate, toDate, waiterId, orderType);
+    }
+
+    @Get('items-by-group')
+    @RequirePermissions('pos:reports')
+    itemsByGroup(
+      @Query('fromDate') fromDate: string,
+      @Query('toDate') toDate: string,
+      @Query('orderType') orderType?: string,
+    ) {
+      return this.svc.itemsByGroup(fromDate, toDate, orderType);
+    }
   }
-}

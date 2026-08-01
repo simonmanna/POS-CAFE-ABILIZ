@@ -773,13 +773,18 @@ body.pos-terminal-fullscreen .app-shell-header {
   border-bottom: 2px solid #e2e8f0;
 }
 .pos-reports-tab {
-  padding: 0.6rem 1rem;
-  font-size: 0.9rem;
+  padding: 0.7rem 1.2rem;
+  font-size: 1rem;
   font-weight: 700;
-  color: #64748b;
+  color: #475569;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -2px;
+  border-bottom: 3px solid transparent;
+  margin-bottom: -3px;
+  transition: all 0.15s ease;
+}
+.pos-reports-tab:hover {
+  color: #1e293b;
+  background: #f8fafc;
 }
 .pos-reports-tab.active {
   color: #1e293b;
@@ -876,6 +881,6 @@ body.pos-terminal-fullscreen .app-shell-header {
 .pos-reports-tabs-wide::-webkit-scrollbar { height: 4px; }
 .pos-reports-tabs-wide::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
 .pos-reports-tabs-wide .pos-reports-tab {
-  padding: 0.5rem 0.7rem;
+  padding: 0.7rem 1.2rem;
   white-space: nowrap;
 }

@@ -236,6 +236,8 @@ const SOFT_DELETE = new Set<string>([
   'ProductModifierGroup',
   'MenuItemModifierGroup',
   'MenuItemAccompanimentGroup',
+  'MenuItem',
+  'MenuCategory',
   // Phase 4 — payment terms carry deletedAt (config master)
   'PaymentTerm',
 ]);

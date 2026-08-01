@@ -1003,16 +1003,148 @@ export class PosReportsService {
   }
 
   /** Retrieve a frozen Z-report snapshot for reprint. */
-  async getZReportSnapshot(cashSessionId: string) {
-    const organizationId = this.tenant.organizationId;
-    const snap = await this.prisma.client.posReportSnapshot.findFirst({
-      where: { organizationId, cashSessionId },
-    });
-    if (!snap) throw new NotFoundException('No Z-report snapshot for this session');
-    return snap;
-  }
+    async getZReportSnapshot(cashSessionId: string) {
+      const organizationId = this.tenant.organizationId;
+      const snap = await this.prisma.client.posReportSnapshot.findFirst({
+        where: { organizationId, cashSessionId },
+      });
+      if (!snap) throw new NotFoundException('No Z-report snapshot for this session');
+      return snap;
+    }
 
-  // ─── helpers ─────────────────────────────────────────────────────────────
+    /**
+     * Items sold grouped by item group (category) — aggregated quantities and totals.
+     * Returns: array of { groupName, totalQuantity, totalAmount, itemCount }
+     * 
+     * @param fromDate - start date (YYYY-MM-DD)
+     * @param toDate - end date (YYYY-MM-DD)
+     * @param orderType - optional filter: 'dine_in' | 'takeaway' | 'delivery'
+     */
+    async itemsByGroup(fromDate: string, toDate: string, orderType?: string) {
+      const organizationId = this.tenant.organizationId;
+      const start = new Date(fromDate);
+      const end = new Date(toDate);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+        throw new BadRequestException('Invalid fromDate/toDate');
+      }
+      end.setHours(23, 59, 59, 999);
+
+      // Get all POS invoices in range
+      const invoices = await this.prisma.client.invoice.findMany({
+        where: {
+          organizationId,
+          status: { in: ['posted', 'paid'] },
+          createdAt: { gte: start, lte: end },
+          ...(orderType ? { order: { orderType: orderType as any } } : {}),
+        },
+        include: { items: true },
+      });
+
+      // Collect product IDs and menu item IDs
+      const productIds = new Set<string>();
+      const menuItemIds = new Set<string>();
+      for (const inv of invoices as any[]) {
+        for (const it of inv.items ?? []) {
+          if (it.productId) productIds.add(it.productId);
+          if (it.menuItemId) menuItemIds.add(it.menuItemId);
+        }
+      }
+
+      // Build product → category lookup
+      const products = productIds.size
+        ? await this.prisma.client.product.findMany({
+            where: { id: { in: Array.from(productIds) } },
+            include: { category: { select: { id: true, name: true } } },
+          })
+        : [];
+      const productMap = new Map(
+        products.map((p: any) => [
+          p.id,
+          {
+            name: p.name,
+            categoryId: p.category?.id ?? null,
+            categoryName: p.category?.name ?? null,
+          },
+        ]),
+      );
+
+      // Build menuItem → menuCategory lookup
+      const menuItems = menuItemIds.size
+        ? await this.prisma.client.menuItem.findMany({
+            where: { id: { in: Array.from(menuItemIds) } },
+            include: { category: { select: { id: true, name: true } } },
+          })
+        : [];
+      const menuItemMap = new Map(
+        menuItems.map((mi: any) => [
+          mi.id,
+          {
+            categoryId: mi.category?.id ?? null,
+            categoryName: mi.category?.name ?? null,
+          },
+        ]),
+      );
+
+      // Aggregate by category
+      const groupMap = new Map<
+        string,
+        {
+          groupName: string;
+          groupId: string | null;
+          totalQuantity: Money;
+          totalAmount: Money;
+          itemCount: number;
+        }
+      >();
+
+      for (const inv of invoices as any[]) {
+        for (const it of inv.items ?? []) {
+          let groupId: string | null = null;
+          let groupName = 'Uncategorised';
+
+          if (it.productId) {
+            const prod = productMap.get(it.productId);
+            if (prod) {
+              groupId = prod.categoryId;
+              groupName = prod.categoryName ?? 'Uncategorised';
+            }
+          } else if (it.menuItemId) {
+            const mi = menuItemMap.get(it.menuItemId);
+            if (mi) {
+              groupId = mi.categoryId;
+              groupName = mi.categoryName ?? 'Uncategorised';
+            }
+          }
+
+          const key = groupId ?? 'uncategorised';
+          const bucket = groupMap.get(key) ?? {
+            groupName,
+            groupId,
+            totalQuantity: dec(0),
+            totalAmount: dec(0),
+            itemCount: 0,
+          };
+
+          bucket.totalQuantity = bucket.totalQuantity.plus(dec(it.quantity));
+          bucket.totalAmount = bucket.totalAmount.plus(dec(it.total ?? 0));
+          bucket.itemCount += 1;
+          groupMap.set(key, bucket);
+        }
+      }
+
+      // Sort by total amount descending
+      return Array.from(groupMap.values())
+        .sort((a, b) => b.totalAmount.minus(a.totalAmount).toNumber())
+        .map((g) => ({
+          groupId: g.groupId,
+          groupName: g.groupName,
+          totalQuantity: g.totalQuantity.toFixed(2),
+          totalAmount: g.totalAmount.toFixed(2),
+          itemCount: g.itemCount,
+        }));
+    }
+
+    // ─── helpers ─────────────────────────────────────────────────────────────
   private async resolveSession(organizationId: string, cashSessionId?: string) {
     if (cashSessionId) {
       return this.prisma.client.cashSession.findFirst({ where: { id: cashSessionId, organizationId } });

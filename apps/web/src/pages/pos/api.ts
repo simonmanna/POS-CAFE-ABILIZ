@@ -696,6 +696,14 @@ export function useSoldItems(fromDate: string, toDate: string, categoryId?: stri
   });
 }
 
+export function useItemsByGroup(fromDate: string, toDate: string, orderType?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['pos-reports', 'items-by-group', fromDate, toDate, orderType ?? 'all'],
+    queryFn: async () => (await api.get('/pos/reports/items-by-group', { params: { fromDate, toDate, orderType } })).data,
+    enabled: !!fromDate && !!toDate && enabled,
+  });
+}
+
 /* ============================================================================
  * Orders → Invoices → Receipts (DDD split).
  *

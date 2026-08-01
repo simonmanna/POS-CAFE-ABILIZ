@@ -190,16 +190,28 @@ export class PosMenuController {
   }
 
   @Patch('items/:id/availability')
-  @RequirePermissions('product:update')
-  setAvail(@Param('id') id: string, @Body() body: { isAvailable: boolean }) {
-    return this.svc.setAvailability(id, body.isAvailable);
-  }
+    @RequirePermissions('product:update')
+    setAvail(@Param('id') id: string, @Body() body: { isAvailable: boolean }) {
+      return this.svc.setAvailability(id, body.isAvailable);
+    }
 
-  @Delete('items/:id')
-  @RequirePermissions('product:delete')
-  remove(@Param('id') id: string) { return this.svc.disable(id); }
+    @Delete('items/:id')
+    @RequirePermissions('product:delete')
+    remove(@Param('id') id: string) { return this.svc.disable(id); }
 
-  // ─── Full bundle (terminal) ───────────────────────────────────────────────
+    @Delete('items/:id/hard')
+    @RequirePermissions('product:delete')
+    hardDelete(@Param('id') id: string) { return this.svc.deleteItem(id); }
+
+    @Patch('items/:id/restore')
+    @RequirePermissions('product:update')
+    restoreItem(@Param('id') id: string) { return this.svc.restoreItem(id); }
+
+    @Get('items/deleted')
+    @RequirePermissions('menuItems.view')
+    listDeletedItems() { return this.svc.listDeletedItems(); }
+
+    // ─── Full bundle (terminal) ───────────────────────────────────────────────
 
   /** All configuration for a menu item: variants, accompaniments, add-ons, modifiers. */
   @Get('items/:id/bundle')
