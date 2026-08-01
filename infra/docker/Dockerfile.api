@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for the API (Node 20+).
 # Build stage compiles TS; production stage runs the compiled JS as non-root.
 
-FROM node:20-alpine AS deps
+FROM node:25-alpine AS deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
@@ -10,7 +10,7 @@ COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
-FROM node:20-alpine AS build
+FROM node:25-alpine AS build
 WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app /app
@@ -21,7 +21,7 @@ RUN pnpm --filter @erp/shared build
 RUN pnpm --filter @erp/api db:generate
 RUN pnpm --filter @erp/api build
 
-FROM node:20-alpine AS runtime
+FROM node:25-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 RUN corepack enable && \
