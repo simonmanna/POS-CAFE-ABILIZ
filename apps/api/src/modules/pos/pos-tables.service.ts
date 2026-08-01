@@ -412,81 +412,88 @@ export class PosTablesService {
   }
 
   async update(id: string, dto: UpdateTableDto) {
-    const organizationId = this.tenant.organizationId;
-    const userId = this.tenant.userId;
-    return this.prisma.client.$transaction(async (tx: any) => {
-      const existing = await tx.posTable.findFirst({ where: { id, organizationId } });
-      if (!existing) throw new NotFoundException('Table not found');
+      const organizationId = this.tenant.organizationId;
+      const userId = this.tenant.userId;
+      return this.prisma.client.$transaction(async (tx: any) => {
+        const existing = await tx.posTable.findFirst({ where: { id, organizationId } });
+        if (!existing) throw new NotFoundException('Table not found');
 
-      // T3: Block rename when table is occupied.
-      if (existing.status === 'occupied' && dto.name !== undefined && dto.name.trim() !== existing.name) {
-        throw new BadRequestException('Cannot rename an occupied table');
-      }
-
-      // T4: Block seats reduction below max guestCount on open orders.
-      if (dto.seats !== undefined && dto.seats < existing.seats) {
-        const openOrders = await tx.posTableOrder.findMany({
-          where: { tableId: id, closedAt: null },
-          select: { guestCount: true },
-        });
-        const maxGuests = Math.max(0, ...openOrders.map((o: any) => o.guestCount ?? 0));
-        if (maxGuests > dto.seats) {
-          throw new BadRequestException(
-            `Cannot reduce seats to ${dto.seats}: open orders have ${maxGuests} guests`,
-          );
+        // T3: Block rename when table is occupied.
+        if (existing.status === 'occupied' && dto.name !== undefined && dto.name.trim() !== existing.name) {
+          throw new BadRequestException('Cannot rename an occupied table');
         }
-      }
 
-      const changes: Record<string, unknown> = {};
-      const fields: (keyof UpdateTableDto)[] = [
-              'name', 'number', 'seats', 'zone', 'customZone', 'shape',
-              'posX', 'posY', 'width', 'height', 'notes', 'active',
-              'assignedWaiterId', 'sortOrder', 'qrCodeUrl',
-            ];
-      for (const f of fields) {
-        if (dto[f] !== undefined && (existing as any)[f] !== dto[f]) {
-          changes[f as string] = { from: (existing as any)[f], to: dto[f] };
+        // T4: Block seats reduction below max guestCount on open orders.
+        if (dto.seats !== undefined && dto.seats < existing.seats) {
+          const openOrders = await tx.posTableOrder.findMany({
+            where: { tableId: id, closedAt: null },
+            select: { guestCount: true },
+          });
+          const maxGuests = Math.max(0, ...openOrders.map((o: any) => o.guestCount ?? 0));
+          if (maxGuests > dto.seats) {
+            throw new BadRequestException(
+              `Cannot reduce seats to ${dto.seats}: open orders have ${maxGuests} guests`,
+            );
+          }
         }
-      }
-      const updated = await tx.posTable.update({
-        where: { id },
-        data: {
-          ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-                    ...(dto.number !== undefined ? { number: dto.number } : {}),
-                    ...(dto.seats !== undefined ? { seats: dto.seats } : {}),
-          ...(dto.zone !== undefined ? { zone: dto.zone } : {}),
-          ...(dto.customZone !== undefined ? { customZone: dto.customZone } : {}),
-          ...(dto.shape !== undefined ? { shape: dto.shape } : {}),
-          ...(dto.posX !== undefined ? { posX: dto.posX } : {}),
-          ...(dto.posY !== undefined ? { posY: dto.posY } : {}),
-          ...(dto.width !== undefined ? { width: dto.width } : {}),
-          ...(dto.height !== undefined ? { height: dto.height } : {}),
-          ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
-          ...(dto.active !== undefined ? { active: dto.active } : {}),
-          ...(dto.assignedWaiterId !== undefined ? { assignedWaiterId: dto.assignedWaiterId } : {}),
-          ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
-          ...(dto.qrCodeUrl !== undefined ? { qrCodeUrl: dto.qrCodeUrl } : {}),
-        },
-      });
-      if (Object.keys(changes).length > 0) {
-        await this.audit.recordInTx(tx, {
-          entity: 'PosTable',
-          entityId: id,
-          action: 'update',
-          oldValues: { ...changes },
-          newValues: { updatedBy: userId ?? null },
-        });
-      }
-      return updated;
-    }).then(async (updated) => {
-      this.events.publish(EVENTS.PosTableUpdated, {
-              organizationId,
-              tableId: id,
-              changes: { name: dto.name, number: dto.number, seats: dto.seats },
+
+        const changes: Record<string, unknown> = {};
+        const fields: (keyof UpdateTableDto)[] = [
+          'name', 'number', 'seats', 'zone', 'customZone', 'shape',
+          'posX', 'posY', 'width', 'height', 'notes', 'active',
+          'assignedWaiterId', 'sortOrder', 'qrCodeUrl',
+        ];
+        for (const f of fields) {
+          if (dto[f] !== undefined && (existing as any)[f] !== dto[f]) {
+            changes[f as string] = { from: (existing as any)[f], to: dto[f] };
+          }
+        }
+        try {
+          const updated = await tx.posTable.update({
+            where: { id },
+            data: {
+              ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+              ...(dto.number !== undefined ? { number: dto.number } : {}),
+              ...(dto.seats !== undefined ? { seats: dto.seats } : {}),
+              ...(dto.zone !== undefined ? { zone: dto.zone } : {}),
+              ...(dto.customZone !== undefined ? { customZone: dto.customZone } : {}),
+              ...(dto.shape !== undefined ? { shape: dto.shape } : {}),
+              ...(dto.posX !== undefined ? { posX: dto.posX } : {}),
+              ...(dto.posY !== undefined ? { posY: dto.posY } : {}),
+              ...(dto.width !== undefined ? { width: dto.width } : {}),
+              ...(dto.height !== undefined ? { height: dto.height } : {}),
+              ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
+              ...(dto.active !== undefined ? { active: dto.active } : {}),
+              ...(dto.assignedWaiterId !== undefined ? { assignedWaiterId: dto.assignedWaiterId } : {}),
+              ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
+              ...(dto.qrCodeUrl !== undefined ? { qrCodeUrl: dto.qrCodeUrl } : {}),
+            },
+          });
+          if (Object.keys(changes).length > 0) {
+            await this.audit.recordInTx(tx, {
+              entity: 'PosTable',
+              entityId: id,
+              action: 'update',
+              oldValues: { ...changes },
+              newValues: { updatedBy: userId ?? null },
             });
-      return updated;
-    });
-  }
+          }
+          return updated;
+        } catch (e: any) {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            throw new ConflictException(`Table number ${dto.number} already exists`);
+          }
+          throw e;
+        }
+      }).then(async (updated) => {
+        this.events.publish(EVENTS.PosTableUpdated, {
+          organizationId,
+          tableId: id,
+          changes: { name: dto.name, number: dto.number, seats: dto.seats },
+        });
+        return updated;
+      });
+    }
 
   /** Soft-archive a table. Refused if it has open PosTableOrder rows. */
   async archive(id: string) {
