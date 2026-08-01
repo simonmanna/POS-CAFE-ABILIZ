@@ -104,18 +104,20 @@ export const TablesPage: React.FC = () => {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    let arr = filter === 'all' ? tables : tables.filter((t) => t.status === filter);
-    if (q) {
-      arr = arr.filter(
-        (t) =>
-          t.name.toLowerCase().includes(q) ||
-          String(t.number).includes(q) ||
-          (t.zone === 'custom' && t.customZone?.toLowerCase().includes(q)),
-      );
-    }
-    return arr;
-  }, [tables, filter, search]);
+      const q = search.toLowerCase().trim();
+      // Sort tables by number ascending first
+      const sortedTables = [...tables].sort((a, b) => a.number - b.number);
+      let arr = filter === 'all' ? sortedTables : sortedTables.filter((t) => t.status === filter);
+      if (q) {
+        arr = arr.filter(
+          (t) =>
+            t.name.toLowerCase().includes(q) ||
+            String(t.number).includes(q) ||
+            (t.zone === 'custom' && t.customZone?.toLowerCase().includes(q)),
+        );
+      }
+      return arr;
+    }, [tables, filter, search]);
 
   function openCreate() {
     setForm({ ...EMPTY_FORM, number: String((tables.at(-1)?.number ?? 0) + 1) });
