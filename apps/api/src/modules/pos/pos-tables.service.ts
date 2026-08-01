@@ -439,10 +439,10 @@ export class PosTablesService {
 
       const changes: Record<string, unknown> = {};
       const fields: (keyof UpdateTableDto)[] = [
-        'name', 'seats', 'zone', 'customZone', 'shape',
-        'posX', 'posY', 'width', 'height', 'notes', 'active',
-        'assignedWaiterId', 'sortOrder', 'qrCodeUrl',
-      ];
+              'name', 'number', 'seats', 'zone', 'customZone', 'shape',
+              'posX', 'posY', 'width', 'height', 'notes', 'active',
+              'assignedWaiterId', 'sortOrder', 'qrCodeUrl',
+            ];
       for (const f of fields) {
         if (dto[f] !== undefined && (existing as any)[f] !== dto[f]) {
           changes[f as string] = { from: (existing as any)[f], to: dto[f] };
@@ -452,7 +452,8 @@ export class PosTablesService {
         where: { id },
         data: {
           ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-          ...(dto.seats !== undefined ? { seats: dto.seats } : {}),
+                    ...(dto.number !== undefined ? { number: dto.number } : {}),
+                    ...(dto.seats !== undefined ? { seats: dto.seats } : {}),
           ...(dto.zone !== undefined ? { zone: dto.zone } : {}),
           ...(dto.customZone !== undefined ? { customZone: dto.customZone } : {}),
           ...(dto.shape !== undefined ? { shape: dto.shape } : {}),
@@ -479,10 +480,10 @@ export class PosTablesService {
       return updated;
     }).then(async (updated) => {
       this.events.publish(EVENTS.PosTableUpdated, {
-        organizationId,
-        tableId: id,
-        changes: { name: dto.name, seats: dto.seats },
-      });
+              organizationId,
+              tableId: id,
+              changes: { name: dto.name, number: dto.number, seats: dto.seats },
+            });
       return updated;
     });
   }

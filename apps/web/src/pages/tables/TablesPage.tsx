@@ -72,6 +72,7 @@ const EMPTY_FORM: FormState = {
   active: true,
   sortOrder: 0,
   qrCodeUrl: '',
+  customZone: '',
 };
 
 const ZONES: PosTableZone[] = ['indoor', 'outdoor', 'terrace', 'vip', 'garden', 'bar', 'custom'];
@@ -141,54 +142,59 @@ export const TablesPage: React.FC = () => {
   }
 
   async function submitCreate() {
-    const number = Number(form.number);
-    if (!form.name.trim() || !Number.isFinite(number)) {
-      toast.error('Name and a numeric "number" are required');
-      return;
+      const number = Number(form.number);
+      if (!form.name.trim() || !Number.isFinite(number)) {
+        toast.error('Name and a numeric "number" are required');
+        return;
+      }
+      const body: CreateTableInput = {
+        name: form.name.trim(),
+        number,
+        seats: Number(form.seats ?? 2),
+        zone: form.zone,
+        customZone: form.zone === 'custom' ? (form.customZone?.trim() || undefined) : undefined,
+        shape: form.shape,
+        notes: form.notes?.trim() || undefined,
+        active: form.active,
+        sortOrder: form.sortOrder,
+        qrCodeUrl: form.qrCodeUrl?.trim() || undefined,
+      };
+      try {
+        await create.mutateAsync(body);
+        toast.success(`Created T${number}`);
+        setCreateOpen(false);
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message ?? 'Failed to create table');
+      }
     }
-    const body: CreateTableInput = {
-      name: form.name.trim(),
-      number,
-      seats: Number(form.seats ?? 2),
-      zone: form.zone,
-      customZone: form.zone === 'custom' ? (form.customZone?.trim() || undefined) : undefined,
-      shape: form.shape,
-      notes: form.notes?.trim() || undefined,
-      active: form.active,
-    };
-    try {
-      await create.mutateAsync(body);
-      toast.success(`Created T${number}`);
-      setCreateOpen(false);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Failed to create table');
-    }
-  }
 
   async function submitEdit() {
-    if (!editTarget) return;
-    const number = Number(form.number);
-    if (!Number.isFinite(number)) {
-      toast.error('Number is required');
-      return;
+      if (!editTarget) return;
+      const number = Number(form.number);
+      if (!Number.isFinite(number)) {
+        toast.error('Number is required');
+        return;
+      }
+      const body: UpdateTableInput = {
+        name: form.name.trim(),
+        number,
+        seats: Number(form.seats ?? 2),
+        zone: form.zone,
+        customZone: form.zone === 'custom' ? (form.customZone?.trim() || undefined) : undefined,
+        shape: form.shape,
+        notes: form.notes?.trim() || undefined,
+        active: form.active,
+        sortOrder: form.sortOrder,
+        qrCodeUrl: form.qrCodeUrl?.trim() || undefined,
+      };
+      try {
+        await update.mutateAsync({ id: editTarget.id, body });
+        toast.success(`Updated T${number}`);
+        setEditTarget(null);
+      } catch (e: any) {
+        toast.error(e?.response?.data?.message ?? 'Failed to update table');
+      }
     }
-    const body: UpdateTableInput = {
-      name: form.name.trim(),
-      seats: Number(form.seats ?? 2),
-      zone: form.zone,
-      customZone: form.zone === 'custom' ? (form.customZone?.trim() || undefined) : undefined,
-      shape: form.shape,
-      notes: form.notes?.trim() || undefined,
-      active: form.active,
-    };
-    try {
-      await update.mutateAsync({ id: editTarget.id, body });
-      toast.success(`Updated T${number}`);
-      setEditTarget(null);
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message ?? 'Failed to update table');
-    }
-  }
 
   async function doArchive() {
     if (!archiveTarget) return;

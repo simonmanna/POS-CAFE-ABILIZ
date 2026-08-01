@@ -58,6 +58,7 @@ class CreateTableBody implements CreateTableDto {
 
 class UpdateTableBody {
   @ApiProperty({ required: false }) @IsOptional() @IsString() name?: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsInt() number?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsInt() @Min(0) seats?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsIn(['indoor','outdoor','terrace','vip','garden','bar','custom'])
   zone?: 'indoor' | 'outdoor' | 'terrace' | 'vip' | 'garden' | 'bar' | 'custom';
