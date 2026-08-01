@@ -169,32 +169,34 @@ export const TablesPage: React.FC = () => {
     }
 
   async function submitEdit() {
-      if (!editTarget) return;
-      const number = Number(form.number);
-      if (!Number.isFinite(number)) {
-        toast.error('Number is required');
-        return;
+        if (!editTarget) return;
+        const number = Number(form.number);
+        if (!Number.isFinite(number)) {
+          toast.error('Number is required');
+          return;
+        }
+        const body: UpdateTableInput = {
+          name: form.name.trim(),
+          number,
+          seats: Number(form.seats ?? 2),
+          zone: form.zone,
+          customZone: form.zone === 'custom' ? (form.customZone?.trim() || undefined) : undefined,
+          shape: form.shape,
+          notes: form.notes?.trim() || undefined,
+          active: form.active,
+          sortOrder: Number(form.sortOrder ?? 0),
+          qrCodeUrl: form.qrCodeUrl?.trim() || undefined,
+        };
+        try {
+          await update.mutateAsync({ id: editTarget.id, body });
+          toast.success(`Updated T${number}`);
+          setEditTarget(null);
+        } catch (e: any) {
+          const msg = e?.response?.data?.message ?? e?.message ?? 'Failed to update table';
+          toast.error(msg);
+          console.error('Update table error:', e?.response?.data ?? e);
+        }
       }
-      const body: UpdateTableInput = {
-        name: form.name.trim(),
-        number,
-        seats: Number(form.seats ?? 2),
-        zone: form.zone,
-        customZone: form.zone === 'custom' ? (form.customZone?.trim() || undefined) : undefined,
-        shape: form.shape,
-        notes: form.notes?.trim() || undefined,
-        active: form.active,
-        sortOrder: form.sortOrder,
-        qrCodeUrl: form.qrCodeUrl?.trim() || undefined,
-      };
-      try {
-        await update.mutateAsync({ id: editTarget.id, body });
-        toast.success(`Updated T${number}`);
-        setEditTarget(null);
-      } catch (e: any) {
-        toast.error(e?.response?.data?.message ?? 'Failed to update table');
-      }
-    }
 
   async function doArchive() {
     if (!archiveTarget) return;
