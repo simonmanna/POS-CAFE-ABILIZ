@@ -271,14 +271,14 @@ export class PosTablesService {
       this.logger.warn(`table reconcile skipped: ${String((e as any)?.message ?? e)}`),
     );
     return this.prisma.client.posTable.findMany({
-      where: {
-        organizationId,
-        ...(filter.status ? { status: filter.status as any } : {}),
-        ...(filter.zone ? { zone: filter.zone as any } : {}),
-        ...(filter.active === undefined ? {} : { active: filter.active }),
-      },
-      orderBy: [{ sortOrder: 'asc' } as any, { number: 'asc' }],
-      include: {
+          where: {
+            organizationId,
+            ...(filter.status ? { status: filter.status as any } : {}),
+            ...(filter.zone ? { zone: filter.zone as any } : {}),
+            ...(filter.active === undefined ? {} : { active: filter.active }),
+          },
+          orderBy: [{ number: 'asc' }],
+          include: {
         orders: {
           where: { closedAt: null },
           include: {
