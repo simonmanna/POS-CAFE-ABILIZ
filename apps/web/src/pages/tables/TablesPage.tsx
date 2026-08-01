@@ -106,8 +106,8 @@ export const TablesPage: React.FC = () => {
 
   const filtered = useMemo(() => {
       const q = search.toLowerCase().trim();
-      // Sort tables by number ascending first
-      const sortedTables = [...tables].sort((a, b) => a.number - b.number);
+      // Sort tables by sortOrder ascending, ties broken by number
+      const sortedTables = [...tables].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.number - b.number);
       let arr = filter === 'all' ? sortedTables : sortedTables.filter((t) => t.status === filter);
       if (q) {
         arr = arr.filter(

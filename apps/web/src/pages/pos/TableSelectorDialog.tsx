@@ -73,7 +73,7 @@ export const TableSelectorDialog: React.FC<Props> = ({
       arr.push(t);
       map.set(key, arr);
     }
-    for (const arr of map.values()) arr.sort((a, b) => a.number - b.number);
+    for (const arr of map.values()) arr.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.number - b.number);
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [tables, filter, search]);
 

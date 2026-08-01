@@ -277,7 +277,7 @@ export class PosTablesService {
             ...(filter.zone ? { zone: filter.zone as any } : {}),
             ...(filter.active === undefined ? {} : { active: filter.active }),
           },
-          orderBy: [{ number: 'asc' }],
+          orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
           include: {
         orders: {
           where: { closedAt: null },
