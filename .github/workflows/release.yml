@@ -38,7 +38,7 @@ jobs:
         run: cd apps/web/dist && zip -r ${{ github.workspace }}/pos-web.zip .
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: pos-web.zip
           generate_release_notes: true
