@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "build": "nest build",
-    "start": "node dist/main.js",
-    "start:dev": "nest start --watch",
-    "start:prod": "node dist/main.js",
+    "start": "node --max-http-header-size=65536 dist/main.js",
+    "start:dev": "node scripts/start-dev.mjs",
+    "start:prod": "node --max-http-header-size=65536 dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
