@@ -46,6 +46,8 @@ interface CartState {
   setQuantity: (lineId: string, qty: number) => void;
   /** Set line discount. amount is percent or fixed amount based on type. */
   setDiscount: (lineId: string, amount: number, type?: DiscountType) => void;
+  /** Odoo-numpad "Price" mode — override a line's unit price directly. */
+  setUnitPrice: (lineId: string, price: number) => void;
   setNote: (lineId: string, note: string) => void;
   removeLine: (lineId: string) => void;
   /** Order-level discount. type=percentage → amount is percent; type=fixed → amount in minor units. */
@@ -159,6 +161,12 @@ export const useCartStore = create<CartState>()(
                   discountAmount: type === 'fixed_amount' ? Math.max(0, amount) : undefined,
                 }
               : l,
+          ),
+        })),
+      setUnitPrice: (lineId, price) =>
+        set((state) => ({
+          lines: state.lines.map((l) =>
+            l.lineId === lineId ? { ...l, unitPrice: Math.max(0, price) } : l,
           ),
         })),
       setNote: (lineId, note) =>

@@ -322,6 +322,9 @@ const TerminalPage: React.FC = () => {
   } | null>(null);
   const canReprint = usePosAuthStore((s) => s.user?.permissions?.includes('pos:reports') ?? false);
   const canDeleteItem = usePosAuthStore((s) => s.user?.permissions?.includes('pos:delete_item') ?? false);
+  /* pos:discount gates the numpad % mode + Disc/Discount buttons, and is reused
+   * as the price-override right (no dedicated pos:price_override permission). */
+  const canDiscount = usePosAuthStore((s) => s.user?.permissions?.includes('pos:discount') ?? false);
   const [showReprint, setShowReprint] = useState<{ invoiceId: string; title: string } | null>(null);
 
   /* ============== Order type (Dine In / Takeaway / Delivery) ============== */
@@ -1605,6 +1608,8 @@ const TerminalPage: React.FC = () => {
             onInc={onInc}
             onDec={onDec}
             onRemove={canDeleteItem ? onRemove : undefined}
+            canDiscount={canDiscount}
+            canOverridePrice={canDiscount}
             onNote={onLineNote}
             onLineDiscount={onLineDiscount}
             onPrintBill={onPrintBill}

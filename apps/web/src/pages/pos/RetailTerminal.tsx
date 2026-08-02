@@ -154,6 +154,7 @@ const RetailTerminal: React.FC = () => {
   } | null>(null);
   const canReprint = usePosAuthStore((s) => s.user?.permissions?.includes('pos:reports') ?? false);
   const canDeleteItem = usePosAuthStore((s) => s.user?.permissions?.includes('pos:delete_item') ?? false);
+  const canDiscount = usePosAuthStore((s) => s.user?.permissions?.includes('pos:discount') ?? false);
   const [showReprint, setShowReprint] = useState<{ invoiceId: string; title: string } | null>(null);
   const [showHeldOrders, setShowHeldOrders] = useState(false);
   const [showHandover, setShowHandover] = useState(false);
@@ -609,6 +610,8 @@ const RetailTerminal: React.FC = () => {
             onInc={onInc}
             onDec={onDec}
             onRemove={canDeleteItem ? onRemove : undefined}
+            canDiscount={canDiscount}
+            canOverridePrice={canDiscount}
             onNote={onLineNote}
             onLineDiscount={onLineDiscount}
             onPrintBill={() => {}}
