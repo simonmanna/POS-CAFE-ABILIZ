@@ -4,8 +4,7 @@
 //   • header      — item count + order-type + customer + clear
 //   • order lines — tap a line to SELECT it (highlighted); no per-line steppers
 //   • totals      — subtotal / discount / total
-//   • control row — Customer · Note · Disc · Void · Delete (act on selected line)
-//                   Discount(order) · Move · Split  (or Hold/Held/Handover in retail)
+//   • control row — Customer · Disc · More (dialog: Note, Void, Delete, Discount %, Move, Split, Hold, Held, Handover)
 //   • numpad      — 1-9 0 . ⌫ + Qty / % / Price mode selectors + ±
 //   • primary     — Bill · KOT · Pay
 //
@@ -30,8 +29,10 @@ import {
   Split as SplitIcon,
   Percent,
   Delete as BackspaceIcon,
+  MoreHorizontal,
+  Flame,
+  Utensils,
 } from "lucide-react";
-import { getFoodEmoji } from "./food-images";
 import {
   selectItemCount,
   selectSubtotal,
@@ -40,6 +41,14 @@ import {
   useCartStore,
 } from "@/features/pos/cart.store";
 import type { CartLine } from "@/features/pos/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 export type OrderTypeOption = 'dine-in' | 'takeaway' | 'delivery';
 
@@ -82,9 +91,19 @@ interface Props {
   onHandover?: () => void;
   /** Retail: open customer profile dialog (loyalty, store credit). */
   onCustomerProfile?: () => void;
+  /** P5: fire a specific course (1=starter, 2=main, …) of the order to the kitchen. */
+  onFireCourse?: (course: number) => void;
 }
 
 const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+
+/** Course labels for the fire/hold controls. */
+const COURSES: Array<{ n: number; label: string }> = [
+  { n: 1, label: 'Starter' },
+  { n: 2, label: 'Main' },
+  { n: 3, label: 'Dessert' },
+];
+const courseLabel = (n: number) => COURSES.find((c) => c.n === n)?.label ?? `Course ${n}`;
 
 const ORDER_TYPES: Array<{ key: 'dine-in' | 'takeaway' | 'delivery'; label: string }> = [
   { key: 'dine-in', label: 'Dine In' },
@@ -121,8 +140,10 @@ export const OrderPanel: React.FC<Props> = ({
   onHeldOrders,
   onHandover,
   onCustomerProfile,
+  onFireCourse,
 }) => {
   const lines = useCartStore((s) => s.lines);
+  const setCourse = useCartStore((s) => s.setCourse);
   const transactionDiscountPercent = useCartStore((s) => s.transactionDiscountPercent);
   const subtotal = useCartStore(selectSubtotal);
   const txDisc = useCartStore(selectTxDiscountAmount);
@@ -132,6 +153,7 @@ export const OrderPanel: React.FC<Props> = ({
   const setDiscount = useCartStore((s) => s.setDiscount);
   const setUnitPrice = useCartStore((s) => s.setUnitPrice);
   const empty = lines.length === 0;
+  const hasCourses = lines.some((l) => l.course);
 
   /* ============== Odoo numpad state ============== */
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
@@ -294,7 +316,6 @@ export const OrderPanel: React.FC<Props> = ({
         <div className="pos-order-list min-h-0">
           {lines.map((it) => {
             const isCombo = Boolean(it.comboId);
-            const emoji = isCombo ? '🍱' : getFoodEmoji(it.name);
             const lineSub = it.quantity * it.unitPrice * (1 - it.discountPercent / 100);
             const isSel = it.lineId === selectedLineId;
             return (
@@ -306,15 +327,15 @@ export const OrderPanel: React.FC<Props> = ({
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectLine(it.lineId); } }}
               >
-                <div className="pos-oline-qty">{it.quantity}<span className="pos-oline-x">×</span></div>
-                <div className="pos-oline-emoji">{emoji}</div>
+                <div className="pos-oline-qty">{it.quantity}</div>
                 <div className="pos-oline-body">
                   <div className="pos-oline-name truncate">
                     {it.name}
                     {isCombo ? <span className="pos-oline-combo">COMBO</span> : null}
+                    {it.course ? <span className="pos-oline-combo" style={{ background: '#7c3aed' }} title={courseLabel(it.course)}>C{it.course}</span> : null}
                   </div>
                   <div className="pos-oline-sub">
-                    @ {fmt(it.unitPrice)}{it.discountPercent > 0 ? ` · −${it.discountPercent}%` : ""}
+                    {it.discountPercent > 0 ? ` −${it.discountPercent}%` : ""}
                   </div>
                   {it.variantName && <div className="pos-oline-meta truncate">{it.variantName}</div>}
                   {it.accompanimentNames && it.accompanimentNames.length > 0 && (
@@ -358,53 +379,101 @@ export const OrderPanel: React.FC<Props> = ({
           <button type="button" className="pos-ctl-btn" onClick={onAddCustomer} title="Customer">
             <User className="h-4 w-4" /><span>Customer</span>
           </button>
-          <button type="button" className="pos-ctl-btn" disabled={noSel} onClick={() => selectedLine && onNote(selectedLine)} title="Note on selected item">
-            <StickyNote className="h-4 w-4" /><span>Note</span>
-          </button>
           <button type="button" className="pos-ctl-btn" disabled={noSel || !canDiscount} onClick={() => selectedLine && onLineDiscount(selectedLine)} title={canDiscount ? "Line discount on selected item" : "Requires discount permission"}>
             <Tag className="h-4 w-4" /><span>Disc</span>
           </button>
-          {onVoidItem ? (
-            <button type="button" className="pos-ctl-btn warn" disabled={noSel} onClick={() => selectedLine && onVoidItem(selectedLine)} title="Void selected item">
-              <AlertTriangle className="h-4 w-4" /><span>Void</span>
-            </button>
-          ) : null}
-          {onRemove ? (
-            <button type="button" className="pos-ctl-btn danger" disabled={noSel} onClick={() => selectedLine && onRemove(selectedLine)} title="Delete selected item">
-              <Trash2 className="h-4 w-4" /><span>Delete</span>
-            </button>
-          ) : null}
-        </div>
-
-        <div className="pos-ctl-row">
-          <button type="button" className="pos-ctl-btn" disabled={empty || !canDiscount} onClick={onAddDiscount} title={canDiscount ? "Order discount" : "Requires discount permission"}>
-            <Percent className="h-4 w-4" /><span>Discount</span>
-          </button>
-          {!hideCafeFeatures && onMoveItems ? (
-            <button type="button" className="pos-ctl-btn" disabled={empty} onClick={onMoveItems} title="Move items to another table">
-              <ArrowLeftRight className="h-4 w-4" /><span>Move</span>
-            </button>
-          ) : null}
-          {!hideCafeFeatures ? (
-            <button type="button" className="pos-ctl-btn" disabled={empty} onClick={onSplit} title="Split the bill">
-              <SplitIcon className="h-4 w-4" /><span>Split</span>
-            </button>
-          ) : null}
-          {hideCafeFeatures && onHold ? (
-            <button type="button" className="pos-ctl-btn" disabled={empty} onClick={onHold} title="Park this order">
-              <Pause className="h-4 w-4" /><span>Hold</span>
-            </button>
-          ) : null}
-          {hideCafeFeatures && onHeldOrders ? (
-            <button type="button" className="pos-ctl-btn" onClick={onHeldOrders} title="Recall a parked order">
-              <Pause className="h-4 w-4" /><span>Held</span>
-            </button>
-          ) : null}
-          {hideCafeFeatures && onHandover ? (
-            <button type="button" className="pos-ctl-btn" onClick={onHandover} title="Hand over shift">
-              <ArrowLeftRight className="h-4 w-4" /><span>Handover</span>
-            </button>
-          ) : null}
+          <Dialog>
+            <DialogTrigger asChild>
+              <button type="button" className="pos-ctl-btn" disabled={noSel && empty} title="More actions">
+                <MoreHorizontal className="h-4 w-4" /><span>More</span>
+              </button>
+            </DialogTrigger>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>More Actions</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-2 p-2">
+                {/* Line actions (require selection) */}
+                {!noSel && (
+                  <>
+                    <Button variant="outline" className="w-full justify-start" onClick={() => selectedLine && onNote(selectedLine)}>
+                      <StickyNote className="h-4 w-4 mr-2" /> Note
+                    </Button>
+                    {onVoidItem && (
+                      <Button variant="destructive" className="w-full justify-start" onClick={() => selectedLine && onVoidItem(selectedLine)}>
+                        <AlertTriangle className="h-4 w-4 mr-2" /> Void
+                      </Button>
+                    )}
+                    {onRemove && (
+                      <Button variant="destructive" className="w-full justify-start" onClick={() => selectedLine && onRemove(selectedLine)}>
+                        <Trash2 className="h-4 w-4 mr-2" /> Delete
+                      </Button>
+                    )}
+                    {/* P5 — assign this line to a course for fire/hold. */}
+                    {!hideCafeFeatures && (
+                      <div className="pt-1">
+                        <div className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Utensils className="h-3.5 w-3.5" /> Course</div>
+                        <div className="flex gap-1.5 flex-wrap">
+                          <Button size="sm" variant={!selectedLine?.course ? 'default' : 'outline'} onClick={() => selectedLine && setCourse(selectedLine.lineId, undefined)}>None</Button>
+                          {COURSES.map((c) => (
+                            <Button key={c.n} size="sm" variant={selectedLine?.course === c.n ? 'default' : 'outline'} onClick={() => selectedLine && setCourse(selectedLine.lineId, c.n)}>{c.n} · {c.label}</Button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                {/* Order-level actions */}
+                {!empty && (
+                  <>
+                    <hr className="my-2 border-slate-200" />
+                    <Button variant="outline" className="w-full justify-start" disabled={!canDiscount} onClick={onAddDiscount} title={canDiscount ? "Order discount" : "Requires discount permission"}>
+                      <Percent className="h-4 w-4 mr-2" /> Discount %
+                    </Button>
+                    {!hideCafeFeatures && onMoveItems && (
+                      <Button variant="outline" className="w-full justify-start" onClick={onMoveItems} title="Move items to another table">
+                        <ArrowLeftRight className="h-4 w-4 mr-2" /> Move
+                      </Button>
+                    )}
+                    {!hideCafeFeatures && onSplit && (
+                      <Button variant="outline" className="w-full justify-start" onClick={onSplit} title="Split the bill">
+                        <SplitIcon className="h-4 w-4 mr-2" /> Split
+                      </Button>
+                    )}
+                    {hideCafeFeatures && onHold && (
+                      <Button variant="outline" className="w-full justify-start" onClick={onHold} title="Park this order">
+                        <Pause className="h-4 w-4 mr-2" /> Hold
+                      </Button>
+                    )}
+                    {hideCafeFeatures && onHeldOrders && (
+                      <Button variant="outline" className="w-full justify-start" onClick={onHeldOrders} title="Recall a parked order">
+                        <Pause className="h-4 w-4 mr-2" /> Held
+                      </Button>
+                    )}
+                    {hideCafeFeatures && onHandover && (
+                      <Button variant="outline" className="w-full justify-start" onClick={onHandover} title="Hand over shift">
+                        <ArrowLeftRight className="h-4 w-4 mr-2" /> Handover
+                      </Button>
+                    )}
+                    {/* P5 — fire a course to the kitchen (leaves other courses held). */}
+                    {!hideCafeFeatures && onFireCourse && hasCourses && (
+                      <>
+                        <hr className="my-2 border-slate-200" />
+                        <div className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Flame className="h-3.5 w-3.5" /> Fire course to kitchen</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {COURSES.map((c) => (
+                            <Button key={c.n} variant="outline" size="sm" onClick={() => onFireCourse(c.n)} title={`Fire ${c.label} now`}>
+                              <Flame className="h-4 w-4 mr-1" /> {c.label}
+                            </Button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {/* Numpad — Odoo model: pick a line, choose a mode, type digits. */}
@@ -444,6 +513,12 @@ export const OrderPanel: React.FC<Props> = ({
 
       {/* Primary actions — print + pay */}
       <div className="pos-order-actions">
+        {!hideCafeFeatures && (
+          <button type="button" className="pos-action-btn-pro bg-sky-600" onClick={onPrintKot} disabled={empty}>
+            <Printer className="pos-action-icon" />KOT
+          </button>
+        )}
+
         <button
           type="button"
           className="pos-action-btn-pro bg-purple"
@@ -455,11 +530,6 @@ export const OrderPanel: React.FC<Props> = ({
           {!billAlreadyPrinted && <span className="pos-kbd">F8</span>}
         </button>
 
-        {!hideCafeFeatures && (
-          <button type="button" className="pos-action-btn-pro bg-sky-600" onClick={onPrintKot} disabled={empty}>
-            <Printer className="pos-action-icon" /> KOT
-          </button>
-        )}
 
         {tableId && onSettleTab ? (
           <button type="button" className="pos-action-btn-pro bg-emerald pos-pay" onClick={onSettleTab} disabled={empty} title="Settle (pay) this table's order">

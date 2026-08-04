@@ -349,6 +349,7 @@ export function useCheckout() {
       (await api.post('/pos/checkout', body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-holds'] });
+      qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
       qc.invalidateQueries({ queryKey: ['cash-session'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
@@ -425,6 +426,87 @@ export function useSettleTab() {
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-tab', v.tableId] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
+      qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });
+      qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['cash-session'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
+    },
+  });
+}
+
+/* ============== Odoo-style multi-order (Orders panel) ============== */
+
+export interface OpenOrderRow {
+  id: string;
+  orderNumber: string;
+  orderType: 'dine_in' | 'takeaway' | 'delivery' | null;
+  status: string;
+  openedAt: string;
+  tableId: string | null;
+  tableName: string | null;
+  waiterName: string | null;
+  partnerId: string | null;
+  customerName: string | null;
+  guestCount: number | null;
+  totalAmount: number;
+}
+
+export interface OpenOrdersFeed { count: number; rows: OpenOrderRow[]; }
+
+/** Rehydrated open order for the terminal to resume from (tab view + cart context). */
+export type OrderResumeView = TabDocument & {
+  tableId: string | null;
+  orderType: 'dine_in' | 'takeaway' | 'delivery' | null;
+  partnerId: string | null;
+};
+
+/** Live feed of every open order across all types + a count for the nav badge. */
+export function useOrdersList(filter: { orderType?: string; search?: string } = {}, enabled = true) {
+  return useQuery({
+    queryKey: ['pos-orders', 'open', filter.orderType ?? '', filter.search ?? ''],
+    enabled,
+    refetchInterval: 10_000,
+    queryFn: async () =>
+      (await api.get<OpenOrdersFeed>('/pos/orders/open', {
+        params: {
+          ...(filter.orderType ? { orderType: filter.orderType } : {}),
+          ...(filter.search ? { search: filter.search } : {}),
+        },
+      })).data,
+  });
+}
+
+/** Rehydrate any open order (table-bound or tableless) so the terminal can resume it. */
+export function useResumeOrder() {
+  return useMutation({
+    mutationFn: async (orderId: string) =>
+      (await api.get<OrderResumeView>(`/pos/orders/${orderId}/resume`)).data,
+  });
+}
+
+/** Settle any open order by id (tableless walk-in / retail, or a dine-in order
+ *  chosen from the Orders panel). Mirrors useSettleTab. */
+export function useSettleOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, _idemKey, ...body }: {
+      orderId: string;
+      tenders?: CheckoutBody['tenders'];
+      paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
+      amountTendered?: number;
+      transactionDiscountPercent?: number;
+      transactionDiscountType?: 'percentage' | 'fixed_amount';
+      transactionDiscountAmount?: number;
+      discountReason?: string;
+      overrideById?: string;
+      overridePin?: string;
+      cashSessionId?: string;
+      _idemKey?: string;
+    }) => (await api.post(`/pos/orders/${orderId}/settle`, body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
       qc.invalidateQueries({ queryKey: ['cash-session'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
@@ -467,6 +549,7 @@ export function useSaveTab() {
         useCartStore.getState().setTabVersion(data.version);
       }
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
+      qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });
       // Note: we deliberately do NOT invalidate ['pos-tab', tableId] here — the
       // local cart is already the source of truth; refetching would fight typing.
     },
@@ -722,12 +805,21 @@ export interface OrderLineBody {
   unitPrice: number;
   taxId?: string;
   discountPercent?: number;
+  discountType?: 'percentage' | 'fixed_amount';
+  discountAmount?: number;
+  discountReason?: string;
   note?: string;
   modifiers?: Array<{ modifierId: string; name: string; priceDelta: number }>;
   variantId?: string;
+  variantName?: string;
+  variantPrice?: number;
   accompanimentOptionIds?: string[];
+  accompanimentNames?: string[];
+  accompanimentPriceImpact?: number;
   comboId?: string;
   taxInclusive?: boolean;
+  /** P5 course grouping for fire/hold. */
+  course?: number;
 }
 
 /** Fetch a single order with its (non-cancelled) items. */
@@ -793,8 +885,12 @@ export function useAddOrderItems() {
 export function useFireOrderKitchen() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { orderId: string }) =>
-      (await api.post<{ count: number }>(`/pos/orders/${body.orderId}/fire-kitchen`, {})).data,
+    // P5 — optional `course` fires only that course's items (fire/hold).
+    mutationFn: async (body: { orderId: string; course?: number }) =>
+      (await api.post<{ count: number; message?: string }>(
+        `/pos/orders/${body.orderId}/fire-kitchen`,
+        body.course != null ? { course: body.course } : {},
+      )).data,
     onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] }),
   });
 }
@@ -822,7 +918,10 @@ export function useCancelOrder() {
   return useMutation({
     mutationFn: async ({ orderId, reason }: { orderId: string; reason?: string }) =>
       (await api.post(`/pos/orders/${orderId}/cancel`, { reason })).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-tables'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+      qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });
+    },
   });
 }
 

@@ -13,11 +13,8 @@ import {
   Clock,
   Scale,
   Settings as SettingsIcon,
-  Moon,
-  Sun,
   LogOut,
   Menu,
-  Search,
   ShoppingCart,
   Truck,
   FilePlus2,
@@ -28,6 +25,7 @@ import {
   Shield,
   ShieldCheck,
   ClipboardList,
+  ClipboardCheck,
   PanelLeftClose,
   PanelLeft,
   BookOpen,
@@ -45,17 +43,25 @@ import {
   TrendingDown,
   History,
   CalendarDays,
+  CalendarHeart,
+  Briefcase,
+  FileClock,
+  Wallet,
   Percent,
   Lock,
+  Factory,
+  Handshake,
+  Wrench,
+  Timer,
+  Boxes,
+  ChefHat,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth.store';
-import { useTheme } from '@/components/theme-provider';
 import { GlobalSearch } from '@/components/global-search';
-import { NotificationsBell } from '@/components/notifications-bell';
-import { LanguageSwitcher } from '@/components/language-switcher';
 import { PushBootstrap } from '@/components/push-bootstrap';
 import { ThemePicker } from '@/components/theme-picker';
 import { useTranslation } from 'react-i18next';
@@ -78,7 +84,7 @@ interface NavSection {
    * here without gating the module server-side would leave its routes, crons
    * and boot hooks live.
    */
-  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS';
+  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR';
 }
 
 const flagEnabled = (flag?: string): boolean =>
@@ -90,6 +96,9 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'POS',
     items: [
       { to: '/pos/terminal', label: 'POS Terminal', icon: Coffee, permission: PERMISSIONS.pos.checkout },
+      { to: '/pos/kds', label: 'Kitchen Display', icon: ChefHat, permission: PERMISSIONS.pos.kds },
+      { to: '/pos/kitchen-stations', label: 'Kitchen Stations', icon: UtensilsCrossed, permission: PERMISSIONS.pos.override },
+      { to: '/pos/kds-reports', label: 'Kitchen Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports },
       { to: '/pos/cash-registers', label: 'Cash Registers', icon: Banknote, permission: PERMISSIONS.cashSession.read },
       { to: '/pos/receipts', label: 'POS Receipts', icon: ScrollText, permission: PERMISSIONS.pos.read },
       { to: '/pos/reports', label: 'POS Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports },
@@ -119,6 +128,13 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: 'CRM',
+    items: [
+      { to: '/crm', label: 'CRM Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.crm.dashboardRead },
+      { to: '/crm/deals', label: 'Deals', icon: Handshake, permission: PERMISSIONS.crm.dealRead },
+    ],
+  },
+  {
     title: 'Inventory',
     items: [
       { to: '/inventory', label: 'Stock Levels', icon: Package, permission: 'inventory:read' },
@@ -135,6 +151,52 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/beverage', label: 'Alcohol Dashboard', icon: BarChart3, permission: PERMISSIONS.beverage.read },
       { to: '/beverage/count', label: 'Bottle Count', icon: Scale, permission: PERMISSIONS.beverage.count },
+    ],
+  },
+  {
+    title: 'Rentals',
+    flag: 'VITE_ENABLE_RENTAL',
+    items: [
+      { to: '/rental', label: 'Dashboard', icon: CalendarDays, permission: PERMISSIONS.rental.read },
+      { to: '/rental/agreements', label: 'Agreements', icon: FileText, permission: PERMISSIONS.rental.read },
+      { to: '/rental/units', label: 'Rental Units', icon: Boxes, permission: PERMISSIONS.rental.read },
+      { to: '/rental/catalog', label: 'Rates & Packages', icon: Package, permission: PERMISSIONS.rental.read },
+      { to: '/rental/returns', label: 'Returns', icon: ClipboardCheck, permission: PERMISSIONS.rental.read },
+      { to: '/rental/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.rental.read },
+    ],
+  },
+  {
+    title: 'Repair & Maintenance',
+    flag: 'VITE_ENABLE_REPAIR',
+    items: [
+      { to: '/repair', label: 'Dashboard', icon: Wrench, permission: PERMISSIONS.repair.read },
+      { to: '/repair/orders', label: 'Repair Orders', icon: FileText, permission: PERMISSIONS.repair.read },
+      { to: '/repair/jobs', label: 'Work Orders', icon: ClipboardCheck, permission: PERMISSIONS.repair.read },
+      { to: '/repair/technicians', label: 'Technicians', icon: Users, permission: PERMISSIONS.repair.read },
+      { to: '/repair/labour', label: 'Labour Catalog', icon: Timer, permission: PERMISSIONS.repair.read },
+      { to: '/repair/warranties', label: 'Warranties', icon: ShieldCheck, permission: PERMISSIONS.repair.read },
+      { to: '/repair/contracts', label: 'Service Contracts', icon: Handshake, permission: PERMISSIONS.repair.read },
+      { to: '/repair/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.repair.read },
+    ],
+  },
+  {
+    title: 'Workforce (HR)',
+    flag: 'VITE_ENABLE_HR',
+    items: [
+      { to: '/hr', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.hr.read },
+      { to: '/hr/employees', label: 'Employees', icon: Users, permission: PERMISSIONS.hr.employee },
+      { to: '/hr/departments', label: 'Departments', icon: Building2, permission: PERMISSIONS.hr.employee },
+      { to: '/hr/positions', label: 'Positions', icon: Briefcase, permission: PERMISSIONS.hr.employee },
+      { to: '/hr/shifts', label: 'Shifts', icon: Clock, permission: PERMISSIONS.hr.attendance },
+      { to: '/hr/attendance', label: 'Attendance', icon: ClipboardCheck, permission: PERMISSIONS.hr.attendance },
+      { to: '/hr/timesheets', label: 'Timesheets', icon: FileClock, permission: PERMISSIONS.hr.timesheet },
+      { to: '/hr/leave', label: 'Leave', icon: CalendarDays, permission: PERMISSIONS.hr.leave },
+      { to: '/hr/holidays', label: 'Holidays', icon: CalendarHeart, permission: PERMISSIONS.hr.holiday },
+      { to: '/hr/payroll', label: 'Payroll', icon: Wallet, permission: PERMISSIONS.hr.payroll },
+      { to: '/hr/payslips', label: 'Payslips', icon: FileText, permission: PERMISSIONS.hr.payslip },
+      { to: '/hr/advances-loans', label: 'Advances & Loans', icon: HandCoins, permission: PERMISSIONS.hr.payroll },
+      { to: '/hr/payroll/settings', label: 'Payroll Settings', icon: SettingsIcon, permission: PERMISSIONS.hr.payroll },
+      { to: '/hr/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.hr.report },
     ],
   },
   {
@@ -199,6 +261,18 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/fixed-assets/categories', label: 'Categories', icon: Tag, permission: PERMISSIONS.assetCategory.read },
     ],
   },
+  {
+    title: 'Manufacturing',
+    flag: 'VITE_ENABLE_MANUFACTURING',
+    items: [
+      { to: '/manufacturing', label: 'Production', icon: Factory, permission: PERMISSIONS.productionOrder.read },
+      { to: '/manufacturing/orders', label: 'Orders', icon: ClipboardList, permission: PERMISSIONS.productionOrder.read },
+      { to: '/manufacturing/boms', label: 'Recipes (BOM)', icon: ScrollText, permission: PERMISSIONS.bom.read },
+      { to: '/manufacturing/planning', label: 'Planning', icon: CalendarDays, permission: PERMISSIONS.productionRequest.read },
+      { to: '/manufacturing/resources', label: 'Work Centres', icon: Boxes, permission: PERMISSIONS.workCenter.read },
+      { to: '/manufacturing/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.production.report },
+    ],
+  },
   // {
   //   title: 'Platform',
   //   items: [
@@ -232,7 +306,6 @@ export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const { t } = useTranslation();
-  const { theme, toggle } = useTheme();
   const { theme: sb } = useSidebarTheme();
   const user = useAuthStore((s) => s.user);
   const hasPermission = useAuthStore((s) => s.hasPermission);
@@ -496,33 +569,7 @@ export function AppShell() {
             </div>
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="hidden gap-2 sm:inline-flex"
-              onClick={() => setSearchOpen(true)}
-            >
-              <Search className="h-4 w-4" />
-              <span className="text-xs text-muted-foreground">Search</span>
-              <kbd className="ml-2 hidden rounded border bg-muted px-1.5 text-[10px] font-medium lg:inline">
-                ⌘K
-              </kbd>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="sm:hidden"
-              onClick={() => setSearchOpen(true)}
-              aria-label="Search"
-            >
-              <Search className="h-5 w-5" />
-            </Button>
-            <NotificationsBell />
-            <LanguageSwitcher />
             <ThemePicker />
-            <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle dark mode">
-              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
             <span className="hidden text-sm text-muted-foreground sm:inline">
               {user?.firstName}
             </span>

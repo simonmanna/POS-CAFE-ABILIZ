@@ -28,6 +28,11 @@ class RefundInvoiceDto {
   lines?: RefundLineDto[];
 }
 
+class FireKitchenDto {
+  @ApiProperty({ required: false, description: 'Fire only this course (1=starter, 2=main, …). Omit to fire all pending items.' })
+  @IsOptional() @IsNumber() course?: number;
+}
+
 @ApiTags('pos/orders')
 @ApiBearerAuth()
 @Controller('pos/orders')
@@ -47,6 +52,19 @@ export class PosOrdersController {
   @RequirePermissions('pos:read')
   byTable(@Param('tableId') tableId: string) {
     return this.orders.getOpenOrderForTable(tableId);
+  }
+
+  /** Live open-orders feed + count for the Odoo-style Orders panel. Declared above
+   *  `:id` so "open" isn't captured as an order id. */
+  @Get('open')
+  @RequirePermissions('pos:read')
+  listOpen(
+    @Query('orderType') orderType?: string,
+    @Query('cashSessionId') cashSessionId?: string,
+    @Query('branchId') branchId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.orders.listOpenOrders({ orderType, cashSessionId, branchId, search });
   }
 
   @Get(':id')
@@ -77,8 +95,8 @@ export class PosOrdersController {
 
   @Post(':id/fire-kitchen')
   @RequirePermissions('pos:checkout')
-  fireKitchen(@Param('id') id: string) {
-    return this.orders.fireKitchen(id);
+  fireKitchen(@Param('id') id: string, @Body() body: FireKitchenDto) {
+    return this.orders.fireKitchen(id, { course: body?.course ?? null });
   }
 
   @Post(':id/move')

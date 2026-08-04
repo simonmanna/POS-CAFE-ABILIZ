@@ -19,6 +19,10 @@ import { SyncModule } from './modules/sync/sync.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { FixedAssetModule } from './modules/fixed-asset/fixed-asset.module';
 import { TaskModule } from './modules/task/task.module';
+import { ManufacturingModule } from './modules/manufacturing/manufacturing.module';
+import { RentalModule } from './modules/rental/rental.module';
+import { RepairModule } from './modules/repair/repair.module';
+import { HrModule } from './modules/hr/hr.module';
 // import { SchoolModule } from './modules/school/school.module'; // disabled: DI wiring issues, not needed for POS testing
 
 /**
@@ -71,6 +75,10 @@ const enabled = (flag: string): boolean => process.env[flag] === 'true';
     ...(enabled('ENABLE_BEVERAGE') ? [BeverageModule] : []),
     ...(enabled('ENABLE_ASSETS') ? [FixedAssetModule] : []),
     ...(enabled('ENABLE_TASKS') ? [TaskModule] : []),
+    ...(enabled('ENABLE_MANUFACTURING') ? [ManufacturingModule] : []),
+    ...(enabled('ENABLE_RENTAL') ? [RentalModule] : []),
+    ...(enabled('ENABLE_REPAIR') ? [RepairModule] : []),
+    ...(enabled('ENABLE_HR') ? [HrModule] : []),
   ],
   controllers: [AppController, MetricsController],
 })

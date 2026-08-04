@@ -19,6 +19,8 @@ export interface Product {
   productionUomId?: string | null;
   uomConversion?: string | null;
   reorderQty?: string | null;
+  /** KDS routing: KitchenStation.code. */
+  station?: string | null;
   allowFractionalSale?: boolean;
   minSaleQty?: string | null;
   maxSaleQty?: string | null;
@@ -93,6 +95,8 @@ export interface CreateProductInput {
   productionUomId?: string;
   uomConversion?: number;
   reorderQty?: number;
+  /** KDS routing: KitchenStation.code. */
+  station?: string;
   allowFractionalSale?: boolean;
   minSaleQty?: number;
   maxSaleQty?: number;

@@ -40,6 +40,8 @@ interface ResolvedLine {
   accompanimentNames: string[];
   accompanimentOptionIds: string[];
   station: 'bar' | 'kitchen' | 'cafe';
+  /** P5 course grouping (1=starter, 2=main, …). */
+  course?: number | null;
 }
 
 /**
@@ -101,6 +103,58 @@ export class PosOrdersService {
       take: 200,
       include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' } } },
     });
+  }
+
+  /**
+   * Live open-orders feed for the Odoo-style Orders panel: every un-billed order
+   * (any type — dine-in, takeaway, delivery, tableless walk-in/retail) with
+   * table / waiter / customer names resolved. Cheap: reads the Order.totalAmount
+   * snapshot only (no items), index-backed by [organizationId, status]. Returns
+   * `{ count, rows }` so the nav badge and the panel share one query.
+   */
+  async listOpenOrders(filter: { orderType?: string; cashSessionId?: string; branchId?: string; search?: string } = {}) {
+    const orgId = this.tenant.organizationId;
+    const orders = await this.prisma.client.order.findMany({
+      where: {
+        organizationId: orgId,
+        status: { in: TABLE_HELD_ORDER_STATUSES as any },
+        invoiceId: null,
+        ...(filter.orderType ? { orderType: filter.orderType as any } : {}),
+        ...(filter.cashSessionId ? { cashSessionId: filter.cashSessionId } : {}),
+        ...(filter.branchId ? { branchId: filter.branchId } : {}),
+        ...(filter.search ? { orderNumber: { contains: filter.search, mode: 'insensitive' as any } } : {}),
+      },
+      orderBy: { openedAt: 'desc' },
+      take: 200,
+    });
+
+    const tableIds = new Set(orders.map((o: any) => o.tableId).filter(Boolean));
+    const waiterIds = new Set(orders.map((o: any) => o.waiterId).filter(Boolean));
+    const partnerIds = new Set(orders.map((o: any) => o.partnerId).filter(Boolean));
+    const [tables, waiters, partners] = await Promise.all([
+      tableIds.size ? this.prisma.client.posTable.findMany({ where: { id: { in: Array.from(tableIds) as string[] } }, select: { id: true, name: true } }) : Promise.resolve([]),
+      waiterIds.size ? this.prisma.client.user.findMany({ where: { id: { in: Array.from(waiterIds) as string[] } }, select: { id: true, firstName: true, lastName: true } }) : Promise.resolve([]),
+      partnerIds.size ? this.prisma.client.partner.findMany({ where: { id: { in: Array.from(partnerIds) as string[] } }, select: { id: true, name: true } }) : Promise.resolve([]),
+    ]);
+    const tableMap = new Map((tables as any[]).map((t) => [t.id, t.name]));
+    const waiterMap = new Map((waiters as any[]).map((w) => [w.id, `${w.firstName}${w.lastName ? ' ' + w.lastName : ''}`]));
+    const partnerMap = new Map((partners as any[]).map((p) => [p.id, p.name]));
+
+    const rows = (orders as any[]).map((o) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      orderType: o.orderType ?? null,
+      status: o.status,
+      openedAt: o.openedAt ?? o.createdAt,
+      tableId: o.tableId ?? null,
+      tableName: o.tableId ? (tableMap.get(o.tableId) ?? null) : null,
+      waiterName: o.waiterId ? (waiterMap.get(o.waiterId) ?? null) : null,
+      partnerId: o.partnerId ?? null,
+      customerName: o.partnerId ? (partnerMap.get(o.partnerId) ?? null) : null,
+      guestCount: o.guestCount ?? null,
+      totalAmount: Number(o.totalAmount ?? 0),
+    }));
+    return { count: rows.length, rows };
   }
 
   // ─── Lifecycle ───────────────────────────────────────────────────────────────
@@ -189,6 +243,7 @@ export class PosOrdersService {
       accompanimentNames?: string[];
       accompanimentOptionIds?: string[];
       modifiers?: Array<{ modifierId: string; name: string; priceDelta: number }>;
+      course?: number | null;
     }>;
   }) {
     const orgId = this.tenant.organizationId;
@@ -212,6 +267,7 @@ export class PosOrdersService {
       variantId: l.variantId ?? undefined,
       variantName: l.variantName ?? undefined,
       station: 'cafe',
+      course: l.course ?? null,
     }));
     return this.prisma.client.$transaction(async (tx: any) => {
       const orderNumber = await this.nextOrderNumber(tx);
@@ -374,7 +430,7 @@ export class PosOrdersService {
    * Fire the order's un-printed item quantities (delta) to the KDS, one ticket
    * per station. Marks each item sent so re-firing only sends genuinely new qty.
    */
-  async fireKitchen(orderId: string) {
+  async fireKitchen(orderId: string, opts: { course?: number | null } = {}) {
     const orgId = this.tenant.organizationId;
     const order = await this.prisma.client.order.findFirst({ where: { id: orderId, organizationId: orgId } });
     if (!order) throw new NotFoundException('Order not found');
@@ -389,27 +445,41 @@ export class PosOrdersService {
       // old `if (!it.productId) continue` silently dropped every menu-driven order
       // — the kitchen never saw it. Only lines with neither id are skipped.
       if (!it.productId && !it.menuItemId) continue;
+      // P5 — "Fire course": when a course is given, only fire that course's lines
+      // (leave earlier/later courses held). Uncoursed lines always fire.
+      if (opts.course != null && it.course != null && it.course !== opts.course) continue;
       const printed = Number(it.kitchenPrintedQty ?? 0);
       const delta = Number(it.quantity) - printed;
       if (delta > 0) deltas.push({ item: it, delta });
     }
     if (deltas.length === 0) return { ticketIds: [], count: 0, message: 'No new items to send' };
 
-    const stationCache = new Map<string, 'bar' | 'kitchen' | 'cafe'>();
+    const stationCache = new Map<string, string>();
+    const prepCache = new Map<string, number | null>();
     const kdsItems: Array<Record<string, any>> = [];
     for (const { item, delta } of deltas) {
       kdsItems.push({
         productId: item.productId ?? item.menuItemId,
         productName: item.description,
         quantity: delta,
-        modifiers: (item.modifiers ?? []).map((m: any) => ({ name: m.name, priceDelta: Number(m.priceDelta) })),
+        // Include the kitchen print name so the KDS shows the kitchen-facing
+        // modifier label (parity with the pre-payment send-to-kitchen path).
+        modifiers: (item.modifiers ?? []).map((m: any) => ({ name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, priceDelta: Number(m.priceDelta) })),
         notes: item.note ?? null,
         station: await this.stationForOrderItem(item, stationCache),
+        variantName: item.variantName ?? undefined,
         accompanimentNames: item.accompanimentNames ?? [],
+        prepTime: await this.prepTimeForItem(item, prepCache),
+        course: item.course ?? null,
       });
     }
 
-    const ticketIds = await this.kds.createTicketsForSale({ orderId, label: order.orderNumber, items: kdsItems as any });
+    const ticketIds = await this.kds.createTicketsForSale({
+      orderId,
+      label: order.orderNumber,
+      orderType: order.orderType,
+      items: kdsItems as any,
+    });
 
     const now = new Date();
     for (const { item } of deltas) {
@@ -449,23 +519,39 @@ export class PosOrdersService {
   }
 
   /**
-   * Resolve the KDS/kitchen station for an order line. Stock-product lines use
-   * `Product.station` directly; menu-item lines (no single productId) derive it
-   * from the recipe's products (`MenuProduct` → `Product.station`), picking a
-   * primary station. Results are cached per invocation to avoid N+1 lookups.
+   * Resolve the KDS/kitchen station CODE for an order line. Precedence:
+   *   1. MenuItem.stationCode override (explicit, wins),
+   *   2. stock-product line → Product.station,
+   *   3. menu-item line → primary station across the recipe's products,
+   *   4. the org's default KitchenStation (fallback).
+   * Codes are configurable per org (KitchenStation table). Results are cached
+   * per invocation to avoid N+1 lookups.
    */
   private async stationForOrderItem(
     it: any,
-    cache: Map<string, 'bar' | 'kitchen' | 'cafe'>,
-  ): Promise<'bar' | 'kitchen' | 'cafe'> {
+    cache: Map<string, string>,
+  ): Promise<string> {
+    // 1. Explicit menu-item override.
+    if (it.menuItemId) {
+      const okey = `mo:${it.menuItemId}`;
+      let override = cache.get(okey);
+      if (override === undefined) {
+        const mi = await this.prisma.client.menuItem.findFirst({ where: { id: it.menuItemId }, select: { stationCode: true } });
+        override = ((mi as any)?.stationCode ?? '') as string;
+        cache.set(okey, override);
+      }
+      if (override) return override;
+    }
+    // 2. Stock product line.
     if (it.productId) {
       const key = `p:${it.productId}`;
       if (cache.has(key)) return cache.get(key)!;
       const p = await this.prisma.client.product.findFirst({ where: { id: it.productId }, select: { station: true } });
-      const st = ((p as any)?.station ?? 'cafe') as 'bar' | 'kitchen' | 'cafe';
+      const st = ((p as any)?.station || (await this.defaultStationCode(cache)));
       cache.set(key, st);
       return st;
     }
+    // 3. Menu-item line derives from the recipe.
     if (it.menuItemId) {
       const key = `m:${it.menuItemId}`;
       if (cache.has(key)) return cache.get(key)!;
@@ -473,26 +559,49 @@ export class PosOrdersService {
         where: { menuItemId: it.menuItemId, organizationId: this.tenant.organizationId },
         include: { product: { select: { station: true } } },
       });
-      const stations = (recipe as any[]).map((r) => (r.product?.station ?? 'cafe') as string);
-      const st = this.pickPrimaryStation(stations);
+      const stations = (recipe as any[]).map((r) => (r.product?.station ?? '') as string).filter(Boolean);
+      const st = stations.length ? this.pickPrimaryStation(stations) : await this.defaultStationCode(cache);
       cache.set(key, st);
       return st;
     }
-    return 'cafe';
+    return this.defaultStationCode(cache);
   }
 
-  /** Majority station across a menu item's recipe; ties prefer kitchen > bar > cafe. */
-  private pickPrimaryStation(stations: string[]): 'bar' | 'kitchen' | 'cafe' {
+  /** The org's default KitchenStation code (routing fallback). Cached per pass. */
+  private async defaultStationCode(cache: Map<string, string>): Promise<string> {
+    const k = '__default__';
+    const cached = cache.get(k);
+    if (cached !== undefined) return cached;
+    // Wrap in the tenant transaction so app.org_id is set — the KitchenStation
+    // tenant-isolation policy then resolves the default whether RLS is on or off.
+    const def = await this.prisma.client.$transaction((tx: any) =>
+      tx.kitchenStation.findFirst({ where: { isDefault: true }, select: { code: true } }));
+    const code = ((def as any)?.code ?? 'cafe') as string;
+    cache.set(k, code);
+    return code;
+  }
+
+  /** Most-common station code across a menu item's recipe; ties → first seen. */
+  private pickPrimaryStation(stations: string[]): string {
     if (!stations.length) return 'cafe';
     const counts = new Map<string, number>();
     for (const s of stations) counts.set(s, (counts.get(s) ?? 0) + 1);
-    let best: 'bar' | 'kitchen' | 'cafe' = 'cafe';
+    let best = stations[0];
     let bestCount = -1;
-    for (const s of ['kitchen', 'bar', 'cafe'] as const) {
-      const c = counts.get(s) ?? 0;
+    for (const [s, c] of counts) {
       if (c > bestCount) { best = s; bestCount = c; }
     }
     return best;
+  }
+
+  /** Prep-time hint (minutes) for a menu-item line, for KDS expected-ready. */
+  private async prepTimeForItem(it: any, cache: Map<string, number | null>): Promise<number | null> {
+    if (!it.menuItemId) return null;
+    if (cache.has(it.menuItemId)) return cache.get(it.menuItemId)!;
+    const mi = await this.prisma.client.menuItem.findFirst({ where: { id: it.menuItemId }, select: { preparationTime: true } });
+    const t = ((mi as any)?.preparationTime ?? null) as number | null;
+    cache.set(it.menuItemId, t);
+    return t;
   }
 
   /** Resolve a menu item's configured tax category (H4). Cached per resolve pass. */
@@ -606,6 +715,7 @@ export class PosOrdersService {
         accompanimentNames,
         accompanimentOptionIds: l.accompanimentOptionIds ?? [],
         station: await stationFor(productId),
+        course: l.course ?? null,
       });
     }
 
@@ -629,6 +739,13 @@ export class PosOrdersService {
     return expanded;
   }
 
+  /** Stable per-line identity for preserving kitchen lifecycle across a replace. */
+  private lineKey(it: { productId?: string | null; menuItemId?: string | null; variantName?: string | null; description?: string | null }): string {
+    if (it.productId) return `p:${it.productId}`;
+    if (it.menuItemId) return `m:${it.menuItemId}|${it.variantName ?? ''}`;
+    return `d:${it.description ?? ''}`;
+  }
+
   /** Map an existing OrderItem row back to a ResolvedLine (for merge). */
   private itemToResolved(it: any): ResolvedLine {
     return {
@@ -650,6 +767,7 @@ export class PosOrdersService {
       accompanimentNames: it.accompanimentNames ?? [],
       accompanimentOptionIds: it.accompanimentOptionIds ?? [],
       station: 'cafe',
+      course: it.course ?? null,
     };
   }
 
@@ -667,13 +785,19 @@ export class PosOrdersService {
     const orgId = this.tenant.organizationId;
 
     let baseline: ResolvedLine[] = [];
-    const lifecycleByPid = new Map<string, any>();
+    // Preserve each line's kitchen lifecycle across a replace/auto-save. Keyed by
+    // a stable line identity — productId for stock lines, menuItemId+variant for
+    // menu lines — so menu-item lines (no productId) no longer reset their
+    // kitchenStatus/printed counters (and re-fire) on every save.
+    const lifecycleByKey = new Map<string, any>();
     if (opts.append) {
       const existing = await tx.orderItem.findMany({ where: { orderId, cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' } });
       baseline = existing.map((it: any) => this.itemToResolved(it));
+      // Preserve the already-fired kitchen state of existing lines across the append.
+      for (const o of existing) lifecycleByKey.set(this.lineKey(o), o);
     } else if (opts.replace) {
-      const old = await tx.orderItem.findMany({ where: { orderId }, select: { id: true, productId: true, kitchenPrintCount: true, kitchenLastPrintedAt: true, kitchenPrintedQty: true, cancelPrintCount: true, cancelLastPrintedAt: true, lastKitchenPrintedById: true, kitchenStatus: true } });
-      for (const o of old) if (o.productId) lifecycleByPid.set(o.productId, o);
+      const old = await tx.orderItem.findMany({ where: { orderId }, select: { id: true, productId: true, menuItemId: true, variantName: true, description: true, kitchenPrintCount: true, kitchenLastPrintedAt: true, kitchenPrintedQty: true, cancelPrintCount: true, cancelLastPrintedAt: true, lastKitchenPrintedById: true, kitchenStatus: true } });
+      for (const o of old) lifecycleByKey.set(this.lineKey(o), o);
     }
     const all = [...baseline, ...resolved];
 
@@ -701,7 +825,7 @@ export class PosOrdersService {
 
     for (let i = 0; i < totals.prepared.length; i++) {
       const p = totals.prepared[i];
-      const lc = p.productId ? lifecycleByPid.get(p.productId) : null;
+      const lc = lifecycleByKey.get(this.lineKey(p));
       const src = all[i];
       const item = await tx.orderItem.create({
         data: {
@@ -723,6 +847,7 @@ export class PosOrdersService {
           note: src?.note ?? null,
           accompanimentNames: src?.accompanimentNames ?? [],
           accompanimentOptionIds: src?.accompanimentOptionIds ?? [],
+          course: src?.course ?? null,
           lineNumber: p.lineNumber,
           kitchenStatus: lc?.kitchenStatus ?? 'pending',
           kitchenPrintCount: lc?.kitchenPrintCount ?? 0,

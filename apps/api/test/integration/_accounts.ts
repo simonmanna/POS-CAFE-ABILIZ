@@ -29,6 +29,7 @@ export type TestAccountCategory =
   | 'other_expense'
   | 'current_asset'
   | 'current_liability'
+  | 'work_in_progress'
   | 'equity';
 
 /**

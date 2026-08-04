@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { resolvePosStockLocation } from '../../inventory/pos-stock-location';
 import { EVENTS } from '@erp/shared';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
@@ -77,14 +78,17 @@ export class PosInvoiceService {
    * post its own GL (Dr AR / Cr Revenue+Tax), deduct inventory, and link it back
    * to the order. Idempotent — a second call returns the existing invoice.
    */
-  async generateInvoice(orderId: string, dto: GenerateInvoiceDto = {}) {
+  async generateInvoice(orderId: string, dto: GenerateInvoiceDto = {}, externalTx?: any) {
     const orgId = this.tenant.organizationId;
-    const order = await this.prisma.client.order.findFirst({ where: { id: orderId, organizationId: orgId } });
+    // When a caller already holds a transaction (rental checkout, split bill),
+    // read through it so uncommitted rows (e.g. a fresh order) are visible.
+    const db = externalTx ?? this.prisma.client;
+    const order = await db.order.findFirst({ where: { id: orderId, organizationId: orgId } });
     if (!order) throw new NotFoundException('Order not found');
     if (order.status === 'cancelled') throw new BadRequestException('Cannot bill a cancelled order');
     if (order.invoiceId) return this.findInvoice(order.invoiceId); // idempotent
 
-    const items = await this.prisma.client.orderItem.findMany({
+    const items = await db.orderItem.findMany({
       where: { orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
     });
     if (!items.length) throw new BadRequestException('Order has no items to bill');
@@ -140,7 +144,7 @@ export class PosInvoiceService {
 
     const year = new Date().getUTCFullYear();
 
-    const invoice = await this.prisma.client.$transaction(async (tx: any) => {
+    const run = async (tx: any) => {
       // Concurrency guard: lock the order row so two terminals can't both bill
       // the same order (the order.invoiceId fast-path at the top is read outside
       // this tx). Re-check invoiceId under the lock and replay if already billed.
@@ -255,29 +259,37 @@ export class PosInvoiceService {
       });
 
       return tx.invoice.findFirst({ where: { id: inv.id }, include: { items: { orderBy: { lineNumber: 'asc' } } } });
-    });
+    };
 
-    await this.prisma.client.order.update({ where: { id: orderId }, data: { invoiceId: invoice.id, status: 'served' } });
+    // Nested transaction: reuse the caller's tx when one is supplied (rental
+    // checkout), otherwise own a fresh transaction.
+    const invoice = externalTx ? await run(externalTx) : await this.prisma.client.$transaction((tx: any) => run(tx));
 
-    // Hold the billed quantities against available-to-promise until the async
-    // stock job actually decrements them. Without this, ATP over-promises for
-    // the whole window between billing and deduction. Runs after the invoice tx
-    // commits and is best-effort by design: a reservation is an advisory number,
-    // and a sale is never blocked by inventory bookkeeping.
-    await this.reserveForInvoice(invoice, orderId).catch((e: any) =>
-      this.logger.warn(`reservation skipped for ${invoice.invoiceNumber}: ${e?.message ?? e}`),
-    );
+    // Post-commit side-effects are skipped when we're inside a caller's tx —
+    // the outer transaction owns the order status once it commits.
+    if (!externalTx) {
+      await this.prisma.client.order.update({ where: { id: orderId }, data: { invoiceId: invoice.id, status: 'served' } });
 
-    // M4 — fiscalization seam. Jurisdictions such as UG (EFRIS) require each
-    // invoice be signed by a fiscal device and carry a fiscal code/QR. Runs
-    // best-effort and gated by FISCAL_PROVIDER (default 'none' = disabled) so it
-    // never blocks a sale; wire a real provider inside fiscalizeInvoice().
-    await this.fiscalizeInvoice(invoice).catch((e: any) => this.logger.warn(`fiscalization skipped for ${invoice.invoiceNumber}: ${e?.message ?? e}`));
+      // Hold the billed quantities against available-to-promise until the async
+      // stock job actually decrements them. Without this, ATP over-promises for
+      // the whole window between billing and deduction. Runs after the invoice tx
+      // commits and is best-effort by design: a reservation is an advisory number,
+      // and a sale is never blocked by inventory bookkeeping.
+      await this.reserveForInvoice(invoice, orderId).catch((e: any) =>
+        this.logger.warn(`reservation skipped for ${invoice.invoiceNumber}: ${e?.message ?? e}`),
+      );
 
-    this.events.publish(EVENTS.PosOrderInvoiced, {
-      organizationId: orgId, orderId, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
-    });
-    await this.audit.record({ entity: 'Invoice', entityId: invoice.id, action: 'post' as any, newValues: { kind: 'invoice_generated', orderId, total: invoice.totalAmount.toString() } });
+      // M4 — fiscalization seam. Jurisdictions such as UG (EFRIS) require each
+      // invoice be signed by a fiscal device and carry a fiscal code/QR. Runs
+      // best-effort and gated by FISCAL_PROVIDER (default 'none' = disabled) so it
+      // never blocks a sale; wire a real provider inside fiscalizeInvoice().
+      await this.fiscalizeInvoice(invoice).catch((e: any) => this.logger.warn(`fiscalization skipped for ${invoice.invoiceNumber}: ${e?.message ?? e}`));
+
+      this.events.publish(EVENTS.PosOrderInvoiced, {
+        organizationId: orgId, orderId, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber,
+      });
+      await this.audit.record({ entity: 'Invoice', entityId: invoice.id, action: 'post' as any, newValues: { kind: 'invoice_generated', orderId, total: invoice.totalAmount.toString() } });
+    }
     return invoice;
   }
 
@@ -375,6 +387,10 @@ export class PosInvoiceService {
           settledBy: this.tenant.userId ?? null,
           version: { increment: 1 },
           ...(settled ? { paymentMode } : {}),
+          // Record cash physically tendered so the receipt can show the change
+          // given (amountTendered − totalAmount). Only on full settlement; the
+          // value is already quarantined from tenders-sum, so GL/drawer are unaffected.
+          ...(settled && dto.amountTendered != null ? { amountTendered: dto.amountTendered } : {}),
         },
       });
 
@@ -548,7 +564,7 @@ export class PosInvoiceService {
 
       // 2) Restock the sold items (recipe-aware) in the same tx. Paid modifiers
       //    and accompaniments (H3) are restocked too, symmetric with the sale.
-      const warehouse = await tx.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
+      const warehouse = await resolvePosStockLocation(this.prisma, orgId, tx);
       if (warehouse) {
         for (const it of invoice.items as any[]) {
           const ref = `Refund ${invoice.invoiceNumber}`;
@@ -692,7 +708,7 @@ export class PosInvoiceService {
       } as any, tx);
 
       // Restock the refunded quantities (recipe-aware) in the same tx.
-      const warehouse = await tx.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
+      const warehouse = await resolvePosStockLocation(this.prisma, orgId, tx);
       if (warehouse) {
         for (const { src, quantity } of selections) {
           const ref = `Refund ${invoice.invoiceNumber}`;
@@ -971,9 +987,7 @@ export class PosInvoiceService {
     if (mode === 'none') return;
 
     const orgId = this.tenant.organizationId;
-    const warehouse = await this.prisma.client.inventoryLocation.findFirst({
-      where: { organizationId: orgId, type: 'warehouse', isActive: true },
-    });
+    const warehouse = await resolvePosStockLocation(this.prisma, orgId);
     if (!warehouse) return;
 
     const items = orderId
@@ -989,6 +1003,13 @@ export class PosInvoiceService {
     };
 
     for (const it of items as any[]) {
+      // Rental lines never hold ATP: rented stock is moved by the rental
+      // posting service (internal transfer), not by the POS sale path, and the
+      // rental booking calendar owns availability. Repair part lines are the
+      // same: parts are relieved by the repair parts service (StockService.issue
+      // at issue-time), so a repair invoice line must never reserve again. A
+      // defensive re-filter so a mixed cart can never double-reserve.
+      if (it.rentalAgreementLineId || it.repairOrderLineId) continue;
       const lineQty = Number(it.quantity);
       if (it.menuItemId) {
         const menuItem = await this.prisma.client.menuItem.findUnique({
@@ -1109,12 +1130,19 @@ export class PosInvoiceService {
   private async issueStockForItems(items: any[], ctx: StockPostingCtx, tx: any): Promise<number> {
     const orgId = this.tenant.organizationId;
     const db = tx ?? this.prisma.client;
-    const warehouse = await db.inventoryLocation.findFirst({ where: { organizationId: orgId, type: 'warehouse', isActive: true } });
+    const warehouse = await resolvePosStockLocation(this.prisma, orgId, db);
     if (!warehouse) throw new Error('No active warehouse configured — cannot deduct stock');
     const reference = ctx.invoiceNumber;
     const ref = `POS bill ${reference}`;
     let failures = 0;
     for (const it of items) {
+      // Rental lines never enqueue a stock issue: checkout moved the unit via
+      // the rental posting service's internal transfer (RENT-STOCK →
+      // RENT-OUT). Repair part lines are the same: the repair parts service
+      // issues the part through StockService.issue at issue-time, so the
+      // invoice must not issue it a second time. Without this filter the worker
+      // would issue the product again, booking double COGS + double relief.
+      if (it.rentalAgreementLineId || it.repairOrderLineId) continue;
       try {
         if (it.menuItemId) {
           failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx);

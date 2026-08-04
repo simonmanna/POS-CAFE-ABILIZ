@@ -31,6 +31,9 @@ interface Props {
   onLogout: () => void;
   onUserChanged: () => void;
   onOpenHeldOrders?: () => void;
+  /** Odoo-style Orders panel opener + live count for the nav badge. */
+  onOpenOrders?: () => void;
+  ordersCount?: number;
   /** Dine-in: show the table-selector button; takeaway/delivery: hide it. */
   orderType?: 'dine-in' | 'takeaway' | 'delivery';
   /** Extra nodes pinned to the right cluster (e.g. the offline indicator). */
@@ -62,6 +65,8 @@ export const Topbar: React.FC<Props> = ({
   onLogout,
   onUserChanged,
   onOpenHeldOrders,
+  onOpenOrders,
+  ordersCount = 0,
   orderType,
   rightExtras,
   brandTitle = 'Cafe POS',
@@ -98,7 +103,25 @@ export const Topbar: React.FC<Props> = ({
         )}
       </button>
 
-      {/* Held Orders */}
+      {/* Orders (Odoo-style multi-order panel) */}
+      {onOpenOrders && (
+        <button
+          type="button"
+          className="pos-tbl-pill"
+          onClick={onOpenOrders}
+          title="Open orders — resume any order"
+        >
+          <ClipboardList className="h-3.5 w-3.5" />
+          <span>Orders</span>
+          {ordersCount > 0 ? (
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-teal-500 text-white text-[11px] font-bold leading-none">
+              {ordersCount}
+            </span>
+          ) : null}
+        </button>
+      )}
+
+      {/* Held Orders (legacy) */}
       {onOpenHeldOrders && (
         <button
           type="button"

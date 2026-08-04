@@ -277,7 +277,11 @@ export class PosReceiptsService {
     if (Number(inv.taxAmount) > 0) lines.push(`Tax:`.padEnd(R - 10) + fmt(inv.taxAmount).padStart(10));
     lines.push(`TOTAL:`.padEnd(R - 10) + fmt(inv.totalAmount).padStart(10));
     lines.push(`Paid:`.padEnd(R - 10) + fmt(inv.amountPaid).padStart(10));
-    const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
+    // Cash-change: when the customer handed over more than the bill, show the cash
+    // tendered + change returned (Invoice.amountTendered; falls back to Paid = no change).
+    const tendered = Number((inv as any).amountTendered ?? inv.amountPaid);
+    const change = Math.max(0, tendered - Number(inv.totalAmount));
+    if (tendered > Number(inv.amountPaid) + 0.001) lines.push(`Cash tendered:`.padEnd(R - 10) + fmt(tendered).padStart(10));
     if (change > 0) lines.push(`Change:`.padEnd(R - 10) + fmt(change).padStart(10));
     if ((inv as any).discountReason) lines.push(`Why: ${(inv as any).discountReason}`);
     if ((inv as any).discountApprovedBy) lines.push(`Approved: ${(inv as any).discountApprovedBy}`);
@@ -387,7 +391,10 @@ export class PosReceiptsService {
     if (Number(inv.taxAmount) > 0) lines.push(two('Tax:', fmt(inv.taxAmount)));
     lines.push(two('TOTAL:', fmt(inv.totalAmount)));
     lines.push(two('Paid:', fmt(inv.amountPaid)));
-    const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
+    // Cash-change: cash tendered + change returned when the customer overpaid.
+    const tendered = Number((inv as any).amountTendered ?? inv.amountPaid);
+    const change = Math.max(0, tendered - Number(inv.totalAmount));
+    if (tendered > Number(inv.amountPaid) + 0.001) lines.push(two('Cash tendered:', fmt(tendered)));
     if (change > 0) lines.push(two('Change:', fmt(change)));
     lines.push('-'.repeat(W));
     if (isMerchant) {
@@ -553,7 +560,13 @@ export class PosReceiptsService {
         doc.moveDown(0.12);
         doc.text(`Paid:`.padEnd(33) + fmt(inv.amountPaid).padStart(9), 8, doc.y, { width: 210 });
         doc.moveDown(0.12);
-        const change = Math.max(0, Number(inv.amountPaid) - Number(inv.totalAmount));
+        // Cash-change: cash tendered + change returned when the customer overpaid.
+        const tendered = Number((inv as any).amountTendered ?? inv.amountPaid);
+        const change = Math.max(0, tendered - Number(inv.totalAmount));
+        if (tendered > Number(inv.amountPaid) + 0.001) {
+          doc.text(`Cash tendered:`.padEnd(33) + fmt(tendered).padStart(9), 8, doc.y, { width: 210 });
+          doc.moveDown(0.12);
+        }
         doc.text(`Change:`.padEnd(33) + fmt(change).padStart(9), 8, doc.y, { width: 210 });
         doc.moveDown(0.12);
         doc.text(`Mode:`.padEnd(33) + ((inv as any).paymentMode || 'CASH').toUpperCase().padStart(9), 8, doc.y, { width: 210 });

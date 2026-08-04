@@ -24,6 +24,9 @@ import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { SequenceService } from '../../kernel/sequence/sequence.service';
+
+export type KdsPriority = 'normal' | 'rush' | 'vip';
 
 export interface KdsTicketItem {
   productId: string;
@@ -31,21 +34,35 @@ export interface KdsTicketItem {
   quantity: number;
   modifiers: Array<{ name: string; kitchenPrintName?: string | null; priceDelta?: number }>;
   notes: string | null;
-  station: 'bar' | 'kitchen' | 'cafe';
+  /** Configurable KitchenStation.code (was the fixed bar/kitchen/cafe enum). */
+  station: string;
   variantName?: string;
   accompanimentNames?: string[];
+  /** Prep-time hint (minutes) for expected-ready display. */
+  prepTime?: number | null;
+  /** Course grouping (1=starter, 2=main, …) for fire/hold display. */
+  course?: number | null;
 }
 
 export interface KdsTicket {
   id: string;
   invoiceId: string;
   label: string;
-  station: 'bar' | 'kitchen' | 'cafe';
+  /** Short kitchen queue number (K-001). */
+  ticketNo: string | null;
+  station: string;
   status: 'new' | 'preparing' | 'ready' | 'served' | 'cancelled';
+  priority: KdsPriority;
+  orderType: string | null;
   items: KdsTicketItem[];
   startedAt: string | null;
   readyAt: string | null;
   servedAt: string | null;
+  startedBy: string | null;
+  readyBy: string | null;
+  assignedTo: string | null;
+  recallCount: number;
+  recallReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -59,7 +76,20 @@ export class PosKdsService {
     private readonly tenant: TenantContextService,
     private readonly events: EventBus,
     private readonly audit: AuditService,
+    private readonly sequence: SequenceService,
   ) {}
+
+  /** K-### daily-reset queue number. New sequence key per day → restarts at 1. */
+  private async nextTicketNo(): Promise<string> {
+    const d = new Date();
+    const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
+    try {
+      return await this.sequence.next(`kds_ticket:${ymd}`, { prefix: 'K-', padding: 3 });
+    } catch (e: any) {
+      this.logger.warn(`KDS ticket number allocation failed: ${e?.message}`);
+      return '';
+    }
+  }
 
   /**
    * Create one ticket per distinct station that has items. Called from
@@ -70,6 +100,10 @@ export class PosKdsService {
     /** POS Order→Invoice split: the operational Order that fired these tickets. */
     orderId?: string;
     label: string;
+    /** Denormalised Order.orderType (dine_in/takeaway/delivery) for a screen tag. */
+    orderType?: string | null;
+    /** Initial urgency (defaults to normal). */
+    priority?: KdsPriority;
     items: KdsTicketItem[];
   }): Promise<string[]> {
     // Group items by station.
@@ -82,14 +116,18 @@ export class PosKdsService {
     const orgId = this.tenant.organizationId;
     const ids: string[] = [];
     for (const [station, items] of groups) {
+      const ticketNo = await this.nextTicketNo();
       const ticket = await this.prisma.client.kitchenTicket.create({
         data: {
           organizationId: orgId,
           invoiceId: args.invoiceId ?? null,
           orderId: args.orderId ?? null,
           label: args.label,
-          station: station as any,
+          ticketNo: ticketNo || null,
+          station,
           status: 'new',
+          priority: (args.priority ?? 'normal') as any,
+          orderType: args.orderType ?? null,
           items: items as any,
         },
       });
@@ -172,16 +210,16 @@ export class PosKdsService {
   }
 
   /** List tickets for a station, newest first. */
-  async listTickets(station?: 'bar' | 'kitchen' | 'cafe', status?: string): Promise<KdsTicket[]> {
+  async listTickets(station?: string, status?: string): Promise<KdsTicket[]> {
     const orgId = this.tenant.organizationId;
     const tickets = await this.prisma.client.kitchenTicket.findMany({
       where: {
         organizationId: orgId,
-        ...(station ? { station: station as any } : {}),
+        ...(station ? { station } : {}),
         ...(status ? { status: status as any } : {}),
       },
       orderBy: { createdAt: 'desc' },
-      take: 100,
+      take: 200,
     });
     return (tickets as any[]).map(this.serialize);
   }
@@ -193,47 +231,63 @@ export class PosKdsService {
     return this.serialize(t);
   }
 
-  async transition(id: string, action: 'start' | 'ready' | 'serve' | 'cancel'): Promise<KdsTicket> {
+  async transition(
+    id: string,
+    action: 'start' | 'ready' | 'serve' | 'cancel' | 'recall',
+    reason?: string,
+  ): Promise<KdsTicket> {
     const orgId = this.tenant.organizationId;
     const t = await this.prisma.client.kitchenTicket.findFirst({ where: { id, organizationId: orgId } });
     if (!t) throw new NotFoundException('KDS ticket not found');
     const now = new Date();
-    const next = ((): { status: string; timestamp: 'startedAt' | 'readyAt' | 'servedAt' | null } => {
-      switch (action) {
-        case 'start': return { status: 'preparing', timestamp: 'startedAt' };
-        case 'ready': return { status: 'ready', timestamp: 'readyAt' };
-        case 'serve': return { status: 'served', timestamp: 'servedAt' };
-        case 'cancel': return { status: 'cancelled', timestamp: null };
-      }
-    })();
-    if (!next) throw new BadRequestException('Invalid KDS action');
-    // M6 — enforce the lifecycle new → preparing → ready → served; any state may
-    // be cancelled. Reject illegal jumps (e.g. serving a brand-new ticket, or
-    // re-starting one already served/cancelled).
+    const userId = this.tenant.userId ?? null;
+
+    // M6 — enforce the lifecycle new → preparing → ready → served; any live
+    // state may be cancelled; a ready ticket may be RECALLED back to preparing.
     const ALLOWED: Record<string, string[]> = {
       new: ['preparing', 'cancelled'],
       preparing: ['ready', 'cancelled'],
-      ready: ['served', 'cancelled'],
+      ready: ['served', 'preparing', 'cancelled'], // preparing here = recall
       served: [],
       cancelled: [],
     };
-    if (!(ALLOWED[t.status as string] ?? []).includes(next.status)) {
+
+    const data: any = {};
+    let nextStatus: string;
+    switch (action) {
+      case 'start': nextStatus = 'preparing'; data.startedAt = now; data.startedBy = userId; break;
+      case 'ready': nextStatus = 'ready'; data.readyAt = now; data.readyBy = userId; break;
+      case 'serve': nextStatus = 'served'; data.servedAt = now; break;
+      case 'cancel': nextStatus = 'cancelled'; break;
+      case 'recall':
+        if (t.status !== 'ready') throw new BadRequestException('Only a ready ticket can be recalled');
+        nextStatus = 'preparing';
+        data.readyAt = null; data.readyBy = null;
+        data.recallCount = { increment: 1 };
+        data.recallReason = reason ?? null;
+        break;
+      default: throw new BadRequestException('Invalid KDS action');
+    }
+    if (!(ALLOWED[t.status as string] ?? []).includes(nextStatus)) {
       throw new BadRequestException(`Cannot ${action} a ${t.status} ticket`);
     }
-    const updated = await this.prisma.client.kitchenTicket.update({
-      where: { id },
-      data: { status: next.status as any, [next.timestamp || 'updatedAt']: now } as any,
-    });
+    data.status = nextStatus;
+    const updated = await this.prisma.client.kitchenTicket.update({ where: { id }, data });
+
     // Sync kitchen lifecycle timestamps onto the parent Order.
     if (t.orderId) {
       if (action === 'start') {
-        // Set kitchenStartedAt once (first ticket starting).
         await this.prisma.client.order.updateMany({
           where: { id: t.orderId, kitchenStartedAt: null },
-          data: { kitchenStartedAt: now, kitchenStartedBy: this.tenant.userId ?? null },
+          data: { kitchenStartedAt: now, kitchenStartedBy: userId },
         });
-      } else if (next.status === 'ready' || next.status === 'served') {
-        // Check if ALL tickets for this order are now done (ready/served/cancelled).
+      } else if (action === 'recall') {
+        // Order is no longer complete — reopen its kitchen phase.
+        await this.prisma.client.order.updateMany({
+          where: { id: t.orderId },
+          data: { kitchenCompletedAt: null, kitchenCompletedBy: null },
+        });
+      } else if (nextStatus === 'ready' || nextStatus === 'served') {
         const siblings = await this.prisma.client.kitchenTicket.findMany({
           where: { orderId: t.orderId, id: { not: id } },
           select: { status: true },
@@ -244,7 +298,7 @@ export class PosKdsService {
         if (allDone) {
           await this.prisma.client.order.update({
             where: { id: t.orderId },
-            data: { kitchenCompletedAt: now, kitchenCompletedBy: this.tenant.userId ?? null },
+            data: { kitchenCompletedAt: now, kitchenCompletedBy: userId },
           });
         }
       }
@@ -253,14 +307,53 @@ export class PosKdsService {
       entity: 'KitchenTicket',
       entityId: id,
       action: 'update' as any,
-      newValues: { kdsAction: action, status: next.status },
+      newValues: { kdsAction: action, status: nextStatus, ...(reason ? { reason } : {}) },
     });
     this.events.publish('pos.kds.ticket_updated' as any, {
       organizationId: orgId,
       ticketId: id,
       action,
-      status: next.status,
+      status: nextStatus,
     });
+    return this.serialize(updated);
+  }
+
+  /** Advance many tickets at once (peak-hour "Mark Ready"). Skips illegal moves. */
+  async bulkTransition(
+    ids: string[],
+    action: 'start' | 'ready' | 'serve' | 'cancel' | 'recall',
+    reason?: string,
+  ): Promise<{ updated: KdsTicket[]; skipped: string[] }> {
+    const updated: KdsTicket[] = [];
+    const skipped: string[] = [];
+    for (const id of ids) {
+      try {
+        updated.push(await this.transition(id, action, reason));
+      } catch {
+        skipped.push(id);
+      }
+    }
+    return { updated, skipped };
+  }
+
+  /** Set ticket urgency (rush/vip/normal). */
+  async setPriority(id: string, priority: KdsPriority): Promise<KdsTicket> {
+    const orgId = this.tenant.organizationId;
+    const t = await this.prisma.client.kitchenTicket.findFirst({ where: { id, organizationId: orgId } });
+    if (!t) throw new NotFoundException('KDS ticket not found');
+    const updated = await this.prisma.client.kitchenTicket.update({ where: { id }, data: { priority: priority as any } });
+    await this.audit.record({ entity: 'KitchenTicket', entityId: id, action: 'update' as any, newValues: { priority } });
+    this.events.publish('pos.kds.ticket_updated' as any, { organizationId: orgId, ticketId: id, action: 'priority', status: t.status });
+    return this.serialize(updated);
+  }
+
+  /** Claim / assign a ticket to a chef (userId), or clear with null. */
+  async assignChef(id: string, chefUserId: string | null): Promise<KdsTicket> {
+    const orgId = this.tenant.organizationId;
+    const t = await this.prisma.client.kitchenTicket.findFirst({ where: { id, organizationId: orgId } });
+    if (!t) throw new NotFoundException('KDS ticket not found');
+    const updated = await this.prisma.client.kitchenTicket.update({ where: { id }, data: { assignedTo: chefUserId } });
+    this.events.publish('pos.kds.ticket_updated' as any, { organizationId: orgId, ticketId: id, action: 'assign', status: t.status });
     return this.serialize(updated);
   }
 
@@ -270,7 +363,7 @@ export class PosKdsService {
    * KDS page is one of at most 3 monitors (bar, kitchen, cafe), so the
    * load is trivial.
    */
-  async streamTickets(res: Response, station?: 'bar' | 'kitchen' | 'cafe'): Promise<void> {
+  async streamTickets(res: Response, station?: string): Promise<void> {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
@@ -299,12 +392,20 @@ export class PosKdsService {
     id: t.id,
     invoiceId: t.invoiceId,
     label: t.label,
+    ticketNo: t.ticketNo ?? null,
     station: t.station,
     status: t.status,
+    priority: (t.priority ?? 'normal') as KdsPriority,
+    orderType: t.orderType ?? null,
     items: Array.isArray(t.items) ? t.items : [],
     startedAt: t.startedAt?.toISOString?.() ?? null,
     readyAt: t.readyAt?.toISOString?.() ?? null,
     servedAt: t.servedAt?.toISOString?.() ?? null,
+    startedBy: t.startedBy ?? null,
+    readyBy: t.readyBy ?? null,
+    assignedTo: t.assignedTo ?? null,
+    recallCount: t.recallCount ?? 0,
+    recallReason: t.recallReason ?? null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
   });

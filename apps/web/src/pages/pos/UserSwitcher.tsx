@@ -7,10 +7,11 @@
  *   - Logout
  */
 import React, { useState } from 'react';
-import { LogOut, Repeat, ChevronDown, LockKeyhole } from 'lucide-react';
+import { LogOut, Repeat, ChevronDown, LockKeyhole, KeyRound } from 'lucide-react';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import PosLoginScreen from './PosLoginScreen';
 import { PosChangePinDialog } from './PosChangePinDialog';
+import { PosChangePasswordDialog } from './PosChangePasswordDialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +29,7 @@ export const UserSwitcher: React.FC<Props> = ({ onUserChanged }) => {
   const logout = usePosAuthStore((s) => s.logout);
   const [switching, setSwitching] = useState(false);
   const [changePinOpen, setChangePinOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   if (!user && !switching) return null;
 
@@ -58,6 +60,9 @@ export const UserSwitcher: React.FC<Props> = ({ onUserChanged }) => {
             <DropdownMenuItem onSelect={() => setTimeout(() => setChangePinOpen(true), 50)}>
               <LockKeyhole className="mr-2 h-4 w-4" /> Change PIN
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setTimeout(() => setChangePasswordOpen(true), 50)}>
+              <KeyRound className="mr-2 h-4 w-4" /> Change Password
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={handleSwitch}>
               <Repeat className="mr-2 h-4 w-4" /> Switch User
@@ -74,6 +79,9 @@ export const UserSwitcher: React.FC<Props> = ({ onUserChanged }) => {
 
       {/* Change PIN dialog */}
       <PosChangePinDialog open={changePinOpen} onOpenChange={setChangePinOpen} />
+
+      {/* Change Password dialog */}
+      <PosChangePasswordDialog open={changePasswordOpen} onOpenChange={setChangePasswordOpen} />
     </>
   );
 };

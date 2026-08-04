@@ -36,6 +36,8 @@ export interface CartLine {
   comboId?: string;
   /** P10: when true, the line's price is VAT-inclusive. */
   taxInclusive?: boolean;
+  /** P5 course grouping for fire/hold (1=starter, 2=main, 3=dessert, …). */
+  course?: number;
 }
 
 export type PaymentMethod = 'cash' | 'bank' | 'card' | 'mobile_money' | 'store_credit';

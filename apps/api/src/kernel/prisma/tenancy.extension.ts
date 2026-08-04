@@ -143,6 +143,7 @@ const ORG_SCOPED = new Set<string>([
   'MenuItemAccompanimentGroup',
   // POS Phase D — KDS (P5)
   'KitchenTicket',
+  'KitchenStation',
   // POS Phase E — Loyalty + Store Credit + Customer Tabs (P7)
   'LoyaltyProgram',
   'LoyaltyLedger',
@@ -180,6 +181,93 @@ const ORG_SCOPED = new Set<string>([
   'ExpensePayment',
   // Phase 4 — payment terms (AR/AP term master)
   'PaymentTerm',
+  // Manufacturing — BOM + production orders. Omitting any of these is a
+  // cross-tenant data leak, not a bug.
+  'Bom',
+  'BomLine',
+  'ProductionOrder',
+  'ProductionMaterial',
+  'ProductionOutput',
+  // Manufacturing Phase 2 — requests, planning, QC.
+  'ProductionRequest',
+  'ProductionRequestLine',
+  'ProductionPlan',
+  'ProductionPlanLine',
+  'ProductionQcCheck',
+  // Manufacturing Phase 4 — work centres, resources, routing, work orders, costs.
+  'WorkCenter',
+  'Resource',
+  'Routing',
+  'RoutingOperation',
+  'WorkOrder',
+  'ProductionCostComponent',
+  // Rental Management — every rental table carries organizationId. Omitting any
+  // of these is a cross-tenant data leak, not a bug.
+  'LifecycleEvent',
+  'RentalRate',
+  'RentalUnit',
+  'RentalLocationConfig',
+  'RentalPackage',
+  'RentalPackageItem',
+  'RentalReservation',
+  'RentalReservationLine',
+  'RentalAgreement',
+  'RentalAgreementLine',
+  'RentalBooking',
+  'RentalExtension',
+  'RentalSwap',
+  'RentalReturn',
+  'RentalReturnLine',
+  'RentalDamage',
+  'RentalServiceOrder',
+  'RentalDeposit',
+  'RentalDepositMovement',
+  'RentalCustomerScore',
+  // Repair & Maintenance (RMMS) — every repair table carries organizationId.
+  // Omitting any of these is a cross-tenant data leak, not a bug.
+  'RepairOrder',
+  'RepairOrderItem',
+  'RepairDiagnosis',
+  'RepairQuotation',
+  'RepairQuotationLine',
+  'RepairJob',
+  'RepairLabourType',
+  'RepairTechnician',
+  'RepairPart',
+  'RepairStatusHistory',
+  'RepairAttachment',
+  'RepairWarranty',
+  'RepairWarrantyClaim',
+  'RepairServiceContract',
+  'RepairSchedule',
+  // Workforce Management (HR) — every Hr model is org-scoped
+  'HrDepartment',
+  'HrPosition',
+  'HrEmployee',
+  'HrShift',
+  'HrShiftAssignment',
+  'HrAttendance',
+  'HrAttendanceLog',
+  'HrTimesheet',
+  'HrTimesheetEntry',
+  'HrLeaveType',
+  'HrLeaveBalance',
+  'HrLeaveRequest',
+  'HrHoliday',
+  'HrPayrollComponent',
+  'HrTaxTable',
+  'HrTaxBracket',
+  'HrPayrollPeriod',
+  'HrPayrollRun',
+  'HrPayrollItem',
+  'HrPayrollAllowance',
+  'HrPayrollDeduction',
+  'HrPayslip',
+  'HrSalaryAdvance',
+  'HrEmployeeLoan',
+  'HrBankPayment',
+  'HrBankPaymentLine',
+  'HrPerformanceReview',
 ]);
 
 /** Models with a `deletedAt` column → soft-delete filtering on reads/writes. */
@@ -223,6 +311,8 @@ const SOFT_DELETE = new Set<string>([
   'DebitNote',
   // F.7 — Deals are config (transactional records use status)
   'Deal',
+  // F.7 — Activities (CRM timeline) carry deletedAt and are soft-deleted like Deal.
+  'Activity',
   // Standalone expenses — Expense + ExpenseCategory carry deletedAt
   // (ExpensePayment uses a status column, not soft delete).
   'Expense',
@@ -238,8 +328,58 @@ const SOFT_DELETE = new Set<string>([
   'MenuItemAccompanimentGroup',
   'MenuItem',
   'MenuCategory',
+  // POS KDS — configurable kitchen stations are a config master (soft delete)
+  'KitchenStation',
   // Phase 4 — payment terms carry deletedAt (config master)
   'PaymentTerm',
+  // Manufacturing — Bom carries deletedAt (a recipe master). The transactional
+  // three (ProductionOrder/Material/Output) use status, matching StockOut.
+  'Bom',
+  // Phase 2 request/plan headers carry deletedAt (config-like); lines + QC don't.
+  'ProductionRequest',
+  'ProductionPlan',
+  // Phase 4 masters carry deletedAt; operations/work-orders/cost-rows don't.
+  'WorkCenter',
+  'Resource',
+  'Routing',
+  // Rental — rate cards, units and packages are config masters (soft delete);
+  // the transactional records (agreements, bookings, returns, deposits) use
+  // status, matching StockOut.
+  'RentalRate',
+  'RentalUnit',
+  'RentalPackage',
+  // Repair — labour types, technicians, service contracts and preventive
+  // schedules are config masters (soft delete); orders, quotations, jobs,
+  // parts and warranties are transactional and use status.
+  'RepairLabourType',
+  'RepairTechnician',
+  'RepairServiceContract',
+  'RepairSchedule',
+  // Workforce Management (HR) — config masters carry deletedAt. Transactional
+  // lines/logs (attendance logs, tax brackets, payroll allowance/deduction
+  // lines, bank-payment lines) are append-only and have no deletedAt column.
+  'HrDepartment',
+  'HrPosition',
+  'HrEmployee',
+  'HrShift',
+  'HrShiftAssignment',
+  'HrAttendance',
+  'HrTimesheet',
+  'HrTimesheetEntry',
+  'HrLeaveType',
+  'HrLeaveBalance',
+  'HrLeaveRequest',
+  'HrHoliday',
+  'HrPayrollComponent',
+  'HrTaxTable',
+  'HrPayrollPeriod',
+  'HrPayrollRun',
+  'HrPayrollItem',
+  'HrPayslip',
+  'HrSalaryAdvance',
+  'HrEmployeeLoan',
+  'HrBankPayment',
+  'HrPerformanceReview',
 ]);
 
 const WHERE_OPS = new Set<string>([

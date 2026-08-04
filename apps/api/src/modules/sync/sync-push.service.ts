@@ -456,6 +456,31 @@ export class SyncPushService {
         await this.cashRegisters.remove(id);
         return { id };
       }
+      case 'staff.pinChange': {
+        // Self-service PIN change from an enrolled device. The device hashes
+        // the new PIN with bcrypt (same cost as the server) and sends the hash
+        // — the server never sees the plaintext. Only the actor's own row is
+        // touched, scoped to the tenant the device is enrolled in. The next
+        // pull delivers the updated pinHash to every device.
+        const userId = payload.userId ? String(payload.userId) : '';
+        const newPinHash = payload.newPinHash ? String(payload.newPinHash) : '';
+        if (!userId || !newPinHash) {
+          throw new HttpException('staff.pinChange requires userId and newPinHash', 400);
+        }
+        const actorId = op.actorUserId ? String(op.actorUserId) : '';
+        if (actorId && actorId !== userId) {
+          throw new HttpException('staff.pinChange may only change the actor\'s own PIN', 403);
+        }
+        const orgId = this.tenant.organizationId;
+        const updated = await this.prisma.client.user.updateMany({
+          where: { id: userId, organizationId: orgId, isActive: true, deletedAt: null },
+          data: { pinHash: newPinHash },
+        });
+        if (updated.count === 0) {
+          throw new HttpException('User not found in this organization', 404);
+        }
+        return { id: userId };
+      }
       default:
         throw new HttpException(`Unsupported sync op type: ${op.type}`, 400);
     }

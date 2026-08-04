@@ -1,4 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
+import { PERMISSIONS } from '@erp/shared';
+import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 import { AccountingModule } from '../accounting/accounting.module';
 import { ExpensesController } from './expenses.controller';
 import { ExpensesService } from './expenses.service';
@@ -17,4 +19,15 @@ import { ExpenseCategoriesService } from './expense-categories.service';
   providers: [ExpensesService, ExpenseCategoriesService],
   exports: [ExpensesService, ExpenseCategoriesService],
 })
-export class ExpensesModule {}
+export class ExpensesModule implements OnModuleInit {
+  constructor(private readonly registry: ModuleRegistry) {}
+
+  onModuleInit(): void {
+    this.registry.register({
+      name: 'expenses',
+      version: '1.0.0',
+      dependencies: ['core', 'accounting'],
+      permissions: [...Object.values(PERMISSIONS.expense)],
+    });
+  }
+}

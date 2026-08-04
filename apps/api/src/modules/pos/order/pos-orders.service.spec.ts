@@ -49,6 +49,12 @@ describe('PosOrdersService — fireKitchen (menu-item routing)', () => {
           findMany: jest.fn().mockResolvedValue([{ productId: 'p1', product: { station: 'kitchen' } }]),
         },
         product: { findFirst: jest.fn() },
+        // No explicit station override + no prep-time hint on the menu item.
+        menuItem: { findFirst: jest.fn().mockResolvedValue({ stationCode: null, preparationTime: null }) },
+        // Default station fallback (only hit when a line has no derivable station).
+        kitchenStation: { findFirst: jest.fn().mockResolvedValue({ code: 'cafe' }) },
+        // Tenant transaction wrapper — run the callback with the client itself.
+        $transaction: (fn: any) => fn(prisma.client),
       },
     };
     svc = build();
@@ -86,12 +92,28 @@ describe('PosOrdersService — fireKitchen (menu-item routing)', () => {
     expect(res.count).toBe(0);
   });
 
+  it('fires only the requested course when a course filter is given (fire/hold)', async () => {
+    prisma.client.orderItem.findMany.mockResolvedValueOnce([
+      { id: 'i1', productId: 'p1', menuItemId: null, description: 'Soup', quantity: 1, kitchenPrintedQty: 0, note: null, modifiers: [], accompanimentNames: [], course: 1 },
+      { id: 'i2', productId: 'p2', menuItemId: null, description: 'Steak', quantity: 1, kitchenPrintedQty: 0, note: null, modifiers: [], accompanimentNames: [], course: 2 },
+    ]);
+    const res = await svc.fireKitchen('o1', { course: 2 });
+    expect(kds.createTicketsForSale).toHaveBeenCalledTimes(1);
+    const arg = kds.createTicketsForSale.mock.calls[0][0];
+    expect(arg.items).toHaveLength(1);
+    expect(arg.items[0].productName).toBe('Steak');
+    expect(res.count).toBe(1);
+  });
+
   describe('pickPrimaryStation', () => {
     it('returns the majority station', () => {
       expect((svc as any).pickPrimaryStation(['bar', 'bar', 'kitchen'])).toBe('bar');
     });
-    it('breaks ties preferring kitchen > bar > cafe', () => {
-      expect((svc as any).pickPrimaryStation(['bar', 'kitchen'])).toBe('kitchen');
+    it('breaks ties by first-seen (stations are now org-configurable codes)', () => {
+      // The old kitchen>bar>cafe preference no longer applies — station codes are
+      // arbitrary per org, so a tie resolves to the first code encountered.
+      expect((svc as any).pickPrimaryStation(['bar', 'kitchen'])).toBe('bar');
+      expect((svc as any).pickPrimaryStation(['grill', 'pizza'])).toBe('grill');
     });
     it('defaults to cafe when the recipe has no products', () => {
       expect((svc as any).pickPrimaryStation([])).toBe('cafe');

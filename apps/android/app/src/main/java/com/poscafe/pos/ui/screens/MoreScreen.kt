@@ -92,6 +92,20 @@ class MoreViewModel @Inject constructor(
     fun savePrinter(host: String?) {
         config.printerHost = host?.trim()?.takeIf { it.isNotBlank() }
     }
+
+    var pinError by mutableStateOf<String?>(null); private set
+    var pinSaved by mutableStateOf(false); private set
+
+    fun changePin(currentPin: String, newPin: String) {
+        pinError = null
+        pinSaved = false
+        val user = auth.current ?: return
+        viewModelScope.launch {
+            auth.changePin(user.userId, currentPin, newPin)
+                .onSuccess { pinSaved = true }
+                .onFailure { pinError = it.message ?: "Failed to change PIN" }
+        }
+    }
 }
 
 @Composable
@@ -109,6 +123,7 @@ fun MoreScreen(
     var showOpen by remember { mutableStateOf(false) }
     var showClose by remember { mutableStateOf(false) }
     var showMovement by remember { mutableStateOf<String?>(null) } // "pay_in" | "pay_out"
+    var showChangePin by remember { mutableStateOf(false) }
 
     LaunchedEffect(session?.id) { vm.refreshXReport() }
 
@@ -223,6 +238,8 @@ fun MoreScreen(
                 KVRow("Receipt prefix", vm.config.prefix)
                 KVRow("Server", vm.config.serverUrl ?: "—")
                 KVRow("Device ID", vm.config.deviceId?.take(12)?.plus("…") ?: "—")
+                Spacer(Modifier.height(4.dp))
+                SecondaryButton("Change PIN", { showChangePin = true }, Modifier.fillMaxWidth(), height = 44.dp)
             }
         }
 
@@ -252,6 +269,83 @@ fun MoreScreen(
             onDismiss = { showMovement = null },
         )
     }
+
+    if (showChangePin) {
+        ChangePinDialog(
+            onSave = { current, newPin -> vm.changePin(current, newPin) },
+            onDismiss = { showChangePin = false },
+            vm = vm,
+        )
+    }
+}
+
+@Composable
+private fun ChangePinDialog(
+    onSave: (current: String, newPin: String) -> Unit,
+    onDismiss: () -> Unit,
+    vm: MoreViewModel,
+) {
+    var currentPin by remember { mutableStateOf("") }
+    var newPin by remember { mutableStateOf("") }
+    var confirmPin by remember { mutableStateOf("") }
+    val mismatch = newPin.isNotBlank() && newPin != confirmPin
+    val valid = currentPin.length >= 4 && newPin.length >= 4 && !mismatch
+
+    // Close automatically once the async change succeeds.
+    LaunchedEffect(vm.pinSaved) {
+        if (vm.pinSaved) onDismiss()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = MaterialTheme.shapes.extraLarge,
+        title = { Text("Change PIN", style = MaterialTheme.typography.headlineSmall) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = currentPin,
+                    onValueChange = { currentPin = it.filter { c -> c.isDigit() }.take(8) },
+                    label = { Text("Current PIN") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = newPin,
+                    onValueChange = { newPin = it.filter { c -> c.isDigit() }.take(8) },
+                    label = { Text("New PIN (4-8 digits)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = confirmPin,
+                    onValueChange = { confirmPin = it.filter { c -> c.isDigit() }.take(8) },
+                    label = { Text("Confirm new PIN") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    shape = MaterialTheme.shapes.medium,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (mismatch) {
+                    Text("PINs do not match", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                vm.pinError?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                if (vm.pinSaved) {
+                    Text("PIN updated", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = valid,
+                shape = MaterialTheme.shapes.medium,
+                onClick = { onSave(currentPin, newPin) },
+            ) { Text("Change PIN") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @Composable

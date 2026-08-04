@@ -62,6 +62,9 @@ export const COA_TEMPLATE: readonly CoaAccountDef[] = [
   // capitalisation resolved to a summary node with no accounting category.
   { code: '1600', name: 'Fixed Assets', categoryKey: 'non_current_asset', parentCode: '1000', sortOrder: 1600 },
   { code: '1500', name: 'Stock In Transit', categoryKey: 'inventory', parentCode: '1000', sortOrder: 1500 },
+  // Manufacturing work-in-progress. Raw materials debit here on production
+  // consume and clear on production output; the balance is Σ open orders' cost.
+  { code: '1420', name: 'Work In Progress', categoryKey: 'work_in_progress', parentCode: '1000', sortOrder: 1420 },
   // Cash drawer pay-in / pay-out suspense — back-office reclassifies to the
   // real counter-account later (petty cash, safe transfer, misc income…).
   { code: '1900', name: 'Cash Clearing (Suspense)', categoryKey: 'current_asset', parentCode: '1000', sortOrder: 1900 },
@@ -102,11 +105,22 @@ export const COA_TEMPLATE: readonly CoaAccountDef[] = [
   { code: '5100', name: 'Cost of Goods Sold', categoryKey: 'cost_of_goods_sold', parentCode: '5000', sortOrder: 5100 },
   { code: '5200', name: 'Operating Expenses', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5200 },
   { code: '5300', name: 'Stock Adjustment Expense', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5300 },
+  // Contra to actual overhead expenses — credited as overhead is absorbed into
+  // WIP on a production order. Net of this and the real overhead accounts is the
+  // period's over/under-absorption.
+  { code: '5350', name: 'Manufacturing Overhead Absorbed', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5350 },
   // Cash drawer over/short at shift close (also used for manual adjustments).
   { code: '5400', name: 'Cash Short & Over', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5400 },
   // Invoice write-offs (Dr bad debt / Cr AR) — required by POS write-off.
   { code: '5500', name: 'Bad Debt Expense', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5500 },
   { code: '5600', name: 'Depreciation Expense', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5600 },
+  // Rental Management — deposit liability (customer money held, not revenue).
+  { code: '2175', name: 'Customer Deposits', categoryKey: 'current_liability', parentCode: '2000', sortOrder: 2175 },
+  // Rental Management — revenue accounts for fee lines. Fee products
+  // (RENT-LATE / RENT-DAMAGE / RENT-MISSING / RENT-EXTEND) override to these.
+  { code: '4250', name: 'Rental Income', categoryKey: 'revenue', parentCode: '4000', sortOrder: 4250 },
+  { code: '4260', name: 'Late Fee Income', categoryKey: 'revenue', parentCode: '4000', sortOrder: 4260 },
+  { code: '4270', name: 'Damage Recovery Income', categoryKey: 'revenue', parentCode: '4000', sortOrder: 4270 },
   { code: '7200', name: 'Foreign Exchange Loss', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 7200 },
   // Gain or loss on fixed-asset disposal. Non-operating, so it sits outside the
   // operating-expense line.
@@ -114,6 +128,16 @@ export const COA_TEMPLATE: readonly CoaAccountDef[] = [
   // Auto-provisioned by the posting engine when a rounding difference occurs;
   // seeding it up front avoids a mid-transaction account create.
   { code: 'ROUNDING', name: 'Rounding Difference', categoryKey: 'other_expense', parentCode: '5000', sortOrder: 5900 },
+  // Workforce Management (HR) — payroll posting accounts. Salaries are expensed
+  // gross; net pay, PAYE, pension and social security are liabilities until paid.
+  { code: '1350', name: 'Employee Advances', categoryKey: 'current_asset', parentCode: '1000', sortOrder: 1350 },
+  { code: '1355', name: 'Employee Loans', categoryKey: 'current_asset', parentCode: '1000', sortOrder: 1355 },
+  { code: '2180', name: 'Net Pay Payable', categoryKey: 'current_liability', parentCode: '2000', sortOrder: 2180 },
+  { code: '2210', name: 'PAYE Tax Payable', categoryKey: 'current_liability', parentCode: '2000', sortOrder: 2210 },
+  { code: '2220', name: 'Pension Payable', categoryKey: 'current_liability', parentCode: '2000', sortOrder: 2220 },
+  { code: '2230', name: 'Social Security Payable', categoryKey: 'current_liability', parentCode: '2000', sortOrder: 2230 },
+  { code: '2240', name: 'Insurance Payable', categoryKey: 'current_liability', parentCode: '2000', sortOrder: 2240 },
+  { code: '5710', name: 'Salaries & Wages Expense', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5710 },
 ];
 
 /**
@@ -156,6 +180,8 @@ export const COA_MAPPINGS: Record<string, string> = {
   grni_accrued: '2150',
   stock_adjustment_income: '4200',
   stock_adjustment_expense: '5300',
+  wip: '1420',
+  overhead_absorbed: '5350',
 
   fixed_asset_valuation: '1600',
   accumulated_depreciation: '1490',
@@ -163,8 +189,23 @@ export const COA_MAPPINGS: Record<string, string> = {
   asset_gain_loss: '7300',
   asset_revaluation_surplus: '3100',
 
+  customer_deposit: '2175',
+  rental_income: '4250',
+  late_fee_income: '4260',
+  damage_recovery_income: '4270',
+
   fx_gain: '7100',
   fx_loss: '7200',
+
+  // Workforce Management (HR) — payroll posting accounts.
+  salary_expense: '5710',
+  net_pay_payable: '2180',
+  paye_payable: '2210',
+  pension_payable: '2220',
+  social_security_payable: '2230',
+  insurance_payable: '2240',
+  employee_advance_receivable: '1350',
+  employee_loan_receivable: '1355',
 };
 
 export interface CoaJournalDef {

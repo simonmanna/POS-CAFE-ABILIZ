@@ -14,6 +14,7 @@ import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
 import { PosModule } from '../../src/modules/pos/pos.module';
 import { PosService } from '../../src/modules/pos/pos.service';
+import { PosOrdersService } from '../../src/modules/pos/order/pos-orders.service';
 import { PosReceiptsService } from '../../src/modules/pos/pos-receipts.service';
 import { TenantContextService } from '../../src/kernel/tenancy/tenant-context.service';
 
@@ -178,5 +179,88 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     expect(cashierText).toContain('Signature');
     // The PDF carries both copies (2 thermal pages).
     expect(pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g)?.length).toBe(2);
+  }, 60_000);
+
+  it('cash over-tender: returns change, persists amountTendered, prints Cash tendered + Change', async () => {
+    // Bill 200 (2 × 100), customer hands over 500 → change 300. The cash tender
+    // leg still equals the bill; the extra is carried only by amountTendered.
+    const result: any = await tenant.run({ organizationId }, async () =>
+      pos.checkout({
+        partnerId: customerId,
+        lines: [{ productId, description: 'Coffee', quantity: 2, unitPrice: 100 }],
+        tenders: [{ method: 'cash', amount: 200 }],
+        amountTendered: 500,
+      }),
+    );
+
+    // Change surfaced to the cashier UI.
+    expect(result.change).toBe(300);
+
+    // Persisted on the Invoice so reprints/receipt reflect the real tendered/change.
+    const invoice = await prisma.invoice.findFirstOrThrow({ where: { id: result.invoiceId } });
+    expect(Number(invoice.totalAmount)).toBe(200);
+    expect(Number(invoice.amountResidual)).toBe(0);
+    expect(Number(invoice.amountPaid)).toBe(200);
+    expect(Number(invoice.amountTendered)).toBe(500);
+
+    // The printed receipt now carries the tendered + change lines (only present
+    // because amountTendered > amountPaid, i.e. the value flowed end-to-end).
+    const receiptsSvc = moduleRef.get(PosReceiptsService);
+    const text = await tenant.run({ organizationId }, () => receiptsSvc.buildTextReceipt(invoice.id));
+    expect(text).toContain('Cash tendered:');
+    expect(text).toContain('Change:');
+  }, 60_000);
+
+  it('multi-order: a tableless order lists open, resumes, settles with GL parity, then leaves the feed', async () => {
+    const ordersSvc = moduleRef.get(PosOrdersService);
+
+    // 1. Open a tableless takeaway order (the Odoo auto-create equivalent — no table).
+    const created: any = await tenant.run({ organizationId }, () =>
+      ordersSvc.createOrder({
+        orderType: 'takeaway',
+        guestCount: 1,
+        cashSessionId,
+        lines: [{ productId, description: 'Coffee', quantity: 2, unitPrice: 100 }],
+      } as any),
+    );
+    expect(created.id).toBeTruthy();
+    expect(created.tableId).toBeNull();
+
+    // 2. It shows in the live open-orders feed with a resolved projection.
+    const open: any = await tenant.run({ organizationId }, () => ordersSvc.listOpenOrders({}));
+    const row = open.rows.find((r: any) => r.id === created.id);
+    expect(row).toBeTruthy();
+    expect(row.orderType).toBe('takeaway');
+    expect(row.tableName).toBeNull();
+    expect(Number(row.totalAmount)).toBe(200);
+    expect(open.count).toBe(open.rows.length);
+
+    // 3. Resume returns un-baked rehydrate lines + cart context to continue selling.
+    const resumed: any = await tenant.run({ organizationId }, () => pos.resumeOrder(created.id));
+    expect(resumed.lines.length).toBe(1);
+    expect(resumed.orderType).toBe('takeaway');
+    expect(resumed.tableId).toBeNull();
+
+    // 4. Settle by orderId — identical sale path as checkout/settleTab.
+    const settled: any = await tenant.run({ organizationId }, () =>
+      pos.settleOrder({ orderId: created.id, tenders: [{ method: 'cash', amount: 200 }], cashSessionId }),
+    );
+    expect(settled.invoiceId).toBeTruthy();
+    const invoice = await prisma.invoice.findFirstOrThrow({ where: { id: settled.invoiceId } });
+    expect(Number(invoice.totalAmount)).toBe(200);
+    expect(Number(invoice.amountResidual)).toBe(0);
+    expect(invoice.status).toBe('paid');
+
+    // GL balanced (same posting as a counter checkout).
+    const je = await prisma.journalEntry.findFirstOrThrow({ where: { organizationId, sourceType: 'pos_invoice', sourceId: invoice.id }, include: { lines: true } });
+    const dr = je.lines.reduce((s, l) => s + Number(l.baseDebit), 0);
+    const cr = je.lines.reduce((s, l) => s + Number(l.baseCredit), 0);
+    expect(Math.abs(dr - cr)).toBeLessThan(0.001);
+
+    // Order closed + gone from the open feed.
+    const order = await prisma.order.findFirstOrThrow({ where: { id: created.id } });
+    expect(order.status).toBe('closed');
+    const openAfter: any = await tenant.run({ organizationId }, () => ordersSvc.listOpenOrders({}));
+    expect(openAfter.rows.find((r: any) => r.id === created.id)).toBeUndefined();
   }, 60_000);
 });

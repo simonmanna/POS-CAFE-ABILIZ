@@ -18,7 +18,7 @@ export const SCOPE_PRECEDENCE: ScopeType[] = ['product', 'category', 'warehouse'
 
 export type SettingType = 'bool' | 'enum' | 'string' | 'number' | 'json';
 
-export type SettingGroup = 'inventory' | 'accounting';
+export type SettingGroup = 'inventory' | 'accounting' | 'rental';
 
 export interface SettingDefinition {
   key: string;
@@ -256,6 +256,72 @@ export const SETTING_DEFINITIONS = {
     label: 'Enabled Currencies',
     description: 'List of currency codes enabled for this organization.',
     default: [],
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  // Which location the till sells stock from. Empty → first active warehouse
+  // (legacy behaviour). Set to a bakery/front-counter location so production
+  // output and POS reads agree. Grouped under 'inventory' since SettingGroup is
+  // intentionally kept to inventory|accounting (see the manufacturing plan).
+  'pos.stockLocationId': {
+    key: 'pos.stockLocationId',
+    group: 'inventory',
+    type: 'string',
+    label: 'POS Stock Location',
+    description: 'Location the POS sells stock from. Blank = first active warehouse.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+
+  // ---- Rental Management --------------------------------------------------
+  'rental.autoHoldMinutes': {
+    key: 'rental.autoHoldMinutes',
+    group: 'rental',
+    type: 'number',
+    label: 'Reservation Hold (minutes)',
+    description: 'How long a reservation hold stays valid before the cron worker expires it.',
+    default: 60,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'rental.cleaningTurnaroundDays': {
+    key: 'rental.cleaningTurnaroundDays',
+    group: 'rental',
+    type: 'number',
+    label: 'Cleaning Turnaround (days)',
+    description: 'Default buffer between a return and the unit being available again.',
+    default: 1,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'rental.lateFeePerDay': {
+    key: 'rental.lateFeePerDay',
+    group: 'rental',
+    type: 'number',
+    label: 'Late Fee per Day (IDR)',
+    description: 'Default daily late fee charged at settlement. Per-product rentalLateFeePerPeriod overrides.',
+    default: 0,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'rental.dispositionPolicy': {
+    key: 'rental.dispositionPolicy',
+    group: 'rental',
+    type: 'json',
+    label: 'Disposition Policy',
+    description: 'JSON array of DispositionRule: inspection outcome → next unit state.',
+    default: [],
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'rental.depositPolicy': {
+    key: 'rental.depositPolicy',
+    group: 'rental',
+    type: 'json',
+    label: 'Deposit Policy',
+    description: 'JSON: { mode: fixed|percent|replacement, percent, fixedAmount }. Fallback: 10% of replacement cost.',
+    default: { mode: 'percent', percent: 10 },
     cascades: false,
     scopeLevels: ORG_ONLY,
   },

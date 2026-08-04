@@ -28,11 +28,21 @@ import { RecurringPage } from '@/pages/recurring';
 import { WebhooksPage } from '@/pages/webhooks';
 import { FilesPage } from '@/pages/files';
 import { ModulesPage } from '@/pages/modules';
+import { CrmDashboardPage } from '@/pages/crm/dashboard';
+import { DealsPage } from '@/pages/crm/deals';
+import { DealDetailPage } from '@/pages/crm/deal-detail';
 import { BackupPage } from '@/pages/settings/BackupPage';
 import { AssetDashboardPage } from '@/pages/fixed-asset/AssetDashboardPage';
 import { AssetCategoriesPage } from '@/pages/fixed-asset/AssetCategoriesPage';
 import { AssetsPage } from '@/pages/fixed-asset/AssetsPage';
 import { AssetDetailPage } from '@/pages/fixed-asset/AssetDetailPage';
+import { ProductionDashboardPage } from '@/pages/manufacturing/ProductionDashboardPage';
+import { BomsPage } from '@/pages/manufacturing/BomsPage';
+import { ProductionOrdersPage } from '@/pages/manufacturing/ProductionOrdersPage';
+import { ProductionOrderDetailPage } from '@/pages/manufacturing/ProductionOrderDetailPage';
+import { ManufacturingPlanningPage } from '@/pages/manufacturing/ManufacturingPlanningPage';
+import { ManufacturingReportsPage } from '@/pages/manufacturing/ManufacturingReportsPage';
+import { ManufacturingResourcesPage } from '@/pages/manufacturing/ManufacturingResourcesPage';
 import { ChartOfAccountsPage } from '@/pages/accounting/chart-of-accounts';
 import { AccountDetailPage } from '@/pages/accounting/AccountDetailPage';
 import { CashAccountsPage } from '@/pages/accounting/cash-accounts';
@@ -96,12 +106,47 @@ import { StockTransfersPage } from '@/pages/inventory/StockTransfersPage';
 import { InventoryCountPage } from '@/pages/inventory/InventoryCountPage';
 import { BottleCountPage } from '@/pages/beverage/BottleCountPage';
 import { BeverageDashboardPage } from '@/pages/beverage/BeverageDashboardPage';
+import { RentalDashboardPage } from '@/pages/rental/RentalDashboardPage';
+import { RentalAgreementsPage } from '@/pages/rental/RentalAgreementsPage';
+import { RentalAgreementCreatePage } from '@/pages/rental/RentalAgreementCreatePage';
+import { RentalAgreementDetailPage } from '@/pages/rental/RentalAgreementDetailPage';
+import { RentalUnitsPage } from '@/pages/rental/RentalUnitsPage';
+import { RentalCatalogPage } from '@/pages/rental/RentalCatalogPage';
+import { RentalReturnsPage } from '@/pages/rental/RentalReturnsPage';
+import { RentalReportsPage } from '@/pages/rental/RentalReportsPage';
+import { RepairDashboardPage } from '@/pages/repair/RepairDashboardPage';
+import { RepairOrdersPage } from '@/pages/repair/RepairOrdersPage';
+import { RepairOrderCreatePage } from '@/pages/repair/RepairOrderCreatePage';
+import { RepairOrderDetailPage } from '@/pages/repair/RepairOrderDetailPage';
+import { RepairTechniciansPage } from '@/pages/repair/RepairTechniciansPage';
+import { RepairLabourPage } from '@/pages/repair/RepairLabourPage';
+import { RepairJobsPage } from '@/pages/repair/RepairJobsPage';
+import { RepairWarrantiesPage } from '@/pages/repair/RepairWarrantiesPage';
+import { RepairContractsPage } from '@/pages/repair/RepairContractsPage';
+import { RepairReportsPage } from '@/pages/repair/RepairReportsPage';
+import { HrDashboardPage } from '@/pages/hr/HrDashboardPage';
+import { HrEmployeesPage } from '@/pages/hr/HrEmployeesPage';
+import { HrEmployeeDetailPage } from '@/pages/hr/HrEmployeeDetailPage';
+import { HrDepartmentsPage } from '@/pages/hr/HrDepartmentsPage';
+import { HrPositionsPage } from '@/pages/hr/HrPositionsPage';
+import { HrShiftsPage } from '@/pages/hr/HrShiftsPage';
+import { HrAttendancePage } from '@/pages/hr/HrAttendancePage';
+import { HrTimesheetsPage } from '@/pages/hr/HrTimesheetsPage';
+import { HrLeavePage } from '@/pages/hr/HrLeavePage';
+import { HrHolidaysPage } from '@/pages/hr/HrHolidaysPage';
+import { HrPayrollPage } from '@/pages/hr/HrPayrollPage';
+import { HrPayrollSettingsPage } from '@/pages/hr/HrPayrollSettingsPage';
+import { HrPayslipsPage } from '@/pages/hr/HrPayslipsPage';
+import { HrAdvancesLoansPage } from '@/pages/hr/HrAdvancesLoansPage';
+import { HrReportsPage } from '@/pages/hr/HrReportsPage';
 import { StockLedgerPage } from '@/pages/inventory/StockLedgerPage';
 import LocationsPage from '@/pages/inventory/LocationsPage';
 import TerminalPage from '@/pages/pos/Terminal';
 import ReportsPage from '@/pages/pos/ReportsPage';
 import DisplayPage from '@/pages/pos/DisplayPage';
 import KdsPage from '@/pages/pos/KdsPage';
+import KitchenStationsPage from '@/pages/pos/KitchenStationsPage';
+import KdsReportsPage from '@/pages/pos/KdsReportsPage';
 import CashRegistersPage from '@/pages/pos/cash/CashRegistersPage';
 import DigitalMenuPage from '@/pages/pos/DigitalMenuPage';
 import TablesPage from '@/pages/tables/TablesPage';
@@ -120,6 +165,8 @@ export function App() {
       {/* Digital Menu — customer-facing public route (no auth, no shell). */}
       <Route path="/menu/:branchId/:tableId" element={<DigitalMenuPage />} />
       <Route element={<ProtectedRoute />}>
+        {/* KDS — full-screen kitchen monitor, chrome-less (no sidebar/header). */}
+        <Route path="/pos/kds" element={<KdsPage />} />
         <Route element={<AppShell />}>
           <Route path="/" element={<DashboardPage />} />
           {/* POS terminal — full-screen cashier UI. Renders outside the app shell. */}
@@ -127,8 +174,10 @@ export function App() {
           <Route path="/pos/reports" element={<ReportsPage />} />
           {/* POS customer display — second monitor / pole display, no shell. */}
           <Route path="/pos/display" element={<DisplayPage />} />
-          {/* POS KDS — kitchen display for bar / kitchen / cafe monitors. */}
-          <Route path="/pos/kds" element={<KdsPage />} />
+          {/* KDS station configuration (admin, inside the shell). */}
+          <Route path="/pos/kitchen-stations" element={<KitchenStationsPage />} />
+          {/* KDS kitchen performance reports + live dashboard. */}
+          <Route path="/pos/kds-reports" element={<KdsReportsPage />} />
           {/* POS Cash Register Management */}
           <Route path="/pos/cash-registers" element={<CashRegistersPage />} />
           <Route path="/tables" element={<TablesPage />} />
@@ -217,6 +266,14 @@ export function App() {
           <Route path="/fixed-assets/categories" element={<AssetCategoriesPage />} />
           <Route path="/fixed-assets/register" element={<AssetsPage />} />
           <Route path="/fixed-assets/:id" element={<AssetDetailPage />} />
+          {/* Manufacturing — static segments before the :id route */}
+          <Route path="/manufacturing" element={<ProductionDashboardPage />} />
+          <Route path="/manufacturing/boms" element={<BomsPage />} />
+          <Route path="/manufacturing/planning" element={<ManufacturingPlanningPage />} />
+          <Route path="/manufacturing/reports" element={<ManufacturingReportsPage />} />
+          <Route path="/manufacturing/resources" element={<ManufacturingResourcesPage />} />
+          <Route path="/manufacturing/orders" element={<ProductionOrdersPage />} />
+          <Route path="/manufacturing/orders/:id" element={<ProductionOrderDetailPage />} />
           <Route path="/inventory" element={<InventoryItemsPage />} />
           <Route path="/inventory/items" element={<InventoryItemsPage />} />
           <Route path="/inventory/items/:productId" element={<InventoryDetailPage />} />
@@ -225,6 +282,44 @@ export function App() {
           <Route path="/inventory/count" element={<InventoryCountPage />} />
           <Route path="/beverage" element={<BeverageDashboardPage />} />
           <Route path="/beverage/count" element={<BottleCountPage />} />
+          {/* Rental — static segments before /rental/agreements/:id */}
+          <Route path="/rental" element={<RentalDashboardPage />} />
+          <Route path="/rental/agreements" element={<RentalAgreementsPage />} />
+          <Route path="/rental/agreements/new" element={<RentalAgreementCreatePage />} />
+          <Route path="/rental/agreements/:id" element={<RentalAgreementDetailPage />} />
+          <Route path="/rental/units" element={<RentalUnitsPage />} />
+          <Route path="/rental/catalog" element={<RentalCatalogPage />} />
+          <Route path="/rental/returns" element={<RentalReturnsPage />} />
+          <Route path="/rental/reports" element={<RentalReportsPage />} />
+          {/* Repair & Maintenance — static segments before /repair/orders/:id */}
+          <Route path="/repair" element={<RepairDashboardPage />} />
+          <Route path="/repair/orders" element={<RepairOrdersPage />} />
+          <Route path="/repair/orders/new" element={<RepairOrderCreatePage />} />
+          <Route path="/repair/orders/:id" element={<RepairOrderDetailPage />} />
+          <Route path="/repair/jobs" element={<RepairJobsPage />} />
+          <Route path="/repair/technicians" element={<RepairTechniciansPage />} />
+          <Route path="/repair/labour" element={<RepairLabourPage />} />
+          <Route path="/repair/warranties" element={<RepairWarrantiesPage />} />
+          <Route path="/repair/contracts" element={<RepairContractsPage />} />
+          <Route path="/repair/reports" element={<RepairReportsPage />} />
+
+          {/* Workforce Management (HR) — static segments before /hr/employees/:id */}
+          <Route path="/hr" element={<HrDashboardPage />} />
+          <Route path="/hr/employees" element={<HrEmployeesPage />} />
+          <Route path="/hr/employees/:id" element={<HrEmployeeDetailPage />} />
+          <Route path="/hr/departments" element={<HrDepartmentsPage />} />
+          <Route path="/hr/positions" element={<HrPositionsPage />} />
+          <Route path="/hr/shifts" element={<HrShiftsPage />} />
+          <Route path="/hr/attendance" element={<HrAttendancePage />} />
+          <Route path="/hr/timesheets" element={<HrTimesheetsPage />} />
+          <Route path="/hr/leave" element={<HrLeavePage />} />
+          <Route path="/hr/holidays" element={<HrHolidaysPage />} />
+          <Route path="/hr/payroll" element={<HrPayrollPage />} />
+          <Route path="/hr/payroll/runs/:id" element={<HrPayrollPage />} />
+          <Route path="/hr/payroll/settings" element={<HrPayrollSettingsPage />} />
+          <Route path="/hr/payslips" element={<HrPayslipsPage />} />
+          <Route path="/hr/advances-loans" element={<HrAdvancesLoansPage />} />
+          <Route path="/hr/reports" element={<HrReportsPage />} />
           <Route path="/inventory/ledger" element={<StockLedgerPage />} />
           <Route path="/inventory/locations" element={<LocationsPage />} />
           <Route path="/procurement/purchase-requests" element={<PurchaseRequestsPage />} />
@@ -240,8 +335,12 @@ export function App() {
           <Route path="/procurement/debit-notes" element={<DebitNotesPage />} />
           <Route path="/procurement/debit-notes/new" element={<DebitNoteCreatePage />} />
           <Route path="/tasks" element={<TasksPage />} />
-                    <Route path="/tasks/new" element={<TaskEditPage />} />
-                    <Route path="/tasks/:id/edit" element={<TaskEditPage />} />
+          <Route path="/tasks/new" element={<TaskEditPage />} />
+          <Route path="/tasks/:id/edit" element={<TaskEditPage />} />
+          {/* CRM — static segments before /crm/deals/:id */}
+          <Route path="/crm" element={<CrmDashboardPage />} />
+          <Route path="/crm/deals" element={<DealsPage />} />
+          <Route path="/crm/deals/:id" element={<DealDetailPage />} />
 
                   </Route>
                 </Route>

@@ -38,7 +38,13 @@ android {
 }
 
 // Room schema history — lets migrations be checked against generated DDL.
-ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    // SQLCipher/Windows CI quirk: Room's DB verifier needs a writable temp dir
+    // for its bundled SQLite; default to the user temp dir so `gradlew` builds
+    // don't fail with "temp dir needs to be readable/writable/executable".
+    arg("room.incremental", "true")
+}
 
 dependencies {
     // Compose

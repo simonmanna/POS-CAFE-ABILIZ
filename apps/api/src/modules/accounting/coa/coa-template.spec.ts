@@ -66,6 +66,19 @@ describe('COA template', () => {
     expect(missing).toEqual([]);
   });
 
+  // `wip` is required:false, so the generic "required key" guard above skips it —
+  // which is exactly how it shipped mapped to no account, both production posting
+  // legs collapsing onto stock_valuation. This is the explicit regression guard:
+  // it must resolve to a work_in_progress account the resolver will accept.
+  it('maps wip to a work_in_progress account the resolver accepts', () => {
+    const code = COA_MAPPINGS['wip'];
+    expect(code).toBeDefined();
+    const account = accountByCode.get(code);
+    expect(account).toBeDefined();
+    expect(account!.categoryKey).toBe('work_in_progress');
+    expect(isCategoryValidForMapping('wip', account!.categoryKey!)).toBe(true);
+  });
+
   it('maps every key to an account that exists in the template', () => {
     for (const [key, code] of Object.entries(COA_MAPPINGS)) {
       expect(accountByCode.has(code)).toBe(true);

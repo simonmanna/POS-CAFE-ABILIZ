@@ -938,6 +938,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   justify-content: space-between;
   align-items: center;
   gap: 1rem;
+  margin-top: -0.5rem;
 }
 .pos-reports-tabs {
   display: flex;

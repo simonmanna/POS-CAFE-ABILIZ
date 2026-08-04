@@ -43,13 +43,25 @@ async function bootstrap(): Promise<void> {
   }
 
   // rawBody: true lets the IdempotencyInterceptor hash the original payload
-  // for Idempotency-Key replay protection.
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
-    rawBody: true,
-    bufferLogs: true,
-  });
+    // for Idempotency-Key replay protection.
+    const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+        rawBody: true,
+        bufferLogs: true,
+      });
 
-  // Phase B2: structured JSON logging via pino.
+      // Increase max header size to accommodate large JWT tokens (200+ permissions)
+      const httpAdapter = app.getHttpAdapter();
+      const httpServer = httpAdapter.getInstance();
+      // Get the underlying Node.js http.Server to set limits
+      const server = (httpServer as any).server || (httpAdapter as any).instance || httpServer;
+      server.maxHeadersCount = 1000;
+      server.headersTimeout = 60000;
+      // @ts-ignore - maxHeaderSize is not in the types but works
+      server.maxHeaderSize = 65536; // 64KB instead of default ~8KB
+      // @ts-ignore - Increase max request line size for long URLs with tokens in query string
+      server.maxRequestLineSize = 262144; // 256KB for very long URLs
+
+      // Phase B2: structured JSON logging via pino.
   app.useLogger(app.get(PinoLogger));
   app.use(requestIdMiddleware);
 

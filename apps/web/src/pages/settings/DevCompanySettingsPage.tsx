@@ -33,6 +33,7 @@ const KNOWN_FEATURES: Array<{ key: string; label: string; description: string }>
 const POS_MODES = [
   { value: 'cafe', label: 'Cafe / Restaurant', desc: 'Menu items with variants, accompaniments, modifiers, tables, KDS, and KOT printing.' },
   { value: 'retail', label: 'Retail', desc: 'Direct product selling with barcode scanning, no tables, no kitchen.' },
+  { value: 'rental', label: 'Rental', desc: 'Hire-out of serialized assets: agreements, deposits, returns, inspection and settlement.' },
 ];
 
 export function DevCompanySettingsPage() {

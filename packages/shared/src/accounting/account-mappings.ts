@@ -125,6 +125,38 @@ export const ACCOUNT_MAPPING_REGISTRY: readonly AccountMappingDef[] = [
     required: true,
     description: 'Deferred revenue for goods or services not yet delivered.',
   },
+  {
+    key: 'customer_deposit',
+    label: 'Customer Deposits',
+    group: 'sales',
+    expectedCategories: ['current_liability'],
+    required: true,
+    description: 'Refundable deposits held against rental agreements (a liability, never revenue).',
+  },
+  {
+    key: 'rental_income',
+    label: 'Rental Income',
+    group: 'sales',
+    expectedCategories: ['revenue'],
+    required: true,
+    description: 'Rental fee revenue from agreements (checked-out fee lines).',
+  },
+  {
+    key: 'late_fee_income',
+    label: 'Late Fee Income',
+    group: 'sales',
+    expectedCategories: ['revenue', 'other_income'],
+    required: true,
+    description: 'Late-return and extension fees charged at settlement.',
+  },
+  {
+    key: 'damage_recovery_income',
+    label: 'Damage Recovery Income',
+    group: 'sales',
+    expectedCategories: ['revenue', 'other_income'],
+    required: true,
+    description: 'Damage / replacement / missing-item recovery and forfeited deposits.',
+  },
 
   // ------------------------------------------------------------------ tax ---
   {
@@ -275,9 +307,24 @@ export const ACCOUNT_MAPPING_REGISTRY: readonly AccountMappingDef[] = [
     key: 'wip',
     label: 'Work In Progress',
     group: 'inventory',
-    expectedCategories: ['inventory', 'current_asset'],
+    // `work_in_progress` MUST be first/listed — AccountResolverService enforces
+    // expectedCategories at mapping-set time, and the WIP account created by the
+    // COA seeder carries categoryKey `work_in_progress`. Without it here the `wip`
+    // mapping is unsettable and every production posting silently degrades.
+    expectedCategories: ['work_in_progress', 'inventory', 'current_asset'],
     required: false,
     description: 'Manufacturing WIP. Only required when production orders are in use.',
+  },
+  {
+    key: 'overhead_absorbed',
+    label: 'Manufacturing Overhead Absorbed',
+    group: 'inventory',
+    // Credited when overhead (labour/machine/utility) is absorbed into WIP; a
+    // contra to the actual overhead expenses booked elsewhere. Net = over/under
+    // absorption. Only needed once Phase 4 absorption costing is in use.
+    expectedCategories: ['operating_expense', 'other_income'],
+    required: false,
+    description: 'Overhead absorbed into WIP (Phase 4 absorption costing).',
   },
 
   // --------------------------------------------------------- fixed_assets ---

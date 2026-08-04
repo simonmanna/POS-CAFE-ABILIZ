@@ -192,6 +192,65 @@ export const PERMISSIONS = {
     count: 'inventory_count:count',
     submit: 'inventory_count:submit',
   },
+  // ---- Manufacturing — BOM / recipe master ----
+  bom: {
+    read: 'bom:read',
+    create: 'bom:create',
+    update: 'bom:update',
+    activate: 'bom:activate',
+    delete: 'bom:delete',
+  },
+  // ---- Manufacturing — production orders ----
+  productionOrder: {
+    read: 'production_order:read',
+    create: 'production_order:create',
+    start: 'production_order:start',
+    complete: 'production_order:complete',
+    cancel: 'production_order:cancel',
+    approve: 'production_order:approve',
+    qc: 'production_order:qc',
+  },
+  // ---- Manufacturing — demand requests (Phase 2) ----
+  productionRequest: {
+    read: 'production_request:read',
+    create: 'production_request:create',
+    submit: 'production_request:submit',
+    approve: 'production_request:approve',
+    reject: 'production_request:reject',
+  },
+  // ---- Manufacturing — planning (Phase 2) ----
+  productionPlan: {
+    read: 'production_plan:read',
+    create: 'production_plan:create',
+    update: 'production_plan:update',
+    confirm: 'production_plan:confirm',
+  },
+  // ---- Manufacturing — reports/analytics ----
+  production: {
+    report: 'production:report',
+  },
+  // ---- Manufacturing Phase 4 — work centres, resources, routing, work orders ----
+  workCenter: {
+    read: 'work_center:read',
+    create: 'work_center:create',
+    update: 'work_center:update',
+    delete: 'work_center:delete',
+  },
+  resource: {
+    read: 'resource:read',
+    create: 'resource:create',
+    update: 'resource:update',
+    delete: 'resource:delete',
+  },
+  routing: {
+    read: 'routing:read',
+    create: 'routing:create',
+    delete: 'routing:delete',
+  },
+  workOrder: {
+    read: 'work_order:read',
+    manage: 'work_order:manage',
+  },
   // ---- Configurable Inventory Posting Rules (M3) ----
   inventoryPostingRule: {
     read: 'inventory_posting_rule:read',
@@ -206,6 +265,46 @@ export const PERMISSIONS = {
     setup: 'beverage:setup',
     count: 'beverage:count',
     approve: 'beverage:approve',
+  },
+
+  // ---- Rental Management — hire-out of serialized/pooled assets ----
+  rental: {
+    read: 'rental:read',
+    reserve: 'rental:reserve',
+    manage: 'rental:manage',
+    sign: 'rental:sign',
+    checkout: 'rental:checkout',
+    return: 'rental:return',
+    settle: 'rental:settle',
+    inspect: 'rental:inspect',
+    waive: 'rental:waive',
+    extend: 'rental:extend',
+    swap: 'rental:swap',
+    refundDeposit: 'rental:refund_deposit',
+    service: 'rental:service',
+    report: 'rental:report',
+    overrideScore: 'rental:override_score',
+  },
+
+  // ---- Repair & Maintenance Management (RMMS) — item repair, maintenance,
+  // field service, contract maintenance, preventive maintenance ----
+  repair: {
+    read: 'repair:read',
+    create: 'repair:create',
+    manage: 'repair:manage',
+    diagnose: 'repair:diagnose',
+    quote: 'repair:quote',
+    approve: 'repair:approve',
+    assign: 'repair:assign',
+    work: 'repair:work',
+    test: 'repair:test',
+    deliver: 'repair:deliver',
+    close: 'repair:close',
+    parts: 'repair:parts',
+    warranty: 'repair:warranty',
+    contract: 'repair:contract',
+    schedule: 'repair:schedule',
+    report: 'repair:report',
   },
 
   // ---- M5: Cash registers / sessions (foundation) ----
@@ -262,6 +361,7 @@ export const PERMISSIONS = {
     override: 'pos:override',         // approve a manager override (PIN)
     reports: 'pos:reports',           // X/Z + sales analytics
     deleteItem: 'pos:delete_item',    // remove an order item from the cart
+    kds: 'pos:kds',                   // Kitchen Display: view board + advance tickets
   },
   school: {
     read: 'school:read',
@@ -394,6 +494,32 @@ export const PERMISSIONS = {
     manageLabels: 'task:manage_labels',
     manageTemplates: 'task:manage_templates',
     manageAutoRules: 'task:manage_auto_rules',
+  },
+  // ---- CRM (Phase A) — sales pipeline, activity timeline, analytics ----
+  crm: {
+    dashboardRead: 'crm:dashboard:read',
+    dealRead: 'crm:deal:read',
+    dealWrite: 'crm:deal:write',
+    activityRead: 'crm:activity:read',
+    activityWrite: 'crm:activity:write',
+  },
+  // ---- Workforce Management (HR) — employees, attendance, timesheets,
+  //      leave, payroll, payslips, advances, loans, tax tables, reviews ----
+  hr: {
+    read: 'hr:read',
+    employee: 'hr:employee',
+    attendance: 'hr:attendance',
+    shift: 'hr:shift',
+    timesheet: 'hr:timesheet',
+    leave: 'hr:leave',
+    holiday: 'hr:holiday',
+    payroll: 'hr:payroll',
+    payslip: 'hr:payslip',
+    advance: 'hr:advance',
+    loan: 'hr:loan',
+    taxTable: 'hr:tax_table',
+    performance: 'hr:performance',
+    report: 'hr:report',
   },
 } as const;
 

@@ -291,4 +291,25 @@ export class PosController {
   settleTab(@Param('tableId') tableId: string, @Body() dto: SettleTabDto) {
     return this.svc.settleTab({ tableId, ...dto });
   }
+
+  // ─── Odoo-style multi-order (Orders panel) ────────────────────────────────
+
+  /** Rehydrate any open order (table-bound or tableless) so the terminal can
+   *  resume selling from it — the Orders-panel "open order" action. */
+  @Get('orders/:id/resume')
+  @RequirePermissions('pos:read')
+  resumeOrder(@Param('id') id: string) {
+    return this.svc.resumeOrder(id);
+  }
+
+  /** Settle any open order by id (tableless walk-in / retail, or a dine-in order
+   *  chosen from the Orders panel). Mirrors tab settle; body reuses SettleTabDto
+   *  (which carries no tableId). */
+  @Post('orders/:id/settle')
+  @RequirePermissions('pos:checkout')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent()
+  settleOrder(@Param('id') id: string, @Body() dto: SettleTabDto) {
+    return this.svc.settleOrder({ orderId: id, ...dto });
+  }
 }

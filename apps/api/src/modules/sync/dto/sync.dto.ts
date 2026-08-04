@@ -49,6 +49,8 @@ export const SYNC_OP_TYPES = [
   'cashRegister.delete',
   'posTable.upsert',
   'posTable.delete',
+  // Self-service staff PIN change (device hashes the new PIN, server stores it)
+  'staff.pinChange',
 ] as const;
 export type SyncOpType = (typeof SYNC_OP_TYPES)[number];
 

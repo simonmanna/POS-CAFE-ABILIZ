@@ -28,6 +28,13 @@ interface CartState {
    * from each save response. Undefined for walk-in carts (no table).
    */
   tabVersion?: number;
+  /**
+   * Odoo-style multi-order: the id of the open server Order this cart is backed
+   * by (table-bound OR tableless walk-in/retail). Set when an order is auto-created
+   * on the first item or resumed from the Orders panel; cleared by clear()/New
+   * Order. `tabVersion` is its optimistic-lock token whether or not there's a table.
+   */
+  orderId?: string;
   /** Workflow state */
   orderType?: OrderType;
   tableId?: string;
@@ -48,6 +55,8 @@ interface CartState {
   setDiscount: (lineId: string, amount: number, type?: DiscountType) => void;
   /** Odoo-numpad "Price" mode — override a line's unit price directly. */
   setUnitPrice: (lineId: string, price: number) => void;
+  /** P5 — assign a course to a line for fire/hold (undefined = uncoursed). */
+  setCourse: (lineId: string, course: number | undefined) => void;
   setNote: (lineId: string, note: string) => void;
   removeLine: (lineId: string) => void;
   /** Order-level discount. type=percentage → amount is percent; type=fixed → amount in minor units. */
@@ -56,6 +65,8 @@ interface CartState {
   setCashSession: (id: string | undefined) => void;
   /** H2 — record the tab's server version (from a load or a save response). */
   setTabVersion: (v: number | undefined) => void;
+  /** Multi-order — bind/unbind the cart to its open server Order. */
+  setOrderId: (id: string | undefined) => void;
   setOrderType: (type: OrderType | undefined) => void;
   setTable: (id: string | undefined, number?: number, name?: string) => void;
   markSentToKitchen: (v: boolean) => void;
@@ -95,6 +106,7 @@ export const useCartStore = create<CartState>()(
       overridePin: undefined,
       cashSessionId: undefined,
       tabVersion: undefined,
+      orderId: undefined,
       orderType: undefined,
       tableId: undefined,
       tableNumber: undefined,
@@ -169,6 +181,12 @@ export const useCartStore = create<CartState>()(
             l.lineId === lineId ? { ...l, unitPrice: Math.max(0, price) } : l,
           ),
         })),
+      setCourse: (lineId, course) =>
+        set((state) => ({
+          lines: state.lines.map((l) =>
+            l.lineId === lineId ? { ...l, course } : l,
+          ),
+        })),
       setNote: (lineId, note) =>
         set((state) => ({
           lines: state.lines.map((l) => (l.lineId === lineId ? { ...l, note } : l)),
@@ -185,6 +203,7 @@ export const useCartStore = create<CartState>()(
       setOverrideById: (id) => set({ overrideById: id, overridePin: undefined }),
       setCashSession: (id) => set({ cashSessionId: id }),
       setTabVersion: (v) => set({ tabVersion: v }),
+      setOrderId: (id) => set({ orderId: id }),
       setOrderType: (type) => set({ orderType: type }),
       setTable: (id, number, name) => set({ tableId: id, tableNumber: number, tableName: name }),
       markSentToKitchen: (v) => set({ sentToKitchen: v }),
@@ -204,6 +223,7 @@ export const useCartStore = create<CartState>()(
         lines: [], transactionDiscountPercent: 0, transactionDiscountType: 'percentage',
         transactionDiscountAmount: 0, transactionDiscountReason: undefined,
         overrideById: undefined, overridePin: undefined,
+        orderId: undefined, tabVersion: undefined,
         orderType: undefined, tableId: undefined, tableNumber: undefined, tableName: undefined,
         sentToKitchen: false,
         // Previous sale finished → mint a key for the next cart.

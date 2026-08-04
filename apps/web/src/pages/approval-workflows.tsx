@@ -1,14 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, ToggleLeft, ToggleRight, ArrowDown } from 'lucide-react';
-import { useState } from 'react';
+import { Plus, Trash2, ToggleLeft, ToggleRight, ArrowDown, Check, Minus, ChevronDown } from 'lucide-react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { ENTITY_TYPE_LABELS, entityTypeLabel } from '@/lib/approval-entity-types';
+import { usePermissionCatalog } from '@/features/staff/api';
 
 interface ApprovalStep {
   id: string;
@@ -33,7 +42,7 @@ interface ApprovalWorkflow {
 type StepForm = {
   stepOrder: number;
   name: string;
-  approverPermissions: string;
+  approverPermissions: string[];
   requiredCount: string;
   minAmount: string;
   maxAmount: string;
@@ -41,7 +50,7 @@ type StepForm = {
 const emptyStep = (order: number): StepForm => ({
   stepOrder: order,
   name: '',
-  approverPermissions: '',
+  approverPermissions: [],
   requiredCount: '1',
   minAmount: '',
   maxAmount: '',
@@ -59,6 +68,143 @@ function fmtBand(min: number | null, max: number | null): string {
   if (min != null && max != null) return `${min} – ${max}`;
   if (min != null) return `≥ ${min}`;
   return `< ${max}`;
+}
+
+const ENTITY_TYPE_GROUPS: Record<string, { key: string; label: string }[]> = {
+  Procurement: [
+    { key: 'purchase_order', label: 'Purchase Orders' },
+    { key: 'goods_receipt', label: 'Goods Receipts' },
+    { key: 'debit_note', label: 'Debit Notes' },
+    { key: 'vendor_bill', label: 'Vendor Bills' },
+  ],
+  Expenses: [
+    { key: 'expense', label: 'Expenses' },
+    { key: 'credit_note', label: 'Credit Notes' },
+    { key: 'supplier_payment', label: 'Supplier Payments' },
+    { key: 'invoice_cancel', label: 'Invoice Cancel' },
+  ],
+  Inventory: [
+    { key: 'stock_out', label: 'Stock-Out' },
+    { key: 'waste', label: 'Waste' },
+    { key: 'inventory_count_submit', label: 'Inventory Count Submit' },
+  ],
+  Assets: [
+    { key: 'asset_acquisition', label: 'Asset Acquisition' },
+    { key: 'asset_disposal', label: 'Asset Disposal' },
+    { key: 'asset_transfer', label: 'Asset Transfer' },
+    { key: 'asset_revaluation', label: 'Asset Revaluation' },
+    { key: 'depreciation_run', label: 'Depreciation' },
+  ],
+  POS: [
+    { key: 'pos_discount', label: 'POS Discount Override' },
+    { key: 'pos_refund', label: 'POS Refund Override' },
+  ],
+};
+
+function PermissionPicker({ permissions, onChange }: { permissions: string[]; onChange: (perms: string[]) => void }) {
+  const catalog = usePermissionCatalog();
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const grouped = useMemo(() => {
+    if (!catalog.data?.groups) return [];
+    return catalog.data.groups
+      .filter((g) => g.permissions.some((p) => p.key.toLowerCase().includes(search.toLowerCase()) || p.action.toLowerCase().includes(search.toLowerCase())))
+      .map((g) => ({
+        resource: g.resource,
+        permissions: g.permissions
+          .filter((p) => p.key.toLowerCase().includes(search.toLowerCase()) || p.action.toLowerCase().includes(search.toLowerCase()))
+          .map((p) => ({ action: p.action, key: p.key })),
+      }))
+      .filter((g) => g.permissions.length > 0);
+  }, [catalog.data, search]);
+
+  const toggle = (key: string) => {
+    const current = permissions.includes(key);
+    onChange(current ? permissions.filter((p) => p !== key) : [...permissions, key]);
+  };
+
+  return (
+    <div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <Button variant="outline" className="w-full justify-between">
+            <span className="truncate">
+              {permissions.length === 0 ? 'Select approver permissions…' : `${permissions.length} permission(s) selected`}
+            </span>
+            <ChevronDown className="h-4 w-4 ml-2" />
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="max-w-2xl max-h-[70vh]">
+          <DialogHeader>
+            <DialogTitle>Select Approver Permissions</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              placeholder="Search permissions…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="mb-2"
+            />
+            <div className="h-[50vh] overflow-y-auto">
+              {catalog.isLoading ? (
+                <p className="text-sm text-muted-foreground p-4">Loading permissions…</p>
+              ) : (
+                <div className="space-y-4">
+                  {grouped.map((group) => (
+                    <div key={group.resource} className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group.resource}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {group.permissions.map((p) => (
+                          <label
+                            key={p.key}
+                            className={`flex items-center gap-2 rounded border px-2 py-1.5 text-sm transition-colors cursor-pointer ${
+                              permissions.includes(p.key)
+                                ? 'border-primary bg-primary/10 text-primary'
+                                : 'border-input hover:bg-accent'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={permissions.includes(p.key)}
+                              onChange={() => toggle(p.key)}
+                              className="h-4 w-4 rounded border-input"
+                            />
+                            <span className="flex-1 truncate">{p.action}</span>
+                            <span className="font-mono text-[10px] text-muted-foreground">{p.key}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <Button variant="outline" onClick={() => setOpen(false)}>Done</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {permissions.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {permissions.map((p) => (
+            <Badge key={p} variant="secondary" className="gap-1">
+              {p}
+              <button
+                type="button"
+                onClick={() => onChange(permissions.filter((x) => x !== p))}
+                className="ml-1 hover:text-destructive"
+              >
+                <Minus className="h-3 w-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ApprovalWorkflowsPage() {
@@ -94,9 +240,7 @@ export function ApprovalWorkflowsPage() {
         steps: form.steps.map((s) => ({
           stepOrder: s.stepOrder,
           name: s.name || `Step ${s.stepOrder}`,
-          approverPermissions: s.approverPermissions
-            ? s.approverPermissions.split(',').map((p) => p.trim()).filter(Boolean)
-            : [],
+          approverPermissions: s.approverPermissions,
           requiredCount: Number(s.requiredCount) || 1,
           minAmount: s.minAmount ? Number(s.minAmount) : null,
           maxAmount: s.maxAmount ? Number(s.maxAmount) : null,
@@ -159,16 +303,44 @@ export function ApprovalWorkflowsPage() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label>Feature *</Label>
-                <select
-                  value={form.entityType}
-                  onChange={(e) => setForm((f) => ({ ...f, entityType: e.target.value }))}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  <option value="">-- Select feature --</option>
-                  {Object.entries(ENTITY_TYPE_LABELS).map(([k, v]) => (
-                    <option key={k} value={k}>{v}</option>
-                  ))}
-                </select>
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="w-full justify-between">
+                      <span className="truncate">
+                        {form.entityType ? ENTITY_TYPE_LABELS[form.entityType] : 'Select feature…'}
+                      </span>
+                      <ChevronDown className="h-4 w-4 ml-2" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-md max-h-[70vh]">
+                    <DialogHeader>
+                      <DialogTitle>Select Document Type</DialogTitle>
+                    </DialogHeader>
+                    <div className="h-[50vh] overflow-y-auto">
+                      <div className="space-y-4">
+                        {Object.entries(ENTITY_TYPE_GROUPS).map(([groupName, items]) => (
+                          <div key={groupName} className="space-y-2">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-2">{groupName}</p>
+                            {items.map((item) => (
+                              <Button
+                                key={item.key}
+                                variant={form.entityType === item.key ? 'default' : 'ghost'}
+                                className="w-full justify-start gap-2"
+                                onClick={() => {
+                                  setForm((f) => ({ ...f, entityType: item.key }));
+                                  setShowForm(true);
+                                }}
+                              >
+                                {item.label}
+                                {form.entityType === item.key && <Check className="h-4 w-4 ml-auto" />}
+                              </Button>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
               </div>
               <div className="space-y-1.5">
                 <Label>Workflow Name</Label>
@@ -237,11 +409,10 @@ export function ApprovalWorkflowsPage() {
                       />
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
-                      <Label>Approver Permissions (comma-separated)</Label>
-                      <Input
-                        placeholder="finance:approve, purchase_order:approve"
-                        value={s.approverPermissions}
-                        onChange={(e) => setStep(idx, { approverPermissions: e.target.value })}
+                      <Label>Approver Permissions</Label>
+                      <PermissionPicker
+                        permissions={s.approverPermissions}
+                        onChange={(perms) => setStep(idx, { approverPermissions: perms })}
                       />
                     </div>
                     <div className="space-y-1.5">

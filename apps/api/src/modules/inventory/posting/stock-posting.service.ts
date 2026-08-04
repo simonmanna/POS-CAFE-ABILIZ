@@ -718,6 +718,76 @@ export class StockPostingService {
     }
   }
 
+  /**
+   * Production scrap write-off: Dr Stock Adjustment Expense / Cr WIP. Used when a
+   * batch is lost DURING production (materials already consumed into WIP, nothing
+   * good produced) — a burnt tray. The material can't go back on the shelf, so
+   * this expenses the WIP directly rather than reversing to stock.
+   */
+  async postProductionScrap(params: {
+    totalValue: Prisma.Decimal.Value;
+    date: Date;
+    sourceType: string;
+    sourceId: string;
+    description?: string;
+    tx: any;
+  }): Promise<void> {
+    const totalValue = dec(params.totalValue);
+    if (totalValue.lte(ZERO)) return;
+
+    const expenseAccountId = await this.determination.mapped('stock_adjustment_expense', params.tx);
+    const wipAccountId = await this.determination.mapped('wip', params.tx);
+    await this.posting.post(
+      {
+        journalCode: 'INV',
+        date: params.date,
+        description: params.description ?? 'Production scrap',
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        lines: [
+          { accountId: expenseAccountId, debit: totalValue.toString(), description: params.description ?? 'Production scrap' },
+          { accountId: wipAccountId, credit: totalValue.toString(), description: params.description ?? 'Production scrap' },
+        ],
+      },
+      params.tx,
+    );
+  }
+
+  /**
+   * Overhead absorption: Dr WIP / Cr Overhead Absorbed. The third production JE
+   * (Phase 4). Debiting WIP with overhead/labour keeps the WIP-flat invariant
+   * once the output leg credits a pool that includes overhead: consume (Dr WIP)
+   * + this (Dr WIP) − output (Cr WIP for the full pool) = 0.
+   */
+  async postOverheadAbsorption(params: {
+    totalValue: Prisma.Decimal.Value;
+    date: Date;
+    sourceType: string;
+    sourceId: string;
+    description?: string;
+    tx: any;
+  }): Promise<void> {
+    const totalValue = dec(params.totalValue);
+    if (totalValue.lte(ZERO)) return;
+
+    const wipAccountId = await this.determination.mapped('wip', params.tx);
+    const absorbedAccountId = await this.determination.mapped('overhead_absorbed', params.tx);
+    await this.posting.post(
+      {
+        journalCode: 'INV',
+        date: params.date,
+        description: params.description ?? 'Overhead absorbed',
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        lines: [
+          { accountId: wipAccountId, debit: totalValue.toString(), description: params.description ?? 'Overhead absorbed' },
+          { accountId: absorbedAccountId, credit: totalValue.toString(), description: params.description ?? 'Overhead absorbed' },
+        ],
+      },
+      params.tx,
+    );
+  }
+
   // ─── Internal helpers ────────────────────────────────────────────────────
 
   /**

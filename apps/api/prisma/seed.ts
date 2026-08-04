@@ -659,7 +659,7 @@ async function main(): Promise<void> {
 
     // --- Staff roles ---------------------------------------------------------
     const cashierPerms = [
-      'pos:read', 'pos:checkout', 'pos:hold', 'pos:discount', 'pos:void',
+      'pos:read', 'pos:checkout', 'pos:hold', 'pos:discount', 'pos:void', 'pos:kds',
       'cash_session:open', 'cash_session:read', 'cash_session:close',
       'tables:view', 'tables:transfer', 'tables:edit',
       'partner:read',
@@ -683,7 +683,7 @@ async function main(): Promise<void> {
       'pos:read',
       // Taking orders goes through POST /pos/orders which requires
       // pos:checkout; without it the Waiter role cannot ring anything in.
-      'pos:checkout', 'pos:hold',
+      'pos:checkout', 'pos:hold', 'pos:kds',
       'tables:view', 'tables:transfer', 'tables:merge', 'tables:split', 'tables:edit',
       'partner:read',
       'partners.view',
@@ -708,7 +708,7 @@ async function main(): Promise<void> {
       'inventory:read', 'inventory:move', 'inventory_location:read',
       'inventory_doc:read', 'inventory_doc:create', 'inventory_doc:approve',
       'product:read', 'products.view', 'partner:read',
-      'pos:read', 'pos:reports',
+      'pos:read', 'pos:reports', 'pos:kds',
       // Beverage Control — runs bottle counts + product setup. NOT beverage:approve
       // (segregation of duties: the person who counts cannot approve their own
       // over-tolerance count — that stays with an Administrator/manager).
@@ -726,6 +726,45 @@ async function main(): Promise<void> {
       },
     });
 
+    // Kitchen / Chef — sees the Kitchen Display board and advances tickets, but
+    // never prices, payments or reports. pos:read lets it load the station list.
+    const kitchenPerms = ['pos:read', 'pos:kds'];
+    await prisma.role.upsert({
+      where: { organizationId_name: { organizationId: orgId, name: 'Kitchen' } },
+      update: { permissions: kitchenPerms },
+      create: {
+        organizationId: orgId,
+        name: 'Kitchen',
+        description: 'Kitchen Display — prepares and advances orders',
+        isSystem: true,
+        permissions: kitchenPerms,
+      },
+    });
+
+    // --- Kitchen stations (KDS routing) -------------------------------------
+    // The three defaults keep legacy Product.station codes (bar/kitchen/cafe)
+    // resolving after the PosStation enum→string migration. `cafe` is the
+    // fallback (isDefault) for products with no valid station.
+    const stationDefs = [
+      { name: 'Kitchen', code: 'kitchen', color: '#f43f5e', icon: 'ChefHat', displayOrder: 0, isDefault: false },
+      { name: 'Bar', code: 'bar', color: '#f59e0b', icon: 'Coffee', displayOrder: 1, isDefault: false },
+      { name: 'Cafe', code: 'cafe', color: '#10b981', icon: 'Sandwich', displayOrder: 2, isDefault: true },
+    ];
+    // KitchenStation is RLS-enabled, so set the tenant context (app.org_id) for
+    // the transaction the way PrismaService does at runtime; the policy's
+    // WITH CHECK then accepts these org-scoped inserts. (Other seed tables have
+    // RLS inert in dev, so they don't need this.)
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.org_id', ${orgId}, true)`;
+      for (const st of stationDefs) {
+        await tx.kitchenStation.upsert({
+          where: { organizationId_code: { organizationId: orgId, code: st.code } },
+          update: { name: st.name, color: st.color, icon: st.icon, displayOrder: st.displayOrder },
+          create: { organizationId: orgId, ...st },
+        });
+      }
+    });
+
     // --- Staff users ---------------------------------------------------------
     const staffDefs: Array<{
       email: string; firstName: string; lastName: string; roleName: string;
@@ -734,6 +773,7 @@ async function main(): Promise<void> {
       { email: 'sarah@demo.test', firstName: 'Sarah', lastName: 'Cashier', roleName: 'Cashier', password: 'Demo@123', pin: '1111' },
       { email: 'john@demo.test', firstName: 'John', lastName: 'Waiter', roleName: 'Waiter', password: 'Demo@123', pin: '2222' },
       { email: 'mary@demo.test', firstName: 'Mary', lastName: 'Supervisor', roleName: 'Supervisor', password: 'Demo@123', pin: '3333' },
+      { email: 'chef@demo.test', firstName: 'Chef', lastName: 'Kitchen', roleName: 'Kitchen', password: 'Demo@123', pin: '4444' },
     ];
 
     for (const s of staffDefs) {

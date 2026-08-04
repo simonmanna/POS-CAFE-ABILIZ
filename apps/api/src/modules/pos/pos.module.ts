@@ -36,6 +36,10 @@ import { PosModifiersService } from './pos-modifiers.service';
 import { PosModifiersController } from './pos-modifiers.controller';
 import { PosKdsService } from './pos-kds.service';
 import { PosKdsController } from './pos-kds.controller';
+import { KitchenStationService } from './kitchen-station.service';
+import { KitchenStationController } from './kitchen-station.controller';
+import { PosKdsReportsService } from './pos-kds-reports.service';
+import { PosKdsReportsController } from './pos-kds-reports.controller';
 import { PosLoyaltyService } from './pos-loyalty.service';
 import { PosLoyaltyController } from './pos-loyalty.controller';
 import { DigitalMenuService } from './digital-menu.service';
@@ -79,6 +83,9 @@ export const POS_PERMISSIONS = {
     override: 'pos:override',
     reports: 'pos:reports',
     deleteItem: 'pos:delete_item',
+    // KDS — kitchen display access (Chef/Kitchen role). Read-only view of the
+    // kitchen board + advancing tickets; never exposes prices/payments.
+    kds: 'pos:kds',
   },
   // ADR-012 — Tables Management
   tables: {
@@ -106,6 +113,8 @@ export const POS_PERMISSIONS = {
     PosReceiptsController,
     PosModifiersController,
     PosKdsController,
+    KitchenStationController,
+    PosKdsReportsController,
     PosLoyaltyController,
     DigitalMenuController,
     DigitalMenuPublicController,
@@ -137,6 +146,8 @@ export const POS_PERMISSIONS = {
     PosReceiptsService,
     PosModifiersService,
     PosKdsService,
+    KitchenStationService,
+    PosKdsReportsService,
     PosLoyaltyService,
     DigitalMenuService,
     PosMenuService,
@@ -151,7 +162,7 @@ export const POS_PERMISSIONS = {
   exports: [
     PosService, PosOrdersService, PosInvoiceService,
     PosHoldsService, PosOverridesService, PosReportsService,
-    PosReceiptsService, PosModifiersService, PosVariantService, PosAccompanimentService, PosKdsService,
+    PosReceiptsService, PosModifiersService, PosVariantService, PosAccompanimentService, PosKdsService, KitchenStationService,
     PosLoyaltyService, DigitalMenuService,
     PosTablesService, PosReservationsService, PosTableReportsService,
   ],

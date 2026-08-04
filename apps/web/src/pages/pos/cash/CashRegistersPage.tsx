@@ -13,9 +13,8 @@
  *   - Daily reconciliation report
  */
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, ArrowLeftRight, ArrowRight, Banknote, Calculator, Check,
+  ArrowLeftRight, ArrowRight, Banknote, Calculator, Check,
   CircleDollarSign, ClipboardList, Coins, Eye, ThumbsUp, ThumbsDown,
   History, List, LogOut, Minus, Plus,
   RefreshCw, X,
@@ -48,7 +47,6 @@ type Tab = 'register' | 'history' | 'reconciliation';
    ========================================================================== */
 
 const CashRegistersPage: React.FC = () => {
-  const navigate = useNavigate();
   const [tab, setTab] = useState<Tab>('register');
   const [selectedRegisterId, setSelectedRegisterId] = useState<string>('');
 
@@ -67,26 +65,23 @@ const CashRegistersPage: React.FC = () => {
   const selectedRegister = registers.find((r: CashRegister) => r.id === registerId);
 
   return (
-    <div className="pos-reports-shell">
-      {/* Header */}
-      <div className="pos-reports-header">
-        <div>
-          <Button variant="outline" size="sm" onClick={() => navigate('/pos/terminal')}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> Terminal
-          </Button>
-          <h1 className="text-2xl font-bold mt-2 flex items-center gap-2">
-            <Banknote className="h-6 w-6" /> Cash Register Management
-          </h1>
-          <p className="text-sm text-slate-600">
-            Manage registers, sessions, cash movements, and reconciliation.
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => refetchSession()}>
-            <RefreshCw className="h-4 w-4 mr-1" /> Refresh
-          </Button>
-        </div>
-      </div>
+        <div className="pos-reports-shell">
+          {/* Header */}
+          <div className="pos-reports-header">
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <Banknote className="h-6 w-6" /> Cash Register Management
+              </h1>
+              <p className="text-sm text-slate-600">
+                Manage registers, sessions, cash movements, and reconciliation.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => refetchSession()}>
+                <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+              </Button>
+            </div>
+          </div>
 
       {/* Tabs */}
       <div className="pos-reports-tabs pos-reports-tabs-wide">
@@ -1029,24 +1024,20 @@ const ReconciliationView: React.FC = () => {
       </div>
 
       {isLoading ? (
-        <div className="text-slate-500 p-4">Loading reconciliation…</div>
-      ) : !data ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
-          <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-50" />
-          <p className="font-semibold">No data for {date}</p>
-        </div>
-      ) : (
-        <>
-          {/* Summary cards */}
-          <div className="pos-report-grid">
-            <ReportCard title="Opening float" value={fmt(t!.openingFloat)} sub={`${data.sessionCount} session${data.sessionCount === 1 ? '' : 's'}`} />
-            <ReportCard title="Cash sales" value={fmt(t!.salesTotal)} />
-            <ReportCard title="Cash in" value={fmt(t!.payInsTotal)} sub="Manual pay-ins" />
-            <ReportCard title="Cash out" value={fmt(t!.payOutsTotal)} sub="Manual pay-outs" />
-            <ReportCard title="Refunds" value={fmt(t!.refundsTotal)} />
-            <ReportCard title="Banked" value={fmt(t!.bankedAmount)} />
-            <ReportCard title="Expected cash" value={fmt(t!.expectedCash)} accent />
-          </div>
+              <div className="text-slate-500 p-4">Loading reconciliation…</div>
+            ) : !data ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
+                <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                <p className="font-semibold">No data for {date}</p>
+              </div>
+            ) : (
+              <>
+                {/* Summary cards */}
+                <div className="pos-report-grid">
+                  <ReportCard title="Opening float" value={fmt(t!.openingFloat)} sub={`${data.sessionCount} session${data.sessionCount === 1 ? '' : 's'}`} />
+                  <ReportCard title="Cash sales" value={fmt(t!.salesTotal)} />
+                  <ReportCard title="Expected cash" value={fmt(t!.expectedCash)} accent />
+                </div>
 
           {/* Session breakdown */}
           {data.sessions.length > 0 && (

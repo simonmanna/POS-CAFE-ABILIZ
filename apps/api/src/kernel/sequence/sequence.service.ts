@@ -43,6 +43,11 @@ export class SequenceService implements OnApplicationBootstrap {
     'waste_doc',
     'stock_adj',
     'stock_transfer',
+    // Manufacturing — BOM + production orders
+    'bom',
+    'production_order',
+    'production_request',
+    'production_plan',
     // Direct Stock In/Out
     'direct_stock_in',
     'direct_stock_out',
@@ -61,6 +66,22 @@ export class SequenceService implements OnApplicationBootstrap {
     'journal_adj',
     // Fixed Assets
     'asset',
+    // Repair & Maintenance (RMMS)
+    'repair_order',
+    'repair_quotation',
+    'repair_job',
+    'repair_contract',
+    'repair_technician',
+    // Workforce Management (HR)
+    'hr_employee',
+    'hr_timesheet',
+    'hr_leave_request',
+    'hr_payroll_period',
+    'hr_payroll_run',
+    'hr_payslip',
+    'hr_advance',
+    'hr_loan',
+    'hr_bank_payment',
   ] as const;
 
   constructor(

@@ -135,6 +135,8 @@ export const LOCATION_TYPES = [
   'dry_storage',
   'front_counter',
   'branch',
+  // Manufacturing (additive) — the production floor.
+  'production',
 ] as const;
 export type LocationType = (typeof LOCATION_TYPES)[number];
 
@@ -153,6 +155,10 @@ export const STOCK_MOVE_TYPES = [
   'expiry_write_off',
   'internal_use',
   'promo_sample',
+  // Manufacturing (additive) — consume relieves raw materials into WIP, output
+  // receives finished goods. MUST match the StockMoveType enum in schema.prisma.
+  'production_consume',
+  'production_output',
 ] as const;
 export type StockMoveType = (typeof STOCK_MOVE_TYPES)[number];
 
@@ -210,6 +216,10 @@ export const WASTE_CATEGORIES = [
   'contaminated',
   'breakage',
   'other',
+  // Manufacturing scrap reasons (Phase 2)
+  'overmixed',
+  'packaging_defect',
+  'qc_rejection',
 ] as const;
 export type WasteCategory = (typeof WASTE_CATEGORIES)[number];
 

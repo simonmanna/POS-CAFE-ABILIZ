@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ShoppingBag, Lock as LockIcon } from 'lucide-react';
@@ -23,13 +23,16 @@ import { ReceiptPreviewDialog } from './ReceiptPreviewDialog';
 import { VoidItemDialog } from './VoidItemDialog';
 import { CancelOrderDialog } from './CancelOrderDialog';
 import { ReprintDialog } from './ReprintDialog';
-import { HeldOrdersDialog } from './HeldOrdersDialog';
+import { OrdersListPanel } from './OrdersListPanel';
 import { HandoverDialog } from './HandoverDialog';
 import { CustomerProfileDialog } from './CustomerProfileDialog';
 
 import { useProductsForPos } from '@/features/pos/api';
 import { useProductCategories } from '@/features/products/api';
-import { useOpenSession, useCheckout, useStoreCredit, useReprintReceipt, useCreateOrder, useGenerateInvoice, useSettleCredit, useCreateHold } from './api';
+import {
+  useOpenSession, useCheckout, useStoreCredit, useReprintReceipt, useCreateOrder, useGenerateInvoice, useSettleCredit,
+  useOrdersList, useResumeOrder, useSettleOrder, useSaveOrderItems, useCancelOrder, type OrderLineBody,
+} from './api';
 import { useCombos } from './pos-features-api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
@@ -51,6 +54,49 @@ function cartToReceiptLines(ls: CartLine[]): ReceiptLine[] {
     discountPercent: l.discountPercent,
     note: l.note,
   }));
+}
+
+/** Cheap change-detector for the order autosave (dedupes identical saves). */
+const orderSig = (ls: CartLine[]) =>
+  JSON.stringify(ls.map((l) => [l.productId ?? l.sku, l.quantity, l.unitPrice, l.discountPercent, l.discountType, l.discountAmount, l.note, l.comboId]));
+
+/** Map the local cart to the server order's line payload (whitelisted fields only). */
+function toOrderLines(ls: CartLine[]): OrderLineBody[] {
+  return ls.map((l) => ({
+    productId: l.productId,
+    menuItemId: l.menuItemId,
+    sku: l.sku,
+    description: l.name,
+    quantity: l.quantity,
+    unitPrice: l.unitPrice,
+    taxId: l.taxId,
+    discountPercent: l.discountPercent > 0 ? l.discountPercent : undefined,
+    discountType: l.discountType,
+    discountAmount: l.discountAmount,
+    discountReason: l.discountReason,
+    note: l.note,
+    modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
+    comboId: l.comboId,
+    taxInclusive: l.taxInclusive,
+  }));
+}
+
+/** Rehydrate a resumed server order line back into a cart line. */
+function serverLineToCart(ln: any): CartLine {
+  return {
+    lineId: (typeof crypto !== 'undefined' && 'randomUUID' in crypto) ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2),
+    productId: ln.productId ?? undefined,
+    menuItemId: ln.menuItemId ?? undefined,
+    sku: undefined,
+    name: ln.description,
+    quantity: Number(ln.quantity),
+    unitPrice: Number(ln.unitPrice),
+    discountPercent: Number(ln.discountPercent ?? 0),
+    taxId: ln.taxId ?? undefined,
+    taxInclusive: ln.taxInclusive ?? undefined,
+    note: ln.note ?? undefined,
+    modifiers: (ln.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId, name: m.name, priceDelta: Number(m.priceDelta) })),
+  };
 }
 
 const RetailTerminal: React.FC = () => {
@@ -156,8 +202,12 @@ const RetailTerminal: React.FC = () => {
   const canDeleteItem = usePosAuthStore((s) => s.user?.permissions?.includes('pos:delete_item') ?? false);
   const canDiscount = usePosAuthStore((s) => s.user?.permissions?.includes('pos:discount') ?? false);
   const [showReprint, setShowReprint] = useState<{ invoiceId: string; title: string } | null>(null);
-  const [showHeldOrders, setShowHeldOrders] = useState(false);
+  const [showOrders, setShowOrders] = useState(false);
   const [showHandover, setShowHandover] = useState(false);
+  /** Gate the autosave while the first-item auto-create is in flight. */
+  const pendingOrderCreate = useRef(false);
+  /** Last-saved line signature so identical autosaves are skipped. */
+  const orderSaveSig = useRef('');
   const [showCustomerProfile, setShowCustomerProfile] = useState(false);
 
   /* ============== Order type — retail is always takeaway ============== */
@@ -195,6 +245,9 @@ const RetailTerminal: React.FC = () => {
   const setTransactionDiscount = useCartStore((s) => s.setTransactionDiscount);
   const setCashSession = useCartStore((s) => s.setCashSession);
   const clearCart = useCartStore((s) => s.clear);
+  const orderId = useCartStore((s) => s.orderId);
+  const setOrderId = useCartStore((s) => s.setOrderId);
+  const setTabVersion = useCartStore((s) => s.setTabVersion);
 
   /* ============== Mutations ============== */
   const checkout = useCheckout();
@@ -202,7 +255,14 @@ const RetailTerminal: React.FC = () => {
   const generateInvoiceMut = useGenerateInvoice();
   const settleCreditMut = useSettleCredit();
   const reprintReceipt = useReprintReceipt();
-  const createHold = useCreateHold();
+  const resumeOrderMut = useResumeOrder();
+  const settleOrderMut = useSettleOrder();
+  const saveOrderItems = useSaveOrderItems();
+  const cancelOrderMut = useCancelOrder();
+
+  /* Live open-orders feed → nav badge count. Polls every 10s (see useOrdersList). */
+  const { data: ordersFeed } = useOrdersList({}, !!session);
+  const ordersCount = ordersFeed?.count ?? 0;
 
   /* Keep cart's cashSessionId in sync with the active shift. */
   useEffect(() => {
@@ -216,46 +276,101 @@ const RetailTerminal: React.FC = () => {
 
   const locked = !sessionLoading && !session && !sessionFetching;
 
-  /* ============== Hold / Recall ============== */
-  const onHold = useCallback(async () => {
-    const cartLines = useCartStore.getState().lines;
-    if (cartLines.length === 0) { toast.error('Cart is empty'); return; }
-    const name = window.prompt('Order name / customer:', '') || `Hold-${Date.now().toString(36).toUpperCase()}`;
-    try {
-      await createHold.mutateAsync({
-        name,
-        lines: cartLines.map((l) => ({
-          productId: l.productId,
-          description: l.name,
-          quantity: l.quantity,
-          unitPrice: l.unitPrice,
-          discountPercent: l.discountPercent > 0 ? l.discountPercent : undefined,
-          taxId: l.taxId,
-          note: l.note,
-        })),
-      });
-      toast.success(`Order "${name}" parked`);
-      clearCart();
-    } catch { /* toast handled by api layer */ }
-  }, [createHold, clearCart]);
+  /* ============== Multi-order (Odoo-style) ============== */
+  // Auto-create: the moment the cart gets its first item and isn't backed by a
+  // server order yet, open one so it lives in the Orders panel and is resumable.
+  // Best-effort — if it fails (offline) we keep selling from the local cart and
+  // settle via checkout, so a sale is never blocked.
+  useEffect(() => {
+    if (locked || lines.length === 0 || orderId || pendingOrderCreate.current) return;
+    pendingOrderCreate.current = true;
+    createOrderMut.mutateAsync({
+      orderType: 'takeaway',
+      partnerId: customer?.id,
+      cashSessionId: session?.id,
+      guestCount: 1,
+      lines: toOrderLines(useCartStore.getState().lines),
+    }).then((order) => {
+      const st = useCartStore.getState();
+      if (!st.orderId && st.lines.length > 0) {
+        st.setOrderId((order as any).id);
+        st.setTabVersion((order as any).version);
+        orderSaveSig.current = orderSig(st.lines);
+      }
+    }).catch(() => { /* offline / failed — local cart still sells via checkout */ })
+      .finally(() => { pendingOrderCreate.current = false; });
+  }, [lines.length, orderId, locked, customer?.id, session?.id, createOrderMut]);
 
-  const onRecallHold = useCallback(async (input: { id: string; name: string; lines: any[] }) => {
+  // Order-keyed autosave (debounced) — mirrors the dine-in tab autosave but for a
+  // tableless order. Empty cart cancels the order; a 409 self-heals via resume.
+  useEffect(() => {
+    if (!orderId) return;
+    const sig = orderSig(lines);
+    if (sig === orderSaveSig.current) return;
+    const t = setTimeout(async () => {
+      const st = useCartStore.getState();
+      if (st.orderId !== orderId) return; // switched away before the debounce fired
+      if (st.lines.length === 0) {
+        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { /* noop */ }
+        if (useCartStore.getState().orderId === orderId) { setOrderId(undefined); setTabVersion(undefined); }
+        orderSaveSig.current = '';
+        return;
+      }
+      try {
+        const saved = await saveOrderItems.mutateAsync({
+          orderId,
+          lines: toOrderLines(st.lines),
+          expectedVersion: st.tabVersion,
+        });
+        if (useCartStore.getState().orderId === orderId && typeof (saved as any)?.version === 'number') {
+          setTabVersion((saved as any).version);
+        }
+        orderSaveSig.current = sig;
+      } catch (e: any) {
+        if (e?.response?.status === 409) {
+          try {
+            const fresh: any = await resumeOrderMut.mutateAsync(orderId);
+            if (useCartStore.getState().orderId === orderId) setTabVersion(fresh.version);
+          } catch { /* noop */ }
+        }
+      }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [lines, orderId, saveOrderItems, cancelOrderMut, resumeOrderMut, setOrderId, setTabVersion]);
+
+  /** Flush the current order's latest lines to the server before switching away. */
+  const flushCurrentOrder = useCallback(async () => {
+    const st = useCartStore.getState();
+    if (st.orderId && st.lines.length > 0) {
+      try { await saveOrderItems.mutateAsync({ orderId: st.orderId, lines: toOrderLines(st.lines), expectedVersion: st.tabVersion }); } catch { /* noop */ }
+    }
+  }, [saveOrderItems]);
+
+  /** Start a fresh order — the current one stays open in the Orders panel. */
+  const newOrder = useCallback(async () => {
+    await flushCurrentOrder();
     clearCart();
-    const cartLines = input.lines.map((ln: any) => ({
-      lineId: (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-        ? (crypto as any).randomUUID()
-        : Math.random().toString(36).slice(2),
-      productId: ln.productId ?? undefined,
-      name: ln.description,
-      quantity: Number(ln.quantity),
-      unitPrice: Number(ln.unitPrice),
-      discountPercent: Number(ln.discountPercent ?? 0),
-      taxId: ln.taxId ?? undefined,
-      note: ln.note ?? undefined,
-    }));
-    useCartStore.getState().load(cartLines);
-    toast.success(`Recalled "${input.name}"`);
-  }, [clearCart]);
+    orderSaveSig.current = '';
+    setShowOrders(false);
+  }, [flushCurrentOrder, clearCart]);
+
+  /** Resume an order from the panel into the cart and continue selling. */
+  const openOrder = useCallback(async (id: string) => {
+    if (useCartStore.getState().orderId === id) { setShowOrders(false); return; }
+    await flushCurrentOrder();
+    try {
+      const view: any = await resumeOrderMut.mutateAsync(id);
+      const cartLines = (view.lines ?? []).map(serverLineToCart);
+      clearCart();
+      useCartStore.getState().load(cartLines);
+      setOrderId(id);
+      setTabVersion(view.version);
+      orderSaveSig.current = orderSig(cartLines);
+      setShowOrders(false);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not open order');
+    }
+  }, [flushCurrentOrder, resumeOrderMut, clearCart, setOrderId, setTabVersion]);
 
   /* ============== Catalog actions ============== */
   const onPickProduct = useCallback(
@@ -432,11 +547,56 @@ const RetailTerminal: React.FC = () => {
     }
   };
 
-  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; overrideById?: string; overridePin?: string }) => {
+  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; amountTendered?: number; overrideById?: string; overridePin?: string }) => {
     const effectiveTxPct = transactionDiscountType === 'fixed_amount' && transactionDiscountAmount > 0
       ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
       : transactionDiscountPercent;
     const idemKey = useCartStore.getState().idempotencyKey;
+
+    // Order-backed settle (Odoo path): the cart is already a live open order, so
+    // flush its lines and settle it by id — no second order is created. Falls
+    // through to the legacy checkout below only when there is no server order
+    // (auto-create was offline / skipped), so a sale is never blocked.
+    const activeOrderId = useCartStore.getState().orderId;
+    if (activeOrderId) {
+      try {
+        await flushCurrentOrder();
+        const res: any = await settleOrderMut.mutateAsync({
+          orderId: activeOrderId,
+          tenders: input.tenders,
+          amountTendered: input.amountTendered,
+          transactionDiscountPercent: effectiveTxPct,
+          transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
+          transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
+          discountReason: transactionDiscountReason,
+          overrideById: input.overrideById,
+          overridePin: input.overridePin,
+          cashSessionId: session?.id,
+          _idemKey: idemKey,
+        });
+        toast.success(`Order ${res.invoiceNumber} settled — change ${fmt(res.change ?? 0)}`);
+        setLastCompleted({
+          lines: cartToReceiptLines(lines),
+          total, invoiceNumber: res.invoiceNumber, invoiceId: res.invoiceId,
+          receiptHtml: res.receiptHtml,
+          discountPercent: effectiveTxPct, discountAmount: 0,
+          customerName: customer?.name,
+        });
+        clearCart();
+        setCustomer(null);
+        setShowPayment(false);
+        refetchSession();
+      } catch (e: any) {
+        const msg = e?.response?.data?.message || e?.message || 'Settle failed';
+        if (/manager override/i.test(msg) && !input.overrideById) {
+          const result = await requestOverride('discount');
+          if (result) { await onSettle({ ...input, overrideById: result.managerId, overridePin: result.pin }); return; }
+        }
+        toast.error(msg);
+      }
+      return;
+    }
+
     const checkoutLines = lines.map((l) => ({
       productId: l.productId,
       menuItemId: l.menuItemId,
@@ -570,6 +730,8 @@ const RetailTerminal: React.FC = () => {
         }}
         onLogout={logout}
         onUserChanged={handleUserChanged}
+        onOpenOrders={() => setShowOrders(true)}
+        ordersCount={ordersCount}
         rightExtras={<OfflineIndicator />}
         brandTitle="POS"
         brandIcon={<ShoppingBag className="h-4 w-4" />}
@@ -585,6 +747,16 @@ const RetailTerminal: React.FC = () => {
               style={{ width: 'auto', paddingLeft: 24, paddingRight: 24, minHeight: 48 }}>
               <ShoppingBag className="pos-action-icon" /> Open shift
             </button>
+          </div>
+        ) : showOrders ? (
+          <div className="pos-menus-pro">
+            <OrdersListPanel
+              open={showOrders}
+              activeOrderId={orderId}
+              onOpenOrder={openOrder}
+              onNewOrder={newOrder}
+              onClose={() => setShowOrders(false)}
+            />
           </div>
         ) : (
           <>
@@ -623,8 +795,8 @@ const RetailTerminal: React.FC = () => {
             onPrintKot={() => {}}
             onVoidItem={(line) => setVoidLine(line)}
             hideCafeFeatures
-            onHold={onHold}
-            onHeldOrders={() => setShowHeldOrders(true)}
+            onHold={newOrder}
+            onHeldOrders={() => setShowOrders(true)}
             onHandover={() => setShowHandover(true)}
             onCustomerProfile={() => setShowCustomerProfile(true)}
           />
@@ -658,7 +830,6 @@ const RetailTerminal: React.FC = () => {
       <CancelOrderDialog open={showCancelOrder} invoiceId={cancelInvoice?.id ?? null} invoiceNumber={cancelInvoice?.number ?? null}
         onClose={() => { setShowCancelOrder(false); setCancelInvoice(null); }} onDone={() => { clearCart(); setCustomer(null); }} />
 
-      <HeldOrdersDialog open={showHeldOrders} onClose={() => setShowHeldOrders(false)} onRecall={onRecallHold} />
       <HandoverDialog open={showHandover} session={session ?? null} currentUserId={posUser?.userId} onClose={() => setShowHandover(false)}
         onDone={() => { setShowHandover(false); refetchSession(); }} />
       <CustomerProfileDialog open={showCustomerProfile} partnerId={customer?.id ?? null} partnerName={customer?.name} onClose={() => setShowCustomerProfile(false)} />

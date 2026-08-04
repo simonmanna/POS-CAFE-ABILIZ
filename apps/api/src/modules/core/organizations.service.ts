@@ -303,11 +303,11 @@ export class OrganizationsService {
       { movementType: 'RETURN_TO_SUPPLIER', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'grni_accrued' },
       { movementType: 'RETURN_TO_SUPPLIER', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
       // PRODUCTION_CONSUME → Dr WIP / Cr Stock Valuation
-      { movementType: 'PRODUCTION_CONSUME', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'PRODUCTION_CONSUME', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'wip' },
       { movementType: 'PRODUCTION_CONSUME', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
       // PRODUCTION_OUTPUT → Dr Stock Valuation / Cr WIP
       { movementType: 'PRODUCTION_OUTPUT', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
-      { movementType: 'PRODUCTION_OUTPUT', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
+      { movementType: 'PRODUCTION_OUTPUT', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'wip' },
       // REVALUATION → Dr/Cr Stock Valuation / Dr/Cr Revaluation Surplus
       { movementType: 'REVALUATION', lineIndex: 0, debitOrCredit: 'debit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },
       { movementType: 'REVALUATION', lineIndex: 1, debitOrCredit: 'credit', accountSource: 'account_mapping', accountMappingKey: 'stock_valuation' },

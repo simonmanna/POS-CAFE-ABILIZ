@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { resolvePosStockLocation } from '../../inventory/pos-stock-location';
 import { Prisma } from '@prisma/client';
 import type { PaginationQuery } from '@erp/shared';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
@@ -158,9 +159,7 @@ export class CreditNoteService {
       // sale-issue gate. Best-effort per line: a stock hiccup can't unwind the
       // financial reversal that already posted above.
       if (disposition === 'restock') {
-        const warehouse = await tx.inventoryLocation.findFirst({
-          where: { organizationId: this.tenant.organizationId, type: 'warehouse', isActive: true },
-        });
+        const warehouse = await resolvePosStockLocation(this.prisma, this.tenant.organizationId, tx);
         if (warehouse) {
           for (const ln of cn.lines as any[]) {
             if (!ln.productId) continue;

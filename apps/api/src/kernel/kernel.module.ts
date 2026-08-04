@@ -35,6 +35,8 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { FeatureFlagsModule } from './feature-flags/feature-flags.module';
 import { CronWorkersModule } from './workers/cron-workers.module';
 import { ThreeWayMatchModule } from './three-way-match/three-way-match.module';
+import { LifecycleRegistry } from './lifecycle/lifecycle.registry';
+import { LifecycleService } from './lifecycle/lifecycle.service';
 
 /**
  * The platform runtime (Phase 0). Global so every feature module can inject
@@ -82,6 +84,8 @@ import { ThreeWayMatchModule } from './three-way-match/three-way-match.module';
     IdempotencyService,
     IdempotencyInterceptor,
     EncryptionService,
+    LifecycleRegistry,
+    LifecycleService,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
@@ -104,6 +108,8 @@ import { ThreeWayMatchModule } from './three-way-match/three-way-match.module';
     WorkflowRegistry,
     IdempotencyService,
     EncryptionService,
+    LifecycleRegistry,
+    LifecycleService,
   ],
 })
 export class KernelModule implements OnModuleInit {

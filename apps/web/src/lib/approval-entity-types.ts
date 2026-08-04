@@ -23,6 +23,9 @@ export const ENTITY_TYPE_LABELS: Record<string, string> = {
   depreciation_run: 'Depreciation',
   pos_discount: 'POS Discount Override',
   pos_refund: 'POS Refund Override',
+  // Rental — agreement approval (trip when score < min, over credit limit,
+  // or the customer has an open overdue agreement).
+  rental_agreement: 'Rental Agreements',
 };
 
 export function entityTypeLabel(entityType: string): string {

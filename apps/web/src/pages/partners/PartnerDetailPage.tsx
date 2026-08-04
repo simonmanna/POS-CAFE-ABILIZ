@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ChevronRight, ArrowLeft, Users, Building2, Mail, Phone,
-  MapPin, FileText, DollarSign, ShoppingCart, BookOpen, Activity, Receipt,
+  MapPin, FileText, DollarSign, ShoppingCart, BookOpen, Activity, Receipt, Handshake,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,8 +15,10 @@ import { money, date, dateTime } from '@/lib/format';
 import { api } from '@/lib/api';
 import type { PaginatedResult } from '@erp/shared';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuthStore } from '@/stores/auth.store';
 import { usePartner, useCustomerStatement, type Partner } from '@/features/partners/api';
 import { useSupplierLedger } from '@/features/invoicing/api';
+import { CrmPartnerTab } from '@/features/crm/partner-tab';
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -614,6 +616,7 @@ function TabExpensesPurchases({ partnerId }: { partnerId: string }) {
 function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplier' }) {
   const { partnerId } = useParams<{ partnerId: string }>();
   const navigate = useNavigate();
+  const canCrm = useAuthStore((s) => s.hasPermission('crm:deal:read'));
   const { data: partner, isLoading } = usePartner(partnerId);
 
   if (isLoading) {
@@ -653,6 +656,9 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
     { value: isCustomer ? 'invoices' : 'expenses-purchases', label: isCustomer ? 'Invoices' : 'Expenses/Purchases', icon: isCustomer ? DollarSign : Receipt },
     { value: 'payments', label: 'Payments', icon: Activity },
   ];
+  if (canCrm) {
+    tabs.push({ value: 'crm', label: 'CRM', icon: Handshake });
+  }
   if (isCustomer) {
     tabs.push({ value: 'statement', label: 'Statement', icon: BookOpen });
   } else {
@@ -727,6 +733,12 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
         <TabsContent value="payments" className="mt-6">
           <TabPayments partnerId={partner.id} direction={isCustomer ? 'inbound' : 'outbound'} />
         </TabsContent>
+
+        {canCrm && (
+          <TabsContent value="crm" className="mt-6">
+            <CrmPartnerTab partnerId={partner.id} />
+          </TabsContent>
+        )}
 
         {isCustomer ? (
           <TabsContent value="statement" className="mt-6">

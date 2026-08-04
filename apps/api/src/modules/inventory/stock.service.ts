@@ -875,6 +875,11 @@ export class StockService {
         return_to_supplier: 'RETURN_TO_SUPPLIER',
         internal_use: 'INTERNAL_CONSUMPTION',
         promo_sample: 'PROMO_SAMPLE',
+        // Production consume relieves raw materials into WIP (Dr WIP / Cr Stock
+        // Valuation). Without this entry the issue would default to STOCK_OUT and
+        // book flour straight to COGS. (production_output is a receive, not an
+        // issue — its ledger row is tagged from dto.moveType in receiveCore.)
+        production_consume: 'PRODUCTION_CONSUME',
       };
       if (totalValue.gt(ZERO) && !dto.skipGlPosting) {
         await this.stockPosting.postIssue({

@@ -77,6 +77,18 @@ export function ReceiptDetailPage() {
             <div className="text-3xl font-semibold">{money(receipt.amountPaid)}</div>
           </div>
 
+          {/* Cash change: shown only when the customer overpaid in cash. */}
+          {Number((receipt as any).amountTendered ?? 0) > Number(receipt.amountPaid) && (
+            <div className="grid grid-cols-3 gap-4 rounded-md border p-4">
+              <Field label="Bill total" value={money((receipt as any).totalAmount)} />
+              <Field label="Cash tendered" value={money((receipt as any).amountTendered)} />
+              <Field
+                label="Change given"
+                value={money(Math.max(0, Number((receipt as any).amountTendered) - Number((receipt as any).totalAmount)))}
+              />
+            </div>
+          )}
+
           {lines.length > 0 && (
             <div>
               <div className="mb-2 text-sm font-medium">Items</div>

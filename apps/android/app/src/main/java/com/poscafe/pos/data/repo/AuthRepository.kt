@@ -1,8 +1,14 @@
 package com.poscafe.pos.data.repo
 
 import at.favre.lib.crypto.bcrypt.BCrypt
+import com.poscafe.pos.data.DeviceConfig
+import com.poscafe.pos.data.local.dao.OpQueueDao
 import com.poscafe.pos.data.local.dao.StaffDao
+import com.poscafe.pos.data.local.entity.OpQueueEntity
 import com.poscafe.pos.data.local.entity.StaffEntity
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -15,6 +21,8 @@ import javax.inject.Singleton
 @Singleton
 class AuthRepository @Inject constructor(
     private val staffDao: StaffDao,
+    private val opQueue: OpQueueDao,
+    private val config: DeviceConfig,
 ) {
     data class LoggedIn(val userId: String, val displayName: String, val permissions: Set<String>)
 
@@ -60,6 +68,51 @@ class AuthRepository @Inject constructor(
     fun logout() {
         current = null
     }
+
+    /**
+     * Self-service PIN change. Verifies the current PIN against the synced
+     * bcrypt hash, hashes the new PIN locally, updates the local row so the
+     * cashier can log in again immediately, and (on enrolled devices) queues a
+     * `staff.pinChange` op so the new hash reaches the server — the next pull
+     * then fans it out to every device. The server never sees the plaintext.
+     */
+    suspend fun changePin(userId: String, currentPin: String, newPin: String): Result<Unit> = runCatching {
+        val user = staffDao.byId(userId)
+            ?: return@runCatching Result.failure(IllegalArgumentException("Unknown user"))
+        val hash = user.pinHash
+            ?: return@runCatching Result.failure(IllegalStateException("No PIN set for this user"))
+        val ok = try {
+            BCrypt.verifyer().verify(currentPin.toCharArray(), hash.toCharArray()).verified
+        } catch (t: Throwable) {
+            return@runCatching Result.failure(IllegalStateException("PIN verification error: ${t.message ?: t.javaClass.simpleName}"))
+        }
+        if (!ok) return@runCatching Result.failure(IllegalArgumentException("Current PIN is incorrect"))
+        if (currentPin == newPin) return@runCatching Result.failure(IllegalArgumentException("New PIN must be different"))
+
+        val newHash = BCrypt.withDefaults().hashToString(10, newPin.toCharArray())
+        staffDao.upsertAll(listOf(user.copy(pinHash = newHash)))
+
+        if (!config.standalone) {
+            val payload = buildJsonObject {
+                put("userId", userId)
+                put("newPinHash", newHash)
+            }
+            opQueue.enqueueNext { seq ->
+                OpQueueEntity(
+                    opId = UUID.randomUUID().toString(),
+                    deviceSeq = seq,
+                    type = "staff.pinChange",
+                    actorUserId = userId,
+                    occurredAt = System.currentTimeMillis(),
+                    payloadJson = payload.toString(),
+                    status = "queued",
+                    attempts = 0,
+                    lastError = null,
+                )
+            }
+        }
+        Result.success(Unit)
+    }.fold({ it }, { failure -> Result.failure(failure) })
 
     data class Override(val userId: String, val displayName: String)
 

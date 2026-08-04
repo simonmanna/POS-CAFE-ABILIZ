@@ -168,6 +168,15 @@ describe('PosInvoiceService', () => {
       );
     });
 
+    it('returns the cash change when the customer over-tenders', async () => {
+      // Bill 100, cash handed over 150 → tender leg 100 (covers the bill), change 50.
+      const res = await svc.receivePayment('inv-1', {
+        tenders: [{ method: 'cash', amount: 100 }],
+        amountTendered: 150,
+      });
+      expect(res.change).toBe(50);
+    });
+
     it('rejects a second settlement once the invoice is fully paid (P0-2 lock)', async () => {
       prisma.client.invoice.findFirst.mockResolvedValue({ ...mockInvoice, amountResidual: 0 });
       await expect(

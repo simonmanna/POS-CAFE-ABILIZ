@@ -65,6 +65,7 @@ import {
   useSaveTab,
   useStoreCredit,
   useFireKitchen,
+  useFireOrderKitchen,
   usePrintBill,
   usePrintKot,
   usePrintAdditionalBill,
@@ -73,7 +74,14 @@ import {
   useGenerateInvoice,
   useSettleCredit,
   useSplitState,
+  useOrdersList,
+  useResumeOrder,
+  useSettleOrder,
+  useSaveOrderItems,
+  useCancelOrder,
+  type OrderLineBody,
 } from './api';
+import { OrdersListPanel } from './OrdersListPanel';
 import { useMenuItemsAvailable } from '@/features/menu/api';
 import { useMenuItemBundle, useCombos } from './pos-features-api';
 import { api, resolveAssetUrl } from '@/lib/api';
@@ -86,6 +94,7 @@ import { usePosSettings } from '@/features/pos/api';
 import { useScannerDebounce } from './scanner-debounce';
 import PosLoginScreen from './PosLoginScreen';
 import RetailTerminal from './RetailTerminal';
+import RentalTerminal from './RentalTerminal';
 
 import './pos-pro.css';
 
@@ -136,6 +145,7 @@ function serverLineToCart(l: any): CartLine {
     accompanimentOptionIds: l.accompanimentOptionIds ?? undefined,
     accompanimentNames: l.accompanimentNames ?? undefined,
     accompanimentPriceImpact: l.accompanimentPriceImpact !== undefined ? Number(l.accompanimentPriceImpact) : undefined,
+    course: l.course ?? undefined,
   };
 }
 
@@ -193,6 +203,7 @@ function cartLineToPayload(l: CartLine) {
     accompanimentOptionIds: l.accompanimentOptionIds,
     accompanimentNames: l.accompanimentNames,
     accompanimentPriceImpact: l.accompanimentPriceImpact,
+    course: l.course,
   };
 }
 
@@ -462,6 +473,8 @@ const TerminalPage: React.FC = () => {
   const setCashSession = useCartStore((s) => s.setCashSession);
   const setOrderType = useCartStore((s) => s.setOrderType);
   const clearCart = useCartStore((s) => s.clear);
+  const orderId = useCartStore((s) => s.orderId);
+  const setOrderId = useCartStore((s) => s.setOrderId);
 
   /* ============== Tables (live via SSE, fallback poll 20s) ============== */
   usePosTablesStream();
@@ -517,6 +530,7 @@ const TerminalPage: React.FC = () => {
   const settleTabMut = useSettleTab();
   const saveTab = useSaveTab();
   const fireKitchen = useFireKitchen();
+  const fireOrderKitchen = useFireOrderKitchen();
   const printBill = usePrintBill();
   const printKot = usePrintKot();
   const printAdditionalBill = usePrintAdditionalBill();
@@ -526,6 +540,14 @@ const TerminalPage: React.FC = () => {
   const createOrderMut = useCreateOrder();
   const generateInvoiceMut = useGenerateInvoice();
   const settleCreditMut = useSettleCredit();
+  /* Odoo-style multi-order (Orders panel) — tableless walk-in/takeaway/delivery
+   * orders persist as open Orders and are resumable; dine-in keeps its table tab. */
+  const resumeOrderMut = useResumeOrder();
+  const settleOrderMut = useSettleOrder();
+  const saveOrderItems = useSaveOrderItems();
+  const cancelOrderMut = useCancelOrder();
+  const { data: ordersFeed } = useOrdersList({}, !!session);
+  const ordersCount = ordersFeed?.count ?? 0;
   /* When a split is active on this table, the tab's lines are pinned server-side
    * (saveTab 400s). Used to suppress auto-save + redirect settle to the split. */
   const { data: splitState } = useSplitState(tableId ?? undefined, !!tableId);
@@ -536,6 +558,10 @@ const TerminalPage: React.FC = () => {
   /* Signature of the line-set last synced to/from the server (guards the
    * load⇄auto-save loop: we only save when the cart differs from this). */
   const tabSyncSig = useRef<string>('');
+  /* Odoo-style Orders panel + tableless-order auto-create/autosave bookkeeping. */
+  const [showOrders, setShowOrders] = useState(false);
+  const pendingOrderCreate = useRef(false);
+  const orderSaveSig = useRef('');
 
   /* Imperatively fetch THIS table's open order fresh from the server and load it
    * into the cart. Deterministic — no react-query cache races on switch/return. */
@@ -732,6 +758,115 @@ const TerminalPage: React.FC = () => {
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lines, tableId, pendingTableLoad, customer?.id, splitActive]);
+
+  const locked = !sessionLoading && !session && !sessionFetching;
+  const orderTypeFromStore = useCartStore((s) => s.orderType);
+
+  /* ── Odoo-style tableless multi-order (takeaway / delivery walk-ins) ──────
+   * Dine-in persists via the table tab above. For a tableless order we mirror it:
+   * auto-create an open Order on the first item so it's resumable from the Orders
+   * panel, autosave it, and settle it by id. Best-effort — an offline create just
+   * keeps the local cart (settles via checkout), so a sale is never blocked. */
+  useEffect(() => {
+    if (locked || tableId || orderId || pendingOrderCreate.current) return;
+    if (lines.length === 0 || orderTypeFromStore === 'dine-in') return;
+    pendingOrderCreate.current = true;
+    createOrderMut.mutateAsync({
+      orderType: orderTypeFromStore === 'delivery' ? 'delivery' : 'takeaway',
+      partnerId: customer?.id,
+      cashSessionId: session?.id,
+      guestCount: 1,
+      lines: useCartStore.getState().lines.map(cartLineToPayload) as OrderLineBody[],
+    }).then((order) => {
+      const st = useCartStore.getState();
+      if (!st.orderId && !st.tableId && st.lines.length > 0) {
+        st.setOrderId((order as any).id);
+        st.setTabVersion((order as any).version);
+        orderSaveSig.current = orderSig(st.lines);
+      }
+    }).catch(() => { /* offline / failed — keep local cart, settle via checkout */ })
+      .finally(() => { pendingOrderCreate.current = false; });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines.length, orderId, tableId, locked, orderTypeFromStore, customer?.id, session?.id]);
+
+  useEffect(() => {
+    if (!orderId || tableId) return; // tableless only; tables use the tab autosave
+    const sig = orderSig(lines);
+    if (sig === orderSaveSig.current) return;
+    const t = setTimeout(async () => {
+      const st = useCartStore.getState();
+      if (st.orderId !== orderId || st.tableId) return;
+      if (st.lines.length === 0) {
+        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { /* noop */ }
+        if (useCartStore.getState().orderId === orderId) { setOrderId(undefined); useCartStore.getState().setTabVersion(undefined); }
+        orderSaveSig.current = '';
+        return;
+      }
+      try {
+        const saved = await saveOrderItems.mutateAsync({ orderId, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion });
+        if (useCartStore.getState().orderId === orderId && typeof (saved as any)?.version === 'number') {
+          useCartStore.getState().setTabVersion((saved as any).version);
+        }
+        orderSaveSig.current = sig;
+      } catch (e: any) {
+        if (e?.response?.status === 409) {
+          try { const fresh: any = await resumeOrderMut.mutateAsync(orderId); if (useCartStore.getState().orderId === orderId) useCartStore.getState().setTabVersion(fresh.version); } catch { /* noop */ }
+        }
+      }
+    }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lines, orderId, tableId]);
+
+  /* Flush the current order (table OR tableless) before switching away. */
+  const flushCurrentOrder = useCallback(async () => {
+    const st = useCartStore.getState();
+    if (st.tableId && orderSig(st.lines) !== tabSyncSig.current) {
+      try { await saveTab.mutateAsync({ tableId: st.tableId, lines: st.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: st.tabVersion }); } catch { /* noop */ }
+    } else if (st.orderId && st.lines.length > 0) {
+      try { await saveOrderItems.mutateAsync({ orderId: st.orderId, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion }); } catch { /* noop */ }
+    }
+  }, [saveTab, saveOrderItems, customer?.id]);
+
+  /* New tableless order — the current one stays open in the Orders panel. */
+  const newTablelessOrder = useCallback(async () => {
+    await flushCurrentOrder();
+    clearCart();
+    orderSaveSig.current = '';
+    tabSyncSig.current = orderSig([]);
+    setSelectedTableId(null);
+    setOrderType('takeaway');
+    setTableView('ordering');
+    setShowOrders(false);
+  }, [flushCurrentOrder, clearCart, setOrderType]);
+
+  /* Resume any order from the panel. A dine-in order routes back to its table
+   * (reusing handleTableClick); a tableless one loads into the ordering view. */
+  const openOrder = useCallback(async (id: string) => {
+    setShowOrders(false);
+    if (useCartStore.getState().orderId === id) return;
+    await flushCurrentOrder();
+    try {
+      const view: any = await resumeOrderMut.mutateAsync(id);
+      if (view.tableId) {
+        const t = tables.find((x) => x.id === view.tableId);
+        if (t) { handleTableClick(t); return; }
+      }
+      const cartLines = (view.lines ?? []).map(serverLineToCart);
+      clearCart();
+      setOrderType(view.orderType === 'delivery' ? 'delivery' : 'takeaway');
+      useCartStore.getState().load(cartLines);
+      setOrderId(id);
+      useCartStore.getState().setTabVersion(view.version);
+      orderSaveSig.current = orderSig(cartLines);
+      setSelectedTableId(null);
+      setTableView('ordering');
+      enterFullscreen();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not open order');
+    }
+  }, [flushCurrentOrder, resumeOrderMut, clearCart, setOrderType, setOrderId, tables, handleTableClick, enterFullscreen]);
+
   const [isTabSettle, setIsTabSettle] = useState(false);
 
   /* Keep cart's cashSessionId in sync with the active shift. */
@@ -746,8 +881,6 @@ const TerminalPage: React.FC = () => {
     };
   }, []);
 
-  const locked = !sessionLoading && !session && !sessionFetching;
-  const orderTypeFromStore = useCartStore((s) => s.orderType);
   const ORDER_TYPE_LABELS: Record<string, string> = { 'dine-in': 'Dine In', takeaway: 'Takeaway', delivery: 'Delivery' };
   const orderTypeLabel = orderTypeFromStore ? ORDER_TYPE_LABELS[orderTypeFromStore] ?? 'Dine In' : 'Dine In';
   const activeTableLabel = selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : null;
@@ -1070,7 +1203,7 @@ const TerminalPage: React.FC = () => {
     }
   };
 
-  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; overrideById?: string; overridePin?: string }) => {
+  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; amountTendered?: number; overrideById?: string; overridePin?: string }) => {
     /* Compute effective transaction discount percent (handles fixed-amount). */
     const effectiveTxPct = transactionDiscountType === 'fixed_amount' && transactionDiscountAmount > 0
       ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
@@ -1096,6 +1229,7 @@ const TerminalPage: React.FC = () => {
         const res = await settleTabMut.mutateAsync({
           tableId,
           tenders: input.tenders,
+          amountTendered: input.amountTendered,
           transactionDiscountPercent: effectiveTxPct,
           transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
           transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
@@ -1128,7 +1262,7 @@ const TerminalPage: React.FC = () => {
               if (networkDown) {
           try {
             const queued = await enqueueSale(
-              { tenders: input.tenders, cashSessionId: session?.id },
+              { tenders: input.tenders, amountTendered: input.amountTendered, cashSessionId: session?.id },
               { endpoint: `/pos/tabs/${tableId}/settle`, idempotencyKey: idemKey },
             );
             toast.warning(
@@ -1143,6 +1277,50 @@ const TerminalPage: React.FC = () => {
           }
         }
         toast.error(e?.response?.data?.message || 'Settle failed');
+      }
+      return;
+    }
+
+    /* Tableless open order (auto-created takeaway/delivery) → settle by id. No new
+     * order is created; falls through to checkout only when there's no server order
+     * (offline auto-create skipped), so a sale is never blocked. */
+    const activeOrderId = useCartStore.getState().orderId;
+    if (activeOrderId && !tableId) {
+      try {
+        await flushCurrentOrder();
+        const res: any = await settleOrderMut.mutateAsync({
+          orderId: activeOrderId,
+          tenders: input.tenders,
+          amountTendered: input.amountTendered,
+          transactionDiscountPercent: effectiveTxPct,
+          transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
+          transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
+          discountReason: transactionDiscountReason,
+          overrideById: input.overrideById,
+          overridePin: input.overridePin,
+          cashSessionId: session?.id,
+          _idemKey: idemKey,
+        });
+        toast.success(`Order ${res.invoiceNumber} settled — change ${fmt(res.change ?? 0)}`);
+        setLastCompleted({
+          lines: cartToReceiptLines(lines),
+          total, invoiceNumber: res.invoiceNumber, invoiceId: res.invoiceId,
+          receiptHtml: res.receiptHtml,
+          discountPercent: effectiveTxPct, discountAmount: 0,
+          orderTypeLabel: orderTypeLabel ?? undefined,
+          customerName: customer?.name,
+        });
+        clearCart();
+        setCustomer(null);
+        setShowPayment(false);
+        refetchSession();
+      } catch (e: any) {
+        const msg = e?.response?.data?.message || e?.message || 'Settle failed';
+        if (/manager override/i.test(msg) && !input.overrideById) {
+          const result = await requestOverride('discount');
+          if (result) { await onSettle({ ...input, overrideById: result.managerId, overridePin: result.pin }); return; }
+        }
+        toast.error(msg);
       }
       return;
     }
@@ -1175,6 +1353,7 @@ const TerminalPage: React.FC = () => {
     const payload = {
       lines: checkoutLines,
       tenders: input.tenders,
+      amountTendered: input.amountTendered,
       transactionDiscountPercent: effectiveTxPct,
       transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
       transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
@@ -1432,6 +1611,8 @@ const TerminalPage: React.FC = () => {
         onToggleFullscreen={onToggleFullscreen}
         onLogout={logout}
         onUserChanged={handleUserChanged}
+        onOpenOrders={() => setShowOrders(true)}
+        ordersCount={ordersCount}
         rightExtras={<OfflineIndicator />}
         orderType={orderTypeFromStore ?? 'dine-in'}
       />
@@ -1450,6 +1631,17 @@ const TerminalPage: React.FC = () => {
             >
               <Coffee className="pos-action-icon" /> Open shift
             </button>
+          </div>
+        ) : showOrders ? (
+          /* Odoo-style Orders panel (full-page, all order types) */
+          <div className="pos-menus-pro">
+            <OrdersListPanel
+              open={showOrders}
+              activeOrderId={orderId ?? undefined}
+              onOpenOrder={openOrder}
+              onNewOrder={newTablelessOrder}
+              onClose={() => setShowOrders(false)}
+            />
           </div>
         ) : (orderTypeFromStore === 'dine-in' || !orderTypeFromStore) && !selectedTableId && tableView !== 'ordering' ? (
           /* Dine-in table grid (full-page, no cart) */
@@ -1594,8 +1786,8 @@ const TerminalPage: React.FC = () => {
           </>
         )}
 
-        {/* OrderPanel — hidden in full-page tables grid mode */}
-        {!locked && tableView !== 'grid' && (
+        {/* OrderPanel — hidden in full-page tables grid + Orders panel modes */}
+        {!locked && tableView !== 'grid' && !showOrders && (
           <OrderPanel
             customerName={customer?.name}
             orderTypeLabel={orderTypeLabel}
@@ -1633,6 +1825,25 @@ const TerminalPage: React.FC = () => {
               if (unprinted.length === 0) { toast.info('All items already sent to kitchen'); return; }
               setKotLines(unprinted);
               setShowKotPreview(true);
+            }}
+            onFireCourse={async (course) => {
+              const st = useCartStore.getState();
+              if (st.lines.length === 0) { toast.error('Cart is empty'); return; }
+              let oid = st.orderId;
+              if (!oid && tableId) { const r = await resolveOpenOrder(); oid = r?.orderId; }
+              if (!oid) { toast.error('No open order to fire'); return; }
+              // Persist the current lines (incl. course assignments) before firing.
+              try {
+                const saved = await saveOrderItems.mutateAsync({ orderId: oid, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion });
+                if (useCartStore.getState().orderId === oid && typeof (saved as any)?.version === 'number') {
+                  useCartStore.getState().setTabVersion((saved as any).version);
+                }
+              } catch { /* proceed; autosave may already have persisted the courses */ }
+              try {
+                const res: any = await fireOrderKitchen.mutateAsync({ orderId: oid, course });
+                const label = ['', 'Starter', 'Main', 'Dessert'][course] ?? `Course ${course}`;
+                toast.success(res?.count ? `${label} fired to kitchen` : (res?.message ?? 'Nothing new to fire'));
+              } catch (e: any) { toast.error(e?.response?.data?.message ?? 'Fire failed'); }
             }}
             onVoidItem={(line) => setVoidLine(line)}
             onMoveItems={() => setShowMoveItems(true)}
@@ -2045,11 +2256,12 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
   );
 };
 
-/** POS mode router — renders CafeTerminal or RetailTerminal based on org config. */
+/** POS mode router — renders CafeTerminal, RetailTerminal or RentalTerminal based on org config. */
 function TerminalPageRouter() {
   const { data: settings } = usePosSettings();
   const posMode = (settings as any)?.posMode ?? 'cafe';
   if (posMode === 'retail') return <RetailTerminal />;
+  if (posMode === 'rental') return <RentalTerminal />;
   return <TerminalPage />;
 }
 

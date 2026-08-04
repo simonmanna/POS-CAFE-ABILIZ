@@ -76,6 +76,11 @@ export class CreateProductDto {
   @IsNumber()
   reorderQty?: number;
 
+  /** KDS routing: the KitchenStation.code this product's tickets go to. */
+  @IsOptional()
+  @IsString()
+  station?: string;
+
   @IsOptional()
   @IsBoolean()
   allowFractionalSale?: boolean;

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from 'node:crypto';
+import { resolvePosStockLocation } from '../inventory/pos-stock-location';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
@@ -364,9 +365,7 @@ export class PosService {
    */
   async getOnHand(productId: string): Promise<number> {
     const orgId = this.tenant.organizationId;
-    const warehouse = await this.prisma.client.inventoryLocation.findFirst({
-      where: { organizationId: orgId, type: 'warehouse', isActive: true },
-    });
+    const warehouse = await resolvePosStockLocation(this.prisma, orgId);
     if (!warehouse) return 0;
     const item = await this.prisma.client.stockItem.findFirst({
       where: { organizationId: orgId, productId, locationId: warehouse.id },
@@ -467,6 +466,16 @@ export class PosService {
   }
 
   /**
+   * Rehydrate ANY open order (table-bound or tableless) into the terminal's tab
+   * view — the resume primitive for the Odoo-style Orders panel. Reuses toTabView
+   * so un-baked variant/accompaniment prices come back exactly as for a dine-in tab.
+   */
+  async resumeOrder(orderId: string) {
+    const order = await this.orders.getOrder(orderId);
+    return this.toTabView(order);
+  }
+
+  /**
    * Map an open Order (with items) to the tab view the POS terminal renders.
    * Keeps the historical "TabDocument" shape (lines + running totals) but sourced
    * from the Order aggregate — no Document involved.
@@ -506,6 +515,10 @@ export class PosService {
       totalAmount: String(o.totalAmount ?? 0),
       guestCount: o.guestCount ?? null,
       partnerId: o.partnerId ?? null,
+      // Cart context for the Orders-panel resume (a tableless order restores its
+      // own type; a dine-in one restores its table). Additive — tab reads ignore them.
+      tableId: o.tableId ?? null,
+      orderType: o.orderType ?? null,
       lines: items.map((it: any) => {
         const qty = Number(it.quantity);
         const unit = Number(it.unitPrice);
@@ -742,11 +755,90 @@ export class PosService {
     if (!order) throw new BadRequestException('No open tab to settle on this table');
     if (!order.items?.length) throw new BadRequestException('The tab is empty');
 
-    // A split in progress owns settlement of this tab — settling the whole tab
-    // here would double-charge items already assigned to (and paid on) bills.
+    return this.settleResolvedOrder(order, input);
+  }
+
+  /**
+   * Settle ANY open order by id — the counter/retail + Orders-panel path. Mirrors
+   * settleTab but locks the Order row (there may be no table) so it also settles a
+   * tableless walk-in/takeaway/delivery order, or a dine-in order chosen from the
+   * Orders list. Same compensation-guarded sale path as a counter checkout.
+   */
+  async settleOrder(input: {
+    orderId: string;
+    tenders?: PaymentTender[];
+    paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
+    amountTendered?: number;
+    transactionDiscountPercent?: number;
+    transactionDiscountType?: 'percentage' | 'fixed_amount';
+    transactionDiscountAmount?: number;
+    discountReason?: string;
+    overrideById?: string;
+    overridePin?: string;
+    cashSessionId?: string;
+    occurredAt?: string;
+  }) {
+    const orgId = this.tenant.organizationId;
+
+    // Offline-first: reject a bad client timestamp before any write.
+    resolveOccurredAt(input.occurredAt);
+
+    // H1 — a cash/mobile-money settle must post against an open drawer session
+    // owned by the caller. Card-only orders may settle without one.
+    const cashSessionId = await this.requireCashSession(input);
+    input = { ...input, cashSessionId };
+
+    // Lock the order row so two cashiers cannot settle the same order concurrently.
+    await this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`,
+        input.orderId,
+        orgId,
+      );
+    });
+
+    const order = await this.orders.getOrder(input.orderId);
+    if (order.invoiceId) throw new BadRequestException('This order is already billed');
+    if (order.status === 'cancelled' || order.status === 'closed') {
+      throw new BadRequestException(`Order is ${order.status}`);
+    }
+    if (!order.items?.length) throw new BadRequestException('The order is empty');
+
+    return this.settleResolvedOrder(order, input);
+  }
+
+  /**
+   * Shared settle tail for an already-resolved, locked open order (table-bound or
+   * not): split guard, PIN re-verify, generate the Invoice (GL + stock), take
+   * payment (Receipt + close), free the table when dine-in, then loyalty / events
+   * / receipt render. Compensation-guarded exactly like a counter checkout, so GL,
+   * stock, idempotency and cash-change stay byte-for-byte identical across
+   * checkout / settleTab / settleOrder.
+   */
+  private async settleResolvedOrder(
+    order: any,
+    input: {
+      tableId?: string;
+      tenders?: PaymentTender[];
+      paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
+      amountTendered?: number;
+      transactionDiscountPercent?: number;
+      transactionDiscountType?: 'percentage' | 'fixed_amount';
+      transactionDiscountAmount?: number;
+      discountReason?: string;
+      overrideById?: string;
+      overridePin?: string;
+      cashSessionId?: string;
+      occurredAt?: string;
+    },
+  ) {
+    const orgId = this.tenant.organizationId;
+
+    // A split in progress owns settlement — settling the whole order here would
+    // double-charge items already assigned to (and paid on) split bills.
     const activeSplit = await this.prisma.client.splitBill.count({ where: { sourceOrderId: order.id, status: { not: 'void' } } });
     if (activeSplit > 0) {
-      throw new BadRequestException('This table has a split in progress — settle each split bill instead.');
+      throw new BadRequestException('This order has a split in progress — settle each split bill instead.');
     }
 
     // F-OVR: re-verify PIN if override is supplied
@@ -768,7 +860,7 @@ export class PosService {
         occurredAt: input.occurredAt,
       });
     } catch (e: any) {
-      this.logger.error(`[settle] invoice generation failed for table ${input.tableId} / order ${order.id}: ${e?.message ?? e}`);
+      this.logger.error(`[settle] invoice generation failed for order ${order.id}: ${e?.message ?? e}`);
       await this.orders
         .cancelOrder(order.id, 'settle: invoice generation failed')
         .catch((err) => this.reportCompensationFailure({
@@ -802,13 +894,15 @@ export class PosService {
       throw e;
     }
 
-    // Close the tab: retire the table↔order link so the table frees. The Order
-    // itself is closed by billing.receivePayment (closeOrderForInvoice).
+    // Close the tab: retire the table↔order link so the table frees (dine-in
+    // only). The Order itself is closed by billing.receivePayment.
     let tableStatus: string | undefined;
-    try {
-      const closeResult = await this.tables.closeTableOrder({ tableId: input.tableId, orderId: order.id });
-      tableStatus = (closeResult as any)?.tableStatus;
-    } catch (e: any) { this.logger.warn(`Close table failed: ${e?.message}`); }
+    if (order.tableId) {
+      try {
+        const closeResult = await this.tables.closeTableOrder({ tableId: order.tableId, orderId: order.id });
+        tableStatus = (closeResult as any)?.tableStatus;
+      } catch (e: any) { this.logger.warn(`Close table failed: ${e?.message}`); }
+    }
 
     // Loyalty (best-effort, skip the walk-in).
     try {

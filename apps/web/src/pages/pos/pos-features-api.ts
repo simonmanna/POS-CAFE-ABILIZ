@@ -478,32 +478,48 @@ export function useModifierSalesReport(from?: string, to?: string) {
 
 /* ============== P5 KDS ============== */
 
+export type KdsAction = 'start' | 'ready' | 'serve' | 'cancel' | 'recall';
+export type KdsPriorityFE = 'normal' | 'rush' | 'vip';
+
 export interface KdsTicketItemFE {
   productId: string;
   productName: string;
   quantity: number;
   modifiers: Array<{ name: string; kitchenPrintName?: string | null; priceDelta: number }>;
   notes: string | null;
-  station: 'bar' | 'kitchen' | 'cafe';
+  /** Configurable KitchenStation.code. */
+  station: string;
   variantName?: string;
   accompanimentNames?: string[];
+  /** Prep-time hint (minutes) for expected-ready display. */
+  prepTime?: number | null;
+  /** Course grouping (1=starter, 2=main, …). */
+  course?: number | null;
 }
 
 export interface KdsTicketFE {
   id: string;
   invoiceId: string;
   label: string;
-  station: 'bar' | 'kitchen' | 'cafe';
+  ticketNo: string | null;
+  station: string;
   status: 'new' | 'preparing' | 'ready' | 'served' | 'cancelled';
+  priority: KdsPriorityFE;
+  orderType: string | null;
   items: KdsTicketItemFE[];
   startedAt: string | null;
   readyAt: string | null;
   servedAt: string | null;
+  startedBy: string | null;
+  readyBy: string | null;
+  assignedTo: string | null;
+  recallCount: number;
+  recallReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export function useKdsTickets(station?: 'bar' | 'kitchen' | 'cafe', refetchInterval = 2_000) {
+export function useKdsTickets(station?: string, refetchInterval = 2_000) {
   return useQuery({
     queryKey: ['pos-kds-tickets', station ?? 'all'],
     queryFn: async () =>
@@ -515,8 +531,128 @@ export function useKdsTickets(station?: 'bar' | 'kitchen' | 'cafe', refetchInter
 export function useKdsTransition() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { ticketId: string; action: 'start' | 'ready' | 'serve' | 'cancel' }) =>
-      (await api.post(`/pos/kds/tickets/${body.ticketId}/transition`, { action: body.action })).data,
+    mutationFn: async (body: { ticketId: string; action: KdsAction; reason?: string }) =>
+      (await api.post(`/pos/kds/tickets/${body.ticketId}/transition`, { action: body.action, reason: body.reason })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-kds-tickets'] }),
+  });
+}
+
+export function useKdsBulkTransition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { ids: string[]; action: KdsAction; reason?: string }) =>
+      (await api.post('/pos/kds/tickets/bulk-transition', body)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-kds-tickets'] }),
+  });
+}
+
+export function useKdsSetPriority() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { ticketId: string; priority: KdsPriorityFE }) =>
+      (await api.post(`/pos/kds/tickets/${body.ticketId}/priority`, { priority: body.priority })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-kds-tickets'] }),
+  });
+}
+
+export function useKdsAssign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { ticketId: string; chefUserId: string | null }) =>
+      (await api.post(`/pos/kds/tickets/${body.ticketId}/assign`, { chefUserId: body.chefUserId })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-kds-tickets'] }),
+  });
+}
+
+/* ============== KDS — configurable kitchen stations ============== */
+
+export interface KitchenStationFE {
+  id: string;
+  name: string;
+  code: string;
+  color: string | null;
+  icon: string | null;
+  displayOrder: number;
+  isActive: boolean;
+  isDefault: boolean;
+  printerId: string | null;
+}
+
+export function useKitchenStations() {
+  return useQuery({
+    queryKey: ['pos-kitchen-stations'],
+    queryFn: async () => (await api.get<KitchenStationFE[]>('/pos/kitchen-stations')).data ?? [],
+    staleTime: 60_000,
+  });
+}
+
+export function useCreateStation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: Partial<KitchenStationFE> & { name: string; code: string }) =>
+      (await api.post('/pos/kitchen-stations', body)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-kitchen-stations'] }),
+  });
+}
+
+export function useUpdateStation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...body }: { id: string } & Partial<KitchenStationFE>) =>
+      (await api.patch(`/pos/kitchen-stations/${id}`, body)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-kitchen-stations'] }),
+  });
+}
+
+export function useDeleteStation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/pos/kitchen-stations/${id}`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-kitchen-stations'] }),
+  });
+}
+
+export function useReorderStations() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: string[]) => (await api.patch('/pos/kitchen-stations/reorder', { ids })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-kitchen-stations'] }),
+  });
+}
+
+/* ============== KDS reporting + live ops ============== */
+
+export interface KdsSummaryFE {
+  range: { from: string; to: string };
+  totals: { tickets: number; cancelled: number; recalls: number; delayed: number };
+  prepTime: { avg: number; p50: number; p90: number; samples: number };
+  waitTime: { avg: number; p50: number; p90: number; samples: number };
+  perStation: Array<{ station: string; tickets: number; avgPrep: number }>;
+  perChef: Array<{ chefUserId: string; tickets: number; avgPrep: number }>;
+  recallCauses: Array<{ reason: string; count: number }>;
+  peakHours: Array<{ hour: number; count: number }>;
+  topDishes: Array<{ name: string; qty: number }>;
+}
+
+export interface KdsLiveFE {
+  counts: { new: number; preparing: number; ready: number };
+  totalActive: number;
+  avgAgeMin: number;
+  longestWaitMin: number;
+  perStation: Array<{ station: string; count: number }>;
+}
+
+export function useKdsReportSummary(from?: string, to?: string) {
+  return useQuery({
+    queryKey: ['pos-kds-report-summary', from ?? '', to ?? ''],
+    queryFn: async () => (await api.get<KdsSummaryFE>('/pos/kds/reports/summary', { params: { from, to } })).data,
+  });
+}
+
+export function useKdsLive(refetchInterval = 5_000) {
+  return useQuery({
+    queryKey: ['pos-kds-live'],
+    queryFn: async () => (await api.get<KdsLiveFE>('/pos/kds/reports/live')).data,
+    refetchInterval,
   });
 }

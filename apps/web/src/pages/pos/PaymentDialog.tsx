@@ -38,6 +38,8 @@ interface Props {
   onSettle: (input: {
     tenders: PaymentTender[];
     transactionDiscountPercent: number;
+    /** Cash physically handed over (may exceed total) so the backend can record the change. */
+    amountTendered?: number;
     overrideById?: string;
     overridePin?: string;
   }) => Promise<void>;
@@ -47,15 +49,16 @@ interface Props {
   onCreditSale?: () => Promise<void>;
 }
 
-const QUICK_AMOUNTS = [1000, 2000, 5000, 10000, 20000, 50000, 100000];
-
 export const PaymentDialog: React.FC<Props> = ({
   open, total, effectiveDiscountPercent = 0, storeCreditBalance = 0, onRequestOverride, onClose, onSettle,
   creditEnabled = false, onCreditSale,
 }) => {
   const [tenders, setTenders] = useState<PaymentTender[]>([]);
+  // Raw amount entered per tender, aligned index-wise with `tenders`. For cash this
+  // may exceed the applied leg (over-tender → change); it is never sent as a tender.
+  const [tenderRaw, setTenderRaw] = useState<number[]>([]);
   const [activeMethod, setActiveMethod] = useState<SettleMode>('cash');
-  const [tendered, setTendered] = useState('');
+  const [tendered, setTendered] = useState(() => String(total));
   const [reference, setReference] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -64,9 +67,15 @@ export const PaymentDialog: React.FC<Props> = ({
 
   useEffect(() => {
     if (!open) return;
-    setTenders([]); setTendered(''); setReference(''); setError(null); setOverrideId(undefined); setOverridePin(undefined);
+    setTenders([]);
+    setTenderRaw([]);
+    setTendered(String(total));
+    setReference('');
+    setError(null);
+    setOverrideId(undefined);
+    setOverridePin(undefined);
     setActiveMethod('cash');
-  }, [open]);
+  }, [open, total]);
 
   // Store-credit tile only appears when the selected customer carries a balance.
   // Credit-settlement ("Credit") appears whenever a real customer is selected.
@@ -85,7 +94,13 @@ export const PaymentDialog: React.FC<Props> = ({
 
   const paid = useMemo(() => tenders.reduce((s, t) => s + (t.amount || 0), 0), [tenders]);
   const remaining = Math.max(0, total - paid);
-  const change = paid > total ? paid - total : 0;
+  // Change = cash over-tender: each tender's raw entered amount minus the amount
+  // actually applied to the bill (only cash is allowed to exceed the bill).
+  const change = useMemo(
+    () => tenders.reduce((s, t, i) => s + Math.max(0, (tenderRaw[i] ?? t.amount) - t.amount), 0),
+    [tenders, tenderRaw],
+  );
+  const amountTendered = paid + change;
   const creditUsed = useMemo(
     () => tenders.filter((t) => t.method === 'store_credit').reduce((s, t) => s + t.amount, 0),
     [tenders],
@@ -103,18 +118,19 @@ export const PaymentDialog: React.FC<Props> = ({
     if (activeMethod === 'store_credit') amount = Math.min(amount, availableCredit);
     if (amount <= 0) return;
     const method: PaymentMethod = activeMethod;
-    setTenders((prev) => [
-      ...prev,
-      {
-        method,
-        amount,
-        reference: reference.trim() || undefined,
-      },
-    ]);
+    // Cash may exceed the bill (customer overpays → change). The tender LEG stays
+    // clamped to `remaining` so tenders still sum to the total (backend guard),
+    // while the raw amount handed over is remembered to compute the change.
+    const raw = method === 'cash' ? tenderNum : amount;
+    setTenders((prev) => [...prev, { method, amount, reference: reference.trim() || undefined }]);
+    setTenderRaw((prev) => [...prev, raw]);
     setTendered(''); setReference('');
   };
 
-  const removeTender = (i: number) => setTenders((prev) => prev.filter((_, idx) => idx !== i));
+  const removeTender = (i: number) => {
+    setTenders((prev) => prev.filter((_, idx) => idx !== i));
+    setTenderRaw((prev) => prev.filter((_, idx) => idx !== i));
+  };
 
   const canSettle = tenders.length > 0 && paid >= total - 0.01;
 
@@ -125,6 +141,8 @@ export const PaymentDialog: React.FC<Props> = ({
       await onSettle({
         tenders,
         transactionDiscountPercent: 0,
+        // Only sent when the customer overpaid in cash; exact payments omit it.
+        amountTendered: change > 0 ? amountTendered : undefined,
         overrideById: overrideId,
         overridePin: overridePin,
       });
@@ -211,27 +229,6 @@ export const PaymentDialog: React.FC<Props> = ({
                 autoFocus
                 onKeyDown={(e) => { if (e.key === 'Enter') addTender(); }}
               />
-              {activeMethod === 'cash' ? (
-                <div className="flex gap-1.5 mt-2 flex-wrap">
-                  {QUICK_AMOUNTS.map((q) => (
-                    <button
-                      key={q}
-                      type="button"
-                      className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-xs font-bold"
-                      onClick={() => setTendered(String(q))}
-                    >
-                      {q.toLocaleString()}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="px-2.5 py-1 rounded-md bg-emerald-100 text-emerald-700 hover:bg-emerald-200 text-xs font-bold"
-                    onClick={() => setTendered(String(total))}
-                  >
-                    Exact
-                  </button>
-                </div>
-              ) : null}
               {activeMethod === 'store_credit' ? (
                 <div className="flex items-center gap-2 mt-2 text-xs">
                   <span className="font-semibold text-sky-700">Available credit: {fmt(availableCredit)}</span>
@@ -260,9 +257,10 @@ export const PaymentDialog: React.FC<Props> = ({
             ) : null}
 
             <Button onClick={addTender} disabled={!tenderValid || remaining <= 0 || creditBlocked} className="w-full" style={{ background: methods.find((m) => m.key === activeMethod)?.color }}>
-              <Plus className="h-4 w-4 mr-1" /> Add {methods.find((m) => m.key === activeMethod)?.label} — {fmt(Math.min(tenderValid ? tenderNum : remaining, activeMethod === 'store_credit' ? Math.min(remaining, availableCredit) : remaining))}
+              <Plus className="h-4 w-4 mr-1" /> Add {methods.find((m) => m.key === activeMethod)?.label} — {fmt(activeMethod === 'cash' ? (tenderValid ? tenderNum : remaining) : Math.min(tenderValid ? tenderNum : remaining, activeMethod === 'store_credit' ? Math.min(remaining, availableCredit) : remaining))}
             </Button>
             </>
+
             )}
 
             {error ? <p className="text-sm text-rose-600">{error}</p> : null}

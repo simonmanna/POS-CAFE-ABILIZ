@@ -38,6 +38,8 @@ export class OrderLineDto {
   @IsOptional() @IsNumber() accompanimentPriceImpact?: number;
   @IsOptional() @IsString() comboId?: string;
   @IsOptional() @IsBoolean() taxInclusive?: boolean;
+  /** P5 course grouping for fire/hold (1=starter, 2=main, 3=dessert, …). */
+  @IsOptional() @IsNumber() course?: number;
 }
 
 export class CreateOrderDto {

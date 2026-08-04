@@ -25,6 +25,7 @@ import {
 } from '@/features/products/api';
 import { useUoms } from '@/features/uom/api';
 import { useAccounts, type Account } from '@/features/accounting/api';
+import { useKitchenStations } from '@/pages/pos/pos-features-api';
 import { api, resolveAssetUrl } from '@/lib/api';
 import { toast } from 'sonner';
 
@@ -67,6 +68,7 @@ const UOM_DEFAULTS = {
   productionUomId: '',
   uomConversion: '',
   reorderQty: '',
+  station: 'cafe',
   allowFractionalSale: true,
   minSaleQty: '',
   maxSaleQty: '',
@@ -89,6 +91,7 @@ const schema = z.object({
   productionUomId: z.string().optional().or(z.literal('')),
   uomConversion: z.string().optional().or(z.literal('')),
   reorderQty: z.string().optional().or(z.literal('')),
+  station: z.string().optional().or(z.literal('')),
   allowFractionalSale: z.boolean(),
   minSaleQty: z.string().optional().or(z.literal('')),
   maxSaleQty: z.string().optional().or(z.literal('')),
@@ -180,6 +183,7 @@ export function ProductEditPage() {
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
   const { data: categories = [] } = useProductCategories();
+  const { data: kitchenStations = [] } = useKitchenStations();
   const { data: units = [] } = useUoms();
   const { data: accountsData } = useAccounts();
   const accounts: Account[] = accountsData?.data ?? [];
@@ -281,6 +285,7 @@ export function ProductEditPage() {
       productionUomId: p.productionUomId ?? '',
       uomConversion: toStr(p.uomConversion),
       reorderQty: toStr(p.reorderQty),
+      station: p.station ?? 'cafe',
       allowFractionalSale: p.allowFractionalSale ?? true,
       minSaleQty: toStr(p.minSaleQty),
       maxSaleQty: toStr(p.maxSaleQty),
@@ -364,6 +369,7 @@ export function ProductEditPage() {
         productionUomId: values.productionUomId || undefined,
         uomConversion: numOrUndef(values.uomConversion),
         reorderQty: numOrUndef(values.reorderQty),
+        station: values.station || undefined,
         allowFractionalSale: values.allowFractionalSale,
         minSaleQty: numOrUndef(values.minSaleQty),
         maxSaleQty: numOrUndef(values.maxSaleQty),
@@ -546,6 +552,18 @@ export function ProductEditPage() {
                           ))}
                         </SelectContent>
                       </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-sm font-medium">Kitchen Station</Label>
+                      <Select value={form.watch('station') || 'cafe'} onValueChange={(v) => form.setValue('station', v)}>
+                        <SelectTrigger><SelectValue placeholder="Select station" /></SelectTrigger>
+                        <SelectContent>
+                          {kitchenStations.map((s) => (
+                            <SelectItem key={s.id} value={s.code}>{s.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-muted-foreground">Which KDS screen this product's tickets route to.</p>
                     </div>
                   </div>
                   {/* Image upload */}
