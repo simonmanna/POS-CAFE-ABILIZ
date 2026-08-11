@@ -104,20 +104,20 @@ export function RolesPage() {
           <Button
             variant="ghost"
             size="icon"
-            disabled={!canUpdate || r.isSystem}
+            disabled={!canUpdate}
             onClick={() => openEdit(r)}
-            aria-label={r.isSystem ? 'View role' : 'Edit role'}
-            title={r.isSystem ? 'View role (system protected)' : 'Edit role'}
+            aria-label="Edit role"
+            title="Edit role"
           >
             <Pencil className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"
             size="icon"
-            disabled={!canDelete || r.isSystem}
+            disabled={!canDelete}
             onClick={() => setDeleting(r)}
             aria-label="Delete role"
-            title={r.isSystem ? 'System roles cannot be deleted' : 'Delete role'}
+            title="Delete role"
           >
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
@@ -132,7 +132,7 @@ export function RolesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Roles &amp; Permissions</h1>
           <p className="text-sm text-muted-foreground">
-            Manage who can do what. System roles are protected and cannot be edited or deleted.
+            Manage who can do what. System roles are seeded with defaults but can be edited or deleted.
           </p>
         </div>
         {canCreate && (

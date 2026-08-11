@@ -56,11 +56,14 @@ import {
   Boxes,
   ChefHat,
   UtensilsCrossed,
+  CalendarClock,
+  ChevronDown,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/auth.store';
+import { api } from '@/lib/api';
 import { GlobalSearch } from '@/components/global-search';
 import { PushBootstrap } from '@/components/push-bootstrap';
 import { ThemePicker } from '@/components/theme-picker';
@@ -73,6 +76,8 @@ interface NavItem {
   icon: typeof LayoutDashboard;
   permission?: string;
   badge?: string;
+  /** Per-item feature gate, resolved the same way as section flags. */
+  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS';
 }
 
 interface NavSection {
@@ -84,7 +89,7 @@ interface NavSection {
    * here without gating the module server-side would leave its routes, crons
    * and boot hooks live.
    */
-  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR';
+  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS';
 }
 
 const flagEnabled = (flag?: string): boolean =>
@@ -122,6 +127,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'Sales',
     items: [
       { to: '/invoices', label: 'Sales/Invoices', icon: Receipt, permission: PERMISSIONS.invoice.read },
+      { to: '/orders', label: 'Orders', icon: ClipboardList },
       { to: '/credit-notes', label: 'Credit Notes', icon: FileMinus, permission: PERMISSIONS.creditNote.read },
       { to: '/payments', label: 'Receipts', icon: HandCoins, permission: PERMISSIONS.payment.read },
       { to: '/ar-aging', label: 'Accounts Receivable', icon: Clock, permission: PERMISSIONS.report.ar },
@@ -219,10 +225,9 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Tasks',
-    flag: 'VITE_ENABLE_TASKS',
+    title: 'Task Management',
     items: [
-      { to: '/tasks', label: 'Task Board', icon: ClipboardList, permission: 'task:read' },
+      { to: '/tasks', label: 'Task Board', icon: ClipboardList },
     ],
   },
   {
@@ -246,6 +251,8 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/taxes', label: 'Tax Rates', icon: Percent, permission: PERMISSIONS.tax.read },
       { to: '/cost-centers', label: 'Cost Centers', icon: Users, permission: PERMISSIONS.costCenter.read },
       { to: '/currency', label: 'Currency', icon: Banknote, permission: PERMISSIONS.currency.read },
+      { to: '/accounts/payment-terms', label: 'Payment Terms', icon: CalendarClock, permission: PERMISSIONS.account.read },
+      { to: '/accounts/fiscal-positions', label: 'Fiscal Positions', icon: Landmark, permission: PERMISSIONS.account.read },
       { to: '/inventory-valuation', label: 'Inventory Val.', icon: Package, permission: PERMISSIONS.report.accounting },
       { to: '/year-end-close', label: 'Year-End Close', icon: Lock, permission: PERMISSIONS.fiscalPeriod.update },
       { to: '/balance-sheet', label: 'Balance Sheet', icon: Landmark, permission: PERMISSIONS.report.accounting },
@@ -265,12 +272,24 @@ const NAV_SECTIONS: NavSection[] = [
     title: 'Manufacturing',
     flag: 'VITE_ENABLE_MANUFACTURING',
     items: [
-      { to: '/manufacturing', label: 'Production', icon: Factory, permission: PERMISSIONS.productionOrder.read },
-      { to: '/manufacturing/orders', label: 'Orders', icon: ClipboardList, permission: PERMISSIONS.productionOrder.read },
-      { to: '/manufacturing/boms', label: 'Recipes (BOM)', icon: ScrollText, permission: PERMISSIONS.bom.read },
-      { to: '/manufacturing/planning', label: 'Planning', icon: CalendarDays, permission: PERMISSIONS.productionRequest.read },
-      { to: '/manufacturing/resources', label: 'Work Centres', icon: Boxes, permission: PERMISSIONS.workCenter.read },
-      { to: '/manufacturing/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.production.report },
+      { to: '/manufacturing', label: 'Production', icon: Factory },
+      { to: '/manufacturing/orders', label: 'Orders', icon: ClipboardList },
+      { to: '/manufacturing/boms', label: 'Recipes (BOM)', icon: ScrollText },
+      { to: '/manufacturing/planning', label: 'Planning', icon: CalendarDays },
+      { to: '/manufacturing/resources', label: 'Work Centres', icon: Boxes },
+      { to: '/manufacturing/reports', label: 'Reports', icon: BarChart3 },
+    ],
+  },
+  {
+    title: 'Bakery',
+    flag: 'VITE_ENABLE_MANUFACTURING',
+    items: [
+      { to: '/manufacturing', label: 'Production', icon: Factory },
+      { to: '/manufacturing/orders', label: 'Orders', icon: ClipboardList },
+      { to: '/manufacturing/boms', label: 'Recipes (BOM)', icon: ScrollText },
+      { to: '/manufacturing/planning', label: 'Planning', icon: CalendarDays },
+      { to: '/manufacturing/resources', label: 'Work Centres', icon: Boxes },
+      { to: '/manufacturing/reports', label: 'Reports', icon: BarChart3 },
     ],
   },
   // {
@@ -302,6 +321,34 @@ const NAV_SECTIONS: NavSection[] = [
 // Flags are build-time constants under Vite, so this resolves once.
 const VISIBLE_SECTIONS = NAV_SECTIONS.filter((s) => flagEnabled(s.flag));
 
+// Collapsed (icon-only) sidebar keeps sections flat; accordion is only for expanded mode.
+const SIDEBAR_EXPAND_STATE_KEY = 'poscafe.sidebar.expandedSections';
+
+// Localized section titles for the accordion parent buttons.
+const SECTION_TITLE_KEYS: Record<string, string> = {
+  POS: 'nav.pos',
+  'Master Data': 'nav.masterData',
+  Sales: 'nav.sales',
+  CRM: 'nav.crm',
+  Inventory: 'nav.inventory',
+  'Beverage Control': 'nav.beverageControl',
+  Rentals: 'nav.rentals',
+  'Repair & Maintenance': 'nav.repairMaintenance',
+  'Human Resources': 'nav.workforce',
+  Purchasing: 'nav.purchasing',
+  Expenses: 'nav.expenses',
+  Tasks: 'nav.tasks',
+  'Task Management': 'nav.taskManagement',
+  Accounting: 'nav.accounting',
+  'Fixed Assets': 'nav.fixedAssets',
+  Manufacturing: 'nav.manufacturing',
+  Bakery: 'nav.bakery',
+  System: 'nav.system',
+};
+
+const sectionTitle = (title: string | undefined, t: (k: string) => string) =>
+  title ? (SECTION_TITLE_KEYS[title] ? t(SECTION_TITLE_KEYS[title]) : title) : '';
+
 export function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -311,9 +358,71 @@ export function AppShell() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const clear = useAuthStore((s) => s.clear);
   const org = useAuthStore((s) => s.organization);
+  const setOrganization = useAuthStore((s) => s.setOrganization);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // Accordion state: which titled sections are expanded (expanded sidebar only).
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem(SIDEBAR_EXPAND_STATE_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const persistExpanded = (next: Record<string, boolean>) => {
+    setExpanded(next);
+    try {
+      localStorage.setItem(SIDEBAR_EXPAND_STATE_KEY, JSON.stringify(next));
+    } catch {
+      /* ignore quota / privacy-mode errors */
+    }
+  };
+  const toggleSection = (title: string) =>
+    persistExpanded({ ...expanded, [title]: !expanded[title] });
+
+  // Auto-expand the section containing the active route so it's never hidden.
+  const [autoExpanded, setAutoExpanded] = useState(false);
+  useEffect(() => {
+    if (sidebarCollapsed || autoExpanded) return;
+    const activeSection = VISIBLE_SECTIONS.find(
+      (s) =>
+        s.title &&
+        s.items.some(
+          (n) => n.to !== '/' && (location.pathname === n.to || location.pathname.startsWith(`${n.to}/`)),
+        ),
+    );
+    if (activeSection?.title && !expanded[activeSection.title]) {
+      persistExpanded({ ...expanded, [activeSection.title]: true });
+    }
+    setAutoExpanded(true);
+  }, [location.pathname, sidebarCollapsed]);
+
+  // Keep the org (incl. base currency) in sync with the server on boot.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/organizations/me')
+      .then((res) => {
+        if (cancelled || !res.data?.id) return;
+        const o = res.data;
+        setOrganization({
+          id: o.id,
+          code: o.code,
+          name: o.name,
+          currencyCode: o.currencyCode,
+          timezone: o.timezone,
+        });
+      })
+      .catch(() => {
+        /* token invalid — protected route handles it */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [setOrganization]);
 
   // Auto-collapse sidebar on POS terminal, restore on other pages.
   useEffect(() => {
@@ -349,23 +458,37 @@ export function AppShell() {
   // ── Sidebar rendering: themed background, brand tile, themed nav items ──
   const renderNav = (onItemClick?: () => void, collapsed = false) => {
     return (
-      <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-1">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-1">
         {VISIBLE_SECTIONS.map((section, idx) => {
           const items = section.items.filter(
-            (i) => !i.permission || hasPermission(i.permission),
-          );
+                      (i) => flagEnabled(i.flag) && (!i.permission || hasPermission(i.permission)),
+                    );
           if (items.length === 0) return null;
+          const isOpen = !section.title || expanded[section.title];
           return (
-            <div key={idx} className="space-y-0.5">
-              {section.title && !collapsed && (
-                <p
-                  className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.08em]"
-                  style={{ color: sb.sidebarMuted }}
+            <div key={idx} className="space-y-0">
+              {section.title && !collapsed ? (
+                <button
+                  type="button"
+                  onClick={() => toggleSection(section.title as string)}
+                  className="flex w-full items-center gap-1.5 rounded-md px-0.5 py-1.5 text-[15px] font-bold uppercase tracking-[0.04em] transition-colors hover:bg-white/10"
+                  style={{ color: sb.sidebarActive, borderBottom: `1px solid ${sb.sidebarBorder}`, marginBottom: 2 }}
+                  aria-expanded={isOpen}
                 >
-                  {section.title}
-                </p>
-              )}
-              {items.map((item) => {
+                  <ChevronDown
+                    className={cn('h-3 w-3 shrink-0 transition-transform duration-150', !isOpen && '-rotate-90')}
+                  />
+                  <span className="flex-1 truncate text-left">{sectionTitle(section.title, t)}</span>
+                </button>
+              ) : section.title && collapsed ? (
+                <div
+                  className="mx-2 my-1 border-t"
+                  style={{ borderColor: sb.sidebarBorder }}
+                  aria-hidden
+                />
+              ) : null}
+              {isOpen &&
+                items.map((item) => {
                 const Icon = item.icon;
                 return (
                   <NavLink

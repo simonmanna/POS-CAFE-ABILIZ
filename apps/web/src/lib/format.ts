@@ -1,3 +1,10 @@
+import { useAuthStore } from '@/stores/auth.store';
+
+/** Org base currency, set in Settings → Company. Falls back to IDR. */
+export function useOrgCurrency(): string {
+  return useAuthStore((s) => s.organization?.currencyCode ?? 'IDR');
+}
+
 export function money(value?: string | number | null, currency?: string): string {
   if (value === null || value === undefined || value === '') return '-';
   const n = typeof value === 'string' ? Number(value) : value;

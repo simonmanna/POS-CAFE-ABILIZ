@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Loader2, Landmark, BookOpen, ArrowLeftRight, Coins, Boxes, UserPlus, KeyRound, Mail, Check, Building2, Users } from 'lucide-react';
+import { Save, Loader2, Landmark, BookOpen, ArrowLeftRight, Coins, Boxes, UserPlus, KeyRound, Mail, Check, Building2, Users, ReceiptText } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,6 +42,7 @@ interface CompanySettingsData {
   expenseAccountId: string | null;
   defaultSalesTaxId: string | null;
   exchangeDifferenceJournalId: string | null;
+  defaultSalesJournalId: string | null;
   exchangeGainAccountId: string | null;
   exchangeLossAccountId: string | null;
   productIncomeAccountId: string | null;
@@ -178,6 +179,7 @@ export function CompanySettingsPage() {
   const [defaultSalesTaxId, setDefaultSalesTaxId] = useState('');
   const [allCurrencyCodes, setAllCurrencyCodes] = useState<string[]>([]);
   const [exchangeDifferenceJournalId, setExchangeDifferenceJournalId] = useState('');
+  const [defaultSalesJournalId, setDefaultSalesJournalId] = useState('');
   const [exchangeGainAccountId, setExchangeGainAccountId] = useState('');
   const [exchangeLossAccountId, setExchangeLossAccountId] = useState('');
   const [productIncomeAccountId, setProductIncomeAccountId] = useState('');
@@ -232,6 +234,7 @@ export function CompanySettingsPage() {
       setDefaultSalesTaxId(d.defaultSalesTaxId ?? '');
       setAllCurrencyCodes(d.allCurrencyCodes ?? []);
       setExchangeDifferenceJournalId(d.exchangeDifferenceJournalId ?? '');
+      setDefaultSalesJournalId(d.defaultSalesJournalId ?? '');
       setExchangeGainAccountId(d.exchangeGainAccountId ?? '');
       setExchangeLossAccountId(d.exchangeLossAccountId ?? '');
       setProductIncomeAccountId(d.productIncomeAccountId ?? '');
@@ -265,6 +268,7 @@ export function CompanySettingsPage() {
       defaultSalesTaxId: defaultSalesTaxId || undefined,
       allCurrencyCodes,
       exchangeDifferenceJournalId: exchangeDifferenceJournalId || undefined,
+      defaultSalesJournalId: defaultSalesJournalId || undefined,
       exchangeGainAccountId: exchangeGainAccountId || undefined,
       exchangeLossAccountId: exchangeLossAccountId || undefined,
       productIncomeAccountId: productIncomeAccountId || undefined,
@@ -437,6 +441,22 @@ export function CompanySettingsPage() {
               <AccountField label="Expense Account" description="Default account for expense transactions." value={expenseAccountId} accounts={accounts} onChange={setExpenseAccountId} />
               <AccountField label="Product Income Account" description="Default income account for product sales." value={productIncomeAccountId} accounts={accounts} onChange={setProductIncomeAccountId} />
               <AccountField label="Product Expense Account" description="Default expense account for product cost of goods." value={productExpenseAccountId} accounts={accounts} onChange={setProductExpenseAccountId} />
+            </CardContent>
+          </Card>
+
+          {/* ── Sales Journals ── */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <ReceiptText className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <CardTitle>Sales Journals</CardTitle>
+                  <CardDescription>Journal used by default for customer invoices and POS sales entries.</CardDescription>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <JournalField label="Default Sales Journal" description="Used automatically for the invoice journal entry unless the invoice picks a specific journal. Falls back to a journal with code SALES, then the first active sales journal." value={defaultSalesJournalId} journals={journals} onChange={setDefaultSalesJournalId} />
             </CardContent>
           </Card>
 

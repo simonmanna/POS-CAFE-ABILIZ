@@ -59,6 +59,8 @@ import { TieOutPage } from '@/pages/accounting/tieout';
 import { AuditLogPage } from '@/pages/accounting/audit-log';
 import FiscalPeriodsPage from '@/pages/accounting/fiscal-periods';
 import TaxesPage from '@/pages/accounting/taxes';
+import PaymentTermsPage from '@/pages/accounting/payment-terms';
+import FiscalPositionsPage from '@/pages/accounting/fiscal-positions';
 import { CostCentersPage } from '@/pages/accounting/cost-centers';
 import { CurrencyPage } from '@/pages/accounting/currency';
 import { InventoryValuationPage } from '@/pages/accounting/inventory-valuation';
@@ -68,6 +70,9 @@ import { BalanceSheetPage } from '@/pages/accounting/balance-sheet';
 import { InvoicesPage } from '@/pages/invoicing/invoices';
 import { InvoiceCreatePage } from '@/pages/invoicing/invoice-create';
 import { InvoiceDetailPage } from '@/pages/invoicing/invoice-detail';
+import { OrdersPage } from '@/pages/orders/orders';
+import { OrderCreatePage } from '@/pages/orders/order-create';
+import { OrderDetailPage } from '@/pages/orders/order-detail';
 import { ArAgingPage } from '@/pages/invoicing/ar-aging';
 import { CreditNotesPage } from '@/pages/invoicing/credit-notes';
 import { CreditNoteCreatePage } from '@/pages/invoicing/credit-note-create';
@@ -201,8 +206,11 @@ export function App() {
           <Route path="/menu/combos" element={<ComboListPage />} />
           <Route path="/menu/accompaniments" element={<AccompanimentGroupsPage />} />
           <Route path="/invoices" element={<InvoicesPage />} />
-          <Route path="/invoices/new" element={<InvoiceCreatePage />} />
-          <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
+                    <Route path="/invoices/new" element={<InvoiceCreatePage />} />
+                    <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
+                    <Route path="/orders" element={<OrdersPage />} />
+                    <Route path="/orders/new" element={<OrderCreatePage />} />
+                    <Route path="/orders/:id" element={<OrderDetailPage />} />
           <Route path="/credit-notes" element={<CreditNotesPage />} />
           <Route path="/credit-notes/new" element={<CreditNoteCreatePage />} />
           <Route path="/credit-notes/:id" element={<CreditNoteDetailPage />} />
@@ -241,6 +249,8 @@ export function App() {
           <Route path="/audit-log" element={<AuditLogPage />} />
           <Route path="/fiscal-periods" element={<FiscalPeriodsPage />} />
           <Route path="/taxes" element={<TaxesPage />} />
+          <Route path="/accounts/payment-terms" element={<PaymentTermsPage />} />
+          <Route path="/accounts/fiscal-positions" element={<FiscalPositionsPage />} />
           <Route path="/cost-centers" element={<CostCentersPage />} />
           <Route path="/currency" element={<CurrencyPage />} />
           <Route path="/inventory-valuation" element={<InventoryValuationPage />} />

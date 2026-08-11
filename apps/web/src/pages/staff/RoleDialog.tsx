@@ -132,17 +132,17 @@ export function RoleDialog({ open, onOpenChange, role }: RoleDialogProps) {
             ) : (
               <ShieldCheck className="h-5 w-5 text-primary" />
             )}
-            {isEdit ? (isSystem ? 'View System Role' : 'Edit Role') : 'New Role'}
+            {isEdit ? 'Edit Role' : 'New Role'}
           </DialogTitle>
           <DialogDescription>
             {isSystem
-              ? 'System roles are seeded and cannot be renamed or deleted. Their permissions can be reviewed but not modified.'
+              ? 'This is a seeded system role. You can rename it, change its description, and modify its permissions here.'
               : 'Define a role by naming it and selecting the permissions it grants.'}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={onSubmit} className="space-y-4">
-          <fieldset disabled={isSystem} className="space-y-4">
+          <fieldset className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Name</Label>
@@ -176,7 +176,6 @@ export function RoleDialog({ open, onOpenChange, role }: RoleDialogProps) {
                         <div className="flex items-center justify-between">
                           <button
                             type="button"
-                            disabled={isSystem}
                             onClick={() => toggleGroup(group.permissions, !allOn)}
                             className="flex items-center gap-2 text-left"
                           >
@@ -209,7 +208,6 @@ export function RoleDialog({ open, onOpenChange, role }: RoleDialogProps) {
                                   type="checkbox"
                                   className="h-4 w-4 rounded border-input"
                                   checked={on}
-                                  disabled={isSystem}
                                   onChange={(e) => togglePerm(p.key, e.target.checked)}
                                 />
                                 <span className="flex-1">{p.action}</span>
@@ -233,13 +231,11 @@ export function RoleDialog({ open, onOpenChange, role }: RoleDialogProps) {
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              {isSystem ? 'Close' : 'Cancel'}
+              Cancel
             </Button>
-            {!isSystem && (
-              <Button type="submit" disabled={isPending}>
-                {isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Create role'}
-              </Button>
-            )}
+            <Button type="submit" disabled={isPending}>
+              {isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Create role'}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

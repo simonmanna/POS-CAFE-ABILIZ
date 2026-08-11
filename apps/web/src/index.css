@@ -243,6 +243,55 @@
   .page-hero-inner {
     @apply relative flex flex-wrap items-center justify-between gap-4 px-4 py-3;
   }
+
+  /* ────────────────────────────────────────────────────────────────────────
+     AdminLTE-inspired "sky blue" widgets
+     ──────────────────────────────────────────────────────────────────────── */
+
+  /* Sky-blue gradient hero (AdminLTE light-blue skin) */
+  .hero-sky {
+    background: linear-gradient(135deg,
+      hsl(207 90% 54%) 0%,
+      hsl(199 98% 48%) 55%,
+      hsl(190 95% 55%) 100%);
+  }
+
+  /* small-box KPI widget — solid color, big number, watermark icon, footer */
+  .small-box {
+    @apply relative overflow-hidden rounded-xl text-white shadow-[0_8px_24px_-8px_rgba(2,132,199,0.45)]
+           transition-all duration-200 hover:-translate-y-0.5
+           hover:shadow-[0_16px_36px_-10px_rgba(2,132,199,0.6)];
+  }
+  .small-box .sb-inner { @apply relative z-10 px-4 pt-4 pb-2; }
+  .small-box .sb-value { @apply text-3xl md:text-[2rem] leading-none font-extrabold tracking-tight; }
+  .small-box .sb-label { @apply mt-1 text-sm font-semibold text-white/90; }
+  .small-box .sb-icon {
+    @apply absolute right-2 top-1 z-0 text-white/25 transition-transform duration-300;
+    transform: scale(1);
+  }
+  .small-box:hover .sb-icon { transform: scale(1.12) rotate(-6deg); opacity: 0.9; }
+  .small-box .sb-footer {
+    @apply relative z-10 flex items-center justify-center gap-1 bg-black/15 py-1.5
+           text-xs font-semibold text-white/90 transition-colors;
+  }
+  .small-box:hover .sb-footer { @apply bg-black/25 text-white; }
+
+  /* info-box — white card, colored icon panel on the left */
+  .info-box {
+    @apply flex items-stretch overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm
+           transition-all duration-200 hover:-translate-y-0.5
+           hover:shadow-[0_16px_36px_-12px_rgba(2,132,199,0.35)];
+  }
+  .info-box-icon {
+    @apply flex w-16 shrink-0 items-center justify-center text-white;
+  }
+  .info-box-content { @apply flex-1 px-3 py-2.5; }
+
+  /* box with a sky top-accent border (AdminLTE .box.box-info) */
+  .box-sky {
+    @apply relative rounded-xl border border-border/60 bg-card shadow-sm;
+    border-top: 3px solid hsl(199 98% 48%);
+  }
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
