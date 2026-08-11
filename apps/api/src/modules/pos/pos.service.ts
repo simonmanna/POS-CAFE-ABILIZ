@@ -23,6 +23,7 @@ import { NotificationsService } from '../../kernel/notifications/notifications.s
 import { PosTablesService } from './pos-tables.service';
 import { PosOrdersService } from './order/pos-orders.service';
 import { PosInvoiceService } from './billing/pos-invoice.service';
+import { withLegacyOrderStatus } from './order-status.util';
 import type { CreateOrderDto } from './order/dto/order.dto';
 
 export interface CheckoutLineModifier {
@@ -505,7 +506,9 @@ export class PosService {
     return {
       id: o.id,
       orderNumber: o.orderNumber,
-      status: o.status,
+      // Canonical status + the legacy alias, so in-field Android APKs that still
+      // read 'open'/'preparing'/'served' keep working through the compat window.
+      ...withLegacyOrderStatus(o.status),
       // Optimistic-lock token — the terminal echoes it back on save so a stale
       // full-replace from another device is rejected (H2) instead of clobbering.
       version: o.version ?? 0,

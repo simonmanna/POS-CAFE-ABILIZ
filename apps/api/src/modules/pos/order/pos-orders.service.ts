@@ -16,6 +16,9 @@ import { PosKdsService } from '../pos-kds.service';
 import { PosReceiptsService } from '../pos-receipts.service';
 import { dec } from '../../../kernel/common/money';
 import { recomputeTableStatus, TABLE_HELD_ORDER_STATUSES } from '../table-status.util';
+import { toCanonicalOrderStatus, withLegacyOrderStatus } from '../order-status.util';
+import { WorkflowService } from '../../../kernel/workflow/workflow.service';
+import { MilestoneService } from '../../../kernel/milestones/milestone.service';
 import type { CreateOrderDto, SaveOrderItemsDto, AddOrderItemsDto, OrderLineDto } from './dto/order.dto';
 
 /** A cart line resolved to ledger-ready values (modifiers/variant folded into unitPrice). */
@@ -66,6 +69,8 @@ export class PosOrdersService {
     private readonly modifiers: PosModifiersService,
     private readonly kds: PosKdsService,
     private readonly receipts: PosReceiptsService,
+    private readonly workflows: WorkflowService,
+    private readonly milestones: MilestoneService,
   ) {}
 
   // ─── Queries ───────────────────────────────────────────────────────────────
@@ -80,11 +85,18 @@ export class PosOrdersService {
     return order;
   }
 
+  /** Milestone timeline for an order, projected from the event ledger (Phase B). */
+  async getMilestones(orderId: string) {
+    // Validates existence + tenant scope; throws 404 for an unknown order.
+    await this.getOrder(orderId);
+    return this.milestones.forEntity('order', orderId);
+  }
+
   /** The current open (un-billed) order on a table, or null. */
   async getOpenOrderForTable(tableId: string) {
     const orgId = this.tenant.organizationId;
     return this.prisma.client.order.findFirst({
-      where: { organizationId: orgId, tableId, status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] }, invoiceId: null },
+      where: { organizationId: orgId, tableId, status: { in: TABLE_HELD_ORDER_STATUSES as any }, invoiceId: null },
       orderBy: { openedAt: 'desc' },
       include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true } } },
     });
@@ -95,7 +107,8 @@ export class PosOrdersService {
     return this.prisma.client.order.findMany({
       where: {
         organizationId: orgId,
-        ...(filter.status ? { status: filter.status as any } : {}),
+        // Accept legacy status spellings from in-field Android APKs.
+        ...(filter.status ? { status: toCanonicalOrderStatus(filter.status) as any } : {}),
         ...(filter.tableId ? { tableId: filter.tableId } : {}),
         ...(filter.cashSessionId ? { cashSessionId: filter.cashSessionId } : {}),
       },
@@ -144,7 +157,7 @@ export class PosOrdersService {
       id: o.id,
       orderNumber: o.orderNumber,
       orderType: o.orderType ?? null,
-      status: o.status,
+      ...withLegacyOrderStatus(o.status),
       openedAt: o.openedAt ?? o.createdAt,
       tableId: o.tableId ?? null,
       tableName: o.tableId ? (tableMap.get(o.tableId) ?? null) : null,
@@ -176,7 +189,7 @@ export class PosOrdersService {
       // starts a fresh order. We still block a second genuinely-editable tab.
       if ((dto.orderType ?? 'dine_in') === 'dine_in' && dto.tableId) {
         const held = await tx.order.findFirst({
-          where: { tableId: dto.tableId, orderType: 'dine_in', invoiceId: null, status: { in: TABLE_HELD_ORDER_STATUSES as unknown as string[] } },
+          where: { tableId: dto.tableId, orderType: 'dine_in', invoiceId: null, status: { in: TABLE_HELD_ORDER_STATUSES as any } },
           select: { id: true, orderNumber: true },
         });
         if (held) throw new ConflictException(`Table already has an open order (${held.orderNumber})`);
@@ -187,7 +200,7 @@ export class PosOrdersService {
           organizationId: orgId,
           orderNumber,
           orderType: dto.orderType ?? 'dine_in',
-          status: 'open',
+          status: 'confirmed',
           tableId: dto.tableId ?? null,
           partnerId,
           waiterId: dto.waiterId ?? this.tenant.userId ?? null,
@@ -276,7 +289,7 @@ export class PosOrdersService {
           organizationId: orgId,
           orderNumber,
           orderType: input.orderType ?? 'dine_in',
-          status: 'open',
+          status: 'confirmed',
           tableId: input.tableId ?? null,
           partnerId,
           waiterId: this.tenant.userId ?? null,
@@ -353,9 +366,16 @@ export class PosOrdersService {
       const order = await this.lockOrder(tx, orderId);
       if (order.invoiceId) throw new ConflictException('Order already billed — refund/void the invoice instead');
       if (order.status === 'cancelled' || order.status === 'closed') return order;
+      // The engine validates the transition and writes status + cancelledAt/By,
+      // the AuditLog row and the domain event (ADR-007). Domain-specific columns
+      // it does not know about are written after it, on the same tx.
+      await this.workflows.transition({
+        entityType: 'order', entityId: orderId, action: 'cancel',
+        entity: order, payload: { reason: reason ?? null }, externalTx: tx,
+      });
       const updated = await tx.order.update({
         where: { id: orderId },
-        data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: reason ?? null, cancelledBy: this.tenant.userId ?? null, version: { increment: 1 } },
+        data: { cancelReason: reason ?? null, version: { increment: 1 } },
       });
       await this.syncTableOnClose(tx, order.tableId);
       this.events.publish(EVENTS.PosOrderCancelled, { organizationId: orgId, orderId, reason });
@@ -370,9 +390,12 @@ export class PosOrdersService {
       const order = await this.lockOrder(tx, orderId);
       if (order.invoiceId) throw new ConflictException('Billed orders cannot be reopened');
       if (order.status !== 'cancelled') throw new BadRequestException('Only a cancelled order can be reopened');
+      await this.workflows.transition({
+        entityType: 'order', entityId: orderId, action: 'reopen', entity: order, externalTx: tx,
+      });
       const updated = await tx.order.update({
         where: { id: orderId },
-        data: { status: 'open', cancelledAt: null, cancelReason: null, cancelledBy: null, version: { increment: 1 } },
+        data: { cancelledAt: null, cancelReason: null, cancelledBy: null, version: { increment: 1 } },
       });
       await this.syncTableOnOpen(tx, order.tableId);
       return updated;
@@ -414,9 +437,15 @@ export class PosOrdersService {
       });
       const merged: ResolvedLine[] = [...tgtItems, ...srcItems].map((it: any) => this.itemToResolved(it));
       await this.writeItems(tx, targetOrderId, merged, { replace: true });
+      // `supersede`, not `cancel`: this route is gated on `tables:merge`, so the
+      // transition must not additionally demand `pos:checkout`.
+      await this.workflows.transition({
+        entityType: 'order', entityId: sourceOrderId, action: 'supersede',
+        entity: source, payload: { mergedInto: targetOrderId }, externalTx: tx,
+      });
       await tx.order.update({
         where: { id: sourceOrderId },
-        data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: `Merged into ${target.orderNumber}`, version: { increment: 1 } },
+        data: { cancelReason: `Merged into ${target.orderNumber}`, version: { increment: 1 } },
       });
       await this.syncTableOnClose(tx, source.tableId);
       await this.audit.recordInTx(tx, { entity: 'Order', entityId: targetOrderId, action: 'merge' as any, newValues: { sourceOrderId } });
@@ -494,8 +523,15 @@ export class PosOrdersService {
         },
       });
     }
-    if (order.status === 'open') {
-      await this.prisma.client.order.update({ where: { id: orderId }, data: { status: 'preparing', kitchenStartedAt: now, kitchenStartedBy: this.tenant.userId ?? null } });
+    // Firing the kitchen is the first fulfillment activity on the order.
+    // (`open` is the legacy alias of `confirmed` — accepted during the Android
+    // wire-compat window.) The transition emits `order.fulfillment_started`;
+    // the former `Order.kitchenStartedAt/By` write is gone (zero readers, and
+    // the milestone projection now serves the kitchen timeline — Phase B).
+    if (order.status === 'confirmed' || order.status === 'open') {
+      await this.workflows.transition({
+        entityType: 'order', entityId: orderId, action: 'start_fulfillment', entity: order,
+      });
     }
     await this.audit.record({ entity: 'Order', entityId: orderId, action: 'update' as any, newValues: { kind: 'fire_kitchen', tickets: ticketIds.length } });
 

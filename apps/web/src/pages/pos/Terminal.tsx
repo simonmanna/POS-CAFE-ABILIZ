@@ -1,3 +1,4 @@
+import { useAuthStore } from '@/stores/auth.store';
 /**
  * Terminal — Cafe POS orchestrator.
  *
@@ -55,8 +56,8 @@ import { VoidItemDialog } from './VoidItemDialog';
 import { CancelOrderDialog } from './CancelOrderDialog';
 import { ReprintDialog } from './ReprintDialog';
 import type { PosTable } from '@/features/tables/types';
-import { STATUS_META, ZONE_LABEL, fmtMoney, minutesBetween } from '@/features/tables/utils';
-import { useTables, useTransferItems, usePosTablesStream } from '@/features/tables/api';
+import { STATUS_META, zoneLabel as zoneLabelOf, fmtMoney, minutesBetween } from '@/features/tables/utils';
+import { useTables, useTransferItems, usePosTablesStream, useTableZones } from '@/features/tables/api';
 
 import {
   useOpenSession,
@@ -88,7 +89,7 @@ import { api, resolveAssetUrl } from '@/lib/api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
 import type { Customer } from './types';
-import { useAuthStore } from '@/stores/auth.store';
+
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import { usePosSettings } from '@/features/pos/api';
 import { useScannerDebounce } from './scanner-debounce';
@@ -98,7 +99,7 @@ import RentalTerminal from './RentalTerminal';
 
 import './pos-pro.css';
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${useAuthStore.getState().organization?.currencyCode ?? 'IDR'} ${Number(n || 0).toLocaleString()}`;
 
 /** Stable signature of an order's line-set — used to detect cart⇄server drift
  * so auto-save only fires on a real change (and never loops with the loader). */
@@ -234,7 +235,7 @@ const TerminalPage: React.FC = () => {
         id: it.id,
         name: it.name,
         sku: it.code,
-        // basePrice is stored in whole currency units (UGX).
+        // basePrice is stored in whole currency units ({orgCur()}).
         salesPrice: it.basePrice != null ? Number(it.basePrice) : 0,
         categoryId: it.categoryId,
         category: it.categoryId ? { name: catName.get(it.categoryId) ?? '' } : null,
@@ -480,6 +481,7 @@ const TerminalPage: React.FC = () => {
   usePosTablesStream();
   const qc = useQueryClient();
   const { data: tables = [], isLoading: tablesLoading } = useTables({ active: true, status: undefined });
+  const { data: zones = [] } = useTableZones();
 
   /* Derived selected table � derived from selectedTableId + tables list */
   const selectedTable = selectedTableId
@@ -990,7 +992,7 @@ const TerminalPage: React.FC = () => {
   const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType) => {
     setDiscount(lineId, amount, type);
     if (amount > 0) {
-      toast.success(type === 'fixed_amount' ? `Line discount UGX ${amount.toLocaleString()} applied` : `Line discount ${amount}% applied`);
+      toast.success(type === 'fixed_amount' ? `Line discount ${fmt(amount)} applied` : `Line discount ${amount}% applied`);
     } else {
       toast.success('Line discount cleared');
     }
@@ -1029,12 +1031,12 @@ const TerminalPage: React.FC = () => {
         setTransactionDiscount(amount, type);
         useCartStore.setState({ overrideById: result.managerId, overridePin: result.pin });
         if (amount > 0) setShowDiscountReason(true);
-        toast.success(type === 'fixed_amount' ? `UGX ${amount.toLocaleString()} discount applied with override` : `${amount}% discount applied with override`);
+        toast.success(type === 'fixed_amount' ? `${fmt(amount)} discount applied with override` : `${amount}% discount applied with override`);
       });
     } else {
       setTransactionDiscount(amount, type);
       if (amount > 0) setShowDiscountReason(true);
-      toast.success(type === 'fixed_amount' ? `UGX ${amount.toLocaleString()} discount applied` : `${amount}% discount applied`);
+      toast.success(type === 'fixed_amount' ? `${fmt(amount)} discount applied` : `${amount}% discount applied`);
     }
   };
 
@@ -1668,17 +1670,20 @@ const TerminalPage: React.FC = () => {
                 ) : (() => {
                   const grouped = new Map<string, PosTable[]>();
                   for (const t of tables) {
-                    const key = t.zone === 'custom' && t.customZone ? `custom:${t.customZone}` : t.zone;
+                    const key = t.zone;
                     const arr = grouped.get(key) ?? [];
                     arr.push(t);
                     grouped.set(key, arr);
                   }
+                  const zoneOrder = new Map(zones.map((z, i) => [z.key, i]));
                   return Array.from(grouped.entries())
-                    .sort((a, b) => (ZONE_LABEL[a[0]] ?? a[0]).localeCompare(ZONE_LABEL[b[0]] ?? b[0]));
+                    .sort((a, b) =>
+                      (zoneOrder.get(a[0]) ?? 999) - (zoneOrder.get(b[0]) ?? 999) || a[0].localeCompare(b[0]),
+                    );
                 })().map(([zoneKey, list]) => (
                   <div key={zoneKey} className="mb-6 last:mb-0">
                     <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">
-                      {ZONE_LABEL[zoneKey] ?? zoneKey} · {list.length}
+                      {zoneLabelOf(zones, zoneKey)} · {list.length}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
                       {list.map((t) => {
@@ -1690,7 +1695,7 @@ const TerminalPage: React.FC = () => {
                         const combinedCount = openOrders.length + (hasLocal ? 1 : 0);
                         const meta = STATUS_META[t.status] ?? STATUS_META.available;
                         const statusLabel = t.status === 'occupied' ? 'Occupied' : t.status === 'out_of_service' ? 'Out of service' : t.status === 'reserved' ? 'Reserved' : 'Available';
-                        const zoneLabel = ZONE_LABEL[t.zone] ?? t.customZone ?? t.zone;
+                        const zoneLabel = t.zoneName ?? t.zone;
                         return (
                           <button
                             key={t.id}
@@ -2179,7 +2184,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">
             {table.seats} seats · Zone: {table.zone} · {openOrders.length} open order{openOrders.length !== 1 ? 's' : ''}
-            {tableTotal > 0 && <span className="ml-2 font-semibold text-slate-700">· Total UGX {tableTotal.toLocaleString()}</span>}
+            {tableTotal > 0 && <span className="ml-2 font-semibold text-slate-700">· Total {fmt(tableTotal)}</span>}
             {hasLocalCart && <span className="ml-2 font-semibold text-amber-600">· ⚡ Draft in progress</span>}
           </div>
         </div>
@@ -2241,7 +2246,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className="text-sm font-bold text-slate-800">
-                    {o.order ? `UGX ${Number(o.order.totalAmount || 0).toLocaleString()}` : '—'}
+                    {o.order ? fmt(Number(o.order.totalAmount || 0)) : '—'}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
                     {o.order?.status ?? 'open'} · {o.guestCount ?? '?'} guests

@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
  * Reports page — shift reports + daily/weekly/monthly sales + analytics.
  * Manager-gated (`pos:reports`). Navigated to from the terminal Topbar.
@@ -9,7 +11,7 @@ import { BarChart3, Clock, TrendingUp, RefreshCw, Printer, CalendarDays, Downloa
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useAuthStore } from '@/stores/auth.store';
+
 import { useXReport, useZReport, useSalesByHour, useTopItems, useOpenSession, useSalesSummary, useSoldItems, useSalesReport, useCategories, useOrderReport, useCashierReport, useCashierShiftSummary, useWaiterReport, useItemsByGroup } from './api';
 import type { XReport as XReportType, SalesSummaryReport, SoldItem, SalesReportRow, OrderReportRow, CashierReportRow, CashierShiftSummaryRow, WaiterReportRow, ItemsByGroupRow } from './types';
 import './pos-pro.css';
@@ -17,7 +19,7 @@ import { exportCSV } from '@/lib/export-csv';
 import { exportPDF } from '@/lib/export-pdf';
 
 const fmt = (n: number | string | null | undefined) =>
-  `UGX ${Number(n || 0).toLocaleString()}`;
+  `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 /** Local-timezone YYYY-MM-DD. Never use toISOString() here — it's UTC, so in
  *  UTC+ zones it rolls back to "yesterday" during the early-morning hours. */

@@ -1,3 +1,4 @@
+import { useAuthStore } from '@/stores/auth.store';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Printer } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
@@ -12,8 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { money, date } from '@/lib/format';
-import { useAuthStore } from '@/stores/auth.store';
+import { money, date, useOrgCurrency } from '@/lib/format';
+
 import { useReceipt } from '@/pages/pos/api';
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -29,7 +30,8 @@ export function ReceiptDetailPage() {
   const { invoiceId: id } = useParams<{ invoiceId: string }>();
   const navigate = useNavigate();
   const { data: receipt, isLoading } = useReceipt(id);
-  const has = useAuthStore((s) => s.hasPermission);
+    const has = useAuthStore((s) => s.hasPermission);
+    const currency = useOrgCurrency();
 
   if (isLoading || !receipt) {
     return <div className="text-sm text-muted-foreground">Loading...</div>;
@@ -74,17 +76,17 @@ export function ReceiptDetailPage() {
 
           <div className="rounded-md bg-muted/50 p-4 text-center">
             <div className="text-xs uppercase tracking-wide text-muted-foreground">Amount received</div>
-            <div className="text-3xl font-semibold">{money(receipt.amountPaid)}</div>
+            <div className="text-3xl font-semibold">{money(receipt.amountPaid, currency)}</div>
           </div>
 
           {/* Cash change: shown only when the customer overpaid in cash. */}
           {Number((receipt as any).amountTendered ?? 0) > Number(receipt.amountPaid) && (
             <div className="grid grid-cols-3 gap-4 rounded-md border p-4">
-              <Field label="Bill total" value={money((receipt as any).totalAmount)} />
-              <Field label="Cash tendered" value={money((receipt as any).amountTendered)} />
+              <Field label="Bill total" value={money((receipt as any).totalAmount, currency)} />
+              <Field label="Cash tendered" value={money((receipt as any).amountTendered, currency)} />
               <Field
                 label="Change given"
-                value={money(Math.max(0, Number((receipt as any).amountTendered) - Number((receipt as any).totalAmount)))}
+                value={money(Math.max(0, Number((receipt as any).amountTendered) - Number((receipt as any).totalAmount)), currency)}
               />
             </div>
           )}
@@ -105,7 +107,7 @@ export function ReceiptDetailPage() {
                     <TableRow key={l.id}>
                       <TableCell>{l.description}</TableCell>
                       <TableCell className="text-right">{l.quantity}</TableCell>
-                      <TableCell className="text-right">{money(l.total)}</TableCell>
+                      <TableCell className="text-right">{money(l.total, currency)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -115,7 +117,7 @@ export function ReceiptDetailPage() {
 
           {Number(receipt.amountResidual) > 0 && (
             <p className="text-sm text-muted-foreground">
-              Balance due: {money(receipt.amountResidual)}
+              Balance due: {money(receipt.amountResidual, currency)}
             </p>
           )}
         </CardContent>

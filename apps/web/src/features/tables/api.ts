@@ -7,6 +7,7 @@ import type {
   PosTable,
   PosTableReservationFE,
   PosTableStats,
+  PosTableZoneConfig,
   ReservationReport,
   RevenueReport,
   SplitBillInput,
@@ -21,6 +22,80 @@ function uuid(): string {
     return (crypto as any).randomUUID();
   }
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+// ─── Zones (configurable dining areas / table categories) ───────────────────
+
+export interface ZoneInput {
+  key?: string;
+  name: string;
+  sortOrder?: number;
+  color?: string;
+  active?: boolean;
+}
+
+export function useTableZones() {
+  return useQuery({
+    queryKey: ['pos-tables', 'zones'],
+    queryFn: async () => {
+      const res = await api.get<PosTableZoneConfig[]>('/pos/tables/zones');
+      return Array.isArray(res.data) ? res.data : [];
+    },
+    refetchInterval: 30_000,
+  });
+}
+
+/** Archived (soft-deleted) zones — restore candidates for the management dialog. */
+export function useDeletedZones() {
+  return useQuery({
+    queryKey: ['pos-tables', 'zones', 'deleted'],
+    queryFn: async () => {
+      const res = await api.get<PosTableZoneConfig[]>('/pos/tables/zones/deleted');
+      return Array.isArray(res.data) ? res.data : [];
+    },
+  });
+}
+
+function invalidateZoneQueries(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['pos-tables', 'zones'] });
+  // Table lists carry enriched zoneName/zoneColor — refresh them too.
+  qc.invalidateQueries({ queryKey: ['pos-tables'] });
+}
+
+export function useCreateZone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: ZoneInput) =>
+      (await api.post<PosTableZoneConfig>('/pos/tables/zones', body)).data,
+    onSuccess: () => invalidateZoneQueries(qc),
+  });
+}
+
+export function useUpdateZone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { id: string; body: Partial<ZoneInput> }) =>
+      (await api.patch<PosTableZoneConfig>(`/pos/tables/zones/${args.id}`, args.body)).data,
+    onSuccess: () => invalidateZoneQueries(qc),
+  });
+}
+
+export function useArchiveZone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.delete<PosTableZoneConfig>(`/pos/tables/zones/${id}`)).data,
+    onSuccess: () => invalidateZoneQueries(qc),
+  });
+}
+
+export function useRestoreZone() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.patch<PosTableZoneConfig>(`/pos/tables/zones/${id}/restore`, {})).data,
+    onSuccess: () => invalidateZoneQueries(qc),
+  });
 }
 
 // ─── Tables ──────────────────────────────────────────────────────────────────

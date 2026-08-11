@@ -26,7 +26,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useTable, useTables, useMergeTables, useTransferTable, useUnmergeTable, useSplitBill } from '@/features/tables/api';
 import { api } from '@/lib/api';
 import type { PosTable } from '@/features/tables/types';
-import { STATUS_META, ZONE_LABEL, fmtMoney, minutesBetween } from '@/features/tables/utils';
+import { STATUS_META, fmtMoney, minutesBetween } from '@/features/tables/utils';
 
 interface Props {
   table: PosTable | null;
@@ -149,7 +149,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
             </span>
           </DialogTitle>
           <DialogDescription>
-            {t.seats} seats · {t.zone === 'custom' && t.customZone ? t.customZone : t.zone}
+            {t.seats} seats · {t.zoneName ?? t.zone}
             {t.mergedIntoId ? (
               <span className="ml-2 text-rose-600 font-bold">
                 ⚠ merged — use Unmerge before re-using
@@ -240,7 +240,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                 {otherTables.map((ot) => (
                   <option key={ot.id} value={ot.id}>
                     T{ot.number} {ot.name} · {ot.seats} seats ·{' '}
-                    {ot.zone === 'custom' && ot.customZone ? ot.customZone : ZONE_LABEL[ot.zone] ?? ot.zone} ·{' '}
+                    {ot.zoneName ?? ot.zone} ·{' '}
                      {(STATUS_META[ot.status] ?? STATUS_META.available).label}
                   </option>
                 ))}

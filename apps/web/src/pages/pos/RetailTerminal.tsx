@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useAuthStore } from '@/stores/auth.store';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ShoppingBag, Lock as LockIcon } from 'lucide-react';
@@ -37,14 +38,14 @@ import { useCombos } from './pos-features-api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
 import type { Customer } from './types';
-import { useAuthStore } from '@/stores/auth.store';
+
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import { useScannerDebounce } from './scanner-debounce';
 import PosLoginScreen from './PosLoginScreen';
 import { api, resolveAssetUrl } from '@/lib/api';
 import './pos-pro.css';
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${useAuthStore.getState().organization?.currencyCode ?? 'IDR'} ${Number(n || 0).toLocaleString()}`;
 
 function cartToReceiptLines(ls: CartLine[]): ReceiptLine[] {
   return ls.map((l) => ({
@@ -448,7 +449,7 @@ const RetailTerminal: React.FC = () => {
   const onLineDiscount = (line: CartLine) => setLineForDiscount(line);
   const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType) => {
     setDiscount(lineId, amount, type);
-    toast.success(type === 'fixed_amount' ? `Line discount UGX ${amount.toLocaleString()} applied` : `Line discount ${amount}% applied`);
+    toast.success(type === 'fixed_amount' ? `Line discount ${fmt(amount)} applied` : `Line discount ${amount}% applied`);
   };
   const onLineNote = (line: CartLine) => {
     const next = window.prompt(`Note for "${line.name}"`, line.note ?? '');
@@ -479,12 +480,12 @@ const RetailTerminal: React.FC = () => {
         setTransactionDiscount(amount, type);
         useCartStore.setState({ overrideById: result.managerId, overridePin: result.pin });
         if (amount > 0) setShowDiscountReason(true);
-        toast.success(type === 'fixed_amount' ? `UGX ${amount.toLocaleString()} discount applied with override` : `${amount}% discount applied with override`);
+        toast.success(type === 'fixed_amount' ? `${fmt(amount)} discount applied with override` : `${amount}% discount applied with override`);
       });
     } else {
       setTransactionDiscount(amount, type);
       if (amount > 0) setShowDiscountReason(true);
-      toast.success(type === 'fixed_amount' ? `UGX ${amount.toLocaleString()} discount applied` : `${amount}% discount applied`);
+      toast.success(type === 'fixed_amount' ? `${fmt(amount)} discount applied` : `${amount}% discount applied`);
     }
   };
 

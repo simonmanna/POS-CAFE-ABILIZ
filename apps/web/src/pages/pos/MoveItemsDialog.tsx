@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Move Items — two-step wizard.
 // Step 1: Select items (with qty adjustment) from the current table.
 // Step 2: Pick destination table. Uses the existing transferItems API.
@@ -158,7 +160,7 @@ export const MoveItemsDialog: React.FC<Props> = ({
                         <div className="flex-1 min-w-0">
                           <div className="text-sm font-medium text-slate-800 truncate">{line.name}</div>
                           {line.note && <div className="text-[11px] text-slate-400 truncate">{line.note}</div>}
-                          <div className="text-xs text-slate-500">UGX {Number(line.unitPrice).toLocaleString()} ea</div>
+                          <div className="text-xs text-slate-500">{orgCur()} {Number(line.unitPrice).toLocaleString()} ea</div>
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">

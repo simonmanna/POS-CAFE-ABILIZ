@@ -18,6 +18,7 @@ import {
   LayoutGrid,
   ChevronRight,
   Search,
+  Map,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -46,6 +47,7 @@ import {
   useSetTableStatus,
   useTables,
   useTableStats,
+  useTableZones,
   useUpdateTable,
   usePosTablesStream,
 } from '@/features/tables/api';
@@ -57,8 +59,10 @@ import type {
   PosTableZone,
   UpdateTableInput,
 } from '@/features/tables/types';
-import { STATUS_META, ZONE_LABEL, fmtMoney } from '@/features/tables/utils';
+import { STATUS_META, fmtMoney } from '@/features/tables/utils';
+import { useAuthStore } from '@/stores/auth.store';
 import { TableDetailDialog } from './TableDetailDialog';
+import { ZoneManagementDialog } from './ZoneManagementDialog';
 
 type FormState = Omit<CreateTableInput, 'number'> & { number: string };
 
@@ -72,25 +76,16 @@ const EMPTY_FORM: FormState = {
   active: true,
   sortOrder: 0,
   qrCodeUrl: '',
-  customZone: '',
 };
 
-const ZONES: PosTableZone[] = ['indoor', 'outdoor', 'terrace', 'vip', 'garden', 'bar', 'custom'];
 const SHAPES: PosTableShape[] = ['square', 'rectangle', 'circle'];
-const ZONE_DOT: Record<string, string> = {
-  indoor: 'bg-emerald-400',
-  outdoor: 'bg-yellow-400',
-  terrace: 'bg-orange-400',
-  vip: 'bg-purple-400',
-  garden: 'bg-green-400',
-  bar: 'bg-pink-400',
-  custom: 'bg-sky-400',
-};
 
 export const TablesPage: React.FC = () => {
   usePosTablesStream();
   const { data: tables = [], isLoading, refetch } = useTables({ active: true });
   const { data: stats } = useTableStats();
+  const { data: zones = [] } = useTableZones();
+  const canManageZones = useAuthStore((s) => s.permissions.includes('tables:zones'));
   const create = useCreateTable();
   const update = useUpdateTable();
   const archive = useArchiveTable();
@@ -102,6 +97,7 @@ export const TablesPage: React.FC = () => {
   const [editTarget, setEditTarget] = useState<PosTable | null>(null);
   const [viewTarget, setViewTarget] = useState<PosTable | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<PosTable | null>(null);
+  const [zonesOpen, setZonesOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
   const filtered = useMemo(() => {
@@ -114,7 +110,7 @@ export const TablesPage: React.FC = () => {
           (t) =>
             t.name.toLowerCase().includes(q) ||
             String(t.number).includes(q) ||
-            (t.zone === 'custom' && t.customZone?.toLowerCase().includes(q)),
+            (t.zoneName ?? t.zone).toLowerCase().includes(q),
         );
       }
       return arr;
@@ -132,7 +128,6 @@ export const TablesPage: React.FC = () => {
       number: String(table.number),
       seats: table.seats,
       zone: table.zone,
-      customZone: table.customZone ?? '',
       shape: table.shape,
       notes: table.notes ?? '',
       active: table.active,
@@ -152,7 +147,6 @@ export const TablesPage: React.FC = () => {
         number,
         seats: Number(form.seats ?? 2),
         zone: form.zone,
-        customZone: form.zone === 'custom' ? (form.customZone?.trim() || undefined) : undefined,
         shape: form.shape,
         notes: form.notes?.trim() || undefined,
         active: form.active,
@@ -180,7 +174,6 @@ export const TablesPage: React.FC = () => {
           number,
           seats: Number(form.seats ?? 2),
           zone: form.zone,
-          customZone: form.zone === 'custom' ? (form.customZone?.trim() || undefined) : undefined,
           shape: form.shape,
           notes: form.notes?.trim() || undefined,
           active: form.active,
@@ -251,6 +244,15 @@ export const TablesPage: React.FC = () => {
                 <BarChart3Icon /> Reports
               </a>
             </Button>
+            {canManageZones ? (
+              <Button
+                variant="outline"
+                className="border-white/30 bg-white/10 text-white hover:bg-white/20"
+                onClick={() => setZonesOpen(true)}
+              >
+                <Map className="w-4 h-4 mr-1.5" /> Manage Zones
+              </Button>
+            ) : null}
             <Button
               onClick={openCreate}
               className="bg-white text-blue-700 hover:bg-white/90 btn-shine shadow-lg"
@@ -372,11 +374,10 @@ export const TablesPage: React.FC = () => {
                           {table.name}
                         </span>
                         <span
-                          className={`inline-block w-2 h-2 rounded-full ${ZONE_DOT[table.zone] ?? 'bg-slate-300'}`}
+                          className="inline-block w-2 h-2 rounded-full"
+                          style={{ background: table.zoneColor ?? '#cbd5e1' }}
                         />
-                        {table.zone === 'custom' && table.customZone
-                          ? table.customZone
-                          : ZONE_LABEL[table.zone] ?? table.zone}
+                        {table.zoneName ?? table.zone}
                       </div>
                     </div>
                     <span
@@ -509,22 +510,13 @@ export const TablesPage: React.FC = () => {
                 value={form.zone}
                 onChange={(e) => setForm((f) => ({ ...f, zone: e.target.value as PosTableZone }))}
               >
-                {ZONES.map((z) => (
-                  <option key={z} value={z}>
-                    {ZONE_LABEL[z]}
+                {zones.map((z) => (
+                  <option key={z.key} value={z.key}>
+                    {z.name}
                   </option>
                 ))}
               </select>
             </Field>
-            {form.zone === 'custom' ? (
-              <Field label="Custom zone name" className="col-span-2">
-                <Input
-                  value={form.customZone ?? ''}
-                  onChange={(e) => setForm((f) => ({ ...f, customZone: e.target.value }))}
-                  placeholder="Mezzanine"
-                />
-              </Field>
-            ) : null}
             <Field label="Shape">
               <select
                 className="h-10 px-3 rounded-md border border-slate-200 bg-white text-sm"
@@ -619,6 +611,11 @@ export const TablesPage: React.FC = () => {
           openEdit(t);
         }}
       />
+
+      {/* ── Zone management (configurable dining areas / categories) ── */}
+      {canManageZones ? (
+        <ZoneManagementDialog open={zonesOpen} onClose={() => setZonesOpen(false)} />
+      ) : null}
     </div>
   );
 };

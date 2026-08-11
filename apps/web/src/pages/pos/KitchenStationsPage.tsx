@@ -1,5 +1,6 @@
 // KDS — Kitchen Stations admin. Configure the prep stations the KDS routes to.
 import React, { useState } from 'react';
+import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@erp/shared';
 import { ChefHat, Plus, Star, Trash2, Pencil, ArrowUp, ArrowDown, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -8,7 +9,6 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { notify } from '@/lib/notify';
-import { useAuthStore } from '@/stores/auth.store';
 import {
   useKitchenStations, useCreateStation, useUpdateStation, useDeleteStation, useReorderStations,
   type KitchenStationFE,

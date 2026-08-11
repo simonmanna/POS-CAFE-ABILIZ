@@ -39,10 +39,8 @@ class CreateTableBody implements CreateTableDto {
   @ApiProperty() @IsString() name!: string;
   @ApiProperty() @IsInt() number!: number;
   @ApiProperty({ required: false }) @IsOptional() @IsInt() @Min(0) seats?: number;
-  @ApiProperty({ required: false, enum: ['indoor','outdoor','terrace','vip','garden','bar','custom'] })
-  @IsOptional() @IsIn(['indoor','outdoor','terrace','vip','garden','bar','custom'])
-  zone?: 'indoor' | 'outdoor' | 'terrace' | 'vip' | 'garden' | 'bar' | 'custom';
-  @ApiProperty({ required: false }) @IsOptional() @IsString() customZone?: string;
+  @ApiProperty({ required: false, description: 'Key of a PosTableZone (dining area)' })
+  @IsOptional() @IsString() zone?: string;
   @ApiProperty({ required: false, enum: ['square','rectangle','circle'] })
   @IsOptional() @IsIn(['square','rectangle','circle']) shape?: 'square' | 'rectangle' | 'circle';
   @ApiProperty({ required: false }) @IsOptional() @IsInt() posX?: number;
@@ -60,10 +58,10 @@ class UpdateTableBody {
   @ApiProperty({ required: false }) @IsOptional() @IsString() name?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsInt() number?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsInt() @Min(0) seats?: number;
-  @ApiProperty({ required: false }) @IsOptional() @IsIn(['indoor','outdoor','terrace','vip','garden','bar','custom'])
-  zone?: 'indoor' | 'outdoor' | 'terrace' | 'vip' | 'garden' | 'bar' | 'custom';
-  @ApiProperty({ required: false }) @IsOptional() @IsString() customZone?: string;
-  @ApiProperty({ required: false }) @IsOptional() @IsIn(['square','rectangle','circle'])
+  @ApiProperty({ required: false, description: 'Key of a PosTableZone (dining area)' })
+  @IsOptional() @IsString() zone?: string;
+  @ApiProperty({ required: false, enum: ['square','rectangle','circle'] })
+  @IsOptional() @IsIn(['square','rectangle','circle'])
   shape?: 'square' | 'rectangle' | 'circle';
   @ApiProperty({ required: false }) @IsOptional() @IsInt() posX?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsInt() posY?: number;

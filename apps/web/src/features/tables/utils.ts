@@ -1,4 +1,5 @@
-import type { PosTableStatus } from './types';
+import { useAuthStore } from '@/stores/auth.store';
+import type { PosTableStatus, PosTableZoneConfig } from './types';
 
 /** Tailwind-style colour palette mirroring the original POS picker. */
 export const STATUS_META: Record<
@@ -47,15 +48,24 @@ export const STATUS_META: Record<
   },
 };
 
-export const ZONE_LABEL: Record<string, string> = {
-  indoor: 'Indoor',
-  outdoor: 'Outdoor',
-  terrace: 'Terrace',
-  vip: 'VIP',
-  garden: 'Garden',
-  bar: 'Bar',
-  custom: 'Custom',
-};
+/** Label for a zone key against the org's dynamic zone catalog (fallback: key). */
+export function zoneLabel(zones: PosTableZoneConfig[], key: string | null | undefined): string {
+  if (!key) return 'Unassigned';
+  return zones.find((z) => z.key === key)?.name ?? key;
+}
+
+/** Color for a zone key against the org's dynamic zone catalog (fallback: null). */
+export function zoneColorOf(zones: PosTableZoneConfig[], key: string | null | undefined): string | null {
+  if (!key) return null;
+  return zones.find((z) => z.key === key)?.color ?? null;
+}
+
+/** Zone catalog ordered by sortOrder then name (floor-map grouping order). */
+export function sortZones(zones: PosTableZoneConfig[]): PosTableZoneConfig[] {
+  return [...zones].sort(
+    (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.name.localeCompare(b.name),
+  );
+}
 
 export const SHAPE_LABEL: Record<string, string> = {
   square: 'Square',
@@ -79,10 +89,11 @@ export const RESERVATION_STATUS_COLOR: Record<string, string> = {
   no_show: 'bg-orange-100 text-orange-700 border-orange-200',
 };
 
-export function fmtMoney(amount: number | string | null | undefined, currency = 'UGX') {
+export function fmtMoney(amount: number | string | null | undefined, currency?: string) {
+  const c = currency ?? useAuthStore.getState().organization?.currencyCode ?? 'IDR';
   const n = Number(amount ?? 0);
-  if (!Number.isFinite(n)) return `${currency} 0`;
-  return `${currency} ${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  if (!Number.isFinite(n)) return `${c} 0`;
+  return `${c} ${n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 export function minutesBetween(from: string | Date, to: string | Date | null): number {

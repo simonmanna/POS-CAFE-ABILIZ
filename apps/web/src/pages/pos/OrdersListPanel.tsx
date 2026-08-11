@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Odoo-style Orders panel: every OPEN order across all types, resumable in the
 // terminal. Rows show time / ref / customer / type + table badges / amount /
 // status, with search, type filters, pagination and a delete (cancel) action.
@@ -6,7 +8,7 @@ import { Search, Trash2, Plus, ChevronLeft, ChevronRight, ClipboardList, X, Load
 import { toast } from 'sonner';
 import { useOrdersList, useCancelOrder, type OpenOrderRow } from './api';
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 const PAGE_SIZE = 8;
 
 type TypeFilter = 'all' | 'dine_in' | 'takeaway' | 'delivery';
@@ -18,9 +20,13 @@ const TYPE_STYLE: Record<string, string> = {
   delivery: 'bg-violet-100 text-violet-700',
 };
 
-/** Odoo maps a fired/served (billed-ready) order to "Payment"; everything else is "Ongoing". */
+/**
+ * Odoo maps a billed-but-unpaid order to "Payment"; everything else is "Ongoing".
+ * (`served` is the legacy alias of `completed` — accepted while old Android
+ * clients are still in the field.)
+ */
 const statusPill = (status: string) =>
-  status === 'served'
+  status === 'completed' || status === 'served'
     ? { label: 'Payment', cls: 'bg-indigo-500 text-white' }
     : { label: 'Ongoing', cls: 'bg-sky-500 text-white' };
 

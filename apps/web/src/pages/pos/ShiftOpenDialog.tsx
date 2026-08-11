@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Shift-open dialog. Cashier picks a register, enters opening float, opens session.
 import React, { useEffect, useState } from 'react';
 import { Power, Calculator } from 'lucide-react';
@@ -87,7 +89,7 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened }) =>
 
         <div>
           <Label className="flex items-center gap-1 mb-2">
-            <Calculator className="h-3 w-3" /> Opening float (UGX)
+            <Calculator className="h-3 w-3" /> Opening float ({orgCur()})
           </Label>
           <Input
             type="number"

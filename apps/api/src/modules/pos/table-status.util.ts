@@ -2,18 +2,36 @@
 
 /**
  * Order statuses that "hold" a dine-in table (an order in one of these states,
- * with at least one active item, keeps the table OCCUPIED). `served` is the
+ * with at least one active item, keeps the table OCCUPIED). `completed` is the
  * billed-but-unpaid state — the customer has the bill but hasn't paid, so the
  * table stays held until the invoice settles and the order goes `closed`.
  * `closed` / `cancelled` release the table.
+ *
+ * The legacy tail (`open`/`preparing`/`ready`/`served`) is retained ONLY for the
+ * Android wire-compat window: a device that pushed an order while running an old
+ * APK can still have written a legacy status, and such a table must not silently
+ * read as available. Drop the tail together with the enum values in the cleanup
+ * migration.
+ *
+ * This is the single source of truth — import it rather than re-listing the
+ * statuses inline.
  */
 export const TABLE_HELD_ORDER_STATUSES = [
   'draft',
+  'confirmed',
+  'in_progress',
+  'completed',
+  // legacy, compat window only
   'open',
   'preparing',
   'ready',
   'served',
 ] as const;
+
+/** True when `status` keeps a dine-in table held. Accepts legacy values. */
+export function isTableHeldOrderStatus(status: string | null | undefined): boolean {
+  return !!status && (TABLE_HELD_ORDER_STATUSES as readonly string[]).includes(status);
+}
 
 /**
  * Single source of truth for dine-in table status.

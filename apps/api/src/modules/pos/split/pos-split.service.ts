@@ -8,6 +8,7 @@ import { PosOrdersService } from '../order/pos-orders.service';
 import { PosInvoiceService } from '../billing/pos-invoice.service';
 import { PosReceiptsService } from '../pos-receipts.service';
 import { PosTablesService } from '../pos-tables.service';
+import { isTableHeldOrderStatus } from '../table-status.util';
 import type { PaymentTender } from '../pos.service';
 
 /** One {item, qty} assignment instruction from the client. */
@@ -414,7 +415,7 @@ export class PosSplitService {
       },
     });
     const o = link?.order;
-    const isOpen = o && !o.invoiceId && ['draft', 'open', 'preparing', 'ready', 'served'].includes(o.status);
+    const isOpen = o && !o.invoiceId && isTableHeldOrderStatus(o.status);
     const order = isOpen ? o : null;
     return { order, items: order?.items ?? [] };
   }

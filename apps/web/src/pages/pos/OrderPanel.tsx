@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Order panel — Odoo-style POS control panel.
 //
 // Layout (top → bottom):
@@ -95,7 +97,7 @@ interface Props {
   onFireCourse?: (course: number) => void;
 }
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 /** Course labels for the fire/hold controls. */
 const COURSES: Array<{ n: number; label: string }> = [

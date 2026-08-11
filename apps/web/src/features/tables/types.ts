@@ -12,14 +12,24 @@ export type PosTableStatus =
 
 export type PosTableShape = 'square' | 'rectangle' | 'circle';
 
-export type PosTableZone =
-  | 'indoor'
-  | 'outdoor'
-  | 'terrace'
-  | 'vip'
-  | 'garden'
-  | 'bar'
-  | 'custom';
+/** Key of a configurable zone row (PosTableZone catalog) — dynamic, per-org. */
+export type PosTableZone = string;
+
+/** A configurable dining area / table category row (PosTableZone catalog). */
+export interface PosTableZoneConfig {
+  id: string;
+  organizationId: string;
+  key: string;
+  name: string;
+  sortOrder: number;
+  color: string;
+  active: boolean;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  updatedBy: string | null;
+}
 
 export type PosReservationStatus =
   | 'pending'
@@ -78,7 +88,9 @@ export interface PosTable {
   number: number;
   seats: number;
   zone: PosTableZone;
-  customZone: string | null;
+  /** Enriched by the API from the org's zone catalog (label + color). */
+  zoneName?: string;
+  zoneColor?: string | null;
   shape: PosTableShape;
   posX: number;
   posY: number;
@@ -114,8 +126,8 @@ export interface CreateTableInput {
   name: string;
   number: number;
   seats?: number;
+  /** Key of a PosTableZone (dining area) — validated against the org catalog. */
   zone?: PosTableZone;
-  customZone?: string;
   shape?: PosTableShape;
   posX?: number;
   posY?: number;
@@ -180,18 +192,26 @@ export interface RevenueReport {
     tableId: string;
     number: number | null;
     name: string;
-    zone: PosTableZone;
-    customZone: string | null;
+    zone: string;
+    zoneName: string;
+    zoneColor: string | null;
     orders: number;
     revenue: string;
   }>;
-  perZone: Array<{ zone: string; orders: number; revenue: string }>;
+  perZone: Array<{
+    zone: string;
+    zoneName: string;
+    zoneColor: string | null;
+    orders: number;
+    revenue: string;
+  }>;
   topPerformers: Array<{
     tableId: string;
     number: number | null;
     name: string;
-    zone: PosTableZone;
-    customZone: string | null;
+    zone: string;
+    zoneName: string;
+    zoneColor: string | null;
     orders: number;
     revenue: string;
   }>;

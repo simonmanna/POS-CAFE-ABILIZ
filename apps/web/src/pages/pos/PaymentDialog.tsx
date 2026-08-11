@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Multi-tender payment dialog. Maps directly to POST /pos/checkout with `tenders`.
 // Quick-amount buttons, change calculation, manager override for high discounts.
 import React, { useEffect, useMemo, useState } from 'react';
@@ -23,7 +25,7 @@ const METHODS: MethodTile[] = [
   { key: 'bank', label: 'Bank', icon: <Building2 className="h-4 w-4" />, color: '#8b5cf6' },
 ];
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 interface Props {
   open: boolean;

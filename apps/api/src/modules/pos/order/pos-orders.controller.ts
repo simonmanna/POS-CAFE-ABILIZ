@@ -73,6 +73,14 @@ export class PosOrdersController {
     return this.orders.getOrder(id);
   }
 
+  /** Milestone timeline for an order — projected from the event ledger, not
+   *  from denormalized columns (Phase B). Declared after `:id`; distinct path. */
+  @Get(':id/milestones')
+  @RequirePermissions('pos:read')
+  milestones(@Param('id') id: string) {
+    return this.orders.getMilestones(id);
+  }
+
   @Post()
   @RequirePermissions('pos:checkout')
   create(@Body() dto: CreateOrderDto) {

@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
  * POS P7 — Customer profile dialog (loyalty + store credit + tab).
  *
@@ -23,7 +25,7 @@ interface Props {
   onClose: () => void;
 }
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 interface BalanceResp { points: number; expiringSoon: number; programId: string | null; }
 interface CreditResp { balance: number; expiresAt: string | null; }
@@ -143,7 +145,7 @@ export const CustomerProfileDialog: React.FC<Props> = ({ open, partnerId, partne
               </Button>
             ) : null}
             <div>
-              <Label>Redeem points (1 point = UGX {balance?.programId ? '100' : '—'})</Label>
+              <Label>Redeem points (1 point = {orgCur()} {balance?.programId ? '100' : '—'})</Label>
               <div className="flex gap-2">
                 <Input
                   type="number"

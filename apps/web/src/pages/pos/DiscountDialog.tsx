@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Order-level discount dialog. Asks for % or fixed amount, calls back with the value.
 // Parent decides whether manager override is required (we don't block here).
 import React, { useEffect, useState } from 'react';
@@ -49,7 +51,7 @@ export const DiscountDialog: React.FC<Props> = ({ open, initialPercent, onClose,
   };
 
   const quickLabel = (v: number) =>
-    mode === 'percentage' ? `${v}%` : `UGX ${v.toLocaleString()}`;
+    mode === 'percentage' ? `${v}%` : `${orgCur()} ${v.toLocaleString()}`;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -57,7 +59,7 @@ export const DiscountDialog: React.FC<Props> = ({ open, initialPercent, onClose,
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Tag className="h-4 w-4" /> Order-level discount</DialogTitle>
           <DialogDescription>
-            Choose percentage or fixed amount. Discounts ≥ 10% (or UGX 50,000) need a manager override.
+            Choose percentage or fixed amount. Discounts ≥ 10% (or {orgCur()} 50,000) need a manager override.
           </DialogDescription>
         </DialogHeader>
 
@@ -98,7 +100,7 @@ export const DiscountDialog: React.FC<Props> = ({ open, initialPercent, onClose,
         </div>
 
         <div>
-          <Label>{mode === 'percentage' ? 'Percent off (%)' : 'Amount off (UGX)'}</Label>
+          <Label>{mode === 'percentage' ? 'Percent off (%)' : 'Amount off ({orgCur()})'}</Label>
           <Input
             type="number"
             value={value}

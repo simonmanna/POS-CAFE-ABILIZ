@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
  * Cash Register Management — full lifecycle page.
  *
@@ -36,7 +38,8 @@ import type {
 } from '../types';
 import '../pos-pro.css';
 
-const fmt = (n: number | string | null | undefined) => (n == null ? '—' : `UGX ${Number(n).toLocaleString()}`);
+const fmt = (n: number | string | null | undefined) => (n == null ? '—' : `${orgCur()} ${Number(n).toLocaleString()}`);
+
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
@@ -320,7 +323,7 @@ const CashInOutButton: React.FC<{
             </div>
 
             <div>
-              <Label>Amount (UGX)</Label>
+              <Label>Amount ({orgCur()})</Label>
               <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus />
             </div>
 
@@ -534,7 +537,7 @@ const OpenShiftDialog: React.FC<{
         </div>
 
         <div className="mb-4 py-2">
-          <Label className="mb-2">Opening float (UGX)</Label>
+          <Label className="mb-2">Opening float ({orgCur()})</Label>
           <Input type="number" value={openingFloat} onChange={(e) => setOpeningFloat(e.target.value)} className="mt-3 text-right text-lg h-11 font-mono font-bold" autoFocus />
           <div className="flex gap-1.5 mt-2 flex-wrap">
             {QUICK_FLOATS.map((q) => (
@@ -638,7 +641,7 @@ const CloseShiftDialog: React.FC<{
         </div>
 
         <div>
-          <Label>Counted cash (UGX)</Label>
+          <Label>Counted cash ({orgCur()})</Label>
           <Input type="number" value={counted} onChange={(e) => setCounted(e.target.value)} placeholder="0" className="text-right text-xl h-12 font-mono font-bold" autoFocus />
         </div>
 
@@ -730,7 +733,7 @@ const BankDepositDialog: React.FC<{
         </div>
 
         <div>
-          <Label>Amount (UGX)</Label>
+          <Label>Amount ({orgCur()})</Label>
           <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus />
         </div>
 

@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Held-orders drawer — list of parked tickets + one-tap "Recall".
 import React, { useState } from 'react';
 import { Pause, Play, RefreshCw, Clock, Hash, X } from 'lucide-react';
@@ -6,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useHeldOrders, useRecallHold, useCancelHold } from './api';
 import type { CartLine } from '@/features/pos/types';
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 interface Props {
   open: boolean;

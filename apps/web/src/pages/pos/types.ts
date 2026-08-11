@@ -342,7 +342,19 @@ export interface PaymentTender {
 
 /* ============== Order → Invoice → Receipt (DDD split) ============== */
 
-export type OrderStatus = 'draft' | 'open' | 'preparing' | 'ready' | 'served' | 'closed' | 'cancelled';
+/**
+ * Domain-neutral order lifecycle. Kitchen states live on the KDS ticket
+ * (`ItemKitchenStatus`), not here.
+ *
+ * `open` / `preparing` / `ready` / `served` are LEGACY aliases of
+ * `confirmed` / `in_progress` / `in_progress` / `completed`. The API emits the
+ * canonical value in `status` and the old one in `legacyStatus` during the
+ * Android wire-compat window; read `status` and treat the legacy members as
+ * receive-only. They go away with the cleanup migration.
+ */
+export type OrderStatus =
+  | 'draft' | 'confirmed' | 'in_progress' | 'completed' | 'closed' | 'cancelled'
+  | 'open' | 'preparing' | 'ready' | 'served';
 export type OrderTypeApi = 'dine_in' | 'takeaway' | 'delivery';
 export type InvoicePaymentMode = 'cash' | 'card' | 'mobile_money' | 'mixed' | 'credit';
 export type InvoiceSettlementStatus = 'unsettled' | 'partially_settled' | 'settled' | 'written_off';

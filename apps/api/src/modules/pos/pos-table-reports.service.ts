@@ -141,29 +141,45 @@ export class PosTableReportsService {
     const tables = tableIds.length
       ? await this.prisma.client.posTable.findMany({
           where: { id: { in: tableIds } },
-          select: { id: true, number: true, name: true, zone: true, customZone: true },
+          select: { id: true, number: true, name: true, zone: true },
         })
       : [];
     const tableMap = new Map(tables.map((t: any) => [t.id, t]));
 
+    // Zone catalog metadata (name + color) for table + zone enrichment.
+    const zones = await this.prisma.client.posTableZone.findMany({
+      where: { organizationId, deletedAt: null },
+      select: { key: true, name: true, color: true },
+    });
+    const zoneMeta = new Map(zones.map((z) => [z.key, z]));
+
     const enriched = Array.from(perTable.values()).map((row) => {
       const t = tableMap.get(row.tableId);
+      const meta = zoneMeta.get(t?.zone ?? '');
       return {
         tableId: row.tableId,
         number: t?.number ?? null,
         name: t?.name ?? 'Unknown',
         zone: t?.zone ?? 'indoor',
-        customZone: t?.customZone ?? null,
+        zoneName: meta?.name ?? t?.zone ?? 'indoor',
+        zoneColor: meta?.color ?? null,
         orders: row.orders,
         revenue: row.revenue.toFixed(2),
       };
     });
 
-    // Revenue per zone.
-    const perZone = new Map<string, { zone: string; orders: number; revenue: number }>();
+    // Revenue per zone — grouped by the zone key (no more custom: hack).
+    const perZone = new Map<string, { zone: string; zoneName: string; zoneColor: string | null; orders: number; revenue: number }>();
     for (const row of enriched) {
-      const key = row.zone === 'custom' && row.customZone ? `custom:${row.customZone}` : row.zone;
-      const cur = perZone.get(key) ?? { zone: key, orders: 0, revenue: 0 };
+      const key = row.zone;
+      const meta = zoneMeta.get(key);
+      const cur = perZone.get(key) ?? {
+        zone: key,
+        zoneName: meta?.name ?? key,
+        zoneColor: meta?.color ?? null,
+        orders: 0,
+        revenue: 0,
+      };
       cur.orders += row.orders;
       cur.revenue += Number(row.revenue);
       perZone.set(key, cur);

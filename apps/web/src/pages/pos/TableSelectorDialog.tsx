@@ -17,10 +17,11 @@ import { Input } from '@/components/ui/input';
 import {
   useTableStats,
   useTables,
+  useTableZones,
   usePosTablesStream,
 } from '@/features/tables/api';
 import type { PosTable, PosTableStatus } from '@/features/tables/types';
-import { STATUS_META, ZONE_LABEL, fmtMoney, minutesBetween } from '@/features/tables/utils';
+import { STATUS_META, zoneLabel, fmtMoney, minutesBetween } from '@/features/tables/utils';
 
 interface Props {
   open: boolean;
@@ -45,6 +46,7 @@ export const TableSelectorDialog: React.FC<Props> = ({
   usePosTablesStream();
   const { data: tables = [], refetch, isLoading } = useTables({ active: true });
   const { data: stats } = useTableStats();
+  const { data: zones = [] } = useTableZones();
 
   const [filter, setFilter] = useState<'all' | PosTableStatus>('all');
   const [search, setSearch] = useState('');
@@ -61,21 +63,25 @@ export const TableSelectorDialog: React.FC<Props> = ({
       if (filter !== 'all' && t.status !== filter) return false;
       const q = search.trim().toLowerCase();
       if (q) {
-        const hay = `${t.number} ${t.name} ${t.zone} ${t.customZone ?? ''}`.toLowerCase();
+        const hay = `${t.number} ${t.name} ${t.zoneName ?? t.zone}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
     const map = new Map<string, PosTable[]>();
     for (const t of filtered) {
-      const key = t.zone === 'custom' && t.customZone ? `custom:${t.customZone}` : t.zone;
+      const key = t.zone;
       const arr = map.get(key) ?? [];
       arr.push(t);
       map.set(key, arr);
     }
     for (const arr of map.values()) arr.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.number - b.number);
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [tables, filter, search]);
+    const zoneOrder = new Map(zones.map((z, i) => [z.key, i]));
+    return Array.from(map.entries()).sort(
+      (a, b) =>
+        (zoneOrder.get(a[0]) ?? 999) - (zoneOrder.get(b[0]) ?? 999) || a[0].localeCompare(b[0]),
+    );
+  }, [tables, filter, search, zones]);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -160,7 +166,7 @@ export const TableSelectorDialog: React.FC<Props> = ({
             grouped.map(([zoneKey, list]) => (
               <div key={zoneKey} className="mb-8">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
-                  {ZONE_LABEL[zoneKey] ?? zoneKey} · {list.length}
+                  {zoneLabel(zones, zoneKey)} · {list.length}
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                   {list.map((t) => (
@@ -233,7 +239,7 @@ const TableCard: React.FC<{
       {/* Zone pill */}
       <div className="mb-1.5">
         <span className={`text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded-full ${table.status === 'available' ? 'bg-emerald-100 text-emerald-700' : 'bg-white/60 text-slate-500'}`}>
-          {ZONE_LABEL[table.zone] ?? table.zone}
+          {table.zoneName ?? table.zone}
         </span>
       </div>
 
@@ -247,7 +253,7 @@ const TableCard: React.FC<{
 
       {/* Zone label below name */}
       <div className="text-sm font-medium text-slate-400 capitalize mb-auto">
-        {ZONE_LABEL[table.zone] ?? table.zone}
+        {table.zoneName ?? table.zone}
       </div>
 
       {/* Table code (replaces seats) */}

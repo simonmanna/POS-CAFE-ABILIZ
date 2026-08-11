@@ -23,6 +23,7 @@ import type { Response } from 'express';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { EventBus } from '../../kernel/events/event-bus';
+import { EVENTS } from '@erp/shared';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 
@@ -274,35 +275,34 @@ export class PosKdsService {
     data.status = nextStatus;
     const updated = await this.prisma.client.kitchenTicket.update({ where: { id }, data });
 
-    // Sync kitchen lifecycle timestamps onto the parent Order.
+    // Business facts (Phase A). The kitchen is a fulfillment strategy: it
+    // reports progress INTO the order, it does not model the order's state.
+    // Emitted here rather than derived from the columns below because those
+    // columns are lossy — `readyAt`/`kitchenCompletedAt` are NULLED on recall,
+    // so the history is destroyed the moment a ticket is sent back.
     if (t.orderId) {
+      const fulfillmentFact = {
+        organizationId: orgId,
+        orderId: t.orderId,
+        strategy: 'kitchen',
+        documentType: 'kitchen_ticket',
+        documentId: id,
+        station: t.station,
+        ...(reason ? { reason } : {}),
+      };
       if (action === 'start') {
-        await this.prisma.client.order.updateMany({
-          where: { id: t.orderId, kitchenStartedAt: null },
-          data: { kitchenStartedAt: now, kitchenStartedBy: userId },
-        });
-      } else if (action === 'recall') {
-        // Order is no longer complete — reopen its kitchen phase.
-        await this.prisma.client.order.updateMany({
-          where: { id: t.orderId },
-          data: { kitchenCompletedAt: null, kitchenCompletedBy: null },
-        });
+        this.events.publish(EVENTS.FulfillmentStarted, fulfillmentFact);
       } else if (nextStatus === 'ready' || nextStatus === 'served') {
-        const siblings = await this.prisma.client.kitchenTicket.findMany({
-          where: { orderId: t.orderId, id: { not: id } },
-          select: { status: true },
-        });
-        const allDone = [updated, ...siblings].every((s: any) =>
-          ['ready', 'served', 'cancelled'].includes(s.status),
-        );
-        if (allDone) {
-          await this.prisma.client.order.update({
-            where: { id: t.orderId },
-            data: { kitchenCompletedAt: now, kitchenCompletedBy: userId },
-          });
-        }
+        this.events.publish(EVENTS.FulfillmentCompleted, { ...fulfillmentFact, kdsStatus: nextStatus });
       }
     }
+
+    // NOTE: the former "sync kitchen timestamps onto the parent Order" block
+    // (Order.kitchenStartedAt/By, kitchenCompletedAt/By) was removed here. Those
+    // columns had two writers and zero readers, and the recall path NULLED them,
+    // destroying history. The kitchen timeline is now the fulfillment facts above,
+    // projected as milestones (Phase B). The columns are dropped by the P1.6
+    // cleanup migration.
     await this.audit.record({
       entity: 'KitchenTicket',
       entityId: id,

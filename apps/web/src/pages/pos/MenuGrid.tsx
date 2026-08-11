@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Menu grid — professional, photo-card style layout with gradient tiles,
 // clear pricing, and one-tap "Add item" action. Column count is set
 // explicitly in pos-pro.css (2 → 3 → 4 → 5 as the pane widens) so you
@@ -12,7 +14,7 @@ interface Props {
   onPick: (p: Product) => void;
 }
 
-const fmt = (n: number | string | null) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string | null) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 const TILE_GRADIENTS = [
   'linear-gradient(135deg, #FDE9C8 0%, #FBCB8B 100%)',

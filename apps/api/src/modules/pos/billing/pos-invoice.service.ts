@@ -19,6 +19,9 @@ import { StockReservationService } from '../../inventory/stock-reservation.servi
 import { PosReceiptsService } from '../pos-receipts.service';
 import { PosOverridesService } from '../pos-overrides.service';
 import { recomputeTableStatus } from '../table-status.util';
+import { WorkflowService } from '../../../kernel/workflow/workflow.service';
+import { SettingResolverService } from '../../../kernel/settings/setting-resolver.service';
+import type { StockPostingTiming } from '../inventory-posting.types';
 import type { GenerateInvoiceDto, ReceivePaymentDto, SettleCreditDto, WriteOffDto, TenderDto } from '../order/dto/order.dto';
 
 const MODE_FROM_METHOD: Record<string, 'cash' | 'card' | 'mobile_money'> = {
@@ -28,7 +31,8 @@ const MODE_FROM_METHOD: Record<string, 'cash' | 'card' | 'mobile_money'> = {
 /** Context threaded through durable inventory posting (Phase 1). */
 interface StockPostingCtx {
   invoiceId: string | null;
-  invoiceNumber: string;
+  // Nullable since Phase C: a pre-invoice trigger has no invoice number yet.
+  invoiceNumber: string | null;
   orderId: string | null;
 }
 
@@ -71,7 +75,50 @@ export class PosInvoiceService {
     private readonly receipts: PosReceiptsService,
     private readonly overrides: PosOverridesService,
     private readonly approvals: ApprovalsService,
+    private readonly workflows: WorkflowService,
+    private readonly settings: SettingResolverService,
   ) {}
+
+  /** The org's stock-deduction timing policy (`inventory.stockPostingTiming`). */
+  async stockPostingTiming(): Promise<StockPostingTiming> {
+    return this.settings.resolveEnum<StockPostingTiming>('inventory.stockPostingTiming');
+  }
+
+  /**
+   * Enqueue a durable stock-posting job idempotently. The `(trigger, keyBase)`
+   * idempotency key means a replayed trigger event — or the invoice path and a
+   * subscriber both firing — can never enqueue a second job for the same
+   * order+policy. `keyBase` is the invoice id when one exists (matching the
+   * historical `at_invoice:<invoiceId>` key), else the order id.
+   */
+  async enqueueStockPosting(params: {
+    orderId: string;
+    invoiceId?: string | null;
+    invoiceNumber?: string | null;
+    trigger: StockPostingTiming;
+    tx?: any;
+  }): Promise<void> {
+    const orgId = this.tenant.organizationId;
+    const keyBase = params.invoiceId ?? params.orderId;
+    const idempotencyKey = `${params.trigger}:${keyBase}`;
+    const db = params.tx ?? this.prisma.client;
+    try {
+      await db.stockPostingJob.create({
+        data: {
+          organizationId: orgId,
+          invoiceId: params.invoiceId ?? null,
+          invoiceNumber: params.invoiceNumber ?? null,
+          orderId: params.orderId,
+          postingTrigger: params.trigger,
+          idempotencyKey,
+        },
+      });
+    } catch (e: any) {
+      // P2002 = unique violation on (org, idempotencyKey): already enqueued.
+      if (e?.code === 'P2002') return;
+      throw e;
+    }
+  }
 
   /**
    * Generate the bill: price the order's items, create Invoice + InvoiceItems,
@@ -92,6 +139,11 @@ export class PosInvoiceService {
       where: { orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
     });
     if (!items.length) throw new BadRequestException('Order has no items to bill');
+
+    // Stock-deduction timing policy (resolved outside the tx — settings aren't
+    // transactional). `at_invoice` (default) enqueues here; other policies defer
+    // to the InventoryPostingSubscriber.
+    const timing = await this.stockPostingTiming();
 
     // Resolve discount type/value: DTO overrides order defaults.
     const txDiscType = dto.transactionDiscountType ?? order.transactionDiscountType ?? 'percentage';
@@ -189,6 +241,9 @@ export class PosInvoiceService {
           status: 'draft',
           settlementStatus: 'unsettled',
           paymentMode: dto.paymentMode ?? null,
+          // Order-level payment term (if any) flows onto the invoice, driving
+          // its due-date derivation (resolveTerm in InvoiceService).
+          paymentTermId: dto.paymentTermId ?? order.paymentTermId ?? null,
           reference: order.orderNumber,
           notes: order.notes ?? null,
           createdBy: this.tenant.userId ?? null,
@@ -248,15 +303,34 @@ export class PosInvoiceService {
         data: { journalEntryId, status: 'posted', postedAt: new Date(), postedBy: this.tenant.userId ?? null },
       });
 
-      // Durable inventory posting (Phase 1). Instead of an inline, post-commit,
-      // best-effort deduction that could drift the ledger silently, enqueue a job
-      // ATOMICALLY with the invoice. A worker drains it with backoff; per-line
-      // failures surface as InventoryException. The sale is still never blocked by
-      // stock — the deduction just runs reliably out-of-band. Idempotent per
-      // invoice (@@unique[organizationId, invoiceId]).
-      await tx.stockPostingJob.create({
-        data: { organizationId: orgId, invoiceId: inv.id, invoiceNumber, orderId },
+      // Durable inventory posting. Under the default `at_invoice` policy the job
+      // is enqueued here, ATOMICALLY with the invoice — a worker drains it with
+      // backoff, per-line failures surface as InventoryException, and the sale is
+      // never blocked by stock. Under any other `inventory.stockPostingTiming`
+      // the deduction is triggered by a business event instead
+      // (InventoryPostingSubscriber), so this path stays silent and the café's
+      // behaviour is byte-identical to before.
+      if (timing === 'at_invoice') {
+        await this.enqueueStockPosting({
+          orderId, invoiceId: inv.id, invoiceNumber, trigger: 'at_invoice', tx,
+        });
+      }
+
+      // Bind the order to its invoice and advance it to `completed` (billed).
+      // This MUST be in the same transaction as the invoice: it used to run
+      // post-commit and only when `externalTx` was absent, so rental checkout
+      // (rental-posting.service.ts, which supplies a tx) never had `invoiceId`
+      // written by this service and its orders never left the open state —
+      // which in turn broke `closeOrderForInvoice`, since that looks orders up
+      // BY `invoiceId`. Every caller now behaves identically.
+      //
+      // The status half goes through the engine (validated transition + audit +
+      // event, ADR-007); `invoiceId` is a domain column it does not know about.
+      await this.workflows.transition({
+        entityType: 'order', entityId: orderId, action: 'complete',
+        entity: order, payload: { invoiceId: inv.id, invoiceNumber }, externalTx: tx,
       });
+      await tx.order.update({ where: { id: orderId }, data: { invoiceId: inv.id } });
 
       return tx.invoice.findFirst({ where: { id: inv.id }, include: { items: { orderBy: { lineNumber: 'asc' } } } });
     };
@@ -266,10 +340,10 @@ export class PosInvoiceService {
     const invoice = externalTx ? await run(externalTx) : await this.prisma.client.$transaction((tx: any) => run(tx));
 
     // Post-commit side-effects are skipped when we're inside a caller's tx —
-    // the outer transaction owns the order status once it commits.
+    // the outer transaction hasn't committed yet, so these would act on data
+    // that may still roll back. (The order↔invoice binding is NOT one of these:
+    // it now happens inside `run` above, for every caller.)
     if (!externalTx) {
-      await this.prisma.client.order.update({ where: { id: orderId }, data: { invoiceId: invoice.id, status: 'served' } });
-
       // Hold the billed quantities against available-to-promise until the async
       // stock job actually decrements them. Without this, ATP over-promises for
       // the whole window between billing and deduction. Runs after the invoice tx
@@ -1089,10 +1163,13 @@ export class PosInvoiceService {
       // The hold has served its purpose — the quantities are now decremented for
       // real, so leaving the reservation active would double-count against ATP.
       // Best-effort and idempotent, so kept OUT of the money transaction above: a
-      // reservation hiccup must not roll back posted COGS.
-      await this.reservations
-        .consume('invoice', job.invoiceId)
-        .catch((e: any) => this.logger.warn(`reservation consume failed for ${job.invoiceNumber}: ${e?.message ?? e}`));
+      // reservation hiccup must not roll back posted COGS. Reservations are keyed
+      // on the invoice, so a pre-invoice trigger (no invoiceId) has none to clear.
+      if (job.invoiceId) {
+        await this.reservations
+          .consume('invoice', job.invoiceId)
+          .catch((e: any) => this.logger.warn(`reservation consume failed for ${job.invoiceNumber}: ${e?.message ?? e}`));
+      }
     } catch (e: any) {
       const attempts = job.attempts + 1;
       const msg = (e?.message ?? String(e)).slice(0, 500);
@@ -1104,9 +1181,12 @@ export class PosInvoiceService {
         // The deduction will never happen on its own now, so the hold would sit
         // against ATP indefinitely. Release it — the InventoryException raised
         // below is the durable record that this stock still needs correcting.
-        await this.reservations
-          .release('invoice', job.invoiceId)
-          .catch((e: any) => this.logger.warn(`reservation release failed for ${job.invoiceNumber}: ${e?.message ?? e}`));
+        // Pre-invoice triggers hold no invoice-keyed reservation.
+        if (job.invoiceId) {
+          await this.reservations
+            .release('invoice', job.invoiceId)
+            .catch((e: any) => this.logger.warn(`reservation release failed for ${job.invoiceNumber}: ${e?.message ?? e}`));
+        }
         await this.recordInventoryException(ctx, {
           kind: 'whole_invoice', productId: null, menuItemId: null, description: 'whole-invoice stock deduction',
           quantity: 0, locationId: null, reason: msg, stackTrace: e?.stack ?? null, payload: null,
@@ -1314,7 +1394,16 @@ export class PosInvoiceService {
     const orgId = this.tenant.organizationId;
     const order = await db.order.findFirst({ where: { invoiceId, organizationId: orgId } });
     if (!order) return null;
-    await db.order.update({ where: { id: order.id }, data: { status: 'closed', closedAt: new Date() } });
+    if (order.status !== 'closed') {
+      // Through the engine so the transition is validated and an AuditLog row +
+      // domain event are written (ADR-007). `close` carries no permission — this
+      // is settlement-driven, and its route is already gated.
+      await this.workflows.transition({
+        entityType: 'order', entityId: order.id, action: 'close',
+        entity: order, payload: { invoiceId }, externalTx: db,
+      });
+    }
+    await db.order.update({ where: { id: order.id }, data: { closedAt: new Date() } });
     // Close the table↔order occupancy link. The floor-map card reads the OPEN
     // link (its openedAt drives the dining-minutes timer, the joined order's
     // totalAmount drives the running bill). Closing the Order alone frees the
@@ -1334,8 +1423,8 @@ export class PosInvoiceService {
 
   private async freeTableIfEmpty(db: any, tableId?: string | null): Promise<void> {
     // Derived from the active-item count: a table with a billed-but-unpaid
-    // order (status 'served', items intact) stays occupied; it frees only once
-    // the settled order goes 'closed' and no active items remain.
+    // order (status 'completed', items intact) stays occupied; it frees only
+    // once the settled order goes 'closed' and no active items remain.
     await recomputeTableStatus(db, tableId);
   }
 

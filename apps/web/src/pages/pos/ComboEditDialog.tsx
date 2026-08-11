@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
  * ComboEditDialog — create or edit a Combo bundle.
  *
@@ -154,7 +156,7 @@ export function ComboEditDialog({ open, combo, onOpenChange, onSubmit }: Props) 
               <Input id="combo-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. Breakfast Deal" />
             </div>
             <div>
-              <Label htmlFor="combo-price" className="text-sm font-medium text-slate-700 mb-1.5">Combo price (UGX) *</Label>
+              <Label htmlFor="combo-price" className="text-sm font-medium text-slate-700 mb-1.5">Combo price ({orgCur()}) *</Label>
               <Input id="combo-price" type="number" step="1" min="0" placeholder="0" value={price} onChange={(e) => setPrice(e.target.value)} required />
             </div>
             <div>

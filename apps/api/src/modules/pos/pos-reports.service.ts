@@ -25,6 +25,7 @@ import { AuditService } from '../../kernel/audit/audit.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { EVENTS } from '@erp/shared';
 import { dec } from '../../kernel/common/money';
+import { toCanonicalOrderStatus } from './order-status.util';
 
 type Money = ReturnType<typeof dec>;
 
@@ -805,7 +806,7 @@ export class PosReportsService {
         organizationId,
         status: { not: 'cancelled' },
         ...(orderType ? { orderType: orderType as any } : {}),
-        ...(status && status !== 'draft' ? { status: status as any } : {}),
+        ...(status && status !== 'draft' ? { status: toCanonicalOrderStatus(status) as any } : {}),
         createdAt: { gte: start, lte: end },
       },
       orderBy: { createdAt: 'desc' },

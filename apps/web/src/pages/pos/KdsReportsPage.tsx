@@ -1,11 +1,11 @@
 // KDS — kitchen performance reports + live-ops dashboard.
 import React, { useState } from 'react';
+import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@erp/shared';
 import { ChefHat, Clock, AlertTriangle, RotateCcw, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useAuthStore } from '@/stores/auth.store';
 import { useKdsReportSummary, useKdsLive } from './pos-features-api';
 
 const Stat: React.FC<{ label: string; value: React.ReactNode; sub?: string; tone?: string }> = ({ label, value, sub, tone }) => (

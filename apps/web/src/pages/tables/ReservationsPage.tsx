@@ -36,6 +36,7 @@ import {
   useReservations,
   useSeatReservation,
   useTables,
+  useTableZones,
   useUpdateReservation,
 } from '@/features/tables/api';
 import type {
@@ -45,7 +46,7 @@ import type {
 import {
   RESERVATION_STATUS_COLOR,
   RESERVATION_STATUS_LABEL,
-  ZONE_LABEL,
+  zoneLabel,
 } from '@/features/tables/utils';
 
 interface FormState {
@@ -81,6 +82,7 @@ export const ReservationsPage: React.FC = () => {
   const [status, setStatus] = useState<string>('all');
   const { data: reservations = [], isLoading, refetch } = useReservations({ date, status });
   const { data: tables = [] } = useTables({ active: true });
+  const { data: zones = [] } = useTableZones();
   const create = useCreateReservation();
   const update = useUpdateReservation();
   const seat = useSeatReservation();
@@ -296,7 +298,7 @@ export const ReservationsPage: React.FC = () => {
                     {t ? (
                       <div className="text-[11px] text-slate-500">
                         T{t.number} {t.name}
-                        {(t as any).zone ? ` · ${ZONE_LABEL[(t as any).zone as string] ?? (t as any).zone}` : ''}
+                        {(t as any).zone ? ` · ${zoneLabel(zones, (t as any).zone as string)}` : ''}
                       </div>
                     ) : null}
                     {r.notes ? (

@@ -144,16 +144,20 @@ describeDb('integration: stock posting jobs', () => {
       },
     });
     const job = await prisma.stockPostingJob.create({
-      data: {
-        organizationId, orderId: order.id, invoiceId: order.id, invoiceNumber: `INV-${order.orderNumber}`,
-        status: jobStatus,
-        // Stale claim: as if a worker grabbed it >60s ago and never finished.
-        claimToken: jobStatus === 'processing' ? 'stale-token' : null,
-        claimedAt: jobStatus === 'processing' ? new Date(Date.now() - 120_000) : null,
-      },
-    });
-    return { order, job };
-  };
+          data: {
+            organizationId, orderId: order.id, invoiceId: order.id, invoiceNumber: `INV-${order.orderNumber}`,
+            status: jobStatus,
+            // Composite-unique idempotencyKey; the DB default is "" so every
+            // hand-built job must carry a distinct one (real enqueues use
+            // `<trigger>:<orderId|invoiceId>`).
+            idempotencyKey: `at_invoice:${order.id}`,
+            // Stale claim: as if a worker grabbed it >60s ago and never finished.
+            claimToken: jobStatus === 'processing' ? 'stale-token' : null,
+            claimedAt: jobStatus === 'processing' ? new Date(Date.now() - 120_000) : null,
+          },
+        });
+        return { order, job };
+      };
 
   it('surfaces an InventoryException for an inventory-tracked menu item with no recipe (F-COGS)', async () => {
     const menuItem = await prisma.menuItem.create({
@@ -198,12 +202,13 @@ describeDb('integration: stock posting jobs', () => {
       } as any,
     });
     // A pending job dated inside the period = COGS not yet posted for it.
-    await prisma.stockPostingJob.create({
-      data: {
-        organizationId, orderId: null, invoiceId: `guard-${Date.now()}`, invoiceNumber: 'INV-GUARD',
-        status: 'pending', createdAt: new Date('2025-06-15'),
-      },
-    });
+        await prisma.stockPostingJob.create({
+          data: {
+            organizationId, orderId: null, invoiceId: `guard-${Date.now()}`, invoiceNumber: 'INV-GUARD',
+            status: 'pending', createdAt: new Date('2025-06-15'),
+            idempotencyKey: `at_invoice:guard-${Date.now()}`,
+          },
+        });
 
     await expect(asOrg(() => periodClose.close(period.id))).rejects.toThrow(/stock-posting job/i);
   }, 60_000);

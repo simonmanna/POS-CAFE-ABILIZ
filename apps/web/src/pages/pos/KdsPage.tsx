@@ -1,6 +1,7 @@
 // KDS — Kitchen Display board. Layout-switchable (columns / queue / grid / tv /
 // expo), tap + drag to advance, queue numbers, priority, timers, recall, batch.
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useAuthStore } from '@/stores/auth.store';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PERMISSIONS } from '@erp/shared';
 import {
@@ -12,7 +13,7 @@ import {
   closestCorners, type DragEndEvent,
 } from '@dnd-kit/core';
 import { Button } from '@/components/ui/button';
-import { useAuthStore } from '@/stores/auth.store';
+
 import {
   useKdsTickets, useKdsTransition, useKdsBulkTransition, useKdsSetPriority,
   useKitchenStations, type KdsTicketFE, type KdsTicketItemFE, type KdsAction, type KdsPriorityFE,

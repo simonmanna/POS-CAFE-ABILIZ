@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
  * POS F — Digital Menu (Phase 1 MVP) — customer-facing page.
  *
@@ -30,7 +32,7 @@ interface CatalogResp {
 interface CartLine { productId: string; productName: string; unitPrice: number; quantity: number; comboId?: string; notes?: string; }
 type OrderStatus = 'received' | 'accepted' | 'preparing' | 'ready' | 'served' | 'completed' | 'cancelled';
 
-const fmt = (n: number) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 const STAGES: Array<{ key: OrderStatus; label: string; emoji: string }> = [
   { key: 'received', label: 'Received', emoji: '✅' },

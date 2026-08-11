@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Per-line discount dialog. Updates the cart line's discount in the store.
 import React, { useEffect, useState } from 'react';
 import { Tag, Percent, DollarSign } from 'lucide-react';
@@ -15,7 +17,7 @@ interface Props {
   onApply: (lineId: string, amount: number, type?: DiscountType) => void;
 }
 
-const fmt = (n: number) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApply }) => {
   const [mode, setMode] = useState<DiscountType>('percentage');
@@ -52,7 +54,7 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Tag className="h-4 w-4" /> Line discount</DialogTitle>
-          <DialogDescription>Discount a single item. ≥ 10% or UGX 50,000 needs a manager override.</DialogDescription>
+          <DialogDescription>Discount a single item. ≥ 10% or {orgCur()} 50,000 needs a manager override.</DialogDescription>
         </DialogHeader>
 
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -85,7 +87,7 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
         </div>
 
         <div>
-          <Label>{mode === 'percentage' ? 'Percent off (%)' : 'Amount off (UGX)'}</Label>
+          <Label>{mode === 'percentage' ? 'Percent off (%)' : 'Amount off ({orgCur()})'}</Label>
           <Input
             type="number"
             value={value}

@@ -44,7 +44,7 @@ describe('PosKdsService', () => {
   });
 
   describe('transition', () => {
-    it('start: sets status preparing + captures startedBy, and stamps the order', async () => {
+    it('start: sets status preparing + captures startedBy, and emits fulfillment.started', async () => {
       prisma.client.kitchenTicket.findFirst.mockResolvedValue(ticket({ status: 'new' }));
       prisma.client.kitchenTicket.update.mockImplementation(({ data }: any) => ticket({ status: data.status, startedBy: data.startedBy }));
       const res = await svc.transition('t1', 'start');
@@ -52,22 +52,30 @@ describe('PosKdsService', () => {
       expect(arg.data.status).toBe('preparing');
       expect(arg.data.startedBy).toBe('chef1');
       expect(arg.data.startedAt).toBeInstanceOf(Date);
-      expect(prisma.client.order.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: { id: 'o1', kitchenStartedAt: null },
-      }));
+      // Phase A/B: the kitchen reports a fulfillment fact rather than stamping
+      // the (now-removed) Order.kitchenStartedAt column.
+      expect(events.publish).toHaveBeenCalledWith(
+        'fulfillment.started',
+        expect.objectContaining({ orderId: 'o1', strategy: 'kitchen', documentType: 'kitchen_ticket' }),
+      );
+      expect(prisma.client.order.updateMany).not.toHaveBeenCalled();
       expect(res.status).toBe('preparing');
     });
 
-    it('ready: captures readyBy', async () => {
+    it('ready: captures readyBy and emits fulfillment.completed', async () => {
       prisma.client.kitchenTicket.findFirst.mockResolvedValue(ticket({ status: 'preparing' }));
       prisma.client.kitchenTicket.update.mockImplementation(({ data }: any) => ticket({ status: data.status, readyBy: data.readyBy }));
       await svc.transition('t1', 'ready');
       const arg = prisma.client.kitchenTicket.update.mock.calls[0][0];
       expect(arg.data.status).toBe('ready');
       expect(arg.data.readyBy).toBe('chef1');
+      expect(events.publish).toHaveBeenCalledWith(
+        'fulfillment.completed',
+        expect.objectContaining({ orderId: 'o1', strategy: 'kitchen', kdsStatus: 'ready' }),
+      );
     });
 
-    it('recall: ready → preparing, increments recallCount, records reason, clears readyAt, reopens the order', async () => {
+    it('recall: ready → preparing, increments recallCount, records reason, clears the ticket readyAt', async () => {
       prisma.client.kitchenTicket.findFirst.mockResolvedValue(ticket({ status: 'ready' }));
       prisma.client.kitchenTicket.update.mockImplementation(({ data }: any) => ticket({ status: data.status }));
       await svc.transition('t1', 'recall', 'burnt');
@@ -76,9 +84,10 @@ describe('PosKdsService', () => {
       expect(arg.data.readyAt).toBeNull();
       expect(arg.data.recallReason).toBe('burnt');
       expect(arg.data.recallCount).toEqual({ increment: 1 });
-      expect(prisma.client.order.updateMany).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ kitchenCompletedAt: null }),
-      }));
+      // The order is no longer touched — its kitchen history lives in the ledger,
+      // where the recall does NOT erase the prior completion fact (the column did).
+      expect(prisma.client.order.updateMany).not.toHaveBeenCalled();
+      expect(prisma.client.order.update).not.toHaveBeenCalled();
     });
 
     it('rejects an illegal jump (serving a new ticket)', async () => {

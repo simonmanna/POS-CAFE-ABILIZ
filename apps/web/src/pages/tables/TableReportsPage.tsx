@@ -17,7 +17,7 @@ import {
   useRevenueReport,
   useUtilizationReport,
 } from '@/features/tables/api';
-import { fmtMoney, ZONE_LABEL } from '@/features/tables/utils';
+import { fmtMoney } from '@/features/tables/utils';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (n: number) =>
@@ -121,9 +121,7 @@ export const TableReportsPage: React.FC = () => {
                     {row.number != null ? `T${row.number}` : '—'} {row.name}
                   </td>
                   <td className="py-2 text-slate-600">
-                    {row.zone === 'custom' && row.customZone
-                      ? row.customZone
-                      : ZONE_LABEL[row.zone] ?? row.zone}
+                    {row.zoneName ?? row.zone}
                   </td>
                   <td className="py-2 text-right">{row.orders}</td>
                   <td className="py-2 text-right font-extrabold">

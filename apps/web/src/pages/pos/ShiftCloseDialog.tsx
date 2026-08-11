@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Shift-close dialog. BLIND close: the cashier counts the drawer without seeing
 // the expected figure, enters the total (optionally via a denomination grid),
 // and only learns the variance AFTER the count is committed. A non-zero variance
@@ -19,7 +21,7 @@ interface Props {
   onClosed: () => void;
 }
 
-const fmt = (n: number | string | null | undefined) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string | null | undefined) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 // Common UGX note/coin faces, largest first.
 const DENOMS = [50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50];
@@ -117,7 +119,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
         </div>
 
         <div className="flex items-center justify-between">
-          <Label>Counted cash (UGX)</Label>
+          <Label>Counted cash ({orgCur()})</Label>
           <button
             type="button"
             className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800"
@@ -164,7 +166,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
           <Input
             value={varianceReason}
             onChange={(e) => setVarianceReason(e.target.value)}
-            placeholder="e.g. UGX 5k short — gave wrong change on table 4"
+            placeholder={`e.g. ${orgCur()} 5k short — gave wrong change on table 4`}
           />
         </div>
 
@@ -200,7 +202,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
           <Input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. Took UGX 20k for bread run"
+            placeholder={`e.g. Took ${orgCur()} 20k for bread run`}
           />
         </div>
 

@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Shift-handover dialog (module 8). Hands the register from the outgoing cashier
 // to the incoming one without closing the day: blind cash count + variance, the
 // incoming cashier's PIN, and a manager PIN approval. Backend closes the
@@ -22,7 +24,7 @@ interface Props {
   onDone: () => void;
 }
 
-const fmt = (n: number | string | null | undefined) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string | null | undefined) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, onClose, onDone }) => {
   const [counted, setCounted] = useState('');
@@ -112,7 +114,7 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
         </div>
 
         <div>
-          <Label>Counted cash (blind count, UGX)</Label>
+          <Label>Counted cash (blind count, {orgCur()})</Label>
           <Input
             type="number"
             value={counted}

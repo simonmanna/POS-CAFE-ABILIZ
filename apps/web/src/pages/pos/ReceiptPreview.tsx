@@ -1,5 +1,7 @@
+import { useAuthStore } from '@/stores/auth.store';
 import { useMemo, useState } from 'react';
 import { Printer, Download, X, CheckCircle2 } from 'lucide-react';
+
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
@@ -36,7 +38,8 @@ interface Props {
 }
 
 const money = (n: number | string) => Number(n || 0).toLocaleString();
-const ugx = (n: number | string) => `UGX ${money(n)}`;
+const currencyOf = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
+const ugx = (n: number | string) => `${currencyOf()} ${money(n)}`;
 
 /**
  * Build a standalone 80mm monospace thermal document for the bill / KOT and
@@ -119,10 +122,10 @@ function buildThermalHtml(p: {
       out.push(two(`Discount (${p.discountPercent}%)`, '-' + money(p.discountAmount ?? 0)));
     }
     if (p.subtitle && p.previousSubtotal != null && p.grandTotal != null) {
-      out.push(two('Previous Total', money(p.previousSubtotal)));
-      out.push(two('Additional Total', money(p.total)));
+      out.push(two('Previous Total', ugx(p.previousSubtotal)));
+      out.push(two('Additional Total', ugx(p.total)));
       out.push('='.repeat(W));
-      out.push(two('Grand Total Due', money(p.grandTotal)));
+      out.push(two('Grand Total Due', ugx(p.grandTotal)));
     } else {
       out.push('='.repeat(W));
       out.push(two('TOTAL', ugx(p.total)));

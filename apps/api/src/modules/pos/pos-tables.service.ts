@@ -31,7 +31,9 @@ import { AuditService } from '../../kernel/audit/audit.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { DocumentBuilderService } from '../invoicing/document/document-builder.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
-import { recomputeTableStatus, TABLE_HELD_ORDER_STATUSES } from './table-status.util';
+import { recomputeTableStatus, TABLE_HELD_ORDER_STATUSES, isTableHeldOrderStatus } from './table-status.util';
+import { WorkflowService } from '../../kernel/workflow/workflow.service';
+import { PosTableZonesService } from './pos-table-zones.service';
 import { EVENTS } from '@erp/shared';
 
 // ─── DTOs ──────────────────────────────────────────────────────────────────
@@ -40,8 +42,8 @@ export interface CreateTableDto {
   name: string;
   number: number;
   seats?: number;
-  zone?: 'indoor' | 'outdoor' | 'terrace' | 'vip' | 'garden' | 'bar' | 'custom';
-  customZone?: string;
+  /** Key of a PosTableZone (dining area) — validated against the org's catalog. */
+  zone?: string;
   shape?: 'square' | 'rectangle' | 'circle';
   posX?: number;
   posY?: number;
@@ -79,6 +81,8 @@ export class PosTablesService {
     private readonly events: EventBus,
     private readonly builder: DocumentBuilderService,
     private readonly sequence: SequenceService,
+    private readonly zones: PosTableZonesService,
+    private readonly workflows: WorkflowService,
   ) {
     const relevant = [
       EVENTS.PosTableCreated,
@@ -143,7 +147,7 @@ export class PosTablesService {
         organizationId: orgId,
         orderNumber,
         orderType: args.orderType ?? 'dine_in',
-        status: 'open',
+        status: 'confirmed',
         tableId: args.tableId,
         partnerId: args.partnerId,
         waiterId: this.tenant.userId ?? null,
@@ -270,7 +274,8 @@ export class PosTablesService {
     await this.reconcileStuckTables(organizationId).catch((e) =>
       this.logger.warn(`table reconcile skipped: ${String((e as any)?.message ?? e)}`),
     );
-    return this.prisma.client.posTable.findMany({
+    const zoneMap = await this.zones.mapForOrganization(organizationId);
+    const tables = await this.prisma.client.posTable.findMany({
           where: {
             organizationId,
             ...(filter.status ? { status: filter.status as any } : {}),
@@ -300,6 +305,11 @@ export class PosTablesService {
         },
       },
     });
+    return tables.map((t: any) => ({
+      ...t,
+      zoneName: zoneMap.get(t.zone)?.name ?? t.zone,
+      zoneColor: zoneMap.get(t.zone)?.color ?? null,
+    }));
   }
 
   async get(id: string) {
@@ -332,7 +342,12 @@ export class PosTablesService {
       },
     });
     if (!table) throw new NotFoundException('Table not found');
-    return table;
+    const zoneMap = await this.zones.mapForOrganization(organizationId);
+    return {
+      ...table,
+      zoneName: zoneMap.get(table.zone)?.name ?? table.zone,
+      zoneColor: zoneMap.get(table.zone)?.color ?? null,
+    };
   }
 
   /** Aggregate counters used by the terminal top bar. */
@@ -362,11 +377,31 @@ export class PosTablesService {
 
   // ─── Mutations ───────────────────────────────────────────────────────────
 
+  /**
+   * Resolve a requested zone key against the org's catalog. Lazy-seeds the
+   * default zones first (orgs created before configurable zones shipped), then
+   * returns the canonical key or throws 400 listing the available zones.
+   */
+  private async resolveZoneKey(organizationId: string, requested?: string): Promise<string> {
+    await this.zones.ensureDefaults(organizationId);
+    const wanted = requested?.trim().toLowerCase() || 'indoor';
+    const zone = await this.zones.resolveKey(organizationId, wanted);
+    if (zone) return zone.key;
+    const available = await this.prisma.client.posTableZone.findMany({
+      where: { organizationId, deletedAt: null, active: true },
+      select: { key: true, name: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+    const list = available.map((z) => `${z.key} (${z.name})`).join(', ') || 'none';
+    throw new BadRequestException(`Unknown zone "${wanted}" — available zones: ${list}`);
+  }
+
   async create(dto: CreateTableDto) {
     const organizationId = this.tenant.organizationId;
     const userId = this.tenant.userId;
     if (!dto.name?.trim()) throw new BadRequestException('Table name is required');
     if (!Number.isInteger(dto.number)) throw new BadRequestException('Table number is required');
+    const zoneKey = await this.resolveZoneKey(organizationId, dto.zone);
     try {
       const created = await this.prisma.client.$transaction(async (tx: any) => {
         const t = await tx.posTable.create({
@@ -374,8 +409,7 @@ export class PosTablesService {
             name: dto.name.trim(),
             number: dto.number,
             seats: dto.seats ?? 2,
-            zone: dto.zone ?? 'indoor',
-            customZone: dto.customZone ?? null,
+            zone: zoneKey,
             shape: dto.shape ?? 'square',
             posX: dto.posX ?? 40,
             posY: dto.posY ?? 40,
@@ -414,6 +448,8 @@ export class PosTablesService {
   async update(id: string, dto: UpdateTableDto) {
       const organizationId = this.tenant.organizationId;
       const userId = this.tenant.userId;
+      // Resolve + validate the zone key before touching the row.
+      const zoneKey = dto.zone !== undefined ? await this.resolveZoneKey(organizationId, dto.zone) : undefined;
       return this.prisma.client.$transaction(async (tx: any) => {
         const existing = await tx.posTable.findFirst({ where: { id, organizationId } });
         if (!existing) throw new NotFoundException('Table not found');
@@ -439,7 +475,7 @@ export class PosTablesService {
 
         const changes: Record<string, unknown> = {};
         const fields: (keyof UpdateTableDto)[] = [
-          'name', 'number', 'seats', 'zone', 'customZone', 'shape',
+          'name', 'number', 'seats', 'zone', 'shape',
           'posX', 'posY', 'width', 'height', 'notes', 'active',
           'assignedWaiterId', 'sortOrder', 'qrCodeUrl',
         ];
@@ -455,8 +491,7 @@ export class PosTablesService {
               ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
               ...(dto.number !== undefined ? { number: dto.number } : {}),
               ...(dto.seats !== undefined ? { seats: dto.seats } : {}),
-              ...(dto.zone !== undefined ? { zone: dto.zone } : {}),
-              ...(dto.customZone !== undefined ? { customZone: dto.customZone } : {}),
+              ...(zoneKey !== undefined ? { zone: zoneKey } : {}),
               ...(dto.shape !== undefined ? { shape: dto.shape } : {}),
               ...(dto.posX !== undefined ? { posX: dto.posX } : {}),
               ...(dto.posY !== undefined ? { posY: dto.posY } : {}),
@@ -869,7 +904,7 @@ export class PosTablesService {
         },
       });
       const sourceOrder = sourceLink?.order;
-      if (!sourceOrder || sourceOrder.invoiceId || !['draft', 'open', 'preparing', 'ready', 'served'].includes(sourceOrder.status)) {
+      if (!sourceOrder || sourceOrder.invoiceId || !isTableHeldOrderStatus(sourceOrder.status)) {
         throw new BadRequestException('No open order on the source table');
       }
 
@@ -955,7 +990,7 @@ export class PosTablesService {
         },
       });
       const targetExisting = targetLink?.order;
-      const targetIsOpen = targetExisting && !targetExisting.invoiceId && ['draft', 'open', 'preparing', 'ready', 'served'].includes(targetExisting.status);
+      const targetIsOpen = targetExisting && !targetExisting.invoiceId && isTableHeldOrderStatus(targetExisting.status);
       let targetOrderId: string;
       if (targetIsOpen) {
         // Append moved items to the existing order; preserve its current items
@@ -1035,7 +1070,7 @@ export class PosTablesService {
       if (!sourceOrder) throw new NotFoundException('Source order not found');
       // A billed sale has GL behind it; cancelling it to split would orphan those
       // entries. Only an open (un-billed) tab can be split.
-      if (sourceOrder.invoiceId || !['draft', 'open', 'preparing', 'ready', 'served'].includes(sourceOrder.status)) {
+      if (sourceOrder.invoiceId || !isTableHeldOrderStatus(sourceOrder.status)) {
         throw new BadRequestException(
           'Only an open (un-billed) bill can be split — a billed sale cannot be re-split',
         );
@@ -1110,7 +1145,7 @@ export class PosTablesService {
             organizationId,
             orderNumber,
             orderType: sourceOrder.orderType,
-            status: 'open',
+            status: 'confirmed',
             tableId: args.tableId,
             partnerId: args.partnerId ?? sourceOrder.partnerId,
             waiterId: this.tenant.userId ?? null,
@@ -1152,9 +1187,15 @@ export class PosTablesService {
       }
       // Cancel the source order (kept for audit; cannot be billed). The new
       // orders become the live tickets for tender.
+      // `supersede`, not `cancel`: this route is gated on the tables permission,
+      // so the transition must not additionally demand `pos:checkout`.
+      await this.workflows.transition({
+        entityType: 'order', entityId: args.sourceOrderId, action: 'supersede',
+        payload: { splitInto: created }, externalTx: tx,
+      });
       await tx.order.update({
         where: { id: args.sourceOrderId },
-        data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: `Split into ${created.length} ticket(s)`, version: { increment: 1 } },
+        data: { cancelReason: `Split into ${created.length} ticket(s)`, version: { increment: 1 } },
       });
       // Sync table status after split (new open orders created)
       await this.syncTableStatus(args.tableId, tx);

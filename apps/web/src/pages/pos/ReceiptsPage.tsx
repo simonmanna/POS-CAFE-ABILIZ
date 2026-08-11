@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { DataTable, type Column } from '@/components/data-table';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
-import { money, date } from '@/lib/format';
+import { money, date, useOrgCurrency } from '@/lib/format';
 import { useReceipts } from '@/pages/pos/api';
 import type { Receipt } from '@/pages/pos/types';
 
@@ -32,6 +32,7 @@ export function ReceiptsPage() {
 
   useEffect(() => setPage(1), [search]);
   const { data, isLoading } = useReceipts({ page, pageSize: 20, search: search || undefined });
+  const currency = useOrgCurrency();
 
   const columns: Column<Receipt>[] = [
     {
@@ -53,7 +54,7 @@ export function ReceiptsPage() {
         </span>
       ),
     },
-    { key: 'totalAmount', header: 'Total', className: 'text-right', render: (r) => money(r.totalAmount) },
+    { key: 'totalAmount', header: 'Total', className: 'text-right', render: (r) => money(r.totalAmount, currency) },
     {
       key: 'settlementStatus',
       header: 'Settlement',

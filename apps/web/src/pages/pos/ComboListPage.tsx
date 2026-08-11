@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
  * ComboListPage — admin CRUD for combo bundles (route: /menu/combos).
  *
@@ -18,13 +20,13 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
-import { useAuthStore } from '@/stores/auth.store';
+
 import {
   useCombos, useCreateCombo, useUpdateCombo, useDeleteCombo, type ComboFE,
 } from './pos-features-api';
 import { ComboEditDialog, type ComboSubmitInput } from './ComboEditDialog';
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 function componentSummary(c: ComboFE): string {
   return (c.items ?? [])

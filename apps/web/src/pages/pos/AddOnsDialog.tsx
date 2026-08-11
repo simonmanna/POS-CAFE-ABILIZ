@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Coffee, X, Check, Minus, Plus, ArrowLeft } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
@@ -22,7 +24,7 @@ interface Props {
   }) => void;
 }
 
-const fmt = (n: number) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 const StepDots = ({ current, total }: { current: number; total: number }) => (
   <div className="flex items-center gap-1">

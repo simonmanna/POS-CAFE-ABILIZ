@@ -36,6 +36,8 @@ describe('PosInvoiceService', () => {
   let mockSequence: any;
   let mockPayments: any;
   let mockStock: any;
+  /** ADR-007 state machine. The definition itself is covered by pos.workflows.spec.ts. */
+  let mockWorkflows: any;
 
   beforeEach(() => {
     prisma = mockPrisma();
@@ -46,6 +48,7 @@ describe('PosInvoiceService', () => {
     mockPosting = { post: jest.fn() };
     mockDetermination = { mapped: jest.fn() };
     mockStock = { issue: jest.fn(), receive: jest.fn() };
+    mockWorkflows = { transition: jest.fn().mockResolvedValue({ fromState: 'confirmed', toState: 'completed' }) };
     svc = new PosInvoiceService(
       prisma as any,
       tenant as any,
@@ -63,6 +66,9 @@ describe('PosInvoiceService', () => {
       {} as any, // receipts
       { assertCanOverride: jest.fn() } as any, // overrides
       { recordSynchronousOverride: jest.fn() } as any, // approvals
+      mockWorkflows as any,
+      // settings resolver — default posting policy is at_invoice.
+      { resolveEnum: jest.fn().mockResolvedValue('at_invoice') } as any,
     );
   });
 
@@ -183,6 +189,85 @@ describe('PosInvoiceService', () => {
         svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100 }),
       ).rejects.toThrow(BadRequestException);
       expect(mockPayments.createReceipt).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('generateInvoice — order↔invoice binding', () => {
+    /**
+     * P1 regression. The binding (`Order.invoiceId` + status → `completed`) used
+     * to run POST-COMMIT and only when `externalTx` was absent. Rental checkout
+     * (rental-posting.service.ts) supplies a tx, so its orders never had
+     * `invoiceId` written by this service — which silently broke
+     * `closeOrderForInvoice`, because that looks orders up BY `invoiceId`.
+     * Both paths must now bind inside the invoice transaction.
+     */
+    beforeEach(() => {
+      // The no-externalTx path runs post-commit side effects (audit + domain
+      // event); the outer suite stubs both collaborators as `{}`.
+      (svc as any).events = { publish: jest.fn() };
+      (svc as any).audit = { record: jest.fn(), recordInTx: jest.fn() };
+      prisma.client.order.findFirst.mockResolvedValue({
+        id: 'ord-1', organizationId: orgId, orderNumber: 'ORD-1', status: 'confirmed',
+        invoiceId: null, partnerId: 'p-1', transactionDiscountPercent: 0,
+        transactionDiscountType: 'percentage', transactionDiscountAmount: 0,
+      });
+      prisma.client.orderItem.findMany.mockResolvedValue([
+        { id: 'oi-1', description: 'Latte', quantity: 1, unitPrice: 100, discountPercent: 0, modifiers: [] },
+      ]);
+      prisma.client.stockPostingJob = { create: jest.fn() };
+      mockBuilder.prepareLines.mockResolvedValue({
+        prepared: [{ description: 'Latte', quantity: 1, unitPrice: 100, total: 100 }],
+        subtotal: 100, discountTotal: 0, taxAmount: 0, total: 100,
+      });
+      mockBuilder.groupForPosting.mockResolvedValue({
+        counterAccount: 'ar-acc', itemByAccount: [['rev-acc', 100]], taxByAccount: [],
+      });
+      mockPosting.post.mockResolvedValue({ id: 'je-1' });
+      prisma.client.invoice.create.mockResolvedValue({
+        id: 'inv-9', invoiceNumber: 'INV-2026-0001', partnerId: 'p-1',
+        totalAmount: '100', issueDate: new Date(), paymentMode: null,
+      });
+      prisma.client.invoice.findFirst.mockResolvedValue({
+        id: 'inv-9', invoiceNumber: 'INV-2026-0001', totalAmount: '100', partnerId: 'p-1', items: [],
+      });
+      prisma.client.invoiceItem.create.mockResolvedValue({ id: 'ii-1' });
+    });
+
+    /** `invoiceId` is written directly; the status half goes through the engine. */
+    const expectBound = () => {
+      expect(prisma.client.order.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'ord-1' },
+          data: expect.objectContaining({ invoiceId: 'inv-9' }),
+        }),
+      );
+      expect(mockWorkflows.transition).toHaveBeenCalledWith(
+        expect.objectContaining({ entityType: 'order', entityId: 'ord-1', action: 'complete' }),
+      );
+    };
+
+    it('binds the order to the invoice when the caller owns the transaction', async () => {
+      await svc.generateInvoice('ord-1');
+      expectBound();
+    });
+
+    it('binds the order to the invoice when a caller supplies externalTx (rental path)', async () => {
+      // The mock client doubles as the interactive-tx handle, so passing it is
+      // exactly what rental checkout does.
+      await svc.generateInvoice('ord-1', {}, prisma.client);
+      expectBound();
+    });
+
+    it('runs the completion transition inside the caller transaction, not a nested one', async () => {
+      await svc.generateInvoice('ord-1', {}, prisma.client);
+      expect(mockWorkflows.transition).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'complete', externalTx: prisma.client }),
+      );
+    });
+
+    it('does not open its own transaction when externalTx is supplied', async () => {
+      await svc.generateInvoice('ord-1', {}, prisma.client);
+      expect(prisma.client.$transaction).not.toHaveBeenCalled();
     });
   });
 });

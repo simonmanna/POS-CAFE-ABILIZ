@@ -1,11 +1,11 @@
 import React, { useMemo, useState } from 'react';
+import { useAuthStore } from '@/stores/auth.store';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { Package, Search, User, X, ArrowRight, CheckCircle2 } from 'lucide-react';
 
 import PosLoginScreen from './PosLoginScreen';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
-import { useAuthStore } from '@/stores/auth.store';
 import { useProductsForPos } from '@/features/pos/api';
 import {
   useCreateAgreement,
@@ -16,7 +16,7 @@ import {
 import { api } from '@/lib/api';
 import './pos-pro.css';
 
-const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
+const fmt = (n: number | string) => `${useAuthStore.getState().organization?.currencyCode ?? 'IDR'} ${Number(n || 0).toLocaleString('id-ID')}`;
 
 interface RentalLine {
   productId: string;

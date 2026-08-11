@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
  * SplitBillDialog — divide a table's open tab into multiple independently-payable
  * bills. Left pane = the order's items with the quantity still unassigned; right
@@ -21,7 +23,7 @@ import {
 } from './api';
 import type { PaymentTender } from '@/features/pos/types';
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 interface Props {
   open: boolean;

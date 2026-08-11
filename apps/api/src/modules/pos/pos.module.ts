@@ -20,6 +20,9 @@ import { AuthModule } from '../../kernel/auth/auth.module';
 import { PosController } from './pos.controller';
 import { PosService } from './pos.service';
 import { PosWorkflowsInitializer } from './pos.workflows';
+import { PosMilestonesInitializer } from './pos.milestones';
+import { PosFulfillmentInitializer } from './pos.fulfillment';
+import { InventoryPostingSubscriber } from './inventory-posting.subscriber';
 import { PosHoldsService } from './pos-holds.service';
 import { PosHoldsController } from './pos-holds.controller';
 import { PosOverridesService } from './pos-overrides.service';
@@ -51,6 +54,8 @@ import { PosVariantService } from './pos-variant.service';
 import { PosAccompanimentService } from './pos-accompaniment.service';
 import { PosTablesService } from './pos-tables.service';
 import { PosTablesController } from './pos-tables.controller';
+import { PosTableZonesService } from './pos-table-zones.service';
+import { PosTableZonesController } from './pos-table-zones.controller';
 import { PosReservationsService } from './pos-reservations.service';
 import { PosReservationsController } from './pos-reservations.controller';
 import { PosTableReportsService } from './pos-table-reports.service';
@@ -98,6 +103,7 @@ export const POS_PERMISSIONS = {
     split: 'tables:split',
     clean: 'tables:clean',
     reserve: 'tables:reserve',
+    zones: 'tables:zones',
   },
 };
 
@@ -119,6 +125,9 @@ export const POS_PERMISSIONS = {
     DigitalMenuController,
     DigitalMenuPublicController,
     PosMenuController,
+    // Zones FIRST: `@Get(':id')` on PosTablesController would swallow
+    // `GET /pos/tables/zones` (Express matches in registration order).
+    PosTableZonesController,
     PosTablesController,
     PosReservationsController,
     PosTableReportsController,
@@ -138,6 +147,9 @@ export const POS_PERMISSIONS = {
     StockPostingService,
     StockPostingWorker,
     PosWorkflowsInitializer,
+    PosMilestonesInitializer,
+    PosFulfillmentInitializer,
+    InventoryPostingSubscriber,
     PosShiftService,
     PosHoldsService,
     PosOverridesService,
@@ -154,6 +166,7 @@ export const POS_PERMISSIONS = {
     PosVariantService,
     PosAccompanimentService,
     PosTablesService,
+    PosTableZonesService,
     PosReservationsService,
     PosTableReportsService,
     ReservationWorker,
@@ -179,6 +192,9 @@ export class PosModule implements OnModuleInit {
         ...Object.values(POS_PERMISSIONS.pos),
         ...Object.values(POS_PERMISSIONS.tables),
       ],
+      // The default order kind — an ordinary sale (the `Order.transactionKind`
+      // default). Verticals contribute their own kinds (Phase D).
+      orderKinds: [{ code: 'sale', label: 'Sale' }],
     });
   }
 }

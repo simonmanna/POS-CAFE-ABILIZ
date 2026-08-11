@@ -1,3 +1,5 @@
+import { useAuthStore } from '@/stores/auth.store';
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
  * POS P6 — Customer-facing pole display.
  *
@@ -25,7 +27,7 @@ interface CartSnapshot {
   lastTotal?: number;
 }
 
-const fmt = (n: number | string) => `UGX ${Number(n || 0).toLocaleString()}`;
+const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 const STORAGE_KEY = 'pos-display-cart';
 
