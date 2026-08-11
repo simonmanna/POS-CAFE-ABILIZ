@@ -38,3 +38,16 @@ var/
 # Database backups. Never commit these: the dumps contain full production data
 # and `backup/files/` mirrors uploaded customer documents.
 apps/api/backup/
+
+# Agent scratch / debug artifacts (never commit)
+.hermes/
+apps/api/B
+apps/api/diff-err.txt
+apps/api/p45_*.sh
+apps/api/p45_*.js
+apps/api/p5_*.js
+apps/api/p6p7_*.js
+apps/api/p8_*.js
+apps/api/.p45/
+apps/api/.p5/
+openeducat_19.zip
