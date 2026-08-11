@@ -9,6 +9,7 @@ import { RepairWarrantyService } from './repair-warranty.service';
 import { RepairContractService } from './repair-contract.service';
 import { RepairReportsService } from './repair-reports.service';
 import { RepairPostingService } from './repair-posting.service';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
 /**
  * Repair controller — the RMMS surface:
@@ -19,6 +20,7 @@ import { RepairPostingService } from './repair-posting.service';
  * Every route is org-scoped by the tenancy extension and gated with
  * `repair:*` permissions (registered with the ModuleRegistry).
  */
+@RequiresModule('repair')
 @Controller('repair')
 export class RepairController {
   constructor(

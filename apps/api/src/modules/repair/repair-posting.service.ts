@@ -4,6 +4,7 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { PosInvoiceService } from '../pos/billing/pos-invoice.service';
 import { NotificationsService } from '../../kernel/notifications/notifications.service';
+import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 
 /**
  * RepairPostingService — the financial spine of a repair order.
@@ -23,6 +24,7 @@ export class RepairPostingService {
     private readonly seq: SequenceService,
     private readonly posInvoice: PosInvoiceService,
     private readonly notifications: NotificationsService,
+    private readonly modules: ModuleRegistry,
   ) {}
 
   /**
@@ -153,16 +155,21 @@ export class RepairPostingService {
       ).id;
     }
     const createdOrder = await this.prisma.client.$transaction(async (tx: any) => {
+      this.modules.assertKnownOrderKind('repair'); // Phase D: validated against the registry, not a shared enum.
       const o = await tx.order.create({
         data: {
           organizationId: orgId,
           orderNumber,
           orderType: 'takeaway',
-          status: 'open',
+          status: 'confirmed',
           partnerId,
           branchId: input.branchId ?? order.branchId ?? null,
           notes: `Repair ${order.repairNumber}`,
           transactionKind: 'repair',
+          // Polymorphic source document (Phase D) + deprecated `repairOrderId`,
+          // dual-written for one release.
+          sourceDocumentType: 'repair_order',
+          sourceDocumentId: order.id,
           repairOrderId: order.id,
           items: {
             create: resolved.map((l, idx) => ({

@@ -7,7 +7,9 @@ import {
   StartBottleCountDto,
   SubmitBottleCountDto,
 } from './dto/bottle-count.dto';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('beverage')
 @Controller('beverage/counts')
 export class BeverageCountController {
   constructor(private readonly counts: BeverageCountService) {}

@@ -4,7 +4,9 @@ import { PERMISSIONS } from '@erp/shared';
 import { AssetDepreciationService } from '../services/asset-depreciation.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { RunDepreciationDto } from '../dto/run-depreciation.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/depreciation')
 export class AssetDepreciationController {
   constructor(

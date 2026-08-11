@@ -6,6 +6,7 @@ import { HrTimesheetService } from './hr-timesheet.service';
 import { HrLeaveService } from './hr-leave.service';
 import { HrPayrollService } from './hr-payroll.service';
 import { HrReportsService } from './hr-reports.service';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
 /**
  * Workforce Management (HR) controller — employees, departments, positions,
@@ -15,6 +16,7 @@ import { HrReportsService } from './hr-reports.service';
  * Every route is org-scoped by the tenancy extension and gated with `hr:*`
  * permissions (registered with the ModuleRegistry).
  */
+@RequiresModule('hr')
 @Controller('hr')
 export class HrController {
   constructor(

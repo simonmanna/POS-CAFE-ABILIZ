@@ -3,7 +3,9 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { PERMISSIONS } from '@erp/shared';
 import { AssetTransferService } from '../services/asset-transfer.service';
 import { CreateTransferDto } from '../dto/create-transfer.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/transfers')
 export class AssetTransferController {
   constructor(private readonly service: AssetTransferService) {}

@@ -21,9 +21,11 @@ import {
   CreateTaskRuleDto,
   CreateTemplateDto,
 } from './dto/create-task.dto';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
 @ApiTags('Tasks')
 @ApiBearerAuth()
+@RequiresModule('task')
 @Controller('tasks')
 export class TaskController {
   constructor(private readonly taskService: TaskService) {}

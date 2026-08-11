@@ -3,7 +3,9 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { PERMISSIONS } from '@erp/shared';
 import { AssetDashboardService } from '../services/asset-dashboard.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets-dashboard')
 export class AssetDashboardController {
   constructor(

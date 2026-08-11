@@ -5,7 +5,9 @@ import { AssetCategoryService } from '../services/asset-category.service';
 import { CreateAssetCategoryDto } from '../dto/create-asset-category.dto';
 import { UpdateAssetCategoryDto } from '../dto/update-asset-category.dto';
 import { PaginationDto } from '../../../kernel/common/pagination.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('asset-categories')
 export class AssetCategoryController {
   constructor(private readonly service: AssetCategoryService) {}

@@ -3,7 +3,9 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { PERMISSIONS } from '@erp/shared';
 import { AssetAcquisitionService } from '../services/asset-acquisition.service';
 import { CreateAcquisitionDto } from '../dto/create-acquisition.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/acquisition')
 export class AssetAcquisitionController {
   constructor(private readonly service: AssetAcquisitionService) {}

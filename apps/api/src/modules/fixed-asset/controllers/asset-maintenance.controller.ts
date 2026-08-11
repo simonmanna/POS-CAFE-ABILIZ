@@ -4,7 +4,9 @@ import { PERMISSIONS } from '@erp/shared';
 import { AssetMaintenanceService } from '../services/asset-maintenance.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { CreateMaintenanceDto } from '../dto/create-maintenance.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/maintenance')
 export class AssetMaintenanceController {
   constructor(

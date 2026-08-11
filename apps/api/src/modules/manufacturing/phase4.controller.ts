@@ -11,7 +11,9 @@ import {
   CreateRoutingDto,
   CreateWorkCenterDto,
 } from './dto/phase4.dto';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('manufacturing')
 @Controller('manufacturing/work-centers')
 export class WorkCenterController {
   constructor(private readonly svc: WorkCenterService, private readonly reports: ProductionReportService) {}

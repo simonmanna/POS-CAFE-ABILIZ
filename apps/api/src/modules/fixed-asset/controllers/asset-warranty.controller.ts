@@ -4,7 +4,9 @@ import { PERMISSIONS } from '@erp/shared';
 import { AssetWarrantyService } from '../services/asset-warranty.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { CreateWarrantyDto } from '../dto/create-warranty.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/warranties')
 export class AssetWarrantyController {
   constructor(

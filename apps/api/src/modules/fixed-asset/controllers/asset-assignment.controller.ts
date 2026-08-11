@@ -3,7 +3,9 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { PERMISSIONS } from '@erp/shared';
 import { AssetAssignmentService } from '../services/asset-assignment.service';
 import { CreateAssignmentDto } from '../dto/create-assignment.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/assignments')
 export class AssetAssignmentController {
   constructor(private readonly service: AssetAssignmentService) {}

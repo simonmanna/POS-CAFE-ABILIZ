@@ -58,6 +58,7 @@ export class RepairModule implements OnModuleInit {
       version: '1.0.0',
       dependencies: ['core', 'accounting', 'invoicing', 'inventory', 'pos'],
       permissions: [...Object.values(PERMISSIONS.repair)],
+      orderKinds: [{ code: 'repair', label: 'Repair' }],
     });
     this.lifecycles.register(REPAIR_ORDER_LIFECYCLE);
   }

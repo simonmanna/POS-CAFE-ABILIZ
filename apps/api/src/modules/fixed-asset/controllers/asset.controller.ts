@@ -5,7 +5,9 @@ import { AssetService } from '../services/asset.service';
 import { CreateAssetDto } from '../dto/create-asset.dto';
 import { UpdateAssetDto } from '../dto/update-asset.dto';
 import { AssetQueryDto } from '../dto/asset-query.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets')
 export class AssetController {
   constructor(private readonly service: AssetService) {}

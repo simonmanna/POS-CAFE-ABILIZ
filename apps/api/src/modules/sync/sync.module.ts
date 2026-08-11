@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
+import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 import { PosModule } from '../pos/pos.module';
 import { AccountingModule } from '../accounting/accounting.module';
 import { ProductModule } from '../core/product/product.module';
@@ -18,4 +19,17 @@ import { DeviceTokenGuard } from './device-token.guard';
   controllers: [SyncController],
   providers: [SyncDevicesService, SyncPullService, SyncPushService, SyncDeadLetterService, DeviceTokenGuard],
 })
-export class SyncModule {}
+export class SyncModule implements OnModuleInit {
+  constructor(private readonly registry: ModuleRegistry) {}
+
+  onModuleInit(): void {
+    this.registry.register({
+      name: 'sync',
+      version: '1.0.0',
+      dependencies: ['pos', 'accounting', 'core'],
+      // Devices authenticate with a device token (DeviceTokenGuard), not with
+      // user permissions, so this module owns none.
+      permissions: [],
+    });
+  }
+}

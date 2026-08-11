@@ -3,7 +3,9 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { PERMISSIONS } from '@erp/shared';
 import { AssetCheckInOutService } from '../services/asset-checkinout.service';
 import { CreateCheckInOutDto } from '../dto/create-checkinout.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/checkinout')
 export class AssetCheckInOutController {
   constructor(private readonly service: AssetCheckInOutService) {}

@@ -3,7 +3,9 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { PERMISSIONS } from '@erp/shared';
 import { AssetDisposalService } from '../services/asset-disposal.service';
 import { CreateDisposalDto } from '../dto/create-disposal.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/disposal')
 export class AssetDisposalController {
   constructor(private readonly service: AssetDisposalService) {}

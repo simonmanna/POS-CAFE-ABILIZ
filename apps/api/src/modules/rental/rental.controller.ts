@@ -14,6 +14,7 @@ import { RentalReturnService } from './rental-return.service';
 import { RentalServiceOrderService } from './rental-service-order.service';
 import { RentalReportsService } from './rental-reports.service';
 import { RentalLocationConfigService } from './rental-location-config.service';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
 /**
  * Rental controller — the full lifecycle surface:
@@ -23,6 +24,7 @@ import { RentalLocationConfigService } from './rental-location-config.service';
  * Every route is org-scoped by the tenancy extension and gated with
  * `rental:*` permissions (registered with the ModuleRegistry).
  */
+@RequiresModule('rental')
 @Controller('rental')
 export class RentalController {
   constructor(

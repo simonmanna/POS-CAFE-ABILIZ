@@ -9,7 +9,9 @@ import {
   RecordQcDto,
   StartProductionDto,
 } from './dto/production.dto';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('manufacturing')
 @Controller('manufacturing/production-orders')
 export class ProductionController {
   constructor(private readonly production: ProductionService) {}

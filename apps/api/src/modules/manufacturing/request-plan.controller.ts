@@ -12,7 +12,9 @@ import {
   CreateProductionRequestDto,
   RejectProductionRequestDto,
 } from './dto/request.dto';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('manufacturing')
 @Controller('manufacturing/requests')
 export class ProductionRequestController {
   constructor(private readonly requests: ProductionRequestService) {}

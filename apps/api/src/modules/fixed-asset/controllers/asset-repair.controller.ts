@@ -3,7 +3,9 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { PERMISSIONS } from '@erp/shared';
 import { AssetRepairService } from '../services/asset-repair.service';
 import { CreateRepairDto } from '../dto/create-repair.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/repairs')
 export class AssetRepairController {
   constructor(private readonly service: AssetRepairService) {}

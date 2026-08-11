@@ -3,7 +3,9 @@ import { PERMISSIONS } from '@erp/shared';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { BomService } from './bom.service';
 import { CreateBomDto, UpdateBomDto } from './dto/bom.dto';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('manufacturing')
 @Controller('manufacturing/boms')
 export class BomController {
   constructor(private readonly boms: BomService) {}

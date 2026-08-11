@@ -1,5 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
+import { PERMISSIONS } from '@erp/shared';
 import { KernelModule } from '../../kernel/kernel.module';
+import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 import { AccountingModule } from '../accounting/accounting.module';
 import { AssetCategoryController } from './controllers/asset-category.controller';
 import { AssetController } from './controllers/asset.controller';
@@ -76,4 +78,20 @@ import { AssetDashboardService } from './services/asset-dashboard.service';
     AssetDepreciationService,
   ],
 })
-export class FixedAssetModule {}
+export class FixedAssetModule implements OnModuleInit {
+  constructor(private readonly registry: ModuleRegistry) {}
+
+  onModuleInit(): void {
+    this.registry.register({
+      name: 'fixed-asset',
+      version: '1.0.0',
+      dependencies: ['accounting'],
+      permissions: [
+        ...Object.values(PERMISSIONS.fixedAsset),
+        ...Object.values(PERMISSIONS.assetCategory),
+        ...Object.values(PERMISSIONS.assetDepreciation),
+        ...Object.values(PERMISSIONS.assetReport),
+      ],
+    });
+  }
+}

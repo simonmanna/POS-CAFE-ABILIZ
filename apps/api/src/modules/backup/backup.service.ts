@@ -250,7 +250,7 @@ export class BackupService implements OnModuleInit, OnModuleDestroy {
       
       // Trigger WAL switch to ensure current segment is archived
       const env = this.buildPgEnv();
-      await this.execPg('psql', ['-c', 'SELECT pg_switch_wal()'], env);
+      await this.execPg('psql', ['--no-password', '-c', 'SELECT pg_switch_wal()'], env);
       
       // Create incremental marker with WAL segment info
       const walInfo = await this.getCurrentWalInfo();
@@ -275,7 +275,7 @@ export class BackupService implements OnModuleInit, OnModuleDestroy {
   private async getWalArchiveStatus(): Promise<WalArchiveStatus> {
     try {
       const env = this.buildPgEnv();
-      const { stdout } = await this.execPg('psql', ['-t', '-c', `
+      const { stdout } = await this.execPg('psql', ['--no-password', '-t', '-c', `
         SELECT 
           (SELECT COUNT(*) FROM pg_stat_archiver WHERE failed_count > 0) as failed_count,
           (SELECT last_archived_wal FROM pg_stat_archiver) as last_wal,
@@ -311,7 +311,7 @@ export class BackupService implements OnModuleInit, OnModuleDestroy {
   private async getCurrentWalInfo(): Promise<string> {
     try {
       const env = this.buildPgEnv();
-      const { stdout } = await this.execPg('psql', ['-t', '-c', `
+      const { stdout } = await this.execPg('psql', ['--no-password', '-t', '-c', `
         SELECT pg_current_wal_lsn() as current_lsn,
                pg_walfile_name(pg_current_wal_lsn()) as wal_file;
       `], env);

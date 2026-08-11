@@ -5,6 +5,7 @@ import { StockService } from '../inventory/stock.service';
 import { PosInvoiceService } from '../pos/billing/pos-invoice.service';
 import { RentalLocationConfigService } from './rental-location-config.service';
 import { SettingResolverService } from '../../kernel/settings/setting-resolver.service';
+import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 import type { RentalFeeType } from '@prisma/client';
 
 /**
@@ -28,6 +29,7 @@ export class RentalPostingService {
     private readonly locations: RentalLocationConfigService,
     private readonly posInvoice: PosInvoiceService,
     private readonly settings: SettingResolverService,
+    private readonly modules: ModuleRegistry,
   ) {}
 
   /**
@@ -181,18 +183,23 @@ export class RentalPostingService {
       occurredAt?: string;
     },
   ) {
+    this.modules.assertKnownOrderKind('rental'); // Phase D: validated against the registry, not a shared enum.
     const orderNumber = await this.seq.next('pos_order', { prefix: 'OR-', padding: 6 }, tx);
     const order = await tx.order.create({
       data: {
         organizationId: orgId,
         orderNumber,
         orderType: 'takeaway',
-        status: 'open',
+        status: 'confirmed',
         partnerId: input.partnerId,
         branchId: input.branchId ?? null,
         notes: `Rental ${input.feeType} — agreement ${input.agreementId}`,
-        // Rental marker on the order header (transactionKind rental).
+        // Rental marker on the order header. Polymorphic source document
+        // (Phase D) + the deprecated `rentalAgreementId`, dual-written for one
+        // release.
         transactionKind: 'rental',
+        sourceDocumentType: 'rental_agreement',
+        sourceDocumentId: input.agreementId,
         rentalAgreementId: input.agreementId,
         items: {
           create: input.lines.map((l, idx) => ({

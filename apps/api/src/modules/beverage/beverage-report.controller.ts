@@ -2,6 +2,7 @@ import { Controller, Get, Query } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { BeverageReportService } from './beverage-report.service';
+import { RequiresModule } from '../../kernel/module-loader/requires-module.decorator';
 
 function parseRange(from?: string, to?: string): { from: Date; to: Date } {
   const toDate = to ? new Date(to) : new Date();
@@ -9,6 +10,7 @@ function parseRange(from?: string, to?: string): { from: Date; to: Date } {
   return { from: fromDate, to: toDate };
 }
 
+@RequiresModule('beverage')
 @Controller('beverage/reports')
 export class BeverageReportController {
   constructor(private readonly reports: BeverageReportService) {}

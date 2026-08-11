@@ -70,6 +70,7 @@ export class RentalModule implements OnModuleInit {
       version: '1.0.0',
       dependencies: ['core', 'accounting', 'invoicing', 'inventory', 'pos', 'expenses'],
       permissions: [...Object.values(PERMISSIONS.rental)],
+      orderKinds: [{ code: 'rental', label: 'Rental' }],
     });
     this.lifecycles.register(RENTAL_AGREEMENT_LIFECYCLE);
     this.lifecycles.register(RENTAL_UNIT_LIFECYCLE);

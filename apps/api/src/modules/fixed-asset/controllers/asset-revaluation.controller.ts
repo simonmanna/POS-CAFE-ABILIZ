@@ -3,7 +3,9 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { PERMISSIONS } from '@erp/shared';
 import { AssetRevaluationService } from '../services/asset-revaluation.service';
 import { CreateRevaluationDto } from '../dto/create-revaluation.dto';
+import { RequiresModule } from '../../../kernel/module-loader/requires-module.decorator';
 
+@RequiresModule('fixed-asset')
 @Controller('fixed-assets/:assetId/revaluations')
 export class AssetRevaluationController {
   constructor(private readonly service: AssetRevaluationService) {}

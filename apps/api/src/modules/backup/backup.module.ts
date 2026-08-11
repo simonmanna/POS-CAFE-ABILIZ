@@ -1,4 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
+import { PERMISSIONS } from '@erp/shared';
+import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 import { BackupController } from './backup.controller';
 import { BackupService } from './backup.service';
 
@@ -7,4 +9,15 @@ import { BackupService } from './backup.service';
   providers: [BackupService],
   exports: [BackupService],
 })
-export class BackupModule {}
+export class BackupModule implements OnModuleInit {
+  constructor(private readonly registry: ModuleRegistry) {}
+
+  onModuleInit(): void {
+    this.registry.register({
+      name: 'backup',
+      version: '1.0.0',
+      dependencies: [],
+      permissions: Object.values(PERMISSIONS.backup),
+    });
+  }
+}
