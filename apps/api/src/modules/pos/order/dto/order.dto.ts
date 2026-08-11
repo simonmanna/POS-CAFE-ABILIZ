@@ -91,6 +91,7 @@ export class MergeOrderDto {
 export class GenerateInvoiceDto {
   @IsOptional() @IsIn(['cash', 'card', 'mobile_money', 'mixed', 'credit'])
   paymentMode?: 'cash' | 'card' | 'mobile_money' | 'mixed' | 'credit';
+  @IsOptional() @IsString() paymentTermId?: string;
   @IsOptional() @IsNumber() transactionDiscountPercent?: number;
   @IsOptional() @IsIn(['percentage', 'fixed_amount']) transactionDiscountType?: 'percentage' | 'fixed_amount';
   @IsOptional() @IsNumber() @Min(0) transactionDiscountAmount?: number;
