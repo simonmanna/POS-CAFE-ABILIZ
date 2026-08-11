@@ -12,6 +12,9 @@ export interface Invoice {
   partner?: { id: string; name: string };
   issueDate: string;
   dueDate: string | null;
+  /** Payment term master id (loose ref) + name snapshot from sale time. */
+  paymentTermId: string | null;
+  paymentTermName: string | null;
   status: string;
   subtotal: string;
   discountTotal: string;
@@ -28,6 +31,17 @@ export interface Invoice {
   amountResidual: string;
   paymentStatus: string;
   paymentMode: string | null;
+  fiscalPositionId: string | null;
+  fiscalPositionName: string | null;
+  invoicingJournalId: string | null;
+  invoicingJournalName: string | null;
+  salespersonId: string | null;
+  salespersonName: string | null;
+  deliveryDate: string | null;
+  deliveryAddress: string | null;
+  incoterm: string | null;
+  incotermLocation: string | null;
+  sourceDocument: string | null;
   settlementStatus: string;
   branchId: string | null;
   reference: string | null;
@@ -38,6 +52,12 @@ export interface Invoice {
 
 export interface InvoiceLine {
   id: string;
+  /** Odoo line type: 'product' | 'section' | 'note'. */
+  lineType: string;
+  /** GL account the line posts to (Odoo Account column). */
+  account?: { id: string; code: string; name: string } | null;
+  /** Tax row joined by loose ref at read time. */
+  tax?: { id: string; name: string; rate: string } | null;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -83,6 +103,21 @@ export interface CreateInvoiceInput {
   partnerId: string;
   issueDate: string;
   dueDate?: string;
+  paymentTermId?: string;
+  /** Payment method intent — how the sale will be settled. */
+  paymentMode?: string;
+  /** Fiscal position (loose ref to core FiscalPosition master). */
+  fiscalPositionId?: string;
+  /** Invoicing journal (loose ref to Journal master). */
+  invoicingJournalId?: string;
+  /** Salesperson (loose ref to HrEmployee). */
+  salespersonId?: string;
+  /** Delivery intent (Odoo Other Info). */
+  deliveryDate?: string;
+  deliveryAddress?: string;
+  incoterm?: string;
+  incotermLocation?: string;
+  sourceDocument?: string;
   reference?: string;
   notes?: string;
   lines: InvoiceLineInput[];
@@ -129,6 +164,46 @@ export function usePostInvoice() {
       qc.invalidateQueries({ queryKey: ['invoices'] });
       qc.invalidateQueries({ queryKey: ['invoice', id] });
     },
+  });
+}
+
+// ---- Journal-entry preview (invoices/new "Journal Entry" tab) ----
+
+export interface JournalPreviewAccount {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface JournalPreviewLine {
+  lineNumber: number;
+  account: JournalPreviewAccount | null;
+  partnerName: string | null;
+  description: string | null;
+  debit: string | null;
+  credit: string | null;
+}
+
+export interface InvoiceJournalPreview {
+  journal: {
+    id: string;
+    code: string;
+    name: string;
+    journalType: string;
+  };
+  postingDate: string;
+  description: string | null;
+  lines: JournalPreviewLine[];
+  debitTotal: string;
+  creditTotal: string;
+  balanced: boolean;
+}
+
+/** Server-side dry-run of the entry the invoice will post (read-only, writes nothing). */
+export function useInvoiceJournalPreview() {
+  return useMutation({
+    mutationFn: async (input: CreateInvoiceInput) =>
+      (await api.post<InvoiceJournalPreview>('/invoices/journal-preview', input)).data,
   });
 }
 

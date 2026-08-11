@@ -6,6 +6,7 @@ import { TenantContextService } from '../../../kernel/tenancy/tenant-context.ser
 import { SequenceService } from '../../../kernel/sequence/sequence.service';
 import { TaxCalculationService } from '../tax/tax-calculation.service';
 import { AccountDeterminationService } from '../../accounting/posting/account-determination.service';
+import { DmsTypeResolver } from '../../documents/dms-type-resolver.service';
 
 export interface DocumentLineInput {
   productId?: string;
@@ -25,6 +26,8 @@ export interface DocumentLineInput {
   discountReason?: string;
   discountSource?: 'manual' | 'promotion' | 'loyalty' | 'coupon';
   taxId?: string;
+  /** Odoo-style line: 'product' (default) | 'section' | 'note'. */
+  lineType?: string;
   /**
    * P10: when true, the line's `unitPrice` is tax-inclusive. The tax engine
    * splits it as net = unitPrice / (1 + rate) and tax = unitPrice - net.
@@ -37,6 +40,27 @@ export interface DocumentHeaderInput {
   partnerId: string;
   issueDate: string;
   dueDate?: string;
+  /** Payment term id (loose ref to core PaymentTerm master). */
+  paymentTermId?: string | null;
+  /** Snapshot of the term name for history display after rename/archive. */
+  paymentTermName?: string | null;
+  /** Payment method intent (how the sale will be settled). */
+  paymentMode?: 'cash' | 'card' | 'mobile_money' | 'mixed' | 'credit';
+  /** Fiscal position (loose ref to core FiscalPosition master) + name snapshot. */
+  fiscalPositionId?: string | null;
+  fiscalPositionName?: string | null;
+  /** Invoicing journal (loose ref to Journal master) + name snapshot. */
+  invoicingJournalId?: string | null;
+  invoicingJournalName?: string | null;
+  /** Salesperson on the sale (loose ref to HrEmployee) + name snapshot. */
+  salespersonId?: string | null;
+  salespersonName?: string | null;
+  /** Delivery intent (Odoo Other Info). */
+  deliveryDate?: string;
+  deliveryAddress?: string | null;
+  incoterm?: string | null;
+  incotermLocation?: string | null;
+  sourceDocument?: string | null;
   currencyId?: string;
   exchangeRate?: number;
   reference?: string;
@@ -65,6 +89,7 @@ interface PreparedLine {
   discountReason: string | null;
   discountSource: 'manual' | 'promotion' | 'loyalty' | 'coupon';
   taxId: string | null;
+  lineType: string;
   subtotal: Prisma.Decimal;
   taxAmount: Prisma.Decimal;
   total: Prisma.Decimal;
@@ -81,6 +106,7 @@ interface PreparedLine {
 @Injectable()
 export class DocumentBuilderService {
   constructor(
+    private readonly dmsTypes: DmsTypeResolver,
     private readonly tenant: TenantContextService,
     private readonly sequence: SequenceService,
     private readonly tax: TaxCalculationService,
@@ -92,12 +118,14 @@ export class DocumentBuilderService {
     let discountTotal = ZERO;
 
     for (const [i, l] of lines.entries()) {
+      const lineType = l.lineType ?? 'product';
+      const isMeta = lineType !== 'product';
       let product: any = null;
-      if (l.productId) {
+      if (l.productId && !isMeta) {
         product = await client.product.findFirst({ where: { id: l.productId }, include: { category: true } });
       }
-      const unitPrice = l.unitPrice != null ? dec(l.unitPrice) : product?.salesPrice ? dec(product.salesPrice) : ZERO;
-      const quantity = dec(l.quantity ?? 1);
+      const unitPrice = isMeta ? ZERO : l.unitPrice != null ? dec(l.unitPrice) : product?.salesPrice ? dec(product.salesPrice) : ZERO;
+      const quantity = isMeta ? ZERO : dec(l.quantity ?? 1);
       const gross = quantity.times(unitPrice);
       const discType = l.discountType ?? 'percentage';
 
@@ -117,7 +145,7 @@ export class DocumentBuilderService {
       const discountReason = l.discountReason ?? null;
       const discountSource = l.discountSource ?? 'manual';
 
-      const taxId = l.taxId ?? product?.taxId ?? null;
+      const taxId = isMeta ? null : (l.taxId ?? product?.taxId ?? null);
       let taxRow: any = null;
       if (taxId) taxRow = await client.tax.findFirst({ where: { id: taxId } });
       // P10: per-line taxInclusive override wins over product/tax default.
@@ -147,6 +175,7 @@ export class DocumentBuilderService {
         discountReason,
         discountSource,
         taxId,
+        lineType,
         subtotal: result.net,
         taxAmount: result.taxTotal,
         total: result.gross,
@@ -182,11 +211,26 @@ export class DocumentBuilderService {
         organizationId,
         documentNumber,
         documentType,
+        documentTypeId: await this.dmsTypes.resolveIdByCode(documentType, client),
         partnerId: header.partnerId,
         currencyId: header.currencyId ?? null,
         exchangeRate: dec(header.exchangeRate ?? 1),
         issueDate: new Date(header.issueDate),
         dueDate: header.dueDate ? new Date(header.dueDate) : null,
+        paymentTermId: header.paymentTermId ?? null,
+        paymentTermName: header.paymentTermName ?? null,
+        paymentMode: (header.paymentMode as any) ?? null,
+        fiscalPositionId: header.fiscalPositionId ?? null,
+        fiscalPositionName: header.fiscalPositionName ?? null,
+        invoicingJournalId: header.invoicingJournalId ?? null,
+        invoicingJournalName: header.invoicingJournalName ?? null,
+        salespersonId: header.salespersonId ?? null,
+        salespersonName: header.salespersonName ?? null,
+        deliveryDate: header.deliveryDate ? new Date(header.deliveryDate) : null,
+        deliveryAddress: header.deliveryAddress ?? null,
+        incoterm: header.incoterm ?? null,
+        incotermLocation: header.incotermLocation ?? null,
+        sourceDocument: header.sourceDocument ?? null,
         status: 'draft',
         reference: header.reference ?? null,
         notes: header.notes ?? null,
@@ -215,6 +259,7 @@ export class DocumentBuilderService {
             taxAmount: p.taxAmount,
             total: p.total,
             lineNumber: p.lineNumber,
+            lineType: p.lineType,
             // P10: taxInclusive persisted on the line so receipts can
             // render "(incl. tax)" without re-deriving it.
             taxInclusive: p.taxInclusive,
@@ -245,6 +290,7 @@ export class DocumentBuilderService {
     const taxByAccount = new Map<string, Prisma.Decimal>();
 
     for (const line of doc.lines) {
+      if ((line.lineType ?? 'product') !== 'product') continue;
       let category: any = null;
       let stockable = false;
       if (line.productId) {

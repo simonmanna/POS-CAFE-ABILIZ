@@ -6,6 +6,7 @@ import { PostingService } from '../../accounting/posting/posting.service';
 import { StockService } from '../../inventory/stock.service';
 import { DocumentBuilderService } from '../document/document-builder.service';
 import { AccountDeterminationService } from '../../accounting/posting/account-determination.service';
+import { JournalService } from '../../accounting/journal/journal.service';
 
 /**
  * Registers the workflows for invoicing-side documents (ADR-007): invoice,
@@ -22,8 +23,9 @@ export class InvoicingWorkflowsInitializer implements OnModuleInit {
     private readonly posting: PostingService,
     private readonly stock: StockService,
     private readonly builder: DocumentBuilderService,
-    private readonly determination: AccountDeterminationService,
-  ) {}
+        private readonly determination: AccountDeterminationService,
+        private readonly journals: JournalService,
+      ) {}
 
   onModuleInit(): void {
     this.registry.register(this.invoiceWorkflow());
@@ -86,10 +88,13 @@ export class InvoicingWorkflowsInitializer implements OnModuleInit {
             for (const [accountId, amount] of taxByAccount) {
               lines.push({ accountId, credit: amount.toString(), description: 'Output tax' });
             }
-            const entry = await this.posting.post({
-              journalCode: 'SALES',
-              date: fullDoc.issueDate,
-              description: `Invoice ${fullDoc.documentNumber}`,
+            // Journal resolution: the invoice's Invoicing Journal → the org
+                        // Default Sales Journal setting → legacy `SALES` → first sales journal.
+                        const journal = await this.journals.resolveSalesJournal(tx, fullDoc.invoicingJournalId);
+                        const entry = await this.posting.post({
+                          journalCode: journal.code,
+                          date: fullDoc.issueDate,
+                          description: `Invoice ${fullDoc.documentNumber}`,
               currencyId: fullDoc.currencyId ?? undefined,
               exchangeRate: Number(fullDoc.exchangeRate),
               sourceType: 'invoice',

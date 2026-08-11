@@ -40,11 +40,18 @@ export class InvoiceController {
   }
 
   @Post()
-  @Idempotent()
-  @RequirePermissions(PERMISSIONS.invoice.create)
-  create(@Body() dto: CreateInvoiceDto) {
-    return this.invoices.create(dto);
-  }
+    @Idempotent()
+    @RequirePermissions(PERMISSIONS.invoice.create)
+    create(@Body() dto: CreateInvoiceDto) {
+      return this.invoices.create(dto);
+    }
+
+    /** Read-only journal-entry preview for the /invoices/new "Journal Entry" tab. */
+    @Post('journal-preview')
+    @RequirePermissions(PERMISSIONS.invoice.read)
+    journalPreview(@Body() dto: CreateInvoiceDto) {
+      return this.invoices.previewJournal(dto);
+    }
 
   @Patch(':id')
   @RequirePermissions(PERMISSIONS.invoice.update)

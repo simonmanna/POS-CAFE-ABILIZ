@@ -3,6 +3,7 @@ import { PERMISSIONS } from '@erp/shared';
 import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 import { AccountingModule } from '../accounting/accounting.module';
 import { InventoryModule } from '../inventory/inventory.module';
+import { CoreModule } from '../core/core.module';
 
 import { TaxCalculationService } from './tax/tax-calculation.service';
 import { DocumentBuilderService } from './document/document-builder.service';
@@ -25,7 +26,7 @@ import { InvoicingWorkflowsInitializer } from './workflows/invoicing-workflows.i
  * Future verticals (POS, School...) only create documents.
  */
 @Module({
-  imports: [AccountingModule, InventoryModule],
+  imports: [AccountingModule, InventoryModule, CoreModule],
   controllers: [
     InvoiceController,
     CreditNoteController,

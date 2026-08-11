@@ -88,7 +88,8 @@ export function InvoicesPage() {
       ),
     },
     { key: 'partner', header: 'Customer', render: (inv) => inv.partner?.name ?? '-' },
-    { key: 'issueDate', header: 'Date', render: (inv) => date(inv.issueDate) },
+        { key: 'paymentTerm', header: 'Terms', render: (inv) => <span className="text-sm">{inv.paymentTermName ?? '—'}</span> },
+        { key: 'issueDate', header: 'Date', render: (inv) => date(inv.issueDate) },
     { key: 'totalAmount', header: 'Total', className: 'text-right', render: (inv) => money(inv.totalAmount) },
     { key: 'amountResidual', header: 'Due', className: 'text-right', render: (inv) => money(inv.amountResidual) },
     {
