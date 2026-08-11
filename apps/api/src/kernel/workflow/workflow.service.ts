@@ -1,9 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import type { WorkflowContext, WorkflowDefinition, WorkflowState, WorkflowTransition } from '@erp/shared';
+import type { DomainEventName, WorkflowContext, WorkflowDefinition, WorkflowState, WorkflowTransition } from '@erp/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenancy/tenant-context.service';
 import { AuditService } from '../audit/audit.service';
-import { EventBus } from '../events/event-bus';
+import { EventOutboxService } from '../events/event-outbox.service';
 import { WorkflowRegistry } from './workflow.registry';
 
 /**
@@ -28,7 +28,7 @@ export class WorkflowService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly audit: AuditService,
-    private readonly events: EventBus,
+    private readonly outbox: EventOutboxService,
     private readonly registry: WorkflowRegistry,
   ) {}
 
@@ -73,6 +73,15 @@ export class WorkflowService {
     entity?: T;
     /** Use a custom loader (default: tx[entityType.toLowerCase()].findFirst). */
     loader?: (tx: any) => Promise<T | null>;
+    /**
+     * Run inside the caller's transaction instead of opening a new one.
+     *
+     * Required whenever the caller is already inside `$transaction`: without it
+     * this method would start a nested transaction on a different connection,
+     * which cannot see the caller's uncommitted rows and commits independently
+     * of them. Mirrors `PosInvoiceService.generateInvoice(…, externalTx)`.
+     */
+    externalTx?: any;
   }): Promise<{ fromState: WorkflowState; toState: WorkflowState; entity: T }> {
     const def = this.registry.get(params.entityType);
     if (!def) throw new NotFoundException(`No workflow defined for entity type '${params.entityType}'`);
@@ -90,7 +99,7 @@ export class WorkflowService {
       entity: params.entity,
     };
 
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const run = async (tx: any) => {
       const entity = params.entity ?? (params.loader ? await params.loader(tx) : await this.defaultLoader(tx, params));
       if (!entity) throw new NotFoundException(`${params.entityType} ${params.entityId} not found`);
       ctx.entity = entity;
@@ -131,27 +140,35 @@ export class WorkflowService {
         data: { status: transition.to, ...(this.statusExtraFields(params.entityType, transition.to)) },
       });
 
-// Audit + event (fire after commit via afterCommit hook would be nicer,
-// but we publish now; ADR-003 says money-critical side effects use direct
-// service calls and events are for non-critical observers).
-await this.audit.recordInTx(tx, {
-  entity: params.entityType,
-  entityId: params.entityId,
-  action: this.auditActionFor(params.action),
-  oldValues: { status: ctx.fromState },
-  newValues: { status: transition.to, action: params.action },
-});
+      await this.audit.recordInTx(tx, {
+        entity: params.entityType,
+        entityId: params.entityId,
+        action: this.auditActionFor(params.action),
+        oldValues: { status: ctx.fromState },
+        newValues: { status: transition.to, action: params.action },
+      });
 
-      this.events.publish(`${params.entityType}.${params.action}` as any, {
+      // Emit the business fact ON THE SAME TRANSACTION, so a rolled-back
+      // transition can never leave an event behind claiming it happened. A
+      // transition that declares `event` publishes that typed name and is
+      // recorded in `DomainEventLog`; one that doesn't falls back to the
+      // untyped `${entityType}.${action}` notification, which is delivered but
+      // not recorded (no `EVENT_SUBJECT` entry).
+      const eventName = transition.event ?? (`${params.entityType}.${params.action}` as DomainEventName);
+      await this.outbox.publish(tx, eventName, {
         organizationId: ctx.organizationId,
         [`${params.entityType}Id`]: params.entityId,
         fromState: ctx.fromState,
         toState: transition.to,
         action: params.action,
-      });
+        ...(params.payload ?? {}),
+      } as never);
 
       return { fromState: ctx.fromState, toState: transition.to, entity: { ...(entity as object), status: transition.to } as T };
-    });
+    };
+
+    // Reuse the caller's transaction when supplied, otherwise own one.
+    return params.externalTx ? run(params.externalTx) : this.prisma.client.$transaction(run);
   }
 
   private async defaultLoader(tx: any, params: { entityType: string; entityId: string }) {

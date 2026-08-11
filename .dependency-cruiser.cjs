@@ -16,10 +16,42 @@
 /** @type {import('dependency-cruiser').IConfiguration} */
 
 // Each vertical lives at `apps/api/src/modules/<vertical>/`. Add new verticals
-// here as they are scaffolded.
-const VERTICALS = ['pos', 'school'];
+// here as they are scaffolded. This list drives BOTH the vertical-to-vertical
+// isolation rules and the `<layer>-must-not-import-vertical` rules, so a vertical
+// missing from here is silently unenforced.
+const VERTICALS = [
+  'pos',
+  'school',
+  'manufacturing',
+  'rental',
+  'repair',
+  'hr',
+  'crm',
+  'fixed-asset',
+  'task',
+  'beverage',
+];
 const verticalAlt = VERTICALS.join('|');
 const verticalGroup = `(?:${verticalAlt})`;
+
+// Sanctioned cross-vertical entry points, keyed `from->to`.
+//
+// KNOWN DEBT: `rental` and `repair` bill through `PosInvoiceService`, which is
+// the Order→Invoice spine rather than café-specific code — it only lives under
+// `modules/pos/` for historical reasons. Until that spine is extracted into a
+// non-vertical `sales` module, these two edges are allowed, narrowed to the
+// billing service + the module barrel so nothing else can cross.
+// Remove this map once the extraction lands; the rules below need no change.
+const CROSS_VERTICAL_EXCEPTIONS = {
+  'rental->pos': [
+    '^apps/api/src/modules/pos/billing/pos-invoice\\.service',
+    '^apps/api/src/modules/pos/pos\\.module',
+  ],
+  'repair->pos': [
+    '^apps/api/src/modules/pos/billing/pos-invoice\\.service',
+    '^apps/api/src/modules/pos/pos\\.module',
+  ],
+};
 const NON_VERTICAL = 'core|accounting|invoicing|inventory|procurement|kernel|auth|settings|audit|tenancy|prisma|events|sequence|workflow|module-loader|common';
 
 module.exports = {
@@ -144,13 +176,21 @@ module.exports = {
     // and core-layer imports are fine. We check each (fromVertical → otherVertical)
     // pair explicitly so depcruise doesn't need cross-segment backreferences.
     ...VERTICALS.flatMap((fromV) =>
-      VERTICALS.filter((toV) => toV !== fromV).map((toV) => ({
-        name: `vertical-${fromV}-may-not-reach-vertical-${toV}`,
-        severity: 'error',
-        comment: `Vertical '${fromV}' may not import from vertical '${toV}'. Use the event bus or shared core types.`,
-        from: { path: `^apps/api/src/modules/${fromV}/` },
-        to: { path: `^apps/api/src/modules/${toV}/` },
-      })),
+      VERTICALS.filter((toV) => toV !== fromV).map((toV) => {
+        const allowed = CROSS_VERTICAL_EXCEPTIONS[`${fromV}->${toV}`];
+        return {
+          name: `vertical-${fromV}-may-not-reach-vertical-${toV}`,
+          severity: 'error',
+          comment: allowed
+            ? `Vertical '${fromV}' may only reach the sanctioned '${toV}' entry points (see CROSS_VERTICAL_EXCEPTIONS). Everything else must go through the event bus or shared core types.`
+            : `Vertical '${fromV}' may not import from vertical '${toV}'. Use the event bus or shared core types.`,
+          from: { path: `^apps/api/src/modules/${fromV}/` },
+          to: {
+            path: `^apps/api/src/modules/${toV}/`,
+            ...(allowed ? { pathNot: allowed } : {}),
+          },
+        };
+      }),
     ),
 
     // ─── No deep imports into a peer's internals ─────────────────────────

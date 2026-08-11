@@ -18,6 +18,11 @@ import { TenantContextService } from '../tenancy/tenant-context.service';
 export class FeatureFlagsService implements OnModuleInit {
   private readonly logger = new Logger('FeatureFlagsService');
   private cache = new Map<string, Map<string, { enabled: boolean; payload: Record<string, unknown> }>>();
+  /** Per-org module enablement, cached on the same TTL — `ModuleEnabledGuard`
+   *  consults this on every gated request, so it must not hit the DB each time. */
+  private moduleCache = new Map<string, Map<string, boolean>>();
+  /** Per-org "has this tenant configured modules at all?" — see ModuleEnabledGuard. */
+  private moduleConfiguredCache = new Map<string, boolean>();
   private static readonly TTL_MS = 30_000;
 
   constructor(
@@ -27,7 +32,17 @@ export class FeatureFlagsService implements OnModuleInit {
 
   onModuleInit(): void {
     // Periodic cache flush.
-    setInterval(() => this.cache.clear(), FeatureFlagsService.TTL_MS).unref();
+    setInterval(() => {
+      this.cache.clear();
+      this.moduleCache.clear();
+      this.moduleConfiguredCache.clear();
+    }, FeatureFlagsService.TTL_MS).unref();
+  }
+
+  /** Drop cached module state for the current org (after enable/disable). */
+  private invalidateModules(orgId: string): void {
+    this.moduleCache.delete(orgId);
+    this.moduleConfiguredCache.delete(orgId);
   }
 
   async isEnabled(key: string): Promise<boolean> {
@@ -85,6 +100,7 @@ export class FeatureFlagsService implements OnModuleInit {
   // ---- Vertical module enablement ----
 
   enableModule(name: string, config: Record<string, unknown> = {}) {
+    this.invalidateModules(this.tenant.organizationId);
     return this.prisma.client.organizationModule.upsert({
       where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: name } },
       update: { isActive: true, disabledAt: null, config: config as any },
@@ -93,6 +109,7 @@ export class FeatureFlagsService implements OnModuleInit {
   }
 
   disableModule(name: string) {
+    this.invalidateModules(this.tenant.organizationId);
     return this.prisma.client.organizationModule.updateMany({
       where: { organizationId: this.tenant.organizationId, moduleName: name },
       data: { isActive: false, disabledAt: new Date() },
@@ -107,9 +124,34 @@ export class FeatureFlagsService implements OnModuleInit {
   }
 
   async isModuleEnabled(name: string): Promise<boolean> {
+    const orgId = this.tenant.organizationId;
+    let orgCache = this.moduleCache.get(orgId);
+    if (!orgCache) {
+      orgCache = new Map();
+      this.moduleCache.set(orgId, orgCache);
+    }
+    const cached = orgCache.get(name);
+    if (cached !== undefined) return cached;
     const row = await this.prisma.raw.organizationModule.findUnique({
-      where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: name } },
+      where: { organizationId_moduleName: { organizationId: orgId, moduleName: name } },
     });
-    return !!row?.isActive;
+    const enabled = !!row?.isActive;
+    orgCache.set(name, enabled);
+    return enabled;
+  }
+
+  /**
+   * Has this tenant configured module enablement at all? Used by
+   * `ModuleEnabledGuard` to distinguish "explicitly disabled" from "never set
+   * up", so shipping the guard cannot silently revoke a live tenant's modules.
+   */
+  async hasAnyModuleRow(): Promise<boolean> {
+    const orgId = this.tenant.organizationId;
+    const cached = this.moduleConfiguredCache.get(orgId);
+    if (cached !== undefined) return cached;
+    const count = await this.prisma.raw.organizationModule.count({ where: { organizationId: orgId } });
+    const configured = count > 0;
+    this.moduleConfiguredCache.set(orgId, configured);
+    return configured;
   }
 }

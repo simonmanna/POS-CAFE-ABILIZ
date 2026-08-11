@@ -31,6 +31,12 @@ export interface SettingDefinition {
   default: unknown;
   /** Allowed values for `type: 'enum'`. */
   enumValues?: readonly string[];
+  /**
+   * Enum values that are declared (so they appear in the schema / UI and can be
+   * enabled later) but MUST be rejected on write today, mapped to the reason.
+   * Use for a policy option whose implementation is not yet safe to select.
+   */
+  unavailableEnumValues?: Readonly<Record<string, string>>;
   /** Whether the value may be overridden below the organization level. */
   cascades: boolean;
   /** Scope levels this key may be set at (org is always allowed). */
@@ -131,6 +137,39 @@ export const SETTING_DEFINITIONS = {
     cascades: false,
     scopeLevels: ORG_ONLY,
   },
+  'inventory.stockPostingTiming': {
+    key: 'inventory.stockPostingTiming',
+    group: 'inventory',
+    type: 'enum',
+    label: 'Stock Deduction Timing',
+    // WHEN inventory leaves the books. Different industries answer differently:
+    // a restaurant consumes ingredients when cooking starts, a shop when the
+    // customer pays, a warehouse when goods ship. Rather than hardcode one point,
+    // the inventory posting subscriber reacts to the business event named by this
+    // policy. Default `at_invoice` keeps the café's existing behaviour exactly.
+    //
+    // `at_fulfillment_start` is intentionally in the enum but rejected by
+    // `coerceSettingValue` below: deducting at kitchen-fire has no reversal path
+    // for a cancel-before-invoice order (refund/void reverses via the invoice),
+    // so selecting it would strand stock. Enabled once that reversal exists.
+    description:
+      'When stock is deducted for a sale: at invoice (default), when fulfillment completes (e.g. all kitchen tickets served / goods dispatched), at payment, or manually. "At fulfillment start" is not yet available.',
+    default: 'at_invoice',
+    enumValues: [
+      'at_confirmation',
+      'at_fulfillment_start',
+      'at_fulfillment_complete',
+      'at_invoice',
+      'at_payment',
+      'manual',
+    ],
+    unavailableEnumValues: {
+      at_fulfillment_start:
+        'deducting at fulfillment start has no reversal path for an order cancelled before it is invoiced; enable once cancel-before-invoice stock reversal exists',
+    },
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
   'inventory.batchAutoNumber': {
     key: 'inventory.batchAutoNumber',
     group: 'inventory',
@@ -201,6 +240,16 @@ export const SETTING_DEFINITIONS = {
     type: 'string',
     label: 'Exchange Difference Journal',
     description: 'Journal used for recording exchange rate differences.',
+    default: '',
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'accounting.defaultSalesJournalId': {
+    key: 'accounting.defaultSalesJournalId',
+    group: 'accounting',
+    type: 'string',
+    label: 'Default Sales Journal',
+    description: 'Journal used by default for customer invoice / sales journal entries when the invoice does not pick a specific journal.',
     default: '',
     cascades: false,
     scopeLevels: ORG_ONLY,
@@ -364,6 +413,10 @@ export function coerceSettingValue(def: SettingDefinition, raw: unknown): unknow
       const s = String(raw);
       if (!def.enumValues?.includes(s)) {
         throw new Error(`Setting '${def.key}' must be one of: ${def.enumValues?.join(', ')}.`);
+      }
+      const unavailable = def.unavailableEnumValues?.[s];
+      if (unavailable) {
+        throw new Error(`Setting '${def.key}' value '${s}' is not available yet: ${unavailable}`);
       }
       return s;
     }

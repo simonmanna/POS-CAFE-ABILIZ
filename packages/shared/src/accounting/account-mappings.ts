@@ -18,6 +18,7 @@ export const ACCOUNT_MAPPING_GROUPS = [
   'inventory',
   'fixed_assets',
   'fx',
+  'hr',
   'system',
 ] as const;
 export type AccountMappingGroup = (typeof ACCOUNT_MAPPING_GROUPS)[number];
@@ -30,6 +31,7 @@ export const ACCOUNT_MAPPING_GROUP_LABELS: Record<AccountMappingGroup, string> =
   inventory: 'Inventory',
   fixed_assets: 'Fixed Assets',
   fx: 'Foreign Exchange',
+  hr: 'Human Resources',
   system: 'System',
 };
 
@@ -373,13 +375,79 @@ export const ACCOUNT_MAPPING_REGISTRY: readonly AccountMappingDef[] = [
     required: true,
   },
   {
-    key: 'fx_loss',
-    label: 'Foreign Exchange Loss',
-    group: 'fx',
-    expectedCategories: ['other_expense', 'operating_expense'],
-    required: true,
-  },
-];
+      key: 'fx_loss',
+      label: 'Foreign Exchange Loss',
+      group: 'fx',
+      expectedCategories: ['other_expense', 'operating_expense'],
+      required: true,
+    },
+
+    // ------------------------------------------------------------------- hr ---
+    // Workforce Management (HR) — payroll posting accounts. Salaries are expensed
+    // gross; net pay, PAYE, pension and social security are liabilities until paid.
+    {
+      key: 'salary_expense',
+      label: 'Salaries & Wages Expense',
+      group: 'hr',
+      expectedCategories: ['operating_expense'],
+      required: true,
+      description: 'Gross payroll expense for the posting period.',
+    },
+    {
+      key: 'net_pay_payable',
+      label: 'Net Pay Payable',
+      group: 'hr',
+      expectedCategories: ['current_liability'],
+      required: true,
+      description: 'Net wages owed to employees until the pay run is disbursed.',
+    },
+    {
+      key: 'paye_payable',
+      label: 'PAYE Tax Payable',
+      group: 'hr',
+      expectedCategories: ['current_liability'],
+      required: true,
+      description: 'Withheld income tax remitted to the tax authority.',
+    },
+    {
+      key: 'pension_payable',
+      label: 'Pension Payable',
+      group: 'hr',
+      expectedCategories: ['current_liability'],
+      required: true,
+      description: 'Employer + employee pension contributions owed to the fund.',
+    },
+    {
+      key: 'social_security_payable',
+      label: 'Social Security Payable',
+      group: 'hr',
+      expectedCategories: ['current_liability'],
+      required: true,
+    },
+    {
+      key: 'insurance_payable',
+      label: 'Insurance Payable',
+      group: 'hr',
+      expectedCategories: ['current_liability'],
+      required: true,
+    },
+    {
+      key: 'employee_advance_receivable',
+      label: 'Employee Advances',
+      group: 'hr',
+      expectedCategories: ['current_asset'],
+      required: true,
+      description: 'Advances paid to employees, recoverable from future pay.',
+    },
+    {
+      key: 'employee_loan_receivable',
+      label: 'Employee Loans',
+      group: 'hr',
+      expectedCategories: ['current_asset'],
+      required: true,
+      description: 'Loans extended to employees, recoverable from future pay.',
+    },
+  ];
 
 export const ACCOUNT_MAPPING_KEYS: string[] = ACCOUNT_MAPPING_REGISTRY.map((m) => m.key);
 export type AccountMappingKey = string;

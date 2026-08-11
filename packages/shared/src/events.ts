@@ -65,6 +65,26 @@ export const EVENTS = {
   ThreeWayMatchComputed: 'three_way_match.computed',
   DebitNoteCreated: 'debit_note.created',
   DebitNotePosted: 'debit_note.posted',
+  // DMS — generic document lifecycle (Phase 2 engine facts; one event per engine
+  // action so posting/reversal/notification hooks can subscribe generically).
+  DocumentCreated: 'document.created',
+  DocumentSubmitted: 'document.submitted',
+  DocumentApproved: 'document.approved',
+  DocumentRejected: 'document.rejected',
+  DocumentConfirmed: 'document.confirmed',
+  DocumentIssued: 'document.issued',
+  DocumentActivated: 'document.activated',
+  DocumentExpired: 'document.expired',
+  DocumentRevoked: 'document.revoked',
+  DocumentPosted: 'document.posted',
+  DocumentPaid: 'document.paid',
+  DocumentClosed: 'document.closed',
+  DocumentCancelled: 'document.cancelled',
+  DocumentReversed: 'document.reversed',
+  DocumentReissued: 'document.reissued',
+  DocumentTerminated: 'document.terminated',
+  DocumentArchived: 'document.archived',
+  DocumentAmended: 'document.amended',
   // Phase F.6 — Push notifications
   PushSubscribed: 'push.subscribed',
   // POS vertical (Phase 8) — Phase A additions (sell loop)
@@ -120,6 +140,30 @@ export const EVENTS = {
   DepreciationRun: 'fixed_asset.depreciation_run',
   MaintenanceDue: 'fixed_asset.maintenance_due',
   WarrantyExpiring: 'fixed_asset.warranty_expiring',
+
+  // ─── Business events (Phase A) ────────────────────────────────────────────
+  // Immutable facts about the domain-neutral `Order` lifecycle, emitted by the
+  // workflow engine (ADR-007) and recorded in `DomainEventLog`. Past tense: an
+  // event names something that HAPPENED, unlike the transition `action` that
+  // caused it.
+  //
+  // Distinct from the `pos.order.*` family above, which is the POS-specific
+  // notification stream (SSE fan-out to the floor map) with its own payloads.
+  // These are the ledger facts; those are UI nudges.
+  OrderConfirmed: 'order.confirmed',
+  OrderFulfillmentStarted: 'order.fulfillment_started',
+  OrderCompleted: 'order.completed',
+  OrderClosed: 'order.closed',
+  OrderCancelled: 'order.cancelled',
+  OrderReopened: 'order.reopened',
+  OrderSuperseded: 'order.superseded',
+
+  // Per-fulfillment-document facts. The `strategy` discriminates kitchen /
+  // delivery / rental / repair / production, so a subscriber can react to
+  // "some fulfillment finished" without knowing which module produced it —
+  // this is what the Phase C inventory posting policy binds to.
+  FulfillmentStarted: 'fulfillment.started',
+  FulfillmentCompleted: 'fulfillment.completed',
 } as const;
 
 /** Payload emitted for a created/updated/deleted tenant entity. */
@@ -243,6 +287,27 @@ export interface DomainEventMap {
   'three_way_match.computed': { organizationId: string; purchaseOrderId: string; matched: number; mismatched: number; blocked: number };
   'debit_note.created': { organizationId: string; noteId: string; noteNumber: string; direction: 'outbound' | 'inbound' };
   'debit_note.posted': { organizationId: string; noteId: string; direction: 'outbound' | 'inbound'; amount: string };
+  // DMS — generic document lifecycle facts (Phase 2 engine). Every engine action
+  // emits `document.<action>`; subscribers (posting/reversal/notification hooks)
+  // filter on `action`/`documentTypeCode` as needed.
+  'document.created': DocumentLifecyclePayload;
+  'document.submitted': DocumentLifecyclePayload;
+  'document.approved': DocumentLifecyclePayload;
+  'document.rejected': DocumentLifecyclePayload;
+  'document.confirmed': DocumentLifecyclePayload;
+  'document.issued': DocumentLifecyclePayload;
+  'document.activated': DocumentLifecyclePayload;
+  'document.expired': DocumentLifecyclePayload;
+  'document.revoked': DocumentLifecyclePayload;
+  'document.posted': DocumentLifecyclePayload;
+  'document.paid': DocumentLifecyclePayload;
+  'document.closed': DocumentLifecyclePayload;
+  'document.cancelled': DocumentLifecyclePayload;
+  'document.reversed': DocumentLifecyclePayload;
+  'document.reissued': DocumentLifecyclePayload;
+  'document.terminated': DocumentLifecyclePayload;
+  'document.archived': DocumentLifecyclePayload;
+  'document.amended': DocumentLifecyclePayload;
   'push.subscribed': { organizationId: string; userId: string; subscriptionId: string };
   'pos.sale.completed': { organizationId: string; invoiceId: string; invoiceNumber: string; cashSessionId?: string; total: string };
   'pos.refund.completed': { organizationId: string; invoiceId: string; creditNoteId: string; total: string };
@@ -294,6 +359,117 @@ export interface DomainEventMap {
   'fixed_asset.depreciation_run': { organizationId: string; period: string; entriesCount: number };
   'fixed_asset.maintenance_due': { organizationId: string; assetId: string; assetName: string; maintenanceId: string };
   'fixed_asset.warranty_expiring': { organizationId: string; assetId: string; assetName: string; daysLeft: number };
+
+  // ─── Business events (Phase A) ────────────────────────────────────────────
+  /** Every order-lifecycle fact carries the same shape; `action` is the
+   *  workflow action that produced it (`confirm`, `complete`, `close`, …). */
+  'order.confirmed': OrderLifecycleEventPayload;
+  'order.fulfillment_started': OrderLifecycleEventPayload;
+  'order.completed': OrderLifecycleEventPayload;
+  'order.closed': OrderLifecycleEventPayload;
+  'order.cancelled': OrderLifecycleEventPayload;
+  'order.reopened': OrderLifecycleEventPayload;
+  'order.superseded': OrderLifecycleEventPayload;
+
+  'fulfillment.started': FulfillmentEventPayload;
+  'fulfillment.completed': FulfillmentEventPayload;
+}
+
+/**
+ * Emitted by `WorkflowService.transition` for a declared order transition.
+ * `fromState`/`toState` make the fact self-describing without re-reading the row.
+ */
+export interface OrderLifecycleEventPayload {
+  organizationId: string;
+  orderId: string;
+  fromState: string;
+  toState: string;
+  /** The workflow action that caused the transition. */
+  action: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Emitted by the DMS engine (Phase 2) for every document lifecycle action.
+ * `fromStatus`/`toStatus` make the transition self-describing; `version` is the
+ * document's post-action optimistic-lock value. `reason` is present on
+ * cancel/reverse/terminate/revoke (guarded by requiresReason).
+ */
+export interface DocumentLifecyclePayload {
+  organizationId: string;
+  documentId: string;
+  documentNumber?: string;
+  documentTypeId: string;
+  documentTypeCode: string;
+  /** The engine action that produced this fact (submit, post, reverse, …). */
+  action: string;
+  fromStatus: string;
+  toStatus?: string;
+  actorId?: string;
+  /** Post-action optimistic-lock version. */
+  version: number;
+  reason?: string;
+  /** Present when the action created a reversal counterpart (credit/debit note). */
+  counterpartId?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Emitted by a fulfillment document when it starts or finishes its work.
+ * `strategy` is the module-declared code (`kitchen`, `delivery`, `rental`, …)
+ * and `documentType`/`documentId` point at the concrete row, so a subscriber
+ * can react generically or drill into the source.
+ */
+export interface FulfillmentEventPayload {
+  organizationId: string;
+  orderId: string;
+  strategy: string;
+  documentType: string;
+  documentId: string;
+  [key: string]: unknown;
 }
 
 export type DomainEventName = keyof DomainEventMap;
+
+/**
+ * Which entity a business event is ABOUT, so `DomainEventLog` can be indexed by
+ * subject and queried as history (`@@index([organizationId, entityType, entityId])`).
+ *
+ * Only events listed here produce a ledger row. Everything else still reaches
+ * the outbox for delivery — the outbox is transport, this map is what makes an
+ * event part of the permanent record.
+ */
+export const EVENT_SUBJECT: Partial<Record<DomainEventName, { entityType: string; idField: string }>> = {
+  'order.confirmed': { entityType: 'order', idField: 'orderId' },
+  'order.fulfillment_started': { entityType: 'order', idField: 'orderId' },
+  'order.completed': { entityType: 'order', idField: 'orderId' },
+  'order.closed': { entityType: 'order', idField: 'orderId' },
+  'order.cancelled': { entityType: 'order', idField: 'orderId' },
+  'order.reopened': { entityType: 'order', idField: 'orderId' },
+  'order.superseded': { entityType: 'order', idField: 'orderId' },
+  // Fulfillment facts are filed against the ORDER, not the fulfillment document:
+  // the milestone question is always "what happened to this order?", and the
+  // concrete document is still recoverable from the payload.
+  'fulfillment.started': { entityType: 'order', idField: 'orderId' },
+  'fulfillment.completed': { entityType: 'order', idField: 'orderId' },
+  // DMS — lifecycle facts are filed against the document itself, so the log is
+  // queryable as per-document history.
+  'document.created': { entityType: 'document', idField: 'documentId' },
+  'document.submitted': { entityType: 'document', idField: 'documentId' },
+  'document.approved': { entityType: 'document', idField: 'documentId' },
+  'document.rejected': { entityType: 'document', idField: 'documentId' },
+  'document.confirmed': { entityType: 'document', idField: 'documentId' },
+  'document.issued': { entityType: 'document', idField: 'documentId' },
+  'document.activated': { entityType: 'document', idField: 'documentId' },
+  'document.expired': { entityType: 'document', idField: 'documentId' },
+  'document.revoked': { entityType: 'document', idField: 'documentId' },
+  'document.posted': { entityType: 'document', idField: 'documentId' },
+  'document.paid': { entityType: 'document', idField: 'documentId' },
+  'document.closed': { entityType: 'document', idField: 'documentId' },
+  'document.cancelled': { entityType: 'document', idField: 'documentId' },
+  'document.reversed': { entityType: 'document', idField: 'documentId' },
+  'document.reissued': { entityType: 'document', idField: 'documentId' },
+  'document.terminated': { entityType: 'document', idField: 'documentId' },
+  'document.archived': { entityType: 'document', idField: 'documentId' },
+  'document.amended': { entityType: 'document', idField: 'documentId' },
+  };

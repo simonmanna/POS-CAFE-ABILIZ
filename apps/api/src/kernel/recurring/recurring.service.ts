@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenancy/tenant-context.service';
 import { EventBus } from '../events/event-bus';
 import { AuditService } from '../audit/audit.service';
+import { DmsTypeResolver } from '../../modules/documents/dms-type-resolver.service';
 import type { DocumentType, RecurringFrequency } from '@prisma/client';
 
 /**
@@ -46,11 +47,12 @@ export class RecurringService {
   private readonly logger = new Logger('RecurringService');
 
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly tenant: TenantContextService,
-    private readonly events: EventBus,
-    private readonly audit: AuditService,
-  ) {}
+      private readonly prisma: PrismaService,
+      private readonly tenant: TenantContextService,
+      private readonly events: EventBus,
+      private readonly audit: AuditService,
+      private readonly dmsTypes: DmsTypeResolver,
+    ) {}
 
   create(params: {
     name: string;
@@ -147,8 +149,9 @@ export class RecurringService {
       data: {
         organizationId: orgId,
         documentNumber: `DRAFT-${r.id.slice(0, 8)}-${r.lastRunAt?.getTime() ?? now.getTime()}`,
-        documentType: r.documentType,
-        partnerId: template.partnerId,
+                documentType: r.documentType,
+                documentTypeId: await this.dmsTypes.resolveIdByCode(r.documentType, this.prisma.raw),
+                partnerId: template.partnerId,
         currencyId: template.currencyId ?? null,
         exchangeRate: template.exchangeRate ?? 1,
         issueDate: now,

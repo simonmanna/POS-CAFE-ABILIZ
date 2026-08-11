@@ -326,11 +326,16 @@ export class AuthService {
           email: user.email,
           permissions: this.aggregatePermissions(user.roles),
         });
+        const org = await this.prisma.raw.organization.findUnique({
+          where: { id: existing.organizationId },
+          select: { id: true, code: true, name: true, currencyCode: true, timezone: true },
+        });
         return {
           accessToken,
           refreshToken: replacement.value,
           user: this.sanitize(user),
           permissions: this.aggregatePermissions(user.roles),
+          organization: org ?? undefined,
         };
       }),
     );
@@ -495,11 +500,17 @@ export class AuthService {
       at: new Date().toISOString(),
     });
 
+    const org = await this.prisma.raw.organization.findUnique({
+      where: { id: organizationId },
+      select: { id: true, code: true, name: true, currencyCode: true, timezone: true },
+    });
+
     return {
       accessToken,
       refreshToken: refresh.value,
       user: this.sanitize(user),
       permissions,
+      organization: org ?? undefined,
     };
   }
 
@@ -532,6 +543,13 @@ interface LoginResult {
     permissions?: string[];
   };
   permissions?: string[];
-  mfaToken?: string;
-  requiresMfa?: boolean;
-}
+    organization?: {
+      id: string;
+      code: string;
+      name: string;
+      currencyCode: string;
+      timezone: string;
+    };
+    mfaToken?: string;
+    requiresMfa?: boolean;
+  }

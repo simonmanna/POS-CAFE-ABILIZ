@@ -24,28 +24,23 @@ export class EventBus {
   ) {}
 
   /**
-   * Fire-and-forget write to the outbox. If called inside a `$transaction`
-   * via `runInTx` below, the row participates in that tx; otherwise it's a
-   * standalone row.
+   * Fire-and-forget publish. No tx handle is available here, so the row is
+   * written immediately in its own transaction and the OutboxWorker ships it.
+   *
+   * **If the caller's business write subsequently rolls back, the row stays.**
+   * That is tolerable for a notification but wrong for a recorded fact, so
+   * anything that emits a declared business event (`EVENT_SUBJECT`) must call
+   * `EventOutboxService.publish(tx, …)` with its transaction instead — see
+   * `WorkflowService.transition`. Consumers must be idempotent either way.
+   *
+   * Delegates rather than writing the outbox row itself, so a fact published
+   * through this path still reaches `DomainEventLog` (just not atomically)
+   * instead of silently skipping the ledger.
    */
   publish<K extends DomainEventName>(eventName: K, payload: DomainEventMap[K]): void {
-    const organizationId = this.tenant.optionalOrganizationId ?? '';
-    // We don't have a tx handle here (callers don't pass one). Write a row
-    // immediately in a fresh tx — OutboxWorker will ship it. If the caller's
-    // business write subsequently rolls back, the event row stays; consumers
-    // MUST be idempotent on `(eventName, id)`. For atomic events, callers
-    // should use `EventOutboxService.publish(tx, ...)` directly.
-    this.prisma.client.eventOutbox
-      .create({
-        data: {
-          organizationId,
-          eventName,
-          payload: payload as any,
-        },
-      })
-      .catch((err) => {
-        this.logger.error(`Failed to write outbox row for ${eventName}: ${String(err)}`);
-      });
+    void this.outbox.publish(undefined, eventName, payload).catch((err) => {
+      this.logger.error(`Failed to publish ${eventName}: ${String(err)}`);
+    });
   }
 
   /** Subscribe to an event for in-process handlers. */

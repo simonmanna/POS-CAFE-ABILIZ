@@ -26,6 +26,28 @@ export class ModuleRegistry implements OnApplicationBootstrap {
     return this.modules.has(name);
   }
 
+  /** Every `Order.transactionKind` code contributed across all modules (Phase D). */
+  knownOrderKinds(): Set<string> {
+    const kinds = new Set<string>();
+    for (const mod of this.modules.values()) {
+      for (const k of mod.orderKinds ?? []) kinds.add(k.code);
+    }
+    return kinds;
+  }
+
+  /** True when `code` is an order kind some loaded module owns. */
+  isKnownOrderKind(code: string): boolean {
+    return this.knownOrderKinds().has(code);
+  }
+
+  /** Throw if `code` is not a registered order kind. */
+  assertKnownOrderKind(code: string): void {
+    if (!this.isKnownOrderKind(code)) {
+      const known = [...this.knownOrderKinds()].sort().join(', ') || '(none registered)';
+      throw new Error(`Unknown order kind '${code}'. Registered kinds: ${known}.`);
+    }
+  }
+
   onApplicationBootstrap(): void {
     this.validate();
   }

@@ -73,16 +73,33 @@ export class SequenceService implements OnApplicationBootstrap {
     'repair_contract',
     'repair_technician',
     // Workforce Management (HR)
-    'hr_employee',
-    'hr_timesheet',
-    'hr_leave_request',
-    'hr_payroll_period',
-    'hr_payroll_run',
-    'hr_payslip',
-    'hr_advance',
-    'hr_loan',
-    'hr_bank_payment',
-  ] as const;
+        'hr_employee',
+        'hr_timesheet',
+        'hr_leave_request',
+        'hr_payroll_period',
+        'hr_payroll_run',
+        'hr_payslip',
+        'hr_advance',
+        'hr_loan',
+        'hr_bank_payment',
+        // DMS — generic document registry (Phase 2 numbering; invoice/creditnote/
+        // vendorbill already above). Keys compose with ':YYYY' + yyyy- prefix in the
+        // engine, matching the legacy builder convention (INV-2026-00001).
+        'debitnote',
+        'proforma',
+        'posreceipt',
+        'deliverynote',
+        'quotation',
+        'rentalagreement',
+        'rentalreturn',
+        'rentaldeposit',
+        'rentalserviceorder',
+        'feeinvoice',
+        'feereceipt',
+        'admission',
+        'certificate',
+        'reportcard',
+      ] as const;
 
   constructor(
     private readonly prisma: PrismaService,

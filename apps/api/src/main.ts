@@ -50,16 +50,10 @@ async function bootstrap(): Promise<void> {
       });
 
       // Increase max header size to accommodate large JWT tokens (200+ permissions)
-      const httpAdapter = app.getHttpAdapter();
-      const httpServer = httpAdapter.getInstance();
-      // Get the underlying Node.js http.Server to set limits
-      const server = (httpServer as any).server || (httpAdapter as any).instance || httpServer;
-      server.maxHeadersCount = 1000;
-      server.headersTimeout = 60000;
-      // @ts-ignore - maxHeaderSize is not in the types but works
-      server.maxHeaderSize = 65536; // 64KB instead of default ~8KB
-      // @ts-ignore - Increase max request line size for long URLs with tokens in query string
-      server.maxRequestLineSize = 262144; // 256KB for very long URLs
+            // The limits MUST be applied on app.getHttpServer() AFTER listen() — the
+            // Express app object returned by httpAdapter.getInstance() is a no-op for
+            // maxHeaderSize (live 431 at ~18KB proved the old fallback chain never
+            // reached the real http.Server).
 
       // Phase B2: structured JSON logging via pino.
   app.useLogger(app.get(PinoLogger));
@@ -248,6 +242,20 @@ async function bootstrap(): Promise<void> {
   // cafe LAN can reach the server. Set HOST=127.0.0.1 to restrict to loopback.
   const host = process.env.HOST ?? '0.0.0.0';
   await app.listen(port, host);
+
+  // HTTP limits must be applied on the real http.Server AFTER listen() — the
+  // Express app object (httpAdapter.getInstance()) ignores maxHeaderSize, which
+  // caused 431s when POS token + JWT together exceed ~16KB. Setting these after
+  // listen also works because Node reads them per-connection at accept time.
+  {
+    const server = app.getHttpServer() as any;
+    server.maxHeadersCount = 1000;
+    server.headersTimeout = 60000;
+    // @ts-ignore - maxHeaderSize is not in the types but works
+    server.maxHeaderSize = 65536; // 64KB instead of default ~8KB
+    // @ts-ignore - Increase max request line size for long URLs with tokens in query string
+    server.maxRequestLineSize = 262144; // 256KB for very long URLs
+  }
 
   const logger = app.get(PinoLogger);
   logger.log(`ERP API listening on http://localhost:${port}/api/v1 — Docs at /api/docs`);

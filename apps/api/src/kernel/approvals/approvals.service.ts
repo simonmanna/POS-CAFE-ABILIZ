@@ -3,7 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenancy/tenant-context.service';
 import { EventBus } from '../events/event-bus';
 import { AuditService } from '../audit/audit.service';
-import { WorkflowService } from '../workflow/workflow.service';
 
 /** Minimal shapes the step engine needs (avoids Prisma payload-type wrangling). */
 type StepRow = {
@@ -43,7 +42,6 @@ export class ApprovalsService {
     private readonly tenant: TenantContextService,
     private readonly events: EventBus,
     private readonly audit: AuditService,
-    private readonly workflow: WorkflowService,
   ) {}
 
   // ---------------------------------------------------------------------------

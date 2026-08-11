@@ -347,6 +347,8 @@ export const PERMISSIONS = {
     split: 'tables:split',
     clean: 'tables:clean',
     reserve: 'tables:reserve',
+    // Manage the configurable zone (category) catalog — create/edit/archive/restore.
+    zones: 'tables:zones',
   },
   // ---- Phase F.5: Vertical permissions (consumed by the verticals/* modules) ----
   pos: {
@@ -428,8 +430,16 @@ export const PERMISSIONS = {
     decide: 'approvals:decide',
     manage: 'approvals:manage',
   },
-  // ---- Frontend-facing management permissions (dot-notation) ----
-  partners: {
+  // ---- Generic Orders (back-office Order CRUD, POS-independent) ----
+    orders: {
+      read: 'orders:read',
+      create: 'orders:create',
+      update: 'orders:update',
+      cancel: 'orders:cancel',
+      invoice: 'orders:invoice',
+    },
+    // ---- Frontend-facing management permissions (dot-notation) ----
+    partners: {
     view: 'partners.view',
     create: 'partners.create',
     edit: 'partners.edit',
@@ -502,6 +512,22 @@ export const PERMISSIONS = {
     dealWrite: 'crm:deal:write',
     activityRead: 'crm:activity:read',
     activityWrite: 'crm:activity:write',
+  },
+  document: {
+    create: 'document:create',
+    read: 'document:read',
+    update: 'document:update',
+    delete: 'document:delete',
+    print: 'document:print',
+    archive: 'document:archive',
+    manage: 'document:manage',
+  },
+  documentType: {
+    create: 'doc:type:create',
+    read: 'doc:type:read',
+    update: 'doc:type:update',
+    delete: 'doc:type:delete',
+    manage: 'doc:type:manage',
   },
   // ---- Workforce Management (HR) — employees, attendance, timesheets,
   //      leave, payroll, payslips, advances, loans, tax tables, reviews ----

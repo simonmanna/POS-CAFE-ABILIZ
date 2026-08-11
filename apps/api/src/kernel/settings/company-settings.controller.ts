@@ -14,6 +14,7 @@ class CompanySettingsDto {
   @IsOptional() @IsString() expenseAccountId?: string;
   @IsOptional() @IsString() defaultSalesTaxId?: string;
   @IsOptional() @IsString() exchangeDifferenceJournalId?: string;
+  @IsOptional() @IsString() defaultSalesJournalId?: string;
   @IsOptional() @IsString() exchangeGainAccountId?: string;
   @IsOptional() @IsString() exchangeLossAccountId?: string;
   @IsOptional() @IsString() productIncomeAccountId?: string;
@@ -96,6 +97,7 @@ export class CompanySettingsController {
       expenseAccountId: byKey['accounting.expenseAccountId'] || null,
       defaultSalesTaxId: byKey['accounting.defaultSalesTaxId'] || null,
       exchangeDifferenceJournalId: byKey['accounting.exchangeDifferenceJournalId'] || null,
+      defaultSalesJournalId: byKey['accounting.defaultSalesJournalId'] || null,
       exchangeGainAccountId: byKey['accounting.exchangeGainAccountId'] || null,
       exchangeLossAccountId: byKey['accounting.exchangeLossAccountId'] || null,
       productIncomeAccountId: byKey['accounting.productIncomeAccountId'] || null,
@@ -123,6 +125,7 @@ export class CompanySettingsController {
       { dtoKey: 'expenseAccountId', settingKey: 'accounting.expenseAccountId' },
       { dtoKey: 'defaultSalesTaxId', settingKey: 'accounting.defaultSalesTaxId' },
       { dtoKey: 'exchangeDifferenceJournalId', settingKey: 'accounting.exchangeDifferenceJournalId' },
+      { dtoKey: 'defaultSalesJournalId', settingKey: 'accounting.defaultSalesJournalId' },
       { dtoKey: 'exchangeGainAccountId', settingKey: 'accounting.exchangeGainAccountId' },
       { dtoKey: 'exchangeLossAccountId', settingKey: 'accounting.exchangeLossAccountId' },
       { dtoKey: 'productIncomeAccountId', settingKey: 'accounting.productIncomeAccountId' },

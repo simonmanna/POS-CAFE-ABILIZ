@@ -21,6 +21,7 @@ import { PasswordService } from './auth/password.service';
 import { OneTimeTokenService } from './auth/one-time-token.service';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
+import { ModuleEnabledGuard } from './module-loader/module-enabled.guard';
 import { WorkflowService } from './workflow/workflow.service';
 import { WorkflowRegistry } from './workflow/workflow.registry';
 import { IdempotencyService } from './idempotency/idempotency.service';
@@ -37,6 +38,9 @@ import { CronWorkersModule } from './workers/cron-workers.module';
 import { ThreeWayMatchModule } from './three-way-match/three-way-match.module';
 import { LifecycleRegistry } from './lifecycle/lifecycle.registry';
 import { LifecycleService } from './lifecycle/lifecycle.service';
+import { MilestoneRegistry } from './milestones/milestone.registry';
+import { MilestoneService } from './milestones/milestone.service';
+import { FulfillmentRegistry } from './fulfillment/fulfillment.registry';
 
 /**
  * The platform runtime (Phase 0). Global so every feature module can inject
@@ -64,7 +68,11 @@ import { LifecycleService } from './lifecycle/lifecycle.service';
     CronWorkersModule,
     ThreeWayMatchModule,
   ],
-  controllers: [SettingsController, CompanySettingsController, AuditLogController],
+  // CompanySettingsController first: its static `company`/`developer` routes must
+  // be registered before SettingsController's catch-all `:key` PUT so
+  // `PUT /settings/company` reaches the company handler (same static-first
+  // rule documented in settings.controller.ts).
+  controllers: [CompanySettingsController, SettingsController, AuditLogController],
   providers: [
     TenantContextService,
     PrismaService,
@@ -86,8 +94,12 @@ import { LifecycleService } from './lifecycle/lifecycle.service';
     EncryptionService,
     LifecycleRegistry,
     LifecycleService,
+    MilestoneRegistry,
+    MilestoneService,
+    FulfillmentRegistry,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    { provide: APP_GUARD, useClass: ModuleEnabledGuard },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
   exports: [
@@ -110,6 +122,9 @@ import { LifecycleService } from './lifecycle/lifecycle.service';
     EncryptionService,
     LifecycleRegistry,
     LifecycleService,
+    MilestoneRegistry,
+    MilestoneService,
+    FulfillmentRegistry,
   ],
 })
 export class KernelModule implements OnModuleInit {

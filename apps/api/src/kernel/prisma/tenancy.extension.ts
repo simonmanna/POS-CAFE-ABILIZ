@@ -126,6 +126,17 @@ const ORG_SCOPED = new Set<string>([
   // F.7 — CRM pipeline
   'Deal',
   'Activity',
+  // DMS — generic document management (registry; per-org activation rows)
+  'OrganizationDocumentType',
+  'DocumentAction',
+  // Phase 4/5 — snapshot/relation/attachment/source/version tables
+  'DocumentSnapshot',
+  'DocumentRelation',
+  'DocumentAttachment',
+  'DocumentSource',
+  'DocumentVersion',
+  // Phase 8 — workflow hook ledger
+  'DMSWorkflowLedger',
   // POS Phase A — held orders
   'PosHold',
   'PosHoldLine',
@@ -160,6 +171,7 @@ const ORG_SCOPED = new Set<string>([
   'OnlineOrder',
   // POS Phase T1 — Tables Management (ADR-012)
   'PosTable',
+  'PosTableZone',
   'PosTableOrder',
   'PosTableReservation',
   // POS Order → Invoice → Receipt domain (DDD split)
@@ -181,6 +193,8 @@ const ORG_SCOPED = new Set<string>([
   'ExpensePayment',
   // Phase 4 — payment terms (AR/AP term master)
   'PaymentTerm',
+  // Phase 4 — fiscal positions (sales tax-treatment label master)
+  'FiscalPosition',
   // Manufacturing — BOM + production orders. Omitting any of these is a
   // cross-tenant data leak, not a bug.
   'Bom',
@@ -328,10 +342,14 @@ const SOFT_DELETE = new Set<string>([
   'MenuItemAccompanimentGroup',
   'MenuItem',
   'MenuCategory',
+  // POS — configurable table zones (categories) are a config master (soft delete)
+  'PosTableZone',
   // POS KDS — configurable kitchen stations are a config master (soft delete)
   'KitchenStation',
   // Phase 4 — payment terms carry deletedAt (config master)
   'PaymentTerm',
+  // Phase 4 — fiscal positions carry deletedAt (config master)
+  'FiscalPosition',
   // Manufacturing — Bom carries deletedAt (a recipe master). The transactional
   // three (ProductionOrder/Material/Output) use status, matching StockOut.
   'Bom',

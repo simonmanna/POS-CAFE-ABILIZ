@@ -28,4 +28,26 @@ describe('ModuleRegistry', () => {
       /Duplicate/,
     );
   });
+
+  describe('order kinds (Phase D)', () => {
+    const build = () => {
+      const registry = new ModuleRegistry();
+      registry.register({ name: 'pos', version: '1.0.0', dependencies: [], orderKinds: [{ code: 'sale', label: 'Sale' }] });
+      registry.register({ name: 'rental', version: '1.0.0', dependencies: [], orderKinds: [{ code: 'rental', label: 'Rental' }] });
+      registry.register({ name: 'repair', version: '1.0.0', dependencies: [] }); // contributes none
+      return registry;
+    };
+
+    it('aggregates order kinds across all modules', () => {
+      expect([...build().knownOrderKinds()].sort()).toEqual(['rental', 'sale']);
+    });
+
+    it('accepts a module-declared kind and rejects an unknown one', () => {
+      const registry = build();
+      expect(registry.isKnownOrderKind('rental')).toBe(true);
+      expect(registry.isKnownOrderKind('hotel')).toBe(false);
+      expect(() => registry.assertKnownOrderKind('sale')).not.toThrow();
+      expect(() => registry.assertKnownOrderKind('hotel')).toThrow(/Unknown order kind 'hotel'/);
+    });
+  });
 });

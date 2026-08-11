@@ -20,9 +20,8 @@ const PERMISSION_SET = new Set<string>(ALL_PERMISSIONS);
 
 /**
  * RBAC role management. Scoped to the current organization via the
- * tenant-aware Prisma extension. System roles (e.g. "Administrator") cannot
- * be mutated or deleted — they are seeded and protected from admin
- * accidental deletion.
+ * tenant-aware Prisma extension. System roles (e.g. "Administrator") are
+ * seeded by default but are editable/deletable like any other role.
  */
 @Injectable()
 export class RolesService {
@@ -84,9 +83,6 @@ export class RolesService {
   async update(id: string, dto: UpdateRoleDto): Promise<Role> {
     const current = await this.prisma.client.role.findFirst({ where: { id } });
     if (!current) throw new NotFoundException(`Role ${id} not found`);
-    if (current.isSystem) {
-      throw new ForbiddenException('System roles are protected from modification');
-    }
     if (dto.permissions) this.validatePermissions(dto.permissions);
 
     if (dto.name && dto.name !== current.name) {
@@ -126,9 +122,6 @@ export class RolesService {
       include: { _count: { select: { users: true } } },
     });
     if (!role) throw new NotFoundException(`Role ${id} not found`);
-    if (role.isSystem) {
-      throw new ForbiddenException('System roles cannot be deleted');
-    }
     if (role._count.users > 0) {
       throw new ConflictException(
         `Role "${role.name}" is assigned to ${role._count.users} user(s); reassign them first`,

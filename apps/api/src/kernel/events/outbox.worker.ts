@@ -47,6 +47,10 @@ export class OutboxWorker implements OnApplicationBootstrap, OnModuleDestroy {
     const staleBefore = new Date(now.getTime() - this.staleClaimMs);
     // Atomically claim up to batchSize rows that are pending or whose previous
     // claim expired. UPDATE ... RETURNING gives us the claimed IDs.
+    // NOTE: alias "eventName" AS event_name. Prisma $queryRaw returns the raw
+    // Postgres column label, and a quoted identifier preserves camelCase — so
+    // without the alias `row.event_name` is undefined and every event dispatches
+    // to zero handlers (a latent bug that silently no-op'd all outbox handlers).
     const claimed = await this.prisma.raw.$queryRaw<{ id: string; event_name: string; payload: any }[]>`
       UPDATE "EventOutbox"
       SET "claimToken" = ${claimToken}, "claimedAt" = NOW()
@@ -57,7 +61,7 @@ export class OutboxWorker implements OnApplicationBootstrap, OnModuleDestroy {
         LIMIT ${this.batchSize}
         FOR UPDATE SKIP LOCKED
       )
-      RETURNING "id", "eventName", "payload"
+      RETURNING "id", "eventName" AS event_name, "payload"
     `;
     if (claimed.length === 0) return 0;
     let shipped = 0;

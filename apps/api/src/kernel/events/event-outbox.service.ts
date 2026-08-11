@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { EventEmitter } from 'node:events';
 import { Prisma, PrismaClient } from '@prisma/client';
-import type { DomainEventMap, DomainEventName } from '@erp/shared';
+import { EVENT_SUBJECT, type DomainEventMap, type DomainEventName } from '@erp/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenancy/tenant-context.service';
 
@@ -41,8 +41,20 @@ export class EventOutboxService {
   }
 
   /**
-   * Write an outbox row. Pass the active tx so the event is atomic with the
-   * business write; pass `undefined` to write in a fresh tx (fire-and-forget).
+   * Write an outbox row, plus a `DomainEventLog` row when the event is a
+   * declared business fact (see `EVENT_SUBJECT`).
+   *
+   * The two tables have different jobs and must not be conflated:
+   *   - `EventOutbox`   — TRANSPORT. Rows are claimed, dispatched and marked
+   *                       shipped. At-least-once; consumers must be idempotent.
+   *   - `DomainEventLog` — LEDGER. Append-only (enforced by DB triggers), keyed
+   *                       by `(entityType, entityId)` so an entity's history can
+   *                       be queried and milestones projected from it.
+   *
+   * Pass the active tx so both rows are atomic with the business write; pass
+   * `undefined` to write in a fresh tx. **A ledger row must never outlive a
+   * rolled-back business write**, so anything that records a fact should pass
+   * its tx — see the warning on `EventBus.publish`.
    */
   async publish<K extends DomainEventName>(
     tx: Prisma.TransactionClient | undefined,
@@ -50,16 +62,47 @@ export class EventOutboxService {
     payload: DomainEventMap[K],
   ): Promise<void> {
     const organizationId = this.tenant.optionalOrganizationId ?? '';
-    const data = {
-      organizationId,
-      eventName,
-      payload: payload as unknown as Prisma.InputJsonValue,
-    };
-    if (tx) {
-      await tx.eventOutbox.create({ data });
-    } else {
-      await this.prisma.client.eventOutbox.create({ data });
+    const db = tx ?? this.prisma.client;
+    await db.eventOutbox.create({
+      data: {
+        organizationId,
+        eventName,
+        payload: payload as unknown as Prisma.InputJsonValue,
+      },
+    });
+    await this.recordFact(db, organizationId, eventName, payload);
+  }
+
+  /**
+   * Append the immutable business fact. Silent no-op for events with no
+   * `EVENT_SUBJECT` entry — an event is only part of the permanent record if it
+   * declares what it is about.
+   */
+  private async recordFact(
+    db: Prisma.TransactionClient | PrismaClient,
+    organizationId: string,
+    eventName: DomainEventName,
+    payload: unknown,
+  ): Promise<void> {
+    const subject = EVENT_SUBJECT[eventName];
+    if (!subject || !organizationId) return;
+    const entityId = (payload as Record<string, unknown> | null)?.[subject.idField];
+    if (typeof entityId !== 'string' || !entityId) {
+      this.logger.warn(
+        `Event '${eventName}' declares subject field '${subject.idField}' but the payload has no such string — no ledger row written.`,
+      );
+      return;
     }
+    await db.domainEventLog.create({
+      data: {
+        organizationId,
+        eventName,
+        entityType: subject.entityType,
+        entityId,
+        actorId: this.tenant.userId ?? null,
+        payload: payload as Prisma.InputJsonValue,
+      },
+    });
   }
 
   /** Subscribe to events for in-process consumers. */

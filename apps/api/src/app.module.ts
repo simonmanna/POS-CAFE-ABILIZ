@@ -16,6 +16,7 @@ import { MetricsController } from './observability/metrics.controller';
 import { AppController } from './app.controller';
 import { PosModule } from './modules/pos/pos.module';
 import { SyncModule } from './modules/sync/sync.module';
+import { DocumentsModule } from './modules/documents/documents.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { FixedAssetModule } from './modules/fixed-asset/fixed-asset.module';
 import { TaskModule } from './modules/task/task.module';
@@ -23,6 +24,7 @@ import { ManufacturingModule } from './modules/manufacturing/manufacturing.modul
 import { RentalModule } from './modules/rental/rental.module';
 import { RepairModule } from './modules/repair/repair.module';
 import { HrModule } from './modules/hr/hr.module';
+import { OrdersModule } from './modules/orders/orders.module';
 // import { SchoolModule } from './modules/school/school.module'; // disabled: DI wiring issues, not needed for POS testing
 
 /**
@@ -60,7 +62,8 @@ const enabled = (flag: string): boolean => process.env[flag] === 'true';
       },
     }),
     KernelModule,
-    AuthModule,
+        DocumentsModule,
+        AuthModule,
     CoreModule,
     AccountingModule,
     InventoryModule,
@@ -79,7 +82,8 @@ const enabled = (flag: string): boolean => process.env[flag] === 'true';
     ...(enabled('ENABLE_RENTAL') ? [RentalModule] : []),
     ...(enabled('ENABLE_REPAIR') ? [RepairModule] : []),
     ...(enabled('ENABLE_HR') ? [HrModule] : []),
-  ],
+        ...(enabled('ENABLE_ORDERS') ? [OrdersModule] : []),
+      ],
   controllers: [AppController, MetricsController],
 })
 export class AppModule implements NestModule {
