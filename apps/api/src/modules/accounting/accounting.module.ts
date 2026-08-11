@@ -107,8 +107,9 @@ import { InventoryValuationController } from './reporting/inventory-valuation.co
     AccountingWorkflowsInitializer,
   ],
   exports: [
-    PostingService,
-    AccountCategoryService,
+      PostingService,
+      JournalService,
+      AccountCategoryService,
     AccountResolverService,
     AccountDeterminationService,
     FiscalPeriodService,

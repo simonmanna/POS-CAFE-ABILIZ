@@ -13,6 +13,8 @@ import { OrganizationsService } from './organizations.service';
 import { OrganizationsController } from './organizations.controller';
 import { PaymentTermService } from './payment-term.service';
 import { PaymentTermController } from './payment-term.controller';
+import { FiscalPositionService } from './fiscal-position.service';
+import { FiscalPositionController } from './fiscal-position.controller';
 
 /**
  * Core master-data module (Phase 1). Owns the universal entities every future
@@ -21,9 +23,9 @@ import { PaymentTermController } from './payment-term.controller';
  */
 @Module({
   imports: [PartnerModule, ProductModule],
-  controllers: [FiscalPeriodController, BranchController, OrganizationsController, PaymentTermController],
-  providers: [FiscalPeriodService, BranchService, BranchScopeService, OrganizationsService, PaymentTermService],
-  exports: [FiscalPeriodService, BranchService, BranchScopeService, OrganizationsService, PaymentTermService],
+  controllers: [FiscalPeriodController, BranchController, OrganizationsController, PaymentTermController, FiscalPositionController],
+  providers: [FiscalPeriodService, BranchService, BranchScopeService, OrganizationsService, PaymentTermService, FiscalPositionService],
+  exports: [FiscalPeriodService, BranchService, BranchScopeService, OrganizationsService, PaymentTermService, FiscalPositionService],
 })
 export class CoreModule implements OnModuleInit {
   constructor(

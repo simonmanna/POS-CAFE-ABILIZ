@@ -815,6 +815,23 @@ export function useJournals() {
   });
 }
 
+/** Company (accounting) settings + reference data for select dropdowns. */
+export interface CompanySettingsData {
+  defaultSalesJournalId?: string | null;
+  exchangeDifferenceJournalId?: string | null;
+  _references?: {
+    journals?: { id: string; code: string; name: string }[];
+  };
+}
+
+export function useCompanySettings() {
+  return useQuery({
+    // Shares the cache with CompanySettingsPage (same endpoint / invalidations).
+    queryKey: ['settings-company'],
+    queryFn: async () => (await api.get<CompanySettingsData>('/settings/company')).data,
+  });
+}
+
 export function useJournal(id: string | undefined) {
   return useQuery({
     queryKey: ['journal', id],
@@ -1050,3 +1067,197 @@ export function useDeleteCashAccount() {
     },
   });
 }
+
+
+
+/* ── Payment Terms (core master, Odoo-style due-date methods) ──── */
+
+export type PaymentTermMethod = 'immediate' | 'net_days' | 'end_of_following_month';
+
+export interface PaymentTerm {
+  id: string;
+  organizationId: string;
+  code: string;
+  name: string;
+  method: PaymentTermMethod;
+  netDays: number;
+  discountDays: number | null;
+  /** Decimal serializes as string. */
+  discountPercent: string | null;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface PaymentTermInput {
+  code: string;
+  name: string;
+  method: PaymentTermMethod;
+  netDays?: number;
+  discountDays?: number | null;
+  discountPercent?: number | null;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+/** Method display labels + due-date hints shared by the page and pickers. */
+export const PAYMENT_METHOD_LABELS: Record<PaymentTermMethod, string> = {
+  immediate: 'Immediate Payment',
+  net_days: 'Days after invoice date',
+  end_of_following_month: 'End of following month',
+};
+
+export function usePaymentTerms() {
+  return useQuery({
+    queryKey: ['payment-terms'],
+    queryFn: async () => (await api.get<PaymentTerm[]>('/payment-terms')).data,
+  });
+}
+
+/** Archived (soft-deleted) terms — the restore list. */
+export function useDeletedPaymentTerms() {
+  return useQuery({
+    queryKey: ['payment-terms', 'deleted'],
+    queryFn: async () => (await api.get<PaymentTerm[]>('/payment-terms/deleted')).data,
+  });
+}
+
+export function useCreatePaymentTerm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: PaymentTermInput) => (await api.post<PaymentTerm>('/payment-terms', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payment-terms'] });
+      notify.success('Payment term created');
+    },
+    onError: (e: any) => notify.error('Failed', e?.response?.data?.message ?? e.message),
+  });
+}
+
+export function useUpdatePaymentTerm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...input }: { id: string } & Partial<PaymentTermInput>) =>
+      (await api.patch<PaymentTerm>(`/payment-terms/${id}`, input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payment-terms'] });
+      notify.success('Payment term updated');
+    },
+    onError: (e: any) => notify.error('Failed', e?.response?.data?.message ?? e.message),
+  });
+}
+
+/** Archive (soft delete). Referencing invoices keep their term-name snapshot. */
+export function useArchivePaymentTerm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/payment-terms/${id}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payment-terms'] });
+      notify.success('Payment term archived');
+    },
+    onError: (e: any) => notify.error('Failed', e?.response?.data?.message ?? e.message),
+  });
+}
+
+export function useRestorePaymentTerm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => (await api.patch(`/payment-terms/${id}/restore`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payment-terms'] });
+      notify.success('Payment term restored');
+    },
+    onError: (e: any) => notify.error('Failed', e?.response?.data?.message ?? e.message),
+  });
+}
+
+/* ── Fiscal Positions (core master, Odoo-style tax-treatment labels) ── */
+
+export interface FiscalPosition {
+  id: string;
+  organizationId: string;
+  code: string;
+  name: string;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt: string | null;
+}
+
+export interface FiscalPositionInput {
+  code: string;
+  name: string;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
+export function useFiscalPositions() {
+  return useQuery({
+    queryKey: ['fiscal-positions'],
+    queryFn: async () => (await api.get<FiscalPosition[]>('/fiscal-positions')).data,
+  });
+}
+
+/** Archived (soft-deleted) fiscal positions — the restore list. */
+export function useDeletedFiscalPositions() {
+  return useQuery({
+    queryKey: ['fiscal-positions', 'deleted'],
+    queryFn: async () => (await api.get<FiscalPosition[]>('/fiscal-positions/deleted')).data,
+  });
+}
+
+export function useCreateFiscalPosition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: FiscalPositionInput) =>
+      (await api.post<FiscalPosition>('/fiscal-positions', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fiscal-positions'] });
+      notify.success('Fiscal position created');
+    },
+    onError: (e: any) => notify.error('Failed', e?.response?.data?.message ?? e.message),
+  });
+}
+
+export function useUpdateFiscalPosition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...input }: { id: string } & Partial<FiscalPositionInput>) =>
+      (await api.patch<FiscalPosition>(`/fiscal-positions/${id}`, input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fiscal-positions'] });
+      notify.success('Fiscal position updated');
+    },
+    onError: (e: any) => notify.error('Failed', e?.response?.data?.message ?? e.message),
+  });
+}
+
+/** Archive (soft delete). Referencing invoices keep their name snapshot. */
+export function useArchiveFiscalPosition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/fiscal-positions/${id}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fiscal-positions'] });
+      notify.success('Fiscal position archived');
+    },
+    onError: (e: any) => notify.error('Failed', e?.response?.data?.message ?? e.message),
+  });
+}
+
+export function useRestoreFiscalPosition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => (await api.patch(`/fiscal-positions/${id}/restore`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['fiscal-positions'] });
+      notify.success('Fiscal position restored');
+    },
+    onError: (e: any) => notify.error('Failed', e?.response?.data?.message ?? e.message),
+  });
+}
+
