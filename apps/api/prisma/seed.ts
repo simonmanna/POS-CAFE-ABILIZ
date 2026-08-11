@@ -4,6 +4,8 @@ import * as bcrypt from 'bcryptjs';
 import { ALL_PERMISSIONS, type ProductType } from '@erp/shared';
 import { seedUomCategories } from '../src/modules/core/product/uom-seed';
 import { seedAccountingCore } from '../src/modules/accounting/coa/coa-seeder';
+import { seedDmsRegistry, wireDmsRoleKeys } from '../src/modules/documents/dms.seed-registry';
+import { applyDefaultApprovalWorkflows } from './default-approval-workflows';
 
 const prisma = new PrismaClient();
 
@@ -65,6 +67,23 @@ async function main(): Promise<void> {
       isSystem: true,
       permissions: ALL_PERMISSIONS,
     },
+  });
+
+  // --- Default table zones (dining areas) -----------------------------------
+  // Config master: PosTable.zone keys must resolve for a fresh org. Kept in
+  // sync with DEFAULT_ZONES in pos-table-zones.service.ts + the
+  // table_zones_configurable migration.
+  const tableZoneDefs = [
+    { key: 'indoor', name: 'Indoor', sortOrder: 1, color: '#10b981' },
+    { key: 'outdoor', name: 'Outdoor', sortOrder: 2, color: '#f59e0b' },
+    { key: 'terrace', name: 'Terrace', sortOrder: 3, color: '#fb923c' },
+    { key: 'vip', name: 'VIP', sortOrder: 4, color: '#a855f7' },
+    { key: 'garden', name: 'Garden', sortOrder: 5, color: '#22c55e' },
+    { key: 'bar', name: 'Bar', sortOrder: 6, color: '#ec4899' },
+  ];
+  await prisma.posTableZone.createMany({
+    data: tableZoneDefs.map((z) => ({ organizationId: org.id, ...z, active: true })),
+    skipDuplicates: true,
   });
 
   // --- Admin user -----------------------------------------------------------
@@ -253,6 +272,13 @@ async function main(): Promise<void> {
 
   // --- Demo staff, PIN, and tables ------------------------------------------
   await seedStaffAndTables(org.id, adminRole.id);
+
+  // --- Default approval workflows -------------------------------------------
+  // Without these the approval engine matches nothing and auto-approves every
+  // gate. See default-approval-workflows.ts for the thresholds and for why the
+  // finance workflows ship inactive.
+  const wf = await applyDefaultApprovalWorkflows(prisma, org.id);
+  console.log(`Approval workflows: ${wf.created} created, ${wf.skipped} already present.`);
 
     console.log('Seed complete (incl. chart of accounts, journals, account mappings, inventory).');
     console.log('Login -> organization: "DEMO", email: "admin@demo.test", password: "Admin@123"');
@@ -836,8 +862,12 @@ async function main(): Promise<void> {
       });
     }
 
-    console.log('Demo staff (Sarah cashier 1111, John waiter 2222) and 7 tables seeded.');
-    console.log('Admin PIN: 1234');
+    // --- DMS registry (global lifecycles, types, relation types, keys) ------
+        await seedDmsRegistry(prisma);
+        await wireDmsRoleKeys(prisma);
+
+        console.log('Demo staff (Sarah cashier 1111, John waiter 2222) and 7 tables seeded.');
+        console.log('Admin PIN: 1234');
   }
 
     main()
