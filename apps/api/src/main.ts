@@ -28,7 +28,7 @@ import { requestIdMiddleware } from './kernel/observability/request-id.middlewar
  * Everywhere else a URL-borne credential is a needless leak into proxy access
  * logs, browser history and Referer headers.
  */
-const EVENT_STREAM_PATHS = ['/pos/tables/stream', '/pos/kds/stream'];
+const EVENT_STREAM_PATHS = ['/pos/tables/stream', '/pos/kds/stream', '/communication/stream'];
 
 function isEventStreamPath(path: string): boolean {
   return EVENT_STREAM_PATHS.some((p) => path.endsWith(p));

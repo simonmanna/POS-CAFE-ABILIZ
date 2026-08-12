@@ -95,13 +95,13 @@ function SettingRow({
   );
 }
 
-function GroupCard({
+export function GroupCard({
   group,
   title,
   description,
   icon,
 }: {
-  group: 'inventory' | 'accounting';
+  group: 'inventory' | 'accounting' | 'purchasing';
   title: string;
   description: string;
   icon: ReactNode;

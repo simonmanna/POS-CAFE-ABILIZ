@@ -424,6 +424,9 @@ model User {
   /// Phase F: the user's home branch. Optional; null = access to all branches
   /// the org has marked "all-access". Used by branch-scoped queries.
   defaultBranchId  String?
+  /// Communication: the staff member's Telegram chat id, set when they link the
+  /// bot. Lets event-driven notifications reach a staff member over Telegram.
+  telegramChatId   String?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
   createdBy        String?
@@ -586,6 +589,15 @@ model Partner {
   isEmployee              Boolean       @default(false)
   email                   String?
   phone                   String?
+  /// Communication: normalized E.164 form of `phone` (e.g. +256701234567), used
+  /// for inbound WhatsApp/SMS sender → Partner resolution. `phone` is kept as the
+  /// human-entered display value; this is the machine key. Nullable because not
+  /// every partner has a valid mobile number.
+  phoneE164               String?
+  /// Communication: the partner has consented to be contacted over chat channels
+  /// (WhatsApp/Telegram). Defaults false — business-initiated outbound must never
+  /// assume consent.
+  chatOptIn               Boolean       @default(false)
   website                 String?
   taxNumber               String?
   membershipLevel         String?
@@ -630,6 +642,7 @@ model Partner {
   @@unique([organizationId, code])
   @@index([organizationId])
   @@index([organizationId, name])
+  @@index([organizationId, phoneE164])
 }
 
 model PartnerCategory {
@@ -9266,4 +9279,402 @@ model HrPerformanceReview {
   employee HrEmployee @relation(fields: [employeeId], references: [id])
 
   @@index([organizationId, employeeId, deletedAt])
+}
+
+// =============================================================================
+// Communication platform — transport-independent messaging + external channels.
+//
+// Design rules (see docs/features + the approved plan):
+//   • Conversation and Message carry NO transport. `providerId`/`channelId`/
+//     `externalConversationId` live on the ConversationChannel join, so one
+//     business thread can span internal + WhatsApp + Telegram.
+//   • `kind` is conversation SHAPE (direct/group/channel); `contextType`/
+//     `contextId` is BUSINESS CONTEXT (Order:123). Orthogonal.
+//   • Message.status (active/edited/deleted) is the message lifecycle;
+//     MessageDelivery.status is per-recipient TRANSPORT status. They are not the
+//     same field — a fan-out can be `active` with one delivery failed.
+//   • `seq` is a SYNC CURSOR only (exposed as `syncSequence`), never used for
+//     chronological ordering — that is `occurredAt`.
+//   • providerId / transport / *type / *status are Strings (documented allowed
+//     values) rather than Prisma enums, so a new provider or state is additive
+//     and never needs an ALTER TYPE migration.
+//   • Cross-cutting references (userId, partnerId, fileId, channelId) are loose
+//     FKs + @@index, matching the kernel convention (Notification.userId,
+//     File.ownerId). Relations are wired only WITHIN the communication cluster
+//     for cascade correctness.
+// =============================================================================
+
+/// A configured provider account for an org — e.g. "WhatsApp Support",
+/// "Telegram Sales", or the singleton internal channel. Several per provider per
+/// org are supported. Also carries the Baileys single-writer lease + pacing gate.
+model CommunicationChannel {
+  id             String    @id @default(uuid())
+  organizationId String
+  /// Transport-agnostic provider id: internal | whatsapp | telegram.
+  providerId     String
+  /// Concrete implementation for the provider: internal | baileys | cloud (WA) |
+  /// bot (Telegram). Swapping WhatsApp from baileys→cloud changes only this +
+  /// the adapter, never conversation/message rows.
+  transport      String
+  /// Human label shown in the channel picker ("WhatsApp Support").
+  name           String
+  /// disconnected | connecting | pairing | connected | logged_out | error.
+  status         String    @default("disconnected")
+  /// Operator intent, independent of live status: connected | disconnected. The
+  /// Baileys session manager reconciles `status` toward this.
+  desiredState   String    @default("disconnected")
+  /// Transient pairing QR string (Baileys). Written by the lease-holder; the SSE
+  /// service renders it to a PNG for the browser. Cleared once paired.
+  pairingQr          String?
+  pairingQrExpiresAt DateTime?
+  /// When the phone was successfully linked. Drives the warm-up ramp.
+  pairedAt           DateTime?
+  lastConnectedAt    DateTime?
+  lastError          String?
+  consecutiveFailures Int      @default(0)
+  /// Single-writer lease (Baileys): the process token that currently owns the
+  /// live socket, and its heartbeat. Claimed via UPDATE ... FOR UPDATE SKIP
+  /// LOCKED, identical to the outbox worker. Null = no live owner.
+  leaseOwnerToken    String?
+  leaseHeartbeatAt   DateTime?
+  /// DB-persisted send pacing gate (survives restart, coordinates replicas).
+  /// The dispatcher will not send on this channel before nextSendAt.
+  nextSendAt         DateTime?
+  /// Anti-ban daily counter (WhatsApp). Reset by the dispatcher on date rollover.
+  dailySentCount     Int      @default(0)
+  dailyCountDate     DateTime?
+  /// Provider-specific, non-secret configuration (Telegram bot username, WA
+  /// display number, etc.). Secrets (bot token, session creds) live elsewhere.
+  config             Json     @default("{}")
+  /// Soft disable — keeps history, stops all send/receive.
+  disabledAt         DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  createdBy          String?
+
+  @@unique([organizationId, providerId, name])
+  @@index([organizationId, providerId])
+  @@index([providerId, transport, desiredState])
+}
+
+/// A business conversation. Transport-INDEPENDENT: no providerId here.
+model Conversation {
+  id             String    @id @default(uuid())
+  organizationId String
+  /// Shape: direct | group | channel. NOT transport, NOT business context.
+  kind           String    @default("direct")
+  /// Null for direct chats (title derived from participants).
+  name           String?
+  /// Polymorphic business context (Odoo-style chatter): "Order" / "Partner" /
+  /// "CashSession" + the record id. Both null = a standalone chat.
+  contextType    String?
+  contextId      String?
+  /// Access model: private (participants only) | org (any reader permission) |
+  /// role (permission intersection with visibleToPermissions).
+  visibility     String    @default("private")
+  /// For visibility='role': the permission keys that grant read (e.g. ["pos:kds"]
+  /// for a Kitchen channel). Empty otherwise.
+  visibleToPermissions String[] @default([])
+  /// Default transport a reply uses when none is specified. Points at one of this
+  /// conversation's ConversationChannel rows.
+  defaultConversationChannelId String?
+  /// POS device visibility. Only kind='channel' may set this true — a shared till
+  /// must never hold DMs or customer threads.
+  syncToDevices  Boolean   @default(false)
+  /// open | archived.
+  status         String    @default("open")
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  channels     ConversationChannel[]
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([organizationId, updatedAt])
+  @@index([organizationId, contextType, contextId])
+  @@index([organizationId, syncToDevices, updatedAt])
+}
+
+/// Binds a Conversation to a CommunicationChannel (transport). A thread with an
+/// internal + a WhatsApp row is one conversation reachable over both.
+model ConversationChannel {
+  id             String    @id @default(uuid())
+  organizationId String
+  conversationId String
+  channelId      String
+  /// Provider-native thread id (WA remoteJid, Telegram chat_id). Null for internal.
+  externalConversationId String?
+  /// Per-conversation pacing gate (DB-persisted, like CommunicationChannel).
+  nextSendAt     DateTime?
+  /// Last inbound over this transport — used by the WhatsApp cold-outbound guard.
+  lastInboundAt  DateTime?
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, channelId, externalConversationId])
+  @@index([conversationId])
+  @@index([organizationId, channelId])
+}
+
+/// Cross-provider identity for an external person (a WhatsApp/Telegram sender).
+/// First-class so an unknown inbound number can hold a conversation WITHOUT
+/// creating a Partner. Optionally linked to a Partner once resolved.
+model ExternalIdentity {
+  id             String    @id @default(uuid())
+  organizationId String
+  providerId     String
+  /// Provider-native user id (WA jid, Telegram user id).
+  externalUserId String
+  /// Human-readable address (E.164 phone, @handle).
+  address        String?
+  displayName    String?
+  avatarUrl      String?
+  /// Set once resolved to a customer; null = unresolved (surfaced in UI).
+  partnerId      String?
+  metadata       Json      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([organizationId, providerId, externalUserId])
+  @@index([organizationId, partnerId])
+}
+
+/// A member of a conversation. participantType discriminates the identity source.
+model ConversationParticipant {
+  id             String    @id @default(uuid())
+  organizationId String
+  conversationId String
+  /// user | partner | external | bot | system.
+  participantType String   @default("user")
+  userId         String?
+  partnerId      String?
+  externalIdentityId String?
+  /// member | admin | owner.
+  role           String    @default("member")
+  /// For unread computation — the last message this participant has read.
+  lastReadMessageId String?
+  joinedAt       DateTime  @default(now())
+  leftAt         DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, participantType, userId, partnerId, externalIdentityId])
+  @@index([organizationId, userId])
+  @@index([conversationId])
+}
+
+/// The central message object. Transport-INDEPENDENT.
+model Message {
+  id             String    @id @default(uuid())
+  organizationId String
+  conversationId String
+  /// user | partner | external | system | bot.
+  senderType     String    @default("user")
+  senderUserId   String?
+  senderPartnerId String?
+  senderExternalIdentityId String?
+  /// text | image | video | audio | file | location | system | event (v1: text).
+  contentType    String    @default("text")
+  body           String
+  replyToMessageId String?
+  /// Message lifecycle — active | edited | deleted. NOT delivery status.
+  status         String    @default("active")
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  /// User-facing chronological position. For device-composed messages this is
+  /// the compose time, so an offline message lands "in the past". SORT BY THIS.
+  occurredAt     DateTime  @default(now())
+  /// SYNC CURSOR ONLY (exposed as `syncSequence`). Server assignment order; has
+  /// gaps; never use for chronological ordering. See the header note.
+  seq            BigInt    @unique @default(autoincrement())
+  createdAt      DateTime  @default(now())
+
+  conversation Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments  MessageAttachment[]
+  deliveries   MessageDelivery[]
+  external     ExternalMessage?
+
+  @@index([organizationId, conversationId, occurredAt])
+  @@index([organizationId, seq])
+}
+
+/// An attachment on a message. The bytes live in the existing File/FilesService —
+/// no new storage mechanism.
+model MessageAttachment {
+  id             String    @id @default(uuid())
+  organizationId String
+  messageId      String
+  fileId         String
+  /// image | video | audio | file (mirrors contentType for quick rendering).
+  kind           String    @default("file")
+  filename       String?
+  mimeType       String?
+  byteSize       Int?
+  createdAt      DateTime  @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([organizationId, fileId])
+}
+
+/// Per-recipient delivery status AND the durable outbound send work queue (one
+/// table — the unit of retry and the unit of status are the same). Modelled on
+/// StockPostingJob: claimToken/attempts/maxAttempts/nextAttemptAt.
+model MessageDelivery {
+  id             String    @id @default(uuid())
+  organizationId String
+  messageId      String
+  /// Which transport binding this delivery goes over.
+  conversationChannelId String?
+  channelId      String
+  providerId     String
+  /// Provider-native destination: jid | chat_id | userId.
+  recipientAddress String
+  recipientUserId String?
+  recipientExternalIdentityId String?
+  /// queued | sending | sent | delivered | read | failed | cancelled.
+  status         String    @default("queued")
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(6)
+  nextAttemptAt  DateTime  @default(now())
+  lastError      String?
+  errorCode      String?
+  /// Send timed out with no provider ack — a retry MAY duplicate. Surfaced in UI.
+  ambiguous      Boolean   @default(false)
+  /// Multi-writer claim (dispatch worker), same pattern as EventOutbox.
+  claimToken     String?
+  claimedAt      DateTime?
+  /// `<providerId>:<channelId>:<messageId>:<recipientAddress>` — the effectively
+  /// idempotent enqueue key.
+  idempotencyKey String
+  /// Deterministic, minted at enqueue, handed to the provider on EVERY attempt so
+  /// a retry after an ambiguous timeout dedupes provider-side where supported.
+  providerRequestId String
+  /// Provider's returned id (from the ack). Equals providerRequestId when we
+  /// minted it (WhatsApp).
+  externalMessageId String?
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  failedAt       DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([providerId, providerRequestId])
+  @@index([status, nextAttemptAt])
+  @@index([channelId, status, nextAttemptAt])
+  @@index([organizationId, messageId])
+  @@index([providerId, externalMessageId])
+}
+
+/// Provider-specific metadata sidecar. Keeps the core Message clean. `rawMetadata`
+/// is for diagnostics/replay ONLY — never read as business state.
+model ExternalMessage {
+  id             String    @id @default(uuid())
+  organizationId String
+  messageId      String    @unique
+  providerId     String
+  externalMessageId String
+  externalConversationId String?
+  externalSenderId String?
+  rawMetadata    Json      @default("{}")
+  createdAt      DateTime  @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, providerId, externalMessageId])
+  @@index([organizationId, providerId, externalConversationId])
+}
+
+/// Baileys auth-state KV (creds + signal keys), AES-256-GCM encrypted. One row per
+/// (channel, keyType, keyId). Deliberately NOT File-backed — session creds must
+/// never be reachable by a signed URL.
+model WhatsAppAuthState {
+  id             String    @id @default(uuid())
+  organizationId String
+  channelId      String
+  /// creds | pre-key | session | sender-key | app-state-sync-key | ...
+  keyType        String
+  keyId          String    @default("")
+  /// AES-256-GCM ciphertext: iv:tag:data (base64), over BufferJSON.stringify(value).
+  valueEnc       String
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([channelId, keyType, keyId])
+  @@index([organizationId, channelId])
+}
+
+/// Rendered message template. `eventName`/`providerId` optional so a template can
+/// be event-bound and/or provider-specific. locale+version ship now (unused in v1)
+/// so translation later is not a migration.
+model MessageTemplate {
+  id             String    @id @default(uuid())
+  organizationId String
+  key            String
+  eventName      String?
+  providerId     String?
+  locale         String    @default("en")
+  version        Int       @default(1)
+  subject        String?
+  /// Body with {{placeholders}} resolved against the event payload.
+  body           String
+  /// Declared variable names, for the editor + validation.
+  variables      String[]  @default([])
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([organizationId, key, providerId, locale, version])
+  @@index([organizationId, eventName, active])
+}
+
+/// event → template → recipients → channel. Generalises the single hardcoded
+/// approvals→notification subscriber into config.
+model CommunicationRule {
+  id             String    @id @default(uuid())
+  organizationId String
+  eventName      String
+  /// JSON predicate over the event payload (e.g. {"quantity":{"$lt":"minimum"}}).
+  condition      Json      @default("{}")
+  templateKey    String
+  /// Named resolver: e.g. "permission:inventory:read", "partner:context",
+  /// "user:event.actorId". Interpreted by RecipientResolver.
+  recipientResolver String
+  /// Named channel selector: "internal" | "partner_preferred" | "whatsapp" | ...
+  channelSelector String    @default("internal")
+  enabled        Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([organizationId, eventName, templateKey])
+  @@index([organizationId, eventName, enabled])
+}
+
+/// Idempotency ledger for the rule engine. Domain events are at-least-once, so
+/// firing `stock.low` twice for the same entity must yield ONE message. Before
+/// acting on a (rule, event-instance) the engine inserts a row here; a unique
+/// violation means "already dispatched — skip". This is the dedicated indexed
+/// dedupe the plan calls for, replacing the slow JSON-path lookup the approvals
+/// subscriber uses. Also a forensic record of which rule fired for which event.
+model CommunicationDispatch {
+  id             String    @id @default(uuid())
+  organizationId String
+  ruleId         String?
+  /// `<ruleId>:<eventName>:<entityId>` — deterministic per event-instance.
+  dedupeKey      String
+  /// The message this rule produced (message path), if any.
+  messageId      String?
+  createdAt      DateTime  @default(now())
+
+  @@unique([organizationId, dedupeKey])
+  @@index([organizationId, ruleId, createdAt])
 }

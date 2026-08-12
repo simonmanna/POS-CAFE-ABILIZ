@@ -38,6 +38,7 @@ import androidx.compose.material.icons.outlined.TableRestaurant
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.Percent
 import androidx.compose.material.icons.outlined.RamenDining
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -227,6 +228,9 @@ private fun DrawerContent(
             DrawerSection("Finance")
             DrawerItem("Purchases", Icons.Outlined.ShoppingCart) { onNavigate("purchases") }
             DrawerItem("Expenses", Icons.Outlined.Payments) { onNavigate("expenses") }
+
+            DrawerSection("Team")
+            DrawerItem("Messages", Icons.AutoMirrored.Outlined.Chat) { onNavigate("messaging") }
 
             DrawerSection("People")
             DrawerItem("Customers", Icons.Outlined.People) { onNavigate("customers") }

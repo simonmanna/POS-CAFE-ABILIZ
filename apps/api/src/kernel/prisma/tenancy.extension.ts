@@ -282,6 +282,24 @@ const ORG_SCOPED = new Set<string>([
   'HrBankPayment',
   'HrBankPaymentLine',
   'HrPerformanceReview',
+  // Communication platform — every model carries a non-null organizationId.
+  // Omitting any one is a cross-tenant leak (someone reads another org's
+  // messages by id), not a bug. The Baileys session manager + dispatch worker
+  // reach across orgs deliberately via prisma.raw, which bypasses this
+  // extension, so scoping the typed client here does not affect them.
+  'CommunicationChannel',
+  'Conversation',
+  'ConversationChannel',
+  'ExternalIdentity',
+  'ConversationParticipant',
+  'Message',
+  'MessageAttachment',
+  'MessageDelivery',
+  'ExternalMessage',
+  'WhatsAppAuthState',
+  'MessageTemplate',
+  'CommunicationRule',
+  'CommunicationDispatch',
 ]);
 
 /** Models with a `deletedAt` column → soft-delete filtering on reads/writes. */
@@ -398,6 +416,11 @@ const SOFT_DELETE = new Set<string>([
   'HrEmployeeLoan',
   'HrBankPayment',
   'HrPerformanceReview',
+  // Communication — Conversation + Message carry deletedAt (soft delete). The
+  // transactional records (deliveries, external-message sidecars, participants)
+  // use status columns / hard cascade, not soft delete.
+  'Conversation',
+  'Message',
 ]);
 
 const WHERE_OPS = new Set<string>([

@@ -547,6 +547,19 @@ export const PERMISSIONS = {
     performance: 'hr:performance',
     report: 'hr:report',
   },
+  // ---- Communication platform — messaging + channels ----
+  // NB: read/write/send are CAPABILITIES. Per-conversation ACCESS is enforced
+  // separately by ConversationAccessService (participant / visibility / role).
+  // readAll grants cross-conversation read (managers/support) but never opens a
+  // `private` direct conversation.
+  communication: {
+    conversationRead: 'communication:conversation:read',
+    conversationWrite: 'communication:conversation:write',
+    conversationReadAll: 'communication:conversation:read_all',
+    messageSend: 'communication:message:send',
+    channelRead: 'communication:channel:read',
+    channelManage: 'communication:channel:manage',
+  },
 } as const;
 
 type PermissionLeaf<T> = T extends string ? T : T extends object ? PermissionLeaf<T[keyof T]> : never;

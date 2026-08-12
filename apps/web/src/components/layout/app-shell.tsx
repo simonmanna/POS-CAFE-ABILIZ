@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -53,22 +54,81 @@ import {
   Handshake,
   Wrench,
   Timer,
+  Database,
+  Wine,
+  KeyRound,
+  Calculator,
   Boxes,
   ChefHat,
   UtensilsCrossed,
+  MessagesSquare,
+  Radio,
+  Zap,
   CalendarClock,
   ChevronDown,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { useAuthStore } from '@/stores/auth.store';
 import { api } from '@/lib/api';
+import { notify } from '@/lib/notify';
 import { GlobalSearch } from '@/components/global-search';
 import { PushBootstrap } from '@/components/push-bootstrap';
 import { ThemePicker } from '@/components/theme-picker';
 import { useTranslation } from 'react-i18next';
 import { useSidebarTheme } from '@/lib/sidebar-theme';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+
+interface BranchOption {
+  id: string;
+  code: string;
+  name: string;
+}
+
+function BranchSwitcher() {
+  const { currentBranchId, setCurrentBranch } = useAuthStore();
+  const { data } = useQuery<{ data: BranchOption[] }>({
+    queryKey: ['branches-switch'],
+    queryFn: async () => (await api.get('/branches', { params: { pageSize: 200 } })).data,
+  });
+
+  const branches = data?.data ?? [];
+
+  const onSelect = async (value: string) => {
+    const id = value === '__all__' ? null : value;
+    setCurrentBranch(id); // optimistic local state
+    try {
+      await api.patch('/organizations/me/branch', { defaultBranchId: id });
+    } catch {
+      notify.error('Failed to switch branch');
+    }
+  };
+
+  return (
+    <Select value={currentBranchId ?? '__all__'} onValueChange={onSelect}>
+      <SelectTrigger className="h-8 text-xs">
+        <SelectValue placeholder="Select branch" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="__all__">All branches</SelectItem>
+        {branches.map((b) => (
+          <SelectItem key={b.id} value={b.id}>{b.name} ({b.code})</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 interface NavItem {
   to: string;
@@ -77,11 +137,12 @@ interface NavItem {
   permission?: string;
   badge?: string;
   /** Per-item feature gate, resolved the same way as section flags. */
-  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS';
+  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS' | 'VITE_ENABLE_COMMUNICATION';
 }
 
 interface NavSection {
   title?: string;
+  icon?: typeof LayoutDashboard;
   items: NavItem[];
   /**
    * Opt-in section, mirroring the API's ENABLE_* module gates. This is the
@@ -89,7 +150,7 @@ interface NavSection {
    * here without gating the module server-side would leave its routes, crons
    * and boot hooks live.
    */
-  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS';
+  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS' | 'VITE_ENABLE_COMMUNICATION';
 }
 
 const flagEnabled = (flag?: string): boolean =>
@@ -98,7 +159,18 @@ const flagEnabled = (flag?: string): boolean =>
 const NAV_SECTIONS: NavSection[] = [
   { items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard }] },
   {
+    title: 'Communication',
+    icon: MessagesSquare,
+    flag: 'VITE_ENABLE_COMMUNICATION',
+    items: [
+      { to: '/communication', label: 'Inbox', icon: MessagesSquare, permission: PERMISSIONS.communication.conversationRead },
+      { to: '/communication/channels', label: 'Channels', icon: Radio, permission: PERMISSIONS.communication.channelRead },
+      { to: '/communication/rules', label: 'Automation', icon: Zap, permission: PERMISSIONS.communication.channelManage },
+    ],
+  },
+  {
     title: 'POS',
+    icon: Coffee,
     items: [
       { to: '/pos/terminal', label: 'POS Terminal', icon: Coffee, permission: PERMISSIONS.pos.checkout },
       { to: '/pos/kds', label: 'Kitchen Display', icon: ChefHat, permission: PERMISSIONS.pos.kds },
@@ -111,6 +183,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Master Data',
+    icon: Database,
     items: [
       { to: '/customers', label: 'Customers', icon: Users, permission: PERMISSIONS.partners.view },
       { to: '/suppliers', label: 'Suppliers', icon: Building2, permission: PERMISSIONS.partners.view },
@@ -125,6 +198,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Sales',
+    icon: ShoppingCart,
     items: [
       { to: '/invoices', label: 'Sales/Invoices', icon: Receipt, permission: PERMISSIONS.invoice.read },
       { to: '/orders', label: 'Orders', icon: ClipboardList },
@@ -135,6 +209,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'CRM',
+    icon: Users,
     items: [
       { to: '/crm', label: 'CRM Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.crm.dashboardRead },
       { to: '/crm/deals', label: 'Deals', icon: Handshake, permission: PERMISSIONS.crm.dealRead },
@@ -142,6 +217,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Inventory',
+    icon: Package,
     items: [
       { to: '/inventory', label: 'Stock Levels', icon: Package, permission: 'inventory:read' },
       { to: '/inventory/ledger', label: 'Stock Ledger', icon: ScrollText, permission: 'inventory:read' },
@@ -153,6 +229,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Beverage Control',
+    icon: Wine,
     flag: 'VITE_ENABLE_BEVERAGE',
     items: [
       { to: '/beverage', label: 'Alcohol Dashboard', icon: BarChart3, permission: PERMISSIONS.beverage.read },
@@ -161,6 +238,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Rentals',
+    icon: KeyRound,
     flag: 'VITE_ENABLE_RENTAL',
     items: [
       { to: '/rental', label: 'Dashboard', icon: CalendarDays, permission: PERMISSIONS.rental.read },
@@ -173,6 +251,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Repair & Maintenance',
+    icon: Wrench,
     flag: 'VITE_ENABLE_REPAIR',
     items: [
       { to: '/repair', label: 'Dashboard', icon: Wrench, permission: PERMISSIONS.repair.read },
@@ -186,7 +265,8 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Workforce (HR)',
+    title: 'Human Resource',
+    icon: Briefcase,
     flag: 'VITE_ENABLE_HR',
     items: [
       { to: '/hr', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.hr.read },
@@ -207,6 +287,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Purchasing',
+    icon: Truck,
     items: [
       { to: '/procurement/purchase-orders', label: 'Purchases', icon: ShoppingCart, permission: 'purchase_order:read' },
       { to: '/procurement/goods-receipts', label: 'Goods Receipts', icon: Truck, permission: 'goods_receipt:read' },
@@ -217,6 +298,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Expenses',
+    icon: FileText,
     items: [
       { to: '/expenses', label: 'Expenses', icon: FileText, permission: PERMISSIONS.expense.read },
       { to: '/expenses/categories', label: 'Expense Categories', icon: Tag, permission: PERMISSIONS.expense.read },
@@ -225,13 +307,26 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    title: 'Cash Flow',
+    icon: HandCoins,
+    items: [
+      { to: '/pos/cash-registers', label: 'Cash Register', icon: Banknote },
+      { to: '/payments', label: 'Receipts', icon: HandCoins },
+      { to: '/ar-aging', label: 'Accounts Receivable', icon: Clock },
+      { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote },
+      { to: '/accounts/cash-accounts', label: 'Accounts', icon: Wallet },
+    ],
+  },
+  {
     title: 'Task Management',
+    icon: ClipboardList,
     items: [
       { to: '/tasks', label: 'Task Board', icon: ClipboardList },
     ],
   },
   {
     title: 'Accounting',
+    icon: Calculator,
     items: [
       { to: '/accounts/cash-accounts', label: 'Financial Accounts', icon: Banknote, permission: PERMISSIONS.account.read },
       { to: '/accounts', label: 'Chart of Accounts', icon: BookOpen, permission: PERMISSIONS.account.read },
@@ -261,6 +356,7 @@ const NAV_SECTIONS: NavSection[] = [
   },
   {
     title: 'Fixed Assets',
+    icon: Landmark,
     flag: 'VITE_ENABLE_ASSETS',
     items: [
       { to: '/fixed-assets', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.fixedAsset.read },
@@ -269,20 +365,8 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Manufacturing',
-    flag: 'VITE_ENABLE_MANUFACTURING',
-    items: [
-      { to: '/manufacturing', label: 'Production', icon: Factory },
-      { to: '/manufacturing/orders', label: 'Orders', icon: ClipboardList },
-      { to: '/manufacturing/boms', label: 'Recipes (BOM)', icon: ScrollText },
-      { to: '/manufacturing/planning', label: 'Planning', icon: CalendarDays },
-      { to: '/manufacturing/resources', label: 'Work Centres', icon: Boxes },
-      { to: '/manufacturing/reports', label: 'Reports', icon: BarChart3 },
-    ],
-  },
-  {
-    title: 'Bakery',
-    flag: 'VITE_ENABLE_MANUFACTURING',
+    title: 'Manufacturing/Bakery',
+    icon: Factory,
     items: [
       { to: '/manufacturing', label: 'Production', icon: Factory },
       { to: '/manufacturing/orders', label: 'Orders', icon: ClipboardList },
@@ -303,7 +387,8 @@ const NAV_SECTIONS: NavSection[] = [
   //   ],
   // },
   {
-    title: 'System',
+    title: 'Settings',
+    icon: SettingsIcon,
     items: [
       { to: '/approvals', label: 'Approvals', icon: ShieldCheck, permission: 'approvals:read' },
       { to: '/approval-workflows', label: 'Approval Workflows', icon: Shield, permission: 'approvals:read' },
@@ -326,6 +411,7 @@ const SIDEBAR_EXPAND_STATE_KEY = 'poscafe.sidebar.expandedSections';
 
 // Localized section titles for the accordion parent buttons.
 const SECTION_TITLE_KEYS: Record<string, string> = {
+  Communication: 'nav.communication',
   POS: 'nav.pos',
   'Master Data': 'nav.masterData',
   Sales: 'nav.sales',
@@ -337,13 +423,14 @@ const SECTION_TITLE_KEYS: Record<string, string> = {
   'Human Resources': 'nav.workforce',
   Purchasing: 'nav.purchasing',
   Expenses: 'nav.expenses',
+  'Cash Flow': 'nav.cashFlow',
   Tasks: 'nav.tasks',
   'Task Management': 'nav.taskManagement',
   Accounting: 'nav.accounting',
   'Fixed Assets': 'nav.fixedAssets',
   Manufacturing: 'nav.manufacturing',
   Bakery: 'nav.bakery',
-  System: 'nav.system',
+  Settings: 'nav.settings',
 };
 
 const sectionTitle = (title: string | undefined, t: (k: string) => string) =>
@@ -458,7 +545,7 @@ export function AppShell() {
   // ── Sidebar rendering: themed background, brand tile, themed nav items ──
   const renderNav = (onItemClick?: () => void, collapsed = false) => {
     return (
-      <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-1">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-1 py-1">
         {VISIBLE_SECTIONS.map((section, idx) => {
           const items = section.items.filter(
                       (i) => flagEnabled(i.flag) && (!i.permission || hasPermission(i.permission)),
@@ -471,14 +558,15 @@ export function AppShell() {
                 <button
                   type="button"
                   onClick={() => toggleSection(section.title as string)}
-                  className="flex w-full items-center gap-1.5 rounded-md px-0.5 py-1.5 text-[15px] font-bold uppercase tracking-[0.04em] transition-colors hover:bg-white/10"
+                  className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-[15px] font-bold uppercase tracking-[0.04em] transition-colors hover:bg-white/10"
                   style={{ color: sb.sidebarActive, borderBottom: `1px solid ${sb.sidebarBorder}`, marginBottom: 2 }}
                   aria-expanded={isOpen}
                 >
-                  <ChevronDown
-                    className={cn('h-3 w-3 shrink-0 transition-transform duration-150', !isOpen && '-rotate-90')}
-                  />
+                  {section.icon && <section.icon className="h-4 w-4 shrink-0" />}
                   <span className="flex-1 truncate text-left">{sectionTitle(section.title, t)}</span>
+                  <ChevronDown
+                    className={cn('h-3.5 w-3.5 shrink-0 transition-transform duration-150', !isOpen && '-rotate-90')}
+                  />
                 </button>
               ) : section.title && collapsed ? (
                 <div
@@ -601,44 +689,6 @@ export function AppShell() {
 
         {renderNav(() => setMobileOpen(false), collapsed)}
 
-        {/* Bottom section: settings + sign out, themed like the sidebar */}
-        <div className="space-y-0.5 p-2" style={{ borderTop: `1px solid ${sb.sidebarBorder}` }}>
-          <NavLink
-            to="/settings/company"
-            className={cn(
-              'flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-all',
-              collapsed && 'justify-center px-2',
-            )}
-            style={({ isActive }) => ({
-              color: isActive ? sb.sidebarActive : sb.sidebarMuted,
-              background: isActive ? sb.sidebarActiveBg : 'transparent',
-            })}
-            title={collapsed ? 'Settings' : undefined}
-          >
-            <SettingsIcon style={{ width: 15, height: 15 }} />
-            {!collapsed && <span>Settings</span>}
-          </NavLink>
-          <button
-            onClick={logout}
-            className={cn(
-              'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-all',
-              collapsed && 'justify-center px-2',
-            )}
-            style={{ color: sb.sidebarMuted }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.15)';
-              (e.currentTarget as HTMLElement).style.color = '#fca5a5';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLElement).style.background = 'transparent';
-              (e.currentTarget as HTMLElement).style.color = sb.sidebarMuted;
-            }}
-            title={collapsed ? 'Sign Out' : undefined}
-          >
-            <LogOut style={{ width: 15, height: 15 }} />
-            {!collapsed && <span>Sign Out</span>}
-          </button>
-        </div>
       </div>
     );
   };
@@ -649,7 +699,7 @@ export function AppShell() {
       <aside
         className={cn(
           'sticky top-0 hidden h-screen shrink-0 flex-col transition-all duration-200 md:flex print:hidden',
-          sidebarCollapsed ? 'w-16' : 'w-60',
+          sidebarCollapsed ? 'w-16' : 'w-64',
         )}
         style={{ background: sb.sidebar }}
       >
@@ -693,13 +743,48 @@ export function AppShell() {
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
             <ThemePicker />
-            <span className="hidden text-sm text-muted-foreground sm:inline">
-              {user?.firstName}
-            </span>
-            <Button variant="outline" size="sm" onClick={logout}>
-              <LogOut className="h-4 w-4" />
-              <span className="ml-1 hidden sm:inline">{t('auth.signOut')}</span>
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-full px-1.5 py-1 outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span
+                    className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
+                    aria-hidden="true"
+                  >
+                    {(user?.firstName?.[0] ?? '').toUpperCase()}
+                    {(user?.lastName?.[0] ?? '').toUpperCase()}
+                  </span>
+                  <span className="hidden text-sm font-medium text-foreground sm:inline">
+                    {user?.firstName}
+                  </span>
+                  <ChevronDown className="hidden h-4 w-4 text-muted-foreground sm:inline" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="flex flex-col gap-0.5">
+                  <span className="text-sm font-semibold text-foreground">
+                    {user?.firstName} {user?.lastName}
+                  </span>
+                  <span className="truncate text-xs font-normal text-muted-foreground">
+                    {user?.email}
+                  </span>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <div className="px-2 py-1.5">
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Active Branch
+                  </label>
+                  <BranchSwitcher />
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
+                  <LogOut className="mr-2 h-4 w-4" />
+                  <span>{t('auth.signOut')}</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 

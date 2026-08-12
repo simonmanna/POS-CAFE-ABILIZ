@@ -46,6 +46,7 @@ const MODULE_META: Record<string, { label: string; description: string }> = {
   task: { label: 'Tasks', description: 'Task board, assignments, recurring checklists, verification' },
   backup: { label: 'Backup', description: 'Scheduled database backups and restore points' },
   sync: { label: 'Offline Sync', description: 'Device registry and pull/push data plane for offline clients' },
+  communication: { label: 'Communication', description: 'Staff chat, unified inbox, WhatsApp/Telegram, event-driven messaging' },
   school: { label: 'School ERP', description: 'Students, enrollment, fee schedules, term invoicing' },
   kernel: { label: 'Platform Kernel', description: 'Tenancy, auth, audit, events, workflow, approvals' },
 };

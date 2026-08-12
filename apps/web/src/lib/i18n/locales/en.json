@@ -62,6 +62,7 @@
     "webhooks": "Webhooks",
     "recurring": "Recurring",
     "signOut": "Sign out",
+    "communication": "Communication",
     "pos": "POS",
     "masterData": "Master Data",
     "sales": "Sales",
@@ -70,16 +71,17 @@
     "beverageControl": "Beverage Control",
     "rentals": "Rentals",
     "repairMaintenance": "Repair & Maintenance",
-    "workforce": "Workforce (HR)",
+    "workforce": "Human Resource",
     "purchasing": "Purchasing",
     "expenses": "Expenses",
+    "cashFlow": "Cash Flow",
     "tasks": "Tasks",
     "taskManagement": "Task Management",
     "accounting": "Accounting",
     "fixedAssets": "Fixed Assets",
     "manufacturing": "Manufacturing",
     "bakery": "Bakery",
-    "system": "System"
+    "settings": "Settings"
   },
   "dashboard": {
     "title": "Dashboard",

@@ -31,9 +31,12 @@ interface AuthState {
   user: SessionUser | null;
   organization: SessionOrganization | null;
   permissions: string[];
+  /** Active branch for the session. null = all branches (org-wide). */
+  currentBranchId: string | null;
   setSession: (payload: LoginResponse) => void;
   setTokens: (accessToken: string, refreshToken: string) => void;
   setOrganization: (org: SessionOrganization) => void;
+  setCurrentBranch: (id: string | null) => void;
   clear: () => void;
   hasPermission: (permission: string) => boolean;
 }
@@ -46,6 +49,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       organization: null,
       permissions: [],
+      currentBranchId: null,
       setSession: (payload) =>
         set({
           accessToken: payload.accessToken,
@@ -56,6 +60,7 @@ export const useAuthStore = create<AuthState>()(
         }),
       setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
       setOrganization: (organization) => set({ organization }),
+      setCurrentBranch: (currentBranchId) => set({ currentBranchId }),
       clear: () =>
         set({
           accessToken: null,
@@ -75,6 +80,7 @@ export const useAuthStore = create<AuthState>()(
         user: state.user,
         organization: state.organization,
         permissions: state.permissions,
+        currentBranchId: state.currentBranchId,
       }),
     },
   ),

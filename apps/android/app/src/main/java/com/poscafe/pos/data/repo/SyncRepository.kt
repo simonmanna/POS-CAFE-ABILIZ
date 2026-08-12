@@ -47,6 +47,8 @@ class SyncRepository @Inject constructor(
         res.data["productPackagings"]?.let { applyProductPackagings(it) }
         res.data["partners"]?.let { applyPartners(it) }
         res.data["reservations"]?.let { applyReservations(it) }
+        res.data["conversations"]?.let { applyConversations(it) }
+        res.data["messages"]?.let { applyMessages(it) }
 
         db.syncStateDao().put(
             SyncStateEntity(
@@ -94,6 +96,8 @@ class SyncRepository @Inject constructor(
                     // updates are harmless no-ops (WHERE id = opId matches none).
                     db.saleDao().markSync(result.opId, "failed", null, null, result.error)
                     db.refundDao().markSync(result.opId, "failed", null, result.error)
+                    // message.send opId == the message id; flip its bubble to failed.
+                    db.messageDao().markState(result.opId, "failed", result.error)
                 }
             }
         }
@@ -127,6 +131,9 @@ class SyncRepository @Inject constructor(
         // reservation.* applied — mark the booking synced (keyed by its id, not
         // the opId, since seat/cancel/no-show ops have their own uuid).
         mapping?.get("reservationId")?.let { db.reservationDao().markSync(it, "synced") }
+        // message.send applied — flip the optimistic bubble to 'sent'. The
+        // authoritative seq arrives on the next pull (applyMessages).
+        mapping?.get("messageId")?.let { db.messageDao().markState(it, "sent", null) }
     }
 
     // ---------------------- pull-apply per scope ----------------------
@@ -553,6 +560,83 @@ class SyncRepository @Inject constructor(
             )
         }
     }
+
+    /** Device-visible channels only (server already filtered by syncToDevices). */
+    private suspend fun applyConversations(rows: List<JsonObject>) {
+        val dao = db.conversationDao()
+        for (row in rows) {
+            val id = row.str("id") ?: continue
+            if (row.deleted()) { dao.delete(id); continue }
+            val name = row.str("name") ?: row.str("kind") ?: "Channel"
+            val updatedAt = parseEpoch(row.str("updatedAt"))
+            dao.upsert(
+                listOf(
+                    ConversationEntity(
+                        id = id,
+                        title = name,
+                        type = row.str("kind") ?: "channel",
+                        // Preserve any newer local activity; a fresh row starts at updatedAt.
+                        lastMessageAt = (dao.byId(id)?.lastMessageAt ?: 0L).coerceAtLeast(updatedAt),
+                        lastMessagePreview = dao.byId(id)?.lastMessagePreview,
+                        updatedAt = updatedAt,
+                    ),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Append-only messages, keyed by the seq cursor server-side. Guards:
+     *  • skip ids with a still-queued local `message.send` (un-pushed optimistic
+     *    bubble) so the pull can't clobber a mid-flight send;
+     *  • preserve a locally-composed message's `outbound` direction on echo-back;
+     *  • set the authoritative `seq` and flip to `sent`.
+     * Retention (shared till): prune >30 days and keep ≤500 per conversation.
+     */
+    private suspend fun applyMessages(rows: List<JsonObject>) {
+        val mDao = db.messageDao()
+        val pending = pendingIdsByKey("message.send", "clientId", "id")
+        val touched = mutableSetOf<String>()
+        for (row in rows) {
+            val id = row.str("id") ?: continue
+            if (id in pending) continue
+            val conversationId = row.str("conversationId") ?: continue
+            val existing = mDao.byId(id)
+            val senderUserId = row.str("senderUserId")
+            val senderName = existing?.senderName
+                ?: senderUserId?.let { db.staffDao().byId(it)?.let { s -> listOfNotNull(s.firstName, s.lastName).joinToString(" ").trim() } }
+                ?: (row.str("senderType") ?: "Staff")
+            val occurredAt = parseEpoch(row.str("occurredAt"))
+            mDao.upsert(
+                listOf(
+                    MessageEntity(
+                        id = id,
+                        conversationId = conversationId,
+                        senderUserId = senderUserId,
+                        senderName = senderName.ifBlank { "Staff" },
+                        // A message we composed here keeps its outbound identity on echo-back.
+                        direction = existing?.direction ?: "inbound",
+                        body = row.str("body") ?: "",
+                        occurredAt = occurredAt,
+                        seq = row.str("syncSequence")?.toLongOrNull() ?: existing?.seq,
+                        deliveryState = "sent",
+                        lastError = null,
+                    ),
+                ),
+            )
+            db.conversationDao().touch(conversationId, occurredAt, (row.str("body") ?: "").take(80))
+            touched += conversationId
+        }
+        // Retention.
+        mDao.pruneOlderThan(Instant.now().toEpochMilli() - 30L * 24 * 60 * 60 * 1000)
+        for (cid in touched) mDao.trimConversation(cid, 500)
+    }
+
+    /** Like pendingIds but reads the id from any of the given payload keys in order. */
+    private suspend fun pendingIdsByKey(type: String, vararg keys: String): Set<String> =
+        db.opQueueDao().queuedOfType(type)
+            .mapNotNull { op -> parsePayload(op.payloadJson)?.let { p -> keys.firstNotNullOfOrNull { p.str(it) } } }
+            .toSet()
 
     /** Parse ISO-8601 date string or epoch-millis number to Long. */
     private fun parseEpoch(s: String?): Long {

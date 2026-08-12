@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, ShieldCheck, Search } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
@@ -26,6 +27,8 @@ export function RolesPage() {
   const [editing, setEditing] = useState<Role | null>(null);
   const [deleting, setDeleting] = useState<Role | null>(null);
 
+  const navigate = useNavigate();
+
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canCreate = hasPermission(PERMISSIONS.role.create);
   const canUpdate = hasPermission(PERMISSIONS.role.update);
@@ -48,8 +51,7 @@ export function RolesPage() {
     setDialogOpen(true);
   };
   const openEdit = (r: Role) => {
-    setEditing(r);
-    setDialogOpen(true);
+    navigate(`/staff/roles/${r.id}/edit`);
   };
 
   const confirmDelete = async () => {

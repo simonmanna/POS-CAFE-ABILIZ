@@ -51,6 +51,10 @@ export const SYNC_OP_TYPES = [
   'posTable.delete',
   // Self-service staff PIN change (device hashes the new PIN, server stores it)
   'staff.pinChange',
+  // Communication (Phase 5) — offline staff messaging. Client-minted message id
+  // == server id, so a replayed op upserts the same row.
+  'message.send',
+  'message.markRead',
 ] as const;
 export type SyncOpType = (typeof SYNC_OP_TYPES)[number];
 
@@ -114,5 +118,9 @@ export const SYNC_PULL_SCOPES = [
   'productPackagings',
   'partners',
   'reservations',
+  // Communication (Phase 5). `conversations` is master-data-shaped (time
+  // watermark); `messages` is high-volume append-only and uses a seq cursor.
+  'conversations',
+  'messages',
 ] as const;
 export type SyncPullScope = (typeof SYNC_PULL_SCOPES)[number];

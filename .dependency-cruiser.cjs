@@ -30,6 +30,7 @@ const VERTICALS = [
   'fixed-asset',
   'task',
   'beverage',
+  'communication',
 ];
 const verticalAlt = VERTICALS.join('|');
 const verticalGroup = `(?:${verticalAlt})`;

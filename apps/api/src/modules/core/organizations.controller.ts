@@ -73,7 +73,24 @@ export class OrganizationsController {
     return this.svc.updateSettings(dto);
   }
 
+  /**
+   * Set the current user's active branch. `defaultBranchId: null` grants
+   * org-wide (all-branch) access. Drives BranchScopeService scoping.
+   */
   @ApiBearerAuth()
+  @Patch('me/branch')
+  async setMyBranch(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: { defaultBranchId: string | null },
+  ) {
+    await this.prisma.client.user.update({
+      where: { id: user.sub },
+      data: { defaultBranchId: dto.defaultBranchId ?? null },
+    });
+    return { ok: true, defaultBranchId: dto.defaultBranchId ?? null };
+  }
+
+
   @Get('users')
   async listUsers() {
     return this.prisma.client.user.findMany({

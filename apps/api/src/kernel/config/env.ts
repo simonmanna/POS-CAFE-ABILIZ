@@ -85,6 +85,29 @@ export function validateEnv(): EnvValidationResult {
     errors.push('DATABASE_URL is not set');
   }
 
+  // Communication — the WhatsApp Baileys transport persists linked-device session
+  // creds; they are AES-256-GCM encrypted at rest with COMM_ENCRYPTION_KEY. A DB
+  // dump must not be a session takeover, so the key is mandatory when that
+  // transport is enabled. Must be 32 bytes, base64 (`openssl rand -base64 32`).
+  const commEnabled = process.env.ENABLE_COMMUNICATION === 'true';
+  const waEnabled = commEnabled && process.env.ENABLE_COMMUNICATION_WHATSAPP === 'true';
+  if (waEnabled && process.env.WHATSAPP_TRANSPORT === 'baileys') {
+    const key = process.env.COMM_ENCRYPTION_KEY;
+    if (!key) {
+      errors.push('COMM_ENCRYPTION_KEY is required when the Baileys WhatsApp transport is enabled');
+    } else {
+      let bytes = 0;
+      try {
+        bytes = Buffer.from(key, 'base64').length;
+      } catch {
+        bytes = 0;
+      }
+      if (bytes !== 32) {
+        errors.push('COMM_ENCRYPTION_KEY must decode to exactly 32 bytes (base64) for AES-256-GCM');
+      }
+    }
+  }
+
   if (errors.length > 0) {
     for (const err of errors) {
       logger.error(err);

@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("sync") { SyncScreen(onBack = { nav.popBackStack() }) }
+                        composable("messaging") { com.poscafe.pos.ui.screens.messaging.MessagingScreen(onBack = { nav.popBackStack() }) }
                         composable("menu-manager") { com.poscafe.pos.ui.screens.manage.MenuManagerScreen(onBack = { nav.popBackStack() }) }
                         composable("products") { com.poscafe.pos.ui.screens.manage.ProductsScreen(onBack = { nav.popBackStack() }) }
                         composable("taxes") { com.poscafe.pos.ui.screens.manage.TaxesScreen(onBack = { nav.popBackStack() }) }

@@ -36,6 +36,7 @@ const GATED_MODULES: { module: string; envFlag: string }[] = [
   { module: 'rental', envFlag: 'ENABLE_RENTAL' },
   { module: 'repair', envFlag: 'ENABLE_REPAIR' },
   { module: 'hr', envFlag: 'ENABLE_HR' },
+  { module: 'communication', envFlag: 'ENABLE_COMMUNICATION' },
 ];
 
 async function main() {

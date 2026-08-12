@@ -21,6 +21,17 @@ export class SyncPullService {
   constructor(private readonly prisma: PrismaService) {}
 
   private static readonly OVERLAP_MS = 5_000;
+  /** Messages page size (append-only, high-volume — must be bounded). */
+  private static readonly MESSAGE_PAGE = 200;
+  /**
+   * Commit-lag hold-back for the seq cursor. BIGSERIAL is assigned at INSERT but
+   * visible at COMMIT, so txn B(seq=101) can commit before txn A(seq=100) — a
+   * cursor advanced to 101 would skip 100 forever. We only advance the cursor
+   * past rows older than this window; newer rows are still RETURNED (the device
+   * upserts by id, so redelivery is free). Correct as long as no Message insert
+   * stays open longer than this — single-row inserts always do.
+   */
+  private static readonly SEQ_COMMIT_LAG_MS = 2_000;
 
   async pull(cursorRaw: string | undefined, scopesRaw: string | undefined) {
     const scopes = this.parseScopes(scopesRaw);
@@ -33,6 +44,15 @@ export class SyncPullService {
     const nextCursor: Record<string, string> = { ...cursor };
 
     for (const scope of scopes) {
+      // `messages` uses a monotonic seq cursor, not the time watermark — see
+      // readMessagesPaged. Everything else is time-based.
+      if (scope === 'messages') {
+        const { rows, nextSeq, hasMore } = await this.readMessagesPaged(cursor.messagesSeq);
+        data.messages = rows;
+        nextCursor.messagesSeq = nextSeq;
+        nextCursor.messagesHasMore = hasMore ? '1' : '0';
+        continue;
+      }
       const since = cursor[scope]
         ? new Date(new Date(cursor[scope]).getTime() - SyncPullService.OVERLAP_MS)
         : undefined;
@@ -45,6 +65,58 @@ export class SyncPullService {
       cursor: Buffer.from(JSON.stringify(nextCursor), 'utf8').toString('base64url'),
       serverTime: serverTime.toISOString(),
     };
+  }
+
+  /**
+   * A seq-ordered page of device-visible messages. Only conversations flagged
+   * `syncToDevices` (channels, never DMs/customer threads) are included — a
+   * shared till must not hold private conversations. `syncSequence` is emitted as
+   * a string (BigInt is not JSON-serializable).
+   */
+  private async readMessagesPaged(
+    sinceSeqRaw: string | undefined,
+  ): Promise<{ rows: unknown[]; nextSeq: string; hasMore: boolean }> {
+    const c = this.prisma.client as any;
+    const sinceSeq = sinceSeqRaw ? BigInt(sinceSeqRaw) : 0n;
+    const rows: any[] = await c.message.findMany({
+      where: {
+        seq: { gt: sinceSeq },
+        deletedAt: null,
+        conversation: { syncToDevices: true, deletedAt: null },
+      },
+      orderBy: { seq: 'asc' },
+      take: SyncPullService.MESSAGE_PAGE,
+      select: {
+        id: true,
+        conversationId: true,
+        senderType: true,
+        senderUserId: true,
+        body: true,
+        contentType: true,
+        occurredAt: true,
+        seq: true,
+        createdAt: true,
+      },
+    });
+
+    // Advance the cursor only past rows old enough that no concurrent insert can
+    // still be holding a lower, uncommitted seq. Newer rows are returned now and
+    // re-arrive next pull (free — the device upserts by id).
+    const safeBefore = Date.now() - SyncPullService.SEQ_COMMIT_LAG_MS;
+    const safe = rows.filter((r) => r.createdAt.getTime() < safeBefore);
+    const nextSeq = (safe.length > 0 ? safe[safe.length - 1].seq : sinceSeq).toString();
+
+    const serialized = rows.map((r) => ({
+      id: r.id,
+      conversationId: r.conversationId,
+      senderType: r.senderType,
+      senderUserId: r.senderUserId,
+      body: r.body,
+      contentType: r.contentType,
+      occurredAt: r.occurredAt.toISOString(),
+      syncSequence: r.seq.toString(),
+    }));
+    return { rows: serialized, nextSeq, hasMore: rows.length === SyncPullService.MESSAGE_PAGE };
   }
 
   private parseScopes(raw: string | undefined): SyncPullScope[] {
@@ -193,6 +265,26 @@ export class SyncPullService {
           },
           orderBy: { updatedAt: 'asc' },
         });
+      case 'conversations':
+        // Device-visible conversations only — `syncToDevices` is settable solely
+        // on kind='channel', so DMs and customer threads never reach a shared
+        // till. Master-data-shaped (has updatedAt), so the time watermark applies.
+        return c.conversation.findMany({
+          where: { ...changed, syncToDevices: true },
+          select: {
+            id: true,
+            kind: true,
+            name: true,
+            contextType: true,
+            contextId: true,
+            updatedAt: true,
+            deletedAt: true,
+          },
+          orderBy: { updatedAt: 'asc' },
+        });
+      case 'messages':
+        // Handled by readMessagesPaged (seq cursor) — never reached via readScope.
+        return [];
       case 'reservations':
         // Upcoming/active bookings for the floor. A rolling 24h floor bounds the
         // backfill; the device treats terminal statuses (cancelled/no_show/

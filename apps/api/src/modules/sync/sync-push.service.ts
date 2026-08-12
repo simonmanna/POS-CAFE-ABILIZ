@@ -481,6 +481,59 @@ export class SyncPushService {
         }
         return { id: userId };
       }
+      // ───────────── Communication (Phase 5) — offline staff messaging ─────────
+      // Deliberately prisma-direct (no MessageService dep): the communication
+      // module is flag-gated, and sync must boot whether or not it is enabled.
+      // Other devices receive the message via the `messages` pull scope; web via
+      // its next poll. The client-minted id IS the server id, so a replay upserts.
+      case 'message.send': {
+        const messageId = String(payload.clientId ?? payload.id ?? '');
+        const conversationId = String(payload.conversationId ?? '');
+        const body = String(payload.body ?? '').trim();
+        if (!messageId) throw new HttpException('message.send requires a clientId', 400);
+        if (!conversationId || !body) throw new HttpException('message.send requires conversationId and body', 400);
+        const conv = await this.prisma.client.conversation.findFirst({
+          where: { id: conversationId, deletedAt: null },
+          select: { syncToDevices: true },
+        });
+        if (!conv) throw new HttpException('Conversation not found', 404);
+        // A till may only post to device-visible channels — never a DM/customer thread.
+        if (!conv.syncToDevices) throw new HttpException('Conversation is not device-visible', 403);
+        try {
+          const m = await this.prisma.client.message.create({
+            data: {
+              id: messageId,
+              organizationId: this.tenant.organizationId,
+              conversationId,
+              senderType: 'user',
+              senderUserId: op.actorUserId,
+              contentType: 'text',
+              body,
+              occurredAt: new Date(occurredAt),
+            },
+            select: { id: true, seq: true },
+          });
+          await this.prisma.client.conversation.updateMany({ where: { id: conversationId }, data: { updatedAt: new Date() } });
+          // seq as string — a BigInt in the cached idempotency body would not serialize.
+          return { id: m.id, mapping: { messageId: m.id }, syncSequence: m.seq.toString() };
+        } catch (e: any) {
+          if (e?.code === 'P2002') {
+            const existing = await this.prisma.client.message.findFirst({ where: { id: messageId }, select: { id: true } });
+            if (existing) return { id: existing.id, mapping: { messageId: existing.id } };
+          }
+          throw e;
+        }
+      }
+      case 'message.markRead': {
+        const conversationId = String(payload.conversationId ?? '');
+        const messageId = payload.messageId ? String(payload.messageId) : '';
+        if (!conversationId || !messageId) throw new HttpException('message.markRead requires conversationId and messageId', 400);
+        await this.prisma.client.conversationParticipant.updateMany({
+          where: { conversationId, userId: op.actorUserId, participantType: 'user' },
+          data: { lastReadMessageId: messageId },
+        });
+        return { id: conversationId };
+      }
       default:
         throw new HttpException(`Unsupported sync op type: ${op.type}`, 400);
     }

@@ -45,8 +45,11 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         LocalTabEntity::class,
         ReservationEntity::class,
         MenuItemLocalEntity::class,
+        ConversationEntity::class,
+        MessageEntity::class,
+        ConversationReadStateEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class PosDatabase : RoomDatabase() {
@@ -71,6 +74,9 @@ abstract class PosDatabase : RoomDatabase() {
     abstract fun holdDao(): HoldDao
     abstract fun tabDao(): TabDao
     abstract fun reservationDao(): ReservationDao
+    abstract fun conversationDao(): ConversationDao
+    abstract fun messageDao(): MessageDao
+    abstract fun conversationReadStateDao(): ConversationReadStateDao
 
     companion object {
         /** v1 → v2: additive only (customers, suppliers, inventory movements) —
@@ -223,6 +229,33 @@ abstract class PosDatabase : RoomDatabase() {
             }
         }
 
+        /** v10 → v11: offline staff messaging (additive). Sales/session data must
+         *  survive — this migration is written explicitly even though
+         *  fallbackToDestructiveMigration() is set, or a bump would wipe the till. */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `conversations` (`id` TEXT NOT NULL, `title` TEXT NOT NULL, " +
+                        "`type` TEXT NOT NULL, `lastMessageAt` INTEGER NOT NULL, `lastMessagePreview` TEXT, " +
+                        "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `messages` (`id` TEXT NOT NULL, `conversationId` TEXT NOT NULL, " +
+                        "`senderUserId` TEXT, `senderName` TEXT NOT NULL, `direction` TEXT NOT NULL, " +
+                        "`body` TEXT NOT NULL, `occurredAt` INTEGER NOT NULL, `seq` INTEGER, " +
+                        "`deliveryState` TEXT NOT NULL, `lastError` TEXT, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_conversationId` ON `messages` (`conversationId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_seq` ON `messages` (`seq`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_messages_occurredAt` ON `messages` (`occurredAt`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `conversation_read_state` (`conversationId` TEXT NOT NULL, " +
+                        "`userId` TEXT NOT NULL, `lastReadAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`conversationId`, `userId`))",
+                )
+            }
+        }
+
         /** SQLCipher-encrypted. Passphrase stored in EncryptedSharedPreferences
          *  (Android Keystore-backed) — stolen device yields ciphertext only. */
         fun build(context: Context, passphrase: ByteArray): PosDatabase {
@@ -231,7 +264,7 @@ abstract class PosDatabase : RoomDatabase() {
                 .openHelperFactory(SupportOpenHelperFactory(passphrase))
                 .addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10,
+                    MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
                 )
                 .fallbackToDestructiveMigration()
                 .build()

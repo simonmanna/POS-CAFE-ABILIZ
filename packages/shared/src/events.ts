@@ -164,6 +164,16 @@ export const EVENTS = {
   // this is what the Phase C inventory posting policy binds to.
   FulfillmentStarted: 'fulfillment.started',
   FulfillmentCompleted: 'fulfillment.completed',
+
+  // Communication platform. `message.created` fires when a human/system message
+  // is persisted (drives dispatch); `message.received` on inbound from an
+  // external provider; `message.delivered`/`.failed` are the transport outcome.
+  // `channel.status_changed` tracks provider connection health for the UI.
+  CommunicationMessageCreated: 'communication.message.created',
+  CommunicationMessageReceived: 'communication.message.received',
+  CommunicationMessageDelivered: 'communication.message.delivered',
+  CommunicationMessageFailed: 'communication.message.failed',
+  CommunicationChannelStatusChanged: 'communication.channel.status_changed',
 } as const;
 
 /** Payload emitted for a created/updated/deleted tenant entity. */
@@ -373,6 +383,43 @@ export interface DomainEventMap {
 
   'fulfillment.started': FulfillmentEventPayload;
   'fulfillment.completed': FulfillmentEventPayload;
+
+  // Communication platform.
+  'communication.message.created': CommunicationMessageEventPayload;
+  'communication.message.received': CommunicationMessageEventPayload;
+  'communication.message.delivered': CommunicationDeliveryEventPayload;
+  'communication.message.failed': CommunicationDeliveryEventPayload;
+  'communication.channel.status_changed': CommunicationChannelEventPayload;
+}
+
+/** A message was created (outbound) or received (inbound). */
+export interface CommunicationMessageEventPayload {
+  organizationId: string;
+  messageId: string;
+  conversationId: string;
+  /** Inbound provider id, or 'internal' for staff-authored. */
+  providerId: string;
+  direction: 'inbound' | 'outbound';
+  [key: string]: unknown;
+}
+
+/** A per-recipient delivery reached a terminal transport outcome. */
+export interface CommunicationDeliveryEventPayload {
+  organizationId: string;
+  messageId: string;
+  deliveryId: string;
+  providerId: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+/** A communication channel changed connection status. */
+export interface CommunicationChannelEventPayload {
+  organizationId: string;
+  channelId: string;
+  providerId: string;
+  status: string;
+  [key: string]: unknown;
 }
 
 /**
@@ -472,4 +519,10 @@ export const EVENT_SUBJECT: Partial<Record<DomainEventName, { entityType: string
   'document.terminated': { entityType: 'document', idField: 'documentId' },
   'document.archived': { entityType: 'document', idField: 'documentId' },
   'document.amended': { entityType: 'document', idField: 'documentId' },
+  // Communication — message facts are filed against the message so a
+  // conversation's ledger history is queryable per-message.
+  'communication.message.created': { entityType: 'communication_message', idField: 'messageId' },
+  'communication.message.received': { entityType: 'communication_message', idField: 'messageId' },
+  'communication.message.delivered': { entityType: 'communication_message', idField: 'messageId' },
+  'communication.message.failed': { entityType: 'communication_message', idField: 'messageId' },
   };

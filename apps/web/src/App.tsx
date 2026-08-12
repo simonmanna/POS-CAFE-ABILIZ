@@ -71,6 +71,9 @@ import { InvoicesPage } from '@/pages/invoicing/invoices';
 import { InvoiceCreatePage } from '@/pages/invoicing/invoice-create';
 import { InvoiceDetailPage } from '@/pages/invoicing/invoice-detail';
 import { OrdersPage } from '@/pages/orders/orders';
+import CommunicationInboxPage from '@/pages/communication/inbox';
+import CommunicationRulesPage from '@/pages/communication/rules';
+import CommunicationChannelsPage from '@/pages/communication/channels';
 import { OrderCreatePage } from '@/pages/orders/order-create';
 import { OrderDetailPage } from '@/pages/orders/order-detail';
 import { ArAgingPage } from '@/pages/invoicing/ar-aging';
@@ -160,6 +163,7 @@ import TableReportsPage from '@/pages/tables/TableReportsPage';
 import ReportCenterPage from '@/pages/reports/ReportCenterPage';
 import { StaffPage } from '@/pages/staff/StaffPage';
 import { RolesPage } from '@/pages/staff/RolesPage';
+import { RoleEditPage } from '@/pages/staff/RoleEditPage';
 import { TasksPage } from '@/pages/tasks/TasksPage';
 import { TaskEditPage } from '@/pages/tasks/TaskEditPage';
 
@@ -190,6 +194,7 @@ export function App() {
           <Route path="/tables/reports" element={<TableReportsPage />} />
           <Route path="/staff" element={<StaffPage />} />
           <Route path="/staff/roles" element={<RolesPage />} />
+          <Route path="/staff/roles/:id/edit" element={<RoleEditPage />} />
           <Route path="/partners" element={<PartnersPage />} />
           <Route path="/customers" element={<CustomersPage />} />
           <Route path="/customers/:partnerId" element={<CustomerDetailPage />} />
@@ -211,6 +216,9 @@ export function App() {
                     <Route path="/orders" element={<OrdersPage />} />
                     <Route path="/orders/new" element={<OrderCreatePage />} />
                     <Route path="/orders/:id" element={<OrderDetailPage />} />
+                    <Route path="/communication" element={<CommunicationInboxPage />} />
+                    <Route path="/communication/rules" element={<CommunicationRulesPage />} />
+                    <Route path="/communication/channels" element={<CommunicationChannelsPage />} />
           <Route path="/credit-notes" element={<CreditNotesPage />} />
           <Route path="/credit-notes/new" element={<CreditNoteCreatePage />} />
           <Route path="/credit-notes/:id" element={<CreditNoteDetailPage />} />

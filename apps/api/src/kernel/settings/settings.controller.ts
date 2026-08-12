@@ -79,12 +79,14 @@ export class SettingsController {
   @Get('effective')
   @RequirePermissions(PERMISSIONS.setting.read)
   effective(
-    @Query('group') group: 'inventory' | 'accounting',
+    @Query('group') group: 'inventory' | 'accounting' | 'purchasing',
     @Query('warehouseId') warehouseId?: string,
     @Query('categoryId') categoryId?: string,
     @Query('productId') productId?: string,
   ) {
-    return this.settings.listEffective(group === 'accounting' ? 'accounting' : 'inventory', {
+    const resolved: 'inventory' | 'accounting' | 'purchasing' =
+      group === 'accounting' || group === 'purchasing' ? group : 'inventory';
+    return this.settings.listEffective(resolved, {
       warehouseId,
       categoryId,
       productId,

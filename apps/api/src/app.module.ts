@@ -25,6 +25,7 @@ import { RentalModule } from './modules/rental/rental.module';
 import { RepairModule } from './modules/repair/repair.module';
 import { HrModule } from './modules/hr/hr.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { CommunicationModule } from './modules/communication/communication.module';
 // import { SchoolModule } from './modules/school/school.module'; // disabled: DI wiring issues, not needed for POS testing
 
 /**
@@ -83,6 +84,7 @@ const enabled = (flag: string): boolean => process.env[flag] === 'true';
     ...(enabled('ENABLE_REPAIR') ? [RepairModule] : []),
     ...(enabled('ENABLE_HR') ? [HrModule] : []),
         ...(enabled('ENABLE_ORDERS') ? [OrdersModule] : []),
+    ...(enabled('ENABLE_COMMUNICATION') ? [CommunicationModule] : []),
       ],
   controllers: [AppController, MetricsController],
 })

@@ -62,6 +62,7 @@
     "webhooks": "Webhooks",
     "recurring": "Recurrentes",
     "signOut": "Cerrar sesión",
+    "communication": "Comunicación",
     "pos": "TPV",
     "masterData": "Datos maestros",
     "sales": "Ventas",
@@ -70,16 +71,17 @@
     "beverageControl": "Control de bebidas",
     "rentals": "Alquileres",
     "repairMaintenance": "Reparación y mantenimiento",
-    "workforce": "Personal (RRHH)",
+    "workforce": "Recursos Humanos",
     "purchasing": "Compras",
     "expenses": "Gastos",
+    "cashFlow": "Flujo de caja",
     "tasks": "Tareas",
     "taskManagement": "Gestión de tareas",
     "accounting": "Contabilidad",
     "fixedAssets": "Activos fijos",
     "manufacturing": "Fabricación",
     "bakery": "Panadería",
-    "system": "Sistema"
+    "settings": "Sistema"
   },
   "dashboard": {
     "title": "Panel",

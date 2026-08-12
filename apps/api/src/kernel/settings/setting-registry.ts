@@ -18,7 +18,7 @@ export const SCOPE_PRECEDENCE: ScopeType[] = ['product', 'category', 'warehouse'
 
 export type SettingType = 'bool' | 'enum' | 'string' | 'number' | 'json';
 
-export type SettingGroup = 'inventory' | 'accounting' | 'rental';
+export type SettingGroup = 'inventory' | 'accounting' | 'rental' | 'purchasing';
 
 export interface SettingDefinition {
   key: string;
@@ -371,6 +371,78 @@ export const SETTING_DEFINITIONS = {
     label: 'Deposit Policy',
     description: 'JSON: { mode: fixed|percent|replacement, percent, fixedAmount }. Fallback: 10% of replacement cost.',
     default: { mode: 'percent', percent: 10 },
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+
+  // ---- Purchase Configuration --------------------------------------------
+  'purchasing.editProductPriceFromPurchaseScreen': {
+    key: 'purchasing.editProductPriceFromPurchaseScreen',
+    group: 'purchasing',
+    type: 'bool',
+    label: 'Enable editing product price from purchase screen',
+    description: 'Allow the unit cost / price to be edited directly on the purchase (receive) screen.',
+    default: false,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'purchasing.enablePurchaseStatus': {
+    key: 'purchasing.enablePurchaseStatus',
+    group: 'purchasing',
+    type: 'bool',
+    label: 'Enable Purchase Status',
+    description: 'Track lifecycle status (draft / ordered / received / billed) on purchases.',
+    default: false,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'purchasing.enableLotBatchOnPurchase': {
+    key: 'purchasing.enableLotBatchOnPurchase',
+    group: 'purchasing',
+    type: 'bool',
+    label: 'Enable lot / batch number on purchases',
+    description: 'Require or allow a lot / batch number when receiving purchased stock.',
+    default: false,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'purchasing.enablePurchaseOrder': {
+    key: 'purchasing.enablePurchaseOrder',
+    group: 'purchasing',
+    type: 'bool',
+    label: 'Enable Purchase Order',
+    description: 'Allow creating purchase orders that are received into stock.',
+    default: false,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'purchasing.enablePurchaseRequisition': {
+    key: 'purchasing.enablePurchaseRequisition',
+    group: 'purchasing',
+    type: 'bool',
+    label: 'Enable Purchase Requisition',
+    description: 'Allow raising internal purchase requisitions before a purchase order.',
+    default: false,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'purchasing.enableReceiptReminder': {
+    key: 'purchasing.enableReceiptReminder',
+    group: 'purchasing',
+    type: 'bool',
+    label: 'Receipt Reminder',
+    description: 'Enable reminders for expected receipt dates on purchases.',
+    default: false,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'purchasing.autoRemindReceiptToVendors': {
+    key: 'purchasing.autoRemindReceiptToVendors',
+    group: 'purchasing',
+    type: 'bool',
+    label: 'Automatically remind the receipt date to your vendors',
+    description: 'Send automatic receipt-date reminders to vendors when enabled.',
+    default: false,
     cascades: false,
     scopeLevels: ORG_ONLY,
   },
