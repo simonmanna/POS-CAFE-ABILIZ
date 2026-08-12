@@ -734,8 +734,6 @@ const RetailTerminal: React.FC = () => {
         onOpenOrders={() => setShowOrders(true)}
         ordersCount={ordersCount}
         rightExtras={<OfflineIndicator />}
-        brandTitle="POS"
-        brandIcon={<ShoppingBag className="h-4 w-4" />}
       />
 
       <div className="pos-body-pro">

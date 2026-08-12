@@ -76,6 +76,43 @@ body.pos-terminal-fullscreen .app-shell-header {
   background: rgba(255, 255, 255, 0.16);
   transform: translateY(-1px);
 }
+
+/* Solid filled flat nav buttons (Orders / Shift / Tables / Reports). */
+.pos-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.2rem 0.55rem;
+  margin: 0 0.25rem;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.pos-nav-btn:hover {
+  background: rgba(15, 23, 42, 0.8);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+.pos-nav-btn--open {
+  background: #16a34a;
+  border-color: #15803d;
+}
+.pos-nav-btn--open:hover {
+  background: #15803d;
+}
+.pos-nav-btn--closed {
+  background: #dc2626;
+  border-color: #b91c1c;
+}
+.pos-nav-btn--closed:hover {
+  background: #b91c1c;
+}
 .pos-active-dot {
   display: inline-block;
   width: 6px;

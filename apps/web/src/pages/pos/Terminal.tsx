@@ -29,7 +29,6 @@ import { Coffee, LayoutGrid, ArrowLeft, Printer, Clock } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 
 import { Topbar } from './Topbar';
-import { OfflineIndicator } from './OfflineIndicator';
 import { enqueueSale } from '@/features/pos/offline-queue';
 import { AddOnsDialog } from './AddOnsDialog';
 import { VariantPicker } from './VariantPicker';
@@ -1615,7 +1614,7 @@ const TerminalPage: React.FC = () => {
         onUserChanged={handleUserChanged}
         onOpenOrders={() => setShowOrders(true)}
         ordersCount={ordersCount}
-        rightExtras={<OfflineIndicator />}
+        // rightExtras={<OfflineIndicator />}
         orderType={orderTypeFromStore ?? 'dine-in'}
       />
 

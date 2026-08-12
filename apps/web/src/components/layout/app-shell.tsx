@@ -542,6 +542,10 @@ export function AppShell() {
     navigate('/login', { replace: true });
   };
 
+  // Hide the app-shell header (Theme / User profile) on the full-screen POS
+  // selling terminal — the Terminal's own Topbar covers those controls.
+  const hideHeader = location.pathname.startsWith('/pos/terminal');
+
   // ── Sidebar rendering: themed background, brand tile, themed nav items ──
   const renderNav = (onItemClick?: () => void, collapsed = false) => {
     return (
@@ -717,76 +721,78 @@ export function AppShell() {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="app-shell-header sticky top-0 z-30 flex h-11 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur print:hidden md:px-6">
-          <div className="flex min-w-0 items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="hidden md:inline-flex"
-              onClick={() => setSidebarCollapsed((c) => !c)}
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
-              {sidebarCollapsed ? <PanelLeft className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="md:hidden"
-              onClick={() => setMobileOpen(true)}
-              aria-label="Open menu"
-            >
-              <Menu className="h-5 w-5" />
-            </Button>
-            <div className="truncate text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">{current}</span>
+        {!hideHeader && (
+          <header className="app-shell-header sticky top-0 z-30 flex h-11 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur print:hidden md:px-6">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="hidden md:inline-flex"
+                onClick={() => setSidebarCollapsed((c) => !c)}
+                aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              >
+                {sidebarCollapsed ? <PanelLeft className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="md:hidden"
+                onClick={() => setMobileOpen(true)}
+                aria-label="Open menu"
+              >
+                <Menu className="h-5 w-5" />
+              </Button>
+              <div className="truncate text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{current}</span>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-1 sm:gap-2">
-            <ThemePicker />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  className="flex items-center gap-2 rounded-full px-1.5 py-1 outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <span
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
-                    aria-hidden="true"
+            <div className="flex items-center gap-1 sm:gap-2">
+              <ThemePicker />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 rounded-full px-1.5 py-1 outline-none transition-colors hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {(user?.firstName?.[0] ?? '').toUpperCase()}
-                    {(user?.lastName?.[0] ?? '').toUpperCase()}
-                  </span>
-                  <span className="hidden text-sm font-medium text-foreground sm:inline">
-                    {user?.firstName}
-                  </span>
-                  <ChevronDown className="hidden h-4 w-4 text-muted-foreground sm:inline" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="flex flex-col gap-0.5">
-                  <span className="text-sm font-semibold text-foreground">
-                    {user?.firstName} {user?.lastName}
-                  </span>
-                  <span className="truncate text-xs font-normal text-muted-foreground">
-                    {user?.email}
-                  </span>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <div className="px-2 py-1.5">
-                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                    Active Branch
-                  </label>
-                  <BranchSwitcher />
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>{t('auth.signOut')}</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </header>
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
+                      aria-hidden="true"
+                    >
+                      {(user?.firstName?.[0] ?? '').toUpperCase()}
+                      {(user?.lastName?.[0] ?? '').toUpperCase()}
+                    </span>
+                    <span className="hidden text-sm font-medium text-foreground sm:inline">
+                      {user?.firstName}
+                    </span>
+                    <ChevronDown className="hidden h-4 w-4 text-muted-foreground sm:inline" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="flex flex-col gap-0.5">
+                    <span className="text-sm font-semibold text-foreground">
+                      {user?.firstName} {user?.lastName}
+                    </span>
+                    <span className="truncate text-xs font-normal text-muted-foreground">
+                      {user?.email}
+                    </span>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <div className="px-2 py-1.5">
+                    <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Active Branch
+                    </label>
+                    <BranchSwitcher />
+                  </div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:text-destructive">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    <span>{t('auth.signOut')}</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </header>
+        )}
 
         <main
           className={`flex-1 overflow-auto ${

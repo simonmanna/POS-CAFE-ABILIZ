@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Coffee,
   Search,
   Maximize2,
   Minimize2,
@@ -38,9 +37,6 @@ interface Props {
   orderType?: 'dine-in' | 'takeaway' | 'delivery';
   /** Extra nodes pinned to the right cluster (e.g. the offline indicator). */
   rightExtras?: React.ReactNode;
-  /** Branding — override the default "Cafe POS" title and icon. */
-  brandTitle?: string;
-  brandIcon?: React.ReactNode;
 }
 
 const initials = (name?: string) => {
@@ -69,30 +65,20 @@ export const Topbar: React.FC<Props> = ({
   ordersCount = 0,
   orderType,
   rightExtras,
-  brandTitle = 'Cafe POS',
-  brandIcon,
 }) => {
   const shiftOpen = !!session && session.status === 'open';
 
   return (
     <div className="pos-topbar-pro">
-      <div className="pos-brand-pro">
-        {brandIcon ?? <Coffee className="h-4 w-4" />}
-        <span>{brandTitle}</span>
-      </div>
 
       {/* Shift indicator pill */}
       <button
         type="button"
-        className="pos-tbl-pill"
+        className={`pos-nav-btn ${shiftOpen ? 'pos-nav-btn--open' : 'pos-nav-btn--closed'}`}
         onClick={shiftOpen ? onCloseShift : onOpenShift}
         title={shiftOpen ? 'Close current shift' : 'Open shift to start selling'}
-        style={{
-          background: shiftOpen ? 'rgba(34, 197, 94, .25)' : 'rgba(239, 68, 68, .25)',
-          borderColor: shiftOpen ? 'rgba(34, 197, 94, .5)' : 'rgba(239, 68, 68, .5)',
-        }}
       >
-        {shiftOpen ? <PowerCircle className="h-3.5 w-3.5 text-red-500 " /> : <PowerOff className="h-3.5 w-3.5" />}
+        {shiftOpen ? <PowerCircle className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
         {shiftOpen ? (
           <>
             <span>Shift Close</span>
@@ -107,14 +93,14 @@ export const Topbar: React.FC<Props> = ({
       {onOpenOrders && (
         <button
           type="button"
-          className="pos-tbl-pill"
+          className="pos-nav-btn"
           onClick={onOpenOrders}
           title="Open orders — resume any order"
         >
-          <ClipboardList className="h-3.5 w-3.5" />
+          <ClipboardList className="h-4 w-4" />
           <span>Orders</span>
           {ordersCount > 0 ? (
-            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-teal-500 text-white text-[11px] font-bold leading-none">
+            <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white/90 text-slate-900 text-[11px] font-bold leading-none">
               {ordersCount}
             </span>
           ) : null}
@@ -125,11 +111,11 @@ export const Topbar: React.FC<Props> = ({
       {onOpenHeldOrders && (
         <button
           type="button"
-          className="pos-tbl-pill"
+          className="pos-nav-btn"
           onClick={onOpenHeldOrders}
           title="View held orders"
         >
-          <ClipboardList className="h-3.5 w-3.5" />
+          <ClipboardList className="h-4 w-4" />
           <span>Held Orders</span>
         </button>
       )}
@@ -139,15 +125,11 @@ export const Topbar: React.FC<Props> = ({
         <>
         <button
           type="button"
-          className="pos-tbl-pill"
+          className={`pos-nav-btn ${activeTableLabel ? 'pos-nav-btn--open' : ''}`}
           onClick={onOpenTableSelector}
           title="Choose a table"
-          style={{
-            background: activeTableLabel ? 'rgba(14, 165, 233, .25)' : undefined,
-            borderColor: activeTableLabel ? 'rgba(14, 165, 233, .6)' : undefined,
-          }}
         >
-          <LayoutGrid className="h-3.5 w-3.5" />
+          <LayoutGrid className="h-4 w-4" />
           <span>{'Tables'}</span>
           {activeTableLabel ? <span className="pos-active-dot" /> : null}
         </button>
@@ -156,8 +138,8 @@ export const Topbar: React.FC<Props> = ({
       )}
 
       {/* Reports */}
-      <button type="button" className="pos-tbl-pill" onClick={onOpenReports} title="X / Z reports + sales analytics">
-        <BarChart3 className="h-3.5 w-3.5" />
+      <button type="button" className="pos-nav-btn" onClick={onOpenReports} title="X / Z reports + sales analytics">
+        <BarChart3 className="h-4 w-4" />
         <span>Reports</span>
       </button>
 
