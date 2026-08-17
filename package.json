@@ -35,12 +35,12 @@
     ]
   },
   "devDependencies": {
-    "@types/pg": "^8.20.2",
+    "@types/pg": "^8.21.0",
     "dependency-cruiser": "^17.4.3",
     "dotenv": "^16.6.1",
-    "pg": "^8.22.0",
-    "tsx": "^4.23.1",
-    "vitest": "^4.1.9"
+    "pg": "^8.23.0",
+    "tsx": "^4.23.12",
+    "vitest": "^4.1.10"
   },
   "dependencies": {
     "web": "^0.0.2",
