@@ -23,6 +23,7 @@ import { PosWorkflowsInitializer } from './pos.workflows';
 import { PosMilestonesInitializer } from './pos.milestones';
 import { PosFulfillmentInitializer } from './pos.fulfillment';
 import { InventoryPostingSubscriber } from './inventory-posting.subscriber';
+import { KdsCancellationSubscriber } from './kds-cancellation.subscriber';
 import { PosHoldsService } from './pos-holds.service';
 import { PosHoldsController } from './pos-holds.controller';
 import { PosOverridesService } from './pos-overrides.service';
@@ -63,7 +64,7 @@ import { PosPrintLifecycleService } from './pos-print-lifecycle.service';
 import { PosOrdersService } from './order/pos-orders.service';
 import { PosOrdersController, PosBillingController } from './order/pos-orders.controller';
 import { PosInvoiceService } from './billing/pos-invoice.service';
-import { PosCustomerStatementService, PosCustomerStatementController } from './billing/pos-customer-statement.controller';
+import { PosCustomerStatementService, PosCustomerStatementController, PosCreditController } from './billing/pos-customer-statement.controller';
 import { StockPostingService } from './billing/stock-posting.service';
 import { StockPostingController } from './billing/stock-posting.controller';
 import { StockPostingWorker } from './billing/stock-posting.worker';
@@ -136,6 +137,7 @@ export const POS_PERMISSIONS = {
     PosBillingController,
     PosSplitController,
     PosCustomerStatementController,
+    PosCreditController,
     StockPostingController,
   ],
   providers: [
@@ -150,6 +152,7 @@ export const POS_PERMISSIONS = {
     PosMilestonesInitializer,
     PosFulfillmentInitializer,
     InventoryPostingSubscriber,
+    KdsCancellationSubscriber,
     PosShiftService,
     PosHoldsService,
     PosOverridesService,

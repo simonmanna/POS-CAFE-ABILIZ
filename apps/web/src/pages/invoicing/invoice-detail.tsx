@@ -13,6 +13,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useCancelInvoice, useCreatePayment, useInvoice, usePostInvoice } from '@/features/invoicing/api';
 import { useJournalEntry } from '@/features/accounting/api';
 import { usePartner } from '@/features/partners/api';
+import { useOpenSession, useReceivePayment } from '@/pages/pos/api';
 import { Skeleton } from '@/components/ui/skeleton';
 
 /** Display labels for the back-office invoice payment method (InvoicePaymentMode). */
@@ -73,6 +74,10 @@ export function InvoiceDetailPage() {
   const postInvoice = usePostInvoice();
   const cancelInvoice = useCancelInvoice();
   const createPayment = useCreatePayment();
+  /* POS sales settle through the POS billing path, not the generic payment
+   * endpoint — see submitPayment. */
+  const receivePosPayment = useReceivePayment();
+  const { data: openSession } = useOpenSession();
   const has = useAuthStore((s) => s.hasPermission);
   const currency = useAuthStore((s) => s.organization?.currencyCode ?? 'IDR');
 
@@ -81,6 +86,8 @@ export function InvoiceDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [method, setMethod] = useState('cash');
+  const [reference, setReference] = useState('');
+  const [payError, setPayError] = useState<string | null>(null);
 
   const entry = useJournalEntry(inv?.journalEntryId ?? undefined);
 
@@ -162,6 +169,10 @@ export function InvoiceDetailPage() {
   const isDraft = inv.status === 'draft';
   const residual = Number(inv.amountResidual);
   const canPay = inv.status === 'posted' && residual > 0;
+  /** POS sale (Invoice table) rather than a back-office Document. */
+  const isPosInvoice = (inv as any).source === 'pos';
+  /** Sold on account and still owed — the receivable the cashier chases. */
+  const isOpenCredit = (inv as any).paymentMode === 'credit' && residual > 0;
   const canModify = inv.status !== 'cancelled';
   const paid = residual <= 0.005;
 
@@ -204,19 +215,42 @@ export function InvoiceDetailPage() {
   const openPay = () => {
     setAmount(inv.amountResidual);
     setMethod('cash');
+    setReference('');
+    setPayError(null);
     setPayOpen(true);
   };
 
   const submitPayment = async (e: FormEvent) => {
     e.preventDefault();
-    await createPayment.mutateAsync({
-      partnerId: inv.partnerId,
-      paymentDate: new Date().toISOString().slice(0, 10),
-      amount: Number(amount),
-      paymentMethod: method,
-      allocations: [{ documentId: inv.id, amount: Number(amount) }],
-    });
-    setPayOpen(false);
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) { setPayError('Enter an amount greater than zero.'); return; }
+    if (amt > residual + 0.01) { setPayError(`Amount exceeds the ${money(residual, currency)} still due.`); return; }
+    setPayError(null);
+    try {
+      if (isPosInvoice) {
+        /* A POS sale lives in the Invoice table, not Document — the generic
+         * payment endpoint allocates by documentId and would not find it. The
+         * POS path also advances settlementStatus, issues the partial/settlement
+         * receipt and closes the order, which the generic one never does. */
+        await receivePosPayment.mutateAsync({
+          invoiceId: inv.id,
+          tenders: [{ method: method as 'cash' | 'bank' | 'card' | 'mobile_money', amount: amt, reference: reference.trim() || undefined }],
+          allowPartial: amt < residual - 0.01,
+          cashSessionId: method === 'cash' ? openSession?.id : undefined,
+        });
+      } else {
+        await createPayment.mutateAsync({
+          partnerId: inv.partnerId,
+          paymentDate: new Date().toISOString().slice(0, 10),
+          amount: amt,
+          paymentMethod: method,
+          allocations: [{ documentId: inv.id, amount: amt }],
+        });
+      }
+      setPayOpen(false);
+    } catch (err: any) {
+      setPayError(err?.response?.data?.message || err?.message || 'Payment failed');
+    }
   };
 
   const primaryAddress = partner?.addresses?.find(a => a.isPrimary) ?? partner?.addresses?.[0];
@@ -257,6 +291,11 @@ export function InvoiceDetailPage() {
             <span className="font-mono text-xs text-white/85 bg-white/15 rounded px-2 py-0.5 truncate">({inv.invoicingJournalName})</span>
           ) : null}
           {stateSwitch}
+          {isOpenCredit ? (
+            <Badge className="bg-amber-100 text-amber-800 border-amber-200 whitespace-nowrap">
+              On account — {money(residual, currency)} due
+            </Badge>
+          ) : null}
         </div>
         <div className="flex gap-2 shrink-0">
           {isDraft && has(PERMISSIONS.invoice.post) && (
@@ -585,7 +624,10 @@ export function InvoiceDetailPage() {
           <DialogContent className="border-sky-100">
             <DialogHeader className="border-b border-sky-100 pb-3">
               <DialogTitle className="text-sky-900">Register Payment</DialogTitle>
-              <DialogDescription className="text-sky-600">Record a payment against {inv.documentNumber}.</DialogDescription>
+              <DialogDescription className="text-sky-600">
+                Record a payment against {inv.documentNumber}. {money(residual, currency)} is still due —
+                pay it in full or part of it now.
+              </DialogDescription>
             </DialogHeader>
             <form onSubmit={submitPayment} className="space-y-4 pt-2">
               <div className="space-y-2">
@@ -599,6 +641,20 @@ export function InvoiceDetailPage() {
                   required
                   className="border-sky-200 focus-visible:ring-sky-400"
                 />
+                <div className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    className="rounded bg-sky-100 px-2 py-0.5 font-semibold text-sky-700 hover:bg-sky-200"
+                    onClick={() => setAmount(inv.amountResidual)}
+                  >
+                    Pay full {money(residual, currency)}
+                  </button>
+                  {Number(amount) > 0 && Number(amount) < residual - 0.01 ? (
+                    <span className="text-amber-600 font-medium">
+                      {money(residual - Number(amount), currency)} will stay outstanding
+                    </span>
+                  ) : null}
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="method" className="text-sky-800">Method</Label>
@@ -609,9 +665,26 @@ export function InvoiceDetailPage() {
                   <option value="card">Card</option>
                 </select>
               </div>
+              {isPosInvoice && method !== 'cash' ? (
+                <div className="space-y-2">
+                  <Label htmlFor="pay-reference" className="text-sky-800">Reference (optional)</Label>
+                  <Input
+                    id="pay-reference"
+                    value={reference}
+                    onChange={(e) => setReference(e.target.value)}
+                    placeholder="e.g. MTN-12345"
+                    className="border-sky-200 font-mono focus-visible:ring-sky-400"
+                  />
+                </div>
+              ) : null}
+              {payError ? <p className="text-sm font-medium text-rose-600">{payError}</p> : null}
               <DialogFooter>
-                <Button type="submit" disabled={createPayment.isPending} className="bg-sky-600 hover:bg-sky-700 text-white">
-                  {createPayment.isPending ? 'Saving...' : 'Save Payment'}
+                <Button
+                  type="submit"
+                  disabled={createPayment.isPending || receivePosPayment.isPending}
+                  className="bg-sky-600 hover:bg-sky-700 text-white"
+                >
+                  {createPayment.isPending || receivePosPayment.isPending ? 'Saving...' : 'Save Payment'}
                 </Button>
               </DialogFooter>
             </form>

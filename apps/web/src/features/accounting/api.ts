@@ -987,6 +987,38 @@ export function useCashAccountTransactions(id: string | undefined, params: { pag
   });
 }
 
+export interface CashFlowTransaction {
+  id: string;
+  journalEntryId: string;
+  entryNumber: string;
+  date: string;
+  description: string | null;
+  sourceType: string;
+  type: 'deposit' | 'withdrawal' | 'transfer';
+  amount: string;
+  direction: 'in' | 'out';
+  accountId: string;
+  accountName: string;
+  fromName: string | null;
+  toName: string | null;
+}
+
+export interface CashFlowTransactionsResult {
+  data: CashFlowTransaction[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export function useCashFlowTransactions(params: { page?: number; pageSize?: number }) {
+  return useQuery({
+    queryKey: ['cash-flow-transactions', params],
+    queryFn: async () =>
+      (await api.get<CashFlowTransactionsResult>('/accounts/cash-flow/transactions', { params })).data,
+  });
+}
+
 export function useCashFlowDeposit() {
   const qc = useQueryClient();
   return useMutation({

@@ -56,7 +56,7 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
         password: usePassword ? password : undefined,
         overrideKind: kind,
       });
-      onVerified({ managerId: res.managerId, pin });
+      onVerified({ managerId: res.managerId, pin: usePassword ? `password:${password}` : pin });
     } catch (e: any) {
       setErr(e?.response?.data?.message || 'Invalid credentials');
     }

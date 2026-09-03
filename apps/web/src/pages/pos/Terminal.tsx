@@ -1,3 +1,6 @@
+import { PendingSaleRecovery } from './PendingSaleRecovery';
+import { useSaleQuote } from '@/features/pos/use-sale-quote';
+import { cartLinePayload, cartSignature, draftPricing, draftRestore, serverLineToCart } from '@/features/pos/cart-payload';
 import { useAuthStore } from '@/stores/auth.store';
 /**
  * Terminal — Cafe POS orchestrator.
@@ -24,12 +27,10 @@ import { useAuthStore } from '@/stores/auth.store';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
 import { Coffee, LayoutGrid, ArrowLeft, Printer, Clock } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 
 import { Topbar } from './Topbar';
-import { enqueueSale } from '@/features/pos/offline-queue';
 import { AddOnsDialog } from './AddOnsDialog';
 import { VariantPicker } from './VariantPicker';
 import { AccompanimentPicker } from './AccompanimentPicker';
@@ -65,14 +66,13 @@ import {
   useSaveTab,
   useStoreCredit,
   useFireKitchen,
-  useFireOrderKitchen,
+
   usePrintBill,
   usePrintKot,
   usePrintAdditionalBill,
   useReprintReceipt,
   useCreateOrder,
-  useGenerateInvoice,
-  useSettleCredit,
+  useCreditInfo,
   useSplitState,
   useOrdersList,
   useResumeOrder,
@@ -87,7 +87,7 @@ import { useMenuItemBundle, useCombos } from './pos-features-api';
 import { api, resolveAssetUrl } from '@/lib/api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
-import type { Customer } from './types';
+import type { Customer, SettleMode } from './types';
 
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import { usePosSettings } from '@/features/pos/api';
@@ -102,52 +102,9 @@ const fmt = (n: number | string) => `${useAuthStore.getState().organization?.cur
 
 /** Stable signature of an order's line-set — used to detect cart⇄server drift
  * so auto-save only fires on a real change (and never loops with the loader). */
-function orderSig(
-  lines: Array<{ productId?: string; menuItemId?: string; sku?: string; name?: string; description?: string; quantity: number | string; unitPrice: number | string; discountPercent?: number | string; taxId?: string | null; note?: string | null }>,
-): string {
-  return JSON.stringify(
-    lines.map((l) => [
-      l.menuItemId ?? l.productId ?? l.sku ?? '',
-      l.name ?? l.description ?? '',
-      Number(l.quantity),
-      Number(l.unitPrice),
-      Number(l.discountPercent ?? 0),
-      l.taxId ?? '',
-      l.note ?? '',
-    ]),
-  );
-}
+const orderSig = (lines: CartLine[]) => cartSignature(lines) + JSON.stringify(draftPricing(useCartStore.getState())) + (useCartStore.getState().customer?.id ?? "");
 
 /** Map a server order line (Document line) into a cart line. */
-function serverLineToCart(l: any): CartLine {
-  const id =
-    l.id ?? (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2));
-  return {
-    lineId: id,
-    productId: l.productId ?? undefined,
-    menuItemId: l.menuItemId ?? undefined,
-    name: l.description,
-    quantity: Number(l.quantity),
-    unitPrice: Number(l.unitPrice),
-    discountPercent: Number(l.discountPercent ?? 0),
-    taxId: l.taxId ?? undefined,
-    note: l.note ?? undefined,
-    taxInclusive: l.taxInclusive ?? undefined,
-    // Restore per-line modifiers so the reloaded cart/KOT shows them. unitPrice
-    // is already modifier-folded (so the display total is unchanged); cartLineToPayload
-    // un-bakes the id-bearing deltas on the way back out, keeping the money exact.
-    modifiers: Array.isArray(l.modifiers) && l.modifiers.length > 0
-      ? l.modifiers.map((m: any) => ({ modifierId: m.modifierId ?? '', name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, priceDelta: Number(m.priceDelta ?? 0) }))
-      : undefined,
-    variantId: l.variantId ?? undefined,
-    variantName: l.variantName ?? undefined,
-    variantPrice: l.variantPrice !== undefined ? Number(l.variantPrice) : undefined,
-    accompanimentOptionIds: l.accompanimentOptionIds ?? undefined,
-    accompanimentNames: l.accompanimentNames ?? undefined,
-    accompanimentPriceImpact: l.accompanimentPriceImpact !== undefined ? Number(l.accompanimentPriceImpact) : undefined,
-    course: l.course ?? undefined,
-  };
-}
 
 /** Map cart lines into printable receipt lines (modifier objects → names). */
 function cartToReceiptLines(ls: CartLine[]): ReceiptLine[] {
@@ -166,46 +123,7 @@ function cartToReceiptLines(ls: CartLine[]): ReceiptLine[] {
 /** Map a cart line into a checkout / save-tab line payload.
  *  Fixed-amount discounts are converted to equivalent percentage (API only
  *  stores discountPercent on DocumentLine). */
-function cartLineToPayload(l: CartLine) {
-  const base = l.quantity * l.unitPrice;
-  const computedPct = l.discountType === 'fixed_amount' && l.discountAmount
-    ? base > 0 ? Math.min(100, (l.discountAmount / base) * 100) : 0
-    : l.discountPercent;
-  // The cart's unitPrice is DISPLAY-baked: base menu price + accompaniment impact
-  // + modifier deltas (see AddOnsDialog / effectiveBasePrice). The API re-resolves
-  // accompaniment/modifier prices from the DB and folds them into unitPrice ITSELF,
-  // so we must send the *un-baked* base here — otherwise add-ons are counted twice
-  // (e.g. settle 400: tender 2080 ≠ amount due 4080). Variant lines are unaffected:
-  // the API uses variantPrice (not this) as the base, so the subtraction is a no-op
-  // for the charged price there.
-  // Only un-bake deltas the API will re-fold — i.e. modifiers it can re-resolve by
-  // id. A modifier whose source row was deleted (no id) is dropped server-side, so
-  // leaving its delta in keeps the charged total exact.
-  const modifierDelta = (l.modifiers ?? []).reduce((s, m) => s + (m.modifierId ? Number(m.priceDelta || 0) : 0), 0);
-  const accImpact = Number(l.accompanimentPriceImpact || 0);
-  const baseUnitPrice = l.unitPrice - modifierDelta - accImpact;
-  return {
-    productId: l.productId,
-    menuItemId: l.menuItemId,
-    sku: l.sku,
-    description: l.name,
-    quantity: l.quantity,
-    unitPrice: baseUnitPrice,
-    taxId: l.taxId,
-    discountPercent: computedPct > 0 ? computedPct : undefined,
-    note: l.note,
-    modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
-    comboId: l.comboId,
-    taxInclusive: l.taxInclusive,
-    variantId: l.variantId,
-    variantName: l.variantName,
-    variantPrice: l.variantPrice,
-    accompanimentOptionIds: l.accompanimentOptionIds,
-    accompanimentNames: l.accompanimentNames,
-    accompanimentPriceImpact: l.accompanimentPriceImpact,
-    course: l.course,
-  };
-}
+const cartLineToPayload = cartLinePayload;
 
 const TerminalPage: React.FC = () => {
   const navigate = useNavigate();
@@ -248,7 +166,12 @@ const TerminalPage: React.FC = () => {
   // They span categories, so we surface them only in the "All" view and let the
   // backend expand the `comboId` line into component rows at checkout.
   const { data: combos } = useCombos();
+  // F13 — combo selling is paused: the checkout guard 400s any combo line until
+  // component quantities/prices survive order editing. Don't surface combo tiles
+  // the cashier cannot ring up. (`COMBOS_PAUSED` flips this back on once fixed.)
+  const COMBOS_PAUSED = true;
   const comboCards = useMemo(() => {
+    if (COMBOS_PAUSED) return [];
     const term = search.trim().toLowerCase();
     return (combos ?? [])
       .filter(() => !activeCategory)
@@ -277,11 +200,14 @@ const TerminalPage: React.FC = () => {
   const [showCloseShift, setShowCloseShift] = useState(false);
 
   /* ============== Customer ============== */
-  const [customer, setCustomer] = useState<Customer | null>(null);
+  const customer: Customer | null = useCartStore((s) => s.customer);
+  const setCustomer = useCartStore((s) => s.setCustomer);
   const [showCustomer, setShowCustomer] = useState(false);
   /* Redeemable store-credit balance for the selected customer (drives the
    * store_credit tender tile in PaymentDialog). */
   const { data: storeCredit } = useStoreCredit(customer?.id);
+  /* House-account standing — drives the Charge dialog's credit panel. */
+  const { data: creditInfo } = useCreditInfo(customer?.id);
 
   /* ============== Discounts ============== */
   const [showDiscount, setShowDiscount] = useState(false);
@@ -462,7 +388,9 @@ const TerminalPage: React.FC = () => {
   const transactionDiscountType = useCartStore((s) => s.transactionDiscountType);
   const transactionDiscountAmount = useCartStore((s) => s.transactionDiscountAmount);
   const transactionDiscountReason = useCartStore((s) => s.transactionDiscountReason);
-  const total = useCartStore(selectTotal);
+  const estimatedTotal = useCartStore(selectTotal);
+  const saleQuote = useSaleQuote();
+  const total = saleQuote.data?.total ?? estimatedTotal;
   const tableId = useCartStore((s) => s.tableId);
   const addLine = useCartStore((s) => s.addLine);
   const setQuantity = useCartStore((s) => s.setQuantity);
@@ -478,7 +406,6 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Tables (live via SSE, fallback poll 20s) ============== */
   usePosTablesStream();
-  const qc = useQueryClient();
   const { data: tables = [], isLoading: tablesLoading } = useTables({ active: true, status: undefined });
   const { data: zones = [] } = useTableZones();
 
@@ -499,22 +426,7 @@ const TerminalPage: React.FC = () => {
     });
   }, [selectedTableId]);
 
-  const loadTableCart = useCallback((tableId: string) => {
-    const saved = tableCartsRef.current.get(tableId);
-    const t = tables.find((t) => t.id === tableId) ?? null;
-    useCartStore.setState({
-      lines: saved?.lines ?? [],
-      transactionDiscountPercent: saved?.transactionDiscountPercent ?? 0,
-      transactionDiscountType: saved?.transactionDiscountType ?? 'percentage',
-      transactionDiscountAmount: saved?.transactionDiscountAmount ?? 0,
-      orderType: 'dine-in',
-      tableId: tableId ?? undefined,
-      tableNumber: t ? t.number : undefined,
-      tableName: t ? t.name : undefined,
-      sentToKitchen: false,
-    });
-    currentSentLineIds.current = new Set(saved?.sentLineIds ?? []);
-  }, [tables]);
+
 
   const tableHasLocalCart = useCallback((tableId: string) => {
     const cart = tableCartsRef.current.get(tableId);
@@ -531,16 +443,12 @@ const TerminalPage: React.FC = () => {
   const settleTabMut = useSettleTab();
   const saveTab = useSaveTab();
   const fireKitchen = useFireKitchen();
-  const fireOrderKitchen = useFireOrderKitchen();
   const printBill = usePrintBill();
   const printKot = usePrintKot();
   const printAdditionalBill = usePrintAdditionalBill();
   const reprintReceipt = useReprintReceipt();
   const transferItemsMut = useTransferItems();
-  /* Credit (postpaid) sale — runs the new Order→Invoice→Receipt pipeline. */
   const createOrderMut = useCreateOrder();
-  const generateInvoiceMut = useGenerateInvoice();
-  const settleCreditMut = useSettleCredit();
   /* Odoo-style multi-order (Orders panel) — tableless walk-in/takeaway/delivery
    * orders persist as open Orders and are resumable; dine-in keeps its table tab. */
   const resumeOrderMut = useResumeOrder();
@@ -564,6 +472,24 @@ const TerminalPage: React.FC = () => {
   const pendingOrderCreate = useRef(false);
   const orderSaveSig = useRef('');
 
+  /* Flush the current order (table OR tableless) before switching away. */
+  const flushCurrentOrder = useCallback(async () => {
+    if (useCartStore.getState().operationPending) throw new Error('Resolve the pending payment before changing orders');
+    if (saveTab.isPending || saveOrderItems.isPending) throw new Error('Wait for the current order save to finish');
+    if (pendingOrderCreate.current) throw new Error('Wait for the new order to finish saving');
+    const st = useCartStore.getState();
+    if (st.lines.length && !st.orderId && !st.tableId) throw new Error('This cart has not been saved. Keep it open until the server is available.');
+    const sig = orderSig(st.lines);
+    if (st.tableId && sig !== tabSyncSig.current) {
+      const saved: any = await saveTab.mutateAsync({ tableId: st.tableId, lines: st.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: st.tabVersion });
+      if (useCartStore.getState().tableId === st.tableId) { useCartStore.getState().setTabVersion(saved.version); tabSyncSig.current = sig; }
+    } else if (st.orderId && sig !== orderSaveSig.current) {
+      const saved: any = await saveOrderItems.mutateAsync({ orderId: st.orderId, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion });
+      if (useCartStore.getState().orderId === st.orderId) { useCartStore.getState().setTabVersion(saved.version); orderSaveSig.current = sig; }
+    }
+    if (orderSig(useCartStore.getState().lines) !== sig) throw new Error('The cart changed during save. Save the latest changes before continuing.');
+  }, [saveTab, saveOrderItems, customer?.id]);
+
   /* Imperatively fetch THIS table's open order fresh from the server and load it
    * into the cart. Deterministic — no react-query cache races on switch/return. */
   const loadTableOrder = useCallback(async (id: string) => {
@@ -572,77 +498,44 @@ const TerminalPage: React.FC = () => {
       const serverLines = (((doc?.lines) ?? []) as any[]).map(serverLineToCart);
       // Only apply if the cashier is still on this table (didn't switch again).
       if (useCartStore.getState().tableId === id) {
-        useCartStore.getState().load(serverLines);
+        useCartStore.getState().load(serverLines, draftRestore(doc));
         // H2 — remember the server version so saves carry the optimistic-lock token.
         useCartStore.getState().setTabVersion(doc?.version);
         tabSyncSig.current = orderSig(serverLines);
       }
-    } catch {
-      if (useCartStore.getState().tableId === id) {
-        useCartStore.getState().load([]);
-        useCartStore.getState().setTabVersion(undefined);
-        tabSyncSig.current = orderSig([]);
-      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Could not load the table. Your current cart is preserved.');
+      throw e;
     } finally {
       setPendingTableLoad((cur) => (cur === id ? null : cur));
     }
   }, []);
 
-  const handleTableClick = useCallback((t: PosTable) => {
-    // One open order per table. Flush the table we're leaving, clear the cart,
-    // set the new table, then imperatively fetch + load THIS table's order.
-    const cart = useCartStore.getState();
-    // Flush any unsaved edit on the table we're leaving. The payload is captured
-    // synchronously from the snapshot here, so clearing the cart immediately after
-    // is safe; we keep the network call non-blocking (table switch stays snappy)
-    // but surface a failed save so a stale server tab can't slip by unnoticed.
-    if (cart.tableId && cart.tableId !== t.id && orderSig(cart.lines) !== tabSyncSig.current) {
-      const leavingNumber = cart.tableNumber;
-      saveTab
-        .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: cart.tabVersion })
-        .catch((e: any) =>
-          toast.error(e?.response?.data?.message || `Failed to save T${leavingNumber ?? ''} order before switching`),
-        );
-    }
-    setPendingTableLoad(t.id);          // gate auto-save until the load finishes
-    cart.clear();
-    cart.setTable(t.id, t.number, t.name);
-    tabSyncSig.current = '__loading__';
-    setSelectedTableId(t.id);
-    setTableView('ordering');
-    enterFullscreen();
-    void loadTableOrder(t.id);
-  }, [saveTab, customer?.id, loadTableOrder, enterFullscreen]);
+  const handleTableClick = useCallback(async (t: PosTable) => {
+    const previous = useCartStore.getState();
+    if (previous.tableId === t.id) { setSelectedTableId(t.id); setTableView('ordering'); return; }
+    try {
+      await flushCurrentOrder();
+      const switchingSignature = orderSig(useCartStore.getState().lines);
+      setPendingTableLoad(t.id);
+      const doc = (await api.get(`/pos/tabs/${t.id}`)).data as any;
+      if (orderSig(useCartStore.getState().lines) !== switchingSignature) throw new Error('The cart changed while switching tables. Save it and try again.');
+      const next = (doc?.lines ?? []).map(serverLineToCart);
+      previous.clear(); previous.setTable(t.id, t.number, t.name); previous.load(next, draftRestore(doc)); previous.setTabVersion(doc?.version);
+      tabSyncSig.current = orderSig(next);
+      setSelectedTableId(t.id); setTableView('ordering'); enterFullscreen();
+    } catch (e: any) { toast.error(e?.response?.data?.message || e?.message || 'Could not switch tables; current cart preserved'); }
+    finally { setPendingTableLoad(null); }
+  }, [flushCurrentOrder, enterFullscreen]);
 
-  const handleNewOrder = useCallback((t: PosTable) => {
-    tableCartsRef.current.delete(t.id);
-    loadTableCart(t.id);
-    currentSentLineIds.current = new Set();
-    setSelectedTableId(t.id);
-    setTableView('ordering');
-  }, [loadTableCart]);
-
-  const handleContinueDraft = useCallback((t: PosTable) => {
-    loadTableCart(t.id);
-    setSelectedTableId(t.id);
-    setTableView('ordering');
-  }, [loadTableCart]);
+  const handleNewOrder = handleTableClick;
+  const handleContinueDraft = handleTableClick;
 
   const handleGoBackToGrid = useCallback(async () => {
-    const cart = useCartStore.getState();
-    if (cart.tableId && orderSig(cart.lines) !== tabSyncSig.current) {
-      const currentSig = orderSig(cart.lines);
-      try {
-        await saveTab.mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: cart.tabVersion });
-        tabSyncSig.current = currentSig;
-      } catch (e: any) {
-        toast.error(e?.response?.data?.message || 'Failed to save the order — your latest changes may not be persisted');
-      }
-    }
-    saveCurrentTableCart();
-    setSelectedTableId(null);
-    setTableView('grid');
-  }, [saveCurrentTableCart, saveTab, customer?.id]);
+    try { await flushCurrentOrder(); }
+    catch (e: any) { toast.error(e?.response?.data?.message || e?.message); return; }
+    saveCurrentTableCart(); setSelectedTableId(null); setTableView('grid');
+  }, [saveCurrentTableCart, flushCurrentOrder]);
 
   /* Close / clear the current order. B4: also cancel the SERVER draft (empty
    * save → draft cancelled + table freed) so a reload can't resurrect stale
@@ -651,7 +544,7 @@ const TerminalPage: React.FC = () => {
     const closingTableId = useCartStore.getState().tableId;
     if (closingTableId) {
       try {
-        await saveTab.mutateAsync({ tableId: closingTableId, lines: [], partnerId: customer?.id });
+        await saveTab.mutateAsync({ tableId: closingTableId, lines: [], partnerId: customer?.id, expectedVersion: useCartStore.getState().tabVersion });
       } catch (e: any) {
         toast.error(e?.response?.data?.message || 'Failed to cancel the order on the server');
         return;
@@ -675,23 +568,12 @@ const TerminalPage: React.FC = () => {
 
   /* Switch order type: dine-in, takeaway, or delivery. When leaving dine-in
    * (table mode), flush any in-progress table cart and show menu directly. */
-  const handleChangeOrderType = useCallback((type: 'dine-in' | 'takeaway' | 'delivery') => {
-    const cart = useCartStore.getState();
-    if (cart.tableId) {
-      if (orderSig(cart.lines) !== tabSyncSig.current) {
-        saveTab
-          .mutateAsync({ tableId: cart.tableId, lines: cart.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: cart.tabVersion })
-          .catch(() => { /* best effort */ });
-      }
-      setSelectedTableId(null);
-      clearCart();
-      useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined, sentToKitchen: false });
-      tabSyncSig.current = orderSig([]);
-    }
-    setOrderType(type);
-    setTableView(type === 'dine-in' ? 'grid' : 'ordering');
-    setSelectedTableId(null);
-  }, [clearCart, setOrderType, saveTab, customer?.id]);
+  const handleChangeOrderType = useCallback(async (type: 'dine-in' | 'takeaway' | 'delivery') => {
+    try { await flushCurrentOrder(); }
+    catch (e: any) { toast.error(e?.response?.data?.message || e?.message); return; }
+    if (useCartStore.getState().tableId) { clearCart(); tabSyncSig.current = orderSig([]); }
+    setOrderType(type); setTableView(type === 'dine-in' ? 'grid' : 'ordering'); setSelectedTableId(null);
+  }, [clearCart, setOrderType, flushCurrentOrder]);
 
   /* ============== Mutations ============== */
   const checkout = useCheckout();
@@ -699,7 +581,7 @@ const TerminalPage: React.FC = () => {
   /* On mount, baseline the sync signature and default order type. */
   useEffect(() => {
     const state = useCartStore.getState();
-    tabSyncSig.current = orderSig(state.lines);
+    tabSyncSig.current = state.lines.length ? '__unsaved_draft__' : orderSig([]);
     if (!state.orderType) useCartStore.getState().setOrderType('dine-in');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -713,52 +595,21 @@ const TerminalPage: React.FC = () => {
     if (currentSig === tabSyncSig.current) return;
     const payloadLines = lines.map(cartLineToPayload);
 
-    // Fire the save with an explicit optimistic-lock token. On a genuine version
-    // conflict we self-heal ONCE: re-read the current server version, keep the
-    // cart as-is (so a just-applied line discount isn't lost), and retry. Last
-    // write wins for the cashier who owns this screen — matches the "never block
-    // the sale" rule. Only if the retry ALSO conflicts (a real concurrent writer)
-    // do we fall back to reloading the server truth.
-    const fire = (expectedVersion: number | undefined, isRetry: boolean) => {
-      saveTab.mutate(
-        { tableId, lines: payloadLines, partnerId: customer?.id, expectedVersion },
-        {
-          onSuccess: () => {
-            tabSyncSig.current = currentSig;
-            qc.invalidateQueries({ queryKey: ['pos-tables'] });
-          },
-          onError: async (e: any) => {
-            const serverMsg: string | undefined = e?.response?.data?.message;
-            // A billed-but-unpaid order also holds the table and returns 409, but
-            // reloading won't clear it (the tab is locked until it's settled/
-            // voided). Only the genuine optimistic-lock conflict is recoverable.
-            const isVersionConflict = e?.response?.status === 409 && /modified by someone else/i.test(serverMsg ?? '');
-            if (isVersionConflict && !isRetry) {
-              try {
-                const doc = (await api.get(`/pos/tabs/${tableId}`)).data as any;
-                useCartStore.getState().setTabVersion(doc?.version);
-                fire(doc?.version, true);
-                return;
-              } catch {
-                // fall through to the reload path below
-              }
-            }
-            if (isVersionConflict) {
-              toast.error(serverMsg || 'This table was updated on another device — reloading the latest order. Re-add your last change if needed.');
-              setPendingTableLoad(tableId);
-              void loadTableOrder(tableId);
-            } else {
-              toast.error(serverMsg || e?.message || 'Failed to save order');
-            }
-          },
-        },
-      );
-    };
-
-    const h = setTimeout(() => fire(useCartStore.getState().tabVersion, false), 700);
+    const h = setTimeout(async () => {
+      if (saveTab.isPending || useCartStore.getState().operationPending) return;
+      const version = useCartStore.getState().tabVersion;
+      try {
+        await saveTab.mutateAsync({ tableId, lines: payloadLines, partnerId: customer?.id, expectedVersion: version });
+        if (useCartStore.getState().tableId === tableId) tabSyncSig.current = currentSig;
+      } catch (e: any) {
+        toast.error(e?.response?.status === 409
+          ? 'This order changed elsewhere. Your local changes are preserved. Resolve the difference before charging.'
+          : e?.response?.data?.message || 'Order save failed; your cart is preserved');
+      }
+    }, 700);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines, tableId, pendingTableLoad, customer?.id, splitActive]);
+  }, [lines, tableId, pendingTableLoad, customer?.id, splitActive, transactionDiscountPercent, transactionDiscountType, transactionDiscountAmount, transactionDiscountReason, customer?.id]);
 
   const locked = !sessionLoading && !session && !sessionFetching;
   const orderTypeFromStore = useCartStore((s) => s.orderType);
@@ -772,6 +623,7 @@ const TerminalPage: React.FC = () => {
     if (locked || tableId || orderId || pendingOrderCreate.current) return;
     if (lines.length === 0 || orderTypeFromStore === 'dine-in') return;
     pendingOrderCreate.current = true;
+    const creatingSignature = orderSig(useCartStore.getState().lines);
     createOrderMut.mutateAsync({
       orderType: orderTypeFromStore === 'delivery' ? 'delivery' : 'takeaway',
       partnerId: customer?.id,
@@ -783,7 +635,7 @@ const TerminalPage: React.FC = () => {
       if (!st.orderId && !st.tableId && st.lines.length > 0) {
         st.setOrderId((order as any).id);
         st.setTabVersion((order as any).version);
-        orderSaveSig.current = orderSig(st.lines);
+        orderSaveSig.current = creatingSignature;
       }
     }).catch(() => { /* offline / failed — keep local cart, settle via checkout */ })
       .finally(() => { pendingOrderCreate.current = false; });
@@ -796,9 +648,9 @@ const TerminalPage: React.FC = () => {
     if (sig === orderSaveSig.current) return;
     const t = setTimeout(async () => {
       const st = useCartStore.getState();
-      if (st.orderId !== orderId || st.tableId) return;
+      if (st.orderId !== orderId || st.tableId || st.operationPending || saveOrderItems.isPending) return;
       if (st.lines.length === 0) {
-        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { /* noop */ }
+        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { toast.error('Could not save the empty order'); return; }
         if (useCartStore.getState().orderId === orderId) { setOrderId(undefined); useCartStore.getState().setTabVersion(undefined); }
         orderSaveSig.current = '';
         return;
@@ -810,28 +662,16 @@ const TerminalPage: React.FC = () => {
         }
         orderSaveSig.current = sig;
       } catch (e: any) {
-        if (e?.response?.status === 409) {
-          try { const fresh: any = await resumeOrderMut.mutateAsync(orderId); if (useCartStore.getState().orderId === orderId) useCartStore.getState().setTabVersion(fresh.version); } catch { /* noop */ }
-        }
+        if (e?.response?.status === 409) toast.error('Order changed on another terminal. Your cart is preserved; resolve the difference before charging.');
       }
     }, 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines, orderId, tableId]);
-
-  /* Flush the current order (table OR tableless) before switching away. */
-  const flushCurrentOrder = useCallback(async () => {
-    const st = useCartStore.getState();
-    if (st.tableId && orderSig(st.lines) !== tabSyncSig.current) {
-      try { await saveTab.mutateAsync({ tableId: st.tableId, lines: st.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: st.tabVersion }); } catch { /* noop */ }
-    } else if (st.orderId && st.lines.length > 0) {
-      try { await saveOrderItems.mutateAsync({ orderId: st.orderId, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion }); } catch { /* noop */ }
-    }
-  }, [saveTab, saveOrderItems, customer?.id]);
+  }, [lines, orderId, tableId, transactionDiscountPercent, transactionDiscountType, transactionDiscountAmount, transactionDiscountReason, customer?.id]);
 
   /* New tableless order — the current one stays open in the Orders panel. */
   const newTablelessOrder = useCallback(async () => {
-    await flushCurrentOrder();
+    try { await flushCurrentOrder(); } catch (e: any) { toast.error(e?.response?.data?.message || e?.message); return; }
     clearCart();
     orderSaveSig.current = '';
     tabSyncSig.current = orderSig([]);
@@ -846,9 +686,11 @@ const TerminalPage: React.FC = () => {
   const openOrder = useCallback(async (id: string) => {
     setShowOrders(false);
     if (useCartStore.getState().orderId === id) return;
-    await flushCurrentOrder();
     try {
+      await flushCurrentOrder();
+      const switchingSignature = orderSig(useCartStore.getState().lines);
       const view: any = await resumeOrderMut.mutateAsync(id);
+      if (orderSig(useCartStore.getState().lines) !== switchingSignature) throw new Error('The cart changed while opening the order. Your changes are preserved.');
       if (view.tableId) {
         const t = tables.find((x) => x.id === view.tableId);
         if (t) { handleTableClick(t); return; }
@@ -856,7 +698,7 @@ const TerminalPage: React.FC = () => {
       const cartLines = (view.lines ?? []).map(serverLineToCart);
       clearCart();
       setOrderType(view.orderType === 'delivery' ? 'delivery' : 'takeaway');
-      useCartStore.getState().load(cartLines);
+      useCartStore.getState().load(cartLines, draftRestore(view));
       setOrderId(id);
       useCartStore.getState().setTabVersion(view.version);
       orderSaveSig.current = orderSig(cartLines);
@@ -1041,6 +883,8 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Charge (payment) ============== */
   const onCharge = () => {
+    if (!saleQuote.data || saleQuote.isFetching || saleQuote.isError) { toast.error('Wait for the server price quote before charging'); return; }
+    if (pendingOrderCreate.current) { toast.info('Saving the new order; try again shortly'); return; }
     if (lines.length === 0) {
       toast.error('Cart is empty');
       return;
@@ -1051,38 +895,15 @@ const TerminalPage: React.FC = () => {
   /* Settle (pay) the table's order. Flush any pending edit, then open payment. */
   const handleSettleTab = async () => {
     if (!tableId || lines.length === 0) { toast.error('Nothing to settle'); return; }
-    // A split owns settlement — go straight to the Split screen (no saveTab, which
-    // the guard would 400). The catch below is just a fallback for the race where
-    // splitActive hasn't loaded yet.
-    if (splitActive) { setShowSplit(true); return; }
-    const flushOnce = (expectedVersion?: number) =>
-      saveTab.mutateAsync({ tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion });
     try {
-      await flushOnce(useCartStore.getState().tabVersion);
-      tabSyncSig.current = orderSig(lines);
+      if (splitActive) {
+        if (orderSig(useCartStore.getState().lines) !== tabSyncSig.current) throw new Error('Unsaved changes must be resolved before reopening the split.');
+        setShowSplit(true); return;
+      }
+      await flushCurrentOrder();
     } catch (e: any) {
-      // A split owns settlement of this tab — guide the cashier to the Split
-      // screen instead of dead-ending on the guard's 400.
-      const msg = e?.response?.data?.message || '';
-      if (/split in progress/i.test(msg)) {
-        toast.info('A split is in progress — settle each bill in the Split screen.');
-        setShowSplit(true);
-        return;
-      }
-      // Optimistic-lock conflict: adopt the server's current version and retry the
-      // flush ONCE, preserving the on-screen cart (incl. any discount), so settling
-      // isn't dead-ended by a stale token. Falls through to payment on success.
-      const isVersionConflict = e?.response?.status === 409 && /modified by someone else/i.test(msg);
-      if (!isVersionConflict) { toast.error('Could not save the order before settling'); return; }
-      try {
-        const doc = (await api.get(`/pos/tabs/${tableId}`)).data as any;
-        useCartStore.getState().setTabVersion(doc?.version);
-        await flushOnce(doc?.version);
-        tabSyncSig.current = orderSig(lines);
-      } catch {
-        toast.error('Could not save the order before settling');
-        return;
-      }
+      toast.error(e?.response?.data?.message || e?.message || 'Could not save the order before settling');
+      return;
     }
     setIsTabSettle(true);
     setShowPayment(true);
@@ -1124,87 +945,28 @@ const TerminalPage: React.FC = () => {
     }
   }, [tableId, saveTab, customer?.id, transferItemsMut, tables, loadTableOrder]);
 
-  /* Credit / charge-to-account sale: Order → Invoice (credit) → credit-issue
-   * Receipt. Requires a real (non walk-in) customer. Books AR; settled later by
-   * a payment. Runs the new Order→Invoice→Receipt pipeline end-to-end. */
+  /* Credit / charge-to-account sale.
+   *
+   * This is the SAME settle the cashier does for cash — only the settle mode
+   * differs, so it goes through onSettle and therefore through whichever of the
+   * three server paths already owns this cart (open tab / open order / cart
+   * checkout). It used to build a second Order of its own, which left the
+   * original one open, kept the table busy and skipped the idempotency key. */
   const onCreditSale = async () => {
     if (!customer?.id) { toast.error('Select a customer to charge on account'); return; }
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
-    const effectiveTxPct = transactionDiscountType === 'fixed_amount' && transactionDiscountAmount > 0
-      ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
-      : transactionDiscountPercent;
-    const orderLines = lines.map((l) => {
-      const base = l.quantity * l.unitPrice;
-      const pct = l.discountType === 'fixed_amount' && l.discountAmount
-        ? base > 0 ? Math.min(100, (l.discountAmount / base) * 100) : 0
-        : l.discountPercent;
-      return {
-        productId: l.productId ?? undefined,
-        menuItemId: l.menuItemId ?? undefined,
-        sku: l.sku ?? undefined,
-        description: l.name,
-        quantity: l.quantity,
-        unitPrice: l.unitPrice,
-        taxId: l.taxId ?? undefined,
-        discountPercent: pct > 0 ? pct : undefined,
-        note: l.note ?? undefined,
-        modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
-        comboId: l.comboId ?? undefined,
-        taxInclusive: l.taxInclusive,
-        variantId: l.variantId ?? undefined,
-        accompanimentOptionIds: l.accompanimentOptionIds,
-      };
-    });
-    try {
-      const order = await createOrderMut.mutateAsync({
-        orderType: orderTypeFromStore === 'dine-in' ? 'dine_in' : orderTypeFromStore === 'takeaway' ? 'takeaway' : 'delivery',
-        tableId: tableId || undefined,
-        partnerId: customer.id,
-        cashSessionId: session?.id,
-        guestCount: 1,
-        lines: orderLines,
-      });
-      const invoice = await generateInvoiceMut.mutateAsync({
-        orderId: (order as any).id,
-        // paymentMode deliberately omitted — settleCredit sets it to 'credit'
-        transactionDiscountPercent: effectiveTxPct,
-        transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
-        transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
-        discountReason: transactionDiscountReason,
-      });
-      await settleCreditMut.mutateAsync({ invoiceId: (invoice as any).id, partnerId: customer.id });
-      toast.success(`Charged ${fmt((invoice as any).totalAmount ?? total)} to ${customer.name}'s account`);
-      setLastCompleted({
-        lines: cartToReceiptLines(lines),
-        total,
-        invoiceNumber: (invoice as any).documentNumber,
-        invoiceId: (invoice as any).id,
-        receiptHtml: (invoice as any).receiptHtml,
-        discountPercent: effectiveTxPct,
-        discountAmount: 0,
-        orderTypeLabel: orderTypeLabel ?? undefined,
-        tableLabel: activeTableLabel ?? undefined,
-        customerName: customer.name,
-      });
-      // If this was a dine-in tab, clear the lingering draft + free the table.
-      if (tableId) {
-        try { await saveTab.mutateAsync({ tableId, lines: [], partnerId: customer.id }); } catch { /* best effort */ }
-        tabSyncSig.current = '';
-      }
-      clearCart();
-      setCustomer(null);
-      setShowPayment(false);
-      setSelectedTableId(null);
-      setTableView('grid');
-      setIsTabSettle(false);
-      refetchSession();
-      currentSentLineIds.current.clear();
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message || e?.message || 'Credit sale failed');
-    }
+    await onSettle({ tenders: [], transactionDiscountPercent: 0, settleMode: 'credit' });
   };
 
-  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; amountTendered?: number; overrideById?: string; overridePin?: string }) => {
+  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; amountTendered?: number; overrideById?: string; overridePin?: string; settleMode?: SettleMode }) => {
+    if (!saleQuote.data || saleQuote.isError || saleQuote.isFetching) throw new Error('A current server price quote is required before payment');
+    const isCredit = input.settleMode === 'credit';
+    /* Credit collects nothing, so there is no change to announce — say who now
+     * owes what instead. */
+    const settledToast = (invoiceNumber?: string) => {
+      if (isCredit) return `Charged ${fmt(total)} to ${customer?.name ?? 'account'} — due later`;
+      return invoiceNumber ? `Order ${invoiceNumber} settled` : 'Order settled';
+    };
     /* Compute effective transaction discount percent (handles fixed-amount). */
     const effectiveTxPct = transactionDiscountType === 'fixed_amount' && transactionDiscountAmount > 0
       ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
@@ -1227,8 +989,10 @@ const TerminalPage: React.FC = () => {
         currentSentLineIds.current.clear();
       };
       try {
+        await flushCurrentOrder();
         const res = await settleTabMut.mutateAsync({
           tableId,
+          overrideById: input.overrideById, overridePin: input.overridePin,
           tenders: input.tenders,
           amountTendered: input.amountTendered,
           transactionDiscountPercent: effectiveTxPct,
@@ -1236,9 +1000,15 @@ const TerminalPage: React.FC = () => {
           transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
           discountReason: transactionDiscountReason,
           cashSessionId: session?.id,
+          settleMode: input.settleMode,
+          partnerId: customer?.id,
           _idemKey: idemKey,
+          expectedTotal: total,
+          expectedVersion: useCartStore.getState().tabVersion,
         });
-        toast.success(`Order settled — change ${fmt((res as any).change ?? 0)}`);
+        toast.success(isCredit
+          ? settledToast()
+          : `Order settled — change ${fmt((res as any).change ?? 0)}`);
         // Pop the settlement receipt so the cashier can print it.
         setLastCompleted({
           lines: cartToReceiptLines(lines),
@@ -1254,30 +1024,9 @@ const TerminalPage: React.FC = () => {
         });
         finishSettle();
       } catch (e: any) {
-              // E4: queue the settle ONLY when the network is genuinely down (no
-              // response). We deliberately do NOT queue on 5xx here — a tab settle
-              // posts + tenders server-side, so a partial failure must not be blindly
-              // replayed under a fresh idempotency key.
-              const status = e?.response?.status;
-              const networkDown = !status || status === 0;
-              if (networkDown) {
-          try {
-            const queued = await enqueueSale(
-              { tenders: input.tenders, amountTendered: input.amountTendered, cashSessionId: session?.id },
-              { endpoint: `/pos/tabs/${tableId}/settle`, idempotencyKey: idemKey },
-            );
-            toast.warning(
-              `Network down — settle queued (${queued.idempotencyKey.slice(0, 8)}). It will sync when you're back online.`,
-              { duration: 12000 },
-            );
-            finishSettle();
-            return;
-          } catch (qErr: any) {
-            toast.error(`Queue failed: ${qErr?.message || 'unknown'}`);
-            return;
-          }
-        }
+        toast.warning('Payment not confirmed. The original attempt and cart are preserved for recovery.');
         toast.error(e?.response?.data?.message || 'Settle failed');
+        throw e;
       }
       return;
     }
@@ -1300,9 +1049,15 @@ const TerminalPage: React.FC = () => {
           overrideById: input.overrideById,
           overridePin: input.overridePin,
           cashSessionId: session?.id,
+          settleMode: input.settleMode,
+          partnerId: customer?.id,
           _idemKey: idemKey,
+          expectedTotal: total,
+          expectedVersion: useCartStore.getState().tabVersion,
         });
-        toast.success(`Order ${res.invoiceNumber} settled — change ${fmt(res.change ?? 0)}`);
+        toast.success(isCredit
+          ? settledToast(res.invoiceNumber)
+          : `Order ${res.invoiceNumber} settled — change ${fmt(res.change ?? 0)}`);
         setLastCompleted({
           lines: cartToReceiptLines(lines),
           total, invoiceNumber: res.invoiceNumber, invoiceId: res.invoiceId,
@@ -1322,6 +1077,7 @@ const TerminalPage: React.FC = () => {
           if (result) { await onSettle({ ...input, overrideById: result.managerId, overridePin: result.pin }); return; }
         }
         toast.error(msg);
+        throw e;
       }
       return;
     }
@@ -1353,6 +1109,7 @@ const TerminalPage: React.FC = () => {
     });
     const payload = {
       lines: checkoutLines,
+      expectedTotal: total,
       tenders: input.tenders,
       amountTendered: input.amountTendered,
       transactionDiscountPercent: effectiveTxPct,
@@ -1369,10 +1126,13 @@ const TerminalPage: React.FC = () => {
       tableId: tableId || undefined,
       orderType: orderTypeFromStore === 'dine-in' ? 'dine_in' : orderTypeFromStore === 'takeaway' ? 'takeaway' : 'delivery',
       guestCount: undefined as number | undefined,
+      settleMode: input.settleMode,
     } as any;
     try {
       const res = await checkout.mutateAsync({ ...payload, _idemKey: idemKey });
-      toast.success(`Sale ${res.invoiceNumber} settled — change ${fmt(res.change)}`);
+      toast.success(isCredit
+        ? settledToast(res.invoiceNumber)
+        : `Sale ${res.invoiceNumber} settled — change ${fmt(res.change)}`);
 
       setLastCompleted({
         lines: cartToReceiptLines(lines),
@@ -1390,40 +1150,7 @@ const TerminalPage: React.FC = () => {
       refetchSession();
     } catch (e: any) {
           const msg = e?.response?.data?.message || e?.message || 'Checkout failed';
-          // P11 offline fallback: if the network is down (no response at all,
-          // or a 5xx/timeout), queue the sale locally. The next time the cashier
-          // reconnects, the queue replays with the SAME Idempotency-Key so the
-          // backend returns the original response — no double-charge.
-          const status = e?.response?.status;
-          const isOffline = !status || status === 0 || status >= 500 || status === 408 || status === 429;
-          if (isOffline) {
-        try {
-          const queued = await enqueueSale(payload, { idempotencyKey: idemKey });
-          toast.warning(
-            `Network down — sale queued (${queued.idempotencyKey.slice(0, 8)}). It will sync automatically when you're back online.`,
-            { duration: 12000 },
-          );
-          // Still clear the cart and show a "draft" receipt placeholder so
-          // the cashier can hand the customer a hand-written slip if needed.
-          setLastCompleted({
-            lines: cartToReceiptLines(lines),
-            total, invoiceNumber: `PENDING-${queued.idempotencyKey.slice(0, 8).toUpperCase()}`,
-            discountPercent: effectiveTxPct,
-            discountAmount: effectiveTxPct > 0 ? total - lines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0) : 0,
-            orderTypeLabel: orderTypeLabel ?? undefined,
-            tableLabel: activeTableLabel ?? undefined,
-            customerName: customer?.name,
-          });
-          clearCart();
-          setCustomer(null);
-          setShowPayment(false);
-          return;
-        } catch (qErr: any) {
-          // If even IndexedDB is unavailable, surface the original error.
-          toast.error(`Queue failed: ${qErr?.message || 'unknown'}. Original error: ${msg}`);
-          throw e;
-        }
-      }
+          toast.warning('Payment not confirmed. The original attempt and cart are preserved.');
       // If the backend says manager override is required, prompt and retry.
       if (/manager override/i.test(msg) && !input.overrideById) {
         const result = await requestOverride('discount');
@@ -1458,11 +1185,8 @@ const TerminalPage: React.FC = () => {
   const onPrintBill = async () => {
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
     try {
-      const saved = await saveTab.mutateAsync({
-        tableId: selectedTableId!,
-        lines: lines.map(cartLineToPayload),
-        partnerId: customer?.id,
-      });
+      await flushCurrentOrder();
+      const saved = (await api.get(`/pos/tabs/${selectedTableId!}`)).data as any;
       if (!saved?.id) { toast.error('No open order on this table'); return; }
       try {
         await printBill.mutateAsync({ invoiceId: saved.id });
@@ -1483,19 +1207,15 @@ const TerminalPage: React.FC = () => {
       return;
     }
     try {
-      const saved = await saveTab.mutateAsync({
-        tableId: selectedTableId!,
-        lines: lines.map(cartLineToPayload),
-        partnerId: customer?.id,
-      });
-      const refreshed = await api.get(`/pos/tabs/${selectedTableId!}`).then((r: any) => r.data);
+      await flushCurrentOrder();
+      const refreshed = (await api.get(`/pos/tabs/${selectedTableId!}`)).data as any;
       const serverLines = (refreshed?.lines ?? []) as any[];
       const unbilledIds = new Set(
         serverLines
           .filter((l: any) => l.billPrintedAt == null)
           .map((l: any) => l.id),
       );
-      const srvLines = (saved as any)?.lines ?? [];
+      const srvLines = refreshed?.lines ?? [];
       const matched = lines
         .map((cartLine) => {
           const idx = srvLines.findIndex((sl: any) => sl.description === cartLine.name && Number(sl.quantity) === cartLine.quantity);
@@ -1533,22 +1253,17 @@ const TerminalPage: React.FC = () => {
       return;
     }
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
-    // If a split is already in progress the tab's lines are pinned server-side —
-    // flushing the cart would 400 ("Split in progress"), so just reopen the
-    // workspace and let it drive from server state.
     try {
       const st = (await api.get(`/pos/tabs/${tableId}/split`)).data as any;
-      if (st?.splitActive) { setShowSplit(true); return; }
-    } catch { /* fall through to the normal flush */ }
-    try {
-      await saveTab.mutateAsync({ tableId, lines: lines.map(cartLineToPayload), partnerId: customer?.id });
-      tabSyncSig.current = orderSig(lines);
-    } catch {
-      // Never trap the cashier — open the workspace anyway (the dialog reads the
-      // authoritative server state and can still cancel/continue the split).
-      toast.error('Could not sync the latest items before splitting — showing the saved order.');
+      if (st?.splitActive) {
+        if (orderSig(useCartStore.getState().lines) !== tabSyncSig.current) throw new Error('Unsaved changes must be resolved before reopening the split.');
+      } else {
+        await flushCurrentOrder();
+      }
+      setShowSplit(true);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || 'Could not save the latest order before splitting. Your cart is preserved.');
     }
-    setShowSplit(true);
   };
 
   /* ============== Fullscreen toggle ============== */
@@ -1592,6 +1307,7 @@ const TerminalPage: React.FC = () => {
 
   return (
     <div className={'pos-shell-pro' + (fullscreen ? ' dark-mode' : '')}>
+      <PendingSaleRecovery />
       {/* POS PIN Login screen — shown until a cashier authenticates */}
       {showPosLogin && !posUser ? (
         <PosLoginScreen onLoggedIn={() => { setShowPosLogin(false); refetchSession(); }} onBeforeSubmit={enterFullscreen} />
@@ -1607,6 +1323,7 @@ const TerminalPage: React.FC = () => {
         activeTableLabel={selectedTable ? `T${selectedTable.number}${selectedTable.name ? ` ${selectedTable.name}` : ''}` : null}
         staffName={user?.firstName}
         staffRole={(user as any)?.roles?.[0]}
+        user={user}
         session={session ?? null}
         fullscreen={fullscreen}
         onToggleFullscreen={onToggleFullscreen}
@@ -1805,10 +1522,12 @@ const TerminalPage: React.FC = () => {
             onDec={onDec}
             onRemove={canDeleteItem ? onRemove : undefined}
             canDiscount={canDiscount}
-            canOverridePrice={canDiscount}
             onNote={onLineNote}
             onLineDiscount={onLineDiscount}
             onPrintBill={onPrintBill}
+            quotedTotal={saleQuote.data?.total}
+            quotedTax={saleQuote.data?.taxAmount}
+            canOverridePrice={false}
             onCharge={onCharge}
             onSplit={onSplit}
             onAddCustomer={() => setShowCustomer(true)}
@@ -1829,25 +1548,6 @@ const TerminalPage: React.FC = () => {
               if (unprinted.length === 0) { toast.info('All items already sent to kitchen'); return; }
               setKotLines(unprinted);
               setShowKotPreview(true);
-            }}
-            onFireCourse={async (course) => {
-              const st = useCartStore.getState();
-              if (st.lines.length === 0) { toast.error('Cart is empty'); return; }
-              let oid = st.orderId;
-              if (!oid && tableId) { const r = await resolveOpenOrder(); oid = r?.orderId; }
-              if (!oid) { toast.error('No open order to fire'); return; }
-              // Persist the current lines (incl. course assignments) before firing.
-              try {
-                const saved = await saveOrderItems.mutateAsync({ orderId: oid, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion });
-                if (useCartStore.getState().orderId === oid && typeof (saved as any)?.version === 'number') {
-                  useCartStore.getState().setTabVersion((saved as any).version);
-                }
-              } catch { /* proceed; autosave may already have persisted the courses */ }
-              try {
-                const res: any = await fireOrderKitchen.mutateAsync({ orderId: oid, course });
-                const label = ['', 'Starter', 'Main', 'Dessert'][course] ?? `Course ${course}`;
-                toast.success(res?.count ? `${label} fired to kitchen` : (res?.message ?? 'Nothing new to fire'));
-              } catch (e: any) { toast.error(e?.response?.data?.message ?? 'Fire failed'); }
             }}
             onVoidItem={(line) => setVoidLine(line)}
             onMoveItems={() => setShowMoveItems(true)}
@@ -1910,6 +1610,9 @@ const TerminalPage: React.FC = () => {
         onSettle={onSettle}
         creditEnabled={!!customer?.id}
         onCreditSale={onCreditSale}
+        customerName={customer?.name}
+        creditInfo={creditInfo ?? null}
+        onPickCustomer={() => setShowCustomer(true)}
       />
       <OverrideDialog
         open={!!overrideKind}

@@ -8,8 +8,37 @@ permissions:
   contents: write
 
 jobs:
+  # Gate the release on the same static checks CI runs, so a tag can never cut a
+  # release from a commit that does not build or type-check. The full DB-backed
+  # test job also runs on tags now (see ci.yml), in parallel.
+  verify:
+    name: Verify (arch + typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.14.0
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Architecture boundary check
+        run: pnpm lint:arch
+      - name: Build shared
+        run: pnpm --filter @erp/shared build
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Build web
+        run: pnpm --filter @erp/web build
+
   build:
     name: Build web dist + create release
+    needs: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,6 +1,7 @@
 import { useAuthStore } from '@/stores/auth.store';
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 import React, { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Coffee, X, Check, ArrowLeft } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -48,12 +49,16 @@ export const AccompanimentPicker: React.FC<Props> = ({ open, productName, groups
       if (cur[optionId]) {
         delete cur[optionId];
       } else if (g.maxSelect === 1) {
+        // Single-choice group: tapping another option replaces the one pick.
         const next: Record<string, { optionId: string; optionName: string; priceImpact: number }> = {};
         next[optionId] = { optionId, optionName, priceImpact };
         return { ...prev, [g.id]: next };
       } else if (Object.keys(cur).length >= g.maxSelect) {
-        delete cur[Object.keys(cur)[0]];
-        cur[optionId] = { optionId, optionName, priceImpact };
+        // UI fix — at the limit for a multi-select group, DON'T silently evict the
+        // first pick. Block the extra selection and tell the cashier, so "choose
+        // two sides" can't quietly drop a side when a third is tapped.
+        toast.error(`"${g.name}" allows at most ${g.maxSelect}. Deselect one first.`);
+        return prev;
       } else {
         cur[optionId] = { optionId, optionName, priceImpact };
       }

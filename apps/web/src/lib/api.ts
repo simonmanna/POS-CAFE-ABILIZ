@@ -88,8 +88,14 @@ api.interceptors.response.use(
         return api.request(original);
       }
     }
-    if (status === 403) notify.error('Permission denied');
-    if (status && status >= 500) notify.error('Server error — please retry');
+    // Surface the server's actionable message rather than generic Axios text.
+    // The API returns { message: string | string[] } on 4xx; expose it as
+    // `err.userMessage` so call sites and toasts can show the real reason.
+    const body: any = err.response?.data;
+    const serverMsg = Array.isArray(body?.message) ? body.message.join('; ') : (typeof body?.message === 'string' ? body.message : undefined);
+    (err as any).userMessage = serverMsg;
+    if (status === 403) notify.error(serverMsg || 'Permission denied');
+    if (status && status >= 500) notify.error(serverMsg || 'Server error — please retry');
     if (!status) notify.error('Network error — please check your connection');
     throw err;
   },

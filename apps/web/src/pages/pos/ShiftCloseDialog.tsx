@@ -1,3 +1,5 @@
+import { SessionReconciliation } from './SessionReconciliation';
+import { FinancialAccountCounts } from './FinancialAccountCounts';
 import { useAuthStore } from '@/stores/auth.store';
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Shift-close dialog. BLIND close: the cashier counts the drawer without seeing
@@ -29,6 +31,7 @@ const DENOMS = [50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50];
 export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onClosed }) => {
   const [counted, setCounted] = useState('');
   const [notes, setNotes] = useState('');
+  const [accountCounts, setAccountCounts] = useState<Record<string, number>>({});
   const [varianceReason, setVarianceReason] = useState('');
   const [byDenom, setByDenom] = useState(false);
   const [denom, setDenom] = useState<Record<number, string>>({});
@@ -44,6 +47,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       setCounted(''); setNotes(''); setVarianceReason('');
       setByDenom(false); setDenom({});
       setShowManager(false); setApproverEmail(''); setManagerPin('');
+      setAccountCounts({});
       setErr(null); setResult(null);
     }
   }, [open]);
@@ -70,6 +74,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     try {
           const res = await closeShift.mutateAsync({
             closingCounted: countedNum,
+            closingAccounts: accountCounts,
             notes: notes.trim() || undefined,
             varianceReason: varianceReason.trim() || undefined,
             approverEmail: showManager ? approverEmail.trim() || undefined : undefined,
@@ -102,7 +107,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent className="sm:max-w-[580px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <PowerOff className="h-4 w-4 text-rose-600" /> Close shift
@@ -227,6 +232,8 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
         {err ? <p className="text-sm text-rose-600">{err}</p> : null}
 
+        <SessionReconciliation sessionId={session.id} />
+        <FinancialAccountCounts stage="closing" value={accountCounts} onChange={setAccountCounts} />
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={closeShift.isPending} style={{ background: '#dc2626' }}>

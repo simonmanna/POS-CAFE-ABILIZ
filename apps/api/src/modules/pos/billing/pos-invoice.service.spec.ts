@@ -19,6 +19,8 @@ function mockPrisma(): any {
     accountMapping: { findFirst: jest.fn() },
     posTable: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn() },
     cashSession: { findFirst: jest.fn().mockResolvedValue(null) },
+    // F17 shared-drawer flag: absent config = each cashier owns their drawer.
+    organizationModule: { findUnique: jest.fn().mockResolvedValue({ config: {} }) },
   };
   client.$transaction = jest.fn((cb: any) => cb(client));
   return { client };
@@ -108,12 +110,12 @@ describe('PosInvoiceService', () => {
       expect(lines[0].accountId).toBe('ar-acc'); // AR
     });
 
-    it('uses cash counter-account when paymentMode is cash', async () => {
+    it('keeps the invoice in AR even when the intended tender is cash', async () => {
       mockDetermination.mapped.mockResolvedValue('cash-acc');
       await (svc as any).postInvoiceGl(prisma.client, mockInvoice, mockItems);
       const lines = mockPosting.post.mock.calls[0][0].lines;
-      expect(lines[0].accountId).toBe('cash-acc');
-      expect(mockDetermination.mapped).toHaveBeenCalledWith('default_cash', expect.anything());
+      expect(lines[0].accountId).toBe('ar-acc');
+      expect(mockDetermination.mapped).not.toHaveBeenCalled();
     });
 
     it('uses AR counter-account when paymentMode is null (default)', async () => {
@@ -135,48 +137,50 @@ describe('PosInvoiceService', () => {
     const mockInvoice = {
       id: 'inv-1', invoiceNumber: 'INV-001', partnerId: 'p-1',
       totalAmount: '100', amountResidual: 100, status: 'posted',
-      paymentMode: 'cash', settlementStatus: 'unsettled',
+      paymentMode: 'cash', settlementStatus: 'unsettled', receivableAccountId: 'ar-acc',
     };
 
     beforeEach(() => {
       prisma.client.invoice.findFirst.mockResolvedValue(mockInvoice);
       prisma.client.accountMapping.findFirst.mockResolvedValue({ key: 'store_credit', accountId: 'sc-acc' });
+      prisma.client.cashSession.findFirst.mockResolvedValue({ id: 'drawer-1', userId: 'test-user', status: 'open' });
       mockPayments.createReceipt.mockResolvedValue({ id: 'pay-1' });
     });
 
-    it('records a payment with skipGlPosting for cash mode', async () => {
-      await svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100 });
+    it('records a real cash receipt without the obsolete skip-GL bypass', async () => {
+      await svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100, cashSessionId: 'drawer-1' });
       expect(mockPayments.createReceipt).toHaveBeenCalledWith(
-        expect.objectContaining({ skipGlPosting: true, paymentMethod: 'cash' }),
+        expect.objectContaining({ paymentMethod: 'cash' }),
         expect.anything(), // tx — payment joins the settlement transaction (P0-2)
-        expect.anything(), // opts (allowSessionOwnerMismatch)
+        { allowSessionOwnerMismatch: false }, // F17 — collections land in the taker's own drawer
       );
     });
 
     it('does not skip GL posting for credit mode', async () => {
       prisma.client.invoice.findFirst.mockResolvedValue({ ...mockInvoice, paymentMode: 'credit' });
-      await svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100 });
+      await svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100, cashSessionId: 'drawer-1' });
       expect(mockPayments.createReceipt).toHaveBeenCalledWith(
-        expect.objectContaining({ skipGlPosting: false }),
+        expect.not.objectContaining({ skipGlPosting: expect.anything() }),
         expect.anything(),
-        expect.anything(), // opts (allowSessionOwnerMismatch)
+        { allowSessionOwnerMismatch: false },
       );
     });
 
-    it('uses store_credit account for store credit tender', async () => {
+    it('passes store credit to the central payment ledger', async () => {
       await svc.receivePayment('inv-1', {
         tenders: [{ method: 'store_credit', amount: 100 }],
       });
       expect(mockPayments.createReceipt).toHaveBeenCalledWith(
-        expect.objectContaining({ accountId: 'sc-acc' }),
+        expect.objectContaining({ paymentMethod: 'store_credit' }),
         expect.anything(),
-        expect.anything(), // opts (allowSessionOwnerMismatch)
+        { allowSessionOwnerMismatch: false },
       );
     });
 
     it('returns the cash change when the customer over-tenders', async () => {
       // Bill 100, cash handed over 150 → tender leg 100 (covers the bill), change 50.
       const res = await svc.receivePayment('inv-1', {
+        cashSessionId: 'drawer-1',
         tenders: [{ method: 'cash', amount: 100 }],
         amountTendered: 150,
       });
@@ -186,7 +190,7 @@ describe('PosInvoiceService', () => {
     it('rejects a second settlement once the invoice is fully paid (P0-2 lock)', async () => {
       prisma.client.invoice.findFirst.mockResolvedValue({ ...mockInvoice, amountResidual: 0 });
       await expect(
-        svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100 }),
+        svc.receivePayment('inv-1', { paymentMethod: 'cash', amountTendered: 100, cashSessionId: 'drawer-1' }),
       ).rejects.toThrow(BadRequestException);
       expect(mockPayments.createReceipt).not.toHaveBeenCalled();
     });

@@ -4,19 +4,26 @@ import { TenantContextService } from '../tenancy/tenant-context.service';
 import { FeatureFlagsService } from '../feature-flags/feature-flags.service';
 import { REQUIRES_MODULE_KEY } from './requires-module.decorator';
 
+/** Modules whose boot-time gate is an env flag rather than the default false. */
+const MODULE_ENV_FLAGS: Record<string, string> = {
+  task: 'ENABLE_TASKS',
+  manufacturing: 'ENABLE_MANUFACTURING',
+  rental: 'ENABLE_RENTAL',
+  repair: 'ENABLE_REPAIR',
+  hr: 'ENABLE_HR',
+  beverage: 'ENABLE_BEVERAGE',
+  'fixed-asset': 'ENABLE_ASSETS',
+  communication: 'ENABLE_COMMUNICATION',
+};
+
 /**
  * Enforces `@RequiresModule(...)` (ADR-005): a tenant may only reach an optional
  * vertical's routes when it has an active `OrganizationModule` row.
  *
- * Registered globally in `kernel.module.ts`. Routes without the decorator are
- * unaffected and pay only a metadata lookup.
- *
- * **Unconfigured tenants are allowed through.** An organization with zero
- * `OrganizationModule` rows has never used the Modules page, so treating its
- * empty set as "everything disabled" would take working modules away from an
- * existing deployment the moment this guard ships. Such a tenant is allowed and
- * warned once; run `apps/api/prisma/backfill-organization-modules.ts` to write
- * explicit rows, after which the guard is strictly fail-closed for that tenant.
+ * Backwards-compat: an org with zero `OrganizationModule` rows is allowed
+ * through (see class docs). Once rows exist, a missing row for a globally-enabled
+ * module is treated as enabled, so an env-imported module cannot be blocked by
+ * the absence of an explicit row.
  */
 @Injectable()
 export class ModuleEnabledGuard implements CanActivate {
@@ -36,12 +43,11 @@ export class ModuleEnabledGuard implements CanActivate {
     ]);
     if (!required) return true;
 
-    // No tenant context (public/unauthenticated route). Authentication guards
-    // own that decision; there is no organization whose modules we could check.
     const orgId = this.tenant.optionalOrganizationId;
     if (!orgId) return true;
 
-    if (!(await this.flags.hasAnyModuleRow())) {
+    const hasAnyRow = await this.flags.hasAnyModuleRow();
+    if (!hasAnyRow) {
       if (!this.warned.has(orgId)) {
         this.warned.add(orgId);
         this.logger.warn(
@@ -52,9 +58,13 @@ export class ModuleEnabledGuard implements CanActivate {
       return true;
     }
 
-    if (!(await this.flags.isModuleEnabled(required))) {
-      throw new ForbiddenException(`Module '${required}' is not enabled for this organization`);
-    }
-    return true;
+    const explicitlyEnabled = await this.flags.isModuleEnabled(required);
+    if (explicitlyEnabled) return true;
+
+    const envFlag = MODULE_ENV_FLAGS[required];
+    const globallyEnabled = !!envFlag && process.env[envFlag] === 'true';
+    if (globallyEnabled) return true;
+
+    throw new ForbiddenException(`Module '${required}' is not enabled for this organization`);
   }
 }

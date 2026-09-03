@@ -43,6 +43,11 @@ export class OrderLineDto {
 }
 
 export class CreateOrderDto {
+  @IsOptional() @IsIn(['percentage', 'fixed_amount']) transactionDiscountType?: 'percentage' | 'fixed_amount';
+  @IsOptional() @IsNumber() @Min(0) transactionDiscountAmount?: number;
+  @IsOptional() @IsString() discountReason?: string;
+  @IsOptional() @IsNumber() transactionDiscountPercent?: number;
+
   @IsOptional() @IsIn(['dine_in', 'takeaway', 'delivery']) orderType?: 'dine_in' | 'takeaway' | 'delivery';
   @IsOptional() @IsString() tableId?: string;
   @IsOptional() @IsString() partnerId?: string;
@@ -57,6 +62,10 @@ export class CreateOrderDto {
 
 /** Auto-save: replace the order's whole item set with exactly these lines. */
 export class SaveOrderItemsDto {
+  @IsOptional() @IsIn(['percentage', 'fixed_amount']) transactionDiscountType?: 'percentage' | 'fixed_amount';
+  @IsOptional() @IsNumber() @Min(0) transactionDiscountAmount?: number;
+  @IsOptional() @IsString() discountReason?: string;
+
   @IsArray() @ValidateNested({ each: true }) @Type(() => OrderLineDto) lines!: OrderLineDto[];
   @IsOptional() @IsNumber() expectedVersion?: number;
   @IsOptional() @IsNumber() guestCount?: number;
@@ -89,6 +98,11 @@ export class MergeOrderDto {
 
 /** Generate the bill/invoice from an order. paymentMode is optional intent. */
 export class GenerateInvoiceDto {
+  @IsOptional() @IsString() cashSessionId?: string;
+  @IsOptional() @IsNumber() expectedVersion?: number;
+  @IsOptional() @IsString() approvalToken?: string;
+  @IsOptional() @IsNumber() @Min(0) expectedTotal?: number;
+  @IsOptional() @IsString() overridePin?: string;
   @IsOptional() @IsIn(['cash', 'card', 'mobile_money', 'mixed', 'credit'])
   paymentMode?: 'cash' | 'card' | 'mobile_money' | 'mixed' | 'credit';
   @IsOptional() @IsString() paymentTermId?: string;
@@ -104,6 +118,7 @@ export class GenerateInvoiceDto {
 }
 
 export class TenderDto {
+  @IsOptional() @IsString() accountId?: string;
   @IsIn(['cash', 'bank', 'card', 'mobile_money', 'store_credit'])
   method!: 'cash' | 'bank' | 'card' | 'mobile_money' | 'store_credit';
   // D2: tender must be a positive, finite amount. A negative leg in a split
@@ -115,6 +130,8 @@ export class TenderDto {
 
 /** Receive one or more payments against an invoice. */
 export class ReceivePaymentDto {
+  @IsOptional() @IsNumber() @Min(0) expectedTotal?: number;
+  @IsOptional() @IsString() approvalToken?: string;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => TenderDto) tenders?: TenderDto[];
   @IsOptional() @IsIn(['cash', 'bank', 'card', 'mobile_money']) paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
   @IsOptional() @IsNumber() amountTendered?: number;
@@ -137,4 +154,8 @@ export class SettleCreditDto {
 
 export class WriteOffDto {
   @IsString() reason!: string;
+}
+
+export class QuoteOrderDto extends GenerateInvoiceDto {
+  @IsArray() @ValidateNested({ each: true }) @Type(() => OrderLineDto) lines!: OrderLineDto[];
 }

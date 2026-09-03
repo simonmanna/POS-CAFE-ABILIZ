@@ -308,7 +308,7 @@ export class TaskService {
 
     // Avg completion time (in minutes) — fetch completed tasks and compute in JS
     const completedTasksForAvg = await this.prisma.client.task.findMany({
-      where: { ...baseWhere, completedAt: { not: null as any }, createdAt: { not: null as any } },
+      where: { ...baseWhere, completedAt: { not: null } },
       select: { createdAt: true, completedAt: true },
     });
     let avgCompletionMinutes = 0;

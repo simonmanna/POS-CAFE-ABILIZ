@@ -77,15 +77,16 @@ body.pos-terminal-fullscreen .app-shell-header {
   transform: translateY(-1px);
 }
 
-/* Solid filled flat nav buttons (Orders / Shift / Tables / Reports). */
+/* Solid filled flat nav buttons (Orders / Shift / Tables / Reports).
+   Same blue as the topbar, bold white outline so they sit flush with the nav. */
 .pos-nav-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   padding: 0.2rem 0.55rem;
   margin: 0 0.25rem;
-  background: rgba(15, 23, 42, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: 2px solid rgba(255, 255, 255, 0.85);
   border-radius: 6px;
   font-size: 0.85rem;
   font-weight: 600;
@@ -95,23 +96,23 @@ body.pos-terminal-fullscreen .app-shell-header {
   transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 .pos-nav-btn:hover {
-  background: rgba(15, 23, 42, 0.8);
+  background: linear-gradient(135deg, #4f8ff8 0%, #2f6ef0 100%);
   transform: translateY(-1px);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
 }
+/* Status accent comes through the outline + a small dot/badge, not the fill,
+   so every nav button keeps the identical blue background. */
 .pos-nav-btn--open {
-  background: #16a34a;
-  border-color: #15803d;
+  border-color: #4ade80;
 }
 .pos-nav-btn--open:hover {
-  background: #15803d;
+  background: linear-gradient(135deg, #4f8ff8 0%, #2f6ef0 100%);
 }
 .pos-nav-btn--closed {
-  background: #dc2626;
-  border-color: #b91c1c;
+  border-color: #f87171;
 }
 .pos-nav-btn--closed:hover {
-  background: #b91c1c;
+  background: linear-gradient(135deg, #4f8ff8 0%, #2f6ef0 100%);
 }
 .pos-active-dot {
   display: inline-block;
@@ -263,7 +264,7 @@ body.pos-terminal-fullscreen .app-shell-header {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  background: #f8fafc;
+  background: #f1f5f9;
 }
 
 /* ============== Categories ============== */
@@ -319,11 +320,11 @@ body.pos-terminal-fullscreen .app-shell-header {
   padding: 1rem;
   overflow-y: auto;
   align-content: start;
-  scrollbar-width: thin;
+  scrollbar-width: auto;
   scrollbar-color: #cbd5e1 transparent;
 }
-.pos-menus-grid-pro::-webkit-scrollbar { width: 8px; }
-.pos-menus-grid-pro::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+.pos-menus-grid-pro::-webkit-scrollbar { width: 14px; }
+.pos-menus-grid-pro::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; border: 4px solid #f1f5f9; }
 .pos-menus-grid-pro::-webkit-scrollbar-track { background: transparent; }
 
 /* Explicit column counts (not auto-fill) so you reliably get 4–5 per row
@@ -363,20 +364,29 @@ body.pos-terminal-fullscreen .app-shell-header {
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
+  padding: 8px;
+  border-radius: 14px;
+  background-clip: content-box;
+  background-origin: content-box;
 }
 .pos-menu-emoji-pro {
   font-size: 3.1rem;
   line-height: 1;
+  padding: 0.5rem;
   filter: drop-shadow(0 6px 10px rgba(15, 23, 42, 0.16));
   transition: transform 0.25s ease;
 }
 .pos-menu-card-pro:hover .pos-menu-emoji-pro { transform: scale(1.08) translateY(-2px); }
 .pos-menu-photo-pro {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  width: auto;
+  height: auto;
   object-fit: cover;
+  border-radius: 10px;
   transition: transform 0.25s ease;
 }
 .pos-menu-card-pro:hover .pos-menu-photo-pro { transform: scale(1.06); }

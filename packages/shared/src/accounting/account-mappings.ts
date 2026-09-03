@@ -200,6 +200,20 @@ export const ACCOUNT_MAPPING_REGISTRY: readonly AccountMappingDef[] = [
     required: true,
   },
   {
+    key: 'card_clearing',
+    label: 'Card Clearing',
+    group: 'treasury',
+    expectedCategories: ['current_asset', 'bank'],
+    required: false,
+  },
+  {
+    key: 'mobile_money',
+    label: 'Mobile Money Wallet',
+    group: 'treasury',
+    expectedCategories: ['mobile_money'],
+    required: false,
+  },
+  {
     key: 'petty_cash',
     label: 'Petty Cash',
     group: 'treasury',

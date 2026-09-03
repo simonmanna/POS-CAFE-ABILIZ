@@ -60,10 +60,18 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       // the caller saw a "successful" resolve (password changes and POS PIN
       // resets were no-ops). Batch form must be delegated untouched.
       //
-      // Consequence: the app.org_id GUC is not injected for the batch form, so
-      // those statements run without RLS context. Callers that need the RLS
-      // backstop must use the interactive form below.
+      // The batch runs on a single connection in one transaction, so we CAN
+      // inject the GUC as its first statement (F20). SET LOCAL is scoped to the
+      // batch's transaction and rolled back at COMMIT, so it neither leaks to a
+      // pooled connection nor affects other callers. The extra leading result is
+      // sliced off so callers still receive exactly their own results.
       if (Array.isArray(arg)) {
+        if (orgId) {
+          const setGuc = (extended as any).$executeRawUnsafe(
+            `SET LOCAL app.org_id = '${orgId.replace(/'/g, "''")}'`,
+          );
+          return (originalTransaction([setGuc, ...arg], ...rest) as Promise<any[]>).then((results) => results.slice(1));
+        }
         return originalTransaction(arg, ...rest);
       }
       const run = async (tx: any) => {

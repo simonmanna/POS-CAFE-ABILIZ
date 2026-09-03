@@ -10,16 +10,22 @@
  *
  * The tests are API-only (no browser) so they exercise the same surface
  * the cashier's terminal hits, but in a fraction of the time and without
- * flakiness from UI rendering. For a true browser-level smoke test, see
- * `e2e/web-smoke.spec.ts` (Playwright UI).
+ * flakiness from UI rendering.
  */
 import { test, expect, beforeAll, afterAll, describe } from 'vitest';
 
-const BASE = process.env.POS_API_BASE ?? 'http://localhost:3000';
+// The API mounts everything under the global prefix `api/v1` (see main.ts), so
+// the base must include it. POS_API_BASE may point at any host/origin; the
+// prefix is appended here unless the override already contains it.
+const RAW_BASE = process.env.POS_API_BASE ?? 'http://localhost:3000';
+const BASE = /\/api\/v1$/.test(RAW_BASE) ? RAW_BASE : `${RAW_BASE.replace(/\/$/, '')}/api/v1`;
 const ADMIN_EMAIL = 'admin@demo.test';
 const ADMIN_PASS = 'Admin@123';
+// Manager override PIN for the seeded admin (refunds/discounts need it now).
+const ADMIN_PIN = process.env.POS_ADMIN_PIN ?? '1234';
 
 let token = '';
+let adminUserId = '';
 let orgId = '';
 let productId = '';
 let cashRegisterId = '';
@@ -52,6 +58,7 @@ beforeAll(async () => {
   expect(login.ok).toBe(true);
   const loginJson = (await login.json()) as any;
   token = loginJson.accessToken ?? loginJson.token;
+  adminUserId = loginJson.user?.id ?? loginJson.userId ?? '';
   expect(token).toBeTruthy();
 
   // Resolve IDs.
@@ -120,12 +127,15 @@ describe('POS sell loop', () => {
     const docs = await api('/invoices?pageSize=5&sourceType=pos') as any;
     const invoice = (docs.data ?? docs)[0];
     expect(invoice).toBeTruthy();
-    const refund = await api('/pos/refund', {
+    // The legacy Document-based POST /pos/refund was deleted; the live route is
+    // POST /pos/invoices/:id/refund. A refund now needs an explicit manager
+    // approval and stock disposition (F04/F16).
+    const refund = await api(`/pos/invoices/${invoice.id}/refund`, {
       method: 'POST',
-      body: JSON.stringify({ invoiceId: invoice.id, reason: 'E2E refund test' }),
+      body: JSON.stringify({ reason: 'E2E refund test', stockDisposition: 'no_return', overrideById: adminUserId, overridePin: ADMIN_PIN }),
     }) as any;
-    // POS refunds now run the Order→Invoice→Receipt pipeline (billing.refund),
-    // which reverses the invoice GL in place rather than raising a credit-note
+    // POS refunds run the Order→Invoice→Receipt pipeline (billing.refund), which
+    // reverses the invoice GL in place rather than raising a credit-note
     // Document. It returns the refunded invoice, not a creditNoteId.
     expect(refund.status).toBe('refunded');
   });

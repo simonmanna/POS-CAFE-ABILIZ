@@ -1,3 +1,4 @@
+import { TenderSettlementPanel } from './TenderSettlementPanel';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Wallet, ArrowRightLeft, ArrowDownToLine, ArrowUpFromLine, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -202,11 +203,26 @@ export function CashAccountsPage() {
           <h1 className="text-2xl font-black text-slate-800 tracking-tight">FINANCIAL ACCOUNTS</h1>
           <p className="text-slate-500 text-sm font-medium">Accounts &amp; payment modes used on receipts and payments</p>
         </div>
-        <Button onClick={openCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200">
-          <Plus className="mr-2 h-4 w-4" /> Add Account
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => navigate('/accounts/cash-accounts/transactions')} className="bg-white border-slate-200 hover:bg-slate-50">
+            <ArrowRightLeft className="mr-2 h-4 w-4 text-slate-600" /> Movements
+          </Button>
+          <Button variant="outline" onClick={() => setCfModal('deposit')} className="bg-white border-slate-200 hover:bg-slate-50">
+            <ArrowDownToLine className="mr-2 h-4 w-4 text-emerald-600" /> Deposit
+          </Button>
+          <Button variant="outline" onClick={() => setCfModal('withdraw')} className="bg-white border-slate-200 hover:bg-slate-50">
+            <ArrowUpFromLine className="mr-2 h-4 w-4 text-amber-600" /> Withdraw
+          </Button>
+          <Button variant="outline" onClick={() => setCfModal('transfer')} className="bg-white border-slate-200 hover:bg-slate-50">
+            <ArrowRightLeft className="mr-2 h-4 w-4 text-indigo-600" /> Transfer
+          </Button>
+          <Button onClick={openCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg shadow-indigo-200">
+            <Plus className="mr-2 h-4 w-4" /> Add Account
+          </Button>
+        </div>
       </div>
 
+      <TenderSettlementPanel />
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />

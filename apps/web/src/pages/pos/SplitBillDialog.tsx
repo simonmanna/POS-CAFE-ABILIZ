@@ -113,10 +113,10 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not cancel the split'); }
   };
 
-  const onPaySettle = async (input: { tenders: PaymentTender[] }) => {
+  const onPaySettle = async (input: { tenders: PaymentTender[]; amountTendered?: number }) => {
     if (!payingBill) return;
     const res = await settleBill.mutateAsync({
-      billId: payingBill.id, tableId, tenders: input.tenders, cashSessionId,
+      billId: payingBill.id, tableId, tenders: input.tenders, cashSessionId, amountTendered: input.amountTendered, expectedTotal: payingBill.totalAmount,
     });
     toast.success(`${payingBill.label} paid — change ${fmt(res.change ?? 0)}`);
     setPayingBill(null);

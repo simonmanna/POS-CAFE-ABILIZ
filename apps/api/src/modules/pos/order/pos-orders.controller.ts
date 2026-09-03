@@ -1,14 +1,14 @@
 import { Body, Controller, Get, Param, Post, Put, Query, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsIn, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
 import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
 import { PosOrdersService } from './pos-orders.service';
 import { PosInvoiceService } from '../billing/pos-invoice.service';
 import {
-  AddOrderItemsDto, CancelOrderDto, CreateOrderDto, GenerateInvoiceDto, MergeOrderDto,
+  AddOrderItemsDto, CancelOrderDto, CreateOrderDto, GenerateInvoiceDto, MergeOrderDto, QuoteOrderDto,
   MoveTableDto, ReceivePaymentDto, SaveOrderItemsDto, SettleCreditDto, WriteOffDto,
 } from './dto/order.dto';
 
@@ -18,6 +18,9 @@ class RefundLineDto {
 }
 
 class RefundInvoiceDto {
+  @IsOptional() @IsString() approvalToken?: string;
+  @IsOptional() @IsString() overridePin?: string;
+  @IsIn(['restock', 'waste', 'no_return']) stockDisposition!: 'restock' | 'waste' | 'no_return';
   @ApiProperty({ required: false }) @IsOptional() @IsString() reason?: string;
   @ApiProperty({ description: 'Manager user id; a void/refund of a settled sale requires an override.' })
   @IsString() overrideById!: string;
@@ -80,6 +83,10 @@ export class PosOrdersController {
   milestones(@Param('id') id: string) {
     return this.orders.getMilestones(id);
   }
+
+  @Post('quote')
+  @RequirePermissions('pos:checkout')
+  quote(@Body() dto: QuoteOrderDto) { return this.orders.quote(dto); }
 
   @Post()
   @RequirePermissions('pos:checkout')
@@ -177,6 +184,8 @@ export class PosBillingController {
   refund(@Param('id') id: string, @Body() dto: RefundInvoiceDto) {
     return this.billing.refund(id, dto.reason, {
       overrideById: dto.overrideById,
+      overridePin: dto.overridePin,
+      stockDisposition: dto.stockDisposition,
       cashSessionId: dto.cashSessionId,
       requireOverride: true,
       lines: dto.lines,
@@ -185,7 +194,9 @@ export class PosBillingController {
 
   /** Write off the outstanding balance of a credit invoice. */
   @Post(':id/write-off')
-  @RequirePermissions('pos:reports')
+  @RequirePermissions('pos:write_off')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent()
   writeOff(@Param('id') id: string, @Body() dto: WriteOffDto) {
     return this.billing.writeOff(id, dto);
   }

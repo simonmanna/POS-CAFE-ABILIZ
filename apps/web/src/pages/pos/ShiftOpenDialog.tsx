@@ -1,3 +1,5 @@
+import { usePaymentAccounts } from '@/features/pos/payment-accounts';
+import { FinancialAccountCounts } from './FinancialAccountCounts';
 import { useAuthStore } from '@/stores/auth.store';
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Shift-open dialog. Cashier picks a register, enters opening float, opens session.
@@ -11,6 +13,7 @@ import { useCashRegisters, useOpenShift } from './api';
 import { toast } from 'sonner';
 
 interface Props {
+  preselectedRegisterId?: string;
   open: boolean;
   onClose: () => void;
   onOpened: () => void;
@@ -18,19 +21,23 @@ interface Props {
 
 const QUICK_FLOATS = [0, 50000, 100000, 200000, 500000];
 
-export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened }) => {
+export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, preselectedRegisterId }) => {
   const { data: registers = [] } = useCashRegisters();
   const [registerId, setRegisterId] = useState<string>('');
   const [openingFloat, setOpeningFloat] = useState('50000');
   const [notes, setNotes] = useState('');
+  const { data: fundingAccounts = [] } = usePaymentAccounts();
+  const [openingSourceAccountId, setOpeningSourceAccountId] = useState('');
+  const [accountCounts, setAccountCounts] = useState<Record<string, number>>({});
   const [err, setErr] = useState<string | null>(null);
   const openShift = useOpenShift();
 
   useEffect(() => {
     if (open) {
-      setRegisterId(registers[0]?.id ?? '');
+      setRegisterId(preselectedRegisterId ?? registers[0]?.id ?? '');
       setOpeningFloat('50000');
       setNotes('');
+      setAccountCounts({});
       setErr(null);
     }
   }, [open, registers.length]);
@@ -44,6 +51,8 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened }) =>
       await openShift.mutateAsync({
         cashRegisterId: registerId,
         openingFloat: float,
+        openingSourceAccountId: openingSourceAccountId || undefined,
+        openingAccounts: accountCounts,
         notes: notes.trim() || undefined,
       });
       toast.success('Shift opened — you can now sell');
@@ -56,7 +65,7 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened }) =>
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-[460px]">
+      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Power className="h-4 w-4 text-emerald-600" /> Open shift
@@ -123,6 +132,14 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened }) =>
 
         {err ? <p className="text-sm text-rose-600">{err}</p> : null}
 
+        <label className="text-sm">Source of additional float (when adding money)
+          <select className="w-full border rounded p-2" value={openingSourceAccountId} onChange={(e) => setOpeningSourceAccountId(e.target.value)}>
+            <option value="">Use cash already recorded in this drawer</option>
+            {fundingAccounts.filter((a) => ['cash', 'petty_cash', 'bank'].includes(a.accountType)).map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+          </select>
+          <span className="text-xs text-slate-500">Adding float transfers funds from this account. Enter its reason in Notes.</span>
+        </label>
+        <FinancialAccountCounts stage="opening" value={accountCounts} onChange={setAccountCounts} />
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button

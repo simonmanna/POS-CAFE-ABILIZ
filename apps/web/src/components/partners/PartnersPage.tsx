@@ -43,6 +43,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  Tabs,
+  TabsList,
+  TabsTrigger,
+  TabsContent,
+} from '@/components/ui/tabs';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -55,6 +61,7 @@ import {
 import { DataTable, type Column } from '@/components/data-table';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { notify } from '@/lib/notify';
+import { useOrgCurrency } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -65,6 +72,7 @@ import {
   useUpdatePartner,
   type Partner,
 } from '@/features/partners/api';
+import { usePaymentTerms } from '@/features/accounting/api';
 
 const schema = z.object({
   code: z.string().optional(),
@@ -125,6 +133,9 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
   const [phone, setPhone] = useState('');
   const [membershipLevel, setMembershipLevel] = useState('');
   const [gender, setGender] = useState('');
+  const [partnerKind, setPartnerKind] = useState<'individual' | 'business'>('individual');
+  const [openingBalance, setOpeningBalance] = useState('');
+  const [paymentTermId, setPaymentTermId] = useState('');
   const [notes, setNotes] = useState('');
   const [contactFirstName, setContactFirstName] = useState('');
   const [contactLastName, setContactLastName] = useState('');
@@ -145,6 +156,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
   const canCreate = hasPermission(PERMISSIONS.partners.create);
   const canEdit = hasPermission(PERMISSIONS.partners.edit);
   const canDelete = hasPermission(PERMISSIONS.partners.delete);
+  const currency = useOrgCurrency();
 
   useEffect(() => setPage(1), [search]);
 
@@ -155,6 +167,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
   const createPartner = useCreatePartner();
   const updatePartner = useUpdatePartner();
   const deletePartner = useDeletePartner();
+  const { data: paymentTerms = [] } = usePaymentTerms();
 
   const cfg = partnerType ? TYPE_CFG[partnerType] : null;
 
@@ -207,6 +220,9 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
       setMembershipLevel(p?.membershipLevel ?? '');
       setGender(p?.gender ?? '');
       setNotes(p?.notes ?? '');
+      setPartnerKind(p?.isCompany ? 'business' : 'individual');
+      setOpeningBalance(p?.openingBalance != null ? String(p.openingBalance) : '');
+      setPaymentTermId(p?.paymentTermId ?? '');
       setContactFirstName(p?.contacts?.find((c) => c.isPrimary)?.firstName ?? '');
       setContactLastName(p?.contacts?.find((c) => c.isPrimary)?.lastName ?? '');
       setContactPosition(p?.contacts?.find((c) => c.isPrimary)?.position ?? '');
@@ -269,10 +285,13 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
       }
       const payload: Record<string, unknown> = {
         ...values,
+        isCompany: partnerKind === 'business',
         phone: phone || null,
         membershipLevel: membershipLevel || null,
         gender: gender || null,
         notes: notes || null,
+        openingBalance: openingBalance ? Number(openingBalance) : 0,
+        paymentTermId: paymentTermId || null,
       };
       if (contacts.length > 0) payload.contacts = contacts;
       if (addresses.length > 0) payload.addresses = addresses;
@@ -587,383 +606,449 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
             </div>
           </DialogHeader>
 
-          <form onSubmit={onSubmit} className="p-6 space-y-6">
-            {/* ── Basic Information ── */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Tag className="h-5 w-5 text-[#f59e0b]" />
-                <Label className="text-base font-semibold text-gray-800">Basic Information</Label>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="code" className="text-sm font-medium text-gray-700">
-                    Code <span className="text-xs text-muted-foreground">(auto if empty)</span>
-                  </Label>
-                  <div className="relative">
-                    <Code2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      id="code"
-                      className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                      placeholder="CUST-001"
-                      {...form.register('code')}
-                    />
-                  </div>
-                  {form.formState.errors.code && (
-                    <p className="text-xs text-destructive">{form.formState.errors.code.message}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="name" className="text-sm font-medium text-gray-700">
-                    Name <span className="text-destructive">*</span>
-                  </Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      id="name"
-                      className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                      placeholder="Acme Ltd"
-                      {...form.register('name')}
-                    />
-                  </div>
-                  {form.formState.errors.name && (
-                    <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
-                  )}
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-sm font-medium text-gray-700">
-                    Email
-                  </Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      id="email"
-                      type="email"
-                      className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                      placeholder="contact@example.com"
-                      {...form.register('email')}
-                    />
-                  </div>
-                  {form.formState.errors.email && (
-                    <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone" className="text-sm font-medium text-gray-700">
-                    Phone
-                  </Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      id="phone"
-                      className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                      placeholder="+256 700 000 000"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+          <form onSubmit={onSubmit} className="p-6">
+            <Tabs defaultValue="general" className="w-full">
+              <TabsList className="grid w-full grid-cols-3 mb-2">
+                <TabsTrigger value="general">General</TabsTrigger>
+                <TabsTrigger value="contact">Contact Person</TabsTrigger>
+                <TabsTrigger value="address">Address</TabsTrigger>
+              </TabsList>
 
-            {/* ── Contact Details (Customer only) ── */}
-            {isCustomer && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <User className="h-5 w-5 text-[#f59e0b]" />
-                  <Label className="text-base font-semibold text-gray-800">Contact Details</Label>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium text-gray-700">Membership Level</Label>
-                    <Select value={membershipLevel} onValueChange={setMembershipLevel}>
-                      <SelectTrigger className="h-11 border-gray-200 rounded-lg">
-                        <SelectValue placeholder="Select level" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">None</SelectItem>
-                        {MEMBERSHIP_OPTIONS.map((opt) => (
-                          <SelectItem key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+              {/* ── General tab ── */}
+              <TabsContent value="general" className="space-y-6 mt-4 focus-visible:outline-none">
+                {/* ── Basic Information ── */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Tag className="h-5 w-5 text-[#f59e0b]" />
+                    <Label className="text-base font-semibold text-gray-800">Basic Information</Label>
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-sm font-medium text-gray-700">Gender</Label>
-                    <Select value={gender} onValueChange={setGender}>
-                      <SelectTrigger className="h-11 border-gray-200 rounded-lg">
-                        <SelectValue placeholder="Select gender" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {GENDER_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Partner Type ── */}
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Users className="h-5 w-5 text-[#8b5cf6]" />
-                <Label className="text-base font-semibold text-gray-800">{typeSelectionTitle}</Label>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {(partnerType
-                  ? ALL_PARTNER_TYPES.filter((t) => {
-                      if (partnerType === 'customer') return t.key === 'isCustomer';
-                      if (partnerType === 'supplier') return t.key === 'isSupplier';
-                      return true;
-                    })
-                  : ALL_PARTNER_TYPES
-                ).map((type) => {
-                  const Icon = type.icon;
-                  const locked = !!partnerType;
-                  const fieldValue = partnerType
-                    ? partnerType === 'customer'
-                      ? form.getValues('isCustomer')
-                      : form.getValues('isSupplier')
-                    : form.watch(type.key);
-
-                  return (
-                    <div
-                      key={type.key}
-                      className={`rounded-lg border-2 p-4 transition-all duration-200 flex flex-col items-center text-center space-y-3 ${
-                        fieldValue
-                          ? 'border-[#0066aa] bg-[#0066aa]/5 shadow-sm'
-                          : 'border-gray-200 bg-white hover:bg-gray-50'
-                      } ${locked ? 'cursor-default' : 'cursor-pointer'}`}
-                    >
-                      <div
-                        className={`flex h-12 w-12 items-center justify-center rounded-full transition-colors ${
-                          fieldValue ? 'bg-[#0066aa] text-white' : 'bg-gray-100 text-gray-500'
-                        }`}
-                      >
-                        <Icon className="h-5 w-5" />
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="code" className="text-sm font-medium text-gray-700">
+                        Code <span className="text-xs text-muted-foreground">(auto if empty)</span>
+                      </Label>
+                      <div className="relative">
+                        <Code2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          id="code"
+                          className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                          placeholder="CUST-001"
+                          {...form.register('code')}
+                        />
                       </div>
-                      <div>
-                        <div className="font-semibold text-sm text-gray-800">{type.label}</div>
-                        <div className="text-xs text-gray-500 mt-1">{type.description}</div>
-                      </div>
-                      {locked && (
-                        <span className="text-[10px] font-medium text-[#0066aa] uppercase tracking-wider">
-                          {partnerType ? (partnerType === 'customer' ? 'Customer' : 'Supplier') : ''}
-                        </span>
+                      {form.formState.errors.code && (
+                        <p className="text-xs text-destructive">{form.formState.errors.code.message}</p>
                       )}
                     </div>
-                  );
-                })}
-              </div>
-              {partnerType && (
-                <p className="text-xs text-gray-400">This partner type is locked for this view.</p>
-              )}
-            </div>
-
-            {/* ── Primary Contact Person ── */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <User className="h-5 w-5 text-[#f59e0b]" />
-                <Label className="text-base font-semibold text-gray-800">Primary Contact Person</Label>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="contactFirstName" className="text-sm font-medium text-gray-700">First Name</Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      id="contactFirstName"
-                      className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                      placeholder="John"
-                      value={contactFirstName}
-                      onChange={(e) => setContactFirstName(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="contactLastName" className="text-sm font-medium text-gray-700">Last Name</Label>
-                  <div className="relative">
-                    <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      id="contactLastName"
-                      className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                      placeholder="Doe"
-                      value={contactLastName}
-                      onChange={(e) => setContactLastName(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="contactPosition" className="text-sm font-medium text-gray-700">Position / Title</Label>
-                  <Input
-                    id="contactPosition"
-                    className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                    placeholder="Procurement Manager"
-                    value={contactPosition}
-                    onChange={(e) => setContactPosition(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="contactEmail" className="text-sm font-medium text-gray-700">Contact Email</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      id="contactEmail"
-                      type="email"
-                      className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                      placeholder="john@example.com"
-                      value={contactEmail}
-                      onChange={(e) => setContactEmail(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="contactPhone" className="text-sm font-medium text-gray-700">Contact Phone</Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      id="contactPhone"
-                      className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                      placeholder="+256 700 000 000"
-                      value={contactPhone}
-                      onChange={(e) => setContactPhone(e.target.value)}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* ── Address ── */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <MapPin className="h-5 w-5 text-[#f59e0b]" />
-                <Label className="text-base font-semibold text-gray-800">Address</Label>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium text-gray-700">Address Type</Label>
-                  <Select value={addrType} onValueChange={(v) => setAddrType(v as 'billing' | 'shipping')}>
-                    <SelectTrigger className="h-11 border-gray-200 rounded-lg">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="shipping">Delivery / Shipping</SelectItem>
-                      <SelectItem value="billing">Billing</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="addrLine1" className="text-sm font-medium text-gray-700">Address Line 1</Label>
-                  <div className="relative">
-                    <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                    <Input
-                      id="addrLine1"
-                      className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                      placeholder="123 Main Street"
-                      value={addrLine1}
-                      onChange={(e) => setAddrLine1(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2 sm:col-span-2">
-                  <Label htmlFor="addrLine2" className="text-sm font-medium text-gray-700">Address Line 2</Label>
-                  <Input
-                    id="addrLine2"
-                    className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                    placeholder="Apt, suite, etc."
-                    value={addrLine2}
-                    onChange={(e) => setAddrLine2(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="addrCity" className="text-sm font-medium text-gray-700">City</Label>
-                  <Input
-                    id="addrCity"
-                    className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                    placeholder="Kampala"
-                    value={addrCity}
-                    onChange={(e) => setAddrCity(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="addrState" className="text-sm font-medium text-gray-700">State / Region</Label>
-                  <Input
-                    id="addrState"
-                    className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                    placeholder="Central Region"
-                    value={addrState}
-                    onChange={(e) => setAddrState(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="addrPostalCode" className="text-sm font-medium text-gray-700">Postal Code</Label>
-                  <Input
-                    id="addrPostalCode"
-                    className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                    placeholder="256"
-                    value={addrPostalCode}
-                    onChange={(e) => setAddrPostalCode(e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="addrCountry" className="text-sm font-medium text-gray-700">Country</Label>
-                  <Input
-                    id="addrCountry"
-                    className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                    placeholder="Uganda"
-                    value={addrCountry}
-                    onChange={(e) => setAddrCountry(e.target.value)}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* ── Loyalty Points (Customer only) ── */}
-            {isCustomer && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <Award className="h-5 w-5 text-[#f59e0b]" />
-                  <Label className="text-base font-semibold text-gray-800">Loyalty Points</Label>
-                </div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                  {editing ? (
-                    loyaltyEarned !== null ? (
-                      <div className="flex items-center gap-2">
-                        <Award className="h-5 w-5 text-amber-600" />
-                        <span className="text-lg font-extrabold text-amber-900">
-                          {loyaltyEarned.toLocaleString()}
-                        </span>
-                        <span className="text-sm text-amber-700">points earned (lifetime)</span>
+                    <div className="space-y-2">
+                      <Label htmlFor="name" className="text-sm font-medium text-gray-700">
+                        Name <span className="text-destructive">*</span>
+                      </Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          id="name"
+                          className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                          placeholder="Acme Ltd"
+                          {...form.register('name')}
+                        />
                       </div>
-                    ) : (
-                      <p className="text-sm text-amber-600">Loading loyalty data...</p>
-                    )
-                  ) : (
-                    <p className="text-sm text-amber-600">Points will be tracked after the customer makes their first purchase.</p>
+                      {form.formState.errors.name && (
+                        <p className="text-xs text-destructive">{form.formState.errors.name.message}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="email" className="text-sm font-medium text-gray-700">
+                        Email
+                      </Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          id="email"
+                          type="email"
+                          className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                          placeholder="contact@example.com"
+                          {...form.register('email')}
+                        />
+                      </div>
+                      {form.formState.errors.email && (
+                        <p className="text-xs text-destructive">{form.formState.errors.email.message}</p>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone" className="text-sm font-medium text-gray-700">
+                        Phone
+                      </Label>
+                      <div className="relative">
+                        <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          id="phone"
+                          className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                          placeholder="+256 700 000 000"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  </div>
+
+                  {/* ── Partner classification + financials ── */}
+                  <div className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-gray-700">Partner Type</Label>
+                      <Select value={partnerKind} onValueChange={(v) => setPartnerKind(v as 'individual' | 'business')}>
+                        <SelectTrigger className="h-11 border-gray-200 rounded-lg">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="individual">Individual</SelectItem>
+                          <SelectItem value="business">Business</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="paymentTermId" className="text-sm font-medium text-gray-700">Payment Term</Label>
+                      <Select value={paymentTermId} onValueChange={setPaymentTermId}>
+                        <SelectTrigger className="h-11 border-gray-200 rounded-lg">
+                          <SelectValue placeholder="Default (from settings)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">Default (from settings)</SelectItem>
+                          {paymentTerms.filter((t) => t.isActive).map((term) => (
+                            <SelectItem key={term.id} value={term.id}>{term.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="openingBalance" className="text-sm font-medium text-gray-700">
+                      Opening Balance <span className="text-gray-400">(brought forward)</span>
+                    </Label>
+                    <div className="relative">
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">{currency}</span>
+                      <Input
+                        id="openingBalance"
+                        type="number"
+                        step="0.01"
+                        className="pl-12 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                        placeholder="0.00"
+                        value={openingBalance}
+                        onChange={(e) => setOpeningBalance(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  </div>
+
+                  {/* ── Contact Details (Customer only) ── */}
+                {isCustomer && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <User className="h-5 w-5 text-[#f59e0b]" />
+                      <Label className="text-base font-semibold text-gray-800">Contact Details</Label>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-gray-700">Membership Level</Label>
+                        <Select value={membershipLevel} onValueChange={setMembershipLevel}>
+                          <SelectTrigger className="h-11 border-gray-200 rounded-lg">
+                            <SelectValue placeholder="Select level" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="">None</SelectItem>
+                            {MEMBERSHIP_OPTIONS.map((opt) => (
+                              <SelectItem key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium text-gray-700">Gender</Label>
+                        <Select value={gender} onValueChange={setGender}>
+                          <SelectTrigger className="h-11 border-gray-200 rounded-lg">
+                            <SelectValue placeholder="Select gender" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {GENDER_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Partner Type ── */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Users className="h-5 w-5 text-[#8b5cf6]" />
+                    <Label className="text-base font-semibold text-gray-800">{typeSelectionTitle}</Label>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {(partnerType
+                      ? ALL_PARTNER_TYPES.filter((t) => {
+                          if (partnerType === 'customer') return t.key === 'isCustomer';
+                          if (partnerType === 'supplier') return t.key === 'isSupplier';
+                          return true;
+                        })
+                      : ALL_PARTNER_TYPES
+                    ).map((type) => {
+                      const Icon = type.icon;
+                      const locked = !!partnerType;
+                      const fieldValue = partnerType
+                        ? partnerType === 'customer'
+                          ? form.getValues('isCustomer')
+                          : form.getValues('isSupplier')
+                        : form.watch(type.key);
+
+                      return (
+                        <div
+                          key={type.key}
+                          className={`rounded-lg border-2 p-4 transition-all duration-200 flex flex-col items-center text-center space-y-3 ${
+                            fieldValue
+                              ? 'border-[#0066aa] bg-[#0066aa]/5 shadow-sm'
+                              : 'border-gray-200 bg-white hover:bg-gray-50'
+                          } ${locked ? 'cursor-default' : 'cursor-pointer'}`}
+                        >
+                          <div
+                            className={`flex h-12 w-12 items-center justify-center rounded-full transition-colors ${
+                              fieldValue ? 'bg-[#0066aa] text-white' : 'bg-gray-100 text-gray-500'
+                            }`}
+                          >
+                            <Icon className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <div className="font-semibold text-sm text-gray-800">{type.label}</div>
+                            <div className="text-xs text-gray-500 mt-1">{type.description}</div>
+                          </div>
+                          {locked && (
+                            <span className="text-[10px] font-medium text-[#0066aa] uppercase tracking-wider">
+                              {partnerType ? (partnerType === 'customer' ? 'Customer' : 'Supplier') : ''}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {partnerType && (
+                    <p className="text-xs text-gray-400">This partner type is locked for this view.</p>
                   )}
                 </div>
-              </div>
-            )}
 
-            {/* ── Notes ── */}
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-[#f59e0b]" />
-                <Label htmlFor="notes" className="text-base font-semibold text-gray-800">Notes</Label>
-              </div>
-              <Textarea
-                id="notes"
-                className="border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa] min-h-[80px]"
-                placeholder="Any additional notes about this partner..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-              />
-            </div>
+                {/* ── Loyalty Points (Customer only) ── */}
+                {isCustomer && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Award className="h-5 w-5 text-[#f59e0b]" />
+                      <Label className="text-base font-semibold text-gray-800">Loyalty Points</Label>
+                    </div>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                      {editing ? (
+                        loyaltyEarned !== null ? (
+                          <div className="flex items-center gap-2">
+                            <Award className="h-5 w-5 text-amber-600" />
+                            <span className="text-lg font-extrabold text-amber-900">
+                              {loyaltyEarned.toLocaleString()}
+                            </span>
+                            <span className="text-sm text-amber-700">points earned (lifetime)</span>
+                          </div>
+                        ) : (
+                          <p className="text-sm text-amber-600">Loading loyalty data...</p>
+                        )
+                      ) : (
+                        <p className="text-sm text-amber-600">Points will be tracked after the customer makes their first purchase.</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Notes ── */}
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-[#f59e0b]" />
+                    <Label htmlFor="notes" className="text-base font-semibold text-gray-800">Notes</Label>
+                  </div>
+                  <Textarea
+                    id="notes"
+                    className="border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa] min-h-[80px]"
+                    placeholder="Any additional notes about this partner..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
+              </TabsContent>
+
+              {/* ── Contact Person tab ── */}
+              <TabsContent value="contact" className="space-y-6 mt-4 focus-visible:outline-none">
+                {/* ── Primary Contact Person ── */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <User className="h-5 w-5 text-[#f59e0b]" />
+                    <Label className="text-base font-semibold text-gray-800">Primary Contact Person</Label>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="contactFirstName" className="text-sm font-medium text-gray-700">First Name</Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          id="contactFirstName"
+                          className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                          placeholder="John"
+                          value={contactFirstName}
+                          onChange={(e) => setContactFirstName(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="contactLastName" className="text-sm font-medium text-gray-700">Last Name</Label>
+                      <div className="relative">
+                        <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          id="contactLastName"
+                          className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                          placeholder="Doe"
+                          value={contactLastName}
+                          onChange={(e) => setContactLastName(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="contactPosition" className="text-sm font-medium text-gray-700">Position / Title</Label>
+                      <Input
+                        id="contactPosition"
+                        className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                        placeholder="Procurement Manager"
+                        value={contactPosition}
+                        onChange={(e) => setContactPosition(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="contactEmail" className="text-sm font-medium text-gray-700">Contact Email</Label>
+                      <div className="relative">
+                        <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          id="contactEmail"
+                          type="email"
+                          className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                          placeholder="john@example.com"
+                          value={contactEmail}
+                          onChange={(e) => setContactEmail(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="contactPhone" className="text-sm font-medium text-gray-700">Contact Phone</Label>
+                      <div className="relative">
+                        <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          id="contactPhone"
+                          className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                          placeholder="+256 700 000 000"
+                          value={contactPhone}
+                          onChange={(e) => setContactPhone(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* ── Address tab ── */}
+              <TabsContent value="address" className="space-y-6 mt-4 focus-visible:outline-none">
+                {/* ── Address ── */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-5 w-5 text-[#f59e0b]" />
+                    <Label className="text-base font-semibold text-gray-800">Address</Label>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium text-gray-700">Address Type</Label>
+                      <Select value={addrType} onValueChange={(v) => setAddrType(v as 'billing' | 'shipping')}>
+                        <SelectTrigger className="h-11 border-gray-200 rounded-lg">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="shipping">Delivery / Shipping</SelectItem>
+                          <SelectItem value="billing">Billing</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="addrLine1" className="text-sm font-medium text-gray-700">Address Line 1</Label>
+                      <div className="relative">
+                        <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        <Input
+                          id="addrLine1"
+                          className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                          placeholder="123 Main Street"
+                          value={addrLine1}
+                          onChange={(e) => setAddrLine1(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label htmlFor="addrLine2" className="text-sm font-medium text-gray-700">Address Line 2</Label>
+                      <Input
+                        id="addrLine2"
+                        className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                        placeholder="Apt, suite, etc."
+                        value={addrLine2}
+                        onChange={(e) => setAddrLine2(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="addrCity" className="text-sm font-medium text-gray-700">City</Label>
+                      <Input
+                        id="addrCity"
+                        className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                        placeholder="Kampala"
+                        value={addrCity}
+                        onChange={(e) => setAddrCity(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="addrState" className="text-sm font-medium text-gray-700">State / Region</Label>
+                      <Input
+                        id="addrState"
+                        className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                        placeholder="Central Region"
+                        value={addrState}
+                        onChange={(e) => setAddrState(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="addrPostalCode" className="text-sm font-medium text-gray-700">Postal Code</Label>
+                      <Input
+                        id="addrPostalCode"
+                        className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                        placeholder="256"
+                        value={addrPostalCode}
+                        onChange={(e) => setAddrPostalCode(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="addrCountry" className="text-sm font-medium text-gray-700">Country</Label>
+                      <Input
+                        id="addrCountry"
+                        className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
+                        placeholder="Uganda"
+                        value={addrCountry}
+                        onChange={(e) => setAddrCountry(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </TabsContent>
+            </Tabs>
           </form>
 
           <DialogFooter className="p-6 border-t border-gray-200 bg-gray-50/50 rounded-b-lg gap-2">

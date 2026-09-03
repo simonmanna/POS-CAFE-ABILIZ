@@ -132,11 +132,10 @@ export class DigitalMenuService {
       where: { organizationId: session.organizationId },
       orderBy: { name: 'asc' },
     });
-    const combos = await this.prisma.client.combo.findMany({
-      where: { organizationId: session.organizationId, isActive: true },
-      orderBy: { sortOrder: 'asc' },
-      include: { items: { include: { product: true } } },
-    });
+    // F13 — combo selling is paused (component quantities/prices are not yet
+    // preserved through order editing, and the checkout guard 400s any combo
+    // line). Don't advertise combos the customer cannot actually order.
+    const combos: any[] = [];
 
     const publicProducts = (products as any[]).map((p) => ({
       id: p.id,

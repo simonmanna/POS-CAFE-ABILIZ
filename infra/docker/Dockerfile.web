@@ -11,7 +11,12 @@ RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY tsconfig.base.json ./
 COPY packages/shared packages/shared
 COPY apps/web apps/web
-ARG VITE_API_URL=http://localhost:3000
+# F20 — default to a same-origin build. Empty VITE_API_URL makes the client use
+# the relative `/api/v1` base, which nginx proxies to the API container. The old
+# baked-in http://localhost:3000 only resolved on the machine running the API,
+# so a second terminal's browser hit its own localhost. Override this arg only
+# for a deliberately cross-origin API.
+ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
 RUN pnpm --filter @erp/shared build
 RUN pnpm --filter @erp/web build

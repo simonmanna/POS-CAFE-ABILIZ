@@ -1,3 +1,8 @@
+import { draftPricing } from '@/features/pos/cart-payload';
+import { submitCashOperation } from '@/features/pos/cash-operation';
+import { useAuthStore } from '@/stores/auth.store';
+import { usePosAuthStore } from '@/features/pos/pos-auth.store';
+import { submitEntitySaleOperation, submitSaleOperation, listPending, listFailed } from '@/features/pos/offline-queue';
 /**
  * POS terminal — API client.
  *
@@ -26,6 +31,7 @@ import type { PaginatedResult } from '@erp/shared';
 import type {
   CashRegister, CashSession, Category, Customer, Product, MovementsResponse,
   Order, InvoiceResult, PaymentResult, PaymentTender, Receipt, ReceiptLine,
+  CreditStatus, SettleMode,
 } from './types';
 
 /* ============== Catalog ============== */
@@ -42,16 +48,20 @@ export function useProductsForPos(params: { search?: string; categoryId?: string
   return useQuery({
     queryKey: ['pos-products', params],
     queryFn: async () => {
-      const res = await api.get<{ data: Product[] }>('/products', {
+      // F19 — filter by category ON THE SERVER. The old code fetched only page 1
+      // (200 rows) across all categories and filtered client-side, so a category
+      // whose products fell beyond that first page showed up empty. The server
+      // already supports `categoryId`; scoping the query means the 200-row window
+      // is per-category, not global.
+      const res = await api.get<{ data: Product[]; meta?: { total?: number } }>('/products', {
         params: {
           page: 1,
           pageSize: 200,
           search: params.search || undefined,
+          categoryId: params.categoryId || undefined,
         },
       });
-      const items = (res.data.data ?? []) as unknown as Product[];
-      if (params.categoryId) return items.filter((p) => p.categoryId === params.categoryId);
-      return items;
+      return (res.data.data ?? []) as unknown as Product[];
     },
     staleTime: 30_000,
   });
@@ -104,10 +114,13 @@ export function useCashRegisters() {
 
 /** Returns the cashier's currently-open session (across all registers), if any. */
 export function useOpenSession() {
+  const org = useAuthStore((s) => s.organization?.id);
+  const operator = usePosAuthStore((s) => s.user?.userId);
+  const registerId = localStorage.getItem(`pos-register:${org}`) ?? undefined;
   return useQuery({
-    queryKey: ['cash-session', 'open'],
+    queryKey: ['cash-session', 'open', org, operator, registerId],
     queryFn: async () => {
-      const res = await api.get<CashSession | null>('/cash-sessions/open');
+      const res = await api.get<CashSession | null>('/cash-sessions/open', { params: { registerId } });
       return res.data ?? null;
     },
     // Open session is stable; rely on mutation invalidation, not polling.
@@ -123,9 +136,9 @@ export function useOpenSession() {
 export function useOpenShift() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { cashRegisterId: string; openingFloat?: number; notes?: string }) =>
-      (await api.post<CashSession>('/cash-sessions/open', body)).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['cash-session'] }),
+    mutationFn: async (body: { openingSourceAccountId?: string; cashRegisterId: string; openingFloat?: number; notes?: string; openingAccounts?: Record<string, number> }) =>
+      submitCashOperation('/cash-sessions/open', body),
+    onSuccess: (session: any) => { if (session?.cashRegisterId) localStorage.setItem(`pos-register:${useAuthStore.getState().organization?.id}`, session.cashRegisterId); qc.invalidateQueries({ queryKey: ['cash-session'] }); },
   });
 }
 
@@ -134,6 +147,7 @@ export function useCloseShift() {
   return useMutation({
     mutationFn: async (body: {
       closingCounted: number;
+      closingAccounts?: Record<string, number>;
       notes?: string;
       varianceReason?: string;
       varianceStatus?: string;
@@ -141,7 +155,11 @@ export function useCloseShift() {
       managerPin?: string;
       closingDenomination?: Record<string, number>;
       sessionId?: string;
-    }) => (await api.post<CashSession>('/cash-sessions/close', body)).data,
+    }) => {
+      const pending = [...await listPending(), ...await listFailed()].filter((op) => op.payload.cashSessionId === body.sessionId && !(op as any).rejection?.safeToRetry);
+      if (pending.length) throw new Error('Resolve pending or rejected payments on this device before closing');
+      return submitCashOperation('/cash-sessions/close', { ...body, pendingSyncCount: 0 });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-session'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
@@ -173,6 +191,7 @@ export function useShiftHandover() {
     mutationFn: async (body: {
       cashRegisterId: string;
       closingCounted: number;
+      closingAccounts?: Record<string, number>;
       incomingUserId: string;
       incomingPin: string;
       approvedById: string;
@@ -180,7 +199,7 @@ export function useShiftHandover() {
       varianceReason?: string;
       openingFloat?: number;
       notes?: string;
-    }) => (await api.post('/pos/shift/handover', body)).data,
+    }) => submitCashOperation('/pos/shift/handover', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cash-session'] }),
   });
 }
@@ -197,8 +216,8 @@ export function useExpectedCash(sessionId?: string) {
 export function useRecordMovement() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { sessionId?: string; movementType: 'pay_in' | 'pay_out' | 'adjustment'; amount: number; reason?: string }) =>
-      (await api.post('/cash-sessions/movement', body)).data,
+    mutationFn: async (body: { sessionId?: string; movementType: 'pay_in' | 'pay_out' | 'adjustment'; amount: number; reason?: string; counterpartAccountId?: string; approverEmail?: string; managerPin?: string }) =>
+      submitCashOperation('/cash-sessions/movement', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-session'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
@@ -225,8 +244,8 @@ export function useSessionHistory(page = 1, perPage = 20, registerId?: string) {
 export function useRecordBankDeposit() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { sessionId: string; amount: number; bankName: string; reference?: string; notes?: string }) =>
-      (await api.post(`/cash-sessions/${body.sessionId}/banking`, body)).data,
+    mutationFn: async ({ sessionId, ...body }: { sessionId: string; amount: number; bankName: string; destinationAccountId?: string; reference?: string; notes?: string }) =>
+      submitCashOperation(`/cash-sessions/${sessionId}/banking`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-session'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
@@ -303,6 +322,7 @@ function uuid(): string {
 }
 
 export interface CheckoutBody {
+  expectedTotal?: number; expectedVersion?: number;
   lines: Array<{
     productId?: string;
     menuItemId?: string;
@@ -337,6 +357,9 @@ export interface CheckoutBody {
   tableId?: string;
   guestCount?: number;
   orderType?: 'dine_in' | 'takeaway' | 'delivery';
+  /** 'credit' books the whole bill to the customer's AR — nothing is collected
+   *  now, no tenders are sent, and the invoice stays unpaid until settled. */
+  settleMode?: SettleMode;
   /** Client-only: the cart's stable Idempotency-Key. Stripped before POST so it
    *  never reaches the (forbidNonWhitelisted) DTO; sent as the header instead. */
   _idemKey?: string;
@@ -346,11 +369,12 @@ export function useCheckout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ _idemKey, ...body }: CheckoutBody) =>
-      (await api.post('/pos/checkout', body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
+      submitSaleOperation('/pos/checkout', body, _idemKey ?? uuid()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-holds'] });
       qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['pos-credit'] });
       qc.invalidateQueries({ queryKey: ['cash-session'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
@@ -399,7 +423,7 @@ export function useAddToTab() {
       transactionDiscountPercent?: number;
       // tableId travels in the URL only — the API DTOs use forbidNonWhitelisted,
       // so leaving it in the body returns 400 "property tableId should not exist".
-    }) => (await api.post(`/pos/tabs/${tableId}/items`, body)).data,
+    }) => (await api.post(`/pos/tabs/${tableId}/items`, { cashSessionId: useCartStore.getState().cashSessionId, ...body })).data,
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-tab', v.tableId] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
@@ -413,6 +437,9 @@ export function useSettleTab() {
   return useMutation({
     mutationFn: async ({ tableId, _idemKey, ...body }: {
       tableId: string;
+      expectedTotal?: number; expectedVersion?: number;
+      overrideById?: string;
+      overridePin?: string;
       tenders?: CheckoutBody['tenders'];
       paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
       amountTendered?: number;
@@ -421,13 +448,17 @@ export function useSettleTab() {
       transactionDiscountAmount?: number;
       discountReason?: string;
       cashSessionId?: string;
+      settleMode?: SettleMode;
+      /** Customer picked at charge time; moved onto the order before billing. */
+      partnerId?: string;
       _idemKey?: string;
-    }) => (await api.post(`/pos/tabs/${tableId}/settle`, body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
+    }) => submitSaleOperation(`/pos/tabs/${tableId}/settle`, body, _idemKey ?? uuid()),
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-tab', v.tableId] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
       qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['pos-credit'] });
       qc.invalidateQueries({ queryKey: ['cash-session'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
@@ -492,6 +523,9 @@ export function useSettleOrder() {
   return useMutation({
     mutationFn: async ({ orderId, _idemKey, ...body }: {
       orderId: string;
+      expectedTotal?: number; expectedVersion?: number;
+      overrideById?: string;
+      overridePin?: string;
       tenders?: CheckoutBody['tenders'];
       paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
       amountTendered?: number;
@@ -499,15 +533,17 @@ export function useSettleOrder() {
       transactionDiscountType?: 'percentage' | 'fixed_amount';
       transactionDiscountAmount?: number;
       discountReason?: string;
-      overrideById?: string;
-      overridePin?: string;
       cashSessionId?: string;
+      settleMode?: SettleMode;
+      /** Customer picked at charge time; moved onto the order before billing. */
+      partnerId?: string;
       _idemKey?: string;
-    }) => (await api.post(`/pos/orders/${orderId}/settle`, body, { headers: { 'Idempotency-Key': _idemKey ?? uuid() } })).data,
+    }) => submitSaleOperation(`/pos/orders/${orderId}/settle`, body, _idemKey ?? uuid()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['pos-credit'] });
       qc.invalidateQueries({ queryKey: ['cash-session'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
@@ -533,7 +569,7 @@ export function useSaveTab() {
       const version = expectedVersion ?? useCartStore.getState().tabVersion;
       return (await api.post<TabDocument | null>(
         `/pos/tabs/${tableId}/save`,
-        { ...body, ...(version != null ? { expectedVersion: version } : {}) },
+        { ...draftPricing(useCartStore.getState()), cashSessionId: useCartStore.getState().cashSessionId, ...body, ...(version != null ? { expectedVersion: version } : {}) },
       )).data;
     },
     onSuccess: (data, variables) => {
@@ -614,31 +650,12 @@ export function useReceipt(id: string | undefined) {
 export function useRefundSale() {
   const qc = useQueryClient();
   return useMutation({
-    // New pipeline: refund targets the Invoice id (URL); body carries only the
-    // whitelisted fields. `_idemKey` (minted once by the confirming UI, stripped
-    // from the body) makes a double-click replay rather than double-refund.
-    mutationFn: async ({ _idemKey, ...body }: { invoiceId: string; reason?: string; cashSessionId?: string; overrideById?: string; _idemKey?: string }) =>
-      (await api.post(
-        `/pos/invoices/${body.invoiceId}/refund`,
-        { reason: body.reason, overrideById: body.overrideById, cashSessionId: body.cashSessionId },
-        { headers: { 'Idempotency-Key': _idemKey ?? uuid() } },
-      )).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
+    mutationFn: async ({ _idemKey, invoiceId, ...body }: { invoiceId: string; reason: string; cashSessionId?: string; overrideById: string; overridePin?: string; stockDisposition: 'restock' | 'waste' | 'no_return'; lines?: Array<{ lineId: string; quantity: number }>; _idemKey: string }) =>
+      submitSaleOperation(`/pos/invoices/${invoiceId}/refund`, { ...body, cashSessionId: body.cashSessionId ?? useCartStore.getState().cashSessionId }, _idemKey),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pos-reports'] }); qc.invalidateQueries({ queryKey: ['pos-store-credit'] }); },
   });
 }
-
-export function useVoidSale() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ _idemKey, ...body }: { invoiceId: string; reason: string; overrideById: string; _idemKey?: string }) =>
-      (await api.post(
-        `/pos/invoices/${body.invoiceId}/refund`,
-        { reason: body.reason, overrideById: body.overrideById },
-        { headers: { 'Idempotency-Key': _idemKey ?? uuid() } },
-      )).data,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
-  });
-}
+export const useVoidSale = useRefundSale;
 
 /* ============== Store credit ============== */
 
@@ -847,7 +864,7 @@ export function useCreateOrder() {
       orderType?: 'dine_in' | 'takeaway' | 'delivery';
       tableId?: string; partnerId?: string; waiterId?: string; branchId?: string;
       cashSessionId?: string; guestCount?: number; notes?: string; lines?: OrderLineBody[];
-    }) => (await api.post<Order>('/pos/orders', body)).data,
+    }) => (await api.post<Order>('/pos/orders', { ...draftPricing(useCartStore.getState()), ...body })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
       qc.invalidateQueries({ queryKey: ['pos-orders'] });
@@ -862,7 +879,7 @@ export function useSaveOrderItems() {
     mutationFn: async ({ orderId, ...body }: {
       orderId: string; lines: OrderLineBody[]; expectedVersion?: number;
       guestCount?: number; partnerId?: string; transactionDiscountPercent?: number;
-    }) => (await api.put<Order>(`/pos/orders/${orderId}/items`, body)).data,
+    }) => (await api.put<Order>(`/pos/orders/${orderId}/items`, { ...draftPricing(useCartStore.getState()), partnerId: useCartStore.getState().customer?.id, ...body })).data,
     onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] }),
   });
 }
@@ -966,11 +983,16 @@ export function useReceivePayment() {
       // When true, tenders summing to LESS than the balance leave the invoice
       // partially settled (table stays held). Default false = settle in full.
       allowPartial?: boolean;
-    }) => (await api.post<PaymentResult>(`/pos/invoices/${invoiceId}/payments`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
+    }) => submitEntitySaleOperation(`/pos/invoices/${invoiceId}/payments`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
+      qc.invalidateQueries({ queryKey: ['pos-credit'] });
+      qc.invalidateQueries({ queryKey: ['customer-statement'] });
+      qc.invalidateQueries({ queryKey: ['invoice'] });
       qc.invalidateQueries({ queryKey: ['cash-session'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'expected'] });
+      qc.invalidateQueries({ queryKey: ['cash-session', 'movements'] });
     },
   });
 }
@@ -982,6 +1004,47 @@ export function useSettleCredit() {
     mutationFn: async ({ invoiceId, ...body }: { invoiceId: string; partnerId?: string; notes?: string }) =>
       (await api.post<PaymentResult>(`/pos/invoices/${invoiceId}/credit`, body)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-tables'] }),
+  });
+}
+
+/* ============== Credit / receivables ============== */
+
+/** A customer's credit standing — drives the Charge dialog's credit panel. */
+export function useCreditInfo(partnerId?: string) {
+  return useQuery({
+    queryKey: ['pos-credit', 'status', partnerId],
+    enabled: !!partnerId,
+    queryFn: async () => (await api.get<CreditStatus>(`/pos/customers/${partnerId}/credit`)).data,
+  });
+}
+
+export interface OpenCreditInvoice {
+  invoiceId: string;
+  invoiceNumber: string;
+  issueDate: string;
+  partnerId: string;
+  partnerName: string;
+  totalAmount: number;
+  amountPaid: number;
+  amountResidual: number;
+  daysOutstanding: number;
+}
+
+export interface OpenCreditFeed {
+  rows: OpenCreditInvoice[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalOutstanding: number;
+  customersOwing: number;
+  oldestDebtDays: number;
+}
+
+/** The receivables worklist: every open credit invoice, oldest first. */
+export function useOpenCreditInvoices(params: { partnerId?: string; search?: string; page?: number; pageSize?: number } = {}) {
+  return useQuery({
+    queryKey: ['pos-credit', 'open', params],
+    queryFn: async () => (await api.get<OpenCreditFeed>('/pos/credit/open', { params })).data,
   });
 }
 
@@ -1149,15 +1212,16 @@ export function useSettleSplitBill() {
       paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money';
       amountTendered?: number;
       cashSessionId?: string;
+      expectedTotal?: number;
       _idemKey?: string;
     }) => {
       const body = {
         tenders: vars.tenders,
         paymentMethod: vars.paymentMethod,
         amountTendered: vars.amountTendered,
-        cashSessionId: vars.cashSessionId,
+        cashSessionId: vars.cashSessionId, expectedTotal: vars.expectedTotal,
       };
-      return (await api.post<SettleSplitResult>(`/pos/split-bills/${vars.billId}/settle`, body, { headers: { 'Idempotency-Key': vars._idemKey ?? uuid() } })).data;
+      return submitEntitySaleOperation(`/pos/split-bills/${vars.billId}/settle`, body);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-split'] });

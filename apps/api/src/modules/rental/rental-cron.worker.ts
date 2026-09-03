@@ -40,40 +40,38 @@ export class RentalCronWorker {
   }
 
   private async runForOrg(orgId: string): Promise<void> {
-    // 1. Expire held reservations whose hold window elapsed.
-    const expired = await this.prisma.client.rentalReservation.findMany({
-      where: {
-        organizationId: orgId,
-        status: 'held',
-        expiresAt: { lt: new Date() },
-      },
-      select: { id: true },
-    });
-    for (const r of expired) {
-      try {
-        this.tenant.run({ organizationId: orgId }, () => this.reservations.cancel(r.id));
-      } catch (err) {
-        this.logger.warn(`reservation ${r.id} expiry failed: ${String(err)}`);
+    await this.tenant.run({ organizationId: orgId }, async () => {
+      // 1. Expire held reservations whose hold window elapsed.
+      const expired = await this.prisma.client.rentalReservation.findMany({
+        where: {
+          status: 'held',
+          expiresAt: { lt: new Date() },
+        },
+        select: { id: true },
+      });
+      for (const r of expired) {
+        try {
+          await this.reservations.cancel(r.id);
+        } catch (err) {
+          this.logger.warn(`reservation ${r.id} expiry failed: ${String(err)}`);
+        }
       }
-    }
-    if (expired.length) this.logger.log(`expired ${expired.length} held reservation(s) in org ${orgId}`);
+      if (expired.length) this.logger.log(`expired ${expired.length} held reservation(s) in org ${orgId}`);
 
-    // 2. Forfeit deposits on abandoned returns (returned, not settled).
-    const abandoned = await this.prisma.client.rentalAgreement.findMany({
-      where: {
-        organizationId: orgId,
-        status: 'returned',
-        returnedAt: { lt: new Date(Date.now() - 14 * 86_400_000) },
-      },
-      select: { id: true },
-    });
-    for (const a of abandoned) {
-      try {
-        this.tenant.run({ organizationId: orgId }, async () => {
+      // 2. Forfeit deposits on abandoned returns (returned, not settled).
+      const abandoned = await this.prisma.client.rentalAgreement.findMany({
+        where: {
+          status: 'returned',
+          returnedAt: { lt: new Date(Date.now() - 14 * 86_400_000) },
+        },
+        select: { id: true },
+      });
+      for (const a of abandoned) {
+        try {
           const deposit = await this.prisma.client.rentalDeposit.findFirst({
-            where: { organizationId: orgId, agreementId: a.id },
+            where: { agreementId: a.id },
           });
-          if (!deposit) return;
+          if (!deposit) continue;
           const available =
             Number(deposit.totalCollected) -
             Number(deposit.totalApplied) -
@@ -82,11 +80,11 @@ export class RentalCronWorker {
           if (available > 0) {
             await this.deposit.forfeit({ agreementId: a.id, amount: available, note: 'Auto-forfeit after 14 days' });
           }
-        });
-      } catch (err) {
-        this.logger.warn(`deposit forfeit for ${a.id} failed: ${String(err)}`);
+        } catch (err) {
+          this.logger.warn(`deposit forfeit for ${a.id} failed: ${String(err)}`);
+        }
       }
-    }
-    if (abandoned.length) this.logger.log(`forfeited deposits on ${abandoned.length} abandoned return(s) in org ${orgId}`);
+      if (abandoned.length) this.logger.log(`forfeited deposits on ${abandoned.length} abandoned return(s) in org ${orgId}`);
+    });
   }
 }

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { scopedPrisma } from '../../../test/scoped-prisma';
 import { PrismaClient } from '@prisma/client';
 import { SequenceService } from './sequence.service';
 import { TenantContextService } from '../tenancy/tenant-context.service';
@@ -19,16 +21,18 @@ const HAS_DB = !!process.env.DATABASE_URL;
 const describeDb = HAS_DB ? describe : describe.skip;
 
 describeDb('SequenceService (concurrent / native Postgres sequences)', () => {
-  const prisma = new PrismaClient();
+  const fixtureOrgId = randomUUID();
+  const prisma = scopedPrisma(new PrismaClient(), () => fixtureOrgId);
   const tenant = { organizationId: '00000000-0000-0000-0000-000000000000' } as any;
-  const tenantSvc = { organizationId: tenant.organizationId } as any;
+  const tenantSvc = { get organizationId() { return tenant.organizationId; } } as any;
   const svc = new SequenceService({ client: prisma, raw: prisma } as any, tenantSvc);
 
   let createdOrgId: string;
 
   beforeAll(async () => {
+    await prisma.currency.upsert({ where: { code: 'USD' }, update: {}, create: { code: 'USD', name: 'US Dollar', symbol: '$' } });
     const org = await prisma.organization.create({
-      data: { code: `TEST-${Date.now()}`, name: 'Sequence Test Org', currencyCode: 'USD' },
+      data: { id: fixtureOrgId, code: `TEST-${Date.now()}`, name: 'Sequence Test Org', currencyCode: 'USD' },
     });
     createdOrgId = org.id;
     (tenant as any).organizationId = createdOrgId;

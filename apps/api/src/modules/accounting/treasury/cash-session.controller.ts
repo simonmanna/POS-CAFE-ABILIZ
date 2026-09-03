@@ -17,6 +17,8 @@ import { IsBoolean, IsISO8601, IsNumber, IsObject, IsOptional, IsString, Min, Is
 import { PaginationDto } from '../../../kernel/common/pagination.dto';
 
 class OpenSessionDto {
+  @IsOptional() @IsString() openingSourceAccountId?: string;
+  @IsOptional() @IsObject() openingAccounts?: Record<string, number>;
   @IsString() cashRegisterId!: string;
   @IsOptional() @IsNumber() @Min(0) openingFloat?: number;
   @IsOptional() @IsString() notes?: string;
@@ -27,6 +29,8 @@ class OpenSessionDto {
 }
 
 class CloseSessionDto {
+  @IsOptional() @IsObject() closingAccounts?: Record<string, number>;
+  @IsOptional() @IsNumber() @Min(0) pendingSyncCount?: number;
   @IsNumber() @Min(0) closingCounted!: number;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsString() varianceReason?: string;
@@ -43,6 +47,7 @@ class CloseSessionDto {
 }
 
 class RecordMovementDto {
+  @IsString() counterpartAccountId!: string;
   @IsOptional() @IsString() sessionId?: string;
   @IsString() movementType!: 'pay_in' | 'pay_out' | 'adjustment';
   @IsNumber() amount!: number;
@@ -60,6 +65,7 @@ class ReopenSessionDto {
 }
 
 class BankDepositDto {
+  @IsString() destinationAccountId!: string;
   @IsNumber() @Min(0) amount!: number;
   @IsString() bankName!: string;
   @IsOptional() @IsString() reference?: string;
@@ -84,6 +90,17 @@ class DailyResetDto {
   @IsOptional() @IsBoolean() force?: boolean;
 }
 
+class TenderSettlementDto {
+  @IsString() sourceAccountId!: string;
+  @IsString() destinationAccountId!: string;
+  @IsOptional() @IsString() cashSessionId?: string;
+  @IsNumber() @Min(0.000001) grossAmount!: number;
+  @IsOptional() @IsNumber() @Min(0) feeAmount?: number;
+  @IsOptional() @IsString() feeAccountId?: string;
+  @IsString() reference!: string;
+  @IsISO8601() settledAt!: string;
+}
+
 @Controller('cash-sessions')
 @UseInterceptors(IdempotencyInterceptor)
 export class CashSessionController {
@@ -91,8 +108,8 @@ export class CashSessionController {
 
   @Get('open')
   @RequirePermissions(PERMISSIONS.cashSession.read)
-  findOpen() {
-    return this.sessions.findOpen();
+  findOpen(@Query('registerId') registerId?: string) {
+    return this.sessions.findOpen(registerId);
   }
 
   @Get('history')
@@ -114,6 +131,15 @@ export class CashSessionController {
   dailyReconciliation(@Query('date') date: string) {
     return this.sessions.dailyReconciliation(date);
   }
+
+  @Get(':id/reconciliation')
+  @RequirePermissions(PERMISSIONS.cashSession.read)
+  reconciliation(@Param('id') id: string) { return this.sessions.reconciliation(id); }
+
+  @Post('tender-settlements')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.cashSession.reconcile)
+  settleTender(@Body() dto: TenderSettlementDto) { return this.sessions.settleTender(dto); }
 
   @Get(':id')
   @RequirePermissions(PERMISSIONS.cashSession.read)
@@ -147,6 +173,8 @@ export class CashSessionController {
     close(@Body() dto: CloseSessionDto) {
       return this.sessions.close({
         closingCounted: dto.closingCounted,
+        closingAccounts: dto.closingAccounts,
+        pendingSyncCount: dto.pendingSyncCount,
         notes: dto.notes,
         varianceReason: dto.varianceReason,
         varianceStatus: dto.varianceStatus,
@@ -165,6 +193,7 @@ export class CashSessionController {
   recordMovement(@Body() dto: RecordMovementDto) {
     return this.sessions.recordMovement(dto.sessionId, {
       movementType: dto.movementType,
+      counterpartAccountId: dto.counterpartAccountId,
       amount: dto.amount,
       reason: dto.reason,
       approvedById: dto.approvedById,

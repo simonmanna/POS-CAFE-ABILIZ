@@ -206,11 +206,11 @@ export function LoginPage() {
               </p>
 
               <div className="mt-8 flex gap-6">
-                <Stat value="99.9%" label="Uptime" />
+                <Stat value="Counter" label="Café & retail" />
                 <div className="w-px bg-white/15" />
-                <Stat value="<200ms" label="Order sync" />
+                <Stat value="Kitchen" label="Live KDS" />
                 <div className="w-px bg-white/15" />
-                <Stat value="24/7" label="Offline-ready" />
+                <Stat value="Books" label="Real ledger" />
               </div>
             </div>
 

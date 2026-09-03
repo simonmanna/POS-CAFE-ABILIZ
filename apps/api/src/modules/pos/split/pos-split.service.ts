@@ -1,3 +1,7 @@
+import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
+import { discountedLines } from '../pricing-policy';
+import { recomputeTableStatus } from '../table-status.util';
+import type { ReceivePaymentDto } from '../order/dto/order.dto';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
@@ -193,131 +197,65 @@ export class PosSplitService {
    * invoiceId returns it without re-charging. Closes + frees the table once every
    * source item is fully assigned to a settled bill.
    */
-  async settleBill(
-    billId: string,
-    dto: { tenders?: PaymentTender[]; paymentMethod?: 'cash' | 'bank' | 'card' | 'mobile_money'; amountTendered?: number; cashSessionId?: string } = {},
-  ) {
-    const bill = await this.prisma.client.splitBill.findFirst({ where: { id: billId }, include: { items: true } });
-    if (!bill) throw new NotFoundException('Bill not found');
-    if (bill.status === 'void') throw new BadRequestException('Bill was cancelled');
-    if (bill.invoiceId) {
-      // Idempotent — already settled.
-      const inv = await this.billing.findInvoice(bill.invoiceId);
-      return { billId, invoiceId: bill.invoiceId, invoiceNumber: inv?.invoiceNumber, settlementStatus: 'settled', change: 0, tableClosed: false, alreadySettled: true };
-    }
-    if (!bill.items?.length) throw new BadRequestException('This bill has no items to pay');
-
-    const { order, items } = await this.loadOpenTab(this.prisma.client, bill.tableId);
-    if (!order || order.id !== bill.sourceOrderId) throw new ConflictException('The tab changed since this split started — cancel the split and retry');
-    const itemById = new Map<string, any>(items.map((l: any) => [l.id, l]));
-
-    const resolvedLines = (bill.items as any[]).map((it) => {
-      const src = itemById.get(it.sourceItemId);
-      if (!src) throw new ConflictException(`Source item ${it.sourceItemId} is gone — cancel the split and retry`);
-      return {
-        productId: src.productId ?? null,
-        menuItemId: src.menuItemId ?? null,
-        description: src.description,
-        quantity: Number(it.quantity),
-        // The tab item's unitPrice already folds variant/accompaniment/modifier
-        // deltas — pass as-is (no re-folding), exactly like settleTab's bridge.
-        unitPrice: Number(src.unitPrice),
-        taxId: src.taxId ?? null,
-        discountPercent: Number(src.discountPercent ?? 0),
-        discountType: src.discountType ?? undefined,
-        discountAmount: src.discountAmount ? Number(src.discountAmount) : undefined,
-        discountReason: src.discountReason ?? null,
-        taxInclusive: (src as any).taxInclusive,
-        note: null,
-        modifiers: (src.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId ?? '', name: m.name, priceDelta: Number(m.priceDelta) })),
-      };
+  async settleBill(billId: string, dto: ReceivePaymentDto = {}) {
+    if (dto.allowPartial) throw new BadRequestException('Pay each split bill in full');
+    if (!dto.cashSessionId) throw new BadRequestException('Select an open register before settling a split bill');
+    const org = this.tenant.organizationId;
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', dto.cashSessionId, org);
+      const session = await tx.cashSession.findFirst({ where: { id: dto.cashSessionId, organizationId: org } });
+      if (!session || session.status !== 'open') throw new BadRequestException('The selected register is closed');
+      const header = await tx.splitBill.findFirst({ where: { id: billId, organizationId: org } });
+      if (!header) throw new NotFoundException('Bill not found');
+      await tx.$queryRawUnsafe('SELECT id FROM "PosTable" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', header.tableId, org);
+      await tx.$queryRawUnsafe('SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', header.sourceOrderId, org);
+      const bill = await tx.splitBill.findFirst({ where: { id: billId, organizationId: org }, include: { items: true } });
+      if (bill.status === 'void') throw new BadRequestException('Bill was cancelled');
+      if (bill.invoiceId) {
+        const invoice = await tx.invoice.findFirst({ where: { id: bill.invoiceId, organizationId: org } });
+        if (invoice?.settlementStatus !== 'settled') throw new ConflictException('Review this legacy split invoice before collecting more payment');
+        return { billId, invoiceId: bill.invoiceId, invoiceNumber: invoice.invoiceNumber, settlementStatus: 'settled', change: Math.max(0, Number(invoice.amountTendered ?? invoice.amountPaid) - Number(invoice.amountPaid)), tableClosed: false, alreadySettled: true };
+      }
+      const { order, items } = await this.loadOpenTab(tx, bill.tableId);
+      if (!order || order.id !== bill.sourceOrderId) throw new ConflictException('The tab changed since this split started');
+      if (order.cashSessionId && order.cashSessionId !== dto.cashSessionId) throw new ConflictException('The tab belongs to a different register session');
+      const assigned = await this.assignedByItem(tx, order.id);
+      for (const item of items) if ((assigned.get(item.id) ?? 0) > Number(item.quantity) + 0.000001) throw new ConflictException('Split quantities exceed the current saved order');
+      const lines = this.resolvedBillLines(bill, items, order);
+      if (!lines.length) throw new BadRequestException('This bill has no items');
+      const priced = await this.billing.quoteSavedItems(lines, {}, tx);
+      const due = Number(priced.total);
+      if (dto.expectedTotal != null && Math.abs(due - dto.expectedTotal) > 0.000001) throw new ConflictException('The split price changed. Refresh the bill before paying');
+      const billOrder = await this.orders.createOrderFromResolved({ orderType: 'dine_in', tableId: bill.tableId, partnerId: bill.partnerId ?? order.partnerId, cashSessionId: dto.cashSessionId, branchId: order.branchId, lines }, tx);
+      const invoice = await this.billing.generateInvoice(billOrder.id, { expectedTotal: due, cashSessionId: dto.cashSessionId, occurredAt: dto.occurredAt }, tx);
+      const pay = await this.billing.receivePayment(invoice.id, dto, tx);
+      await tx.splitBill.update({ where: { id: billId }, data: { status: 'settled', invoiceId: invoice.id, settledAt: new Date(), subtotal: invoice.subtotal, totalAmount: invoice.totalAmount, amountPaid: invoice.totalAmount } });
+      await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: billId, action: 'post', newValues: { invoiceId: invoice.id } });
+      const open = await tx.splitBill.count({ where: { sourceOrderId: order.id, status: 'open' } });
+      const tableClosed = open === 0 && items.every((item: any) => Math.abs(Number(item.quantity) - (assigned.get(item.id) ?? 0)) < 0.000001);
+      if (tableClosed) {
+        await tx.order.update({ where: { id: order.id }, data: { status: 'closed', closedAt: new Date(), version: { increment: 1 } } });
+        await tx.posTableOrder.updateMany({ where: { orderId: order.id, closedAt: null }, data: { closedAt: new Date() } });
+        await recomputeTableStatus(tx, bill.tableId);
+      }
+      const outcome = { billId, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber, settlementStatus: pay.settlementStatus, change: pay.change, tableClosed };
+      await recordBusinessOutcome(tx, outcome, true);
+      return outcome;
     });
-
-    // Build the order → invoice → payment (each manages its own transaction).
-    const billOrder = await this.orders.createOrderFromResolved({
-      orderType: 'dine_in',
-      tableId: bill.tableId,
-      partnerId: bill.partnerId ?? order.partnerId ?? undefined,
-      cashSessionId: dto.cashSessionId,
-      branchId: order.branchId ?? undefined,
-      lines: resolvedLines,
-    });
-
-    let invoice: any;
-    try {
-      invoice = await this.billing.generateInvoice(billOrder.id, {});
-    } catch (e: any) {
-      this.logger.error(`[split] invoice gen failed for bill ${billId} / order ${billOrder.id}: ${e?.message ?? e}`);
-      await this.orders.cancelOrder(billOrder.id, 'split: invoice generation failed').catch(() => undefined);
-      throw e;
-    }
-    let pay: any;
-    try {
-      pay = await this.billing.receivePayment(invoice.id, {
-        tenders: dto.tenders,
-        paymentMethod: dto.paymentMethod,
-        amountTendered: dto.amountTendered,
-        cashSessionId: dto.cashSessionId,
-      });
-    } catch (e: any) {
-      this.logger.error(`[split] payment failed for invoice ${invoice.invoiceNumber} (${invoice.id}): ${e?.message ?? e}`);
-      await this.billing.refund(invoice.id, 'split: payment failed').catch(() => undefined);
-      throw e;
-    }
-
-    // Mark the bill settled + link its invoice.
-    await this.prisma.client.splitBill.update({
-      where: { id: billId },
-      data: {
-        status: 'settled', invoiceId: invoice.id, settledAt: new Date(),
-        subtotal: invoice.subtotal, totalAmount: invoice.totalAmount, amountPaid: invoice.totalAmount,
-      },
-    });
-    await this.audit.record({ entity: 'SplitBill', entityId: billId, action: 'post' as any, newValues: { invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber } });
-
-    const tableClosed = await this.maybeCloseTable(bill.tableId, bill.sourceOrderId);
-
+    await this.billing.afterExternalPaymentCommit(result.invoiceId);
     let receiptHtml: string | undefined;
-    try {
-      receiptHtml = await this.receipts.buildHtmlReceipt(invoice.id);
-    } catch { /* non-fatal */ }
-
-    return {
-      billId,
-      invoiceId: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
-      settlementStatus: pay?.settlementStatus ?? 'settled',
-      change: pay?.change ?? 0,
-      tableClosed,
-      receiptHtml,
-    };
+    try { receiptHtml = await this.receipts.buildHtmlReceipt(result.invoiceId); } catch { /* sale is already committed */ }
+    return { ...result, receiptHtml };
   }
 
-  // ─── Internals ───────────────────────────────────────────────────────────────
-
-  /** Close + free the table once every source item is fully assigned to a settled
-   *  bill (no open bills, no unassigned quantity left). Otherwise leave it open. */
-  private async maybeCloseTable(tableId: string, sourceOrderId: string): Promise<boolean> {
-    const { order, items } = await this.loadOpenTab(this.prisma.client, tableId);
-    if (!order || order.id !== sourceOrderId) return false;
-    const open = await this.prisma.client.splitBill.count({ where: { sourceOrderId, status: 'open' } });
-    if (open > 0) return false;
-    const settled = await this.prisma.client.splitBill.findMany({ where: { sourceOrderId, status: 'settled' }, include: { items: true } });
-    const assignedByItem = new Map<string, number>();
-    for (const b of settled as any[]) {
-      for (const it of b.items) assignedByItem.set(it.sourceItemId, (assignedByItem.get(it.sourceItemId) ?? 0) + Number(it.quantity));
-    }
-    const fullyAssigned = items.every((l: any) => Math.abs(Number(l.quantity) - (assignedByItem.get(l.id) ?? 0)) < 1e-6);
-    if (!fullyAssigned) return false;
-
-    // Everything is paid — retire the source tab Order + free the table (mirrors settleTab).
-    try {
-      await this.orders.cancelOrder(order.id, `Split-settled across ${settled.length} bill(s)`);
-    } catch (e: any) { this.logger.warn(`[split] tab cancel failed: ${e?.message}`); }
-    try {
-      await this.tables.closeTableOrder({ tableId, orderId: order.id });
-    } catch (e: any) { this.logger.warn(`[split] close table failed: ${e?.message}`); }
-    return true;
+  private resolvedBillLines(bill: any, items: any[], order: any) {
+    const all = discountedLines(items.map((item: any) => ({ ...item, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice), discountPercent: Number(item.discountPercent ?? 0), discountAmount: Number(item.discountAmount ?? 0) })), order);
+    return bill.items.map((assigned: any) => {
+      const src = all.find((item: any) => item.id === assigned.sourceItemId);
+      const quantity = Number(assigned.quantity);
+      if (!src || !Number.isFinite(quantity) || quantity <= 0 || quantity > Number(src.quantity)) throw new ConflictException('Invalid split quantity or missing source item');
+      return { ...src, quantity, discountAmount: Number(dec(src.discountAmount).times(quantity).div(src.quantity).toDecimalPlaces(6)), discountReason: src.discountReason ?? order.discountReason, modifiers: (src.modifiers ?? []).map((m: any) => ({ ...m, priceDelta: Number(m.priceDelta) })) };
+    });
   }
 
   /** Run a bill-scoped mutation under the table lock + recompute the bill after. */
@@ -370,29 +308,12 @@ export class PosSplitService {
   private async recomputeBill(tx: any, billId: string): Promise<void> {
     const bill = await tx.splitBill.findFirst({ where: { id: billId }, include: { items: true } });
     if (!bill) return;
-    const { items } = await this.loadOpenTab(tx, bill.tableId);
-    const itemById = new Map<string, any>(items.map((l: any) => [l.id, l]));
-    let subtotal = dec(0); let total = dec(0);
-    for (const it of bill.items as any[]) {
-      const src = itemById.get(it.sourceItemId);
-      if (!src) continue;
-      const lineQty = Number(src.quantity) || 1;
-      const ratio = dec(it.quantity).dividedBy(lineQty);
-      const lineTotal = this.lineTotal(src);
-      subtotal = subtotal.plus(dec(lineTotal).times(ratio));
-      total = total.plus(dec(lineTotal).times(ratio));
-    }
-    await tx.splitBill.update({ where: { id: billId }, data: { subtotal: subtotal as any, totalAmount: total as any } });
+    const { order, items } = await this.loadOpenTab(tx, bill.tableId);
+    const totals = await this.billing.quoteSavedItems(this.resolvedBillLines(bill, items, order ?? {}), {}, tx);
+    await tx.splitBill.update({ where: { id: billId }, data: { subtotal: totals.subtotal, totalAmount: totals.total } });
   }
 
   /** Discounted line amount for an OrderItem (OrderItem stores no per-line total). */
-  private lineTotal(it: any): number {
-    const qty = Number(it.quantity);
-    const unit = Number(it.unitPrice);
-    const disc = Number(it.discountPercent ?? 0);
-    return qty * unit * (1 - disc / 100);
-  }
-
   /** Map of sourceItemId → total qty assigned across all non-void bills. */
   private async assignedByItem(db: any, sourceOrderId: string): Promise<Map<string, number>> {
     const bills = await db.splitBill.findMany({ where: { sourceOrderId, status: { not: 'void' } }, include: { items: true } });
@@ -423,11 +344,13 @@ export class PosSplitService {
   private async reloadState(tx: any, tableId: string, sourceOrderId: string) {
     const { order, items } = await this.loadOpenTab(tx, tableId);
     const bills = await tx.splitBill.findMany({ where: { sourceOrderId, status: { not: 'void' } }, orderBy: { createdAt: 'asc' }, include: { items: true } });
-    return this.buildState(tableId, order, items, bills);
+    return this.buildState(tableId, order, items, bills, tx);
   }
 
   /** Shape the API response the SplitBillDialog renders. */
-  private buildState(tableId: string, order: any | null, items: any[], bills: any[]) {
+  private async buildState(tableId: string, order: any | null, items: any[], bills: any[], db: any = this.prisma.client) {
+    const priced = await this.billing.quoteSavedItems(items, order ?? {}, db);
+    const lineTotals = new Map(items.map((item: any, i: number) => [item.id, Number(priced.prepared[i].total)]));
     const assigned = new Map<string, number>();
     for (const b of bills) for (const it of b.items) assigned.set(it.sourceItemId, (assigned.get(it.sourceItemId) ?? 0) + Number(it.quantity));
 
@@ -439,7 +362,7 @@ export class PosSplitService {
         quantity: Number(l.quantity),
         unitPrice: Number(l.unitPrice),
         discountPercent: Number(l.discountPercent ?? 0),
-        lineTotal: this.lineTotal(l),
+        lineTotal: lineTotals.get(l.id) ?? 0,
         assignedQty: a,
         unassignedQty: Math.max(0, Number(l.quantity) - a),
         modifiers: (l.modifiers ?? []).map((m: any) => m.name),
@@ -463,7 +386,7 @@ export class PosSplitService {
           sourceItemId: it.sourceItemId,
           description: src?.description ?? '(removed)',
           quantity: qty,
-          lineTotal: src ? this.lineTotal(src) * ratio : 0,
+          lineTotal: src ? (lineTotals.get(src.id) ?? 0) * ratio : 0,
         };
       }),
     }));

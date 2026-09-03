@@ -102,6 +102,7 @@ describeDb('integration: invoice → payment → AR aging', () => {
       data: {
         organizationId,
         documentType: 'sales_invoice',
+        documentTypeId: (await prisma.documentTypeDef.upsert({ where: { code: 'sales_invoice' }, create: { code: 'sales_invoice', name: 'Sales Invoice' }, update: {} })).id,
         documentNumber: 'INV-TEST-1',
         partnerId: customerId,
         issueDate: new Date(),

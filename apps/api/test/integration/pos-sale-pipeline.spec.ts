@@ -1,3 +1,8 @@
+import { PosSplitService } from '../../src/modules/pos/split/pos-split.service';
+import { DocumentsModule } from '../../src/modules/documents/documents.module';
+import { PrismaService } from '../../src/kernel/prisma/prisma.service';
+import { randomUUID } from 'node:crypto';
+import { scopedPrisma } from '../scoped-prisma';
 // Stub the MFA/OTP chain — otplib pulls in @scure/base (ESM) which jest's
 // CommonJS transform can't parse. Checkout doesn't use auth, so a stub is safe.
 jest.mock('otplib', () => ({
@@ -9,7 +14,7 @@ jest.mock('otplib', () => ({
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
-import { describeDb } from './_setup';
+const describeDb = process.env.DATABASE_URL && /^\/pos_stage1_\d+$/.test(new URL(process.env.DATABASE_URL).pathname) ? describe : describe.skip;
 import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
 import { PosModule } from '../../src/modules/pos/pos.module';
@@ -24,20 +29,24 @@ import { TenantContextService } from '../../src/kernel/tenancy/tenant-context.se
  * org and asserts every table is populated and the GL is balanced.
  */
 describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
-  const prisma = new PrismaClient();
+  let organizationId: string = randomUUID();
+  const prisma = scopedPrisma(new PrismaClient(), () => organizationId);
   let moduleRef: TestingModule;
   let pos: PosService;
   let tenant: TenantContextService;
-  let organizationId: string;
+
   let customerId: string;
+  let cashierId: string;
   let productId: string;
   let cashRegisterId: string;
   let cashSessionId: string;
 
   beforeAll(async () => {
     await prisma.$connect();
-    const org = await prisma.organization.create({ data: { code: `INT-POS-${Date.now()}`, name: 'POS Pipeline Org', currencyCode: 'UGX' } });
+    await prisma.currency.upsert({ where: { code: 'UGX' }, update: {}, create: { code: 'UGX', name: 'Ugandan Shilling', symbol: 'USh' } });
+    const org = await prisma.organization.create({ data: { id: organizationId, code: `INT-POS-${Date.now()}`, name: 'POS Pipeline Org', currencyCode: 'UGX' } });
     organizationId = org.id;
+    cashierId = (await prisma.user.create({ data: { organizationId, email: 'pipeline@fixture.test', firstName: 'Cashier', passwordHash: 'not-a-login' } })).id;
     customerId = (await prisma.partner.create({ data: { organizationId, code: 'POS-CUST', name: 'Pipeline Cust', isCustomer: true } })).id;
     productId = (await prisma.product.create({ data: { organizationId, code: 'POS-SVC', name: 'Coffee', productType: 'service', salesPrice: 100, costPrice: 0 } })).id;
 
@@ -48,7 +57,7 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     await prisma.journal.create({ data: { organizationId, code: 'SALES', name: 'Sales', journalType: 'sales' } });
     await prisma.journal.create({ data: { organizationId, code: 'CASH', name: 'Cash', journalType: 'cash' } });
     for (const [key, accountId] of [
-      ['accounts_receivable', ar.id], ['sales_revenue', rev.id], ['default_cash', cash.id], ['default_bank', cash.id],
+      ['accounts_receivable', ar.id], ['sales_revenue', rev.id], ['default_cash', cash.id],
     ] as const) {
       await prisma.accountMapping.create({ data: { organizationId, key, accountId } });
     }
@@ -65,57 +74,28 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
         data: {
           organizationId,
           cashRegisterId: register.id,
-          userId: 'integration-test-cashier',
+          userId: cashierId,
           status: 'open',
           openingFloat: 0,
         },
       })
     ).id;
 
-    moduleRef = await Test.createTestingModule({ imports: [KernelModule, PosModule] }).compile();
+    moduleRef = await Test.createTestingModule({ imports: [KernelModule, DocumentsModule, PosModule] }).overrideProvider(PrismaService).useValue({ client: prisma, raw: prisma }).compile();
     await moduleRef.init();
     pos = moduleRef.get(PosService);
     tenant = moduleRef.get(TenantContextService);
-  });
+  }, 60000);
 
   afterAll(async () => {
-    if (organizationId) {
-      await prisma.documentPrintLog.deleteMany({ where: { organizationId } });
-      await prisma.receiptItem.deleteMany({ where: { organizationId } });
-      await prisma.receipt.deleteMany({ where: { organizationId } });
-      await prisma.paymentAllocation.deleteMany({ where: { organizationId } });
-      await prisma.invoiceItemModifier.deleteMany({ where: { organizationId } });
-      await prisma.invoiceItem.deleteMany({ where: { organizationId } });
-      await prisma.orderItemModifier.deleteMany({ where: { organizationId } });
-      await prisma.orderItem.deleteMany({ where: { organizationId } });
-      await prisma.order.deleteMany({ where: { organizationId } });
-      await prisma.invoice.deleteMany({ where: { organizationId } });
-      await prisma.cashMovement.deleteMany({ where: { organizationId } });
-      // Sessions reference the register, and the register references an Account,
-      // so both must go before the accounts are deleted below.
-      await prisma.cashSession.deleteMany({ where: { organizationId } });
-      await prisma.cashRegister.deleteMany({ where: { organizationId } });
-      await prisma.payment.deleteMany({ where: { organizationId } });
-      await prisma.journalLine.deleteMany({ where: { organizationId } });
-      await prisma.journalEntry.deleteMany({ where: { organizationId } });
-      await prisma.auditLog.deleteMany({ where: { organizationId } });
-      await prisma.eventOutbox.deleteMany({ where: { organizationId } });
-      await prisma.document.deleteMany({ where: { organizationId } });
-      await prisma.accountMapping.deleteMany({ where: { organizationId } });
-      await prisma.account.deleteMany({ where: { organizationId } });
-      await prisma.product.deleteMany({ where: { organizationId } });
-      await prisma.partner.deleteMany({ where: { organizationId } });
-      await prisma.journal.deleteMany({ where: { organizationId } });
-      await prisma.organization.delete({ where: { id: organizationId } });
-    }
     if (moduleRef) await moduleRef.close();
     await prisma.$disconnect();
   });
 
   it('checkout writes Order + Invoice + InvoiceItem + Receipt + ReceiptItem and posts balanced GL (no Document)', async () => {
-    const result: any = await tenant.run({ organizationId }, async () =>
+    const result: any = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, async () =>
       pos.checkout({
-        partnerId: customerId,
+        partnerId: customerId, cashSessionId,
         lines: [{ productId, description: 'Coffee', quantity: 2, unitPrice: 100 }],
         tenders: [{ method: 'cash', amount: 200 }],
       }),
@@ -164,17 +144,17 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
 
     // Thermal/PDF printout actually renders from the Invoice.
     const receiptsSvc = moduleRef.get(PosReceiptsService);
-    const text = await tenant.run({ organizationId }, () => receiptsSvc.buildTextReceipt(invoice.id));
+    const text = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () => receiptsSvc.buildTextReceipt(invoice.id));
     expect(text).toContain('TOTAL');
     expect(text).toContain(invoice.invoiceNumber);
-    const pdf = await tenant.run({ organizationId }, () => receiptsSvc.buildPdfReceipt(invoice.id));
+    const pdf = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () => receiptsSvc.buildPdfReceipt(invoice.id));
     expect(pdf.length).toBeGreaterThan(500);
     expect(pdf.subarray(0, 4).toString()).toBe('%PDF');
 
     // Two papers: a cashier/settlement copy is recorded and renders with a signature line.
     const merchantReceipt = await prisma.receipt.findFirst({ where: { invoiceId: invoice.id, type: 'merchant_copy' } });
     expect(merchantReceipt).toBeTruthy();
-    const cashierText = await tenant.run({ organizationId }, () => receiptsSvc.buildTextReceipt(invoice.id, false, 'CASHIER COPY'));
+    const cashierText = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () => receiptsSvc.buildTextReceipt(invoice.id, false, 'CASHIER COPY'));
     expect(cashierText).toContain('CASHIER COPY');
     expect(cashierText).toContain('Signature');
     // The PDF carries both copies (2 thermal pages).
@@ -184,9 +164,9 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
   it('cash over-tender: returns change, persists amountTendered, prints Cash tendered + Change', async () => {
     // Bill 200 (2 × 100), customer hands over 500 → change 300. The cash tender
     // leg still equals the bill; the extra is carried only by amountTendered.
-    const result: any = await tenant.run({ organizationId }, async () =>
+    const result: any = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, async () =>
       pos.checkout({
-        partnerId: customerId,
+        partnerId: customerId, cashSessionId,
         lines: [{ productId, description: 'Coffee', quantity: 2, unitPrice: 100 }],
         tenders: [{ method: 'cash', amount: 200 }],
         amountTendered: 500,
@@ -206,7 +186,7 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     // The printed receipt now carries the tendered + change lines (only present
     // because amountTendered > amountPaid, i.e. the value flowed end-to-end).
     const receiptsSvc = moduleRef.get(PosReceiptsService);
-    const text = await tenant.run({ organizationId }, () => receiptsSvc.buildTextReceipt(invoice.id));
+    const text = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () => receiptsSvc.buildTextReceipt(invoice.id));
     expect(text).toContain('Cash tendered:');
     expect(text).toContain('Change:');
   }, 60_000);
@@ -215,7 +195,7 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     const ordersSvc = moduleRef.get(PosOrdersService);
 
     // 1. Open a tableless takeaway order (the Odoo auto-create equivalent — no table).
-    const created: any = await tenant.run({ organizationId }, () =>
+    const created: any = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () =>
       ordersSvc.createOrder({
         orderType: 'takeaway',
         guestCount: 1,
@@ -227,7 +207,7 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     expect(created.tableId).toBeNull();
 
     // 2. It shows in the live open-orders feed with a resolved projection.
-    const open: any = await tenant.run({ organizationId }, () => ordersSvc.listOpenOrders({}));
+    const open: any = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () => ordersSvc.listOpenOrders({}));
     const row = open.rows.find((r: any) => r.id === created.id);
     expect(row).toBeTruthy();
     expect(row.orderType).toBe('takeaway');
@@ -236,13 +216,13 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     expect(open.count).toBe(open.rows.length);
 
     // 3. Resume returns un-baked rehydrate lines + cart context to continue selling.
-    const resumed: any = await tenant.run({ organizationId }, () => pos.resumeOrder(created.id));
+    const resumed: any = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () => pos.resumeOrder(created.id));
     expect(resumed.lines.length).toBe(1);
     expect(resumed.orderType).toBe('takeaway');
     expect(resumed.tableId).toBeNull();
 
     // 4. Settle by orderId — identical sale path as checkout/settleTab.
-    const settled: any = await tenant.run({ organizationId }, () =>
+    const settled: any = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () =>
       pos.settleOrder({ orderId: created.id, tenders: [{ method: 'cash', amount: 200 }], cashSessionId }),
     );
     expect(settled.invoiceId).toBeTruthy();
@@ -260,7 +240,79 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     // Order closed + gone from the open feed.
     const order = await prisma.order.findFirstOrThrow({ where: { id: created.id } });
     expect(order.status).toBe('closed');
-    const openAfter: any = await tenant.run({ organizationId }, () => ordersSvc.listOpenOrders({}));
+    const openAfter: any = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () => ordersSvc.listOpenOrders({}));
     expect(openAfter.rows.find((r: any) => r.id === created.id)).toBeUndefined();
   }, 60_000);
+  it('prices from the catalog and posts discounted inclusive VAT at the collected amount', async () => {
+    const mk = makeAccountFactory(prisma, await ensureAccountCategories(prisma));
+    const taxAccount = await mk(organizationId, 'POS-2200', 'Output VAT', 'tax');
+    const tax = await prisma.tax.create({ data: { organizationId, name: 'VAT 18%', rate: 18, isInclusive: true, accountId: taxAccount.id } });
+    const product = await prisma.product.create({ data: { organizationId, code: 'TAXED-COFFEE', name: 'Taxed coffee', productType: 'service', salesPrice: 118, taxId: tax.id, taxInclusive: true } });
+    const result: any = await tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, () => pos.checkout({
+      partnerId: customerId, cashSessionId, lines: [{ productId: product.id, description: 'Coffee', quantity: 2, unitPrice: 1 }],
+      transactionDiscountPercent: 10, discountReason: 'Promotion', expectedTotal: 212.4, tenders: [{ method: 'cash', amount: 212.4 }],
+    }));
+    const invoice = await prisma.invoice.findUniqueOrThrow({ where: { id: result.invoiceId }, include: { items: true } });
+    expect(invoice.totalAmount.toString()).toBe('212.4');
+    expect(invoice.subtotal.toString()).toBe('180');
+    expect(invoice.taxAmount.toString()).toBe('32.4');
+    expect(invoice.items[0].taxAccountId).toBe(taxAccount.id);
+    const journal = await prisma.journalEntry.findUniqueOrThrow({ where: { id: invoice.journalEntryId! }, include: { lines: true } });
+    expect(journal.lines.filter(l => l.accountId === taxAccount.id).reduce((n, l) => n + Number(l.credit), 0)).toBe(32.4);
+    expect(journal.lines.filter(l => l.accountId === invoice.receivableAccountId).reduce((n, l) => n + Number(l.debit), 0)).toBe(212.4);
+  }, 60000);
+
+  it('preserves draft line and order discounts through save and resume', async () => {
+    const orders = moduleRef.get(PosOrdersService);
+    const run = (fn: () => any) => tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, fn);
+    const lines = [{ productId, description: 'Coffee', quantity: 2, unitPrice: 100, discountType: 'fixed_amount', discountAmount: 10, discountReason: 'Line promotion', course: 2 }];
+    const created: any = await run(() => orders.createOrder({ orderType: 'takeaway', cashSessionId, lines, transactionDiscountType: 'fixed_amount', transactionDiscountAmount: 5, discountReason: 'Order promotion' } as any));
+    expect(Number(created.totalAmount)).toBe(185);
+    const resumed: any = await run(() => pos.resumeOrder(created.id));
+    expect(resumed.transactionDiscountType).toBe('fixed_amount');
+    expect(resumed.transactionDiscountAmount).toBe(5);
+    expect(resumed.discountReason).toBe('Order promotion');
+    expect(resumed.lines[0]).toMatchObject({ discountType: 'fixed_amount', discountAmount: '10', discountReason: 'Line promotion', course: 2 });
+    const saved: any = await run(() => orders.saveItems(created.id, { expectedVersion: resumed.version, lines, transactionDiscountType: 'percentage', transactionDiscountPercent: 5, transactionDiscountAmount: 0, discountReason: 'Revised promotion' } as any));
+    expect(Number(saved.totalAmount)).toBe(180.5);
+    const empty: any = await run(() => orders.saveItems(created.id, { expectedVersion: saved.version, lines: [] }));
+    expect(Number(empty.totalAmount)).toBe(0);
+    expect(Number(empty.transactionDiscountAmount)).toBe(0);
+  }, 60000);
+
+  it('settles a split atomically and preserves proportional fixed discounts', async () => {
+    const table = await prisma.posTable.create({ data: { organizationId, name: 'Split test', number: 101 } });
+    const orders = moduleRef.get(PosOrdersService), splits = moduleRef.get(PosSplitService);
+    const run = (fn: () => any) => tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, fn);
+    const created: any = await run(() => orders.createOrder({ tableId: table.id, orderType: 'dine_in', partnerId: customerId, cashSessionId, lines: [{ productId, description: 'Coffee', quantity: 2, unitPrice: 100, discountType: 'fixed_amount', discountAmount: 10, discountReason: 'Promotion' }] } as any));
+    await prisma.posTableOrder.create({ data: { organizationId, tableId: table.id, orderId: created.id } });
+    let state: any = await run(() => splits.addBills(table.id, 1));
+    const bill = state.bills[0];
+    state = await run(() => splits.assign(bill.id, [{ sourceItemId: created.items[0].id, quantity: 1 }]));
+    expect(state.bills[0].totalAmount).toBe(95);
+    const before = await prisma.invoice.count({ where: { organizationId } });
+    await expect(run(() => splits.settleBill(bill.id, { cashSessionId, expectedTotal: 95, tenders: [{ method: 'cash', amount: 90 }] }))).rejects.toThrow('does not match');
+    expect(await prisma.invoice.count({ where: { organizationId } })).toBe(before);
+    expect((await prisma.splitBill.findUniqueOrThrow({ where: { id: bill.id } })).invoiceId).toBeNull();
+    const result: any = await run(() => splits.settleBill(bill.id, { cashSessionId, expectedTotal: 95, tenders: [{ method: 'cash', amount: 95 }] }));
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: result.invoiceId } })).amountResidual.toString()).toBe('0');
+    const again: any = await run(() => splits.settleBill(bill.id, { cashSessionId, tenders: [{ method: 'cash', amount: 95 }] }));
+    expect(again.invoiceId).toBe(result.invoiceId);
+    expect(await prisma.invoice.count({ where: { organizationId } })).toBe(before + 1);
+  }, 60000);
+
+  it('assigns saved table work to its drawer and rejects a stale empty-cart save', async () => {
+    const table = await prisma.posTable.create({ data: { organizationId, name: 'Draft test', number: 102 } });
+    const run = (fn: () => any) => tenant.run({ organizationId, userId: cashierId, permissions: ['pos:checkout', 'pos:discount'] }, fn);
+    const input = { tableId: table.id, cashSessionId, partnerId: customerId, guestCount: 1, lines: [{ productId, description: 'Coffee', quantity: 1, unitPrice: 100 }] };
+    const saved: any = await run(() => pos.saveTabItems(input));
+    expect(saved.cashSessionId).toBe(cashSessionId);
+    expect(saved.customer.id).toBe(customerId);
+    await run(() => pos.saveTabItems({ ...input, expectedVersion: saved.version, lines: [{ ...input.lines[0], quantity: 2 }] }));
+    await expect(run(() => pos.saveTabItems({ ...input, lines: [], expectedVersion: saved.version }))).rejects.toThrow('modified by someone else');
+    const current: any = await run(() => pos.resumeOrder(saved.id));
+    expect(current.lines[0].quantity).toBe('2');
+    expect(current.status).not.toBe('cancelled');
+  }, 60000);
+
 });

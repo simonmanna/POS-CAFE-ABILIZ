@@ -17,6 +17,7 @@ describeDb('POS Print Lifecycle (T5)', () => {
         organizationId: orgId,
         documentNumber: `LFT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         documentType: 'sales_invoice',
+        documentTypeId: (await prisma.documentTypeDef.upsert({ where: { code: 'sales_invoice' }, create: { code: 'sales_invoice', name: 'Sales Invoice' }, update: {} })).id,
         status: 'draft',
         partnerId,
         currencyId,

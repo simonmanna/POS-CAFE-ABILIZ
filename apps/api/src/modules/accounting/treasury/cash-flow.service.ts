@@ -72,7 +72,9 @@ export class CashFlowService {
       id: a.id,
       code: a.code,
       name: a.name,
-      categoryKey: (a as any).category?.key ?? null,
+      // `accountType` is the payment-mode key the frontend groups/filters on
+      // (cash | bank | mobile_money | petty_cash) — sourced from the category.
+      accountType: (a as any).category?.key ?? null,
       currencyId: a.currencyId,
       bankName: a.bankName,
       accountNumber: a.accountNumber,
@@ -292,4 +294,107 @@ export class CashFlowService {
       },
     };
   }
+
+  /**
+   * Org-wide treasury movement log: every journal line touching a cash-equivalent
+   * account (deposit / withdrawal / transfer). Each line is classified by its
+   * journal entry `sourceType`. For transfers the counterparty account (the other
+   * leg of the same entry) is resolved so the UI can show "Cash → Bank".
+   */
+  async getAllTransactions(page: number, pageSize: number) {
+    const orgId = this.tenant.organizationId;
+    const cashIds = new Set(await this.accounts.cashEquivalentIds());
+
+    const where = {
+      organizationId: orgId,
+      accountId: { in: [...cashIds] },
+      entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] } },
+    } as const;
+
+    const [total, lines] = await Promise.all([
+      this.prisma.client.journalLine.count({ where: where as any }),
+      this.prisma.client.journalLine.findMany({
+        where: where as any,
+        include: {
+          entry: {
+            select: {
+              id: true,
+              entryNumber: true,
+              postingDate: true,
+              description: true,
+              sourceType: true,
+              sourceId: true,
+            },
+          },
+          account: { select: { id: true, code: true, name: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    // Group lines by journal entry so transfer legs can be paired.
+    const byEntry = new Map<string, any[]>();
+    for (const l of lines as any[]) {
+      const arr = byEntry.get(l.journalEntryId) ?? [];
+      arr.push(l);
+      byEntry.set(l.journalEntryId, arr);
+    }
+
+    const accountName = (l: any) => (l as any).account?.name ?? (l as any).account?.code ?? '—';
+
+    const rows = lines.map((l: any) => {
+      const sourceType: string = l.entry.sourceType;
+      const amount = Math.max(Number(l.baseDebit), Number(l.baseCredit));
+      let type: 'deposit' | 'withdrawal' | 'transfer' = 'deposit';
+      let fromName: string | null = null;
+      let toName: string | null = null;
+
+      if (sourceType === 'treasury_transfer') {
+        type = 'transfer';
+        // The other leg of this entry is the counterparty account.
+        const siblings = byEntry.get(l.journalEntryId) ?? [];
+        const other = siblings.find((s: any) => s.id !== l.id);
+        const acctName = (other ?? l).account?.name ?? (other ?? l).account?.code ?? '—';
+        // `l` is the source leg (credit on the from-account) → show from → to.
+        if (l.baseCredit > 0) {
+          fromName = accountName(l);
+          toName = other ? accountName(other) : null;
+        } else {
+          fromName = other ? accountName(other) : null;
+          toName = accountName(l);
+        }
+      } else if (sourceType === 'cash_flow_withdrawal') {
+        type = 'withdrawal';
+      } else {
+        type = 'deposit';
+      }
+
+      return {
+        id: l.id,
+        journalEntryId: l.journalEntryId,
+        entryNumber: l.entry.entryNumber,
+        date: l.entry.postingDate,
+        description: l.entry.description ?? l.description,
+        sourceType,
+        type,
+        amount: amount.toString(),
+        direction: l.baseDebit > 0 ? 'in' : 'out',
+        accountId: l.accountId,
+        accountName: accountName(l),
+        fromName,
+        toName,
+      };
+    });
+
+    return {
+      data: rows,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
 }

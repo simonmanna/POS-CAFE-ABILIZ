@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { PendingCashOperations } from '@/pages/pos/PendingCashOperations';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -48,6 +49,7 @@ import {
   Briefcase,
   FileClock,
   Wallet,
+  ArrowRightLeft,
   Percent,
   Lock,
   Factory,
@@ -74,6 +76,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { useAuthStore } from '@/stores/auth.store';
+import { useSidebarStore } from '@/lib/sidebar.store';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { GlobalSearch } from '@/components/global-search';
@@ -159,16 +162,6 @@ const flagEnabled = (flag?: string): boolean =>
 const NAV_SECTIONS: NavSection[] = [
   { items: [{ to: '/', label: 'Dashboard', icon: LayoutDashboard }] },
   {
-    title: 'Communication',
-    icon: MessagesSquare,
-    flag: 'VITE_ENABLE_COMMUNICATION',
-    items: [
-      { to: '/communication', label: 'Inbox', icon: MessagesSquare, permission: PERMISSIONS.communication.conversationRead },
-      { to: '/communication/channels', label: 'Channels', icon: Radio, permission: PERMISSIONS.communication.channelRead },
-      { to: '/communication/rules', label: 'Automation', icon: Zap, permission: PERMISSIONS.communication.channelManage },
-    ],
-  },
-  {
     title: 'POS',
     icon: Coffee,
     items: [
@@ -178,22 +171,8 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/pos/kds-reports', label: 'Kitchen Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports },
       { to: '/pos/cash-registers', label: 'Cash Registers', icon: Banknote, permission: PERMISSIONS.cashSession.read },
       { to: '/pos/receipts', label: 'POS Receipts', icon: ScrollText, permission: PERMISSIONS.pos.read },
+      { to: '/pos/receivables', label: 'Credit / Receivables', icon: HandCoins, permission: PERMISSIONS.pos.read },
       { to: '/pos/reports', label: 'POS Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports },
-    ],
-  },
-  {
-    title: 'Master Data',
-    icon: Database,
-    items: [
-      { to: '/customers', label: 'Customers', icon: Users, permission: PERMISSIONS.partners.view },
-      { to: '/suppliers', label: 'Suppliers', icon: Building2, permission: PERMISSIONS.partners.view },
-      { to: '/products', label: 'Products', icon: Package, permission: PERMISSIONS.products.view },
-      { to: '/uom', label: 'Units of Measure', icon: Ruler, permission: PERMISSIONS.uom.read },
-      { to: '/menu', label: 'Menu', icon: Coffee, permission: PERMISSIONS.menu.view },
-      { to: '/tables', label: 'Tables', icon: Coffee, permission: PERMISSIONS.menu.view },
-      { to: '/menu/modifiers', label: 'Modifiers', icon: Tag, permission: PERMISSIONS.menu.view },
-      { to: '/menu/combos', label: 'Combos', icon: Package, permission: PERMISSIONS.menu.view },
-      { to: '/menu/accompaniments', label: 'Accompaniments', icon: Tag, permission: PERMISSIONS.menu.view },
     ],
   },
   {
@@ -205,14 +184,6 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/credit-notes', label: 'Credit Notes', icon: FileMinus, permission: PERMISSIONS.creditNote.read },
       { to: '/payments', label: 'Receipts', icon: HandCoins, permission: PERMISSIONS.payment.read },
       { to: '/ar-aging', label: 'Accounts Receivable', icon: Clock, permission: PERMISSIONS.report.ar },
-    ],
-  },
-  {
-    title: 'CRM',
-    icon: Users,
-    items: [
-      { to: '/crm', label: 'CRM Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.crm.dashboardRead },
-      { to: '/crm/deals', label: 'Deals', icon: Handshake, permission: PERMISSIONS.crm.dealRead },
     ],
   },
   {
@@ -228,82 +199,19 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Beverage Control',
-    icon: Wine,
-    flag: 'VITE_ENABLE_BEVERAGE',
+    title: 'Master Data',
+    icon: Database,
     items: [
-      { to: '/beverage', label: 'Alcohol Dashboard', icon: BarChart3, permission: PERMISSIONS.beverage.read },
-      { to: '/beverage/count', label: 'Bottle Count', icon: Scale, permission: PERMISSIONS.beverage.count },
-    ],
-  },
-  {
-    title: 'Rentals',
-    icon: KeyRound,
-    flag: 'VITE_ENABLE_RENTAL',
-    items: [
-      { to: '/rental', label: 'Dashboard', icon: CalendarDays, permission: PERMISSIONS.rental.read },
-      { to: '/rental/agreements', label: 'Agreements', icon: FileText, permission: PERMISSIONS.rental.read },
-      { to: '/rental/units', label: 'Rental Units', icon: Boxes, permission: PERMISSIONS.rental.read },
-      { to: '/rental/catalog', label: 'Rates & Packages', icon: Package, permission: PERMISSIONS.rental.read },
-      { to: '/rental/returns', label: 'Returns', icon: ClipboardCheck, permission: PERMISSIONS.rental.read },
-      { to: '/rental/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.rental.read },
-    ],
-  },
-  {
-    title: 'Repair & Maintenance',
-    icon: Wrench,
-    flag: 'VITE_ENABLE_REPAIR',
-    items: [
-      { to: '/repair', label: 'Dashboard', icon: Wrench, permission: PERMISSIONS.repair.read },
-      { to: '/repair/orders', label: 'Repair Orders', icon: FileText, permission: PERMISSIONS.repair.read },
-      { to: '/repair/jobs', label: 'Work Orders', icon: ClipboardCheck, permission: PERMISSIONS.repair.read },
-      { to: '/repair/technicians', label: 'Technicians', icon: Users, permission: PERMISSIONS.repair.read },
-      { to: '/repair/labour', label: 'Labour Catalog', icon: Timer, permission: PERMISSIONS.repair.read },
-      { to: '/repair/warranties', label: 'Warranties', icon: ShieldCheck, permission: PERMISSIONS.repair.read },
-      { to: '/repair/contracts', label: 'Service Contracts', icon: Handshake, permission: PERMISSIONS.repair.read },
-      { to: '/repair/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.repair.read },
-    ],
-  },
-  {
-    title: 'Human Resource',
-    icon: Briefcase,
-    flag: 'VITE_ENABLE_HR',
-    items: [
-      { to: '/hr', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.hr.read },
-      { to: '/hr/employees', label: 'Employees', icon: Users, permission: PERMISSIONS.hr.employee },
-      { to: '/hr/departments', label: 'Departments', icon: Building2, permission: PERMISSIONS.hr.employee },
-      { to: '/hr/positions', label: 'Positions', icon: Briefcase, permission: PERMISSIONS.hr.employee },
-      { to: '/hr/shifts', label: 'Shifts', icon: Clock, permission: PERMISSIONS.hr.attendance },
-      { to: '/hr/attendance', label: 'Attendance', icon: ClipboardCheck, permission: PERMISSIONS.hr.attendance },
-      { to: '/hr/timesheets', label: 'Timesheets', icon: FileClock, permission: PERMISSIONS.hr.timesheet },
-      { to: '/hr/leave', label: 'Leave', icon: CalendarDays, permission: PERMISSIONS.hr.leave },
-      { to: '/hr/holidays', label: 'Holidays', icon: CalendarHeart, permission: PERMISSIONS.hr.holiday },
-      { to: '/hr/payroll', label: 'Payroll', icon: Wallet, permission: PERMISSIONS.hr.payroll },
-      { to: '/hr/payslips', label: 'Payslips', icon: FileText, permission: PERMISSIONS.hr.payslip },
-      { to: '/hr/advances-loans', label: 'Advances & Loans', icon: HandCoins, permission: PERMISSIONS.hr.payroll },
-      { to: '/hr/payroll/settings', label: 'Payroll Settings', icon: SettingsIcon, permission: PERMISSIONS.hr.payroll },
-      { to: '/hr/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.hr.report },
-    ],
-  },
-  {
-    title: 'Purchasing',
-    icon: Truck,
-    items: [
-      { to: '/procurement/purchase-orders', label: 'Purchases', icon: ShoppingCart, permission: 'purchase_order:read' },
-      { to: '/procurement/goods-receipts', label: 'Goods Receipts', icon: Truck, permission: 'goods_receipt:read' },
-      // { to: '/procurement/three-way-match', label: '3-Way Match', icon: Scale, permission: 'three_way_match:read' },
-      { to: '/procurement/debit-notes', label: 'Debit Notes', icon: FilePlus2, permission: 'debit_note:read' },
-      { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote, permission: 'payment:read' },
-    ],
-  },
-  {
-    title: 'Expenses',
-    icon: FileText,
-    items: [
-      { to: '/expenses', label: 'Expenses', icon: FileText, permission: PERMISSIONS.expense.read },
-      { to: '/expenses/categories', label: 'Expense Categories', icon: Tag, permission: PERMISSIONS.expense.read },
-      { to: '/expenses/reports', label: 'Expense Reports', icon: BarChart3, permission: PERMISSIONS.expense.read },
-      { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote, permission: PERMISSIONS.payment.read },
+      { to: '/customers', label: 'Customers', icon: Users, permission: PERMISSIONS.partners.view },
+      { to: '/suppliers', label: 'Suppliers', icon: Building2, permission: PERMISSIONS.partners.view },
+      { to: '/products', label: 'Products', icon: Package, permission: PERMISSIONS.products.view },
+      { to: '/uom', label: 'Units of Measure', icon: Ruler, permission: PERMISSIONS.uom.read },
+      { to: '/menu', label: 'Menu', icon: Coffee, permission: PERMISSIONS.menu.view },
+      { to: '/tables', label: 'Tables', icon: Coffee, permission: PERMISSIONS.menu.view },
+      { to: '/menu/modifiers', label: 'Modifiers', icon: Tag, permission: PERMISSIONS.menu.view },
+      // F13 — combo authoring hidden while combo selling is paused (the POS
+      // checkout guard rejects combo lines). Route kept for when it is finished.
+      { to: '/menu/accompaniments', label: 'Accompaniments', icon: Tag, permission: PERMISSIONS.menu.view },
     ],
   },
   {
@@ -318,17 +226,11 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Task Management',
-    icon: ClipboardList,
-    items: [
-      { to: '/tasks', label: 'Task Board', icon: ClipboardList },
-    ],
-  },
-  {
     title: 'Accounting',
     icon: Calculator,
     items: [
       { to: '/accounts/cash-accounts', label: 'Financial Accounts', icon: Banknote, permission: PERMISSIONS.account.read },
+      { to: '/accounts/cash-accounts/transactions', label: 'Treasury Movements', icon: ArrowRightLeft, permission: PERMISSIONS.account.read },
       { to: '/accounts', label: 'Chart of Accounts', icon: BookOpen, permission: PERMISSIONS.account.read },
       { to: '/accounts/categories', label: 'Account Categories', icon: Layers, permission: PERMISSIONS.accountCategory.read },
       { to: '/accounts/cash-registers', label: 'Cash Registers', icon: Smartphone, permission: 'cash_register:read' },
@@ -355,13 +257,53 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Fixed Assets',
-    icon: Landmark,
-    flag: 'VITE_ENABLE_ASSETS',
+    title: 'Expenses',
+    icon: FileText,
     items: [
-      { to: '/fixed-assets', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.fixedAsset.read },
-      { to: '/fixed-assets/register', label: 'Asset Register', icon: Building2, permission: PERMISSIONS.fixedAsset.read },
-      { to: '/fixed-assets/categories', label: 'Categories', icon: Tag, permission: PERMISSIONS.assetCategory.read },
+      { to: '/expenses', label: 'Expenses', icon: FileText, permission: PERMISSIONS.expense.read },
+      { to: '/expenses/categories', label: 'Expense Categories', icon: Tag, permission: PERMISSIONS.expense.read },
+      { to: '/expenses/reports', label: 'Expense Reports', icon: BarChart3, permission: PERMISSIONS.expense.read },
+      { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote, permission: PERMISSIONS.payment.read },
+    ],
+  },
+  {
+    title: 'Purchasing',
+    icon: Truck,
+    items: [
+      { to: '/procurement/purchase-orders', label: 'Purchases', icon: ShoppingCart, permission: 'purchase_order:read' },
+      { to: '/procurement/goods-receipts', label: 'Goods Receipts', icon: Truck, permission: 'goods_receipt:read' },
+      // { to: '/procurement/three-way-match', label: '3-Way Match', icon: Scale, permission: 'three_way_match:read' },
+      { to: '/procurement/debit-notes', label: 'Debit Notes', icon: FilePlus2, permission: 'debit_note:read' },
+      { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote, permission: 'payment:read' },
+    ],
+  },
+  {
+    title: 'Human Resource',
+    icon: Briefcase,
+    flag: 'VITE_ENABLE_HR',
+    items: [
+      { to: '/hr', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.hr.read },
+      { to: '/hr/employees', label: 'Employees', icon: Users, permission: PERMISSIONS.hr.employee },
+      { to: '/hr/departments', label: 'Departments', icon: Building2, permission: PERMISSIONS.hr.employee },
+      { to: '/hr/positions', label: 'Positions', icon: Briefcase, permission: PERMISSIONS.hr.employee },
+      { to: '/hr/shifts', label: 'Shifts', icon: Clock, permission: PERMISSIONS.hr.attendance },
+      { to: '/hr/attendance', label: 'Attendance', icon: ClipboardCheck, permission: PERMISSIONS.hr.attendance },
+      { to: '/hr/timesheets', label: 'Timesheets', icon: FileClock, permission: PERMISSIONS.hr.timesheet },
+      { to: '/hr/leave', label: 'Leave', icon: CalendarDays, permission: PERMISSIONS.hr.leave },
+      { to: '/hr/holidays', label: 'Holidays', icon: CalendarHeart, permission: PERMISSIONS.hr.holiday },
+      { to: '/hr/payroll', label: 'Payroll', icon: Wallet, permission: PERMISSIONS.hr.payroll },
+      { to: '/hr/payslips', label: 'Payslips', icon: FileText, permission: PERMISSIONS.hr.payslip },
+      { to: '/hr/advances-loans', label: 'Advances & Loans', icon: HandCoins, permission: PERMISSIONS.hr.payroll },
+      { to: '/hr/payroll/settings', label: 'Payroll Settings', icon: SettingsIcon, permission: PERMISSIONS.hr.payroll },
+      { to: '/hr/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.hr.report },
+    ],
+  },
+  {
+    title: 'CRM',
+    icon: Users,
+    items: [
+      { to: '/crm', label: 'CRM Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.crm.dashboardRead },
+      { to: '/crm/deals', label: 'Deals', icon: Handshake, permission: PERMISSIONS.crm.dealRead },
     ],
   },
   {
@@ -376,16 +318,70 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/manufacturing/reports', label: 'Reports', icon: BarChart3 },
     ],
   },
-  // {
-  //   title: 'Platform',
-  //   items: [
-  //     { to: '/approvals', label: 'Approvals', icon: ShieldCheck, permission: PERMISSIONS.auditLog.read },
-  //     { to: '/recurring', label: 'Recurring', icon: Repeat },
-  //     { to: '/webhooks', label: 'Webhooks', icon: Webhook },
-  //     { to: '/files', label: 'Files', icon: Boxes },
-  //     { to: '/modules', label: 'Modules', icon: Building2 },
-  //   ],
-  // },
+  {
+    title: 'Task Management',
+    icon: ClipboardList,
+    items: [
+      { to: '/tasks', label: 'Task Board', icon: ClipboardList },
+    ],
+  },
+  {
+    title: 'Repair & Maintenance',
+    icon: Wrench,
+    flag: 'VITE_ENABLE_REPAIR',
+    items: [
+      { to: '/repair', label: 'Dashboard', icon: Wrench, permission: PERMISSIONS.repair.read },
+      { to: '/repair/orders', label: 'Repair Orders', icon: FileText, permission: PERMISSIONS.repair.read },
+      { to: '/repair/jobs', label: 'Work Orders', icon: ClipboardCheck, permission: PERMISSIONS.repair.read },
+      { to: '/repair/technicians', label: 'Technicians', icon: Users, permission: PERMISSIONS.repair.read },
+      { to: '/repair/labour', label: 'Labour Catalog', icon: Timer, permission: PERMISSIONS.repair.read },
+      { to: '/repair/warranties', label: 'Warranties', icon: ShieldCheck, permission: PERMISSIONS.repair.read },
+      { to: '/repair/contracts', label: 'Service Contracts', icon: Handshake, permission: PERMISSIONS.repair.read },
+      { to: '/repair/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.repair.read },
+    ],
+  },
+  {
+    title: 'Rentals',
+    icon: KeyRound,
+    flag: 'VITE_ENABLE_RENTAL',
+    items: [
+      { to: '/rental', label: 'Dashboard', icon: CalendarDays, permission: PERMISSIONS.rental.read },
+      { to: '/rental/agreements', label: 'Agreements', icon: FileText, permission: PERMISSIONS.rental.read },
+      { to: '/rental/units', label: 'Rental Units', icon: Boxes, permission: PERMISSIONS.rental.read },
+      { to: '/rental/catalog', label: 'Rates & Packages', icon: Package, permission: PERMISSIONS.rental.read },
+      { to: '/rental/returns', label: 'Returns', icon: ClipboardCheck, permission: PERMISSIONS.rental.read },
+      { to: '/rental/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.rental.read },
+    ],
+  },
+  {
+    title: 'Communication',
+    icon: MessagesSquare,
+    flag: 'VITE_ENABLE_COMMUNICATION',
+    items: [
+      { to: '/communication', label: 'Inbox', icon: MessagesSquare, permission: PERMISSIONS.communication.conversationRead },
+      { to: '/communication/channels', label: 'Channels', icon: Radio, permission: PERMISSIONS.communication.channelRead },
+      { to: '/communication/rules', label: 'Automation', icon: Zap, permission: PERMISSIONS.communication.channelManage },
+    ],
+  },
+  {
+    title: 'Fixed Assets',
+    icon: Landmark,
+    flag: 'VITE_ENABLE_ASSETS',
+    items: [
+      { to: '/fixed-assets', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.fixedAsset.read },
+      { to: '/fixed-assets/register', label: 'Asset Register', icon: Building2, permission: PERMISSIONS.fixedAsset.read },
+      { to: '/fixed-assets/categories', label: 'Categories', icon: Tag, permission: PERMISSIONS.assetCategory.read },
+    ],
+  },
+  {
+    title: 'Beverage Control',
+    icon: Wine,
+    flag: 'VITE_ENABLE_BEVERAGE',
+    items: [
+      { to: '/beverage', label: 'Alcohol Dashboard', icon: BarChart3, permission: PERMISSIONS.beverage.read },
+      { to: '/beverage/count', label: 'Bottle Count', icon: Scale, permission: PERMISSIONS.beverage.count },
+    ],
+  },
   {
     title: 'Settings',
     icon: SettingsIcon,
@@ -448,7 +444,7 @@ export function AppShell() {
   const setOrganization = useAuthStore((s) => s.setOrganization);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebarStore();
 
   // Accordion state: which titled sections are expanded (expanded sidebar only).
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
@@ -555,7 +551,7 @@ export function AppShell() {
                       (i) => flagEnabled(i.flag) && (!i.permission || hasPermission(i.permission)),
                     );
           if (items.length === 0) return null;
-          const isOpen = !section.title || expanded[section.title];
+          const isOpen = collapsed || !section.title || expanded[section.title];
           return (
             <div key={idx} className="space-y-0">
               {section.title && !collapsed ? (
@@ -643,7 +639,7 @@ export function AppShell() {
 
   // ── Brand tile + section heading text inside the sidebar ──
   const sidebarInner = (collapsed = false) => {
-    const toggle = () => setSidebarCollapsed((c) => !c);
+    const toggle = () => setSidebarCollapsed(!sidebarCollapsed);
     return (
       <div className="flex h-full flex-col" style={{ background: sb.sidebar }}>
         {/* Brand Header */}
@@ -703,7 +699,7 @@ export function AppShell() {
       <aside
         className={cn(
           'sticky top-0 hidden h-screen shrink-0 flex-col transition-all duration-200 md:flex print:hidden',
-          sidebarCollapsed ? 'w-16' : 'w-64',
+          sidebarCollapsed ? 'w-16' : 'w-72',
         )}
         style={{ background: sb.sidebar }}
       >
@@ -728,7 +724,7 @@ export function AppShell() {
                 variant="ghost"
                 size="icon"
                 className="hidden md:inline-flex"
-                onClick={() => setSidebarCollapsed((c) => !c)}
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                 aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               >
                 {sidebarCollapsed ? <PanelLeft className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
@@ -804,6 +800,7 @@ export function AppShell() {
       </div>
 
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
+      <PendingCashOperations />
       <PushBootstrap />
     </div>
   );

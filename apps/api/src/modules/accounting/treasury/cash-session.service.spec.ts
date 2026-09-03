@@ -57,7 +57,7 @@ describe('CashSessionService input guards', () => {
       // A negative adjustment is legitimate (a downward correction) — it should
       // pass the sign guard and reach the transaction (which we stub to throw).
       await expect(
-        svc.recordMovement(undefined, { movementType: 'adjustment', amount: -50 }),
+        svc.recordMovement(undefined, { movementType: 'adjustment', amount: -50, reason: 'Count correction', counterpartAccountId: 'short-over' }),
       ).rejects.toThrow('REACHED_TRANSACTION');
       expect(prisma.client.$transaction).toHaveBeenCalled();
     });

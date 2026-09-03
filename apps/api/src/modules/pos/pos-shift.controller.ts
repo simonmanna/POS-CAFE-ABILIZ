@@ -3,7 +3,9 @@
  * handover closes the outgoing cashier's session. The incoming PIN and manager
  * approval are verified inside the service.
  */
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseInterceptors } from '@nestjs/common';
+import { Idempotent } from '../../kernel/idempotency/idempotent.decorator';
+import { IdempotencyInterceptor } from '../../kernel/idempotency/idempotency.interceptor';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
@@ -34,6 +36,8 @@ export class PosShiftController {
   constructor(private readonly svc: PosShiftService) {}
 
   @Post('handover')
+  @Idempotent()
+  @UseInterceptors(IdempotencyInterceptor)
   @RequirePermissions('pos:close_session')
   handover(@Body() body: HandoverBody) {
     return this.svc.handover(body);

@@ -81,11 +81,11 @@ export class PosKdsService {
   ) {}
 
   /** K-### daily-reset queue number. New sequence key per day → restarts at 1. */
-  private async nextTicketNo(): Promise<string> {
+  private async nextTicketNo(tx?: any): Promise<string> {
     const d = new Date();
     const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
     try {
-      return await this.sequence.next(`kds_ticket:${ymd}`, { prefix: 'K-', padding: 3 });
+      return await this.sequence.next(`kds_ticket:${ymd}`, { prefix: 'K-', padding: 3 }, tx);
     } catch (e: any) {
       this.logger.warn(`KDS ticket number allocation failed: ${e?.message}`);
       return '';
@@ -106,7 +106,12 @@ export class PosKdsService {
     /** Initial urgency (defaults to normal). */
     priority?: KdsPriority;
     items: KdsTicketItem[];
-  }): Promise<string[]> {
+  }, tx?: any): Promise<string[]> {
+    // F11 — when the caller passes its transaction, ticket creation joins the
+    // same atomic unit as the order's sent-counter bump (fireKitchen), so a
+    // crash cannot leave a ticket dispatched without the counter advanced (or
+    // vice-versa). The ticket-number sequence also joins the tx.
+    const db = tx ?? this.prisma.client;
     // Group items by station.
     const groups = new Map<string, KdsTicketItem[]>();
     for (const it of args.items) {
@@ -115,10 +120,10 @@ export class PosKdsService {
       groups.set(it.station, arr);
     }
     const orgId = this.tenant.organizationId;
-    const ids: string[] = [];
+    const created: Array<{ id: string; station: string }> = [];
     for (const [station, items] of groups) {
-      const ticketNo = await this.nextTicketNo();
-      const ticket = await this.prisma.client.kitchenTicket.create({
+      const ticketNo = await this.nextTicketNo(tx);
+      const ticket = await db.kitchenTicket.create({
         data: {
           organizationId: orgId,
           invoiceId: args.invoiceId ?? null,
@@ -132,14 +137,40 @@ export class PosKdsService {
           items: items as any,
         },
       });
-      ids.push(ticket.id);
-      this.events.publish('pos.kds.ticket_created' as any, {
-        organizationId: orgId,
-        ticketId: ticket.id,
-        station,
-      });
+      created.push({ id: ticket.id, station });
     }
-    return ids;
+    // Events are a side effect that must not fire from inside a caller's tx: a
+    // rolled-back fire would otherwise announce phantom tickets. On the tx path
+    // the caller (fireKitchen) owns post-commit signalling and the board polls,
+    // so emit only for the standalone path.
+    if (!tx) {
+      for (const c of created) this.events.publish('pos.kds.ticket_created' as any, { organizationId: orgId, ticketId: c.id, station: c.station });
+    }
+    return created.map((c) => c.id);
+  }
+
+  /**
+   * F11 — cancel every still-active ticket for an order. Called by the
+   * PosOrderCancelled consumer so food already fired to the pass is pulled from
+   * the board instead of being prepared for a cancelled order. Idempotent:
+   * already served/cancelled tickets are left untouched.
+   */
+  async cancelTicketsForOrder(orderId: string, reason?: string): Promise<number> {
+    const orgId = this.tenant.organizationId;
+    const active = await this.prisma.client.kitchenTicket.findMany({
+      where: { orderId, organizationId: orgId, status: { in: ['new', 'preparing', 'ready'] } },
+      select: { id: true, station: true },
+    });
+    if (!active.length) return 0;
+    await this.prisma.client.kitchenTicket.updateMany({
+      where: { id: { in: active.map((t) => t.id) } },
+      data: { status: 'cancelled', recallReason: reason ?? 'Order cancelled' },
+    });
+    for (const t of active) {
+      this.events.publish('pos.kds.ticket_updated' as any, { organizationId: orgId, ticketId: t.id, station: t.station });
+    }
+    await this.audit.record({ entity: 'Order', entityId: orderId, action: 'cancel' as any, newValues: { kind: 'kds_cancel', tickets: active.length, reason: reason ?? null } });
+    return active.length;
   }
 
   /**
@@ -210,19 +241,44 @@ export class PosKdsService {
     });
   }
 
-  /** List tickets for a station, newest first. */
+  /** Active kitchen statuses — work still on the pass. */
+  private static readonly ACTIVE_STATUSES: Array<'new' | 'preparing' | 'ready'> = ['new', 'preparing', 'ready'];
+
+  /**
+   * F12 — the live board asks for tickets with NO status filter. The old query
+   * took the newest 200 rows across ALL statuses, so on a busy day a genuinely
+   * unfinished ticket could fall off the end behind newer *completed* ones and
+   * vanish from the board while still needing to be cooked. Now:
+   *   - no status filter → EVERY active ticket (uncapped), oldest-first so the
+   *     kitchen works the queue in order, plus a bounded slice of recent history
+   *     so recall/served columns still populate;
+   *   - explicit status filter → that status only, newest-first, generously
+   *     capped for history browsing.
+   */
   async listTickets(station?: string, status?: string): Promise<KdsTicket[]> {
     const orgId = this.tenant.organizationId;
-    const tickets = await this.prisma.client.kitchenTicket.findMany({
-      where: {
-        organizationId: orgId,
-        ...(station ? { station } : {}),
-        ...(status ? { status: status as any } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
+    const stationWhere = station ? { station } : {};
+
+    if (status) {
+      const tickets = await this.prisma.client.kitchenTicket.findMany({
+        where: { organizationId: orgId, ...stationWhere, status: status as any },
+        orderBy: { createdAt: 'desc' },
+        take: 500,
+      });
+      return (tickets as any[]).map(this.serialize);
+    }
+
+    const active = await this.prisma.client.kitchenTicket.findMany({
+      where: { organizationId: orgId, ...stationWhere, status: { in: PosKdsService.ACTIVE_STATUSES as any } },
+      // Priority first (rush/vip float up), then oldest-first within a priority.
+      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
     });
-    return (tickets as any[]).map(this.serialize);
+    const recentHistory = await this.prisma.client.kitchenTicket.findMany({
+      where: { organizationId: orgId, ...stationWhere, status: { in: ['served', 'cancelled'] } },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+    return [...active, ...recentHistory].map(this.serialize);
   }
 
   async getTicket(id: string): Promise<KdsTicket> {

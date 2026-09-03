@@ -32,6 +32,7 @@ export class FiscalPeriodService {
       );
     }
 
+    if (client !== this.prisma.client) await client.$queryRawUnsafe('SELECT id FROM "FiscalPeriod" WHERE "organizationId" = $1 AND "startDate" <= $2 AND "endDate" >= $2 FOR SHARE', this.tenant.organizationId, date);
     const period = await client.fiscalPeriod.findFirst({
       where: { startDate: { lte: date }, endDate: { gte: date } },
     });

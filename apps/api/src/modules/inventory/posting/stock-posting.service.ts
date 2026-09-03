@@ -1,3 +1,4 @@
+import { resolveTenderAccount } from '../../accounting/treasury/tender-account';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import type { StockMoveType, InventoryMovementType } from '@erp/shared';
@@ -290,6 +291,7 @@ export class StockPostingService {
    * Used by PO payments, which carry no separate vendor-bill document.
    */
   async postPurchasePayment(params: {
+    cashSessionId?: string;
     partnerId: string;
     amount: Prisma.Decimal.Value;
     method: 'cash' | 'bank';
@@ -298,18 +300,15 @@ export class StockPostingService {
     sourceId: string;
     description?: string;
     tx: any;
-  }): Promise<void> {
+  }): Promise<any> {
     const amount = dec(params.amount);
     if (amount.lte(ZERO)) return;
 
     const partner = await params.tx.partner.findFirst({ where: { id: params.partnerId } });
     const apAccount = await this.determination.payableAccount(partner, params.tx);
-    const fundsAccount = await this.determination.mapped(
-      params.method === 'cash' ? 'default_cash' : 'default_bank',
-      params.tx,
-    );
+    const { accountId: fundsAccount } = await resolveTenderAccount(params.tx, this.determination, this.tenant.organizationId, { method: params.method, cashSessionId: params.cashSessionId });
 
-    await this.posting.post(
+    return this.posting.post(
       {
         journalCode: params.method === 'cash' ? 'CASH' : 'BANK',
         date: params.date,

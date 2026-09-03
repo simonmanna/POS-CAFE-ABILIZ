@@ -285,11 +285,14 @@ export class PosAccompanimentService {
       priceImpact?: number;
       isDefault?: boolean;
       sortOrder?: number;
-      inventoryItemId?: string;
+      inventoryItemId?: string | null;
+      consumptionQty?: number;
+      consumptionUomId?: string | null;
     },
   ): Promise<AccompanimentOptionWithDetails> {
     const orgId = this.tenant.organizationId;
     if (!dto.name?.trim()) throw new BadRequestException('Option name is required');
+    if (dto.consumptionQty !== undefined && !(dto.consumptionQty > 0)) throw new BadRequestException('Consumption quantity must be positive');
 
     const group = await this.prisma.client.accompanimentGroup.findFirst({
       where: { id: groupId, organizationId: orgId, deletedAt: null },
@@ -311,6 +314,9 @@ export class PosAccompanimentService {
           isDefault: dto.isDefault ?? false,
           sortOrder: dto.sortOrder ?? 0,
           inventoryItemId: dto.inventoryItemId ?? null,
+          // F14 — how much of inventoryItemId one selection consumes.
+          consumptionQty: dto.consumptionQty ?? 1,
+          consumptionUomId: dto.consumptionUomId ?? null,
           createdBy: this.tenant.userId,
         },
       });
@@ -344,6 +350,8 @@ export class PosAccompanimentService {
       sortOrder?: number;
       isActive?: boolean;
       inventoryItemId?: string | null;
+      consumptionQty?: number;
+      consumptionUomId?: string | null;
       expectedUpdatedAt?: string;
       ipAddress?: string;
       userAgent?: string;
@@ -358,6 +366,7 @@ export class PosAccompanimentService {
     if (dto.name !== undefined && !dto.name.trim()) {
       throw new BadRequestException('Option name cannot be empty');
     }
+    if (dto.consumptionQty !== undefined && !(dto.consumptionQty > 0)) throw new BadRequestException('Consumption quantity must be positive');
 
     // Optimistic concurrency check
     if (dto.expectedUpdatedAt && (existing as any).updatedAt && new Date(dto.expectedUpdatedAt).getTime() !== (existing as any).updatedAt.getTime()) {
@@ -383,6 +392,8 @@ export class PosAccompanimentService {
           ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
           ...(dto.inventoryItemId !== undefined ? { inventoryItemId: dto.inventoryItemId } : {}),
+          ...(dto.consumptionQty !== undefined ? { consumptionQty: dto.consumptionQty } : {}),
+          ...(dto.consumptionUomId !== undefined ? { consumptionUomId: dto.consumptionUomId } : {}),
           updatedBy: this.tenant.userId,
         },
       });
@@ -537,9 +548,13 @@ export class PosAccompanimentService {
       const inGroup = g.options.filter((o: any) => selected.has(o.id));
       const count = inGroup.length;
 
-      if (!bypassRequired && count < g.minSelect) {
+      // A group flagged required must have a selection even when minSelect is 0 —
+      // the two were previously conflated, so `isRequired: true, minSelect: 0`
+      // passed with nothing chosen. Enforce the greater of the two.
+      const effectiveMin = Math.max(g.minSelect ?? 0, g.isRequired ? 1 : 0);
+      if (!bypassRequired && count < effectiveMin) {
         throw new BadRequestException(
-          `"${g.name}" requires at least ${g.minSelect} selection(s). ${count} selected.`,
+          `"${g.name}" requires at least ${effectiveMin} selection(s). ${count} selected.`,
         );
       }
       if (g.maxSelect > 0 && count > g.maxSelect) {
@@ -572,18 +587,50 @@ export class PosAccompanimentService {
         ...dateFilter,
         order: { orderType: 'pos', reference: { document: { status: { in: ['posted', 'paid'] } } } },
       },
-      select: { accompanimentNames: true, accompanimentOptionIds: true },
+      select: { quantity: true, accompanimentNames: true, accompanimentOptionIds: true },
     });
-    const map = new Map<string, { optionName: string; count: number }>();
+
+    // Aggregate by the structured option id so revenue is computable. The old
+    // report keyed on the free-text name and hardcoded revenue 0 / empty group.
+    const byOption = new Map<string, { count: number }>();
+    const nameOnly = new Map<string, { count: number }>();
     for (const item of orderItems as any[]) {
-      const names: string[] = item.accompanimentNames ?? [];
-      for (const n of names) {
-        const cur = map.get(n) ?? { optionName: n, count: 0 };
-        cur.count += 1;
-        map.set(n, cur);
+      const qty = Number(item.quantity ?? 1) || 1;
+      const ids: string[] = item.accompanimentOptionIds ?? [];
+      if (ids.length) {
+        for (const id of ids) {
+          const cur = byOption.get(id) ?? { count: 0 };
+          cur.count += qty;
+          byOption.set(id, cur);
+        }
+      } else {
+        // Legacy rows saved names but no option ids — count them without revenue.
+        for (const n of (item.accompanimentNames ?? []) as string[]) {
+          const cur = nameOnly.get(n) ?? { count: 0 };
+          cur.count += qty;
+          nameOnly.set(n, cur);
+        }
       }
     }
-    return [...map.values()].sort((a, b) => b.count - a.count).map((r) => ({ ...r, revenue: 0, groupName: '' }));
+
+    const options = byOption.size
+      ? await this.prisma.client.accompanimentOption.findMany({
+          where: { id: { in: [...byOption.keys()] }, organizationId: orgId },
+          include: { group: { select: { name: true } } },
+        })
+      : [];
+    const optMeta = new Map(options.map((o: any) => [o.id, { name: o.name, priceImpact: Number(o.priceImpact), groupName: o.group?.name ?? '' }]));
+
+    const rows: AccompanimentSalesReportRow[] = [];
+    for (const [id, { count }] of byOption) {
+      const m = optMeta.get(id);
+      if (!m) continue; // option deleted — skip rather than show a blank row
+      rows.push({ optionName: m.name, groupName: m.groupName, count, revenue: Number((m.priceImpact * count).toFixed(2)) });
+    }
+    for (const [name, { count }] of nameOnly) {
+      rows.push({ optionName: name, groupName: '', count, revenue: 0 });
+    }
+    return rows.sort((a, b) => b.count - a.count || b.revenue - a.revenue);
   }
 }
 

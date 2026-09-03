@@ -60,6 +60,9 @@ describe('PosOrdersService — fireKitchen (menu-item routing)', () => {
         kitchenStation: { findFirst: jest.fn().mockResolvedValue({ code: 'cafe' }) },
         // Tenant transaction wrapper — run the callback with the client itself.
         $transaction: (fn: any) => fn(prisma.client),
+        // F11 — fireKitchen now takes a FOR UPDATE lock on the order row before
+        // recomputing send deltas inside the transaction.
+        $queryRawUnsafe: jest.fn().mockResolvedValue([]),
       },
     };
     svc = build();

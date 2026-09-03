@@ -1,3 +1,5 @@
+import { businessOperation } from '../../kernel/idempotency/business-outcome';
+import { assertPricingAuthority } from './pricing-policy';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from 'node:crypto';
 import { resolvePosStockLocation } from '../inventory/pos-stock-location';
@@ -23,6 +25,7 @@ import { NotificationsService } from '../../kernel/notifications/notifications.s
 import { PosTablesService } from './pos-tables.service';
 import { PosOrdersService } from './order/pos-orders.service';
 import { PosInvoiceService } from './billing/pos-invoice.service';
+import { resolveCreditStatus } from './billing/credit-status';
 import { withLegacyOrderStatus } from './order-status.util';
 import type { CreateOrderDto } from './order/dto/order.dto';
 
@@ -62,6 +65,7 @@ export interface CheckoutLine {
 }
 
 export interface PaymentTender {
+  accountId?: string;
   method: 'cash' | 'bank' | 'card' | 'mobile_money' | 'store_credit';
   amount: number;
   reference?: string;
@@ -104,13 +108,38 @@ export interface CheckoutInput {
   /** Offline-first: when the sale was actually rung up on the device. Drives
    *  Invoice.issueDate (GL date, report buckets) + the Payment date on replay.
    *  Validated: not future, ≤ 7 days old. Omitted → now(). */
+  expectedTotal?: number;
+    expectedVersion?: number;
   occurredAt?: string;
+  /** How the sale is settled. 'credit' books the whole bill to the customer's
+   *  AR instead of collecting anything now — see SettleMode. */
+  settleMode?: SettleMode;
 }
 
-const DEFAULT_MAX_DISCOUNT_WITHOUT_OVERRIDE = 10; // %
+/**
+ * How a sale is settled.
+ *
+ * 'tender' (default) — the customer pays now, with one or more tenders.
+ * 'credit'           — the customer pays LATER. Nothing is collected: no
+ *                      Payment row, no cash movement, no drawer impact. The
+ *                      invoice keeps its `Dr AR / Cr Revenue+Tax` entry from
+ *                      billing time and stays unpaid (settlementStatus
+ *                      'unsettled') until a payment is received against it.
+ *
+ * Credit is deliberately NOT a tender method: cash/card/mobile money describe
+ * HOW the customer paid, credit describes that they have not.
+ */
+export type SettleMode = 'tender' | 'credit';
+
+ // %
 
 @Injectable()
 export class PosService {
+  async paymentAccounts() {
+    const rows = await this.prisma.client.account.findMany({ where: { organizationId: this.tenant.organizationId, isActive: true, deletedAt: null, category: { key: { in: ['cash', 'petty_cash', 'bank', 'mobile_money', 'current_asset'] } } }, include: { category: true }, orderBy: { code: 'asc' } });
+    const clearing = await this.prisma.client.accountMapping.findFirst({ where: { organizationId: this.tenant.organizationId, key: 'card_clearing' } });
+    return rows.filter((a: any) => a.category.key !== 'current_asset' || a.id === clearing?.accountId).map((a: any) => ({ id: a.id, code: a.code, name: a.name, accountType: a.category.key }));
+  }
   private readonly logger = new Logger('PosService');
 
   constructor(
@@ -166,6 +195,11 @@ export class PosService {
    * Order/Invoice/InvoiceItem/Receipt/ReceiptItem tables — NOT Document.
    */
   async checkout(input: CheckoutInput) {
+    const op = businessOperation.getStore();
+    const previous = op?.recovery?.orderId
+      ? await this.orders.getOrder(op.recovery.orderId)
+      : op ? await this.prisma.client.order.findFirst({ where: { organizationId: this.tenant.organizationId, clientOperationKey: op.key } }) : null;
+    if (previous) return this.settleResolvedOrder(previous, input);
     if (!input.lines?.length) throw new BadRequestException('Cart is empty');
     const orgId = this.tenant.organizationId;
 
@@ -179,8 +213,16 @@ export class PosService {
     const cashSessionId = await this.requireCashSession(input);
     input = { ...input, cashSessionId };
 
+    // Credit needs a real customer to owe the money — checked before any write.
+    const isCredit = input.settleMode === 'credit';
+    if (isCredit) await this.assertCreditCustomer(input.partnerId);
+
     // Manager-override guard for high discounts (validates line + tx discount).
-    const effectiveDiscount = await this.assertDiscountAuthority(input);
+    const quote = await this.orders.quote(input as any);
+    const effectiveDiscount = await assertPricingAuthority(this, quote.baseLines, input);
+    if (input.expectedTotal != null && Math.abs(quote.total - input.expectedTotal) > 0.000001) throw new BadRequestException('The price changed. Refresh the quote before payment.');
+
+    await this.billing.preflightPayment(quote.total, input, input.partnerId);
 
     // 1) Operational Order from the cart. resolveLines folds variants /
     //    accompaniments / modifiers and expands combos, and validates rules.
@@ -199,55 +241,50 @@ export class PosService {
     try { await this.orders.fireKitchen(order.id); } catch (e: any) { this.logger.warn(`fireKitchen failed: ${e?.message}`); }
 
     // 3) Generate the Invoice: posts Dr AR / Cr Revenue+Tax to the GL and
-    //    deducts inventory at bill time. Roll the order back on failure.
+    //    deducts inventory at bill time. Preserve the order on failure.
     let invoice: any;
     try {
       invoice = await this.billing.generateInvoice(order.id, {
+        cashSessionId: input.cashSessionId,
         transactionDiscountPercent: input.transactionDiscountPercent,
         transactionDiscountType: input.transactionDiscountType,
         transactionDiscountAmount: input.transactionDiscountAmount,
         discountReason: input.discountReason,
         overrideById: input.overrideById,
+        overridePin: input.overridePin,
+        expectedTotal: input.expectedTotal,
+        expectedVersion: input.expectedVersion,
         branchId: input.branchId,
         occurredAt: input.occurredAt,
-        paymentMode: input.tenders?.length
-          ? this.resolvePaymentMode(input.tenders)
-          : input.paymentMethod === 'bank' ? 'cash' : (input.paymentMethod ?? 'cash'),
+        // Credit leaves paymentMode null so postInvoiceGl keeps AR as the
+        // counter-account. Sending 'cash' here would debit Cash for money that
+        // was never collected.
+        paymentMode: isCredit
+          ? undefined
+          : input.tenders?.length
+            ? this.resolvePaymentMode(input.tenders)
+            : input.paymentMethod === 'bank' ? 'card' : (input.paymentMethod ?? 'cash'),
       });
     } catch (e) {
-      await this.orders
-        .cancelOrder(order.id, 'checkout: invoice generation failed')
-        .catch((err) => this.reportCompensationFailure({
-          kind: 'cancelOrder after invoice-generation failure',
-          orderId: order.id,
-          source: 'checkout',
-          error: err,
-        }));
       throw e;
     }
 
     // 4) Take payment + settle: writes Payment + allocation, the Receipt +
     //    ReceiptItems, marks the invoice settled and closes the order. On
-    //    failure, refund (reverse GL + restock) so the books stay clean.
+    //    failure, preserve the invoice and operation for exact recovery.
     let pay: any;
     try {
-      pay = await this.billing.receivePayment(invoice.id, {
-        tenders: input.tenders,
-        paymentMethod: input.paymentMethod,
-        amountTendered: input.amountTendered,
-        cashSessionId: input.cashSessionId,
-        occurredAt: input.occurredAt,
-      });
+      // Credit: collect nothing now — flag the invoice and leave it in AR.
+      pay = isCredit
+        ? await this.billing.settleCredit(invoice.id, { partnerId: input.partnerId })
+        : await this.billing.receivePayment(invoice.id, {
+            tenders: input.tenders,
+            paymentMethod: input.paymentMethod,
+            amountTendered: input.amountTendered,
+            cashSessionId: input.cashSessionId,
+            occurredAt: input.occurredAt,
+          });
     } catch (e) {
-      await this.billing
-        .refund(invoice.id, 'checkout: payment failed')
-        .catch((err) => this.reportCompensationFailure({
-          kind: 'auto-refund after payment failure',
-          invoiceId: invoice.id,
-          orderId: order.id,
-          source: 'checkout',
-          error: err,
-        }));
       throw e;
     }
 
@@ -286,7 +323,11 @@ export class PosService {
       orderNumber: order.orderNumber,
       paymentIds: (pay?.paymentIds as string[]) ?? [],
       total: Number(invoice.totalAmount),
-      change: pay?.change ?? Math.max(0, tendered - Number(invoice.totalAmount)),
+      // Nothing was handed over on a credit sale, so there is nothing to give back.
+      change: isCredit ? 0 : (pay?.change ?? Math.max(0, tendered - Number(invoice.totalAmount))),
+      settleMode: isCredit ? ('credit' as const) : ('tender' as const),
+      /** Outstanding balance left on the customer's account (0 unless credit). */
+      amountDue: isCredit ? Number(invoice.totalAmount) : 0,
       discountPercent: effectiveDiscount,
       receiptId: pay?.receiptId,
       receiptText,
@@ -387,65 +428,6 @@ export class PosService {
    */
 
   /**
-   * Find the tender method used to settle the original sale so a refund is
-   * returned the same way it was paid. Falls back to cash when the original
-   * payment can't be resolved (e.g. an unpaid invoice being voided).
-   */
-  private async resolveOriginalTenderMethod(
-    invoiceId: string,
-  ): Promise<'cash' | 'bank' | 'card' | 'mobile_money'> {
-    const allocations = await this.prisma.client.paymentAllocation.findMany({
-      where: { documentId: invoiceId },
-      include: { payment: { select: { paymentMethod: true } } },
-    });
-    const methods = allocations
-      .map((a) => (a as any).payment?.paymentMethod)
-      .filter((m): m is string => !!m);
-    // Prefer cash when the sale was split across tenders — refunding cash keeps
-    // the drawer reconcilable. Otherwise return the single method used.
-    if (methods.includes('cash')) return 'cash';
-    const m = methods[0];
-    if (m === 'bank' || m === 'card' || m === 'mobile_money') return m;
-    return 'cash';
-  }
-
-  /**
-   * Log a compensation failure when a sibling step rolls the work back.
-   * The original `.catch(() => undefined)` silently swallowed the inner error,
-   * leaving operators blind to a half-rolled-back sale. F5: write an audit row
-   * + log so a reconciliation sweep can surface stranded orders / invoices.
-   */
-  private async reportCompensationFailure(input: {
-    kind: string;
-    invoiceId?: string;
-    orderId?: string;
-    source: 'checkout' | 'settle';
-    error: unknown;
-  }): Promise<void> {
-    const msg = input.error instanceof Error ? input.error.message : String(input.error);
-    this.logger.error(
-      `[${input.source}] ${input.kind} compensation failed: ${msg} (orderId=${input.orderId ?? '-'} invoiceId=${input.invoiceId ?? '-'})`,
-    );
-    try {
-      await this.audit.record({
-        entity: input.invoiceId ? 'Invoice' : 'Order',
-        entityId: input.invoiceId ?? input.orderId ?? '',
-        action: 'compensation_failure' as any,
-        newValues: {
-          kind: input.kind,
-          source: input.source,
-          message: msg,
-          orderId: input.orderId ?? null,
-          invoiceId: input.invoiceId ?? null,
-        },
-      });
-    } catch (auditErr: any) {
-      // Last-resort: never let audit failure cascade out of a compensation path.
-      this.logger.error(`audit.record for compensation_failure also failed: ${auditErr?.message ?? auditErr}`);
-    }
-  }
-
-  /**
    * Void a sale. The canonical endpoint POST /pos/sales/:id/void delegates
    * straight to `PosInvoiceService.refund(... requireOverride: true ...)` —
    * the legacy `PosService.voidSale` shim that re-routed through the deleted
@@ -488,6 +470,7 @@ export class PosService {
    * next save and accompaniment charges would double.
    */
   private async toTabView(o: any) {
+    const customer = o.partnerId ? await this.prisma.client.partner.findFirst({ where: { id: o.partnerId, organizationId: this.tenant.organizationId }, select: { id: true, code: true, name: true } }) : null;
     const items: any[] = o.items ?? [];
 
     const variantIds = [...new Set(items.map((it) => it.variantId).filter(Boolean))] as string[];
@@ -518,15 +501,18 @@ export class PosService {
       totalAmount: String(o.totalAmount ?? 0),
       guestCount: o.guestCount ?? null,
       partnerId: o.partnerId ?? null,
+      customer,
       // Cart context for the Orders-panel resume (a tableless order restores its
       // own type; a dine-in one restores its table). Additive — tab reads ignore them.
       tableId: o.tableId ?? null,
       orderType: o.orderType ?? null,
+      transactionDiscountPercent: Number(o.transactionDiscountPercent ?? 0), transactionDiscountType: o.transactionDiscountType, transactionDiscountAmount: Number(o.transactionDiscountAmount ?? 0), discountReason: o.discountReason,
+      cashSessionId: o.cashSessionId,
       lines: items.map((it: any) => {
         const qty = Number(it.quantity);
         const unit = Number(it.unitPrice);
         const disc = Number(it.discountPercent ?? 0);
-        const total = qty * unit * (1 - disc / 100);
+        const total = qty * unit - (it.discountType === 'fixed_amount' ? Number(it.discountAmount ?? 0) : qty * unit * disc / 100);
         const accIds: string[] = it.accompanimentOptionIds ?? [];
         // OrderItem.note holds "user note | + accompaniment | + modifier" (the
         // folded KOT form). Return only the user part — the add-on names travel
@@ -547,6 +533,7 @@ export class PosService {
           taxId: it.taxId ?? null,
           taxInclusive: it.taxInclusive ?? false,
           discountPercent: String(it.discountPercent ?? 0),
+          discountType: it.discountType, discountAmount: String(it.discountAmount ?? 0), discountReason: it.discountReason, course: it.course,
           note: userNote || null,
           variantId: it.variantId ?? null,
           variantName: it.variantName ?? null,
@@ -591,11 +578,15 @@ export class PosService {
    */
   async addToTab(input: {
     tableId: string;
+    cashSessionId?: string;
     lines: CheckoutLine[];
     partnerId?: string;
     guestCount?: number;
     sendToKitchen?: boolean;
     overrideById?: string;
+    overridePin?: string;
+    expectedTotal?: number;
+    expectedVersion?: number;
     transactionDiscountPercent?: number;
   }) {
     if (!input.lines?.length) throw new BadRequestException('No items to add');
@@ -604,6 +595,9 @@ export class PosService {
       lines: input.lines,
       transactionDiscountPercent: input.transactionDiscountPercent,
       overrideById: input.overrideById,
+        overridePin: input.overridePin,
+        expectedTotal: input.expectedTotal,
+        expectedVersion: input.expectedVersion,
     } as CheckoutInput);
 
     const lines = input.lines.map((l) => this.toOrderLine(l));
@@ -615,15 +609,22 @@ export class PosService {
         sendToKitchen: input.sendToKitchen,
         guestCount: input.guestCount,
         overrideById: input.overrideById,
+        overridePin: input.overridePin,
+        expectedTotal: input.expectedTotal,
+        expectedVersion: input.expectedVersion,
         transactionDiscountPercent: input.transactionDiscountPercent,
       } as any);
     } else {
       order = await this.orders.createOrder({
         orderType: 'dine_in',
         tableId: input.tableId,
+        cashSessionId: input.cashSessionId,
         partnerId: input.partnerId,
         guestCount: input.guestCount,
         overrideById: input.overrideById,
+        overridePin: input.overridePin,
+        expectedTotal: input.expectedTotal,
+        expectedVersion: input.expectedVersion,
         lines,
       } as CreateOrderDto);
       await this.linkTableOrder(input.tableId, order.id, input.guestCount);
@@ -643,12 +644,17 @@ export class PosService {
    */
   async saveTabItems(input: {
     tableId: string;
+    cashSessionId?: string;
     lines: CheckoutLine[];
     partnerId?: string;
     guestCount?: number;
     /** H2 — the version the terminal last read; a mismatch means another device
      *  edited this tab first and this stale full-replace is rejected (409). */
     expectedVersion?: number;
+    transactionDiscountPercent?: number;
+    transactionDiscountType?: 'percentage' | 'fixed_amount';
+    transactionDiscountAmount?: number;
+    discountReason?: string;
   }) {
     const existing = await this.orders.getOpenOrderForTable(input.tableId);
 
@@ -676,7 +682,8 @@ export class PosService {
     // Empty order → cancel the open order and free the table.
     if (lines.length === 0) {
       if (existing) {
-        await this.orders.cancelOrder(existing.id, 'Order emptied');
+        if (input.expectedVersion == null) throw new BadRequestException('An order version is required before clearing saved items');
+        await this.orders.cancelOrder(existing.id, 'Order emptied', input.expectedVersion);
         await this.closeTableLink(input.tableId, existing.id);
       }
       return null;
@@ -685,7 +692,7 @@ export class PosService {
     let order: any;
     if (existing) {
       order = await this.orders.saveItems(existing.id, {
-        lines,
+        ...input, lines,
         guestCount: input.guestCount,
         partnerId: input.partnerId,
         expectedVersion: input.expectedVersion,
@@ -693,10 +700,7 @@ export class PosService {
     } else {
       order = await this.orders.createOrder({
         orderType: 'dine_in',
-        tableId: input.tableId,
-        partnerId: input.partnerId,
-        guestCount: input.guestCount,
-        lines,
+        ...input, lines,
       } as CreateOrderDto);
       await this.linkTableOrder(input.tableId, order.id, input.guestCount);
     }
@@ -717,7 +721,7 @@ export class PosService {
   /**
    * Settle a table's open tab: post the draft invoice, issue stock, take the
    * tender(s), close the tab and mark the table dirty — reusing the same
-   * compensation-guarded sale path as a counter checkout.
+   * recoverable sale path as a counter checkout.
    */
   async settleTab(input: {
     tableId: string;
@@ -731,7 +735,11 @@ export class PosService {
     overrideById?: string;
     overridePin?: string;
     cashSessionId?: string;
-    occurredAt?: string;
+    expectedTotal?: number;
+    expectedVersion?: number;
+  occurredAt?: string;
+    settleMode?: SettleMode;
+    partnerId?: string;
   }) {
     const orgId = this.tenant.organizationId;
 
@@ -754,7 +762,8 @@ export class PosService {
     });
 
     // The open tab IS an Order — settle it directly (no Document bridge).
-    const order = await this.orders.getOpenOrderForTable(input.tableId);
+    const recoveryOrderId = businessOperation.getStore()?.recovery?.orderId;
+    const order = recoveryOrderId ? await this.orders.getOrder(recoveryOrderId) : await this.orders.getOpenOrderForTable(input.tableId);
     if (!order) throw new BadRequestException('No open tab to settle on this table');
     if (!order.items?.length) throw new BadRequestException('The tab is empty');
 
@@ -765,7 +774,7 @@ export class PosService {
    * Settle ANY open order by id — the counter/retail + Orders-panel path. Mirrors
    * settleTab but locks the Order row (there may be no table) so it also settles a
    * tableless walk-in/takeaway/delivery order, or a dine-in order chosen from the
-   * Orders list. Same compensation-guarded sale path as a counter checkout.
+   * Orders list. Same recoverable sale path as a counter checkout.
    */
   async settleOrder(input: {
     orderId: string;
@@ -779,7 +788,11 @@ export class PosService {
     overrideById?: string;
     overridePin?: string;
     cashSessionId?: string;
-    occurredAt?: string;
+    expectedTotal?: number;
+    expectedVersion?: number;
+  occurredAt?: string;
+    settleMode?: SettleMode;
+    partnerId?: string;
   }) {
     const orgId = this.tenant.organizationId;
 
@@ -801,7 +814,7 @@ export class PosService {
     });
 
     const order = await this.orders.getOrder(input.orderId);
-    if (order.invoiceId) throw new BadRequestException('This order is already billed');
+    if (order.invoiceId && businessOperation.getStore()?.recovery?.orderId !== order.id) throw new BadRequestException('This order is already billed; collect against its existing invoice');
     if (order.status === 'cancelled' || order.status === 'closed') {
       throw new BadRequestException(`Order is ${order.status}`);
     }
@@ -814,9 +827,13 @@ export class PosService {
    * Shared settle tail for an already-resolved, locked open order (table-bound or
    * not): split guard, PIN re-verify, generate the Invoice (GL + stock), take
    * payment (Receipt + close), free the table when dine-in, then loyalty / events
-   * / receipt render. Compensation-guarded exactly like a counter checkout, so GL,
+   * / receipt render. Recoverable exactly like a counter checkout, so GL,
    * stock, idempotency and cash-change stay byte-for-byte identical across
    * checkout / settleTab / settleOrder.
+   *
+   * `settleMode: 'credit'` swaps only the payment step for settleCredit — the
+   * invoice, GL, stock, table release, loyalty and receipt render are the same
+   * code, which is exactly why credit no longer needs its own pipeline.
    */
   private async settleResolvedOrder(
     order: any,
@@ -832,7 +849,11 @@ export class PosService {
       overrideById?: string;
       overridePin?: string;
       cashSessionId?: string;
-      occurredAt?: string;
+      expectedTotal?: number;
+    expectedVersion?: number;
+  occurredAt?: string;
+      settleMode?: SettleMode;
+      partnerId?: string;
     },
   ) {
     const orgId = this.tenant.organizationId;
@@ -844,56 +865,71 @@ export class PosService {
       throw new BadRequestException('This order has a split in progress — settle each split bill instead.');
     }
 
+    if (order.cashSessionId && input.cashSessionId && order.cashSessionId !== input.cashSessionId) throw new BadRequestException('This order belongs to a different register session');
+    if (!order.invoiceId && input.expectedVersion != null && order.version !== input.expectedVersion) throw new BadRequestException('The saved order changed. Review it before paying.');
+    if (!order.invoiceId) {
+      const pricedItems = order.items ?? (await this.orders.getOrder(order.id)).items;
+      await assertPricingAuthority(this, pricedItems.map((i: any) => ({ ...i, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice) })), input);
+    }
     // F-OVR: re-verify PIN if override is supplied
     if (input.overrideById) {
-      if (!input.overridePin) throw new BadRequestException('Override PIN is required');
-      await this.overrides.verifyPinForOverride(input.overrideById, input.overridePin);
+      await this.overrides.verifyOperationApproval(input.overrideById, input.overridePin, 'discount');
     }
+
+    // The customer is often attached at charge time (the Charge dialog's picker),
+    // long after the tab was opened against the walk-in. Move them onto the order
+    // BEFORE it is billed, so the invoice, loyalty points and the house-account
+    // statement all name the real customer instead of the walk-in.
+    if (input.partnerId && input.partnerId !== order.partnerId) {
+      await this.prisma.client.order.update({
+        where: { id: order.id },
+        data: { partnerId: input.partnerId },
+      });
+      order = { ...order, partnerId: input.partnerId };
+    }
+
+    // Credit needs a real customer to owe the money — checked BEFORE the
+    // invoice is generated so we never bill an order we then can't settle.
+    const isCredit = input.settleMode === 'credit';
+    if (isCredit) await this.assertCreditCustomer(order.partnerId);
+
+    if (!order.invoiceId) await this.billing.preflightOrderPayment(order, input);
 
     // Generate the Invoice (own GL + stock at bill time) then take payment
     // (writes the Receipt + ReceiptItems and closes the order).
     let invoice: any;
     try {
       invoice = await this.billing.generateInvoice(order.id, {
+        cashSessionId: input.cashSessionId,
         transactionDiscountPercent: input.transactionDiscountPercent,
         transactionDiscountType: input.transactionDiscountType,
         transactionDiscountAmount: input.transactionDiscountAmount,
         discountReason: input.discountReason,
         overrideById: input.overrideById,
+        overridePin: input.overridePin,
+        expectedTotal: input.expectedTotal,
+        expectedVersion: input.expectedVersion,
         occurredAt: input.occurredAt,
       });
     } catch (e: any) {
       this.logger.error(`[settle] invoice generation failed for order ${order.id}: ${e?.message ?? e}`);
-      await this.orders
-        .cancelOrder(order.id, 'settle: invoice generation failed')
-        .catch((err) => this.reportCompensationFailure({
-          kind: 'cancelOrder after settle invoice-generation failure',
-          orderId: order.id,
-          source: 'settle',
-          error: err,
-        }));
       throw e;
     }
     let pay: any;
     try {
-      pay = await this.billing.receivePayment(invoice.id, {
-        tenders: input.tenders,
-        paymentMethod: input.paymentMethod,
-        amountTendered: input.amountTendered,
-        cashSessionId: input.cashSessionId,
-        occurredAt: input.occurredAt,
-      });
+      // Credit: collect nothing. settleCredit flags the invoice, issues the
+      // credit-issue receipt and closes the order, leaving the balance in AR.
+      pay = isCredit
+        ? await this.billing.settleCredit(invoice.id, { partnerId: order.partnerId })
+        : await this.billing.receivePayment(invoice.id, {
+            tenders: input.tenders,
+            paymentMethod: input.paymentMethod,
+            amountTendered: input.amountTendered,
+            cashSessionId: input.cashSessionId,
+            occurredAt: input.occurredAt,
+          });
     } catch (e: any) {
       this.logger.error(`[settle] payment failed for invoice ${invoice.invoiceNumber} (${invoice.id}): ${e?.message ?? e}`);
-      await this.billing
-        .refund(invoice.id, 'settle: payment failed')
-        .catch((err) => this.reportCompensationFailure({
-          kind: 'auto-refund after settle payment failure',
-          invoiceId: invoice.id,
-          orderId: order.id,
-          source: 'settle',
-          error: err,
-        }));
       throw e;
     }
 
@@ -938,14 +974,52 @@ export class PosService {
       invoiceId: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
       orderId: order.id,
+      orderNumber: order.orderNumber,
       paymentIds: (pay?.paymentIds as string[]) ?? [],
       total: Number(invoice.totalAmount),
-      change: pay?.change ?? Math.max(0, tendered - Number(invoice.totalAmount)),
+      // Nothing was handed over on a credit sale, so there is nothing to give back.
+      change: isCredit ? 0 : (pay?.change ?? Math.max(0, tendered - Number(invoice.totalAmount))),
+      settleMode: isCredit ? ('credit' as const) : ('tender' as const),
+      /** Outstanding balance left on the customer's account (0 unless credit). */
+      amountDue: isCredit ? Number(invoice.totalAmount) : 0,
       tableStatus,
       receiptId: pay?.receiptId,
       receiptText,
       receiptHtml,
     };
+  }
+
+  /**
+   * A credit sale must be owed by somebody. The walk-in partner is a placeholder
+   * for anonymous cash customers — booking AR against it would create a debt no
+   * one can be billed for, so it is rejected alongside a missing customer.
+   *
+   * This is a pre-flight check that runs BEFORE the invoice is generated, so the
+   * cashier gets a clean rejection and can switch to cash instead of leaving a
+   * billed-then-refunded invoice behind. The authoritative, race-safe limit test
+   * still runs inside settleCredit (assertCreditAllowed) under a row lock; only
+   * the conditions knowable without the invoice total are checked here.
+   */
+  private async assertCreditCustomer(partnerId?: string | null): Promise<void> {
+    if (!partnerId) throw new BadRequestException('Select a customer to charge on account');
+    const orgId = this.tenant.organizationId;
+    const partner = await this.prisma.client.partner.findFirst({
+      where: { id: partnerId, organizationId: orgId },
+      select: { code: true },
+    });
+    if (!partner) throw new BadRequestException('Customer not found');
+    if (partner.code === 'WALKIN') {
+      throw new BadRequestException('The walk-in customer cannot buy on account — select a named customer');
+    }
+    const status = await resolveCreditStatus(this.prisma.client, orgId, partnerId);
+    if (status.creditHold) {
+      throw new BadRequestException('This customer is on credit hold — new credit sales are blocked');
+    }
+    if (status.creditLimit > 0 && status.outstanding >= status.creditLimit - 0.01) {
+      throw new BadRequestException(
+        `Credit limit reached: outstanding ${status.outstanding} of limit ${status.creditLimit}`,
+      );
+    }
   }
 
   async findBySku(sku: string) {
@@ -967,139 +1041,14 @@ export class PosService {
 
   async listForCashSession(cashSessionId: string) {
     const orgId = this.tenant.organizationId;
-    // M1 — scope the list to the session that was actually asked for. POS sales
-    // are attributed to a session by their creation time falling inside the
-    // session's open window (Payment carries no session column; only cash
-    // movements do, which would miss card / mobile-money sales).
-    const session = await this.prisma.client.cashSession.findFirst({
-      where: { id: cashSessionId, organizationId: orgId },
-    });
-    if (!session) return [];
-    return this.prisma.client.document.findMany({
-      where: {
-        organizationId: orgId,
-        documentType: 'sales_invoice',
-        sourceType: 'pos',
-        createdAt: {
-          gte: session.openedAt,
-          ...(session.closedAt ? { lte: session.closedAt } : {}),
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-      include: { partner: true },
+    return this.prisma.client.invoice.findMany({
+      where: { organizationId: orgId, cashSessionId },
+      orderBy: { createdAt: 'desc' }, take: 200,
     });
   }
 
   // ─── helpers ─────────────────────────────────────────────────────────────
 
-  /**
-   * Resolve cart lines into ledger-ready lines: map sku → productId, fold modifier
-   * priceDeltas into unitPrice (so the receipt + GL stay authoritative), and
-   * expand combos into component lines (first component carries the combo price).
-   * Shared by checkout (counter sale) and the open-tab flow.
-   */
-  private async expandCheckoutLines(inputLines: CheckoutLine[]) {
-    const skuMap = await this.resolveSkus(inputLines);
-    const lines: Array<{
-      productId: string | null;
-      menuItemId: string | null;
-      description: string;
-      quantity: number;
-      unitPrice: number;
-      taxId: string | null;
-      discountPercent: number;
-      note: string | null;
-      modifiers: CheckoutLineModifier[] | undefined;
-      comboId: string | undefined;
-      comboPrice: number | undefined;
-      taxInclusive: boolean | undefined;
-      variantName?: string;
-      accompanimentNames?: string[];
-    }> = [];
-
-    for (const l of inputLines) {
-      // SECURITY: re-resolve modifier prices from the DB (reject unknown ids)
-      // instead of trusting the client priceDelta — same hole the counter path
-      // closes in PosOrdersService.resolveLines.
-      const resolvedMods = l.modifiers?.length
-        ? await this.modifiers.resolveSelectedModifiers({
-            menuItemId: l.menuItemId, productId: l.productId, modifierIds: l.modifiers.map((m) => m.modifierId),
-          })
-        : [];
-      const modifierDelta = resolvedMods.reduce((s, m) => s + m.priceDelta, 0);
-
-      // Resolve variant price (variant price REPLACES basePrice).
-      let variantName: string | undefined;
-      let variantPrice = 0;
-      let hasVariant = false;
-      if (l.variantId && l.menuItemId) {
-        const v = await this.variants.validateVariant(l.menuItemId, l.variantId);
-        variantName = v.name;
-        variantPrice = v.price;
-        hasVariant = true;
-      }
-
-      // Resolve accompaniment price impact (stacks on top). Resolution only —
-      // min-select is not enforced here (owner rule: a sale must never be
-      // blocked; tab saves already gate rules at entry with the override state,
-      // and settle must not 400 on lines that were legitimately saved).
-      let accompanimentImpact = 0;
-      let accompanimentNames: string[] = [];
-      if (l.menuItemId) {
-        const result = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds ?? [], true);
-        accompanimentImpact = result.priceImpact;
-        accompanimentNames = result.names;
-      }
-
-      // unitPrice = variantPrice (if variant) OR original unitPrice, + accompaniment impact + modifier deltas
-      const baseUnitPrice = hasVariant ? variantPrice : l.unitPrice;
-      const finalUnitPrice = baseUnitPrice + accompanimentImpact + modifierDelta;
-
-      // Build note with accompaniments + modifiers appended.
-      const noteParts: string[] = [];
-      if (l.note) noteParts.push(l.note);
-      if (accompanimentNames.length > 0) {
-        noteParts.push(...accompanimentNames.map((n) => `+ ${n}`));
-      }
-      if (resolvedMods.length > 0) {
-        noteParts.push(...resolvedMods.map((m) => `+ ${m.name}`));
-      }
-
-      lines.push({
-        productId: l.productId ?? skuMap.get(l.sku?.toLowerCase() ?? '') ?? null,
-        menuItemId: l.menuItemId ?? null,
-        description: l.description,
-        quantity: l.quantity,
-        unitPrice: finalUnitPrice,
-        taxId: l.taxId ?? null,
-        discountPercent: l.discountPercent ?? 0,
-        note: noteParts.length > 0 ? noteParts.join(' | ') : null,
-        modifiers: resolvedMods,
-        comboId: l.comboId,
-        comboPrice: undefined,
-        taxInclusive: l.taxInclusive,
-        variantName,
-        accompanimentNames: accompanimentNames.length > 0 ? accompanimentNames : undefined,
-      });
-    }
-
-    const expanded: typeof lines = [];
-    for (const ln of lines) {
-      if (!ln.comboId) { expanded.push(ln); continue; }
-      const comps = await this.modifiers.expandCombosForCheckout([{ comboId: ln.comboId, quantity: ln.quantity }]);
-      comps.forEach((c, i) => {
-        expanded.push({
-          ...ln,
-          productId: c.productId,
-          comboId: undefined,
-          comboPrice: c.comboPrice,
-          unitPrice: i === 0 ? Number(c.comboPrice ?? ln.unitPrice) : 0,
-        });
-      });
-    }
-    return expanded;
-  }
 
   /** True when the sale collects physical cash (cash or mobile money) and must
    *  therefore be attributed to an open drawer session for reconciliation. */
@@ -1107,57 +1056,45 @@ export class PosService {
     const methods = input.tenders?.length
       ? input.tenders.map((t) => t.method)
       : [input.paymentMethod ?? 'cash']; // default tender is cash
-    return methods.some((m) => m === 'cash' || m === 'mobile_money');
+    return methods.some((m) => m === 'cash');
   }
 
   /**
-   * H1 — resolve the cash session a sale posts against and enforce the drawer
-   * gate. A cash/mobile-money sale REQUIRES an open session owned by the caller;
-   * a card/bank-only sale may proceed without one. A supplied session id is
-   * validated to exist, be open, and belong to the caller.
+   * H1 / F17 — resolve the cash session a sale posts against and enforce the
+   * drawer gate. Every POS sale needs an explicitly selected open register, and
+   * by default that register must be the caller's own: money lands only in the
+   * drawer of the cashier accountable for counting it. A drawer left open by
+   * someone else is handed over (POST /pos/shift/handover), which closes it
+   * against a blind count and opens a fresh session for the new cashier.
+   *
+   * A site that genuinely runs one till for several servers sets the POS module
+   * config flag `sharedDrawer: true`. That is a deliberate, org-level decision
+   * to accept a drawer no single person can be held to at close — it is not the
+   * default, and it never re-enables picking a session the caller did not name.
    */
   private async requireCashSession(input: {
     cashSessionId?: string;
     tenders?: PaymentTender[];
     paymentMethod?: string;
+    settleMode?: SettleMode;
   }): Promise<string | undefined> {
     const orgId = this.tenant.organizationId;
     const userId = this.tenant.userId ?? undefined;
 
-    // Ease-of-use (owner rule: never block a sale): on a shared terminal any
-    // cashier may settle against whatever drawer is open. We prefer the caller's
-    // own drawer but do NOT reject a sale because the open drawer was opened by a
-    // different cashier, nor because a client sent a stale/closed session id.
     if (input.cashSessionId) {
-      const s = await this.prisma.client.cashSession.findFirst({
+      const session = await this.prisma.client.cashSession.findFirst({
         where: { id: input.cashSessionId, organizationId: orgId },
+        include: { cashRegister: { select: { isActive: true, deletedAt: true } } },
       });
-      // Use the supplied session when it is live — regardless of who owns it.
-      if (s && s.status === 'open') return s.id;
-      // Stale / closed / not found: fall through and resolve a live drawer
-      // instead of throwing, so a stale client cache never blocks the sale.
+      if (!session || session.status !== 'open') throw new BadRequestException('The original register session is not open. Resolve the pending sale before selecting another session.');
+      if (!session.cashRegister?.isActive || session.cashRegister.deletedAt) throw new BadRequestException('This register is no longer active. Close its session and select another register.');
+      if (!userId || session.userId !== userId) {
+        const shared = (await this.getPosSettings()).sharedDrawer === true;
+        if (!shared) throw new BadRequestException('This register is open under another cashier. Complete a shift handover before selling on it, or enable the shared-drawer setting.');
+      }
+      return session.id;
     }
-
-    // Prefer the caller's own open drawer.
-    const own = userId
-      ? await this.prisma.client.cashSession.findFirst({ where: { organizationId: orgId, userId, status: 'open' } })
-      : null;
-    if (own) return own.id;
-
-    // Card/bank-only sales never need a drawer.
-    if (!this.saleNeedsCashDrawer(input)) return undefined;
-
-    // Cash/mobile-money still needs *some* open drawer so the till reconciles —
-    // but it may belong to any cashier on this terminal.
-    const anyOpen = await this.prisma.client.cashSession.findFirst({
-      where: { organizationId: orgId, status: 'open' },
-    });
-    if (!anyOpen) {
-      throw new BadRequestException(
-        'No open cash session — open a shift before taking a cash or mobile-money payment',
-      );
-    }
-    return anyOpen.id;
+    throw new BadRequestException('Select an open register before completing any POS sale');
   }
 
   /**
@@ -1165,52 +1102,8 @@ export class PosService {
    * require a manager override if it exceeds the configured threshold.
    */
   private async assertDiscountAuthority(input: CheckoutInput): Promise<number> {
-    // 1) Gross subtotal (before line discounts) for fixed-amount → % conversion
-    const lineSubtotals = input.lines.map((l) => l.quantity * l.unitPrice);
-    const grossSubtotal = lineSubtotals.reduce((s, v) => s + v, 0);
-
-    // 2) Effective discount % per line (convert fixed_amount to % of line gross)
-    const linePcts = input.lines.map((l, i) => {
-      if (l.discountType === 'fixed_amount' && (l.discountAmount ?? 0) > 0 && lineSubtotals[i] > 0) {
-        return (l.discountAmount! / lineSubtotals[i]) * 100;
-      }
-      return l.discountPercent ?? 0;
-    });
-    const lineMax = linePcts.reduce((m, p) => Math.max(m, p), 0);
-
-    // 3) Effective transaction discount % (fixed_amount → % of gross subtotal)
-    let txPct = input.transactionDiscountPercent ?? 0;
-    if (input.transactionDiscountType === 'fixed_amount' && (input.transactionDiscountAmount ?? 0) > 0 && grossSubtotal > 0) {
-      txPct = (input.transactionDiscountAmount! / grossSubtotal) * 100;
-    }
-
-    const effective = Math.max(lineMax, txPct);
-
-    // 4) Load configurable tier threshold from org settings
-    const org = await this.prisma.raw.organization.findUnique({
-      where: { id: this.tenant.organizationId },
-      select: { settings: true },
-    });
-    const settings = (org?.settings ?? {}) as any;
-    const tier1 = Number(settings?.discountApproval?.tier1) || DEFAULT_MAX_DISCOUNT_WITHOUT_OVERRIDE;
-
-    // 5) Check authority + PIN (F-OVR)
-    if (effective <= tier1) return effective;
-
-    if (!input.overrideById) {
-      throw new BadRequestException(
-        `Discount ${effective.toFixed(1)}% exceeds ${tier1}% — manager override required`,
-      );
-    }
-    await this.overrides.verifyPinForOverride(input.overrideById, input.overridePin ?? '');
-    // Log the synchronous manager override into the unified approval ledger.
-    await this.recordPosOverride('pos_discount', input.overrideById, {
-      amount: grossSubtotal,
-      effectiveDiscountPct: effective,
-      thresholdPct: tier1,
-      reason: input.discountReason ?? null,
-    });
-    return effective;
+    const quote = await this.orders.quote(input as any);
+    return assertPricingAuthority(this, quote.baseLines, input);
   }
 
   /** Derive the invoice's payment mode from a multi-tender array. */
@@ -1221,8 +1114,8 @@ export class PosService {
       if (m === 'cash') return 'cash' as const;
       if (m === 'card') return 'card' as const;
       if (m === 'mobile_money') return 'mobile_money' as const;
-      if (m === 'bank') return 'cash' as const;
-      if (m === 'store_credit') return 'credit' as const;
+      if (m === 'bank') return 'card' as const;
+      if (m === 'store_credit') return 'mixed' as const;
     }
     return 'mixed' as const;
   }
@@ -1272,8 +1165,8 @@ export class PosService {
     return (mod?.config as Record<string, unknown>) ?? { posMode: 'cafe' };
   }
 
-  /** Update POS module config (posMode, etc). */
-  async updatePosSettings(dto: { posMode?: string }): Promise<Record<string, unknown>> {
+  /** Update POS module config (posMode, sharedDrawer, etc). */
+  async updatePosSettings(dto: { posMode?: string; sharedDrawer?: boolean }): Promise<Record<string, unknown>> {
     const existing = await this.prisma.client.organizationModule.findUnique({
       where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: 'pos' } },
     });

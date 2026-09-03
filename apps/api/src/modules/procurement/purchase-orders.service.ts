@@ -554,7 +554,10 @@ export class PurchaseOrdersService {
             },
           });
           // GL: Dr AP / Cr Cash — relieve the payable the voucher just raised.
-          await this.stockPosting.postPurchasePayment({
+          const session = await this.cashSession.findOpen();
+          if (!session) throw new BadRequestException('Select an open cashier register for this cash purchase');
+          const paymentJournal = await this.stockPosting.postPurchasePayment({
+            cashSessionId: session.id,
             partnerId: po.partnerId,
             amount: settleAmount,
             method: 'cash',
@@ -566,10 +569,9 @@ export class PurchaseOrdersService {
           });
           // Drawer artifact (best-effort): record the pay-out on an open session
           // so the till's expected cash reflects the withdrawal. GL already done.
-          const session = await this.cashSession.findOpen();
           if (session) {
             await this.cashSession.recordExternalPayOut(
-              tx, session.id, settleAmount, `Cash purchase PO ${po.orderNumber}`,
+              tx, session.id, settleAmount, `Cash purchase PO ${po.orderNumber}`, paymentJournal.id,
             );
           }
         }
@@ -657,7 +659,10 @@ export class PurchaseOrdersService {
       // 3. GL: Dr AP / Cr Cash|Bank — relieve the payable the receipt vouchered.
       //    Bank is the default for a manual credit-PO settlement.
       const method = dto.method ?? 'bank';
-      await this.stockPosting.postPurchasePayment({
+      const session = method === 'cash' ? await this.cashSession.findOpen(dto.cashRegisterId) : null;
+      if (method === 'cash' && !session) throw new BadRequestException('Select an open register for this cash payment');
+      const paymentJournal = await this.stockPosting.postPurchasePayment({
+        cashSessionId: session?.id,
         partnerId: po.partnerId,
         amount,
         method,
@@ -670,10 +675,9 @@ export class PurchaseOrdersService {
       // Cash method: also record the drawer pay-out (best-effort, no GL — the
       // journal above owns the cash credit).
       if (method === 'cash') {
-        const session = await this.cashSession.findOpen(dto.cashRegisterId);
         if (session) {
           await this.cashSession.recordExternalPayOut(
-            tx, session.id, dec(amount), `Payment PO ${po.orderNumber}`,
+            tx, session.id, dec(amount), `Payment PO ${po.orderNumber}`, paymentJournal.id,
           );
         }
       }

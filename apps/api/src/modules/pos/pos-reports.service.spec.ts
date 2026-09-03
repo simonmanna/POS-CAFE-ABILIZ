@@ -2,7 +2,7 @@
 import { PosReportsService } from './pos-reports.service';
 
 function mockPrisma(): any {
-  return {
+  const prisma: any = {
     client: {
       cashSession: { findFirst: jest.fn() },
       cashMovement: { findMany: jest.fn().mockResolvedValue([]) },
@@ -16,6 +16,21 @@ function mockPrisma(): any {
       documentLine: { groupBy: jest.fn().mockResolvedValue([]) },
     },
   };
+  prisma.client.$transaction = (fn: any) => fn(prisma.client);
+  Object.assign(prisma.client, {
+    payment: { findMany: jest.fn().mockResolvedValue([{ id: 'pay-cash', paymentNumber: 'CASH', paymentMethod: 'cash', amount: 50, direction: 'inbound', allocations: [] }, { id: 'pay-card', paymentNumber: 'CARD', paymentMethod: 'card', amount: 59, direction: 'inbound', allocations: [] }]) },
+    order: { count: jest.fn().mockResolvedValue(0) },
+    stockPostingJob: { count: jest.fn().mockResolvedValue(0) },
+    cashRegister: { findFirst: jest.fn().mockResolvedValue({ name: 'Counter', defaultAccountId: 'cash' }) },
+    journalEntry: { findFirst: jest.fn().mockResolvedValue(null) },
+    journalLine: { aggregate: jest.fn().mockResolvedValue({ _sum: { debit: 170, credit: 0 } }) },
+    account: { findFirst: jest.fn().mockResolvedValue(null) },
+    tenderSettlement: { findMany: jest.fn().mockResolvedValue([]) },
+    posRefund: { findMany: jest.fn().mockResolvedValue([]) },
+    user: { findFirst: jest.fn().mockResolvedValue(null) },
+  });
+  prisma.client.product.findFirst = jest.fn().mockResolvedValue({ category: { id: 'c1', name: 'Drinks' } });
+  return prisma;
 }
 
 describe('PosReportsService (financial accuracy)', () => {
@@ -55,21 +70,21 @@ describe('PosReportsService (financial accuracy)', () => {
       const r = await svc.xReport('s1');
       const methods = r.byMethod.map((m) => m.method).sort();
       expect(methods).toEqual(['card', 'cash']); // card present → not cash-only
-      expect(r.totals.saleCount).toBe(2);
+      expect(r.totals.saleCount).toBe(3); // Refunds remain separate events; sales do not disappear
     });
 
     it('reports net revenue ex-tax, gross, tax and discounts', async () => {
       const r = await svc.xReport('s1');
-      expect(r.totals.netRevenue).toBe('150.00');  // 100 + 50
-      expect(r.totals.grossSales).toBe('177.00');  // 118 + 59
-      expect(r.totals.taxTotal).toBe('27.00');     // 18 + 9
+      expect(r.totals.netRevenue).toBe('158');  // original sales net of tax, refunds are a separate event
+      expect(r.totals.grossSales).toBe('187');  // all original invoices including the subsequently refunded sale
+      expect(r.totals.taxTotal).toBe('29');     // original tax before separately reported refunds
     });
 
     it('derives expected cash from the drawer, not from card sales', async () => {
       const r = await svc.xReport('s1');
       // opening 100 + cash collected 50 − cash refunds 0 + pay-ins 20 − pay-outs 0
-      expect(r.totals.cashCollected).toBe('50.00');
-      expect(r.totals.expectedCash).toBe('170.00');
+      expect(r.totals.cashCollected).toBe('50');
+      expect(r.totals.expectedCash).toBe('170');
     });
   });
 
@@ -79,6 +94,7 @@ describe('PosReportsService (financial accuracy)', () => {
         { id: 'i1', subtotal: '100', totalAmount: '118', discountTotal: '5', taxAmount: '18', status: 'paid', createdAt: new Date('2026-06-01T10:00:00Z') },
         { id: 'i2', subtotal: '8', totalAmount: '10', discountTotal: '0', taxAmount: '2', status: 'refunded', createdAt: new Date('2026-06-01T11:00:00Z') },
       ]);
+      prisma.client.posRefund.findMany.mockResolvedValue([{ amount: '10', createdAt: new Date('2026-06-01T11:00:00Z'), items: [{ subtotal: '8', taxAmount: '2' }] }]);
       prisma.client.paymentAllocation.findMany.mockResolvedValue([
         { amount: '118', invoiceId: 'i1', payment: { paymentMethod: 'cash', direction: 'inbound' } },
         { amount: '10', invoiceId: 'i2', payment: { paymentMethod: 'cash', direction: 'outbound' } }, // refund
@@ -88,11 +104,11 @@ describe('PosReportsService (financial accuracy)', () => {
     it('reports revenue NET of tax and nets out refunds', async () => {
       const r = await svc.salesSummary('2026-06-01', '2026-06-01', 'day');
       expect(r.totals.revenue).toBe('100.00');    // net, ex-tax, refund excluded
-      expect(r.totals.grossSales).toBe('118.00');
+      expect(r.totals.grossSales).toBe('128.00');
       expect(r.totals.refunds).toBe('10.00');
-      expect(r.totals.netSales).toBe('108.00');   // 118 − 10
+      expect(r.totals.netSales).toBe('118.00');   // 128 − 10; original sale remains counted
       expect(r.totals.taxes).toBe('18.00');
-      expect(r.totals.orders).toBe(1);
+      expect(r.totals.orders).toBe(2);
     });
 
     it('byMethod uses allocation amount and excludes refund (outbound) payments', async () => {

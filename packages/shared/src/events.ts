@@ -324,7 +324,7 @@ export interface DomainEventMap {
   'pos.hold.created': { organizationId: string; holdId: string; name: string; total: string; heldById: string };
   'pos.hold.recalled': { organizationId: string; holdId: string; recalledById: string };
   'pos.hold.deleted': { organizationId: string; holdId: string };
-  'pos.override.approved': { organizationId: string; approverId: string; overrideKind: 'discount' | 'void' | 'manual_refund'; referenceId?: string; amount?: string };
+  'pos.override.approved': { organizationId: string; approverId: string; overrideKind: 'discount' | 'price_change' | 'void' | 'manual_refund' | 'write_off' | 'shift_handover'; referenceId?: string; amount?: string };
   'pos.void.completed': { organizationId: string; invoiceId?: string; documentLineId?: string; voidedById: string; reason?: string };
   'pos.report.generated': { organizationId: string; reportKind: 'x' | 'z' | 'hourly' | 'top_items' | 'variance'; cashSessionId?: string; asOf: string };
   'pos.order.created': { organizationId: string; orderId: string; orderNumber: string; tableId?: string };

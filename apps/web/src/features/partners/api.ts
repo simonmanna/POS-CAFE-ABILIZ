@@ -17,6 +17,8 @@ export interface Partner {
   membershipLevel: string | null;
   gender: string | null;
   notes: string | null;
+  openingBalance: number | null;
+  paymentTermId: string | null;
   status: string;
   categoryId: string | null;
   category?: { id: string; name: string } | null;
@@ -40,8 +42,11 @@ export interface CreatePartnerInput {
   phone?: string;
   membershipLevel?: string;
   gender?: string;
+  isCompany?: boolean;
   isCustomer?: boolean;
   isSupplier?: boolean;
+  openingBalance?: number;
+  paymentTermId?: string;
   contacts?: Array<Record<string, unknown>>;
   addresses?: Array<Record<string, unknown>>;
 }
@@ -74,8 +79,13 @@ export interface CustomerStatementEntry {
 
 export interface CustomerStatement {
   partner: { id: string; name: string; code: string | null };
+  /** 0 = no limit configured. */
   creditLimit: number;
   outstanding: number;
+  /** Headroom left, or null when there is no limit. */
+  available: number | null;
+  /** Manual block on new credit sales (Partner.creditHold). */
+  creditHold: boolean;
   entries: CustomerStatementEntry[];
 }
 

@@ -68,6 +68,10 @@ export class CreatePartnerDto {
 
   @IsOptional()
   @IsString()
+  paymentTermId?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 
   @IsOptional()

@@ -25,6 +25,7 @@ export const CancelOrderDialog: React.FC<Props> = ({
   open, invoiceId, invoiceNumber, onClose, onDone,
 }) => {
   const [reason, setReason] = useState('');
+  const [stockDisposition, setStockDisposition] = useState<'restock' | 'waste' | 'no_return'>('no_return');
   const voidSale = useVoidSale();
   const [showOverride, setShowOverride] = useState(false);
   const overrideKind: 'discount' | 'void' | 'manual_refund' = 'void';
@@ -38,18 +39,17 @@ export const CancelOrderDialog: React.FC<Props> = ({
     else { idemKeyRef.current = crypto.randomUUID(); }
   }, [open]);
 
-  const doCancel = async (overrideById?: string) => {
+  const doCancel = async (overrideById: string, overridePin?: string) => {
     if (!invoiceId || !reason.trim() || voidSale.isPending) return;
     // Override retry carries a different body → needs its own key.
-    if (overrideById) idemKeyRef.current = crypto.randomUUID();
     try {
       await voidSale.mutateAsync({
         invoiceId,
         reason: reason.trim(),
-        overrideById: overrideById ?? '',
+        overrideById, overridePin, stockDisposition,
         _idemKey: idemKeyRef.current,
       });
-      toast.success(`Order ${invoiceNumber} cancelled`);
+      toast.success(`Refund recorded for ${invoiceNumber}`);
       onDone();
       onClose();
     } catch (e: any) {
@@ -59,6 +59,7 @@ export const CancelOrderDialog: React.FC<Props> = ({
         toast.info('This cancellation is already being processed.');
         return;
       }
+      if (e?.response?.data?.safeToRetry) idemKeyRef.current = crypto.randomUUID();
       const msg = e?.response?.data?.message || 'Failed to cancel order';
       if (/manager override/i.test(msg)) {
         setTimeout(() => setShowOverride(true), 100);
@@ -74,10 +75,10 @@ export const CancelOrderDialog: React.FC<Props> = ({
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-rose-600">
-              <Ban className="w-4 h-4" /> Cancel Order
+              <Ban className="w-4 h-4" /> Refund sale
             </DialogTitle>
             <DialogDescription>
-              Void order <strong>{invoiceNumber}</strong>. This requires a manager override.
+              Refund <strong>{invoiceNumber}</strong>. This requires a manager override.
             </DialogDescription>
           </DialogHeader>
 
@@ -85,6 +86,13 @@ export const CancelOrderDialog: React.FC<Props> = ({
             <div className="text-xs text-slate-500">
               A reason is required. This action is logged for audit.
             </div>
+            <label className="block text-sm">Returned goods
+              <select className="w-full border rounded p-2" value={stockDisposition} onChange={(e) => setStockDisposition(e.target.value as typeof stockDisposition)}>
+                <option value="no_return">No stock returned / record separately</option>
+                <option value="waste">Prepared, consumed or wasted</option>
+                <option value="restock">Restock saleable retail goods</option>
+              </select>
+            </label>
             <textarea
               autoFocus
               value={reason}
@@ -99,9 +107,9 @@ export const CancelOrderDialog: React.FC<Props> = ({
             <Button
               variant="destructive"
               disabled={!reason.trim() || voidSale.isPending}
-              onClick={() => doCancel()}
+              onClick={() => setShowOverride(true)}
             >
-              <Lock className="w-4 h-4 mr-1" /> Cancel Order
+              <Lock className="w-4 h-4 mr-1" /> Refund sale
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -113,7 +121,7 @@ export const CancelOrderDialog: React.FC<Props> = ({
         onClose={() => setShowOverride(false)}
         onVerified={(result) => {
           setShowOverride(false);
-          if (result) doCancel(result.managerId);
+          if (result) doCancel(result.managerId, result.pin);
         }}
       />
     </>

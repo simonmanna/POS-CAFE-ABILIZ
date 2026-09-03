@@ -1,10 +1,11 @@
+import { accountsForMethod, usePaymentAccounts } from '@/features/pos/payment-accounts';
 import { useAuthStore } from '@/stores/auth.store';
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Multi-tender payment dialog. Maps directly to POST /pos/checkout with `tenders`.
 // Quick-amount buttons, change calculation, manager override for high discounts.
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  Banknote, Smartphone, CreditCard, Building2, Wallet, Check, X, Plus, Gift,
+  Banknote, Smartphone, CreditCard, Building2, Wallet, Check, X, Plus, Gift, UserPlus, AlertTriangle,
 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -49,12 +50,20 @@ interface Props {
   creditEnabled?: boolean;
   /** Runs the credit (postpaid AR) sale through the Order→Invoice→Receipt pipeline. */
   onCreditSale?: () => Promise<void>;
+  /** Selected customer's display name, shown on the credit panel. */
+  customerName?: string;
+  /** Selected customer's credit standing (GET /pos/customers/:id/credit). */
+  creditInfo?: { creditLimit: number; outstanding: number; available: number | null; creditHold: boolean } | null;
+  /** Opens the customer picker — the credit tile is useless without a customer. */
+  onPickCustomer?: () => void;
 }
 
 export const PaymentDialog: React.FC<Props> = ({
   open, total, effectiveDiscountPercent = 0, storeCreditBalance = 0, onRequestOverride, onClose, onSettle,
-  creditEnabled = false, onCreditSale,
+  creditEnabled = false, onCreditSale, customerName, creditInfo, onPickCustomer,
 }) => {
+  const { data: paymentAccounts = [] } = usePaymentAccounts();
+  const [accountId, setAccountId] = useState('');
   const [tenders, setTenders] = useState<PaymentTender[]>([]);
   // Raw amount entered per tender, aligned index-wise with `tenders`. For cash this
   // may exceed the applied leg (over-tender → change); it is never sent as a tender.
@@ -80,18 +89,22 @@ export const PaymentDialog: React.FC<Props> = ({
   }, [open, total]);
 
   // Store-credit tile only appears when the selected customer carries a balance.
-  // Credit-settlement ("Credit") appears whenever a real customer is selected.
+  // Credit-settlement ("Credit") is ALWAYS offered: hiding it until a customer
+  // was picked made the whole feature look missing. With no customer the tile
+  // still shows and its panel explains what to do.
   const methods = useMemo(() => {
     const base = [...METHODS];
     if (storeCreditBalance > 0) {
       base.push({ key: 'store_credit', label: 'Store Credit', icon: <Gift className="h-4 w-4" />, color: '#0ea5e9' });
     }
-    if (creditEnabled && onCreditSale) {
+    if (onCreditSale) {
       base.push({ key: 'credit_settlement', label: 'Credit', icon: <Wallet className="h-4 w-4" />, color: '#0284c7' });
     }
     return base;
-  }, [storeCreditBalance, creditEnabled, onCreditSale]);
+  }, [storeCreditBalance, onCreditSale]);
 
+  const matchingAccounts = accountsForMethod(paymentAccounts, activeMethod);
+  const selectedAccount = matchingAccounts.some((a) => a.id === accountId) ? accountId : matchingAccounts.length === 1 ? matchingAccounts[0].id : '';
   const isCredit = activeMethod === 'credit_settlement';
 
   const paid = useMemo(() => tenders.reduce((s, t) => s + (t.amount || 0), 0), [tenders]);
@@ -112,10 +125,23 @@ export const PaymentDialog: React.FC<Props> = ({
   const tenderValid = Number.isFinite(tenderNum) && tenderNum > 0;
   const creditBlocked = activeMethod === 'store_credit' && availableCredit <= 0;
 
+  // Why an on-account sale can't go through right now (null = it can). The API
+  // enforces all of this too; this only saves the cashier a round-trip.
+  const balanceAfter = (creditInfo?.outstanding ?? 0) + total;
+  const creditBlockReason = useMemo(() => {
+    if (!creditEnabled) return 'Select a customer to charge this sale to.';
+    if (creditInfo?.creditHold) return 'This customer is on credit hold — new credit sales are blocked.';
+    if (creditInfo?.available != null && creditInfo.available + 0.01 < total) {
+      return `Over credit limit — only ${fmt(creditInfo.available)} of credit is available.`;
+    }
+    return null;
+  }, [creditEnabled, creditInfo, total]);
+
   const addTender = () => {
     // credit_settlement is not a tender — it's routed to onCreditSale instead.
     if (activeMethod === 'credit_settlement') return;
     if (!tenderValid || remaining <= 0 || creditBlocked) return;
+    if (['bank', 'card', 'mobile_money'].includes(activeMethod) && !selectedAccount) { setError('Choose the receiving bank or wallet account'); return; }
     let amount = Math.min(tenderNum, remaining);
     if (activeMethod === 'store_credit') amount = Math.min(amount, availableCredit);
     if (amount <= 0) return;
@@ -124,7 +150,7 @@ export const PaymentDialog: React.FC<Props> = ({
     // clamped to `remaining` so tenders still sum to the total (backend guard),
     // while the raw amount handed over is remembered to compute the change.
     const raw = method === 'cash' ? tenderNum : amount;
-    setTenders((prev) => [...prev, { method, amount, reference: reference.trim() || undefined }]);
+    setTenders((prev) => [...prev, { method, amount, accountId: selectedAccount || undefined, reference: reference.trim() || undefined }]);
     setTenderRaw((prev) => [...prev, raw]);
     setTendered(''); setReference('');
   };
@@ -189,7 +215,7 @@ export const PaymentDialog: React.FC<Props> = ({
         <div className="grid grid-cols-1 md:grid-cols-[1fr_320px]">
           <div className="p-4 space-y-3">
             {/* Method tabs */}
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
               {methods.map((m) => (
                 <button
                   key={m.key}
@@ -209,17 +235,76 @@ export const PaymentDialog: React.FC<Props> = ({
             </div>
 
             {isCredit ? (
-              <div className="rounded-lg border-2 border-sky-200 bg-sky-50 p-4 space-y-1.5">
-                <div className="flex items-center gap-2 text-sky-800 font-bold text-sm">
-                  <Wallet className="h-4 w-4" /> Settle on account (credit)
+              <div className="space-y-2">
+                <div className="rounded-lg border-2 border-sky-200 bg-sky-50 p-4 space-y-1.5">
+                  <div className="flex items-center gap-2 text-sky-800 font-bold text-sm">
+                    <Wallet className="h-4 w-4" /> Settle on account (credit)
+                  </div>
+                  <p className="text-xs text-sky-700">
+                    No money is collected now. {fmt(total)} is booked to the customer's
+                    account (AR) and stays unpaid until a payment is recorded against
+                    the invoice.
+                  </p>
                 </div>
-                <p className="text-xs text-sky-700">
-                  No money is collected now. {fmt(total)} is booked to the customer's
-                  account (AR) and settled later by a payment.
-                </p>
+
+                {!creditEnabled ? (
+                  <div className="rounded-lg border-2 border-amber-200 bg-amber-50 p-4 space-y-2.5">
+                    <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+                      <AlertTriangle className="h-4 w-4" /> No customer selected
+                    </div>
+                    <p className="text-xs text-amber-700">
+                      An on-account sale has to be billed to a named customer — somebody
+                      has to owe the money. Walk-in customers must pay now.
+                    </p>
+                    {onPickCustomer ? (
+                      <Button onClick={onPickCustomer} className="w-full bg-amber-600 hover:bg-amber-700">
+                        <UserPlus className="h-4 w-4 mr-1" /> Select customer
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-1.5 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Customer</span>
+                      <span className="font-bold">{customerName ?? '—'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Credit limit</span>
+                      <span className="font-mono">{creditInfo && creditInfo.creditLimit > 0 ? fmt(creditInfo.creditLimit) : 'No limit'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Already owing</span>
+                      <span className="font-mono">{fmt(creditInfo?.outstanding ?? 0)}</span>
+                    </div>
+                    {creditInfo?.available != null ? (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Available</span>
+                        <span className="font-mono font-bold text-emerald-600">{fmt(creditInfo.available)}</span>
+                      </div>
+                    ) : null}
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5">
+                      <span className="text-slate-500">Owing after this sale</span>
+                      <span className="font-mono font-bold">{fmt(balanceAfter)}</span>
+                    </div>
+                  </div>
+                )}
+
+                {creditEnabled && creditBlockReason ? (
+                  <div className="flex items-start gap-2 rounded-lg border-2 border-rose-200 bg-rose-50 p-3 text-xs font-semibold text-rose-700">
+                    <AlertTriangle className="h-4 w-4 shrink-0" /> {creditBlockReason}
+                  </div>
+                ) : null}
               </div>
             ) : (
             <>
+            {['bank', 'card', 'mobile_money'].includes(activeMethod) && <div>
+              <Label>Receiving account</Label>
+              <select aria-label="Receiving account" className="w-full border rounded p-2 text-sm" value={selectedAccount} onChange={(e) => setAccountId(e.target.value)}>
+                <option value="">Choose account</option>
+                {matchingAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.code}</option>)}
+              </select>
+              {!matchingAccounts.length && <p className="text-xs text-amber-700">Create this account in Accounting → Cash Accounts before taking this tender.</p>}
+            </div>}
             <div>
               <Label>{activeMethod === 'cash' ? 'Cash tendered' : 'Amount to charge'}</Label>
               <Input
@@ -275,7 +360,7 @@ export const PaymentDialog: React.FC<Props> = ({
               <div className="text-3xl font-extrabold text-slate-800 mt-1">{fmt(total)}</div>
             </div>
             <div className="space-y-1 text-sm">
-              <div className="flex justify-between"><span>Paid</span><span className="font-mono">{fmt(paid)}</span></div>
+              <div className="flex justify-between"><span>Tenders entered</span><span className="font-mono">{fmt(paid)}</span></div>
               <div className="flex justify-between font-bold text-emerald-600"><span>Remaining</span><span className="font-mono">{fmt(remaining)}</span></div>
               {change > 0 ? (
                 <div className="flex justify-between font-bold text-amber-600"><span>Change</span><span className="font-mono">{fmt(change)}</span></div>
@@ -288,7 +373,7 @@ export const PaymentDialog: React.FC<Props> = ({
                 <div key={i} className="flex items-center justify-between bg-white rounded border border-slate-200 px-2 py-1.5 text-xs">
                   <div className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full" style={{ background: methods.find((m) => m.key === t.method)?.color }} />
-                    <span className="font-bold">{t.method.replace('_', ' ')}</span>
+                    <span className="font-bold">{paymentAccounts.find((a) => a.id === t.accountId)?.name ?? t.method.replace('_', ' ')}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono font-bold">{fmt(t.amount)}</span>
@@ -307,7 +392,7 @@ export const PaymentDialog: React.FC<Props> = ({
 
             <Button
               onClick={isCredit ? settleOnAccount : settle}
-              disabled={busy || (isCredit ? !creditEnabled : !canSettle)}
+              disabled={busy || (isCredit ? creditBlockReason != null : !canSettle)}
               className="w-full mt-3 h-12 text-base"
               style={{ background: isCredit ? '#0284c7' : '#16a34a' }}
             >

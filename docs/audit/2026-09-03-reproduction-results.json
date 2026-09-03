@@ -1,0 +1,58 @@
+{
+  "scope": "Current service code with in-memory doubles; no live transactions",
+  "findings": [
+    {
+      "name": "Combo component quantity discarded",
+      "observation": {
+        "expected": [
+          6,
+          3
+        ],
+        "actual": [
+          3,
+          3
+        ]
+      }
+    },
+    {
+      "name": "Different kitchen customizations have identical lifecycle keys",
+      "observation": {
+        "oat": "m:latte|large",
+        "dairy": "m:latte|large"
+      }
+    },
+    {
+      "name": "Bank-only tender classified as cash",
+      "observation": "cash"
+    },
+    {
+      "name": "Concurrent kitchen sends both dispatch the same pending quantity",
+      "observation": {
+        "requests": 2,
+        "tickets": 2
+      }
+    },
+    {
+      "name": "Duplicate refund line accepted twice but cumulative quantity remains one",
+      "observation": {
+        "refundAmount": "20",
+        "quantityWrites": [
+          "1",
+          "1"
+        ]
+      }
+    },
+    {
+      "name": "Idempotency completion-write failure allows committed handler to run twice",
+      "observation": {
+        "committedBusinessOperations": 2
+      }
+    },
+    {
+      "name": "Already-paid payment rejection triggers an automatic refund",
+      "observation": {
+        "automaticRefunds": 1
+      }
+    }
+  ]
+}

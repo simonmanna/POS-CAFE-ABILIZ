@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { resolveTenderAccount } from '../../accounting/treasury/tender-account';
 import type { PaginationQuery, PaymentDirection, PaymentStatus } from '@erp/shared';
 import { dec, round, ZERO } from '../../../kernel/common/money';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
@@ -139,7 +140,9 @@ export class PaymentService {
       if (!partner) throw new BadRequestException('Partner not found');
 
       const amount = round(dec(dto.amount), 6);
-      const method = dto.paymentMethod ?? 'cash';
+      if (!amount.isFinite() || !amount.greaterThan(0)) throw new BadRequestException('Payment amount must be positive');
+      const method: string = dto.paymentMethod ?? 'cash';
+      for (const a of dto.allocations ?? []) if (!!a.invoiceId === !!a.documentId) throw new BadRequestException('Each allocation must identify exactly one invoice or document');
       const counterType = opts.counterAccount ?? (direction === 'inbound' ? 'receivable' : 'payable');
 
       // Supplier-overpayment guard: only when settling a payable (a vendor bill).
@@ -158,13 +161,42 @@ export class PaymentService {
           );
         }
       }
-      const cashAccount =
-        dto.accountId ?? (await this.determination.mapped(method === 'bank' ? 'default_bank' : 'default_cash', tx));
-      const counterAccount =
+      const resolved = await resolveTenderAccount(tx, this.determination, organizationId, {
+        method, accountId: dto.accountId, cashSessionId: dto.cashSessionId,
+      });
+      const cashAccount = resolved.accountId;
+      if (resolved.session && resolved.session.userId !== userId && !opts.allowSessionOwnerMismatch) {
+        throw new BadRequestException('Cash session belongs to a different cashier');
+      }
+      if (method === 'cash' && direction === 'outbound' && resolved.session && amount.gt(await (this.cashSessions as any).computeExpected(tx, resolved.session))) throw new BadRequestException('The drawer does not contain enough cash for this payment');
+      let counterAccount =
         counterType === 'receivable'
           ? await this.determination.receivableAccount(partner, tx)
           : await this.determination.payableAccount(partner, tx);
-      const journalCode = method === 'bank' ? 'BANK' : (method as string) === 'store_credit' ? 'GEN' : 'CASH';
+      // The posted invoice owns the AR account even if mappings later change.
+      const invoiceIds = [...new Set((dto.allocations ?? []).map((a: any) => a.invoiceId).filter(Boolean))].sort();
+      const invoiceAccounts = new Set<string>();
+      for (const id of invoiceIds) {
+        await tx.$queryRawUnsafe('SELECT id FROM "Invoice" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', id, organizationId);
+        const invoice = await tx.invoice.findFirst({ where: { id, organizationId } });
+        if (!invoice || !invoice.receivableAccountId) throw new BadRequestException('Reconcile the original invoice receivable account before collecting this payment');
+        invoiceAccounts.add(invoice.receivableAccountId);
+      }
+      if (invoiceAccounts.size > 1 || (invoiceAccounts.size && (dto.allocations ?? []).some((a: any) => a.documentId))) throw new BadRequestException('Collect invoices with different receivable accounts separately');
+      if (invoiceAccounts.size) counterAccount = [...invoiceAccounts][0];
+      if ((dto as any).refundOfId) {
+        if (direction !== 'outbound' || counterType !== 'receivable') throw new BadRequestException('Invalid customer refund direction');
+        await tx.$queryRawUnsafe('SELECT id FROM "Payment" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', (dto as any).refundOfId, organizationId);
+        const original = await tx.payment.findFirst({ where: { id: (dto as any).refundOfId, organizationId } });
+        if (!original || original.direction !== 'inbound' || original.status === 'cancelled' || original.partnerId !== dto.partnerId || original.paymentMethod !== method || amount.gt(dec(original.amount).minus(original.refundedAmount))) throw new BadRequestException('Refund does not match the original payment');
+        if (method !== 'cash' && original.accountId !== cashAccount) throw new BadRequestException('Return electronic funds to the original account');
+        const originalJournal = await tx.journalEntry.findFirst({ where: { id: original.journalEntryId, organizationId }, include: { lines: true } });
+        if (originalJournal?.status !== 'posted') throw new BadRequestException('Reconcile the reversed or missing original payment journal before refunding');
+        const originalAR = originalJournal?.lines.filter((l: any) => l.partnerId === dto.partnerId && dec(l.credit).gt(0));
+        if (!originalAR?.length || new Set(originalAR.map((l: any) => l.accountId)).size !== 1) throw new BadRequestException('Original payment receivable posting is ambiguous');
+        counterAccount = originalAR[0].accountId;
+      }
+      const journalCode = resolved.journalCode;
 
       const year = new Date(dto.paymentDate).getUTCFullYear();
       const seq =
@@ -182,6 +214,8 @@ export class PaymentService {
           paymentDate: new Date(dto.paymentDate),
           paymentMethod: method,
           accountId: cashAccount,
+          cashSessionId: dto.cashSessionId ?? null,
+          refundOfId: (dto as any).refundOfId ?? null,
           amount,
           allocatedAmount: ZERO,
           unallocatedAmount: amount,
@@ -191,8 +225,23 @@ export class PaymentService {
         },
       });
 
+      // Prepaid credit is consumed/restored in the SAME transaction as the payment.
+      if (method === 'store_credit') {
+        if (direction === 'outbound' && !(dto as any).refundOfId) throw new BadRequestException('Store credit returns must reference the original payment');
+        await tx.$queryRawUnsafe('SELECT id FROM "StoreCredit" WHERE "partnerId" = $1 AND "organizationId" = $2 FOR UPDATE', dto.partnerId, organizationId);
+        const credit = await tx.storeCredit.findFirst({ where: { partnerId: dto.partnerId, organizationId } });
+        if (!credit || (direction === 'inbound' && (!credit.isActive || (credit.expiresAt && credit.expiresAt <= new Date())))) {
+          throw new BadRequestException('Customer store credit is unavailable or expired');
+        }
+        const delta = direction === 'inbound' ? amount.negated() : amount;
+        const balanceAfter = dec(credit.balance).plus(delta);
+        if (balanceAfter.isNegative()) throw new BadRequestException('Insufficient customer store credit');
+        await tx.storeCredit.update({ where: { id: credit.id }, data: { balance: balanceAfter } });
+        await tx.storeCreditLedger.create({ data: { organizationId, storeCreditId: credit.id, delta, balanceAfter, reason: direction === 'inbound' ? 'sale' : 'refund', documentId: payment.id, createdBy: userId } });
+      }
+
       let journalEntryId: string | null = null;
-      if (!dto.skipGlPosting) {
+      {
         const lines =
           direction === 'inbound'
             ? [
@@ -227,8 +276,11 @@ export class PaymentService {
 
         // R2: allocation may target a POS Invoice (separate from Document).
         if (alloc.invoiceId) {
+          await tx.$queryRawUnsafe('SELECT id FROM "Invoice" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', alloc.invoiceId, organizationId);
           const inv = await tx.invoice.findFirst({ where: { id: alloc.invoiceId } });
           if (!inv) throw new BadRequestException(`Invoice ${alloc.invoiceId} not found`);
+          if (direction !== 'inbound' || inv.partnerId !== dto.partnerId || ['refunded', 'cancelled'].includes(inv.status)) throw new BadRequestException('Invalid invoice allocation');
+          if (allocAmount.greaterThan(dec(inv.amountResidual))) throw new BadRequestException('Allocation exceeds invoice balance');
           await tx.paymentAllocation.create({
             data: { organizationId, paymentId: payment.id, invoiceId: inv.id, amount: allocAmount },
           });
@@ -301,7 +353,7 @@ export class PaymentService {
       // Cash-session link: when method=cash and a session is provided, write
       // a CashMovement row inside the same transaction so the session's
       // Z-report reconciles with the ledger. Store credit is not cash.
-      if (method === 'cash' && dto.cashSessionId && !dto.accountId) {
+      if (method === 'cash' && dto.cashSessionId) {
         const session = await tx.cashSession.findFirst({
           where: { id: dto.cashSessionId, organizationId },
         });
@@ -352,6 +404,7 @@ export class PaymentService {
     });
     if (!payment) throw new NotFoundException('Payment not found');
     if (payment.status === 'cancelled') return payment;
+    if (payment.refundOfId || payment.paymentMethod === 'store_credit' || payment.allocations.some((a: any) => a.invoiceId)) throw new BadRequestException('Use the linked POS invoice refund so tender, receivable and stock disposition remain consistent');
 
     await this.workflow.transition({
       entityType: 'payment',

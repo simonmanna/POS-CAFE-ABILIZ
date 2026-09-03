@@ -1,3 +1,4 @@
+import { reconcileSession } from '../accounting/treasury/session-reconciliation';
 /**
  * POS — X / Z reports and sales analytics (financial-grade).
  *
@@ -73,179 +74,17 @@ export class PosReportsService {
     const session = await this.resolveSession(organizationId, cashSessionId);
     if (!session) throw new NotFoundException('No cash session found');
 
-    // ── Cash drawer: derive collected / refunded / pay-in / pay-out straight
-    //    from CashMovement (cash only — this is what hits the till). ──────────
-    const movements = await this.prisma.client.cashMovement.findMany({
-      where: { cashSessionId: session.id },
-    });
-    let cashCollected = dec(0);
-    let cashRefunds = dec(0);
-    let payInsTotal = dec(0);
-    let payOutsTotal = dec(0);
-    for (const m of movements as any[]) {
-      const amt = dec(m.amount);
-      if (m.movementType === 'sale') cashCollected = cashCollected.plus(amt);
-      else if (m.movementType === 'refund') cashRefunds = cashRefunds.plus(amt);
-      else if (m.movementType === 'pay_in') payInsTotal = payInsTotal.plus(amt);
-      else if (m.movementType === 'pay_out') payOutsTotal = payOutsTotal.plus(amt);
-    }
-
-    // ── Sales: ALL tenders for this session, from the POS Invoice pipeline. ──
-    const invoices = await this.prisma.client.invoice.findMany({
-      where: { organizationId, cashSessionId: session.id },
-      include: { items: true },
-    });
-
-    const overrides = await this.prisma.client.auditLog.findMany({
-      where: {
-        organizationId,
-        entity: 'PosOverride' as any,
-        createdAt: { gte: session.openedAt ?? new Date(0) },
-      },
-    });
-
-    let saleCount = 0;
-    let grossSales = dec(0);
-    let netRevenue = dec(0);
-    let taxTotal = dec(0);
-    let discountTotal = dec(0);
-    const byMethodMap = new Map<string, { method: string; count: number; total: Money }>();
-    const saleItems: any[] = [];
-    const productIds = new Set<string>();
-
-    for (const inv of invoices as any[]) {
-      if (inv.status !== 'posted' && inv.status !== 'paid') continue; // skip draft/cancelled/refunded
-      saleCount += 1;
-      grossSales = grossSales.plus(dec(inv.totalAmount));
-      netRevenue = netRevenue.plus(dec(inv.subtotal));
-      taxTotal = taxTotal.plus(dec(inv.taxAmount));
-      discountTotal = discountTotal.plus(dec(inv.discountTotal));
-
-      const method = inv.paymentMode ?? 'unpaid';
-      const b = byMethodMap.get(method) ?? { method, count: 0, total: dec(0) };
-      b.count += 1;
-      b.total = b.total.plus(dec(inv.totalAmount));
-      byMethodMap.set(method, b);
-
-      for (const it of inv.items ?? []) {
-        saleItems.push(it);
-        if (it.productId) productIds.add(it.productId);
-      }
-    }
-
-    // Category breakdown from the sale lines.
-    const products = productIds.size
-      ? await this.prisma.client.product.findMany({
-          where: { id: { in: Array.from(productIds) } },
-          include: { category: true },
-        })
-      : [];
-    const productMap = new Map(products.map((p: any) => [p.id, p]));
-    const byCategoryMap = new Map<string, { categoryId: string | null; categoryName: string; count: number; total: Money }>();
-    for (const it of saleItems) {
-      const product = it.productId ? productMap.get(it.productId) : null;
-      const cat = (product as any)?.category;
-      const key = cat?.id ?? 'uncategorised';
-      const bucket = byCategoryMap.get(key) ?? {
-        categoryId: cat?.id ?? null,
-        categoryName: cat?.name ?? 'Uncategorised',
-        count: 0,
-        total: dec(0),
-      };
-      bucket.count += Number(it.quantity);
-      bucket.total = bucket.total.plus(dec(it.total ?? 0));
-      byCategoryMap.set(key, bucket);
-    }
-
-    const overridesTotal = overrides.reduce((s, o) => {
-      const v = (o as any).newValues;
-      return s.plus(v && v.amount ? dec(v.amount) : dec(0));
-    }, dec(0));
-
-    const expectedCash = dec(session.openingFloat)
-      .plus(cashCollected)
-      .minus(cashRefunds)
-      .plus(payInsTotal)
-      .minus(payOutsTotal);
-
-    this.events.publish(EVENTS.PosReportGenerated, {
-      organizationId,
-      reportKind: 'x',
-      cashSessionId: session.id,
-      asOf: new Date().toISOString(),
-    });
-
-    return {
-      asOf: new Date().toISOString(),
-      cashSession: {
-        id: session.id,
-        cashRegisterId: session.cashRegisterId,
-        userId: session.userId,
-        openedAt: session.openedAt,
-        openingFloat: dec(session.openingFloat).toString(),
-      },
-      totals: {
-        saleCount,
-        salesTotal: grossSales.toFixed(2),
-        grossSales: grossSales.toFixed(2),
-        netRevenue: netRevenue.toFixed(2),
-        taxTotal: taxTotal.toFixed(2),
-        discountTotal: discountTotal.toFixed(2),
-        cashCollected: cashCollected.toFixed(2),
-        overridesTotal: overridesTotal.toFixed(2),
-        payInsTotal: payInsTotal.toFixed(2),
-        payOutsTotal: payOutsTotal.toFixed(2),
-        expectedCash: expectedCash.toFixed(2),
-      },
-      byMethod: Array.from(byMethodMap.values()).map((b) => ({
-        method: b.method,
-        count: b.count,
-        total: b.total.toFixed(2),
-      })),
-      byCategory: Array.from(byCategoryMap.values()).map((b) => ({
-        categoryId: b.categoryId,
-        categoryName: b.categoryName,
-        count: b.count,
-        total: b.total.toFixed(2),
-      })),
-    };
+    const evidence = await this.prisma.client.$transaction((tx: any) => reconcileSession(tx, organizationId, session));
+    return { ...evidence.report, accounts: evidence.accounts, settlements: evidence.settlements, issues: evidence.issues } as XReport;
   }
 
   /** Z-report: same shape as X but the cash session must be closed. */
   async zReport(cashSessionId?: string): Promise<XReport> {
-    const report = await this.xReport(cashSessionId);
-    if (report.cashSession && (await this.sessionStatus(report.cashSession.id)) !== 'closed') {
-      throw new BadRequestException('Z-report requires the cash session to be closed');
-    }
-    if (report.cashSession?.id) {
-      const organizationId = this.tenant.organizationId;
-      await this.prisma.client.posReportSnapshot.upsert({
-        where: { cashSessionId: report.cashSession.id },
-        create: {
-          organizationId,
-          cashSessionId: report.cashSession.id,
-          kind: 'z',
-          reportData: report as any,
-        },
-        update: {
-          reportData: report as any,
-          generatedAt: new Date(),
-        },
-      });
-    }
-    await this.audit.record({
-      entity: 'PosReport' as any,
-      entityId: report.cashSession?.id ?? 'no-session',
-      action: 'create' as any,
-      newValues: { kind: 'z', totals: report.totals, asOf: report.asOf },
-    });
-    this.events.publish(EVENTS.PosReportGenerated, {
-      organizationId: this.tenant.organizationId,
-      reportKind: 'z',
-      cashSessionId: report.cashSession?.id,
-      asOf: report.asOf,
-    });
-    return report;
+    const session = await this.resolveSession(this.tenant.organizationId, cashSessionId);
+    if (!session || session.status === 'open') throw new BadRequestException('Close the register before requesting its Z-report');
+    const snapshot = await this.prisma.client.posReportSnapshot.findUnique({ where: { cashSessionId: session.id } });
+    if (!snapshot) throw new NotFoundException('No frozen close report exists for this legacy shift');
+    return snapshot.reportData as unknown as XReport;
   }
 
   /** Hourly buckets across a date range (POS sales only, gross). */
@@ -319,7 +158,8 @@ export class PosReportsService {
       orderBy: { createdAt: 'asc' },
     });
 
-    const rows = invoices.map((i: any) => ({ ...i, refunded: i.status === 'refunded' }));
+    const rows = invoices;
+    const refunds = await this.prisma.client.posRefund.findMany({ where: { organizationId, createdAt: { gte: start, lte: end } } });
 
     const periodKey = (d: Date): string => {
       if (groupBy === 'day') return d.toISOString().slice(0, 10);
@@ -340,21 +180,30 @@ export class PosReportsService {
     for (const r of rows as any[]) {
       const key = periodKey(new Date(r.createdAt));
       const cur = grouped.get(key) ?? fresh();
-      if (r.refunded) {
-        cur.refunds = cur.refunds.plus(dec(r.totalAmount));
-        overall.refunds = overall.refunds.plus(dec(r.totalAmount));
-      } else {
-        cur.gross = cur.gross.plus(dec(r.totalAmount));
-        cur.net = cur.net.plus(dec(r.subtotal));
-        cur.tax = cur.tax.plus(dec(r.taxAmount));
-        cur.discount = cur.discount.plus(dec(r.discountTotal));
-        cur.orders += 1;
-        overall.gross = overall.gross.plus(dec(r.totalAmount));
-        overall.net = overall.net.plus(dec(r.subtotal));
-        overall.tax = overall.tax.plus(dec(r.taxAmount));
-        overall.discount = overall.discount.plus(dec(r.discountTotal));
-        overall.orders += 1;
-      }
+      cur.gross = cur.gross.plus(dec(r.totalAmount));
+      cur.net = cur.net.plus(dec(r.subtotal));
+      cur.tax = cur.tax.plus(dec(r.taxAmount));
+      cur.discount = cur.discount.plus(dec(r.discountTotal));
+      cur.orders += 1;
+      overall.gross = overall.gross.plus(dec(r.totalAmount));
+      overall.net = overall.net.plus(dec(r.subtotal));
+      overall.tax = overall.tax.plus(dec(r.taxAmount));
+      overall.discount = overall.discount.plus(dec(r.discountTotal));
+      overall.orders += 1;
+      grouped.set(key, cur);
+    }
+
+    // Refunds belong to their own event date, including partial returns and
+    // returns against sales from an earlier reporting period.
+    for (const refund of refunds) {
+      const key = periodKey(new Date(refund.createdAt));
+      const cur = grouped.get(key) ?? fresh();
+      const items = Array.isArray(refund.items) ? refund.items as any[] : [];
+      const net = items.reduce((n, item) => n.plus(item.subtotal ?? 0), dec(0));
+      const tax = items.reduce((n, item) => n.plus(item.taxAmount ?? 0), dec(0));
+      cur.refunds = cur.refunds.plus(refund.amount); overall.refunds = overall.refunds.plus(refund.amount);
+      cur.net = cur.net.minus(net); overall.net = overall.net.minus(net);
+      cur.tax = cur.tax.minus(tax); overall.tax = overall.tax.minus(tax);
       grouped.set(key, cur);
     }
 

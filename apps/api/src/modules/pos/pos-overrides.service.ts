@@ -28,6 +28,25 @@ import { PasswordService } from '../../kernel/auth/password.service';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { EVENTS } from '@erp/shared';
+import { createHash, randomBytes } from 'node:crypto';
+import { approvalPayloadHash, businessOperation } from '../../kernel/idempotency/business-outcome';
+
+/**
+ * F04 — an approval is bound to WHAT it authorises, not just to "a manager".
+ * Each kind names the right the approver must additionally hold, so a shift
+ * supervisor who may approve a discount cannot thereby approve a refund or a
+ * write-off. `pos:override` remains the base right to approve anything at all.
+ */
+export type OverrideKind = 'discount' | 'price_change' | 'void' | 'manual_refund' | 'write_off' | 'shift_handover';
+
+const APPROVER_PERMISSION: Record<OverrideKind, string> = {
+  discount: 'pos:discount',
+  price_change: 'pos:price_override',
+  void: 'pos:void',
+  manual_refund: 'pos:refund',
+  write_off: 'pos:write_off',
+  shift_handover: 'pos:override',
+};
 
 export interface VerifyOverrideDto {
   /** Manager's login email. Used to look up the manager in the cashier's org. */
@@ -37,11 +56,41 @@ export interface VerifyOverrideDto {
   /** Manager password (fallback if PIN is not set). */
   password?: string;
   /** What the override is being requested for. Recorded in audit + event. */
-  overrideKind: 'discount' | 'void' | 'manual_refund';
+  overrideKind: OverrideKind;
 }
 
 @Injectable()
 export class PosOverridesService {
+  async authorizeOperation(input: { managerId: string; pin: string; operationKey: string; endpoint: string; payload: any; overrideKind?: OverrideKind }) {
+    if (!/^\/pos\//.test(input.endpoint) || !input.operationKey) throw new BadRequestException('A POS operation and key are required');
+    const overrideKind = input.overrideKind ?? 'discount';
+    if (!APPROVER_PERMISSION[overrideKind]) throw new BadRequestException('Unknown override kind');
+    await this.verifyPinForOverride(input.managerId, input.pin, overrideKind);
+    const token = randomBytes(32).toString('hex');
+    await (this.prisma.client as any).posApprovalGrant.create({ data: {
+      organizationId: this.tenant.organizationId, cashierId: this.tenant.userId,
+      managerId: input.managerId, operationKey: input.operationKey, endpoint: input.endpoint,
+      overrideKind,
+      payloadHash: approvalPayloadHash(input.payload), tokenHash: createHash('sha256').update(token).digest('hex'),
+      expiresAt: new Date(Date.now() + 10 * 60_000),
+    } });
+    return { approvalToken: token };
+  }
+
+  /**
+   * Consume an approval for `overrideKind`. A grant redeemed earlier in this
+   * request is only accepted when it was issued for THIS kind — a discount
+   * approval can never be replayed as a refund or a write-off approval.
+   */
+  async verifyOperationApproval(managerId: string, pin: string | undefined, overrideKind: OverrideKind) {
+    const op = businessOperation.getStore();
+    if (op?.approvedById === managerId) {
+      if (op.approvedKind !== overrideKind) throw new BadRequestException(`This manager approval authorises ${op.approvedKind ?? 'another action'}, not ${overrideKind}`);
+      return this.assertCanOverride(managerId, overrideKind);
+    }
+    if (!pin) throw new BadRequestException('A current, transaction-bound manager approval is required');
+    return this.verifyPinForOverride(managerId, pin, overrideKind);
+  }
   constructor(
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
@@ -121,10 +170,9 @@ export class PosOverridesService {
    * whenever a privileged field (high discount, manual refund) was supplied.
    * Returns the manager; throws if not found / not allowed.
    */
-  async assertCanOverride(
-    overrideById: string,
-    overrideKind: 'discount' | 'void' | 'manual_refund' | 'shift_handover',
-  ) {
+  async assertCanOverride(overrideById: string, overrideKind: OverrideKind) {
+    const required = APPROVER_PERMISSION[overrideKind];
+    if (!required) throw new BadRequestException('Unknown override kind');
     const organizationId = this.tenant.organizationId;
     const manager = await this.prisma.raw.user.findFirst({
       where: { id: overrideById, organizationId, isActive: true },
@@ -135,6 +183,11 @@ export class PosOverridesService {
     if (!perms.has('pos:override')) {
       throw new UnauthorizedException('Approver does not hold pos:override permission');
     }
+    // The approver must also hold the right for the specific action. Without
+    // this a single blanket pos:override let one manager approve everything.
+    if (!perms.has(required)) {
+      throw new UnauthorizedException(`Approver does not hold ${required} and cannot authorise ${overrideKind}`);
+    }
     return manager;
   }
 
@@ -143,8 +196,12 @@ export class PosOverridesService {
    * PIN during the OverrideDialog flow; we re-check it here so a cashier cannot
    * bypass PIN entry by passing a known manager's userId directly.
    */
-  async verifyPinForOverride(overrideById: string, pin: string) {
-    const manager = await this.assertCanOverride(overrideById, 'discount');
+  async verifyPinForOverride(overrideById: string, pin: string, overrideKind: OverrideKind = 'discount') {
+    const manager = await this.assertCanOverride(overrideById, overrideKind);
+    if (pin.startsWith('password:')) {
+      if (!await this.password.compare(pin.slice(9), manager.passwordHash)) throw new UnauthorizedException('Invalid manager credentials');
+      return manager;
+    }
     if (!manager.pinHash) {
       throw new BadRequestException('Manager has not set an override PIN');
     }

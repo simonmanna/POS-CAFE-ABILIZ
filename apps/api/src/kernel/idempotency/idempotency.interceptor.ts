@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   Injectable,
   NestInterceptor,
+  HttpException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Observable, from, switchMap } from 'rxjs';
@@ -31,7 +32,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     if (!isIdempotent) return next.handle();
 
     const req = context.switchToHttp().getRequest<Request & { rawBody?: Buffer }>();
-    const rawBody = req.rawBody ? req.rawBody.toString('utf8') : '';
+    const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body ?? {});
 
     return from(
       this.service.execute({
@@ -50,6 +51,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
           return result;
         },
       }),
-    ).pipe(switchMap((out) => from(Promise.resolve(out.body))));
+    ).pipe(switchMap((out) => {
+      if (out.statusCode >= 400) throw new HttpException(out.body, out.statusCode);
+      context.switchToHttp().getResponse().status(out.statusCode);
+      return from(Promise.resolve(out.body));
+    }));
   }
 }

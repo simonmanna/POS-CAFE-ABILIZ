@@ -58,11 +58,12 @@ export class PosVariantService {
 
   async createVariant(
     menuItemId: string,
-    dto: { name: string; price: number; sortOrder?: number },
+    dto: { name: string; price: number; sortOrder?: number; qtyMultiplier?: number | null },
   ): Promise<VariantWithDetails> {
     const orgId = this.tenant.organizationId;
     if (!dto.name?.trim()) throw new BadRequestException('Variant name is required');
     if (dto.price == null || dto.price < 0) throw new BadRequestException('Variant price must be >= 0');
+    if (dto.qtyMultiplier != null && !(dto.qtyMultiplier > 0)) throw new BadRequestException('Recipe multiplier must be positive');
 
     const menuItem = await this.prisma.client.menuItem.findFirst({
       where: { id: menuItemId, organizationId: orgId } as any,
@@ -82,6 +83,8 @@ export class PosVariantService {
           name: dto.name.trim(),
           price: dto.price,
           sortOrder: dto.sortOrder ?? 0,
+          // F14 — recipe consumption multiplier (independent of price).
+          qtyMultiplier: dto.qtyMultiplier ?? null,
         },
       });
       await this.audit.recordInTx(tx, {
@@ -105,7 +108,7 @@ export class PosVariantService {
 
   async updateVariant(
     id: string,
-    dto: { name?: string; price?: number; sortOrder?: number; isActive?: boolean; expectedUpdatedAt?: string; ipAddress?: string; userAgent?: string },
+    dto: { name?: string; price?: number; sortOrder?: number; isActive?: boolean; qtyMultiplier?: number | null; expectedUpdatedAt?: string; ipAddress?: string; userAgent?: string },
   ): Promise<VariantWithDetails> {
     const orgId = this.tenant.organizationId;
     const existing = await this.prisma.client.menuItemVariant.findFirst({
@@ -118,6 +121,9 @@ export class PosVariantService {
     }
     if (dto.price !== undefined && dto.price < 0) {
       throw new BadRequestException('Variant price must be >= 0');
+    }
+    if (dto.qtyMultiplier != null && !(dto.qtyMultiplier > 0)) {
+      throw new BadRequestException('Recipe multiplier must be positive');
     }
 
     // Optimistic concurrency check
@@ -140,6 +146,7 @@ export class PosVariantService {
           ...(dto.price !== undefined ? { price: dto.price } : {}),
           ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+          ...(dto.qtyMultiplier !== undefined ? { qtyMultiplier: dto.qtyMultiplier } : {}),
         },
       });
       await this.audit.recordInTx(tx, {

@@ -33,6 +33,10 @@ class CreateModifierDto {
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(99999999) priceDelta?: number;
   @ApiProperty({ required: false }) @IsOptional() isDefault?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(9999) sortOrder?: number;
+  // F14 — stock link + per-selection consumption.
+  @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() inventoryItemId?: string | null;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(99999999) consumptionQty?: number;
+  @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() consumptionUomId?: string | null;
 }
 
 class CreateComboItemDto {
@@ -91,6 +95,10 @@ class UpdateModifierDto {
   @ApiProperty({ required: false }) @IsOptional() isDefault?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(9999) sortOrder?: number;
   @ApiProperty({ required: false }) @IsOptional() isActive?: boolean;
+  // F14 — stock link + per-selection consumption.
+  @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() inventoryItemId?: string | null;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(99999999) consumptionQty?: number;
+  @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() consumptionUomId?: string | null;
   @ApiProperty({ required: false }) @IsOptional() @IsString() expectedUpdatedAt?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() ipAddress?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() userAgent?: string;

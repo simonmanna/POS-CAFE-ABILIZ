@@ -3,6 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+    # Run the full DB-backed suite on release tags too, so a tag is tested, not
+    # just built. The release workflow additionally gates its build on a static
+    # verify job.
+    tags: ['v*']
   pull_request:
     branches: [main]
 

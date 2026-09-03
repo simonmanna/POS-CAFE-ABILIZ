@@ -46,6 +46,7 @@ export class PeriodCloseService {
   async close(periodId: string): Promise<{ journalEntryId: string; netIncome: string }> {
     const organizationId = this.tenant.organizationId;
     return this.prisma.client.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "FiscalPeriod" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', periodId, organizationId);
       const period = await tx.fiscalPeriod.findFirst({ where: { id: periodId, organizationId } });
       if (!period) throw new NotFoundException('Fiscal period not found');
       if (period.status !== 'open') {
@@ -54,6 +55,8 @@ export class PeriodCloseService {
         );
       }
 
+      const unresolvedShifts = await tx.cashSession.count({ where: { organizationId, openedAt: { lte: period.endDate }, status: { not: 'reconciled' } } });
+      if (unresolvedShifts) throw new BadRequestException('Reconcile all register shifts through the period end before locking the accounting period');
       // Revenue posts synchronously at billing, but COGS is deferred to the async
       // stock-posting worker. Closing a period whose stock-posting jobs are still
       // pending/processing/failed would book revenue without the matching COGS and
@@ -81,7 +84,7 @@ export class PeriodCloseService {
         by: ['accountId'],
         where: {
           entry: {
-            status: 'posted',
+            status: { in: ['posted', 'reversed'] },
             postingDate: { gte: period.startDate, lte: period.endDate },
           },
         },

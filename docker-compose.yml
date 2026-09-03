@@ -5,11 +5,12 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: cafe-pos
-      POSTGRES_PASSWORD: cafe-pos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: cafe-pos
-    # Host port 5433 to avoid clashing with a locally-installed PostgreSQL on 5432.
+    # F20 — bound to loopback so Postgres is not reachable from the network.
+    # The API reaches it over the internal compose network, not this port.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./infra/backups:/backups
@@ -23,8 +24,9 @@ services:
     image: redis:7-alpine
     container_name: cafe-pos-redis
     restart: unless-stopped
+    # F20 — loopback only; the API reaches Redis over the internal network.
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
@@ -45,7 +47,16 @@ services:
       redis:
         condition: service_healthy
     environment:
-      DATABASE_URL: postgresql://cafe-pos:cafe-pos@db:5432/cafe-pos?schema=public
+      # Tenant isolation is enforced at the application layer by the Prisma
+      # tenancy extension (every query is scoped to the caller's organizationId).
+      # Row-Level Security is present as a defence-in-depth backstop but is
+      # bypassed while the API connects as this superuser role, so we
+      # acknowledge that explicitly. Moving the API onto a non-superuser role so
+      # RLS is actually enforced is a tracked hardening item (see
+      # docs/audit/STAGE4_IMPLEMENTATION.md) — it requires the per-read GUC work
+      # and its own staging acceptance, and must not be flipped on blind.
+      DATABASE_URL: postgresql://cafe-pos:${POSTGRES_PASSWORD}@db:5432/cafe-pos?schema=public
+      RLS_ALLOW_SUPERUSER: "true"
       REDIS_URL: redis://redis:6379
       # No defaults on purpose. `:?` makes compose refuse to start when unset,
       # which is the only reliable way to stop a shared placeholder secret from
@@ -57,7 +68,8 @@ services:
       JWT_REFRESH_TTL: 7d
       NODE_ENV: production
       PORT: 3000
-      CORS_ORIGINS: http://localhost:5173
+      # Same-origin: the browser talks to the web origin and nginx proxies /api.
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
       LOG_LEVEL: info
       STORAGE_DRIVER: local
       STORAGE_LOCAL_DIR: /app/var/uploads
@@ -67,8 +79,11 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASS: ${SMTP_PASS:-}
       SMTP_FROM: ${SMTP_FROM:-no-reply@cafe-pos.local}
-    ports:
-      - "3000:3000"
+      FISCAL_PROVIDER: ${FISCAL_PROVIDER:-none}
+    # F20 — no public API port. The SPA reaches it through the web container's
+    # /api proxy on the same origin. Expose 3000 here only for direct debugging.
+    expose:
+      - "3000"
     volumes:
       - uploads:/app/var/uploads
 
@@ -77,23 +92,27 @@ services:
       context: .
       dockerfile: infra/docker/Dockerfile.web
       args:
-        VITE_API_URL: http://localhost:3000
+        # Empty = same-origin build; nginx proxies /api to the API container.
+        VITE_API_URL: ""
     container_name: cafe-pos-web
     restart: unless-stopped
     depends_on:
       - api
     ports:
-      - "5173:80"
+      - "${WEB_PORT:-5173}:80"
 
+  # Adminer is a database admin UI — never expose it by default. Start it only
+  # for local debugging: `docker compose --profile debug up adminer`.
   adminer:
     image: adminer:latest
     container_name: cafe-pos-adminer
     restart: unless-stopped
+    profiles: ["debug"]
     depends_on:
       db:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
 
 volumes:
   pgdata:

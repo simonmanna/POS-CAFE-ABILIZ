@@ -17,6 +17,8 @@ import type { PaginatedResult } from '@erp/shared';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuthStore } from '@/stores/auth.store';
 import { usePartner, useCustomerStatement, type Partner } from '@/features/partners/api';
+import { useOpenCreditInvoices } from '@/pages/pos/api';
+import { RecordCreditPaymentDialog, type CreditPaymentTarget } from '@/pages/pos/RecordCreditPaymentDialog';
 import { useSupplierLedger } from '@/features/invoicing/api';
 import { CrmPartnerTab } from '@/features/crm/partner-tab';
 
@@ -404,6 +406,8 @@ function TabLedger({ partnerId }: { partnerId: string }) {
 
 function TabStatement({ partnerId }: { partnerId: string }) {
   const { data, isLoading } = useCustomerStatement(partnerId);
+  const { data: open } = useOpenCreditInvoices({ partnerId, pageSize: 100 });
+  const [target, setTarget] = useState<CreditPaymentTarget | null>(null);
 
   if (isLoading) return <div className="p-8"><Skeleton className="h-48 w-full" /></div>;
   if (!data) return <div className="p-8 text-center text-muted-foreground">No statement data.</div>;
@@ -414,9 +418,16 @@ function TabStatement({ partnerId }: { partnerId: string }) {
     write_off: 'bg-red-50 text-red-700',
   };
 
+  const openRows = open?.rows ?? [];
+
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2">
+      {data.creditHold ? (
+        <div className="rounded-lg border-2 border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700">
+          On credit hold — new credit sales are blocked for this customer.
+        </div>
+      ) : null}
+      <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="pt-6">
             <div className="text-sm text-muted-foreground">Credit Limit</div>
@@ -429,7 +440,48 @@ function TabStatement({ partnerId }: { partnerId: string }) {
             <div className="text-2xl font-bold">{money(data.outstanding)}</div>
           </CardContent>
         </Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Available</div>
+            <div className="text-2xl font-bold">{data.available == null ? '—' : money(data.available)}</div>
+          </CardContent>
+        </Card>
       </div>
+
+      {openRows.length > 0 ? (
+        <Card>
+          <CardContent className="pt-6">
+            <div className="mb-3 text-sm font-semibold">Open invoices</div>
+            <div className="space-y-2">
+              {openRows.map((r) => (
+                <div key={r.invoiceId} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <span className="font-mono text-xs">{r.invoiceNumber}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">{date(r.issueDate)} · {r.daysOutstanding}d</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="font-semibold">{money(r.amountResidual)}</span>
+                    <Button
+                      size="sm"
+                      className="bg-emerald-600 hover:bg-emerald-700"
+                      onClick={() => setTarget({
+                        invoiceId: r.invoiceId,
+                        invoiceNumber: r.invoiceNumber,
+                        partnerName: r.partnerName,
+                        amountResidual: r.amountResidual,
+                      })}
+                    >
+                      Record payment
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <RecordCreditPaymentDialog target={target} onClose={() => setTarget(null)} />
       <Card>
         <CardContent className="p-0">
           <Table>

@@ -1,3 +1,5 @@
+import { accountLedgerBalance, accountObservations, reconcileSession, settleTender } from './session-reconciliation';
+import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import {
   BadRequestException,
   ForbiddenException,
@@ -20,6 +22,8 @@ import { AccountDeterminationService } from '../../accounting/posting/account-de
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 export interface OpenSessionDto {
+  openingSourceAccountId?: string;
+  openingAccounts?: Record<string, number>;
   cashRegisterId: string;
   openingFloat?: number | string;
   notes?: string;
@@ -29,6 +33,8 @@ export interface OpenSessionDto {
 }
 
 export interface CloseSessionDto {
+  closingAccounts?: Record<string, number>;
+  pendingSyncCount?: number;
   closingCounted: number | string;
   notes?: string;
   varianceReason?: string;
@@ -45,6 +51,7 @@ export interface CloseSessionDto {
 }
 
 export interface RecordMovementDto {
+  counterpartAccountId?: string;
   movementType: 'pay_in' | 'pay_out' | 'adjustment';
   amount: number | string;
   reason?: string;
@@ -57,6 +64,7 @@ export interface RecordMovementDto {
 }
 
 export interface BankDepositDto {
+  destinationAccountId?: string;
   amount: number | string;
   bankName: string;
   reference?: string;
@@ -164,7 +172,8 @@ export class CashSessionService {
 
     return this.prisma.client.$transaction(async (tx: any) => {
       const register = await tx.cashRegister.findFirst({ where: { id: dto.cashRegisterId, organizationId } });
-      if (!register) throw new NotFoundException('Cash register not found');
+      if (!register || !register.isActive) throw new NotFoundException('Active cash register not found');
+      if (!dec(dto.openingFloat ?? 0).isFinite() || dec(dto.openingFloat ?? 0).lt(0)) throw new BadRequestException('Invalid counted opening float');
 
       // Lock the register row (always exists) to serialize concurrent open()
       // calls for this register. Prevents two requests from both seeing
@@ -181,6 +190,22 @@ export class CashSessionService {
         throw new BadRequestException(`A session is already open on register ${register.code}`);
       }
 
+      // Every drawer must have its own cash account; a count is not an accounting entry.
+      const drawer = await tx.account.findFirst({ where: { id: register.defaultAccountId, organizationId, isActive: true, deletedAt: null }, include: { category: true } });
+      if (!drawer || !['cash', 'petty_cash'].includes(drawer.category?.key)) throw new BadRequestException('Configure an active drawer cash account before opening');
+      const shared = await tx.cashRegister.count({ where: { organizationId, id: { not: register.id }, isActive: true, defaultAccountId: drawer.id } });
+      if (shared) throw new BadRequestException('Each register needs a distinct drawer cash account');
+      await tx.$queryRawUnsafe('SELECT id FROM "Account" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', drawer.id, organizationId);
+      const ledger = await accountLedgerBalance(tx, organizationId, drawer.id);
+      const funding = dec(dto.openingFloat ?? 0).minus(ledger);
+      if (funding.lt(0)) throw new BadRequestException('Opening count is below the drawer ledger. Reconcile the prior count or record the removal before opening');
+      if (funding.gt(0)) {
+        if (!dto.openingSourceAccountId || !dto.notes?.trim()) throw new BadRequestException('Choose the source of added float and enter its reason');
+        const source = await tx.account.findFirst({ where: { id: dto.openingSourceAccountId, organizationId, isActive: true, deletedAt: null }, include: { category: true } });
+        if (!source || source.id === drawer.id || !['cash', 'petty_cash', 'bank'].includes(source.category?.key)) throw new BadRequestException('Choose a different cash safe or bank funding account');
+        await tx.$queryRawUnsafe('SELECT id FROM "Account" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', source.id, organizationId);
+        if (funding.gt(await accountLedgerBalance(tx, organizationId, source.id))) throw new BadRequestException('The funding account has insufficient recorded funds');
+      }
       const occurredAt = resolveOccurredAt(dto.occurredAt);
       const session = await tx.cashSession.create({
         data: {
@@ -189,12 +214,14 @@ export class CashSessionService {
           userId,
           status: 'open',
           openingFloat: dec(dto.openingFloat ?? 0),
+          openingAccounts: await accountObservations(tx, organizationId, dto.openingAccounts),
           openingDenomination: this.sanitizeDenomination(dto.openingDenomination),
           notes: dto.notes ?? null,
           ...(occurredAt ? { openedAt: occurredAt } : {}),
         },
       });
 
+      if (funding.gt(0)) await this.posting.post({ journalCode: 'CASH', date: (occurredAt ?? new Date()).toISOString(), description: `Opening float: ${dto.notes}`, sourceType: 'cash_session_opening', sourceId: session.id, lines: [{ accountId: register.defaultAccountId, debit: funding.toString() }, { accountId: dto.openingSourceAccountId!, credit: funding.toString() }] }, tx);
       await this.audit.recordInTx(tx, {
         entity: 'CashSession',
         entityId: session.id,
@@ -208,6 +235,7 @@ export class CashSessionService {
         cashRegisterId: dto.cashRegisterId,
       });
 
+      await recordBusinessOutcome(tx, session, true);
       return session;
     });
   }
@@ -216,7 +244,7 @@ export class CashSessionService {
     async close(dto: CloseSessionDto) {
       const organizationId = this.tenant.organizationId;
       const counted = dec(dto.closingCounted);
-      if (counted.isNegative()) throw new BadRequestException('Counted cash cannot be negative');
+      if (!counted.isFinite() || counted.isNegative()) throw new BadRequestException('Counted cash cannot be negative');
 
       return this.prisma.client.$transaction(async (tx: any) => {
         // If sessionId is provided, close that specific session (shared terminal - any cashier can close)
@@ -225,23 +253,15 @@ export class CashSessionService {
           ? await tx.cashSession.findFirst({ where: { id: dto.sessionId, organizationId } })
           : await this.requireOpenSession(tx);
         if (!session) throw new NotFoundException('No open cash session');
+        await this.lockOpenSession(tx, session.id);
         if (session.status !== 'open') throw new BadRequestException('Session is not open');
 
-      // H1 — do not close while orders are still un-settled on this session.
-      const openOrders = await tx.order.count({
-        where: {
-          organizationId,
-          cashSessionId: session.id,
-          invoiceId: null,
-          status: { in: ['draft', 'open', 'preparing', 'ready', 'served'] },
-        },
-      });
-      if (openOrders > 0) {
-        throw new BadRequestException(
-          `Cannot close: ${openOrders} unsettled order(s) on this session. Settle or void them first.`,
-        );
+      if ((dto.pendingSyncCount ?? 0) > 0) throw new BadRequestException('Sync or resolve pending device operations before closing');
+      const reconciliation = await reconcileSession(tx, organizationId, session);
+      if (reconciliation.unsettledOrders || reconciliation.pendingPayments || reconciliation.pendingPostings || reconciliation.issues.length) {
+        throw new BadRequestException({ message: 'Resolve unsettled orders, payments and posting differences before closing', reconciliation });
       }
-
+      const closingAccounts = await accountObservations(tx, organizationId, dto.closingAccounts);
       const expected = await this.computeExpected(tx, session);
       const closingDifference = counted.minus(expected);
       const reason = dto.varianceReason ? dto.varianceReason.trim() : null;
@@ -282,6 +302,7 @@ export class CashSessionService {
           closingDifference,
           closingDenomination: this.sanitizeDenomination(dto.closingDenomination),
           closingByMethod,
+          closingAccounts,
           varianceReason: reason,
           varianceStatus,
           approvedById,
@@ -289,6 +310,9 @@ export class CashSessionService {
         },
       });
       if (updated.count === 0) throw new Error('Failed to close session');
+      const reportData = JSON.parse(JSON.stringify({ ...reconciliation.report, accounts: reconciliation.accounts, openingAccounts: session.openingAccounts, closingAccounts, closingCounted: counted.toString(), closingExpected: expected.toString(), closingDifference: closingDifference.toString(), varianceReason: reason, varianceStatus, approvedById }));
+      await tx.posReportSnapshot.create({ data: { organizationId, cashSessionId: session.id, reportData, kind: 'z' } });
+
 
       // C1 — book the drawer over/short to the ledger.
       if (!closingDifference.isZero()) {
@@ -317,7 +341,9 @@ export class CashSessionService {
         variance: closingDifference.toString(),
       });
 
-      return tx.cashSession.findFirst({ where: { id: session.id } });
+      const result = await tx.cashSession.findFirst({ where: { id: session.id } });
+      await recordBusinessOutcome(tx, result, true);
+      return result;
     });
   }
 
@@ -345,6 +371,9 @@ export class CashSessionService {
         where: { organizationId, cashRegisterId: dto.cashRegisterId, status: 'open' },
       });
       if (!outgoing) throw new NotFoundException('No open session on this register');
+      await this.lockOpenSession(tx, outgoing.id);
+      const check = await reconcileSession(tx, organizationId, outgoing);
+      if (check.unsettledOrders || check.pendingPayments || check.pendingPostings || check.issues.length) throw new BadRequestException('Resolve pending work before handover');
 
       const expected = await this.computeExpected(tx, outgoing);
       const variance = counted.minus(expected);
@@ -362,7 +391,7 @@ export class CashSessionService {
           closingExpected: expected,
           closingDifference: variance,
           varianceReason: dto.varianceReason ?? null,
-          varianceStatus: dto.varianceReason ? 'pending_review' : null,
+          varianceStatus: variance.isZero() ? null : 'approved',
           approvedById: dto.approvedById ?? null,
           closingByMethod: await this.computeByMethod(tx, organizationId, outgoing.id),
         },
@@ -374,6 +403,8 @@ export class CashSessionService {
       }
 
       const opening = dto.openingFloat != null ? dec(dto.openingFloat) : counted;
+      if (!counted.isFinite() || counted.lt(0) || !opening.eq(counted)) throw new BadRequestException('Handover must carry the counted physical cash; record float changes as a separate movement');
+      await tx.posReportSnapshot.create({ data: { organizationId, cashSessionId: outgoing.id, reportData: JSON.parse(JSON.stringify({ ...check.report, closingCounted: counted.toString(), closingDifference: variance.toString(), accounts: check.accounts })), kind: 'z' } });
       const incoming = await tx.cashSession.create({
         data: {
           organizationId,
@@ -424,13 +455,15 @@ export class CashSessionService {
         variance: variance.toString(),
       });
 
-      return {
+      const result = {
         outgoingSessionId: outgoing.id,
         incomingSessionId: incoming.id,
         expected: expected.toString(),
         counted: counted.toString(),
         variance: variance.toString(),
       };
+      await recordBusinessOutcome(tx, result, true);
+      return result;
     });
   }
 
@@ -441,31 +474,42 @@ export class CashSessionService {
 
     // H4 — sign rules. pay_in / pay_out must be strictly positive (the type
     // carries the direction). adjustment may be signed but never zero.
-    if (amount.isZero()) throw new BadRequestException('Amount cannot be zero');
+    if (!amount.isFinite() || amount.isZero()) throw new BadRequestException('Amount cannot be zero or non-finite');
     if ((dto.movementType === 'pay_in' || dto.movementType === 'pay_out') && amount.isNegative()) {
       throw new BadRequestException(`${dto.movementType} amount must be positive`);
     }
 
+    if (!dto.reason?.trim()) throw new BadRequestException('A reason is required for a cash movement');
+    if (!dto.counterpartAccountId) throw new BadRequestException('Select the expense, safe or transfer account for this movement');
     return this.prisma.client.$transaction(async (tx: any) => {
       // H2 — resolve to the CALLER's own open session, never an arbitrary one.
       const session = sessionId
         ? await tx.cashSession.findFirst({ where: { id: sessionId, organizationId } })
         : await tx.cashSession.findFirst({ where: { organizationId, userId: this.tenant.userId, status: 'open' } });
       if (!session) throw new NotFoundException('No open cash session');
+      await this.lockOpenSession(tx, session.id);
       if (session.status !== 'open') throw new BadRequestException('Session is not open');
       if (session.userId !== this.tenant.userId) {
         throw new ForbiddenException('This cash session belongs to a different cashier');
       }
 
+      if ((dto.movementType === 'pay_out' || amount.isNegative()) && amount.abs().gt(await this.computeExpected(tx, session))) {
+        throw new BadRequestException('The drawer does not contain enough cash for this movement');
+      }
+      const register = await tx.cashRegister.findFirst({ where: { id: session.cashRegisterId, organizationId } });
+      if (register?.defaultAccountId === dto.counterpartAccountId) throw new BadRequestException('The counterpart must differ from the drawer account');
+      const otherDrawer = await tx.cashRegister.findFirst({ where: { organizationId, defaultAccountId: dto.counterpartAccountId, sessions: { some: { status: 'open' } } } });
+      if (otherDrawer) throw new BadRequestException('Transfer through the safe; a one-sided movement cannot alter another open drawer');
+
       // H3 — cash LEAVING the drawer needs manager sign-off.
-      if (dto.movementType === 'pay_out') {
+      if (dto.movementType === 'pay_out' || dto.movementType === 'adjustment') {
         await this.assertManagerApproval(tx, {
           approverId: dto.approvedById,
           approverEmail: dto.approverEmail,
           managerPin: dto.managerPin,
           cashierUserId: session.userId,
           permission: 'cash_session:cash_out',
-          actionLabel: 'a cash pay-out',
+          actionLabel: dto.movementType === 'adjustment' ? 'a cash adjustment' : 'a cash pay-out',
         });
       }
 
@@ -477,13 +521,14 @@ export class CashSessionService {
           movementType: dto.movementType,
           amount,
           reason: dto.reason ?? null,
+          counterpartAccountId: dto.counterpartAccountId,
           performedBy: this.tenant.userId ?? null,
           ...(occurredAt ? { createdAt: occurredAt } : {}),
         },
       });
 
       // C1 — post the movement to the GL (Dr/Cr register cash vs clearing/over-short).
-      await this.postMovementGl(tx, session, dto.movementType, amount, movement.id, dto.reason ?? null);
+      await this.postMovementGl(tx, session, dto.movementType, amount, movement.id, dto.reason ?? null, dto.counterpartAccountId);
 
       await this.audit.recordInTx(tx, {
         entity: 'CashMovement',
@@ -505,6 +550,7 @@ export class CashSessionService {
         amount: amount.toString(),
       });
 
+      await recordBusinessOutcome(tx, movement, true);
       return movement;
     });
   }
@@ -517,6 +563,7 @@ export class CashSessionService {
     movementType: 'sale' | 'refund',
     amount: Prisma.Decimal,
   ) {
+    await this.lockOpenSession(tx, sessionId);
     return tx.cashMovement.create({
       data: {
         organizationId: this.tenant.organizationId,
@@ -542,7 +589,10 @@ export class CashSessionService {
     sessionId: string,
     amount: Prisma.Decimal,
     reason: string,
+    journalEntryId: string,
   ) {
+    const session = await this.lockOpenSession(tx, sessionId);
+    if (amount.gt(await this.computeExpected(tx, session))) throw new BadRequestException('The drawer has insufficient cash for this payout');
     return tx.cashMovement.create({
       data: {
         organizationId: this.tenant.organizationId,
@@ -550,6 +600,7 @@ export class CashSessionService {
         movementType: 'pay_out',
         amount,
         reason,
+        journalEntryId,
         performedBy: this.tenant.userId ?? null,
       },
     });
@@ -559,6 +610,7 @@ export class CashSessionService {
   async findOpen(cashRegisterId?: string) {
     const where: any = { organizationId: this.tenant.organizationId, status: 'open' };
     if (cashRegisterId) where.cashRegisterId = cashRegisterId;
+    else where.userId = this.tenant.userId;
     return this.prisma.client.cashSession.findFirst({
       where,
       include: { cashRegister: true, movements: { orderBy: { createdAt: 'asc' } } },
@@ -685,14 +737,15 @@ export class CashSessionService {
         where: { id: sessionId, organizationId },
       });
       if (!session) throw new NotFoundException('Cash session not found');
+      await this.lockOpenSession(tx, sessionId);
+      if (!dto.destinationAccountId) throw new BadRequestException('Select the destination bank account');
 
       const amt = dec(dto.amount);
       if (amt.lessThanOrEqualTo(0)) throw new BadRequestException('Deposit amount must be positive');
 
       // H5 — cannot bank more than is actually in the drawer.
       const previousBanked = session.bankedAmount ? dec(session.bankedAmount) : ZERO;
-      const onHand = (session.closingCounted != null ? dec(session.closingCounted) : await this.computeExpected(tx, session))
-        .minus(previousBanked);
+      const onHand = await this.computeExpected(tx, session);
       if (amt.greaterThan(onHand)) {
         throw new BadRequestException(
           `Deposit ${amt.toString()} exceeds cash on hand ${onHand.toString()}`,
@@ -712,7 +765,7 @@ export class CashSessionService {
       });
 
       // C1 — Dr Bank / Cr register cash.
-      await this.postBankDepositGl(tx, session, amt, movement.id, dto.bankName);
+      await this.postBankDepositGl(tx, session, amt, movement.id, dto.bankName, dto.destinationAccountId);
 
       await this.audit.recordInTx(tx, {
         entity: 'CashMovement',
@@ -737,7 +790,9 @@ export class CashSessionService {
         bankName: dto.bankName,
       });
 
-      return { movement, sessionId: session.id };
+      const outcome = { movement, sessionId: session.id };
+      await recordBusinessOutcome(tx, outcome, true);
+      return outcome;
     });
   }
 
@@ -745,10 +800,13 @@ export class CashSessionService {
   async updateVariance(sessionId: string, dto: VarianceUpdateDto) {
     const organizationId = this.tenant.organizationId;
     return this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', sessionId, organizationId);
       const session = await tx.cashSession.findFirst({
         where: { id: sessionId, organizationId },
       });
       if (!session) throw new NotFoundException('Cash session not found');
+      if (session.status !== 'closed') throw new BadRequestException('Only a closed, unreconciled session may have its variance reviewed');
+      if (!dto.reason?.trim()) throw new BadRequestException('A variance review reason is required');
 
       const updateData: any = { varianceReason: dto.reason };
       if (dto.status) updateData.varianceStatus = dto.status;
@@ -774,7 +832,9 @@ export class CashSessionService {
         newValues: updateData,
       });
 
-      return tx.cashSession.findFirst({ where: { id: session.id } });
+      const result = await tx.cashSession.findFirst({ where: { id: session.id } });
+      await recordBusinessOutcome(tx, result, true);
+      return result;
     });
   }
 
@@ -920,6 +980,7 @@ export class CashSessionService {
       if (session.status === 'reconciled') {
         throw new BadRequestException('A reconciled session is final and cannot be reopened');
       }
+      if (await tx.posReportSnapshot.findUnique({ where: { cashSessionId: sessionId } })) throw new BadRequestException('This shift has a frozen Z-report. Record corrections in a new shift.');
       // C3 — the cashier who ran the shift cannot reopen their own session.
       if (actorId && actorId === session.userId) {
         throw new ForbiddenException('The session cashier cannot reopen their own session');
@@ -965,7 +1026,9 @@ export class CashSessionService {
         newValues: { status: 'open', kind: 'reopen', reopenedById: actorId ?? null, reason: reason.trim() },
       });
 
-      return tx.cashSession.findFirst({ where: { id: session.id } });
+      const result = await tx.cashSession.findFirst({ where: { id: session.id } });
+      await recordBusinessOutcome(tx, result, true);
+      return result;
     });
   }
 
@@ -988,6 +1051,7 @@ export class CashSessionService {
     const userId = this.tenant.userId;
 
     return this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', sessionId, organizationId);
       const session = await tx.cashSession.findFirst({
         where: { id: sessionId, organizationId },
       });
@@ -1018,34 +1082,9 @@ export class CashSessionService {
         );
       }
 
-      if (dto?.depositAmount != null && dec(dto.depositAmount).greaterThan(0)) {
-        const depositAmt = dec(dto.depositAmount);
-        const previousBanked = session.bankedAmount ? dec(session.bankedAmount) : ZERO;
-        const onHand = (session.closingCounted != null ? dec(session.closingCounted) : await this.computeExpected(tx, session))
-          .minus(previousBanked);
-        if (depositAmt.greaterThan(onHand)) {
-          throw new BadRequestException(`Deposit ${depositAmt.toString()} exceeds cash on hand ${onHand.toString()}`);
-        }
-        const movement = await tx.cashMovement.create({
-          data: {
-            organizationId,
-            cashSessionId: session.id,
-            movementType: 'pay_out' as any,
-            amount: depositAmt,
-            reason: `Bank deposit: ${dto.bankName ?? 'unknown'}${dto.reference ? ` ref:${dto.reference}` : ''}${dto.notes ? ` — ${dto.notes}` : ''}`,
-            performedBy: userId ?? null,
-          },
-        });
-        await this.postBankDepositGl(tx, session, depositAmt, movement.id, dto.bankName ?? 'unknown');
-        await tx.cashSession.update({
-          where: { id: session.id },
-          data: {
-            bankedAmount: previousBanked.plus(depositAmt),
-            bankName: dto.bankName ?? session.bankName,
-          },
-        });
-      }
-
+      if (dto?.depositAmount != null && dec(dto.depositAmount).gt(0)) throw new BadRequestException('The drawer is closed. Record its deposit in a new shift or treasury transfer; the frozen Z-report cannot be changed.');
+      const check = await reconcileSession(tx, organizationId, session);
+      if (check.pendingPayments || check.unsettledOrders || check.pendingPostings || check.issues.length) throw new BadRequestException({ message: 'Resolve reconciliation differences first', reconciliation: check });
       const updated = await tx.cashSession.updateMany({
         where: { id: session.id },
         data: { status: 'reconciled', notes: dto?.notes ?? session.notes },
@@ -1066,7 +1105,9 @@ export class CashSessionService {
         cashRegisterId: session.cashRegisterId,
       });
 
-      return tx.cashSession.findFirst({ where: { id: session.id } });
+      const result = await tx.cashSession.findFirst({ where: { id: session.id } });
+      await recordBusinessOutcome(tx, result, true);
+      return result;
     });
   }
 
@@ -1145,25 +1186,8 @@ export class CashSessionService {
         continue;
       }
 
-      await this.prisma.client.cashSession.updateMany({
-        where: { id: session.id },
-        data: { status: 'reconciled' },
-      });
-
-      await this.audit.record({
-        entity: 'CashSession',
-        entityId: session.id,
-        action: 'reconcile' as any,
-        oldValues: { status: 'closed' },
-        newValues: { status: 'reconciled', triggeredBy: 'dailyReset', actorUserId: actorUserId ?? null },
-      });
-
-      this.events.publish('cash.session.reconciled', {
-        organizationId,
-        sessionId: session.id,
-        cashRegisterId: session.cashRegisterId,
-      });
-
+      try { await this.reconcile(session.id); }
+      catch (e: any) { skipped.push({ sessionId: session.id, reason: e?.message || 'Reconciliation failed' }); continue; }
       reconciled.push(session.id);
     }
 
@@ -1214,17 +1238,27 @@ export class CashSessionService {
 
   /** Frozen per-tender totals from this session's posted/paid invoices. */
   private async computeByMethod(tx: any, organizationId: string, sessionId: string): Promise<any> {
-    const invoices = await tx.invoice.findMany({
-      where: { organizationId, cashSessionId: sessionId },
-      select: { paymentMode: true, totalAmount: true, status: true },
+    const payments = await tx.payment.findMany({ where: { organizationId, cashSessionId: sessionId, status: { not: 'cancelled' } } });
+    const totals: Record<string, string> = {};
+    for (const p of payments) totals[p.paymentMethod] = dec(totals[p.paymentMethod] ?? 0).plus(dec(p.amount).times(p.direction === 'inbound' ? 1 : -1)).toString();
+    return totals;
+  }
+
+  async reconciliation(sessionId: string) {
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const session = await tx.cashSession.findFirst({ where: { id: sessionId, organizationId: this.tenant.organizationId } });
+      if (!session) throw new NotFoundException('Session not found');
+      return reconcileSession(tx, this.tenant.organizationId, session);
     });
-    const byMethod: Record<string, string> = {};
-    for (const inv of invoices) {
-      if (inv.status !== 'posted' && inv.status !== 'paid') continue;
-      const key = inv.paymentMode ?? 'unpaid';
-      byMethod[key] = dec(byMethod[key] ?? 0).plus(dec(inv.totalAmount)).toString();
-    }
-    return byMethod;
+  }
+
+  settleTender(input: any) { return settleTender(this, input); }
+
+  private async lockOpenSession(tx: any, sessionId: string) {
+    await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', sessionId, this.tenant.organizationId);
+    const session = await tx.cashSession.findFirst({ where: { id: sessionId, organizationId: this.tenant.organizationId } });
+    if (!session || session.status !== 'open') throw new BadRequestException('The register session is no longer open');
+    return session;
   }
 
   /** UTC bounds of a business day in the org's configured time zone. */
@@ -1280,6 +1314,7 @@ export class CashSessionService {
     if (manager.id === cashierUserId) {
       throw new ForbiddenException(`The session cashier cannot approve ${actionLabel}`);
     }
+    if (!managerPin && manager.id !== this.tenant.userId) throw new BadRequestException('Manager PIN is required');
     if (managerPin) {
       if (!manager.pinHash) throw new BadRequestException('Manager has not set a PIN');
       const ok = await this.password.compare(managerPin, manager.pinHash);
@@ -1308,6 +1343,7 @@ export class CashSessionService {
     amount: Prisma.Decimal,
     movementId: string,
     reason: string | null,
+    counterpartAccountId?: string,
   ) {
     try {
       const cash = await this.registerCashAccount(tx, session);
@@ -1316,7 +1352,9 @@ export class CashSessionService {
 
       const amt = amount.toString();
       if (movementType === 'pay_in') {
-        const clearing = await this.determination.mapped('cash_clearing', tx);
+        const clearing = counterpartAccountId ?? await this.determination.mapped('cash_clearing', tx);
+        const account = await tx.account.findFirst({ where: { id: clearing, organizationId: this.tenant.organizationId, isActive: true } });
+        if (!account || clearing === cash) throw new BadRequestException('Invalid cash movement counterpart account');
         await this.posting.post({
           ...base, journalCode: 'CASH', description: reason ?? 'Cash pay-in',
           lines: [
@@ -1325,7 +1363,9 @@ export class CashSessionService {
           ],
         }, tx);
       } else if (movementType === 'pay_out') {
-        const clearing = await this.determination.mapped('cash_clearing', tx);
+        const clearing = counterpartAccountId ?? await this.determination.mapped('cash_clearing', tx);
+        const account = await tx.account.findFirst({ where: { id: clearing, organizationId: this.tenant.organizationId, isActive: true } });
+        if (!account || clearing === cash) throw new BadRequestException('Invalid cash movement counterpart account');
         await this.posting.post({
           ...base, journalCode: 'CASH', description: reason ?? 'Cash pay-out',
           lines: [
@@ -1336,6 +1376,7 @@ export class CashSessionService {
       } else {
         // adjustment: positive adds cash (Cr over/short income), negative removes.
         const shortOver = await this.determination.mapped('cash_short_over', tx);
+        if (counterpartAccountId !== shortOver) throw new BadRequestException('Cash adjustments must use the configured cash short/over account');
         const abs = amount.abs().toString();
         const lines = amount.greaterThan(0)
           ? [{ accountId: cash, debit: abs }, { accountId: shortOver, credit: abs }]
@@ -1343,7 +1384,7 @@ export class CashSessionService {
         await this.posting.post({ ...base, journalCode: 'CASH', description: reason ?? 'Cash adjustment', lines }, tx);
       }
     } catch (e) {
-      await this.recordGlSkip(tx, 'CashMovement', movementId, e);
+      throw e;
     }
   }
 
@@ -1353,10 +1394,13 @@ export class CashSessionService {
     amount: Prisma.Decimal,
     movementId: string,
     bankName: string,
+    destinationAccountId?: string,
   ) {
     try {
       const cash = await this.registerCashAccount(tx, session);
-      const bank = await this.determination.mapped('default_bank', tx);
+      const bank = destinationAccountId ?? await this.determination.mapped('default_bank', tx);
+      const destination = await tx.account.findFirst({ where: { id: bank, organizationId: this.tenant.organizationId, isActive: true }, include: { category: true } });
+      if (!destination || destination.category?.key !== 'bank') throw new BadRequestException('Select a bank account for the deposit');
       const amt = amount.toString();
       await this.posting.post({
         date: new Date(),
@@ -1371,7 +1415,7 @@ export class CashSessionService {
         ],
       }, tx);
     } catch (e) {
-      await this.recordGlSkip(tx, 'CashMovement', movementId, e);
+      throw e;
     }
   }
 
@@ -1396,22 +1440,8 @@ export class CashSessionService {
         lines,
       }, tx);
     } catch (e) {
-      await this.recordGlSkip(tx, 'CashSession', session.id, e);
+      throw e;
     }
   }
 
-  private async recordGlSkip(tx: any, entity: string, entityId: string, e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    this.logger.warn(`GL posting skipped for ${entity} ${entityId}: ${msg}`);
-    try {
-      await this.audit.recordInTx(tx, {
-        entity: entity as any,
-        entityId,
-        action: 'update',
-        newValues: { glPostingSkipped: true, reason: msg },
-      });
-    } catch {
-      // never let an audit failure roll back the drawer write
-    }
-  }
 }

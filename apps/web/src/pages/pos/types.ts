@@ -335,9 +335,32 @@ export { type CartLine };
 export type PaymentMethod = 'cash' | 'bank' | 'card' | 'mobile_money' | 'store_credit';
 
 export interface PaymentTender {
+  accountId?: string;
   method: PaymentMethod;
   amount: number;
   reference?: string;
+}
+
+/**
+ * How a sale is settled.
+ *
+ * 'tender' (default) — paid now with one or more tenders.
+ * 'credit'           — paid LATER: nothing is collected, the bill is booked to
+ *                      the customer's account (AR) and the invoice stays unpaid.
+ *
+ * Deliberately not a PaymentMethod: cash/card/mobile money say HOW the customer
+ * paid, credit says they haven't.
+ */
+export type SettleMode = 'tender' | 'credit';
+
+/** A customer's house-account standing (GET /pos/customers/:id/credit). */
+export interface CreditStatus {
+  /** 0 = no limit configured. */
+  creditLimit: number;
+  outstanding: number;
+  /** Headroom left, or null when there is no limit. */
+  available: number | null;
+  creditHold: boolean;
 }
 
 /* ============== Order → Invoice → Receipt (DDD split) ============== */

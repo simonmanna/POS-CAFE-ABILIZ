@@ -79,6 +79,8 @@ class CreateVariantDto {
   @ApiProperty() @IsString() name!: string;
   @ApiProperty() @IsNumber() @Min(0) price!: number;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(9999) sortOrder?: number;
+  // F14 — recipe consumption multiplier for this size (independent of price).
+  @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsNumber() @Min(0) @Max(9999) qtyMultiplier?: number | null;
 }
 
 class UpdateVariantDto {
@@ -86,6 +88,7 @@ class UpdateVariantDto {
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) price?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(9999) sortOrder?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isActive?: boolean;
+  @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsNumber() @Min(0) @Max(9999) qtyMultiplier?: number | null;
   @ApiProperty({ required: false }) @IsOptional() @IsString() expectedUpdatedAt?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() ipAddress?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() userAgent?: string;
@@ -119,6 +122,9 @@ class CreateAccompanimentOptionDto {
   @ApiProperty({ required: false, default: false }) @IsOptional() @IsBoolean() isDefault?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(9999) sortOrder?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsString() inventoryItemId?: string;
+  // F14 — per-selection stock consumption (e.g. a fries side = one portion).
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(99999999) consumptionQty?: number;
+  @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() consumptionUomId?: string | null;
 }
 
 class UpdateAccompanimentOptionDto {
@@ -128,6 +134,8 @@ class UpdateAccompanimentOptionDto {
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(9999) sortOrder?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isActive?: boolean;
   @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() inventoryItemId?: string | null;
+  @ApiProperty({ required: false }) @IsOptional() @IsNumber() @Min(0) @Max(99999999) consumptionQty?: number;
+  @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() consumptionUomId?: string | null;
   @ApiProperty({ required: false }) @IsOptional() @IsString() expectedUpdatedAt?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() ipAddress?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() userAgent?: string;

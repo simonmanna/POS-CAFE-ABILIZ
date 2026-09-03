@@ -74,6 +74,9 @@ const ORG_SCOPED = new Set<string>([
   // M5 — cash sessions (CashRegister is config, sessions/movements are transactional)
   'CashRegister',
   'CashSession',
+  'PosRefund',
+  'PosApprovalGrant',
+  'TenderSettlement',
   'CashMovement',
   // D1-2 — idempotency cache (org-scoped transactional; no soft delete)
   'IdempotencyRecord',

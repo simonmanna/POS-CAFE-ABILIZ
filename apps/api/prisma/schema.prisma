@@ -614,6 +614,10 @@ model Partner {
   creditLimit             Decimal       @default(0) @db.Decimal(20, 2)
   creditHold              Boolean       @default(false)
   paymentTermId           String?
+  /// Opening balance when the partner is first created (e.g. brought-forward
+  /// AR/AP from a legacy system). Written once at create; stored as a signed
+  /// decimal (negative = credit balance owed to the partner).
+  openingBalance          Decimal       @default(0) @db.Decimal(20, 2)
   status                  PartnerStatus @default(active)
   categoryId              String?
   notes                   String?
@@ -2260,6 +2264,11 @@ model Modifier {
   /// Optional: links this modifier to a Product so selecting it depletes stock
   /// (mirrors AccompanimentOption.inventoryItemId). Best-effort at sale time.
   inventoryItemId  String?
+  /// F14 — how much of `inventoryItemId` one selection consumes, in
+  /// `consumptionUomId` (or the product's stock unit when null). Lets "Extra
+  /// milk" mean 30 ml rather than 1 whole unit. Ignored without inventoryItemId.
+  consumptionQty   Decimal   @default(1) @db.Decimal(20, 6)
+  consumptionUomId String?
   isDefault        Boolean   @default(false)
   sortOrder        Int       @default(0)
   isActive         Boolean   @default(true)
@@ -2511,6 +2520,12 @@ model MenuItemVariant {
   /// Absolute per-unit price for this variant. NOT a delta — this REPLACES
   /// the MenuItem.basePrice when selected.
   price          Decimal   @db.Decimal(20, 6)
+  /// F14 — recipe consumption multiplier for this size. A "Large" that uses 1.5×
+  /// the base recipe sets 1.5; the menu recipe BOM is multiplied by this at
+  /// stock-issue time. NULL / 1 = the base recipe unchanged. Price and portion
+  /// are now independent: a variant can cost more without consuming more, or
+  /// consume more without costing more.
+  qtyMultiplier  Decimal?  @db.Decimal(12, 6)
   sortOrder      Int       @default(0)
   isActive       Boolean   @default(true)
   createdAt      DateTime  @default(now())
@@ -2601,6 +2616,12 @@ model AccompanimentOption {
   isActive        Boolean   @default(true)
   /// Optional: links this accompaniment to a Product for BOM / stock tracking.
   inventoryItemId String?
+  /// F14 — how much of `inventoryItemId` one selection consumes, in
+  /// `consumptionUomId` (or the product's stock unit when null). Lets a "Fries
+  /// side" issue a real portion rather than 1 whole unit. Ignored without
+  /// inventoryItemId.
+  consumptionQty   Decimal  @default(1) @db.Decimal(20, 6)
+  consumptionUomId String?
   createdBy       String?
   updatedBy       String?
   deletedAt       DateTime?
@@ -2948,6 +2969,11 @@ model Payment {
   paymentMethod     String           @default("cash")
   journalId         String?
   accountId         String?
+  /// Register session for all tenders; only physical cash creates drawer movements.
+  cashSessionId     String?
+  /// Original collection being returned. Refunds never infer a cash destination.
+  refundOfId        String?
+  refundedAmount    Decimal          @default(0) @db.Decimal(20, 6)
   currencyId        String?
   exchangeRate      Decimal          @default(1) @db.Decimal(18, 8)
   amount            Decimal          @default(0) @db.Decimal(20, 6)
@@ -2971,9 +2997,12 @@ model Payment {
   @@index([organizationId])
   @@index([organizationId, partnerId])
   @@index([organizationId, branchId])
+  @@index([organizationId, cashSessionId])
+  @@index([refundOfId])
 }
 
 model PaymentAllocation {
+  refundedAmount Decimal @default(0) @db.Decimal(20, 6)
   id             String   @id @default(uuid())
   organizationId String
   paymentId      String
@@ -3842,6 +3871,9 @@ model CashSession {
   /// Medium: frozen per-tender totals (cash/card/mobile_money/…) at close, so a
   /// reprinted summary doesn't drift when invoices are later voided/edited.
   closingByMethod     Json?
+  /// Named wallet/bank balances observed at open/close, separate from counted cash.
+  openingAccounts     Json?
+  closingAccounts     Json?
   notes               String?
   createdAt           DateTime          @default(now())
   updatedAt           DateTime          @updatedAt
@@ -3867,6 +3899,8 @@ model CashMovement {
   amount         Decimal          @db.Decimal(20, 6)
   paymentId      String?
   reason         String?
+  counterpartAccountId String?
+  journalEntryId String?
   performedBy    String?
   createdAt      DateTime         @default(now())
 
@@ -5305,6 +5339,7 @@ enum DiscountSource {
 /// Billing is deferred: `invoiceId` is set only when the bill is generated.
 /// `version` enables optimistic locking against concurrent edits.
 model Order {
+  clientOperationKey String?
   id                         String         @id @default(uuid())
   organizationId             String
   orderNumber                String
@@ -5401,6 +5436,7 @@ model Order {
 
   @@unique([organizationId, orderNumber])
   @@index([organizationId])
+  @@unique([organizationId, clientOperationKey])
   @@index([organizationId, status])
   @@index([organizationId, tableId, status])
   @@index([organizationId, cashSessionId])
@@ -5587,11 +5623,26 @@ model Invoice {
   paymentStatus        PaymentStatus           @default(not_paid)
   paymentMode          InvoicePaymentMode?
   settlementStatus     InvoiceSettlementStatus @default(unsettled)
+  /// Loose ref to the org's PaymentTerm master (no FK, like partnerId), copied
+  /// from Order.paymentTermId at bill time. Drives the due-date derivation —
+  /// which is what makes a credit (pay-later) invoice chaseable.
+  paymentTermId        String?
   /// Optimistic-lock token. Bumped on every settlement/refund mutation so two
   /// terminals can't double-settle the same invoice (see PosInvoiceService).
   version              Int                     @default(0)
   /// GL link — the journal entry posted when this invoice was finalised.
   journalEntryId       String?
+  /// Actual AR account used by the original sale; null identifies legacy postings.
+  receivableAccountId String?
+  /// F22 — fiscalization state. NULL = not applicable (no provider configured).
+  /// 'pending' = a provider is configured but no adapter has signed this invoice
+  /// yet; 'signed' = a real fiscal device returned a code. `fiscalCode`/`fiscalQr`
+  /// hold the device's response for the receipt. This is a seam, not a compliance
+  /// claim — see docs/audit/FISCALIZATION.md.
+  fiscalStatus         String?
+  fiscalCode           String?
+  fiscalQr             String?
+  fiscalizedAt         DateTime?
   reference            String?
   notes                String?
   /// Print lifecycle (bill / receipt counters).
@@ -5623,8 +5674,68 @@ model Invoice {
   @@index([journalEntryId])
 }
 
+/// Immutable refund event, separate from collection and stock movements.
+model PosRefund {
+  cashSessionId    String?
+  id               String   @id @default(uuid())
+  organizationId   String
+  invoiceId        String
+  amount           Decimal  @db.Decimal(20, 6)
+  reason           String
+  stockDisposition String
+  items            Json
+  payments         Json
+  journalEntryId   String?
+  approvedById     String
+  createdBy        String?
+  createdAt        DateTime @default(now())
+
+  @@index([organizationId, invoiceId])
+  @@index([organizationId, cashSessionId])
+}
+
+model PosApprovalGrant {
+  id             String   @id @default(uuid())
+  organizationId String
+  tokenHash      String   @unique
+  cashierId      String
+  managerId      String
+  operationKey   String
+  endpoint       String
+  /// F04 — what this grant authorises ('discount' | 'price_change' | 'void' |
+  /// 'manual_refund' | 'write_off'). The consuming service re-checks it, so a
+  /// discount approval cannot be replayed as a refund approval.
+  overrideKind   String   @default("discount")
+  payloadHash    String
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, operationKey])
+}
+
+/// Settlement of a card clearing account or wallet into a named bank account.
+model TenderSettlement {
+  id                   String   @id @default(uuid())
+  organizationId       String
+  cashSessionId        String?
+  sourceAccountId      String
+  destinationAccountId String
+  grossAmount          Decimal  @db.Decimal(20, 6)
+  feeAmount            Decimal  @db.Decimal(20, 6)
+  feeAccountId         String?
+  reference            String
+  settledAt            DateTime
+  journalEntryId       String
+  createdBy            String?
+  createdAt            DateTime @default(now())
+
+  @@unique([organizationId, sourceAccountId, reference])
+  @@index([organizationId, cashSessionId])
+}
+
 /// A line on a POS Invoice (mirrors DocumentLine but on the separate Invoice).
 model InvoiceItem {
+  taxAccountId String?
   id                     String         @id @default(uuid())
   organizationId         String
   invoiceId              String

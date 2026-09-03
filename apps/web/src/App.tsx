@@ -47,6 +47,7 @@ import { ChartOfAccountsPage } from '@/pages/accounting/chart-of-accounts';
 import { AccountDetailPage } from '@/pages/accounting/AccountDetailPage';
 import { CashAccountsPage } from '@/pages/accounting/cash-accounts';
 import { CashAccountDetailPage } from '@/pages/accounting/cash-account-detail';
+import { CashFlowTransactionsPage } from '@/pages/accounting/cash-flow-transactions';
 import { CashRegistersCrudPage } from '@/pages/accounting/cash-registers';
 import { AccountMappingsPage } from '@/pages/accounting/account-mappings';
 import { AccountCategoriesPage } from '@/pages/accounting/account-categories';
@@ -84,6 +85,7 @@ import { PaymentsPage } from '@/pages/invoicing/payments';
 import { PaymentDetailPage } from '@/pages/invoicing/payment-detail';
 import { ReceiptsPage } from '@/pages/pos/ReceiptsPage';
 import { ReceiptDetailPage } from '@/pages/pos/ReceiptDetailPage';
+import { ReceivablesPage } from '@/pages/pos/ReceivablesPage';
 import { ExpensesPage } from '@/pages/expenses/ExpensesPage';
 import ExpensesReportPage from '@/pages/expenses/ExpensesReportPage';
 import ExpenseCategoriesPage from '@/pages/expenses/ExpenseCategoriesPage';
@@ -150,6 +152,7 @@ import { HrReportsPage } from '@/pages/hr/HrReportsPage';
 import { StockLedgerPage } from '@/pages/inventory/StockLedgerPage';
 import LocationsPage from '@/pages/inventory/LocationsPage';
 import TerminalPage from '@/pages/pos/Terminal';
+import { TerminalWorkspace } from '@/pages/pos/TerminalWorkspace';
 import ReportsPage from '@/pages/pos/ReportsPage';
 import DisplayPage from '@/pages/pos/DisplayPage';
 import KdsPage from '@/pages/pos/KdsPage';
@@ -179,7 +182,7 @@ export function App() {
         <Route element={<AppShell />}>
           <Route path="/" element={<DashboardPage />} />
           {/* POS terminal — full-screen cashier UI. Renders outside the app shell. */}
-          <Route path="/pos/terminal" element={<TerminalPage />} />
+          <Route path="/pos/terminal" element={<TerminalWorkspace><TerminalPage /></TerminalWorkspace>} />
           <Route path="/pos/reports" element={<ReportsPage />} />
           {/* POS customer display — second monitor / pole display, no shell. */}
           <Route path="/pos/display" element={<DisplayPage />} />
@@ -226,6 +229,8 @@ export function App() {
           <Route path="/payments/:id" element={<PaymentDetailPage />} />
           <Route path="/pos/receipts" element={<ReceiptsPage />} />
           <Route path="/pos/receipts/:invoiceId" element={<ReceiptDetailPage />} />
+          {/* Sales charged to a customer's account, awaiting payment. */}
+          <Route path="/pos/receivables" element={<ReceivablesPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/expenses/categories" element={<ExpenseCategoriesPage />} />
           <Route path="/expenses/reports" element={<ExpensesReportPage />} />
@@ -237,6 +242,7 @@ export function App() {
           <Route path="/accounts/categories" element={<AccountCategoriesPage />} />
           <Route path="/accounts/:id" element={<AccountDetailPage />} />
           <Route path="/accounts/cash-accounts" element={<CashAccountsPage />} />
+          <Route path="/accounts/cash-accounts/transactions" element={<CashFlowTransactionsPage />} />
           <Route path="/accounts/cash-accounts/:id" element={<CashAccountDetailPage />} />
           <Route path="/accounts/cash-registers" element={<CashRegistersCrudPage />} />
           <Route path="/accounts/mappings" element={<AccountMappingsPage />} />

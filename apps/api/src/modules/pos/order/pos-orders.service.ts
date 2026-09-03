@@ -1,3 +1,5 @@
+import { businessOperation, recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
+import { discountedLines } from '../pricing-policy';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException,
@@ -72,6 +74,13 @@ export class PosOrdersService {
     private readonly workflows: WorkflowService,
     private readonly milestones: MilestoneService,
   ) {}
+
+  async quote(input: { lines: OrderLineDto[]; transactionDiscountType?: string; transactionDiscountAmount?: number; transactionDiscountPercent?: number }) {
+    await this.validateLines(input.lines, false);
+    const resolved = await this.resolveLines(input.lines);
+    const totals = await this.builder.prepareLines(this.prisma.client, discountedLines(resolved, input));
+    return { baseLines: resolved, pricingVersion: 1, subtotal: Number(totals.subtotal), discountTotal: Number(totals.discountTotal), taxAmount: Number(totals.taxAmount), total: Number(totals.total), lines: totals.prepared };
+  }
 
   // ─── Queries ───────────────────────────────────────────────────────────────
 
@@ -194,11 +203,17 @@ export class PosOrdersService {
         });
         if (held) throw new ConflictException(`Table already has an open order (${held.orderNumber})`);
       }
+      if (dto.cashSessionId) {
+        await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', dto.cashSessionId, orgId);
+        const session = await tx.cashSession.findFirst({ where: { id: dto.cashSessionId, organizationId: orgId } });
+        if (!session || session.status !== 'open') throw new BadRequestException('Select an open register session before creating an order');
+      }
       const orderNumber = await this.nextOrderNumber(tx);
       const order = await tx.order.create({
         data: {
           organizationId: orgId,
           orderNumber,
+          clientOperationKey: businessOperation.getStore()?.key,
           orderType: dto.orderType ?? 'dine_in',
           status: 'confirmed',
           tableId: dto.tableId ?? null,
@@ -211,9 +226,10 @@ export class PosOrdersService {
           createdBy: this.tenant.userId ?? null,
         },
       });
-      if (resolved.length) await this.writeItems(tx, order.id, resolved);
+      if (resolved.length) await this.writeItems(tx, order.id, resolved, dto);
       await this.syncTableOnOpen(tx, dto.tableId);
       const fresh = await this.reload(tx, order.id);
+      await recordBusinessOutcome(tx, { orderId: order.id, orderNumber });
       this.events.publish(EVENTS.PosOrderCreated, {
         organizationId: orgId, orderId: order.id, orderNumber, tableId: dto.tableId,
       });
@@ -258,7 +274,7 @@ export class PosOrdersService {
       modifiers?: Array<{ modifierId: string; name: string; priceDelta: number }>;
       course?: number | null;
     }>;
-  }) {
+  }, externalTx?: any) {
     const orgId = this.tenant.organizationId;
     const partnerId = input.partnerId ?? (await this.ensureWalkInCustomer(orgId));
     const resolved: ResolvedLine[] = input.lines.map((l) => ({
@@ -282,7 +298,7 @@ export class PosOrdersService {
       station: 'cafe',
       course: l.course ?? null,
     }));
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const run = async (tx: any) => {
       const orderNumber = await this.nextOrderNumber(tx);
       const order = await tx.order.create({
         data: {
@@ -304,7 +320,8 @@ export class PosOrdersService {
       const fresh = await this.reload(tx, order.id);
       this.events.publish(EVENTS.PosOrderCreated, { organizationId: orgId, orderId: order.id, orderNumber, tableId: input.tableId });
       return fresh;
-    });
+    };
+    return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
   }
 
   /** Auto-save: replace the order's item set with EXACTLY these lines. */
@@ -318,7 +335,7 @@ export class PosOrdersService {
       const order = await this.lockOrder(tx, orderId);
       this.assertEditable(order);
       this.assertVersion(order, dto.expectedVersion);
-      await this.writeItems(tx, orderId, resolved, { replace: true, transactionDiscountPercent: dto.transactionDiscountPercent });
+      await this.writeItems(tx, orderId, resolved, { ...dto, replace: true });
       if (dto.guestCount != null || dto.partnerId) {
         await tx.order.update({
           where: { id: orderId },
@@ -360,12 +377,13 @@ export class PosOrdersService {
   }
 
   /** Cancel the whole order (only while un-billed). */
-  async cancelOrder(orderId: string, reason?: string) {
+  async cancelOrder(orderId: string, reason?: string, expectedVersion?: number) {
     const orgId = this.tenant.organizationId;
     return this.prisma.client.$transaction(async (tx: any) => {
       const order = await this.lockOrder(tx, orderId);
       if (order.invoiceId) throw new ConflictException('Order already billed — refund/void the invoice instead');
       if (order.status === 'cancelled' || order.status === 'closed') return order;
+      if (expectedVersion != null) this.assertVersion(order, expectedVersion);
       // The engine validates the transition and writes status + cancelledAt/By,
       // the AuditLog row and the domain event (ADR-007). Domain-specific columns
       // it does not know about are written after it, on the same tx.
@@ -463,66 +481,81 @@ export class PosOrdersService {
     const orgId = this.tenant.organizationId;
     const order = await this.prisma.client.order.findFirst({ where: { id: orderId, organizationId: orgId } });
     if (!order) throw new NotFoundException('Order not found');
-    const items = await this.prisma.client.orderItem.findMany({
-      where: { orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
-    });
-
-    const deltas: Array<{ item: any; delta: number }> = [];
-    for (const it of items as any[]) {
-      // A line reaches the kitchen if it maps to EITHER a stock product or a menu
-      // item. Menu items carry `menuItemId` only (no single `productId`), so the
-      // old `if (!it.productId) continue` silently dropped every menu-driven order
-      // — the kitchen never saw it. Only lines with neither id are skipped.
-      if (!it.productId && !it.menuItemId) continue;
-      // P5 — "Fire course": when a course is given, only fire that course's lines
-      // (leave earlier/later courses held). Uncoursed lines always fire.
-      if (opts.course != null && it.course != null && it.course !== opts.course) continue;
-      const printed = Number(it.kitchenPrintedQty ?? 0);
-      const delta = Number(it.quantity) - printed;
-      if (delta > 0) deltas.push({ item: it, delta });
-    }
-    if (deltas.length === 0) return { ticketIds: [], count: 0, message: 'No new items to send' };
 
     const stationCache = new Map<string, string>();
     const prepCache = new Map<string, number | null>();
-    const kdsItems: Array<Record<string, any>> = [];
-    for (const { item, delta } of deltas) {
-      kdsItems.push({
-        productId: item.productId ?? item.menuItemId,
-        productName: item.description,
-        quantity: delta,
-        // Include the kitchen print name so the KDS shows the kitchen-facing
-        // modifier label (parity with the pre-payment send-to-kitchen path).
-        modifiers: (item.modifiers ?? []).map((m: any) => ({ name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, priceDelta: Number(m.priceDelta) })),
-        notes: item.note ?? null,
-        station: await this.stationForOrderItem(item, stationCache),
-        variantName: item.variantName ?? undefined,
-        accompanimentNames: item.accompanimentNames ?? [],
-        prepTime: await this.prepTimeForItem(item, prepCache),
-        course: item.course ?? null,
-      });
-    }
 
-    const ticketIds = await this.kds.createTicketsForSale({
-      orderId,
-      label: order.orderNumber,
-      orderType: order.orderType,
-      items: kdsItems as any,
+    // F11 — ticket creation AND the sent-counter bump commit together, fronted by
+    // a FOR UPDATE lock on the order row. Two concurrent sends serialise: the
+    // second re-reads the just-updated printed quantities inside the tx, sees
+    // delta 0, and dispatches nothing. A crash between the two writes rolls both
+    // back, so a retry recomputes the correct delta — dispatch is exactly-once.
+    const result = await this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', orderId, orgId);
+      const items = await tx.orderItem.findMany({
+        where: { orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
+      });
+
+      const deltas: Array<{ item: any; delta: number }> = [];
+      for (const it of items as any[]) {
+        // A line reaches the kitchen if it maps to EITHER a stock product or a menu
+        // item. Menu items carry `menuItemId` only (no single `productId`), so the
+        // old `if (!it.productId) continue` silently dropped every menu-driven order
+        // — the kitchen never saw it. Only lines with neither id are skipped.
+        if (!it.productId && !it.menuItemId) continue;
+        // P5 — "Fire course": when a course is given, only fire that course's lines
+        // (leave earlier/later courses held). Uncoursed lines always fire.
+        if (opts.course != null && it.course != null && it.course !== opts.course) continue;
+        const printed = Number(it.kitchenPrintedQty ?? 0);
+        const delta = Number(it.quantity) - printed;
+        if (delta > 0) deltas.push({ item: it, delta });
+      }
+      if (deltas.length === 0) return { ticketIds: [], deltas: [] as Array<{ item: any; delta: number }> };
+
+      const kdsItems: Array<Record<string, any>> = [];
+      for (const { item, delta } of deltas) {
+        kdsItems.push({
+          productId: item.productId ?? item.menuItemId,
+          productName: item.description,
+          quantity: delta,
+          // Include the kitchen print name so the KDS shows the kitchen-facing
+          // modifier label (parity with the pre-payment send-to-kitchen path).
+          modifiers: (item.modifiers ?? []).map((m: any) => ({ name: m.name, kitchenPrintName: m.kitchenPrintName ?? null, priceDelta: Number(m.priceDelta) })),
+          notes: item.note ?? null,
+          station: await this.stationForOrderItem(item, stationCache),
+          variantName: item.variantName ?? undefined,
+          accompanimentNames: item.accompanimentNames ?? [],
+          prepTime: await this.prepTimeForItem(item, prepCache),
+          course: item.course ?? null,
+        });
+      }
+
+      const ticketIds = await this.kds.createTicketsForSale({
+        orderId,
+        label: order.orderNumber,
+        orderType: order.orderType,
+        items: kdsItems as any,
+      }, tx);
+
+      const now = new Date();
+      for (const { item } of deltas) {
+        await tx.orderItem.update({
+          where: { id: item.id },
+          data: {
+            kitchenPrintedQty: item.quantity,
+            kitchenStatus: 'sent',
+            kitchenPrintCount: { increment: 1 },
+            kitchenLastPrintedAt: now,
+            lastKitchenPrintedById: this.tenant.userId ?? null,
+          },
+        });
+      }
+      return { ticketIds, deltas };
     });
 
-    const now = new Date();
-    for (const { item } of deltas) {
-      await this.prisma.client.orderItem.update({
-        where: { id: item.id },
-        data: {
-          kitchenPrintedQty: item.quantity,
-          kitchenStatus: 'sent',
-          kitchenPrintCount: { increment: 1 },
-          kitchenLastPrintedAt: now,
-          lastKitchenPrintedById: this.tenant.userId ?? null,
-        },
-      });
-    }
+    if (result.deltas.length === 0) return { ticketIds: [], count: 0, message: 'No new items to send' };
+    const { ticketIds, deltas } = result;
+
     // Firing the kitchen is the first fulfillment activity on the order.
     // (`open` is the legacy alias of `confirmed` — accepted during the Android
     // wire-compat window.) The transition emits `order.fulfillment_started`;
@@ -663,6 +696,7 @@ export class PosOrdersService {
 
   /** Assert that the override user has pos:override permission. Returns true if override is valid. */
   private async assertOverride(overrideById: string): Promise<boolean> {
+    if (businessOperation.getStore()?.approvedById !== overrideById && overrideById !== this.tenant.userId) throw new ForbiddenException('An authenticated manager approval is required');
     const user = await this.prisma.client.user.findFirst({
       where: { id: overrideById, organizationId: this.tenant.organizationId, deletedAt: null },
       include: { roles: true },
@@ -682,7 +716,6 @@ export class PosOrdersService {
   private async resolveLines(inputLines: OrderLineDto[]): Promise<ResolvedLine[]> {
     const orgId = this.tenant.organizationId;
     const skuMap = await this.resolveSkus(inputLines);
-    const menuTaxCache = new Map<string, string | null>();
     const productStationCache = new Map<string, 'bar' | 'kitchen' | 'cafe'>();
     const stationFor = async (productId: string | null): Promise<'bar' | 'kitchen' | 'cafe'> => {
       if (!productId) return 'cafe';
@@ -695,6 +728,8 @@ export class PosOrdersService {
 
     const lines: ResolvedLine[] = [];
     for (const l of inputLines) {
+      if (!Number.isFinite(Number(l.quantity)) || Number(l.quantity) <= 0) throw new BadRequestException('Sale quantities must be positive');
+      if (l.comboId) throw new BadRequestException('Combo selling is paused until component quantities and prices can be preserved through order editing. Sell the individual catalog items.');
       // SECURITY: re-resolve each modifier's price from the DB (reject unknown
       // ids) rather than trusting the client-sent priceDelta. Mirrors how
       // variants/accompaniments are already server-resolved below.
@@ -720,18 +755,26 @@ export class PosOrdersService {
         const r = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds, true);
         accompanimentImpact = r.priceImpact; accompanimentNames = r.names;
       }
-      const baseUnitPrice = hasVariant ? variantPrice : l.unitPrice;
-      const finalUnitPrice = baseUnitPrice + accompanimentImpact + modifierDelta;
-      const noteParts: string[] = [];
-      if (l.note) noteParts.push(l.note);
-      if (accompanimentNames.length) noteParts.push(...accompanimentNames.map((n) => `+ ${n}`));
-      if (resolvedMods.length) noteParts.push(...resolvedMods.map((m) => `+ ${m.name}`));
       const productId = l.productId ?? skuMap.get(l.sku?.toLowerCase() ?? '') ?? null;
-      // H4: a menu item carries its own tax category (it has no single stock
-      // product to inherit from). A client-sent taxId still wins; otherwise fall
-      // back to the menu item's configured taxId so menu sales aren't untaxed.
-      let taxId = l.taxId ?? null;
-      if (!taxId && l.menuItemId) taxId = await this.menuItemTaxId(l.menuItemId, menuTaxCache);
+      const catalog = l.menuItemId
+        ? await this.prisma.client.menuItem.findFirst({ where: { id: l.menuItemId, organizationId: orgId, isAvailable: true } })
+        : productId ? await this.prisma.client.product.findFirst({ where: { id: productId, organizationId: orgId, isActive: true } }) : null;
+      if (!catalog) throw new BadRequestException('A sale line must identify an available catalog item');
+      if (l.variantId && productId && !l.menuItemId) {
+        const variant = await this.prisma.client.productVariant.findFirst({ where: { id: l.variantId, productId, organizationId: orgId, isActive: true, deletedAt: null } });
+        if (!variant) throw new BadRequestException('Variant does not belong to this product');
+        variantName = variant.name;
+        if (variant.salesPrice != null) { variantPrice = Number(variant.salesPrice); hasVariant = true; }
+      }
+      const catalogPrice = l.menuItemId ? (catalog as any).basePrice : (catalog as any).salesPrice;
+      if (!hasVariant && catalogPrice == null) throw new BadRequestException('Configure a catalog selling price before selling this item');
+      const baseUnitPrice = hasVariant ? variantPrice : Number(catalogPrice);
+      const finalUnitPrice = baseUnitPrice + accompanimentImpact + modifierDelta;
+      if (!Number.isFinite(finalUnitPrice) || finalUnitPrice < 0) throw new BadRequestException('Catalog price must be finite and non-negative');
+      const taxId = catalog.taxId ?? null;
+      const tax = taxId ? await this.prisma.client.tax.findFirst({ where: { id: taxId } }) : null;
+      const taxInclusive = l.menuItemId ? Boolean(tax?.isInclusive) : Boolean((catalog as any).taxInclusive);
+      const noteParts = [l.note, ...accompanimentNames.map((n) => `+ ${n}`), ...resolvedMods.map((m) => `+ ${m.name}`)].filter(Boolean);
       lines.push({
         productId,
         menuItemId: l.menuItemId ?? null,
@@ -744,7 +787,7 @@ export class PosOrdersService {
         discountAmount: l.discountAmount,
         discountReason: l.discountReason ?? null,
         note: noteParts.length ? noteParts.join(' | ') : null,
-        taxInclusive: l.taxInclusive,
+        taxInclusive,
         modifiers: resolvedMods,
         variantId: l.variantId ?? undefined,
         variantName,
@@ -755,31 +798,48 @@ export class PosOrdersService {
       });
     }
 
-    // Expand combos into component lines (first component carries the combo price).
-    const expanded: ResolvedLine[] = [];
-    for (let i = 0; i < lines.length; i++) {
-      const ln = lines[i];
-      const src = inputLines[i];
-      if (!src.comboId) { expanded.push(ln); continue; }
-      const comps = await this.modifiers.expandCombosForCheckout([{ comboId: src.comboId, quantity: ln.quantity }]);
-      for (let j = 0; j < comps.length; j++) {
-        const c: any = comps[j];
-        expanded.push({
-          ...ln,
-          productId: c.productId,
-          unitPrice: j === 0 ? Number(c.comboPrice ?? ln.unitPrice) : 0,
-          station: await stationFor(c.productId),
-        });
-      }
-    }
-    return expanded;
+    return lines;
   }
 
-  /** Stable per-line identity for preserving kitchen lifecycle across a replace. */
-  private lineKey(it: { productId?: string | null; menuItemId?: string | null; variantName?: string | null; description?: string | null }): string {
-    if (it.productId) return `p:${it.productId}`;
-    if (it.menuItemId) return `m:${it.menuItemId}|${it.variantName ?? ''}`;
-    return `d:${it.description ?? ''}`;
+  /**
+   * F10 — per-line kitchen identity for preserving the sent/printed lifecycle
+   * across an auto-save replace. The old key was `productId` (or
+   * `menuItemId|variant`) ONLY, so two lines of the same product with different
+   * milk / notes / sides / course collapsed to one key: an unsent "oat latte"
+   * inherited a sent "dairy latte"'s printed quantity, or an already-fired line
+   * re-fired. The signature now covers the whole customization, and matching is
+   * a one-to-one multiset consume (see `writeItems`), so two genuinely identical
+   * lines each keep their own lifecycle row instead of sharing the last one.
+   */
+  private lineSignature(it: {
+    productId?: string | null; menuItemId?: string | null; variantName?: string | null;
+    description?: string | null; note?: string | null; course?: number | null;
+    modifierIds?: (string | null)[]; accompanimentOptionIds?: string[];
+  }): string {
+    const base = it.productId ? `p:${it.productId}` : it.menuItemId ? `m:${it.menuItemId}` : `d:${it.description ?? ''}`;
+    const mods = [...(it.modifierIds ?? [])].filter(Boolean).sort().join(',');
+    const accs = [...(it.accompanimentOptionIds ?? [])].filter(Boolean).sort().join(',');
+    return [base, it.variantName ?? '', it.course ?? '', (it.note ?? '').trim(), mods, accs].join('|');
+  }
+
+  /** Signature of a persisted OrderItem row (needs its modifiers loaded). */
+  private rowSignature(row: any): string {
+    return this.lineSignature({
+      productId: row.productId, menuItemId: row.menuItemId, variantName: row.variantName,
+      description: row.description, note: row.note, course: row.course,
+      modifierIds: (row.modifiers ?? []).map((m: any) => m.modifierId),
+      accompanimentOptionIds: row.accompanimentOptionIds ?? [],
+    });
+  }
+
+  /** Signature of an incoming resolved line. */
+  private resolvedSignature(l: ResolvedLine): string {
+    return this.lineSignature({
+      productId: l.productId, menuItemId: l.menuItemId, variantName: l.variantName,
+      description: l.description, note: l.note, course: l.course,
+      modifierIds: (l.modifiers ?? []).map((m) => m.modifierId),
+      accompanimentOptionIds: l.accompanimentOptionIds ?? [],
+    });
   }
 
   /** Map an existing OrderItem row back to a ResolvedLine (for merge). */
@@ -816,24 +876,33 @@ export class PosOrdersService {
     tx: any,
     orderId: string,
     resolved: ResolvedLine[],
-    opts: { replace?: boolean; append?: boolean; transactionDiscountPercent?: number } = {},
+    opts: { replace?: boolean; append?: boolean } & Partial<SaveOrderItemsDto> = {},
   ): Promise<void> {
     const orgId = this.tenant.organizationId;
 
     let baseline: ResolvedLine[] = [];
-    // Preserve each line's kitchen lifecycle across a replace/auto-save. Keyed by
-    // a stable line identity — productId for stock lines, menuItemId+variant for
-    // menu lines — so menu-item lines (no productId) no longer reset their
-    // kitchenStatus/printed counters (and re-fire) on every save.
-    const lifecycleByKey = new Map<string, any>();
+    // F10 — preserve each line's kitchen lifecycle across a replace/auto-save by
+    // its full-customization signature, matched ONE-TO-ONE. Old rows sharing a
+    // signature form a queue; each new line consumes at most one, so a second
+    // identical line cannot inherit the first's sent quantity and two distinct
+    // customizations of the same product never cross-contaminate.
+    const lifecycleQueue = new Map<string, any[]>();
+    const enqueue = (rows: any[]) => {
+      for (const o of rows) {
+        const sig = this.rowSignature(o);
+        (lifecycleQueue.get(sig) ?? lifecycleQueue.set(sig, []).get(sig)!).push(o);
+      }
+    };
     if (opts.append) {
       const existing = await tx.orderItem.findMany({ where: { orderId, cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' } });
       baseline = existing.map((it: any) => this.itemToResolved(it));
       // Preserve the already-fired kitchen state of existing lines across the append.
-      for (const o of existing) lifecycleByKey.set(this.lineKey(o), o);
+      enqueue(existing);
     } else if (opts.replace) {
-      const old = await tx.orderItem.findMany({ where: { orderId }, select: { id: true, productId: true, menuItemId: true, variantName: true, description: true, kitchenPrintCount: true, kitchenLastPrintedAt: true, kitchenPrintedQty: true, cancelPrintCount: true, cancelLastPrintedAt: true, lastKitchenPrintedById: true, kitchenStatus: true } });
-      for (const o of old) lifecycleByKey.set(this.lineKey(o), o);
+      const old = await tx.orderItem.findMany({
+        where: { orderId }, include: { modifiers: { select: { modifierId: true } } },
+      });
+      enqueue(old);
     }
     const all = [...baseline, ...resolved];
 
@@ -861,8 +930,10 @@ export class PosOrdersService {
 
     for (let i = 0; i < totals.prepared.length; i++) {
       const p = totals.prepared[i];
-      const lc = lifecycleByKey.get(this.lineKey(p));
       const src = all[i];
+      // Consume one lifecycle row for this line's signature (F10). shift() makes
+      // the match one-to-one: the next identical line gets the next row, or none.
+      const lc = lifecycleQueue.get(this.resolvedSignature(src))?.shift();
       const item = await tx.orderItem.create({
         data: {
           organizationId: orgId,
@@ -902,27 +973,18 @@ export class PosOrdersService {
       }
     }
 
-    // Apply optional order-level discount to the header total snapshot.
-    let totalAmount = totals.total;
-    let discountTotal = totals.discountTotal;
-    const txPct = opts.transactionDiscountPercent ?? 0;
-    if (txPct > 0) {
-      const txDisc = dec(totals.total).times(dec(txPct).dividedBy(100));
-      totalAmount = dec(totals.total).minus(txDisc) as any;
-      discountTotal = dec(totals.discountTotal).plus(txDisc) as any;
-    }
-
-    await tx.order.update({
-      where: { id: orderId },
-      data: {
-        subtotal: totals.subtotal,
-        discountTotal,
-        taxAmount: totals.taxAmount,
-        totalAmount,
-        ...(txPct > 0 ? { transactionDiscountPercent: txPct } : {}),
-        version: { increment: 1 },
-      },
-    });
+    const header = await tx.order.findFirst({ where: { id: orderId, organizationId: orgId } });
+    const pricing = all.length ? {
+      transactionDiscountType: opts.transactionDiscountType ?? header.transactionDiscountType ?? 'percentage',
+      transactionDiscountPercent: opts.transactionDiscountPercent ?? Number(header.transactionDiscountPercent ?? 0),
+      transactionDiscountAmount: opts.transactionDiscountAmount ?? Number(header.transactionDiscountAmount ?? 0),
+      discountReason: opts.discountReason ?? header.discountReason ?? null,
+    } : { transactionDiscountType: 'percentage', transactionDiscountPercent: 0, transactionDiscountAmount: 0, discountReason: null };
+    const discounted = await this.builder.prepareLines(tx, discountedLines(all, pricing));
+    await tx.order.update({ where: { id: orderId }, data: {
+      subtotal: discounted.subtotal, taxAmount: discounted.taxAmount, totalAmount: discounted.total,
+      discountTotal: discounted.discountTotal, ...pricing, version: { increment: 1 },
+    } });
   }
 
   private async reload(tx: any, orderId: string) {
@@ -934,6 +996,12 @@ export class PosOrdersService {
 
   private async lockOrder(tx: any, orderId: string) {
     const orgId = this.tenant.organizationId;
+    const header = await tx.order.findFirst({ where: { id: orderId, organizationId: orgId }, select: { cashSessionId: true } });
+    if (header?.cashSessionId) {
+      await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', header.cashSessionId, orgId);
+      const session = await tx.cashSession.findFirst({ where: { id: header.cashSessionId, organizationId: orgId } });
+      if (!session || session.status !== 'open') throw new ConflictException('The order belongs to a closed register session');
+    }
     await tx.$queryRawUnsafe(`SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, orderId, orgId);
     const order = await tx.order.findFirst({ where: { id: orderId, organizationId: orgId } });
     if (!order) throw new NotFoundException('Order not found');
@@ -947,7 +1015,8 @@ export class PosOrdersService {
   }
 
   private assertVersion(order: any, expected?: number): void {
-    if (expected != null && order.version !== expected) {
+    if (expected == null) throw new ConflictException('An order version is required before replacing saved items');
+    if (order.version !== expected) {
       throw new ConflictException(`Order was modified by someone else (expected v${expected}, found v${order.version}). Reload and retry.`);
     }
   }

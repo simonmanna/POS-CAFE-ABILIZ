@@ -48,14 +48,14 @@ describe('PosService', () => {
       expect(mode).toBe('mobile_money');
     });
 
-    it('returns "cash" for a single bank tender (bank -> cash)', () => {
+    it('classifies a bank tender as electronic, never physical cash', () => {
       const mode = (svc as any).resolvePaymentMode([{ method: 'bank', amount: 100 }]);
-      expect(mode).toBe('cash');
+      expect(mode).toBe('card');
     });
 
-    it('returns "credit" for a single store_credit tender', () => {
+    it('does not label prepaid store credit as unpaid house credit', () => {
       const mode = (svc as any).resolvePaymentMode([{ method: 'store_credit', amount: 100 }]);
-      expect(mode).toBe('credit');
+      expect(mode).toBe('mixed');
     });
 
     it('returns "mixed" for multiple tender methods', () => {
@@ -72,42 +72,37 @@ describe('PosService', () => {
       prisma.client.cashSession = { findFirst: jest.fn() };
     });
 
-    it('uses a supplied open drawer even when it belongs to a different cashier', async () => {
-      // Regression: a waiter settling against the cashier's open drawer on a
-      // shared terminal must not be blocked with "belongs to a different cashier".
-      prisma.client.cashSession.findFirst.mockResolvedValueOnce({ id: 'drawer-1', status: 'open', userId: 'other-cashier' });
+    it('refuses another cashier’s drawer unless the org declared the till shared', async () => {
+      // F17: money must land in the drawer of the person who counts it. A waiter
+      // on a shared terminal either hands the register over or the site opts in.
+      const other = { id: 'drawer-1', status: 'open', userId: 'other-cashier', cashRegister: { isActive: true, deletedAt: null } };
+      prisma.client.cashSession.findFirst.mockResolvedValue(other);
+      prisma.client.organizationModule = { findUnique: jest.fn().mockResolvedValue({ config: {} }) };
+      await expect((svc as any).requireCashSession({ cashSessionId: 'drawer-1', paymentMethod: 'cash' })).rejects.toThrow(/another cashier/i);
+
+      prisma.client.organizationModule.findUnique.mockResolvedValue({ config: { sharedDrawer: true } });
+      await expect((svc as any).requireCashSession({ cashSessionId: 'drawer-1', paymentMethod: 'cash' })).resolves.toBe('drawer-1');
+    });
+
+    it('accepts the caller’s own open drawer', async () => {
+      prisma.client.cashSession.findFirst.mockResolvedValueOnce({ id: 'drawer-1', status: 'open', userId: 'test-user', cashRegister: { isActive: true, deletedAt: null } });
       const id = await (svc as any).requireCashSession({ cashSessionId: 'drawer-1', paymentMethod: 'cash' });
       expect(id).toBe('drawer-1');
     });
 
-    it('falls through to a live drawer when the supplied session id is stale/closed', async () => {
-      prisma.client.cashSession.findFirst
-        .mockResolvedValueOnce({ id: 'drawer-1', status: 'closed', userId: 'other' }) // supplied — closed
-        .mockResolvedValueOnce(null) // caller's own open drawer — none
-        .mockResolvedValueOnce({ id: 'drawer-2', status: 'open', userId: 'other' }); // any open drawer
-      const id = await (svc as any).requireCashSession({ cashSessionId: 'drawer-1', paymentMethod: 'cash' });
-      expect(id).toBe('drawer-2');
+    it('rejects a closed original drawer instead of silently selecting another one', async () => {
+      prisma.client.cashSession.findFirst.mockResolvedValue({ id: 'drawer-1', status: 'closed', userId: 'other' });
+      await expect((svc as any).requireCashSession({ cashSessionId: 'drawer-1', paymentMethod: 'cash' })).rejects.toThrow(/original register session/i);
+      expect(prisma.client.cashSession.findFirst).toHaveBeenCalledTimes(1);
+    });
+    it('requires an explicitly selected register for physical cash', async () => {
+      await expect((svc as any).requireCashSession({ paymentMethod: 'cash' })).rejects.toThrow(/Select an open register/i);
+      expect(prisma.client.cashSession.findFirst).not.toHaveBeenCalled();
     });
 
-    it('lets a waiter with no own drawer settle a cash sale against any open drawer', async () => {
-      prisma.client.cashSession.findFirst
-        .mockResolvedValueOnce(null) // own — waiter cannot open a drawer
-        .mockResolvedValueOnce({ id: 'drawer-2', status: 'open', userId: 'cashier' }); // cashier's open drawer
-      const id = await (svc as any).requireCashSession({ paymentMethod: 'cash' });
-      expect(id).toBe('drawer-2');
-    });
-
-    it('blocks a cash sale only when no drawer is open anywhere', async () => {
-      prisma.client.cashSession.findFirst
-        .mockResolvedValueOnce(null) // own
-        .mockResolvedValueOnce(null); // any
-      await expect((svc as any).requireCashSession({ paymentMethod: 'cash' })).rejects.toThrow('No open cash session');
-    });
-
-    it('allows a card-only sale with no drawer', async () => {
+    it('requires register attribution for electronic sales too', async () => {
       prisma.client.cashSession.findFirst.mockResolvedValueOnce(null); // own
-      const id = await (svc as any).requireCashSession({ tenders: [{ method: 'card', amount: 100 }] });
-      expect(id).toBeUndefined();
+      await expect((svc as any).requireCashSession({ tenders: [{ method: 'card', amount: 100 }] })).rejects.toThrow('Select an open register');
     });
   });
 });

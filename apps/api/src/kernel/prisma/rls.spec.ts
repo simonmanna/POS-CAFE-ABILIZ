@@ -50,6 +50,8 @@ describeDb('Row-Level Security (RLS) — D2-1', () => {
       return;
     }
 
+    await prismaSuper.currency.upsert({ where: { code: 'USD' }, update: {}, create: { code: 'USD', name: 'US Dollar', symbol: '$' } });
+    if (/^\/pos_stage1_\d+$/.test(new URL(dbUrl).pathname)) await prismaSuper.$executeRawUnsafe('GRANT SELECT ON TABLE "Partner" TO app');
     orgA = randomUUID();
     orgB = randomUUID();
 

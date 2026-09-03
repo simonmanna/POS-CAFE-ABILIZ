@@ -1,5 +1,3 @@
-import { useAuthStore } from '@/stores/auth.store';
-const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Order panel — Odoo-style POS control panel.
 //
 // Layout (top → bottom):
@@ -32,9 +30,8 @@ import {
   Percent,
   Delete as BackspaceIcon,
   MoreHorizontal,
-  Flame,
-  Utensils,
 } from "lucide-react";
+import { getFoodEmoji } from "./food-images";
 import {
   selectItemCount,
   selectSubtotal,
@@ -51,10 +48,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/stores/auth.store";
 
 export type OrderTypeOption = 'dine-in' | 'takeaway' | 'delivery';
 
 interface Props {
+  quotedTotal?: number;
+  quotedTax?: number;
   customerName?: string;
   orderTypeLabel?: string;
   orderType: OrderTypeOption;
@@ -93,19 +93,13 @@ interface Props {
   onHandover?: () => void;
   /** Retail: open customer profile dialog (loyalty, store credit). */
   onCustomerProfile?: () => void;
-  /** P5: fire a specific course (1=starter, 2=main, …) of the order to the kitchen. */
-  onFireCourse?: (course: number) => void;
 }
 
+// Use the organization currency like every sibling POS component — OrderPanel
+// was the lone hard-coded UGX, so an org on another currency showed two symbols
+// on one screen.
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
-
-/** Course labels for the fire/hold controls. */
-const COURSES: Array<{ n: number; label: string }> = [
-  { n: 1, label: 'Starter' },
-  { n: 2, label: 'Main' },
-  { n: 3, label: 'Dessert' },
-];
-const courseLabel = (n: number) => COURSES.find((c) => c.n === n)?.label ?? `Course ${n}`;
 
 const ORDER_TYPES: Array<{ key: 'dine-in' | 'takeaway' | 'delivery'; label: string }> = [
   { key: 'dine-in', label: 'Dine In' },
@@ -116,6 +110,7 @@ const ORDER_TYPES: Array<{ key: 'dine-in' | 'takeaway' | 'delivery'; label: stri
 type NumMode = 'qty' | 'disc' | 'price';
 
 export const OrderPanel: React.FC<Props> = ({
+  quotedTotal, quotedTax,
   customerName,
   orderType,
   onChangeOrderType,
@@ -137,25 +132,23 @@ export const OrderPanel: React.FC<Props> = ({
   onPrintAdditionalBill,
   hideCafeFeatures = false,
   canDiscount = true,
-  canOverridePrice = true,
+  canOverridePrice = false,
   onHold,
   onHeldOrders,
   onHandover,
   onCustomerProfile,
-  onFireCourse,
 }) => {
   const lines = useCartStore((s) => s.lines);
-  const setCourse = useCartStore((s) => s.setCourse);
   const transactionDiscountPercent = useCartStore((s) => s.transactionDiscountPercent);
   const subtotal = useCartStore(selectSubtotal);
   const txDisc = useCartStore(selectTxDiscountAmount);
-  const total = useCartStore(selectTotal);
+  const estimate = useCartStore(selectTotal);
+  const total = quotedTotal ?? estimate;
   const itemCount = useCartStore(selectItemCount);
   const setQuantity = useCartStore((s) => s.setQuantity);
   const setDiscount = useCartStore((s) => s.setDiscount);
   const setUnitPrice = useCartStore((s) => s.setUnitPrice);
   const empty = lines.length === 0;
-  const hasCourses = lines.some((l) => l.course);
 
   /* ============== Odoo numpad state ============== */
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
@@ -318,6 +311,7 @@ export const OrderPanel: React.FC<Props> = ({
         <div className="pos-order-list min-h-0">
           {lines.map((it) => {
             const isCombo = Boolean(it.comboId);
+            const emoji = isCombo ? '🍱' : getFoodEmoji(it.name);
             const lineSub = it.quantity * it.unitPrice * (1 - it.discountPercent / 100);
             const isSel = it.lineId === selectedLineId;
             return (
@@ -329,15 +323,15 @@ export const OrderPanel: React.FC<Props> = ({
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectLine(it.lineId); } }}
               >
-                <div className="pos-oline-qty">{it.quantity}</div>
+                <div className="pos-oline-qty">{it.quantity}<span className="pos-oline-x">×</span></div>
+                <div className="pos-oline-emoji">{emoji}</div>
                 <div className="pos-oline-body">
                   <div className="pos-oline-name truncate">
                     {it.name}
                     {isCombo ? <span className="pos-oline-combo">COMBO</span> : null}
-                    {it.course ? <span className="pos-oline-combo" style={{ background: '#7c3aed' }} title={courseLabel(it.course)}>C{it.course}</span> : null}
                   </div>
                   <div className="pos-oline-sub">
-                    {it.discountPercent > 0 ? ` −${it.discountPercent}%` : ""}
+                    @ {fmt(it.unitPrice)}{it.discountPercent > 0 ? ` · −${it.discountPercent}%` : ""}
                   </div>
                   {it.variantName && <div className="pos-oline-meta truncate">{it.variantName}</div>}
                   {it.accompanimentNames && it.accompanimentNames.length > 0 && (
@@ -369,6 +363,8 @@ export const OrderPanel: React.FC<Props> = ({
             <span className="pos-amt text-emerald-600">−{fmt(txDisc)}</span>
           </div>
         ) : null}
+        {quotedTax != null && <div className="pos-totals-row"><span>Tax (included in total)</span><span className="pos-amt">{fmt(quotedTax)}</span></div>}
+        {quotedTotal == null && <div className="text-xs text-amber-700">Estimated — waiting for server quote</div>}
         <div className="pos-totals-row big">
           <span>TOTAL</span>
           <span className="pos-amt">{fmt(total)}</span>
@@ -411,18 +407,6 @@ export const OrderPanel: React.FC<Props> = ({
                         <Trash2 className="h-4 w-4 mr-2" /> Delete
                       </Button>
                     )}
-                    {/* P5 — assign this line to a course for fire/hold. */}
-                    {!hideCafeFeatures && (
-                      <div className="pt-1">
-                        <div className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Utensils className="h-3.5 w-3.5" /> Course</div>
-                        <div className="flex gap-1.5 flex-wrap">
-                          <Button size="sm" variant={!selectedLine?.course ? 'default' : 'outline'} onClick={() => selectedLine && setCourse(selectedLine.lineId, undefined)}>None</Button>
-                          {COURSES.map((c) => (
-                            <Button key={c.n} size="sm" variant={selectedLine?.course === c.n ? 'default' : 'outline'} onClick={() => selectedLine && setCourse(selectedLine.lineId, c.n)}>{c.n} · {c.label}</Button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </>
                 )}
                 {/* Order-level actions */}
@@ -456,20 +440,6 @@ export const OrderPanel: React.FC<Props> = ({
                       <Button variant="outline" className="w-full justify-start" onClick={onHandover} title="Hand over shift">
                         <ArrowLeftRight className="h-4 w-4 mr-2" /> Handover
                       </Button>
-                    )}
-                    {/* P5 — fire a course to the kitchen (leaves other courses held). */}
-                    {!hideCafeFeatures && onFireCourse && hasCourses && (
-                      <>
-                        <hr className="my-2 border-slate-200" />
-                        <div className="text-xs font-semibold text-slate-500 mb-1 flex items-center gap-1"><Flame className="h-3.5 w-3.5" /> Fire course to kitchen</div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {COURSES.map((c) => (
-                            <Button key={c.n} variant="outline" size="sm" onClick={() => onFireCourse(c.n)} title={`Fire ${c.label} now`}>
-                              <Flame className="h-4 w-4 mr-1" /> {c.label}
-                            </Button>
-                          ))}
-                        </div>
-                      </>
                     )}
                   </>
                 )}
@@ -517,7 +487,7 @@ export const OrderPanel: React.FC<Props> = ({
       <div className="pos-order-actions">
         {!hideCafeFeatures && (
           <button type="button" className="pos-action-btn-pro bg-sky-600" onClick={onPrintKot} disabled={empty}>
-            <Printer className="pos-action-icon" />KOT
+            <Printer className="pos-action-icon" /> KOT
           </button>
         )}
 

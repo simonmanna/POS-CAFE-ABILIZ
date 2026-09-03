@@ -1,3 +1,7 @@
+import { useAccounts } from '@/features/accounting/api';
+import { usePaymentAccounts } from '@/features/pos/payment-accounts';
+import { ShiftOpenDialog as OpenShiftDialog } from '../ShiftOpenDialog';
+import { ShiftCloseDialog as CloseShiftDialog } from '../ShiftCloseDialog';
 import { useAuthStore } from '@/stores/auth.store';
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
@@ -16,7 +20,7 @@ const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR'
  */
 import React, { useEffect, useState } from 'react';
 import {
-  ArrowLeftRight, ArrowRight, Banknote, Calculator, Check,
+  ArrowLeftRight, ArrowRight, Banknote, Calculator,
   CircleDollarSign, ClipboardList, Coins, Eye, ThumbsUp, ThumbsDown,
   History, List, LogOut, Minus, Plus,
   RefreshCw, X,
@@ -26,8 +30,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
-  useCashRegisters, useCloseShift, useDailyReconciliation, useExpectedCash,
-  useOpenSession, useOpenShift, useRecordBankDeposit, useRecordMovement,
+  useCashRegisters, useDailyReconciliation,
+  useOpenSession, useRecordBankDeposit, useRecordMovement,
   useSessionHistory, useSessionMovements, useUpdateVariance,
 } from '../api';
 import { HandoverDialog } from '../HandoverDialog';
@@ -274,6 +278,10 @@ const CashInOutButton: React.FC<{
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
+  const { data: accountPage } = useAccounts();
+  const [counterpartAccountId, setCounterpartAccountId] = useState('');
+  const [approverEmail, setApproverEmail] = useState('');
+  const [managerPin, setManagerPin] = useState('');
   const record = useRecordMovement();
 
   const reset = () => { setAmount(''); setReason(''); };
@@ -289,6 +297,7 @@ const CashInOutButton: React.FC<{
         movementType: direction,
         amount: amt,
         reason: reason.trim(),
+        counterpartAccountId, approverEmail: approverEmail || undefined, managerPin: managerPin || undefined,
       });
       toast.success(direction === 'pay_in' ? 'Cash in recorded' : 'Cash out recorded');
       close();
@@ -332,6 +341,8 @@ const CashInOutButton: React.FC<{
               <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={isIn ? 'e.g. Added change money' : 'e.g. Purchased milk'} />
             </div>
 
+            <label className="block text-sm">Expense / safe / counterpart account<select className="block border rounded p-2 w-full" value={counterpartAccountId} onChange={(e) => setCounterpartAccountId(e.target.value)}><option value="">Choose account</option>{(accountPage?.data ?? []).filter((a) => a.isActive && !a.isGroup).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}</select></label>
+            {!isIn && <><Input aria-label="Approving manager email" placeholder="Manager email" value={approverEmail} onChange={(e) => setApproverEmail(e.target.value)} /><Input aria-label="Approving manager PIN" type="password" placeholder="Manager PIN" value={managerPin} onChange={(e) => setManagerPin(e.target.value)} /></>}
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" onClick={close}>Cancel</Button>
               <Button onClick={handleSubmit} disabled={record.isPending} style={{ background: isIn ? '#16a34a' : '#d97706' }}>
@@ -469,226 +480,6 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
    Open Shift Dialog (extended)
    ========================================================================== */
 
-const OpenShiftDialog: React.FC<{
-  open: boolean;
-  onClose: () => void;
-  onOpened: () => void;
-  preselectedRegisterId?: string;
-}> = ({ open, onClose, onOpened, preselectedRegisterId }) => {
-  const { data: registers = [] } = useCashRegisters();
-  const [registerId, setRegisterId] = useState(preselectedRegisterId || '');
-  const [openingFloat, setOpeningFloat] = useState('50000');
-  const [notes, setNotes] = useState('');
-  const [err, setErr] = useState<string | null>(null);
-  const openShift = useOpenShift();
-
-  useEffect(() => {
-    if (open) {
-      setRegisterId(preselectedRegisterId || registers[0]?.id || '');
-      setOpeningFloat('50000');
-      setNotes('');
-      setErr(null);
-    }
-  }, [open, registers.length, preselectedRegisterId]);
-
-  const submit = async () => {
-    setErr(null);
-    if (!registerId) { setErr('Pick a cash register'); return; }
-    if (openingFloat.trim() === '') { setErr('Enter an opening float amount'); return; }
-    const float = Number(openingFloat);
-    if (!Number.isFinite(float) || float < 0) { setErr('Opening float must be a non-negative number'); return; }
-    try {
-      await openShift.mutateAsync({ cashRegisterId: registerId, openingFloat: float, notes: notes.trim() || undefined });
-      toast.success('Shift opened — you can now sell');
-      onOpened();
-      onClose();
-    } catch (e: any) {
-      setErr(e?.response?.data?.message || 'Failed to open shift');
-    }
-  };
-
-  if (!open) return null;
-
-  const QUICK_FLOATS = [0, 50000, 100000, 200000, 500000];
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <Power className="h-4 w-4 text-emerald-600" /> Open Register
-          </h2>
-          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
-        </div>
-
-        <div>
-          <Label>Cash register</Label>
-          {registers.length === 0 ? (
-            <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 mt-1">
-              No active cash registers. Ask a manager to create one.
-            </div>
-          ) : (
-            <select className="w-full mt-1 px-3 py-2 border border-slate-200 rounded-md text-sm" value={registerId} onChange={(e) => setRegisterId(e.target.value)}>
-              {registers.map((r: CashRegister) => (
-                <option key={r.id} value={r.id}>{r.code} — {r.name}</option>
-              ))}
-            </select>
-          )}
-        </div>
-
-        <div className="mb-4 py-2">
-          <Label className="mb-2">Opening float ({orgCur()})</Label>
-          <Input type="number" value={openingFloat} onChange={(e) => setOpeningFloat(e.target.value)} className="mt-3 text-right text-lg h-11 font-mono font-bold" autoFocus />
-          <div className="flex gap-1.5 mt-2 flex-wrap">
-            {QUICK_FLOATS.map((q) => (
-              <button key={q} type="button" className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-sm font-bold" onClick={() => setOpeningFloat(String(q))}>
-                {q === 0 ? 'No float' : q.toLocaleString()}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <Label>Notes (optional)</Label>
-          <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. Morning shift" />
-        </div>
-
-        {err && <p className="text-sm text-rose-600">{err}</p>}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={openShift.isPending || registers.length === 0} style={{ background: '#16a34a' }}>
-            {openShift.isPending ? 'Opening…' : 'Open register'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/* ==========================================================================
-   Close Shift Dialog (with cash count + variance)
-   ========================================================================== */
-
-const CloseShiftDialog: React.FC<{
-  open: boolean;
-  session: CashSession | null;
-  onClose: () => void;
-  onClosed: () => void;
-}> = ({ open, session, onClose, onClosed }) => {
-  const [counted, setCounted] = useState('');
-  const [varianceReason, setVarianceReason] = useState('');
-  const [notes, setNotes] = useState('');
-  const [err, setErr] = useState<string | null>(null);
-  const closeShift = useCloseShift();
-
-  useEffect(() => {
-    if (open) { setCounted(''); setVarianceReason(''); setNotes(''); setErr(null); }
-  }, [open]);
-
-  const { data: expected } = useExpectedCash(open && session ? session.id : undefined);
-
-  if (!open || !session) return null;
-
-  const expectedCash = Number(expected?.expectedCash ?? session.openingFloat ?? 0);
-  const countedNum = Number(counted);
-  const variance = Number.isFinite(countedNum) ? countedNum - expectedCash : 0;
-
-  const submit = async () => {
-      setErr(null);
-      if (!Number.isFinite(countedNum) || countedNum < 0) { setErr('Counted cash must be non-negative'); return; }
-      if (variance !== 0 && !varianceReason.trim()) { setErr('A variance reason is required when the drawer is off'); return; }
-      try {
-        await closeShift.mutateAsync({
-          closingCounted: countedNum,
-          notes: notes.trim() || undefined,
-          varianceReason: variance !== 0 ? varianceReason.trim() : undefined,
-          varianceStatus: variance !== 0 ? 'pending_review' : undefined,
-          sessionId: session.id,
-        });
-        toast.success(`Register closed. Variance: ${fmt(variance)}`);
-        onClosed();
-        onClose();
-      } catch (e: any) {
-        const msg = e?.response?.data?.message || 'Failed to close register';
-        if (/no open cash session/i.test(msg)) {
-          setErr('There is no open shift for this register — open the register first, or ask the cashier who opened it.');
-        } else {
-          setErr(msg);
-        }
-      }
-    };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <LogOut className="h-4 w-4 text-rose-600" /> Close Register
-          </h2>
-          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
-        </div>
-
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
-          <div className="flex justify-between text-sm">
-            <span className="text-slate-600">Opening float</span>
-            <span className="font-mono">{fmt(session.openingFloat)}</span>
-          </div>
-          <div className="flex justify-between text-sm">
-            <span className="text-slate-600">Expected cash</span>
-            <span className="font-mono font-bold">{fmt(expectedCash)}</span>
-          </div>
-        </div>
-
-        <div>
-          <Label>Counted cash ({orgCur()})</Label>
-          <Input type="number" value={counted} onChange={(e) => setCounted(e.target.value)} placeholder="0" className="text-right text-xl h-12 font-mono font-bold" autoFocus />
-        </div>
-
-        {Number.isFinite(countedNum) && countedNum >= 0 && (
-          <div className={
-            'rounded-lg px-3 py-2 text-sm font-bold flex items-center gap-2 ' +
-            (variance === 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-             variance > 0 ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-             'bg-rose-50 text-rose-700 border border-rose-200')
-          }>
-            {variance === 0 ? <Check className="h-4 w-4" /> : null}
-            Variance: {variance >= 0 ? '+' : ''}{fmt(variance)}
-            <span className="ml-auto font-normal text-sm opacity-75">
-              {variance === 0 ? 'Drawer balanced' : variance > 0 ? 'Cashier is over' : 'Cashier is short'}
-            </span>
-          </div>
-        )}
-
-        {variance !== 0 && (
-          <div>
-            <Label>Variance explanation (required)</Label>
-            <Input value={varianceReason} onChange={(e) => setVarianceReason(e.target.value)} placeholder="e.g. Gave excess change to customer" />
-          </div>
-        )}
-
-        <div>
-          <Label>Notes (optional)</Label>
-          <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="e.g. End of morning shift" />
-        </div>
-
-        {err && <p className="text-sm text-rose-600">{err}</p>}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={closeShift.isPending} style={{ background: '#dc2626' }}>
-            {closeShift.isPending ? 'Closing…' : 'Close register'}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/* ==========================================================================
-   Bank Deposit Dialog
-   ========================================================================== */
-
 const BankDepositDialog: React.FC<{
   open: boolean;
   sessionId: string;
@@ -697,6 +488,8 @@ const BankDepositDialog: React.FC<{
 }> = ({ open, sessionId, onClose, onDone }) => {
   const [amount, setAmount] = useState('');
   const [bankName, setBankName] = useState('');
+  const { data: accounts = [] } = usePaymentAccounts();
+  const [destinationAccountId, setDestinationAccountId] = useState('');
   const [reference, setReference] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const deposit = useRecordBankDeposit();
@@ -713,7 +506,7 @@ const BankDepositDialog: React.FC<{
     if (!Number.isFinite(amt) || amt <= 0) { setErr('Enter a valid amount'); return; }
     if (!bankName.trim()) { setErr('Bank name is required'); return; }
     try {
-      await deposit.mutateAsync({ sessionId, amount: amt, bankName: bankName.trim(), reference: reference.trim() || undefined });
+      await deposit.mutateAsync({ sessionId, destinationAccountId, amount: amt, bankName: bankName.trim(), reference: reference.trim() || undefined });
       toast.success('Bank deposit recorded');
       onDone();
       onClose();
@@ -738,7 +531,8 @@ const BankDepositDialog: React.FC<{
         </div>
 
         <div>
-          <Label>Bank name</Label>
+          <Label>Bank account</Label>
+          <select className="block w-full border rounded p-2" value={destinationAccountId} onChange={(e) => { setDestinationAccountId(e.target.value); setBankName(accounts.find((a) => a.id === e.target.value)?.name ?? ''); }}><option value="">Choose bank account</option>{accounts.filter((a) => a.accountType === 'bank').map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}</select>
           <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g. Stanbic" />
         </div>
 

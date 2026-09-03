@@ -15,22 +15,26 @@
  *     is almost always a scanner, not a human; the human flow still works
  *     because a slow typist (>80ms per key) won't be debounced.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 const MIN_SCAN_CHARS = 3;
 const DEBOUNCE_MS = 300;
-const MIN_FIRE_INTERVAL_MS = 800;     // suppress same-string fires within 800ms
 
+/**
+ * F19 — the caller clears the input after each completed scan, so two physical
+ * scans of the SAME item are two separate empty→value build-ups and each fires
+ * once. The debounce already coalesces the multi-keystroke burst of a single
+ * scan into one fire (only the final keystroke's timer survives). The old
+ * "suppress the same string within 800ms" guard existed to hide a double-fire
+ * from a second (now-removed) lookup path, and it wrongly dropped a genuine
+ * second scan of the same barcode — so it is gone. Duplicate *transport* events
+ * are handled by the caller clearing the field; two *physical* scans both count.
+ */
 export function useScannerDebounce(rawValue: string, onScan: (code: string) => void): void {
-  const lastFireRef = useRef<{ value: string; at: number }>({ value: '', at: 0 });
-
   useEffect(() => {
     const id = setTimeout(() => {
       const v = rawValue.trim();
       if (!v || v.length < MIN_SCAN_CHARS) return;
-      const since = Date.now() - lastFireRef.current.at;
-      if (lastFireRef.current.value === v && since < MIN_FIRE_INTERVAL_MS) return; // dedupe same code
-      lastFireRef.current = { value: v, at: Date.now() };
       onScan(v);
     }, DEBOUNCE_MS);
     return () => clearTimeout(id);

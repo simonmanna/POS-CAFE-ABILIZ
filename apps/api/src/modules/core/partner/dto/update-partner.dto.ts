@@ -67,6 +67,10 @@ export class UpdatePartnerDto {
 
   @IsOptional()
   @IsString()
+  paymentTermId?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 
   @IsOptional()

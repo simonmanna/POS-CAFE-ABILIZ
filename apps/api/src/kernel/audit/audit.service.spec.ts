@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { scopedPrisma } from '../../../test/scoped-prisma';
 import { BadRequestException } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { AuditService } from './audit.service';
@@ -14,7 +16,8 @@ const HAS_DB = !!process.env.DATABASE_URL;
 const describeDb = HAS_DB ? describe : describe.skip;
 
 describeDb('AuditService.recordInTx (rolls back on audit failure)', () => {
-  const prisma = new PrismaClient();
+  const fixtureOrgId = randomUUID();
+  const prisma = scopedPrisma(new PrismaClient(), () => fixtureOrgId);
   const organizationId = '00000000-0000-0000-0000-000000000000';
 
   // Tenant context always returns this org for the test.
@@ -39,8 +42,9 @@ describeDb('AuditService.recordInTx (rolls back on audit failure)', () => {
 
   beforeAll(async () => {
     // Create a real org for the FK target.
+    await prisma.currency.upsert({ where: { code: 'USD' }, update: {}, create: { code: 'USD', name: 'US Dollar', symbol: '$' } });
     const org = await prisma.organization.create({
-      data: { code: `AUDIT-TEST-${Date.now()}`, name: 'Audit Test Org', currencyCode: 'USD' },
+      data: { id: fixtureOrgId, code: `AUDIT-TEST-${Date.now()}`, name: 'Audit Test Org', currencyCode: 'USD' },
     });
     (tenantSvc as any).organizationId = org.id;
     // Stash for cleanup.

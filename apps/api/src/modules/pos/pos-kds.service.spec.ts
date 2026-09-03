@@ -140,5 +140,53 @@ describe('PosKdsService', () => {
       expect(sequence.next).toHaveBeenCalled();
       expect(ids).toHaveLength(2);
     });
+
+    it('F11: runs ticket creation on the caller transaction when one is passed', async () => {
+      const tx = { kitchenTicket: { create: jest.fn().mockImplementation(({ data }: any) => ticket({ ...data })) } };
+      await svc.createTicketsForSale({ orderId: 'o1', label: 'ORD-1', items: [{ productId: 'p1', productName: 'Burger', quantity: 1, modifiers: [], notes: null, station: 'kitchen' }] as any }, tx as any);
+      expect(tx.kitchenTicket.create).toHaveBeenCalledTimes(1);
+      expect(prisma.client.kitchenTicket.create).not.toHaveBeenCalled();
+      // Events for a transactional create are deferred until after commit.
+      expect(events.publish).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('F12: listTickets board split', () => {
+    it('returns EVERY active ticket (uncapped) plus a bounded history when no status filter is given', async () => {
+      prisma.client.kitchenTicket.findMany
+        .mockResolvedValueOnce([ticket({ id: 'a', status: 'new' }), ticket({ id: 'b', status: 'preparing' })]) // active
+        .mockResolvedValueOnce([ticket({ id: 'h', status: 'served' })]); // recent history
+      const res = await svc.listTickets('kitchen');
+      const activeCall = prisma.client.kitchenTicket.findMany.mock.calls[0][0];
+      expect(activeCall.where.status.in).toEqual(['new', 'preparing', 'ready']);
+      expect(activeCall.take).toBeUndefined(); // active work is never capped
+      expect(prisma.client.kitchenTicket.findMany.mock.calls[1][0].take).toBe(50); // history is
+      expect(res.map((t) => t.id)).toEqual(['a', 'b', 'h']);
+    });
+
+    it('an explicit status filter queries that status only, capped for history browsing', async () => {
+      prisma.client.kitchenTicket.findMany.mockResolvedValueOnce([ticket({ id: 's', status: 'served' })]);
+      await svc.listTickets('kitchen', 'served');
+      const call = prisma.client.kitchenTicket.findMany.mock.calls[0][0];
+      expect(call.where.status).toBe('served');
+      expect(call.take).toBe(500);
+    });
+  });
+
+  describe('F11: cancelTicketsForOrder', () => {
+    it('cancels only still-active tickets and is a no-op when none are active', async () => {
+      prisma.client.kitchenTicket.updateMany = jest.fn().mockResolvedValue({ count: 2 });
+      prisma.client.kitchenTicket.findMany.mockResolvedValueOnce([
+        { id: 't1', station: 'kitchen' }, { id: 't2', station: 'bar' },
+      ]);
+      const n = await svc.cancelTicketsForOrder('o1', 'Order cancelled');
+      expect(n).toBe(2);
+      const call = prisma.client.kitchenTicket.updateMany.mock.calls[0][0];
+      expect(call.where.id.in).toEqual(['t1', 't2']);
+      expect(call.data.status).toBe('cancelled');
+
+      prisma.client.kitchenTicket.findMany.mockResolvedValueOnce([]);
+      expect(await svc.cancelTicketsForOrder('o2')).toBe(0);
+    });
   });
 });

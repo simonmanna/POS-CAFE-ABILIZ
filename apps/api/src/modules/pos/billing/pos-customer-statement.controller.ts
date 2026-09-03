@@ -16,11 +16,12 @@
  * statement across all invoice payment modes is a where-clause extension.
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { Controller, Get, Injectable, NotFoundException, Param } from '@nestjs/common';
+import { Controller, Get, Injectable, NotFoundException, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
+import { resolveCreditStatus, type CreditStatus } from './credit-status';
 
 export interface StatementEntry {
   date: string;
@@ -33,11 +34,36 @@ export interface StatementEntry {
   runningBalance: number;
 }
 
-export interface CustomerStatement {
+export interface CustomerStatement extends CreditStatus {
   partner: { id: string; name: string; code: string | null };
-  creditLimit: number;
-  outstanding: number;
   entries: StatementEntry[];
+}
+
+/** One open (unsettled / partially settled) credit invoice. */
+export interface OpenCreditInvoice {
+  invoiceId: string;
+  invoiceNumber: string;
+  issueDate: string;
+  partnerId: string;
+  partnerName: string;
+  totalAmount: number;
+  amountPaid: number;
+  amountResidual: number;
+  /** Whole days since the invoice was issued. */
+  daysOutstanding: number;
+}
+
+export interface OpenCreditFeed {
+  rows: OpenCreditInvoice[];
+  total: number;
+  page: number;
+  pageSize: number;
+  /** Sum of amountResidual across ALL matching rows, not just this page. */
+  totalOutstanding: number;
+  /** Distinct customers owing across ALL matching rows. */
+  customersOwing: number;
+  /** Age in days of the oldest matching open invoice (0 when none). */
+  oldestDebtDays: number;
 }
 
 @Injectable()
@@ -139,17 +165,98 @@ export class PosCustomerStatementService {
       return { ...r, runningBalance: running };
     });
 
-    const outstanding = invoices
-      .filter((i) => i.settlementStatus === 'unsettled' || i.settlementStatus === 'partially_settled')
-      .reduce((s, i) => s + Number(i.amountResidual), 0);
+    return { partner, ...(await this.creditStatus(partnerId)), entries };
+  }
 
-    const tab = await this.prisma.client.customerTab.findFirst({ where: { organizationId: orgId, partnerId } });
+  /** Credit limit / outstanding / headroom / hold for one customer. */
+  async creditStatus(partnerId: string): Promise<CreditStatus> {
+    return resolveCreditStatus(this.prisma.client, this.tenant.organizationId, partnerId);
+  }
+
+  /**
+   * Every open credit invoice — the receivables worklist. Ordered oldest-first
+   * so the debt most in need of chasing is on top.
+   */
+  async openCredit(params: {
+    partnerId?: string;
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  } = {}): Promise<OpenCreditFeed> {
+    const orgId = this.tenant.organizationId;
+    const page = Math.max(1, Number(params.page) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(params.pageSize) || 50));
+    const search = params.search?.trim();
+
+    // Invoice carries only `partnerId` (no Prisma relation to Partner), so a
+    // name search resolves to ids first and names are stitched on afterwards.
+    const nameMatches = search
+      ? await this.prisma.client.partner.findMany({
+          where: { organizationId: orgId, name: { contains: search, mode: 'insensitive' } },
+          select: { id: true },
+        })
+      : [];
+
+    const where: any = {
+      organizationId: orgId,
+      paymentMode: 'credit',
+      settlementStatus: { in: ['unsettled', 'partially_settled'] },
+      ...(params.partnerId ? { partnerId: params.partnerId } : {}),
+      ...(search
+        ? {
+            OR: [
+              { invoiceNumber: { contains: search, mode: 'insensitive' } },
+              { partnerId: { in: nameMatches.map((p) => p.id) } },
+            ],
+          }
+        : {}),
+    };
+
+    const [rows, total, agg, distinctPartners, oldest] = await Promise.all([
+      this.prisma.client.invoice.findMany({
+        where,
+        orderBy: { issueDate: 'asc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: {
+          id: true, invoiceNumber: true, issueDate: true, partnerId: true,
+          totalAmount: true, amountPaid: true, amountResidual: true,
+        },
+      }),
+      this.prisma.client.invoice.count({ where }),
+      this.prisma.client.invoice.aggregate({ where, _sum: { amountResidual: true } }),
+      this.prisma.client.invoice.findMany({ where, distinct: ['partnerId'], select: { partnerId: true } }),
+      this.prisma.client.invoice.findFirst({ where, orderBy: { issueDate: 'asc' }, select: { issueDate: true } }),
+    ]);
+
+    const partners = rows.length
+      ? await this.prisma.client.partner.findMany({
+          where: { organizationId: orgId, id: { in: [...new Set(rows.map((r) => r.partnerId))] } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const nameById = new Map(partners.map((p) => [p.id, p.name]));
+
+    const days = (d: Date) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86_400_000));
 
     return {
-      partner,
-      creditLimit: Number(tab?.creditLimit ?? 0),
-      outstanding: Math.round(outstanding * 100) / 100,
-      entries,
+      rows: rows.map((r) => ({
+        invoiceId: r.id,
+        invoiceNumber: r.invoiceNumber,
+        issueDate: new Date(r.issueDate).toISOString(),
+        partnerId: r.partnerId,
+        partnerName: nameById.get(r.partnerId) ?? '—',
+        totalAmount: Number(r.totalAmount),
+        amountPaid: Number(r.amountPaid),
+        amountResidual: Number(r.amountResidual),
+        daysOutstanding: days(r.issueDate),
+      })),
+      total,
+      page,
+      pageSize,
+      totalOutstanding: Math.round(Number(agg._sum.amountResidual ?? 0) * 100) / 100,
+      customersOwing: distinctPartners.length,
+      oldestDebtDays: oldest ? days(oldest.issueDate) : 0,
     };
   }
 }
@@ -165,5 +272,36 @@ export class PosCustomerStatementController {
   @RequirePermissions('pos:read')
   statement(@Param('partnerId') partnerId: string): Promise<CustomerStatement> {
     return this.service.statement(partnerId);
+  }
+
+  /** Credit standing only — the cheap lookup the Charge dialog polls. */
+  @Get(':partnerId/credit')
+  @RequirePermissions('pos:read')
+  credit(@Param('partnerId') partnerId: string): Promise<CreditStatus> {
+    return this.service.creditStatus(partnerId);
+  }
+}
+
+@ApiTags('POS')
+@ApiBearerAuth()
+@Controller('pos/credit')
+export class PosCreditController {
+  constructor(private readonly service: PosCustomerStatementService) {}
+
+  /** Receivables worklist: every open credit invoice, oldest first. */
+  @Get('open')
+  @RequirePermissions('pos:read')
+  open(
+    @Query('partnerId') partnerId?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ): Promise<OpenCreditFeed> {
+    return this.service.openCredit({
+      partnerId,
+      search,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 }

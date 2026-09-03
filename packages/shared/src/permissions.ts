@@ -359,7 +359,9 @@ export const PERMISSIONS = {
     closeSession: 'pos:close_session',
     hold: 'pos:hold',                 // park/recall a sale
     discount: 'pos:discount',         // apply > 0% discount without override
+    priceOverride: 'pos:price_override', // set a line price away from the catalogue
     void: 'pos:void',                 // void a line or a sale
+    writeOff: 'pos:write_off',        // write off an uncollectable POS invoice
     override: 'pos:override',         // approve a manager override (PIN)
     reports: 'pos:reports',           // X/Z + sales analytics
     deleteItem: 'pos:delete_item',    // remove an order item from the cart

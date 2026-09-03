@@ -27,12 +27,22 @@ ENV NODE_ENV=production
 RUN corepack enable && \
     addgroup -S cafe-pos && adduser -S cafe-pos -G cafe-pos && \
     apk add --no-cache tini
+# Ship the ALREADY-BUILT artifacts from the build stage rather than reinstalling
+# and rebuilding at runtime. The previous runtime stage ran
+# `pnpm install --prod ... && pnpm --filter @erp/shared build`, but TypeScript is
+# a devDependency and `--ignore-scripts` also skips Prisma client generation, so
+# that command could not produce a working image. Copying the build stage's
+# node_modules brings the generated Prisma client and the compiled shared package
+# with it — no runtime compilation, no missing engine.
 COPY --from=build /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml ./
-COPY --from=build /app/packages/shared packages/shared
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages/shared/package.json packages/shared/package.json
+COPY --from=build /app/packages/shared/dist packages/shared/dist
+COPY --from=build /app/packages/shared/node_modules packages/shared/node_modules
 COPY --from=build /app/apps/api/package.json apps/api/package.json
 COPY --from=build /app/apps/api/dist apps/api/dist
 COPY --from=build /app/apps/api/prisma apps/api/prisma
-RUN pnpm install --prod --frozen-lockfile --ignore-scripts && pnpm --filter @erp/shared build
+COPY --from=build /app/apps/api/node_modules apps/api/node_modules
 RUN mkdir -p /app/var/uploads && chown -R cafe-pos:cafe-pos /app
 USER cafe-pos
 EXPOSE 3000

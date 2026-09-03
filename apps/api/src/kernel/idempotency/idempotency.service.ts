@@ -1,9 +1,11 @@
 import {
   ConflictException,
   Injectable,
+  HttpException,
   Logger,
 } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { approvalPayloadHash, businessOperation } from './business-outcome';
 import type { Request, Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { TenantContextService } from '../tenancy/tenant-context.service';
@@ -69,6 +71,7 @@ export class IdempotencyService {
       requestHash: this.hashRequest(method, path, params.rawBody),
       method,
       path,
+      payload: params.request.body,
       runHandler: params.runHandler,
     });
   }
@@ -86,12 +89,15 @@ export class IdempotencyService {
     /** Recorded on the IdempotencyRecord row for observability. */
     method?: string;
     path?: string;
+    payload?: any;
     runHandler: () => Promise<{ statusCode: number; body: T }>;
   }): Promise<IdempotencyResult> {
     const { key, requestHash } = params;
     const method = params.method ?? 'OP';
     const path = params.path ?? 'sync';
     const organizationId = this.tenant.organizationId;
+    const recoverableSale = /\/pos\/(checkout|tabs\/[^/]+\/settle|orders\/[^/]+\/settle)$/.test(path);
+    let recovery: any;
 
     // 1) Look for an existing record.
     const existing = await this.prisma.client.idempotencyRecord.findUnique({
@@ -104,18 +110,17 @@ export class IdempotencyService {
           `Idempotency-Key '${key}' was previously used with a different request body`,
         );
       }
-      if (existing.status === 'pending') {
-        throw new ConflictException(
-          `Idempotency-Key '${key}' is still being processed; retry shortly`,
-        );
+      if (existing.status === 'pending' || existing.status === 'indeterminate') {
+        if (recoverableSale) recovery = existing.responseJson;
+        else throw new ConflictException({ code: 'OPERATION_PENDING', message: 'This operation needs recovery; do not submit it with a new key.', operationKey: key, recovery: existing.responseJson });
+      } else {
+        return { replayed: true, statusCode: existing.statusCode, body: existing.responseJson };
       }
-      // Replay.
-      return { replayed: true, statusCode: existing.statusCode, body: existing.responseJson };
     }
 
     // 2) Insert a pending row first to act as a lock. The unique constraint on
     //    (organizationId, key) ensures only one writer wins.
-    try {
+    if (!existing) try {
       await this.prisma.client.idempotencyRecord.create({
         data: {
           organizationId,
@@ -133,7 +138,8 @@ export class IdempotencyService {
       const winner = await this.prisma.client.idempotencyRecord.findUnique({
         where: { organizationId_key: { organizationId, key } },
       });
-      if (winner && winner.status === 'completed') {
+      if (winner && winner.requestHash !== requestHash) throw new ConflictException('Idempotency key was used with a different request');
+      if (winner && ['completed', 'business_completed'].includes(winner.status)) {
         return { replayed: true, statusCode: winner.statusCode, body: winner.responseJson };
       }
       throw new ConflictException(
@@ -143,7 +149,15 @@ export class IdempotencyService {
 
     // 3) Run the handler.
     try {
-      const { statusCode, body } = await params.runHandler();
+      let approvedById: string | undefined;
+      let approvedKind: string | undefined;
+      if (params.payload?.approvalToken) {
+        const grant = await (this.prisma.client as any).posApprovalGrant.findFirst({ where: { organizationId, tokenHash: createHash('sha256').update(params.payload.approvalToken).digest('hex') } });
+        if (!grant || grant.cashierId !== this.tenant.userId || grant.operationKey !== key || !path.endsWith(grant.endpoint) || grant.payloadHash !== approvalPayloadHash(params.payload) || (!recovery?.orderId && grant.expiresAt < new Date())) throw new HttpException('Manager approval expired or does not match this operation', 403);
+        approvedById = grant.managerId;
+        approvedKind = grant.overrideKind;
+      }
+      const { statusCode, body } = await businessOperation.run({ organizationId, key, path, approvedById, approvedKind, recovery }, params.runHandler);
       await this.prisma.client.idempotencyRecord.update({
         where: { organizationId_key: { organizationId, key } },
         data: {
@@ -155,11 +169,19 @@ export class IdempotencyService {
       });
       return { replayed: false, statusCode, body };
     } catch (err) {
-      // Handler failed — clear the pending lock so the caller can retry with
-      // the same key. We log a warning so operators see retry storms.
-      await this.prisma.client.idempotencyRecord
-        .delete({ where: { organizationId_key: { organizationId, key } } })
-        .catch((delErr: unknown) => this.logger.warn(`Failed to clear pending idempotency row: ${String(delErr)}`));
+      // A timeout/error can follow a successful business commit. Never delete
+      // its protection. A transactionally saved outcome is replayable even when
+      // the final response-cache write failed.
+      const saved = await this.prisma.client.idempotencyRecord.findUnique({ where: { organizationId_key: { organizationId, key } } }).catch(() => null);
+      if (saved?.status === 'business_completed' || saved?.status === 'completed') return { replayed: true, statusCode: saved.statusCode, body: saved.responseJson };
+      const protectedSale = /\/pos\/(checkout|tabs\/[^/]+\/settle|orders\/[^/]+\/settle|split-bills\/[^/]+\/settle|invoices\/[^/]+\/(payments|refund))$/.test(path);
+      if ((protectedSale || /\/cash-sessions\/(open|close|movement|tender-settlements|[^/]+\/banking)$|\/pos\/shift\/handover$/.test(path)) && err instanceof HttpException && err.getStatus() < 500 && saved && Object.keys((saved.responseJson ?? {}) as object).length === 0) {
+        const response = err.getResponse();
+        const body = { ...(typeof response === 'object' ? response : { message: response }), safeToRetry: true };
+        await this.prisma.client.idempotencyRecord.update({ where: { organizationId_key: { organizationId, key } }, data: { status: 'completed', statusCode: err.getStatus(), responseJson: body, completedAt: new Date() } });
+        throw new HttpException(body, err.getStatus());
+      }
+      this.logger.warn(`Operation ${key} retained for recovery after failure`);
       throw err;
     }
   }
@@ -177,6 +199,10 @@ export class IdempotencyService {
   }
 
   private hashRequest(method: string, path: string, rawBody: string): string {
+    if (/\/cash-sessions\/|\/pos\/shift\/handover$/.test(path)) {
+      const { managerPin: _manager, incomingPin: _incoming, ...financialPayload } = JSON.parse(rawBody || '{}');
+      rawBody = JSON.stringify(financialPayload);
+    }
     return createHash('sha256').update(`${method}\n${path}\n${rawBody}`).digest('hex');
   }
 

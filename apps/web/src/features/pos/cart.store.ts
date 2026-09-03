@@ -1,3 +1,6 @@
+import { toast } from 'sonner';
+import { useAuthStore } from '@/stores/auth.store';
+import { usePosAuthStore } from './pos-auth.store';
 /**
  * POS cart store — zustand.
  *
@@ -12,6 +15,9 @@ import type { CartLine, DiscountType } from './types';
 export type OrderType = 'dine-in' | 'takeaway' | 'delivery';
 
 interface CartState {
+  customer: { id: string; code: string; name: string } | null;
+  setCustomer: (customer: CartState['customer']) => void;
+  operationPending: boolean;
   lines: CartLine[];
   transactionDiscountPercent: number;
   transactionDiscountType: DiscountType;
@@ -82,6 +88,8 @@ interface CartState {
       transactionDiscountPercent?: number;
       transactionDiscountType?: DiscountType;
       transactionDiscountAmount?: number;
+      transactionDiscountReason?: string;
+      customer?: CartState['customer'];
       overrideById?: string;
       overridePin?: string;
     },
@@ -96,7 +104,15 @@ const newLineId = () =>
 
 export const useCartStore = create<CartState>()(
   persist(
-    (set) => ({
+    (persistedSet, get) => {
+      const set: typeof persistedSet = (update: any) => {
+        if (get().operationPending) { toast.error('Payment pending. Retry the original payment before editing or leaving this cart.'); return; }
+        persistedSet(update);
+      };
+      return ({
+      operationPending: false,
+      customer: null,
+      setCustomer: (customer) => set({ customer }),
       lines: [],
       transactionDiscountPercent: 0,
       transactionDiscountType: 'percentage' as DiscountType,
@@ -210,29 +226,36 @@ export const useCartStore = create<CartState>()(
       load: (lines, opts) =>
         set({
           lines,
+          customer: opts?.customer ?? null,
           transactionDiscountPercent: opts?.transactionDiscountPercent ?? 0,
           transactionDiscountType: opts?.transactionDiscountType ?? 'percentage',
           transactionDiscountAmount: opts?.transactionDiscountAmount ?? 0,
-          transactionDiscountReason: undefined,
+          transactionDiscountReason: opts?.transactionDiscountReason,
           overrideById: opts?.overrideById,
           overridePin: opts?.overridePin,
           // New order loaded → new sale → fresh idempotency key.
           idempotencyKey: newLineId(),
         }),
       clear: () => set({
-        lines: [], transactionDiscountPercent: 0, transactionDiscountType: 'percentage',
+        customer: null,
+        operationPending: false, lines: [], transactionDiscountPercent: 0, transactionDiscountType: 'percentage',
         transactionDiscountAmount: 0, transactionDiscountReason: undefined,
         overrideById: undefined, overridePin: undefined,
-        orderId: undefined, tabVersion: undefined,
+        orderId: undefined, tabVersion: undefined, cashSessionId: undefined,
         orderType: undefined, tableId: undefined, tableNumber: undefined, tableName: undefined,
         sentToKitchen: false,
         // Previous sale finished → mint a key for the next cart.
         idempotencyKey: newLineId(),
       }),
-    }),
+    }); },
     {
       name: 'pos-cart',
-      storage: createJSONStorage(() => sessionStorage),
+      storage: createJSONStorage(() => ({
+        getItem: () => localStorage.getItem(cartStorageKey()),
+        setItem: (_name, value) => localStorage.setItem(cartStorageKey(), value),
+        removeItem: () => localStorage.removeItem(cartStorageKey()),
+      })),
+      partialize: ({ overridePin: _pin, ...state }) => state,
     },
   ),
 );
@@ -260,3 +283,21 @@ export const selectTotal = (state: CartState): number =>
 
 export const selectItemCount = (state: CartState): number =>
   state.lines.reduce((s, l) => s + l.quantity, 0);
+function cartStorageKey() {
+  const auth = useAuthStore.getState();
+  const operator = usePosAuthStore.getState().user?.userId ?? auth.user?.id ?? 'signed-out';
+  return `pos-cart:${auth.organization?.id ?? 'signed-out'}:${operator}`;
+}
+let activeCartOwner = cartStorageKey();
+const restoreOwnerCart = () => {
+  const owner = cartStorageKey();
+  if (owner === activeCartOwner) return;
+  activeCartOwner = owner;
+  const saved = localStorage.getItem(owner);
+  // Snapshot before clear: persist middleware writes under the new identity.
+  useCartStore.setState({ operationPending: false });
+  useCartStore.getState().clear();
+  if (saved) { localStorage.setItem(owner, saved); void useCartStore.persist.rehydrate(); }
+};
+useAuthStore.subscribe(restoreOwnerCart);
+usePosAuthStore.subscribe(restoreOwnerCart);

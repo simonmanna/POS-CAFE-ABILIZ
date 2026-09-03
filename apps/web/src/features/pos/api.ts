@@ -1,3 +1,4 @@
+import { submitSaleOperation } from '@/features/pos/offline-queue';
 /**
  * POS API hooks + mutations.
  *
@@ -125,38 +126,12 @@ export function useCheckout() {
 export function useRefundSale() {
   const qc = useQueryClient();
   return useMutation({
-    // `_idemKey` is minted once when the confirming UI opens (NOT per submit), so
-    // a double-click sends the SAME Idempotency-Key and the server replays the
-    // first refund instead of issuing a second. It is stripped from the body
-    // (forbidNonWhitelisted would 400 on extras).
-    mutationFn: async ({ _idemKey, ...body }: { invoiceId: string; reason?: string; cashSessionId?: string; overrideById?: string; _idemKey?: string }) => {
-      const cashSessionId = body.cashSessionId ?? useCartStore.getState().cashSessionId;
-      const res = await api.post(
-        `/pos/invoices/${body.invoiceId}/refund`,
-        { reason: body.reason, overrideById: body.overrideById, cashSessionId },
-        { headers: { 'Idempotency-Key': _idemKey ?? uuid() } },
-      );
-      return res.data;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
+    mutationFn: async ({ _idemKey, invoiceId, ...body }: { invoiceId: string; reason: string; cashSessionId?: string; overrideById: string; overridePin?: string; stockDisposition: 'restock' | 'waste' | 'no_return'; lines?: Array<{ lineId: string; quantity: number }>; _idemKey: string }) =>
+      submitSaleOperation(`/pos/invoices/${invoiceId}/refund`, { ...body, cashSessionId: body.cashSessionId ?? useCartStore.getState().cashSessionId }, _idemKey),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['pos-reports'] }); qc.invalidateQueries({ queryKey: ['pos-store-credit'] }); },
   });
 }
-
-export function useVoidSale() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ _idemKey, ...body }: { invoiceId: string; reason: string; overrideById: string; _idemKey?: string }) => {
-      const cashSessionId = useCartStore.getState().cashSessionId;
-      const res = await api.post(
-        `/pos/invoices/${body.invoiceId}/refund`,
-        { reason: body.reason, overrideById: body.overrideById, cashSessionId },
-        { headers: { 'Idempotency-Key': _idemKey ?? uuid() } },
-      );
-      return res.data;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
-  });
-}
+export const useVoidSale = useRefundSale;
 
 export function useCreateHold() {
   const qc = useQueryClient();

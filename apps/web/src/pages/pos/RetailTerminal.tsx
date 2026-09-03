@@ -1,3 +1,6 @@
+import { PendingSaleRecovery } from './PendingSaleRecovery';
+import { useSaleQuote } from '@/features/pos/use-sale-quote';
+import { cartLinePayload, cartSignature, draftPricing, draftRestore, serverLineToCart } from '@/features/pos/cart-payload';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNavigate } from 'react-router-dom';
@@ -6,7 +9,6 @@ import { ShoppingBag, Lock as LockIcon } from 'lucide-react';
 
 import { Topbar } from './Topbar';
 import { OfflineIndicator } from './OfflineIndicator';
-import { enqueueSale } from '@/features/pos/offline-queue';
 import { CategoryStrip } from './CategoryStrip';
 import { MenuGrid } from './MenuGrid';
 import { OrderPanel } from './OrderPanel';
@@ -31,13 +33,13 @@ import { CustomerProfileDialog } from './CustomerProfileDialog';
 import { useProductsForPos } from '@/features/pos/api';
 import { useProductCategories } from '@/features/products/api';
 import {
-  useOpenSession, useCheckout, useStoreCredit, useReprintReceipt, useCreateOrder, useGenerateInvoice, useSettleCredit,
+  useOpenSession, useCheckout, useStoreCredit, useReprintReceipt, useCreateOrder, useCreditInfo,
   useOrdersList, useResumeOrder, useSettleOrder, useSaveOrderItems, useCancelOrder, type OrderLineBody,
 } from './api';
 import { useCombos } from './pos-features-api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
-import type { Customer } from './types';
+import type { Customer, SettleMode } from './types';
 
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import { useScannerDebounce } from './scanner-debounce';
@@ -58,47 +60,10 @@ function cartToReceiptLines(ls: CartLine[]): ReceiptLine[] {
 }
 
 /** Cheap change-detector for the order autosave (dedupes identical saves). */
-const orderSig = (ls: CartLine[]) =>
-  JSON.stringify(ls.map((l) => [l.productId ?? l.sku, l.quantity, l.unitPrice, l.discountPercent, l.discountType, l.discountAmount, l.note, l.comboId]));
-
-/** Map the local cart to the server order's line payload (whitelisted fields only). */
-function toOrderLines(ls: CartLine[]): OrderLineBody[] {
-  return ls.map((l) => ({
-    productId: l.productId,
-    menuItemId: l.menuItemId,
-    sku: l.sku,
-    description: l.name,
-    quantity: l.quantity,
-    unitPrice: l.unitPrice,
-    taxId: l.taxId,
-    discountPercent: l.discountPercent > 0 ? l.discountPercent : undefined,
-    discountType: l.discountType,
-    discountAmount: l.discountAmount,
-    discountReason: l.discountReason,
-    note: l.note,
-    modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
-    comboId: l.comboId,
-    taxInclusive: l.taxInclusive,
-  }));
-}
+const orderSig = (lines: CartLine[]) => cartSignature(lines) + JSON.stringify(draftPricing(useCartStore.getState())) + (useCartStore.getState().customer?.id ?? "");
+function toOrderLines(ls: CartLine[]): OrderLineBody[] { return ls.map(cartLinePayload) as OrderLineBody[]; }
 
 /** Rehydrate a resumed server order line back into a cart line. */
-function serverLineToCart(ln: any): CartLine {
-  return {
-    lineId: (typeof crypto !== 'undefined' && 'randomUUID' in crypto) ? (crypto as any).randomUUID() : Math.random().toString(36).slice(2),
-    productId: ln.productId ?? undefined,
-    menuItemId: ln.menuItemId ?? undefined,
-    sku: undefined,
-    name: ln.description,
-    quantity: Number(ln.quantity),
-    unitPrice: Number(ln.unitPrice),
-    discountPercent: Number(ln.discountPercent ?? 0),
-    taxId: ln.taxId ?? undefined,
-    taxInclusive: ln.taxInclusive ?? undefined,
-    note: ln.note ?? undefined,
-    modifiers: (ln.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId, name: m.name, priceDelta: Number(m.priceDelta) })),
-  };
-}
 
 const RetailTerminal: React.FC = () => {
   const navigate = useNavigate();
@@ -109,7 +74,9 @@ const RetailTerminal: React.FC = () => {
   /* ============== Catalog (product-based) ============== */
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
-  const { data: products = [] } = useProductsForPos();
+  // F19 — scope the catalog query to the active category on the SERVER so a
+  // category with more than one page of products is not silently truncated.
+  const { data: products = [] } = useProductsForPos({ categoryId: activeCategory });
   const { data: productCategories = [] } = useProductCategories();
 
   const categories = useMemo(
@@ -136,7 +103,11 @@ const RetailTerminal: React.FC = () => {
   // Combo bundles (GET /pos/modifiers/combos) — span categories, so shown only
   // in the "All" view. The backend expands the `comboId` line at checkout.
   const { data: combos } = useCombos();
+  // F13 — combo selling is paused (see Terminal.tsx); the checkout guard 400s
+  // combo lines, so don't show tiles the cashier cannot ring up.
+  const COMBOS_PAUSED = true;
   const comboCards = useMemo(() => {
+    if (COMBOS_PAUSED) return [];
     const term = search.trim().toLowerCase();
     return (combos ?? [])
       .filter(() => !activeCategory)
@@ -164,9 +135,12 @@ const RetailTerminal: React.FC = () => {
   const [showCloseShift, setShowCloseShift] = useState(false);
 
   /* ============== Customer ============== */
-  const [customer, setCustomer] = useState<Customer | null>(null);
+  const customer: Customer | null = useCartStore((s) => s.customer);
+  const setCustomer = useCartStore((s) => s.setCustomer);
   const [showCustomer, setShowCustomer] = useState(false);
   const { data: storeCredit } = useStoreCredit(customer?.id);
+  /* House-account standing — drives the Charge dialog's credit panel. */
+  const { data: creditInfo } = useCreditInfo(customer?.id);
 
   /* ============== Discounts ============== */
   const [showDiscount, setShowDiscount] = useState(false);
@@ -237,7 +211,9 @@ const RetailTerminal: React.FC = () => {
   const transactionDiscountType = useCartStore((s) => s.transactionDiscountType);
   const transactionDiscountAmount = useCartStore((s) => s.transactionDiscountAmount);
   const transactionDiscountReason = useCartStore((s) => s.transactionDiscountReason);
-  const total = useCartStore(selectTotal);
+  const estimatedTotal = useCartStore(selectTotal);
+  const saleQuote = useSaleQuote();
+  const total = saleQuote.data?.total ?? estimatedTotal;
   const addLine = useCartStore((s) => s.addLine);
   const setQuantity = useCartStore((s) => s.setQuantity);
   const setDiscount = useCartStore((s) => s.setDiscount);
@@ -253,8 +229,6 @@ const RetailTerminal: React.FC = () => {
   /* ============== Mutations ============== */
   const checkout = useCheckout();
   const createOrderMut = useCreateOrder();
-  const generateInvoiceMut = useGenerateInvoice();
-  const settleCreditMut = useSettleCredit();
   const reprintReceipt = useReprintReceipt();
   const resumeOrderMut = useResumeOrder();
   const settleOrderMut = useSettleOrder();
@@ -285,6 +259,7 @@ const RetailTerminal: React.FC = () => {
   useEffect(() => {
     if (locked || lines.length === 0 || orderId || pendingOrderCreate.current) return;
     pendingOrderCreate.current = true;
+    const creatingSignature = orderSig(useCartStore.getState().lines);
     createOrderMut.mutateAsync({
       orderType: 'takeaway',
       partnerId: customer?.id,
@@ -296,7 +271,7 @@ const RetailTerminal: React.FC = () => {
       if (!st.orderId && st.lines.length > 0) {
         st.setOrderId((order as any).id);
         st.setTabVersion((order as any).version);
-        orderSaveSig.current = orderSig(st.lines);
+        orderSaveSig.current = creatingSignature;
       }
     }).catch(() => { /* offline / failed — local cart still sells via checkout */ })
       .finally(() => { pendingOrderCreate.current = false; });
@@ -310,9 +285,9 @@ const RetailTerminal: React.FC = () => {
     if (sig === orderSaveSig.current) return;
     const t = setTimeout(async () => {
       const st = useCartStore.getState();
-      if (st.orderId !== orderId) return; // switched away before the debounce fired
+      if (st.orderId !== orderId || st.operationPending || saveOrderItems.isPending) return;
       if (st.lines.length === 0) {
-        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { /* noop */ }
+        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { toast.error('Could not save the empty order'); return; }
         if (useCartStore.getState().orderId === orderId) { setOrderId(undefined); setTabVersion(undefined); }
         orderSaveSig.current = '';
         return;
@@ -328,28 +303,30 @@ const RetailTerminal: React.FC = () => {
         }
         orderSaveSig.current = sig;
       } catch (e: any) {
-        if (e?.response?.status === 409) {
-          try {
-            const fresh: any = await resumeOrderMut.mutateAsync(orderId);
-            if (useCartStore.getState().orderId === orderId) setTabVersion(fresh.version);
-          } catch { /* noop */ }
-        }
+        if (e?.response?.status === 409) toast.error('Order changed on another terminal. Your cart is preserved; resolve the difference before charging.');
       }
     }, 700);
     return () => clearTimeout(t);
-  }, [lines, orderId, saveOrderItems, cancelOrderMut, resumeOrderMut, setOrderId, setTabVersion]);
+  }, [lines, orderId, saveOrderItems, cancelOrderMut, resumeOrderMut, setOrderId, setTabVersion, transactionDiscountPercent, transactionDiscountType, transactionDiscountAmount, transactionDiscountReason, customer?.id]);
 
   /** Flush the current order's latest lines to the server before switching away. */
   const flushCurrentOrder = useCallback(async () => {
+    if (useCartStore.getState().operationPending) throw new Error('Resolve the pending payment before switching orders');
+    if (saveOrderItems.isPending) throw new Error('Wait for the order save to finish');
+    if (pendingOrderCreate.current) throw new Error('Wait for the new order to finish saving');
     const st = useCartStore.getState();
-    if (st.orderId && st.lines.length > 0) {
-      try { await saveOrderItems.mutateAsync({ orderId: st.orderId, lines: toOrderLines(st.lines), expectedVersion: st.tabVersion }); } catch { /* noop */ }
+    if (st.lines.length && !st.orderId) throw new Error('This cart has not been saved. Keep it open until the server is available.');
+    const sig = orderSig(st.lines);
+    if (st.orderId && sig !== orderSaveSig.current) {
+      const saved: any = await saveOrderItems.mutateAsync({ orderId: st.orderId, lines: toOrderLines(st.lines), expectedVersion: st.tabVersion });
+      if (useCartStore.getState().orderId === st.orderId) { setTabVersion(saved.version); orderSaveSig.current = sig; }
     }
-  }, [saveOrderItems]);
+    if (orderSig(useCartStore.getState().lines) !== sig) throw new Error('The cart changed during save. Save the latest changes before continuing.');
+  }, [saveOrderItems, setTabVersion]);
 
   /** Start a fresh order — the current one stays open in the Orders panel. */
   const newOrder = useCallback(async () => {
-    await flushCurrentOrder();
+    try { await flushCurrentOrder(); } catch (e: any) { toast.error(e?.response?.data?.message || e?.message); return; }
     clearCart();
     orderSaveSig.current = '';
     setShowOrders(false);
@@ -358,12 +335,14 @@ const RetailTerminal: React.FC = () => {
   /** Resume an order from the panel into the cart and continue selling. */
   const openOrder = useCallback(async (id: string) => {
     if (useCartStore.getState().orderId === id) { setShowOrders(false); return; }
-    await flushCurrentOrder();
     try {
+      await flushCurrentOrder();
+      const switchingSignature = orderSig(useCartStore.getState().lines);
       const view: any = await resumeOrderMut.mutateAsync(id);
+      if (orderSig(useCartStore.getState().lines) !== switchingSignature) throw new Error('The cart changed while opening the order. Your changes are preserved.');
       const cartLines = (view.lines ?? []).map(serverLineToCart);
       clearCart();
-      useCartStore.getState().load(cartLines);
+      useCartStore.getState().load(cartLines, draftRestore(view));
       setOrderId(id);
       setTabVersion(view.version);
       orderSaveSig.current = orderSig(cartLines);
@@ -398,34 +377,21 @@ const RetailTerminal: React.FC = () => {
     [locked, addLine],
   );
 
-  /* Legacy auto-add on exact SKU match (barcode scanner / manual entry). */
-  useEffect(() => {
-    const q = search.trim();
-    if (!q || locked) return;
-    const match = (catalogItems as any[]).find(
-      (p) => p.sku && p.sku.toLowerCase() === q.toLowerCase(),
-    );
-    if (match) {
-      onPickProduct(match);
-      setSearch('');
-      return;
-    }
-    api.get('/pos/lookup', { params: { sku: q } }).then((res: any) => {
-      const product = res.data;
-      if (product?.id) {
-        addLine({ productId: product.id, sku: product.sku ?? undefined, name: product.name, quantity: 1, unitPrice: Number(product.salesPrice || 0) });
-        setSearch('');
-      }
-    }).catch(() => {});
-  }, [search, catalogItems, onPickProduct, locked, addLine]);
-
+  // F19 — ONE scan pipeline. The old code had both an immediate `useEffect` on
+  // `search` AND this debounced `onScan`, so a single scan raced two async
+  // lookups and could add the item twice. The debounced path is the only one now.
+  // `scanSeq` guards against a stale lookup: if a newer scan started while an
+  // older server lookup was in flight, the older result is dropped.
+  const scanSeq = useRef(0);
   const onScan = useCallback(async (code: string) => {
+    const seq = ++scanSeq.current;
     const match = (catalogItems as any[]).find(
       (p) => p.sku && p.sku.toLowerCase() === code.toLowerCase(),
     );
     if (match) { onPickProduct(match); setSearch(''); return; }
     try {
       const res = await api.get('/pos/lookup', { params: { sku: code } }) as any;
+      if (seq !== scanSeq.current) return; // a newer scan superseded this lookup
       const product = res.data;
       if (product?.id) {
         addLine({ productId: product.id, sku: product.sku ?? undefined, name: product.name, quantity: 1, unitPrice: Number(product.salesPrice || 0) });
@@ -491,64 +457,28 @@ const RetailTerminal: React.FC = () => {
 
   /* ============== Charge (payment) ============== */
   const onCharge = () => {
+    if (!saleQuote.data || saleQuote.isFetching || saleQuote.isError) { toast.error('Wait for the server price quote before charging'); return; }
+    if (useCartStore.getState().operationPending) throw new Error('Resolve the pending payment before switching orders');
+    if (saveOrderItems.isPending) throw new Error('Wait for the order save to finish');
+    if (pendingOrderCreate.current) { toast.info('Saving the new order; try again shortly'); return; }
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
     setShowPayment(true);
   };
 
+  /* Credit / charge-to-account sale: the same settle, in credit mode. Goes
+   * through onSettle so it reuses whichever server path already owns this cart
+   * instead of creating a second Order of its own. */
   const onCreditSale = async () => {
     if (!customer?.id) { toast.error('Select a customer to charge on account'); return; }
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
-    const effectiveTxPct = transactionDiscountType === 'fixed_amount' && transactionDiscountAmount > 0
-      ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
-      : transactionDiscountPercent;
-    const orderLines = lines.map((l) => ({
-      productId: l.productId ?? undefined,
-      menuItemId: l.menuItemId ?? undefined,
-      sku: l.sku ?? undefined,
-      description: l.name,
-      quantity: l.quantity,
-      unitPrice: l.unitPrice,
-      taxId: l.taxId ?? undefined,
-      discountPercent: l.discountPercent > 0 ? l.discountPercent : undefined,
-      note: l.note ?? undefined,
-      modifiers: l.modifiers && l.modifiers.length > 0 ? l.modifiers : undefined,
-      taxInclusive: l.taxInclusive,
-    }));
-    try {
-      const order = await createOrderMut.mutateAsync({
-        orderType: 'takeaway',
-        partnerId: customer.id,
-        cashSessionId: session?.id,
-        guestCount: 1,
-        lines: orderLines,
-      });
-      const invoice = await generateInvoiceMut.mutateAsync({
-        orderId: (order as any).id,
-        transactionDiscountPercent: effectiveTxPct,
-        transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
-        transactionDiscountAmount: transactionDiscountType === 'fixed_amount' ? transactionDiscountAmount : undefined,
-        discountReason: transactionDiscountReason,
-      });
-      await settleCreditMut.mutateAsync({ invoiceId: (invoice as any).id, partnerId: customer.id });
-      toast.success(`Charged ${fmt((invoice as any).totalAmount ?? total)} to ${customer.name}'s account`);
-      setLastCompleted({
-        lines: cartToReceiptLines(lines), total,
-        invoiceNumber: (invoice as any).documentNumber,
-        invoiceId: (invoice as any).id,
-        receiptHtml: (invoice as any).receiptHtml,
-        discountPercent: effectiveTxPct, discountAmount: 0,
-        customerName: customer.name,
-      });
-      clearCart();
-      setCustomer(null);
-      setShowPayment(false);
-      refetchSession();
-    } catch (e: any) {
-      toast.error(e?.response?.data?.message || e?.message || 'Credit sale failed');
-    }
+    await onSettle({ tenders: [], transactionDiscountPercent: 0, settleMode: 'credit' });
   };
 
-  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; amountTendered?: number; overrideById?: string; overridePin?: string }) => {
+  const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; amountTendered?: number; overrideById?: string; overridePin?: string; settleMode?: SettleMode }) => {
+    if (!saleQuote.data || saleQuote.isError || saleQuote.isFetching) throw new Error('A current server price quote is required before payment');
+    const isCredit = input.settleMode === 'credit';
+    /* Credit collects nothing — say who owes what instead of announcing change. */
+    const settledToast = () => `Charged ${fmt(total)} to ${customer?.name ?? 'account'} — due later`;
     const effectiveTxPct = transactionDiscountType === 'fixed_amount' && transactionDiscountAmount > 0
       ? (() => { const sub = selectSubtotal(useCartStore.getState()); return sub > 0 ? Math.min(100, (transactionDiscountAmount / sub) * 100) : 0; })()
       : transactionDiscountPercent;
@@ -573,9 +503,15 @@ const RetailTerminal: React.FC = () => {
           overrideById: input.overrideById,
           overridePin: input.overridePin,
           cashSessionId: session?.id,
+          settleMode: input.settleMode,
+          partnerId: customer?.id,
           _idemKey: idemKey,
+          expectedTotal: total,
+          expectedVersion: useCartStore.getState().tabVersion,
         });
-        toast.success(`Order ${res.invoiceNumber} settled — change ${fmt(res.change ?? 0)}`);
+        toast.success(isCredit
+          ? settledToast()
+          : `Order ${res.invoiceNumber} settled — change ${fmt(res.change ?? 0)}`);
         setLastCompleted({
           lines: cartToReceiptLines(lines),
           total, invoiceNumber: res.invoiceNumber, invoiceId: res.invoiceId,
@@ -594,6 +530,7 @@ const RetailTerminal: React.FC = () => {
           if (result) { await onSettle({ ...input, overrideById: result.managerId, overridePin: result.pin }); return; }
         }
         toast.error(msg);
+        throw e;
       }
       return;
     }
@@ -617,6 +554,7 @@ const RetailTerminal: React.FC = () => {
     }));
     const payload = {
       lines: checkoutLines,
+      expectedTotal: total,
       tenders: input.tenders,
       transactionDiscountPercent: effectiveTxPct,
       transactionDiscountType: transactionDiscountType !== 'percentage' ? transactionDiscountType : undefined,
@@ -627,10 +565,13 @@ const RetailTerminal: React.FC = () => {
       cashSessionId: session?.id,
       partnerId: customer?.id,
       orderType: 'takeaway' as const,
+      settleMode: input.settleMode,
     };
     try {
       const res = await checkout.mutateAsync({ ...payload, _idemKey: idemKey } as any);
-      toast.success(`Sale ${res.invoiceNumber} settled — change ${fmt(res.change)}`);
+      toast.success(isCredit
+        ? settledToast()
+        : `Sale ${res.invoiceNumber} settled — change ${fmt(res.change)}`);
       setLastCompleted({
         lines: cartToReceiptLines(lines),
         total, invoiceNumber: res.invoiceNumber, invoiceId: res.invoiceId,
@@ -645,30 +586,12 @@ const RetailTerminal: React.FC = () => {
       refetchSession();
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || 'Checkout failed';
-      const status = e?.response?.status;
-      const isOffline = !status || status === 0 || status >= 500 || status === 408 || status === 429;
-      const networkDown = typeof navigator !== 'undefined' && !navigator.onLine;
-      if (isOffline || networkDown) {
-        try {
-          const queued = await enqueueSale(payload as any, { idempotencyKey: idemKey });
-          toast.warning(`Network down — sale queued (${queued.idempotencyKey.slice(0, 8)}).`);
-          setLastCompleted({
-            lines: cartToReceiptLines(lines), total,
-            invoiceNumber: `PENDING-${queued.idempotencyKey.slice(0, 8).toUpperCase()}`,
-            discountPercent: effectiveTxPct, discountAmount: 0,
-            customerName: customer?.name,
-          });
-          clearCart();
-          setCustomer(null);
-          setShowPayment(false);
-          return;
-        } catch { /* fall through */ }
-      }
       if (/manager override/i.test(msg) && !input.overrideById) {
         const result = await requestOverride('discount');
         if (result) { await onSettle({ ...input, overrideById: result.managerId, overridePin: result.pin }); return; }
       }
       toast.error(msg);
+      throw e;
     }
   };
 
@@ -709,6 +632,7 @@ const RetailTerminal: React.FC = () => {
 
   return (
     <div className={'pos-shell-pro' + (fullscreen ? ' dark-mode' : '')}>
+      <PendingSaleRecovery />
       {showPosLogin && !posUser ? (
         <PosLoginScreen onLoggedIn={() => { setShowPosLogin(false); refetchSession(); }} onBeforeSubmit={enterFullscreen} />
       ) : null}
@@ -721,6 +645,7 @@ const RetailTerminal: React.FC = () => {
         onCloseShift={() => setShowCloseShift(true)}
         staffName={user?.firstName}
         staffRole={(user as any)?.roles?.[0]}
+        user={user}
         session={session ?? null}
         fullscreen={fullscreen}
         onToggleFullscreen={() => {
@@ -782,10 +707,12 @@ const RetailTerminal: React.FC = () => {
             onDec={onDec}
             onRemove={canDeleteItem ? onRemove : undefined}
             canDiscount={canDiscount}
-            canOverridePrice={canDiscount}
             onNote={onLineNote}
             onLineDiscount={onLineDiscount}
             onPrintBill={() => {}}
+            quotedTotal={saleQuote.data?.total}
+            quotedTax={saleQuote.data?.taxAmount}
+            canOverridePrice={false}
             onCharge={onCharge}
             onSplit={() => {}}
             onAddCustomer={() => setShowCustomer(true)}
@@ -819,7 +746,9 @@ const RetailTerminal: React.FC = () => {
         effectiveDiscountPercent={Math.max(transactionDiscountPercent, ...lines.map((l) => l.discountPercent))}
         storeCreditBalance={storeCredit?.balance ?? 0} onRequestOverride={requestOverride}
         onClose={() => setShowPayment(false)} onSettle={onSettle}
-        creditEnabled={!!customer?.id} onCreditSale={onCreditSale} />
+        creditEnabled={!!customer?.id} onCreditSale={onCreditSale}
+        customerName={customer?.name} creditInfo={creditInfo ?? null}
+        onPickCustomer={() => setShowCustomer(true)} />
       <OverrideDialog open={!!overrideKind} kind={overrideKind ?? 'discount'} onClose={() => onOverrideVerified(null)}
         onVerified={onOverrideVerified} />
       <PinConfirmDialog open={showPinConfirm} title="Confirm to delete item" description="Enter your PIN to remove this item from the order."

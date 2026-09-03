@@ -1,3 +1,4 @@
+import { Throttle } from '@nestjs/throttler';
 /**
  * POS Phase A — Manager-override controller.
  */
@@ -43,6 +44,7 @@ export class PosOverridesController {
 
   /** Cashier verifies a manager's credentials. */
   @Post('verify')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @RequirePermissions('pos:read')
   verify(@Body() dto: VerifyOverrideDto) {
     return this.svc.verify(dto);

@@ -1,3 +1,7 @@
+import { resolveTenderAccount } from '../../accounting/treasury/tender-account';
+import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
+import { assertPricingAuthority, discountedLines } from '../pricing-policy';
+import { refundInvoice, type RefundOptions } from './refund-operation';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { resolvePosStockLocation } from '../../inventory/pos-stock-location';
@@ -22,10 +26,11 @@ import { recomputeTableStatus } from '../table-status.util';
 import { WorkflowService } from '../../../kernel/workflow/workflow.service';
 import { SettingResolverService } from '../../../kernel/settings/setting-resolver.service';
 import type { StockPostingTiming } from '../inventory-posting.types';
+import { resolveCreditStatus } from './credit-status';
 import type { GenerateInvoiceDto, ReceivePaymentDto, SettleCreditDto, WriteOffDto, TenderDto } from '../order/dto/order.dto';
 
-const MODE_FROM_METHOD: Record<string, 'cash' | 'card' | 'mobile_money'> = {
-  cash: 'cash', bank: 'card', card: 'card', mobile_money: 'mobile_money', store_credit: 'card',
+const MODE_FROM_METHOD: Record<string, 'cash' | 'card' | 'mobile_money' | 'mixed'> = {
+  cash: 'cash', bank: 'card', card: 'card', mobile_money: 'mobile_money', store_credit: 'mixed',
 };
 
 /** Context threaded through durable inventory posting (Phase 1). */
@@ -47,6 +52,14 @@ interface StockLineFailure {
   reason: string;
   stackTrace: string | null;
   payload: Record<string, unknown> | null;
+}
+
+/** A paid modifier / accompaniment component whose stock movement failed. */
+interface LineExtraFailure {
+  componentId: string;
+  componentType: 'modifier' | 'accompaniment_option';
+  productId: string | null;
+  error: any;
 }
 
 /**
@@ -78,6 +91,42 @@ export class PosInvoiceService {
     private readonly workflows: WorkflowService,
     private readonly settings: SettingResolverService,
   ) {}
+
+  /** Reject known tender/configuration problems before creating financial work.
+   * PaymentService repeats these checks under the committing transaction's locks. */
+  async preflightPayment(total: number, input: any, partnerId?: string) {
+    if (input.settleMode === 'credit') {
+      return this.prisma.client.$transaction((tx: any) => this.assertCreditAllowed(partnerId!, total, tx));
+    }
+    const tenders = this.normalizeTenders(input, total);
+    const handed = input.amountTendered;
+    if (handed != null && (!Number.isFinite(handed) || handed < total || (!tenders.some(t => t.method === 'cash') && handed > total))) throw new BadRequestException('Cash handed over is invalid for these tenders');
+    await this.prisma.client.$transaction(async (tx: any) => {
+      for (const tender of tenders) await resolveTenderAccount(tx, this.determination, this.tenant.organizationId, { method: tender.method, accountId: tender.accountId, cashSessionId: input.cashSessionId });
+      const creditTotal = tenders.filter(t => t.method === 'store_credit').reduce((n, t) => n.plus(t.amount), dec(0));
+      if (creditTotal.gt(0)) {
+        if (!partnerId) throw new BadRequestException('Select the customer who owns this store credit');
+        const credit = await tx.storeCredit.findFirst({ where: { organizationId: this.tenant.organizationId, partnerId } });
+        if (!credit || !credit.isActive || (credit.expiresAt && credit.expiresAt <= new Date()) || creditTotal.gt(credit.balance)) throw new BadRequestException('Customer store credit is unavailable, expired or insufficient');
+      }
+    });
+  }
+
+  async quoteSavedItems(items: any[], input: any = {}, db: any = this.prisma.client) {
+    return this.builder.prepareLines(db, discountedLines(items, input));
+  }
+
+  async preflightOrderPayment(order: any, input: any) {
+    const items = order.items ?? await this.prisma.client.orderItem.findMany({ where: { orderId: order.id, cancelled: false } });
+    const discountInput = { ...input,
+      transactionDiscountType: input.transactionDiscountType ?? order.transactionDiscountType ?? 'percentage',
+      transactionDiscountAmount: input.transactionDiscountAmount ?? order.transactionDiscountAmount ?? 0,
+      transactionDiscountPercent: input.transactionDiscountPercent ?? order.transactionDiscountPercent ?? 0,
+    };
+    const lines = discountedLines(items.filter((i: any) => !i.cancelled).map((i: any) => ({ ...i, quantity: Number(i.quantity), unitPrice: Number(i.unitPrice), discountPercent: Number(i.discountPercent ?? 0), discountAmount: Number(i.discountAmount ?? 0) })), discountInput);
+    const totals = await this.builder.prepareLines(this.prisma.client, lines);
+    await this.preflightPayment(Number(totals.total), input, input.partnerId ?? order.partnerId);
+  }
 
   /** The org's stock-deduction timing policy (`inventory.stockPostingTiming`). */
   async stockPostingTiming(): Promise<StockPostingTiming> {
@@ -134,6 +183,7 @@ export class PosInvoiceService {
     if (!order) throw new NotFoundException('Order not found');
     if (order.status === 'cancelled') throw new BadRequestException('Cannot bill a cancelled order');
     if (order.invoiceId) return this.findInvoice(order.invoiceId); // idempotent
+    if (dto.expectedVersion != null && dto.expectedVersion !== order.version) throw new BadRequestException('Saved order changed; review the current order before billing');
 
     const items = await db.orderItem.findMany({
       where: { orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
@@ -170,43 +220,31 @@ export class PosInvoiceService {
       taxInclusive: it.taxInclusive,
     }));
     // Discounted line inputs: order-level discount folded into per-line.
-    const lineInputs = txDiscValue > 0
-      ? items.map((it: any) => {
-          const base = fullLineInputs[items.indexOf(it)];
-          if (txDiscType === 'fixed_amount') {
-            // Distribute fixed invoice discount proportionally by line gross.
-            const itemGross = Number(it.quantity) * Number(it.unitPrice);
-            const invoiceGross = items.reduce((s: number, i: any) => s + Number(i.quantity) * Number(i.unitPrice), 0);
-            const lineShare = invoiceGross > 0 ? (itemGross / invoiceGross) * txDiscValue : 0;
-            return {
-              ...base,
-              discountAmount: (base.discountAmount ?? 0) + lineShare,
-              discountType: 'fixed_amount' as const,
-            };
-          }
-          // Percentage: fold txPct into per-line discountPercent (existing logic).
-          const txFactor = 1 - txDiscValue / 100;
-          return {
-            ...base,
-            discountPercent: 100 * (1 - (1 - Number(it.discountPercent) / 100) * txFactor),
-            discountType: 'percentage' as const,
-          };
-        })
-      : fullLineInputs;
+    const discountInput = { ...dto, transactionDiscountType: txDiscType, transactionDiscountAmount: txDiscType === 'fixed_amount' ? txDiscValue : 0, transactionDiscountPercent: txDiscType === 'percentage' ? txDiscValue : 0, discountReason };
+    await assertPricingAuthority(this, fullLineInputs, discountInput);
+    const lineInputs = discountedLines(fullLineInputs, discountInput);
 
     const year = new Date().getUTCFullYear();
 
     const run = async (tx: any) => {
+      const cashSessionId = order.cashSessionId ?? dto.cashSessionId;
+      if (order.cashSessionId && dto.cashSessionId && order.cashSessionId !== dto.cashSessionId) throw new BadRequestException('Order belongs to another register session');
+      if (cashSessionId) {
+        await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', cashSessionId, orgId);
+        const session = await tx.cashSession.findFirst({ where: { id: cashSessionId, organizationId: orgId } });
+        if (!session || session.status !== 'open') throw new BadRequestException('The order register session is closed');
+      }
       // Concurrency guard: lock the order row so two terminals can't both bill
       // the same order (the order.invoiceId fast-path at the top is read outside
       // this tx). Re-check invoiceId under the lock and replay if already billed.
       await tx.$queryRawUnsafe(`SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, orderId, orgId);
-      const locked = await tx.order.findFirst({ where: { id: orderId, organizationId: orgId }, select: { invoiceId: true } });
-      if (locked?.invoiceId) return this.findInvoice(locked.invoiceId);
+      const locked = await tx.order.findFirst({ where: { id: orderId, organizationId: orgId }, select: { invoiceId: true, version: true } });
+      if (locked?.invoiceId) return tx.invoice.findFirst({ where: { id: locked.invoiceId } });
+      if (locked?.version !== order.version) throw new BadRequestException('Order changed while billing. Refresh the saved order and quote.');
 
+      if (!order.cashSessionId && cashSessionId) await tx.order.update({ where: { id: orderId }, data: { cashSessionId } });
       const totals = await this.builder.prepareLines(tx, lineInputs);
-      const fullTotals = txDiscValue > 0 ? await this.builder.prepareLines(tx, fullLineInputs) : null;
-      const orderDiscountGl = fullTotals ? dec(fullTotals.total).minus(dec(totals.total)) : dec(0);
+      if (dto.expectedTotal != null && dec(totals.total).minus(dto.expectedTotal).abs().gt('0.000001')) throw new BadRequestException('The price has changed. Review the refreshed quote before taking payment.');
       // H2: allocate the invoice number INSIDE the tx (after line pricing) so a
       // prepareLines failure no longer burns a number. NOTE: Postgres sequences
       // are non-transactional — a later rollback still advances the sequence, so
@@ -220,7 +258,7 @@ export class PosInvoiceService {
           orderId,
           partnerId: order.partnerId!,
           branchId: dto.branchId ?? order.branchId ?? null,
-          cashSessionId: order.cashSessionId ?? null,
+          cashSessionId: cashSessionId ?? null,
           waiterId: order.waiterId ?? null,
           tableId: order.tableId ?? null,
           // Offline-first: an offline sale replayed later keeps its original
@@ -252,6 +290,7 @@ export class PosInvoiceService {
       for (let i = 0; i < totals.prepared.length; i++) {
         const p = totals.prepared[i];
         const src: any = items[i];
+        const accounts = await this.builder.groupForPosting(tx, { partnerId: order.partnerId, lines: [p] }, 'sales');
         const item = await tx.invoiceItem.create({
           data: {
             organizationId: orgId,
@@ -261,7 +300,8 @@ export class PosInvoiceService {
             variantId: p.variantId ?? undefined,
             variantName: p.variantName ?? undefined,
             accompanimentOptionIds: src?.accompanimentOptionIds ?? [],
-            accountId: p.accountId,
+            accountId: accounts.itemByAccount.keys().next().value,
+            taxAccountId: accounts.taxByAccount.keys().next().value ?? null,
             description: p.description,
             quantity: p.quantity,
             unitPrice: p.unitPrice,
@@ -288,16 +328,16 @@ export class PosInvoiceService {
           });
         }
       }
+      await recordBusinessOutcome(tx, { invoiceId: inv.id, invoiceNumber: inv.invoiceNumber, orderId, orderNumber: order.orderNumber, total: Number(inv.totalAmount) });
       // Post the invoice's own GL entry (Dr AR / Cr Revenue+Tax + Dr sales_discount).
       const dbItems = await tx.invoiceItem.findMany({ where: { invoiceId: inv.id } });
-      const fullPrepared = txDiscValue > 0 && fullTotals?.prepared ? fullTotals.prepared : undefined;
       // Phase 3 — seed financial dimensions from the POS sale so the GL is
       // segmentable by cashier / shift / register (branch stays a typed column).
       const glDimensions: Record<string, string> = { source: 'pos' };
-      if (order.cashSessionId) glDimensions.cashSessionId = order.cashSessionId;
+      if (cashSessionId) glDimensions.cashSessionId = cashSessionId;
       if (order.waiterId) glDimensions.cashierId = order.waiterId;
       if (order.deviceId) glDimensions.registerId = order.deviceId;
-      const journalEntryId = await this.postInvoiceGl(tx, inv, dbItems, orderDiscountGl, fullPrepared, glDimensions);
+      const journalEntryId = await this.postInvoiceGl(tx, inv, dbItems, glDimensions);
       await tx.invoice.update({
         where: { id: inv.id },
         data: { journalEntryId, status: 'posted', postedAt: new Date(), postedBy: this.tenant.userId ?? null },
@@ -377,26 +417,31 @@ export class PosInvoiceService {
    * The `version` column is bumped on every settlement for optimistic callers.
    * Side effects (printing, events) run only AFTER the tx commits.
    */
-  async receivePayment(invoiceId: string, dto: ReceivePaymentDto) {
+  async receivePayment(invoiceId: string, dto: ReceivePaymentDto, externalTx?: any) {
     const orgId = this.tenant.organizationId;
 
-    const result = await this.prisma.client.$transaction(async (tx: any) => {
+    const run = async (tx: any) => {
+      if (dto.cashSessionId) await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', dto.cashSessionId, orgId);
       // Serialise concurrent settlements of THIS invoice.
       await tx.$queryRawUnsafe(`SELECT id FROM "Invoice" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, invoiceId, orgId);
       const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId } });
       if (!invoice) throw new NotFoundException('Invoice not found');
       if (invoice.status === 'cancelled' || invoice.status === 'refunded') throw new BadRequestException(`Invoice is ${invoice.status}`);
       const residual = Number(invoice.amountResidual);
-      if (residual <= 0.001) throw new BadRequestException('Invoice is already fully paid');
+      if (residual <= 0) throw new BadRequestException('Invoice is already fully paid');
 
       // If the invoice GL was posted with a cash/bank counter-account
       // (pre-settled), payments skip GL posting to avoid double-counting cash.
-      const preSettledModes = new Set(['cash', 'card', 'mobile_money']);
-      const skipGl = !!invoice.paymentMode && preSettledModes.has(invoice.paymentMode);
+      // New invoices always debit AR. Legacy cash-counter postings require an
+      // explicit accounting correction before accepting another collection.
+      const skipGl = !invoice.receivableAccountId && ['cash', 'card', 'mobile_money'].includes(invoice.paymentMode);
+      if (skipGl) throw new BadRequestException('Legacy invoice uses a cash/bank posting. Reconcile its original journal before collecting payment.');
 
       const tenders = this.normalizeTenders(dto, residual, { allowPartial: dto.allowPartial === true });
       const tendersSum = tenders.reduce((s, t) => s + Number(t.amount), 0);
-      const isPartial = tendersSum < residual - 0.01;
+      if (tenders.some((t) => t.method === 'cash') && !dto.cashSessionId) throw new BadRequestException('Select an open register for a cash payment');
+      if (dto.amountTendered != null && (!Number.isFinite(dto.amountTendered) || dto.amountTendered < tendersSum || (!tenders.some((t) => t.method === 'cash') && dto.amountTendered > tendersSum))) throw new BadRequestException('Cash handed over is invalid for these tenders');
+      const isPartial = tendersSum < residual - 0.000001;
       // D1: a pre-settled invoice already debited Cash/Bank for its FULL total at
       // generation, so a partial (skip-GL) payment would leave the GL claiming cash
       // that was never collected. Partial is only sound when the GL counter is AR.
@@ -407,11 +452,9 @@ export class PosInvoiceService {
       }
 
       let lastPaymentId: string | null = null;
+      const paymentIds: string[] = [];
       for (const tender of tenders) {
-        let accountId: string | undefined;
-        if (tender.method === 'store_credit') {
-          accountId = await this.storeCreditAccountId();
-        }
+        const accountId = tender.accountId;
         const payment = await this.payments.createReceipt({
           partnerId: invoice.partnerId,
           paymentDate: (resolveOccurredAt(dto.occurredAt) ?? new Date()).toISOString(),
@@ -419,16 +462,19 @@ export class PosInvoiceService {
           amount: tender.amount,
           reference: tender.reference,
           accountId,
-          cashSessionId: tender.method === 'cash' ? dto.cashSessionId : undefined,
-          skipGlPosting: skipGl,
+          cashSessionId: dto.cashSessionId,
           // R2: allocate against the Invoice (not a Document).
           allocations: [{ invoiceId: invoice.id, amount: tender.amount }],
-        } as any, tx, { allowSessionOwnerMismatch: true });
-        if ((payment as any)?.id) lastPaymentId = (payment as any).id;
+          // F17: a collection lands in the drawer of the cashier taking it. The
+          // owner check stays ON unless this org has deliberately declared the
+          // till shared; the refund path is the other flow that legitimately
+          // posts into a session it does not own.
+        } as any, tx, { allowSessionOwnerMismatch: await this.sharedDrawer(tx) });
+        if ((payment as any)?.id) { lastPaymentId = (payment as any).id; paymentIds.push(lastPaymentId!); }
       }
 
       const fresh = await tx.invoice.findFirst({ where: { id: invoiceId } });
-      const settled = Number(fresh!.amountResidual) <= 0.001;
+      const settled = Number(fresh!.amountResidual) <= 0;
       const wasCredit = invoice.paymentMode === 'credit';
       const settlementStatus = settled ? 'settled' : 'partially_settled';
 
@@ -474,18 +520,20 @@ export class PosInvoiceService {
       if (settled) await this.createReceipt(tx, invoice, 'merchant_copy', lastPaymentId);
       const closed = settled ? await this.closeOrderForInvoice(tx, invoiceId) : null;
 
-      return { residual, tendersSum, settled, paymentMode, settlementStatus, receiptId: receipt.id, closed, invoiceNumber: invoice.invoiceNumber };
-    });
+      await recordBusinessOutcome(tx, { invoiceId, invoiceNumber: invoice.invoiceNumber, total: Number(invoice.totalAmount), settlementStatus, paymentMode, receiptId: receipt.id, paymentIds, change: Math.max(0, (dto.amountTendered ?? tendersSum) - tendersSum), amountDue: Number(fresh.amountResidual), settleMode: 'tender' }, true);
+      return { paymentIds, residual, tendersSum, settled, paymentMode, settlementStatus, receiptId: receipt.id, closed, invoiceNumber: invoice.invoiceNumber };
+    };
+    const result = externalTx ? await run(externalTx) : await this.prisma.client.$transaction(run);
 
     // Side effects AFTER commit — never on a rolled-back tx.
-    await this.printReceiptSafe(invoiceId);
-    if (result.settled) {
+    if (!externalTx) await this.printReceiptSafe(invoiceId);
+    if (result.settled && !externalTx) {
       if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
       this.events.publish(EVENTS.PosInvoiceSettled, { organizationId: orgId, invoiceId, invoiceNumber: result.invoiceNumber, paymentMode: result.paymentMode });
     }
 
     const tendered = dto.amountTendered ?? result.tendersSum;
-    return { invoiceId, settlementStatus: result.settlementStatus, paymentMode: result.paymentMode, receiptId: result.receiptId, change: Math.max(0, tendered - result.tendersSum) };
+    return { paymentIds: result.paymentIds, invoiceId, settlementStatus: result.settlementStatus, paymentMode: result.paymentMode, receiptId: result.receiptId, change: Math.max(0, tendered - result.tendersSum) };
   }
 
   /**
@@ -500,6 +548,13 @@ export class PosInvoiceService {
    * terminals could both pass a check-then-act limit test and jointly blow the
    * limit, or race a concurrent cash settlement.
    */
+  async afterExternalPaymentCommit(invoiceId: string) {
+    const invoice = await this.findInvoice(invoiceId);
+    if (!invoice) return;
+    await this.printReceiptSafe(invoiceId);
+    this.events.publish(EVENTS.PosInvoiceSettled, { organizationId: this.tenant.organizationId, invoiceId, invoiceNumber: invoice.invoiceNumber, paymentMode: invoice.paymentMode ?? 'mixed' });
+  }
+
   async settleCredit(invoiceId: string, dto: SettleCreditDto = {}) {
     const orgId = this.tenant.organizationId;
 
@@ -515,6 +570,7 @@ export class PosInvoiceService {
       await tx.invoice.update({ where: { id: invoiceId }, data: { paymentMode: 'credit', settlementStatus: 'unsettled', settledBy: this.tenant.userId ?? null, version: { increment: 1 } } });
       const receipt = await this.createReceipt(tx, invoice, 'credit_issue_receipt', null);
       const closed = await this.closeOrderForInvoice(tx, invoiceId);
+      await recordBusinessOutcome(tx, { invoiceId, invoiceNumber: invoice.invoiceNumber, total: Number(invoice.totalAmount), receiptId: receipt.id, settlementStatus: 'unsettled', paymentMode: 'credit', settleMode: 'credit', amountDue: Number(invoice.amountResidual), change: 0 }, true);
       return { receiptId: receipt.id, closed, invoiceNumber: invoice.invoiceNumber, partnerId: invoice.partnerId, amount: String(invoice.amountResidual) };
     });
 
@@ -527,19 +583,32 @@ export class PosInvoiceService {
     return { invoiceId, settlementStatus: 'unsettled', paymentMode: 'credit', receiptId: result.receiptId };
   }
 
+  /**
+   * F17 — is this org running one till for several servers? Off by default, so
+   * a collection normally has to land in the taker's own drawer.
+   */
+  private async sharedDrawer(tx?: any): Promise<boolean> {
+    const mod = await (tx ?? this.prisma.client).organizationModule.findUnique({
+      where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: 'pos' } },
+    });
+    return (mod?.config as Record<string, unknown> | null)?.sharedDrawer === true;
+  }
+
   /** Write off the outstanding balance (Dr bad-debt / Cr AR). */
   async writeOff(invoiceId: string, dto: WriteOffDto) {
+    if (!this.tenant.permissions.includes('pos:write_off')) throw new BadRequestException('Write-off permission is required');
     if (!dto.reason?.trim()) throw new BadRequestException('A reason is required to write off an invoice');
     const orgId = this.tenant.organizationId;
     return this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "Invoice" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', invoiceId, orgId);
       const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId } });
       if (!invoice) throw new NotFoundException('Invoice not found');
       const residual = dec(invoice.amountResidual);
       if (residual.lessThanOrEqualTo(0.001)) throw new BadRequestException('Nothing to write off');
 
-      const partner = await tx.partner.findFirst({ where: { id: invoice.partnerId } });
       const badDebtAccount = await this.determination.mapped('bad_debt', tx);
-      const arAccount = await this.determination.receivableAccount(partner, tx);
+      const arAccount = invoice.receivableAccountId;
+      if (!arAccount) throw new BadRequestException('Verify the original invoice receivable account before writing off a legacy invoice');
       await this.posting.post({
         journalCode: 'GEN',
         date: new Date().toISOString(),
@@ -554,7 +623,7 @@ export class PosInvoiceService {
       } as any, tx);
       await tx.invoice.update({
         where: { id: invoiceId },
-        data: { settlementStatus: 'written_off', amountResidual: 0, amountPaid: invoice.totalAmount, paymentStatus: 'paid', status: 'paid' },
+        data: { settlementStatus: 'written_off', amountResidual: 0, version: { increment: 1 } },
       });
       const affected = await tx.order.findMany({ where: { invoiceId }, select: { tableId: true } });
       await tx.order.updateMany({ where: { invoiceId }, data: { status: 'closed', closedAt: new Date() } });
@@ -562,316 +631,14 @@ export class PosInvoiceService {
       for (const o of affected) await recomputeTableStatus(tx, o.tableId);
       await this.audit.recordInTx(tx, { entity: 'Invoice', entityId: invoiceId, action: 'update', newValues: { kind: 'write_off', reason: dto.reason, amount: residual.toString() } });
       this.events.publish(EVENTS.PosInvoiceWrittenOff, { organizationId: orgId, invoiceId, invoiceNumber: invoice.invoiceNumber, amount: residual.toString() });
-      return { invoiceId, settlementStatus: 'written_off', amount: residual.toString() };
+      const outcome = { invoiceId, settlementStatus: 'written_off', amount: residual.toString() };
+      await recordBusinessOutcome(tx, outcome, true);
+      return outcome;
     });
   }
 
-  /**
-   * Full refund/void: reverse the invoice GL, restock, return cash, mark refunded.
-   *
-   * P0-3: the whole thing is ONE transaction (GL reversal + restock + cash-out +
-   * status), so a partial failure can't leave reversed revenue with un-restored
-   * stock (or vice-versa). For a cash-settled sale the GL cash leg is reversed in
-   * step 1, and an outbound cash refund Payment (GL-skipped) is recorded so the
-   * cash-session Z-report reconciles with the money physically leaving the drawer.
-   */
-  async refund(
-    invoiceId: string,
-    reason?: string,
-    opts?: {
-      overrideById?: string;
-      cashSessionId?: string;
-      requireOverride?: boolean;
-      /** Partial refund: a subset of the original lines + quantities. Omit for a full refund. */
-      lines?: Array<{ lineId: string; quantity: number }>;
-    },
-  ) {
-    const orgId = this.tenant.organizationId;
-
-    // Manual void/refund of a settled sale needs a manager sign-off. Internal
-    // compensation calls (failed checkout/settle) pass no opts and skip this.
-    if (opts?.requireOverride && !opts.overrideById) {
-      throw new BadRequestException('Refunding a settled sale requires a manager override');
-    }
-    if (opts?.overrideById) {
-      await this.overrides.assertCanOverride(opts.overrideById, 'manual_refund');
-      // F.5b — log the synchronous manager override into the unified approval
-      // ledger. Best-effort: must never block the refund. Runs before the tx so
-      // the engine's own transaction is not nested inside this one.
-      try {
-        const inv = await this.prisma.client.invoice.findFirst({
-          where: { id: invoiceId, organizationId: orgId },
-          select: { totalAmount: true },
-        });
-        await this.approvals.recordSynchronousOverride({
-          entityType: 'pos_refund',
-          entityId: invoiceId,
-          approverId: opts.overrideById,
-          snapshot: { amount: Number(inv?.totalAmount ?? 0), reason: reason ?? null },
-        });
-      } catch (err) {
-        this.logger.warn(`Failed to record pos_refund override in approval ledger: ${String(err)}`);
-      }
-    }
-
-    // Partial (line-level) refund takes a distinct path — it reverses only the
-    // selected portion of the GL, restocks only those units, and tracks per-line
-    // refunded quantity so the same units can't be refunded twice.
-    if (opts?.lines?.length) {
-      return this.partialRefund(invoiceId, opts.lines, reason, {
-        overrideById: opts.overrideById,
-        cashSessionId: opts.cashSessionId,
-      });
-    }
-
-    const result = await this.prisma.client.$transaction(async (tx: any) => {
-      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: { include: { modifiers: true } } } });
-      if (!invoice) throw new NotFoundException('Invoice not found');
-      if (invoice.status === 'refunded') throw new BadRequestException('Invoice already refunded');
-
-      // 1) Reverse the invoice GL (Dr Revenue+Tax / Cr counter). For the canonical
-      //    pre-settled cash/card sale the counter was Cash/Bank, so the cash leg
-      //    is reversed here at the GL level.
-      if (invoice.journalEntryId) {
-        await this.posting.reverse(invoice.journalEntryId, { description: `Refund of ${invoice.invoiceNumber}${reason ? ` — ${reason}` : ''}` }, tx);
-      }
-
-      // 2) Restock the sold items (recipe-aware) in the same tx. Paid modifiers
-      //    and accompaniments (H3) are restocked too, symmetric with the sale.
-      const warehouse = await resolvePosStockLocation(this.prisma, orgId, tx);
-      if (warehouse) {
-        for (const it of invoice.items as any[]) {
-          const ref = `Refund ${invoice.invoiceNumber}`;
-          if (it.menuItemId) await this.receiveMenuItemRecipe(tx, it.menuItemId, Number(it.quantity), warehouse.id, ref);
-          else if (it.productId) {
-            const prod = await tx.product.findFirst({ where: { id: it.productId } });
-            await this.stock.receiveReturn({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: prod?.salesUomId ?? undefined, reference: ref, sourceType: 'pos_refund', sourceId: invoice.id }, tx);
-          }
-          await this.receiveLineExtras(tx, it, Number(it.quantity), warehouse.id, ref);
-        }
-      }
-
-      // 3) Return cash to the drawer. GL cash was already reversed in (1), so this
-      //    outbound payment skips GL — it exists to write the CashMovement('refund')
-      //    that reconciles the session and to leave an auditable money-out trail.
-      //    Only for cash actually collected, on the same cashier's open session.
-      const cashPaid = Number(invoice.amountPaid);
-      // Prefer the cashier's CURRENT open session (passed by the refund endpoint)
-      // so a void rung up after the original shift still records the cash leaving
-      // the drawer; fall back to the session the sale was rung on.
-      // An explicitly passed session is honoured even when the refunder isn't
-      // its owner: refunds are pos:refund-gated, so the normal flow is a
-      // manager paying out of the cashier's drawer — the drawer must still
-      // reconcile. The owner check only guards the implicit fallback.
-      const refundSessionId = opts?.cashSessionId ?? invoice.cashSessionId;
-      if (cashPaid > 0.001 && refundSessionId) {
-        const session = await tx.cashSession.findFirst({ where: { id: refundSessionId, organizationId: orgId } });
-        if (session && session.status === 'open' && (opts?.cashSessionId ? true : session.userId === this.tenant.userId)) {
-          await this.payments.createCustomerRefund({
-            partnerId: invoice.partnerId,
-            paymentDate: new Date().toISOString(),
-            paymentMethod: 'cash',
-            amount: cashPaid,
-            reference: `Refund ${invoice.invoiceNumber}`,
-            cashSessionId: refundSessionId,
-            skipGlPosting: true,
-          } as any, tx, { allowSessionOwnerMismatch: true });
-        }
-      }
-
-      // 4) Mark refunded + close the order (release the table).
-      await tx.invoice.update({ where: { id: invoiceId }, data: { status: 'refunded', settlementStatus: 'settled', amountResidual: 0, amountRefunded: invoice.totalAmount, refundedBy: this.tenant.userId ?? null, version: { increment: 1 } } });
-      const closed = await this.closeOrderForInvoice(tx, invoiceId);
-      await this.createReceipt(tx, invoice, 'merchant_copy', null);
-      return { total: invoice.totalAmount.toString(), closed };
-    });
-
-    // Whole sale reversed — drop any surviving hold so it stops consuming ATP.
-    await this.reservations
-      .release('invoice', invoiceId)
-      .catch((e: any) => this.logger.warn(`reservation release failed for ${invoiceId}: ${e?.message ?? e}`));
-
-    await this.audit.record({ entity: 'Invoice', entityId: invoiceId, action: 'cancel' as any, newValues: { kind: 'refund', reason: reason ?? null, overrideById: opts?.overrideById ?? null } });
-    if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
-    this.events.publish(EVENTS.PosRefundCompleted, { organizationId: orgId, invoiceId, creditNoteId: '', total: result.total } as any);
-    return { invoiceId, status: 'refunded', amount: result.total };
-  }
-
-  /**
-   * Partial (line-level) refund. Reverses only the selected portion of the sale
-   * to the GL, restocks only those units, returns the cash portion to the drawer,
-   * and records per-line refunded quantity (guarding against refunding the same
-   * unit twice). The whole thing is ONE transaction, mirroring the full refund's
-   * compensation guarantees.
-   */
-  private async partialRefund(
-    invoiceId: string,
-    lines: Array<{ lineId: string; quantity: number }>,
-    reason: string | undefined,
-    opts?: { overrideById?: string; cashSessionId?: string },
-  ) {
-    const orgId = this.tenant.organizationId;
-
-    const result = await this.prisma.client.$transaction(async (tx: any) => {
-      // Serialise concurrent refunds of THIS invoice (mirrors receivePayment).
-      await tx.$queryRawUnsafe(`SELECT id FROM "Invoice" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, invoiceId, orgId);
-      const invoice = await tx.invoice.findFirst({ where: { id: invoiceId, organizationId: orgId }, include: { items: { include: { modifiers: true } } } });
-      if (!invoice) throw new NotFoundException('Invoice not found');
-      if (invoice.status === 'refunded') throw new BadRequestException('Invoice already refunded');
-      if (invoice.status === 'cancelled') throw new BadRequestException('Invoice is cancelled');
-
-      const itemById = new Map<string, any>((invoice.items as any[]).map((it) => [it.id, it]));
-      const selections = lines.map((sel) => {
-        const src = itemById.get(sel.lineId);
-        if (!src) throw new BadRequestException(`Line ${sel.lineId} is not on this invoice`);
-        const q = Number(sel.quantity);
-        const remaining = Number(src.quantity) - Number(src.refundedQty ?? 0);
-        if (!(q > 0)) throw new BadRequestException(`Invalid refund quantity for line ${sel.lineId}`);
-        if (q > remaining + 1e-6) {
-          throw new BadRequestException(`Refund quantity ${q} exceeds the ${remaining} still refundable on line ${sel.lineId}`);
-        }
-        return { src, quantity: q };
-      });
-
-      // Portion of each line to reverse (fraction of the full line).
-      // Menu-item invoice lines don't persist a revenue accountId (it's resolved
-      // at post time), so fall back to the `sales_revenue` mapping — the same
-      // account the sale posted to. Without this the revenue debit leg was
-      // dropped, leaving a single-line (unbalanced) JE that failed to post.
-      const fallbackRevenueAccount = await this.determination.mapped('sales_revenue', tx);
-      let refundSubtotal = dec(0), refundTax = dec(0), refundTotal = dec(0);
-      const revenueByAccount = new Map<string, any>();
-      const taxByTaxId = new Map<string, any>();
-      for (const { src, quantity } of selections) {
-        const f = dec(quantity).dividedBy(dec(src.quantity));
-        const sSub = dec(src.subtotal).times(f);
-        const sTax = dec(src.taxAmount).times(f);
-        const sTot = dec(src.total).times(f);
-        refundSubtotal = refundSubtotal.plus(sSub);
-        refundTax = refundTax.plus(sTax);
-        refundTotal = refundTotal.plus(sTot);
-        const revAccountId = src.accountId ?? fallbackRevenueAccount;
-        revenueByAccount.set(revAccountId, (revenueByAccount.get(revAccountId) ?? dec(0)).plus(sSub));
-        if (src.taxId && !sTax.isZero()) taxByTaxId.set(src.taxId, (taxByTaxId.get(src.taxId) ?? dec(0)).plus(sTax));
-      }
-
-      // Over-refund guard (invoice-level, defence in depth on top of per-line).
-      const alreadyRefunded = dec(invoice.amountRefunded ?? 0);
-      if (alreadyRefunded.plus(refundTotal).greaterThan(dec(invoice.totalAmount).plus(0.01))) {
-        throw new BadRequestException('Refund exceeds the remaining refundable amount');
-      }
-
-      // Reverse the GL portion: Dr Revenue + Tax, Cr counter (cash/bank/AR by mode).
-      const counterAccount = await this.refundCounterAccount(tx, invoice);
-      const glLines: any[] = [];
-      for (const [accountId, amt] of revenueByAccount) glLines.push({ accountId, debit: amt.toString(), partnerId: invoice.partnerId, description: 'Refund revenue' });
-      for (const [taxId, amt] of taxByTaxId) {
-        const tax = await tx.tax.findFirst({ where: { id: taxId } });
-        const taxAcc = await this.determination.taxAccount(tax, tx, 'tax_payable');
-        glLines.push({ accountId: taxAcc, debit: amt.toString(), description: 'Refund output tax' });
-      }
-      glLines.push({ accountId: counterAccount, credit: refundTotal.toString(), partnerId: invoice.partnerId, description: `Partial refund ${invoice.invoiceNumber}` });
-      await this.posting.post({
-        journalCode: 'SALES',
-        date: new Date().toISOString(),
-        description: `Partial refund ${invoice.invoiceNumber}${reason ? ` — ${reason}` : ''}`,
-        sourceType: 'pos_invoice_partial_refund',
-        sourceId: invoice.id,
-        branchId: invoice.branchId ?? undefined,
-        lines: glLines,
-      } as any, tx);
-
-      // Restock the refunded quantities (recipe-aware) in the same tx.
-      const warehouse = await resolvePosStockLocation(this.prisma, orgId, tx);
-      if (warehouse) {
-        for (const { src, quantity } of selections) {
-          const ref = `Refund ${invoice.invoiceNumber}`;
-          if (src.menuItemId) await this.receiveMenuItemRecipe(tx, src.menuItemId, quantity, warehouse.id, ref);
-          else if (src.productId) {
-            const prod = await tx.product.findFirst({ where: { id: src.productId } });
-            await this.stock.receiveReturn({ productId: src.productId, locationId: warehouse.id, quantity, uomId: prod?.salesUomId ?? undefined, reference: ref, sourceType: 'pos_refund', sourceId: invoice.id }, tx);
-          }
-          // H3: restock the refunded fraction's modifiers + accompaniments too.
-          await this.receiveLineExtras(tx, src, quantity, warehouse.id, ref);
-        }
-      }
-
-      // Return the cash portion to the drawer (GL cash was reversed above; this
-      // is the CashMovement so the session reconciles). Only for cash-collected
-      // sales, on the same cashier's open session.
-      const isCashLike = invoice.paymentMode === 'cash' || invoice.paymentMode === 'mobile_money' || invoice.paymentMode === 'mixed';
-      // Same owner-vs-explicit session rule as the full-refund path above.
-      const refundSessionId = opts?.cashSessionId ?? invoice.cashSessionId;
-      if (isCashLike && refundSessionId && refundTotal.greaterThan(0.001)) {
-        const session = await tx.cashSession.findFirst({ where: { id: refundSessionId, organizationId: orgId } });
-        if (session && session.status === 'open' && (opts?.cashSessionId ? true : session.userId === this.tenant.userId)) {
-          await this.payments.createCustomerRefund({
-            partnerId: invoice.partnerId,
-            paymentDate: new Date().toISOString(),
-            paymentMethod: 'cash',
-            amount: Number(refundTotal),
-            reference: `Refund ${invoice.invoiceNumber}`,
-            cashSessionId: refundSessionId,
-            skipGlPosting: true,
-          } as any, tx, { allowSessionOwnerMismatch: true });
-        }
-      }
-
-      // Track per-line refunded qty + invoice cumulative; flip to refunded when whole.
-      for (const { src, quantity } of selections) {
-        await tx.invoiceItem.update({ where: { id: src.id }, data: { refundedQty: dec(src.refundedQty ?? 0).plus(quantity) } });
-      }
-      const newRefunded = alreadyRefunded.plus(refundTotal);
-      const fullyRefunded = newRefunded.greaterThanOrEqualTo(dec(invoice.totalAmount).minus(0.01));
-      const residual = dec(invoice.amountResidual);
-      const nextResidual = residual.greaterThan(0)
-        ? (residual.minus(refundTotal).greaterThan(0) ? residual.minus(refundTotal) : dec(0))
-        : residual;
-      await tx.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          amountRefunded: newRefunded,
-          amountResidual: nextResidual,
-          refundedBy: this.tenant.userId ?? null,
-          ...(fullyRefunded ? { status: 'refunded', settlementStatus: 'settled' } : {}),
-          version: { increment: 1 },
-        },
-      });
-      await this.createReceipt(tx, invoice, 'merchant_copy', null);
-
-      let closed: { orderId: string; tableId: string | null } | null = null;
-      if (fullyRefunded) closed = await this.closeOrderForInvoice(tx, invoiceId);
-      return { refundTotal: refundTotal.toString(), fullyRefunded, closed };
-    });
-
-    // Fully refunded: the goods are back, so any surviving hold on this invoice
-    // must stop consuming ATP. A partial refund leaves the remaining hold intact.
-    if (result.fullyRefunded) {
-      await this.reservations
-        .release('invoice', invoiceId)
-        .catch((e: any) => this.logger.warn(`reservation release failed for ${invoiceId}: ${e?.message ?? e}`));
-    }
-
-    await this.audit.record({ entity: 'Invoice', entityId: invoiceId, action: 'update' as any, newValues: { kind: 'partial_refund', reason: reason ?? null, amount: result.refundTotal, lines, overrideById: opts?.overrideById ?? null } });
-    if (result.closed) this.events.publish(EVENTS.PosOrderClosed, { organizationId: orgId, orderId: result.closed.orderId, invoiceId });
-    this.events.publish(EVENTS.PosRefundCompleted, { organizationId: orgId, invoiceId, creditNoteId: '', total: result.refundTotal } as any);
-    return { invoiceId, status: result.fullyRefunded ? 'refunded' : 'partially_refunded', amount: result.refundTotal };
-  }
-
-  /**
-   * The account the original sale's counter leg used, by payment mode:
-   *   cash / mobile_money → Cash · card → Bank · credit / mixed / null → AR.
-   * A partial refund credits this same account so the reversal mirrors the sale.
-   */
-  private async refundCounterAccount(tx: any, invoice: any): Promise<string> {
-    const mode = invoice.paymentMode;
-    const mappingKey: Record<string, string> = { cash: 'default_cash', card: 'default_bank', mobile_money: 'default_cash' };
-    if (mode && mode !== 'credit' && mode !== 'mixed') {
-      const key = mappingKey[mode as string];
-      if (key) { try { return await this.determination.mapped(key, tx); } catch { /* fall through to AR */ } }
-    }
-    const partner = await tx.partner.findFirst({ where: { id: invoice.partnerId } });
-    return this.determination.receivableAccount(partner, tx);
+  async refund(invoiceId: string, reason?: string, opts?: RefundOptions) {
+    return refundInvoice(this, invoiceId, reason, opts);
   }
 
   /** Read an invoice with items (public — used by controllers). */
@@ -897,114 +664,85 @@ export class PosInvoiceService {
    * `dir` = 'issue' on sale, 'receive' on refund. Best-effort per unit: a missing
    * link or stock error is logged, never thrown (mirrors "never block sales").
    */
-  private async issueLineExtras(db: any, item: any, lineQty: number, warehouseId: string, reference: string): Promise<void> {
+  private async issueLineExtras(db: any, item: any, lineQty: number, warehouseId: string, reference: string): Promise<LineExtraFailure[]> {
     return this.moveLineExtras(db, 'issue', item, lineQty, warehouseId, reference);
   }
 
-  private async receiveLineExtras(db: any, item: any, lineQty: number, warehouseId: string, reference: string): Promise<void> {
-    return this.moveLineExtras(db, 'receive', item, lineQty, warehouseId, reference);
-  }
-
+  /**
+   * F15 — returns the components that could not move instead of swallowing them
+   * into the log. The caller records each as an InventoryException and counts it
+   * toward the job's "needs review" total, so an un-deducted extra shot is a
+   * visible work item rather than a silent stock drift.
+   */
   private async moveLineExtras(
     db: any, dir: 'issue' | 'receive', item: any, lineQty: number, warehouseId: string, reference: string,
-  ): Promise<void> {
-    if (!(lineQty > 0)) return;
-    const move = async (productId: string) => {
-      const args = { productId, locationId: warehouseId, quantity: lineQty, reference } as any;
-      if (dir === 'issue') await this.stock.issue(args);
+  ): Promise<LineExtraFailure[]> {
+    const failures: LineExtraFailure[] = [];
+    if (!(lineQty > 0)) return failures;
+    // F14 — one selection consumes `consumptionQty` of its linked product in
+    // `consumptionUomId` (falling back to the product's stock unit), scaled by
+    // the line quantity. "Extra milk" can now mean 30 ml × N drinks, not N whole
+    // units. consumptionQty defaults to 1, so unconfigured options are unchanged.
+    const move = async (productId: string, componentId: string, consumptionQty: number, uomId?: string | null) => {
+      const qty = lineQty * (Number.isFinite(consumptionQty) && consumptionQty > 0 ? consumptionQty : 1);
+      // Deterministic per-component movement id: a retry of the same job cannot
+      // book the same extra twice, and the ledger row traces back to the option.
+      const args = {
+        productId, locationId: warehouseId, quantity: qty, reference, uomId: uomId ?? undefined,
+        sourceType: 'pos_invoice_extra', sourceId: `${item.id}:${componentId}`,
+      } as any;
+      if (dir === 'issue') await this.stock.issue(args, db);
       else await this.stock.receiveReturn(args, db);
     };
     // Modifiers (structured on the line).
     for (const m of (item.modifiers ?? []) as any[]) {
       if (!m.modifierId) continue;
       try {
-        const mod = await db.modifier.findFirst({ where: { id: m.modifierId }, select: { inventoryItemId: true } });
-        if (mod?.inventoryItemId) await move(mod.inventoryItemId);
+        const mod = await db.modifier.findFirst({ where: { id: m.modifierId }, select: { inventoryItemId: true, consumptionQty: true, consumptionUomId: true } });
+        if (mod?.inventoryItemId) await move(mod.inventoryItemId, m.modifierId, Number(mod.consumptionQty ?? 1), mod.consumptionUomId);
       } catch (e: any) {
         this.logger.error(`[stock] modifier extra ${dir} failed (${m.modifierId}) on ${reference} (kept): ${e?.message ?? e}`);
+        failures.push({ componentId: m.modifierId, componentType: 'modifier', productId: null, error: e });
       }
     }
     // Accompaniment options (resolved from the persisted ids).
     const accIds: string[] = item.accompanimentOptionIds ?? [];
     if (accIds.length) {
       try {
-        const opts = await db.accompanimentOption.findMany({ where: { id: { in: accIds } }, select: { inventoryItemId: true } });
+        const opts = await db.accompanimentOption.findMany({ where: { id: { in: accIds } }, select: { id: true, inventoryItemId: true, consumptionQty: true, consumptionUomId: true } });
         for (const o of opts as any[]) {
           if (!o.inventoryItemId) continue;
-          try { await move(o.inventoryItemId); }
-          catch (e: any) { this.logger.error(`[stock] accompaniment extra ${dir} failed on ${reference} (kept): ${e?.message ?? e}`); }
+          try { await move(o.inventoryItemId, o.id, Number(o.consumptionQty ?? 1), o.consumptionUomId); }
+          catch (e: any) {
+            this.logger.error(`[stock] accompaniment extra ${dir} failed on ${reference} (kept): ${e?.message ?? e}`);
+            failures.push({ componentId: o.id, componentType: 'accompaniment_option', productId: o.inventoryItemId, error: e });
+          }
         }
       } catch (e: any) {
         this.logger.error(`[stock] accompaniment lookup failed on ${reference} (kept): ${e?.message ?? e}`);
+        failures.push({ componentId: accIds.join(','), componentType: 'accompaniment_option', productId: null, error: e });
       }
     }
+    return failures;
   }
 
-  /**
-   * Post GL entry for the invoice. The counter account is payment-mode-aware:
-   *   • credit / mixed / null → Accounts Receivable (deferred settlement)
-   *   • cash                → Cash account (immediate settlement)
-   *   • card                → Bank account (card settlement)
-   *   • mobile_money        → Cash account (treated as cash-equivalent)
-   *
-   * When the debit side is a cash/bank account (not AR), the caller should
-   * pass `skipGlPosting: true` to the subsequent payment call to avoid
-   * double-posting the cash entry.
-   */
+  /** Post the discounted sale to AR; actual payment journals move cash or electronic funds. */
   private async postInvoiceGl(
     tx: any, invoice: any, items: any[],
-    orderDiscountAmount?: any, fullPrepared?: any[], dimensions?: Record<string, string>,
+    dimensions?: Record<string, string>,
   ): Promise<string> {
-    // Use full (pre-discount) line items for revenue/tax breakdown when an
-    // order-level discount exists, so the discount is posted as a separate
-    // Dr line to sales_discount rather than folded into reduced revenue.
-    const glSource = orderDiscountAmount?.gt(0.001) && fullPrepared?.length
-      ? { partnerId: invoice.partnerId, lines: fullPrepared }
-      : { partnerId: invoice.partnerId, lines: items };
+    // Revenue and output tax use the same net discounted amounts the customer pays.
+    const glSource = { partnerId: invoice.partnerId, lines: items };
     const { counterAccount: defaultCounter, itemByAccount, taxByAccount } = await this.builder.groupForPosting(tx, glSource, 'sales');
 
-    const mode = invoice.paymentMode;
-    const mappingKey: Record<string, string> = {
-      cash: 'default_cash',
-      card: 'default_bank',
-      mobile_money: 'default_cash',
-    };
-    let counterAccount = defaultCounter;
-    if (mode && mode !== 'credit' && mode !== 'mixed') {
-      const key = mappingKey[mode as string];
-      if (key) {
-        try { counterAccount = await this.determination.mapped(key, tx); } catch { /* fallback to AR */ }
-      }
-    }
+    const counterAccount = defaultCounter;
+    await tx.invoice.update({ where: { id: invoice.id }, data: { receivableAccountId: counterAccount } });
 
     const lines: any[] = [
       { accountId: counterAccount, debit: invoice.totalAmount.toString(), partnerId: invoice.partnerId, description: `Invoice ${invoice.invoiceNumber}` },
     ];
     for (const [accountId, amount] of itemByAccount) lines.push({ accountId, credit: (amount as any).toString(), partnerId: invoice.partnerId, description: 'Revenue' });
     for (const [accountId, amount] of taxByAccount) lines.push({ accountId, credit: (amount as any).toString(), description: 'Output tax' });
-    // Post order-level discount as a separate debit line (Dr sales_discount).
-    // A missing 'sales_discount' mapping must NEVER block a sale (owner rule): fall
-    // back to netting the discount against a revenue account already on this entry,
-    // so the entry still balances and the discount is just folded into revenue.
-    if (orderDiscountAmount?.gt(0.001)) {
-      let discountAccount: string | undefined;
-      try {
-        discountAccount = await this.determination.mapped('sales_discount', tx);
-      } catch {
-        discountAccount = itemByAccount.keys().next().value as string | undefined;
-        if (discountAccount) {
-          this.logger.warn(
-            `sales_discount mapping missing — folding order discount into revenue account ${discountAccount} for invoice ${invoice.invoiceNumber}. Map 'sales_discount' under Accounting > Account Mapping (or re-run db:seed) to break it out.`,
-          );
-        }
-      }
-      if (!discountAccount) {
-        // No revenue account resolved either — degrade to sales_revenue as a last
-        // resort; if THAT is unmapped the invoice legitimately can't post.
-        discountAccount = await this.determination.mapped('sales_revenue', tx);
-      }
-      lines.push({ accountId: discountAccount, debit: orderDiscountAmount.toString(), description: 'Order discount' });
-    }
     const entry = await this.posting.post({
       journalCode: 'SALES',
       date: invoice.issueDate,
@@ -1032,9 +770,9 @@ export class PosInvoiceService {
       }
       const sum = dto.tenders.reduce((s, t) => s + Number(t.amount), 0);
       // Overpayment is always rejected — cash change is handled via amountTendered.
-      if (sum > residual + 0.01) throw new BadRequestException(`Tenders sum ${sum} exceeds amount due ${residual}`);
+      if (sum > residual + 0.000001) throw new BadRequestException(`Tenders sum ${sum} exceeds amount due ${residual}`);
       // D1: underpayment is only allowed when the caller opts into partial settlement.
-      if (sum < residual - 0.01 && !opts?.allowPartial) throw new BadRequestException(`Tenders sum ${sum} does not match amount due ${residual}`);
+      if (sum < residual - 0.000001 && !opts?.allowPartial) throw new BadRequestException(`Tenders sum ${sum} does not match amount due ${residual}`);
       return dto.tenders;
     }
     // No explicit tenders → settle the whole residual with a single method.
@@ -1225,12 +963,12 @@ export class PosInvoiceService {
       if (it.rentalAgreementLineId || it.repairOrderLineId) continue;
       try {
         if (it.menuItemId) {
-          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx);
+          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx, it.variantId ?? null);
         } else if (it.productId) {
           const product = await db.product.findFirst({ where: { id: it.productId } });
           if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
             // Sell-in-sales-unit: line qty is in the product's sales unit → convert to base.
-            await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref } as any, tx);
+            await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref, sourceType: 'pos_invoice', sourceId: ctx.invoiceId } as any, tx);
           }
         }
       } catch (e: any) {
@@ -1243,8 +981,20 @@ export class PosInvoiceService {
           payload: { orderItemId: it.id, reference },
         }, tx);
       }
-      // H3: deplete paid modifiers + accompaniments (log-only, shared with refund path).
-      await this.issueLineExtras(db, it, Number(it.quantity), warehouse.id, ref);
+      // H3: deplete paid modifiers + accompaniments. A failure here never blocks
+      // the (already final) sale, but it IS counted and recorded like any other
+      // un-deducted line so the back office sees the drift.
+      for (const f of await this.issueLineExtras(db, it, Number(it.quantity), warehouse.id, ref)) {
+        failures++;
+        await this.recordInventoryException(ctx, {
+          kind: 'line_extras',
+          productId: f.productId, menuItemId: it.menuItemId ?? null,
+          description: `${f.componentType} on ${it.description ?? it.productId ?? it.menuItemId}`,
+          quantity: Number(it.quantity), locationId: warehouse.id,
+          reason: f.error?.message ?? String(f.error), stackTrace: f.error?.stack ?? null,
+          payload: { orderItemId: it.id, reference, componentId: f.componentId, componentType: f.componentType },
+        }, tx);
+      }
     }
     return failures;
   }
@@ -1289,9 +1039,16 @@ export class PosInvoiceService {
   private async fiscalizeInvoice(invoice: any): Promise<void> {
     const provider = (process.env.FISCAL_PROVIDER ?? 'none').toLowerCase();
     if (provider === 'none') return;
-    // TODO: integrate the real fiscal device / EFD here:
-    //   const result = await this.<provider>.sign(invoice);
-    //   await persist result.fiscalCode / result.qr onto the Invoice + Receipt.
+    // A real fiscal-device adapter goes here: sign the invoice, then persist the
+    // returned code/QR with fiscalStatus 'signed'. Until one is wired, mark the
+    // invoice 'pending' ON THE INVOICE (not just an audit log) so the gap is
+    // queryable and reportable — an operator can list unsigned invoices instead
+    // of discovering the hole at audit time. Setting FISCAL_PROVIDER is NOT a
+    // compliance solution; see docs/audit/FISCALIZATION.md.
+    await this.prisma.client.invoice.update({
+      where: { id: invoice.id },
+      data: { fiscalStatus: 'pending' },
+    }).catch(() => undefined);
     await this.audit.record({
       entity: 'Invoice', entityId: invoice.id, action: 'update' as any,
       newValues: { kind: 'fiscalization_pending', provider, invoiceNumber: invoice.invoiceNumber },
@@ -1302,13 +1059,23 @@ export class PosInvoiceService {
   /** Issue a menu item's recipe BOM. Returns the count of ingredients that failed
    *  (each recorded as an InventoryException). Never throws — a bad ingredient
    *  can't stop the rest, and the sale is already final. */
-  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx, tx: any): Promise<number> {
+  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx, tx: any, variantId?: string | null): Promise<number> {
     const db = tx ?? this.prisma.client;
     const menuItem = await db.menuItem.findUnique({
       where: { id: menuItemId },
       select: { isInventoryTracked: true, name: true },
     });
     if (!menuItem?.isInventoryTracked) return 0;
+    // F14 — a size variant can consume more (or less) of the base recipe. The
+    // multiplier is independent of price: a "Large" priced +30% may still use
+    // 1.5× the ingredients (or the same). Defaults to 1 when unset.
+    let recipeMultiplier = 1;
+    if (variantId) {
+      const variant = await db.menuItemVariant.findFirst({ where: { id: variantId, menuItemId }, select: { qtyMultiplier: true } });
+      const m = variant?.qtyMultiplier != null ? Number(variant.qtyMultiplier) : 1;
+      if (Number.isFinite(m) && m > 0) recipeMultiplier = m;
+    }
+    const effectiveLineQty = lineQty * recipeMultiplier;
     const recipe = await db.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
     const reference = ctx.invoiceNumber;
     const ref = `POS bill ${reference}`;
@@ -1333,7 +1100,7 @@ export class PosInvoiceService {
 
     let failures = 0;
     for (const ing of recipe as any[]) {
-      const qty = Number(ing.quantity) * lineQty;
+      const qty = Number(ing.quantity) * effectiveLineQty;
       if (!(qty > 0)) continue;
       try {
         await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, uomId: ing.uomId ?? undefined, reference: ref } as any, tx);
@@ -1438,24 +1205,25 @@ export class PosInvoiceService {
     return mapping.accountId;
   }
 
-  private async assertCreditAllowed(partnerId: string, amount: number, db: any = this.prisma.client): Promise<void> {
+  /**
+   * Gate a credit issue against the customer's credit control.
+   *
+   * D3: serialise concurrent credit issues for the SAME partner by locking the
+   * customer-tab row before reading outstanding balance. Lock order is always
+   * Invoice → CustomerTab (settleCredit takes the invoice lock first), so no
+   * deadlock cycle with receivePayment (which only locks the invoice).
+   */
+  async assertCreditAllowed(partnerId: string, amount: number, db: any = this.prisma.client): Promise<void> {
     const orgId = this.tenant.organizationId;
-    // D3: serialise concurrent credit issues for the SAME partner by locking the
-    // customer-tab row before reading outstanding balance. Lock order is always
-    // Invoice → CustomerTab (settleCredit takes the invoice lock first), so no
-    // deadlock cycle with receivePayment (which only locks the invoice). When no
-    // tab row exists the limit is 0 → unlimited, and the check is vacuous anyway.
-    if (typeof db.$queryRawUnsafe === 'function') {
-      await db.$queryRawUnsafe(`SELECT id FROM "CustomerTab" WHERE "organizationId" = $1 AND "partnerId" = $2 FOR UPDATE`, orgId, partnerId);
+    const status = await resolveCreditStatus(db, orgId, partnerId, { lock: true });
+    if (status.creditHold) {
+      throw new BadRequestException('This customer is on credit hold — new credit sales are blocked');
     }
-    const tab = await db.customerTab.findFirst({ where: { organizationId: orgId, partnerId } });
-    const limit = Number(tab?.creditLimit ?? 0);
-    if (limit <= 0) return;
-    const open = await db.invoice.aggregate({
-      where: { organizationId: orgId, partnerId, paymentMode: 'credit', settlementStatus: { in: ['unsettled', 'partially_settled'] } },
-      _sum: { amountResidual: true },
-    });
-    const outstanding = Number(open._sum.amountResidual ?? 0);
-    if (outstanding + amount > limit + 0.01) throw new BadRequestException(`Credit limit exceeded: outstanding ${outstanding} + ${amount} > limit ${limit}`);
+    if (status.creditLimit <= 0) return; // no limit configured
+    if (status.outstanding + amount > status.creditLimit + 0.01) {
+      throw new BadRequestException(
+        `Credit limit exceeded: outstanding ${status.outstanding} + ${amount} > limit ${status.creditLimit}`,
+      );
+    }
   }
 }

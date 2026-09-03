@@ -76,7 +76,7 @@ export class PostingService {
       if (existing) return existing;
     }
 
-    const journal = await client.journal.findFirst({ where: { code: request.journalCode } });
+    const journal = await client.journal.findFirst({ where: { organizationId: this.tenant.organizationId, code: request.journalCode } });
     if (!journal) throw new BadRequestException(`Journal '${request.journalCode}' not found`);
 
     const date = new Date(request.date);
@@ -102,7 +102,7 @@ export class PostingService {
 
     const accountIds = [...new Set(lines.map((l) => l.accountId))];
     const accounts = await client.account.findMany({
-      where: { id: { in: accountIds } },
+      where: { organizationId: this.tenant.organizationId, id: { in: accountIds } },
       include: { category: true },
     });
     if (accounts.length !== accountIds.length) {
@@ -311,7 +311,7 @@ export class PostingService {
     if (!request.lines || request.lines.length < 2) {
       throw new BadRequestException('A journal entry requires at least two lines');
     }
-    const journal = await client.journal.findFirst({ where: { code: request.journalCode } });
+    const journal = await client.journal.findFirst({ where: { organizationId: this.tenant.organizationId, code: request.journalCode } });
     if (!journal) throw new BadRequestException(`Journal '${request.journalCode}' not found`);
 
     const date = new Date(request.date);
@@ -331,7 +331,7 @@ export class PostingService {
 
     const accountIds = [...new Set(lines.map((l) => l.accountId))];
     const accounts = await client.account.findMany({
-      where: { id: { in: accountIds } },
+      where: { organizationId: this.tenant.organizationId, id: { in: accountIds } },
       include: { category: true },
     });
     if (accounts.length !== accountIds.length) {

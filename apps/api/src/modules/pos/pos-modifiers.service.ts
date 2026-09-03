@@ -163,8 +163,9 @@ export class PosModifiersService {
     return created;
   }
 
-  async createModifier(dto: { groupId: string; name: string; kitchenPrintName?: string; description?: string; priceDelta?: number; isDefault?: boolean; sortOrder?: number }): Promise<any> {
+  async createModifier(dto: { groupId: string; name: string; kitchenPrintName?: string; description?: string; priceDelta?: number; isDefault?: boolean; sortOrder?: number; inventoryItemId?: string | null; consumptionQty?: number; consumptionUomId?: string | null }): Promise<any> {
     if (!dto.name?.trim()) throw new BadRequestException('Modifier name is required');
+    if (dto.consumptionQty !== undefined && !(dto.consumptionQty > 0)) throw new BadRequestException('Consumption quantity must be positive');
     const orgId = this.tenant.organizationId;
     const group = await this.prisma.client.modifierGroup.findFirst({ where: { id: dto.groupId, organizationId: orgId, deletedAt: null } });
     if (!group) throw new NotFoundException('Modifier group not found');
@@ -180,6 +181,10 @@ export class PosModifiersService {
           priceDelta: dto.priceDelta ?? 0,
           isDefault: dto.isDefault ?? false,
           sortOrder: dto.sortOrder ?? 0,
+          // F14 — stock link + how much of it one selection consumes.
+          inventoryItemId: dto.inventoryItemId ?? null,
+          consumptionQty: dto.consumptionQty ?? 1,
+          consumptionUomId: dto.consumptionUomId ?? null,
           createdBy: this.tenant.userId,
         },
       });
@@ -573,7 +578,8 @@ export class PosModifiersService {
     });
   }
 
-  async updateModifier(id: string, dto: { name?: string; kitchenPrintName?: string; description?: string; priceDelta?: number; isDefault?: boolean; sortOrder?: number; isActive?: boolean; expectedUpdatedAt?: string; ipAddress?: string; userAgent?: string }): Promise<any> {
+  async updateModifier(id: string, dto: { name?: string; kitchenPrintName?: string; description?: string; priceDelta?: number; isDefault?: boolean; sortOrder?: number; isActive?: boolean; inventoryItemId?: string | null; consumptionQty?: number; consumptionUomId?: string | null; expectedUpdatedAt?: string; ipAddress?: string; userAgent?: string }): Promise<any> {
+    if (dto.consumptionQty !== undefined && !(dto.consumptionQty > 0)) throw new BadRequestException('Consumption quantity must be positive');
     const orgId = this.tenant.organizationId;
     const existing = await this.prisma.client.modifier.findFirst({
       where: { id, organizationId: orgId, deletedAt: null },
@@ -611,6 +617,9 @@ export class PosModifiersService {
           ...(dto.isDefault !== undefined ? { isDefault: dto.isDefault } : {}),
           ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
           ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+          ...(dto.inventoryItemId !== undefined ? { inventoryItemId: dto.inventoryItemId } : {}),
+          ...(dto.consumptionQty !== undefined ? { consumptionQty: dto.consumptionQty } : {}),
+          ...(dto.consumptionUomId !== undefined ? { consumptionUomId: dto.consumptionUomId } : {}),
           updatedBy: this.tenant.userId,
         },
       });

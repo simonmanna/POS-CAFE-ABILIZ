@@ -1,3 +1,5 @@
+import { Throttle } from '@nestjs/throttler';
+import { PosOverridesService, type OverrideKind } from './pos-overrides.service';
 /**
  * POS Phase A — REST controller.
  *
@@ -23,6 +25,7 @@ import {
   IsISO8601,
   IsNumber,
   IsOptional,
+  IsObject,
   IsPositive,
   IsString,
   Min,
@@ -91,6 +94,7 @@ class CheckoutLineDto implements CheckoutLine {
 }
 
 class PaymentTenderDto implements PaymentTender {
+  @IsOptional() @IsString() accountId?: string;
   @ApiProperty({ enum: ['cash', 'bank', 'card', 'mobile_money', 'store_credit'] })
   @IsIn(['cash', 'bank', 'card', 'mobile_money', 'store_credit'])
   method!: PaymentTender['method'];
@@ -100,6 +104,8 @@ class PaymentTenderDto implements PaymentTender {
 }
 
 class CheckoutDto implements CheckoutInput {
+  @IsOptional() @IsString() approvalToken?: string;
+  @IsOptional() @IsNumber() @Min(0) expectedTotal?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsString() partnerId?: string;
   @ApiProperty({ type: [CheckoutLineDto] })
   @IsArray() @ArrayMinSize(1)
@@ -143,15 +149,22 @@ class CheckoutDto implements CheckoutInput {
    *  Rejected if in the future or older than 7 days. */
   @ApiProperty({ required: false })
   @IsOptional() @IsISO8601() occurredAt?: string;
+  @ApiProperty({ required: false, enum: ['tender', 'credit'], description: "'credit' books the whole bill to the customer's AR — nothing is collected now." })
+  @IsOptional() @IsIn(['tender', 'credit']) settleMode?: 'tender' | 'credit';
 }
 
 class VoidDto {
+  @IsOptional() @IsString() approvalToken?: string;
+  @IsOptional() @IsString() overridePin?: string;
+  @IsOptional() @IsString() cashSessionId?: string;
+  @IsIn(['restock', 'waste', 'no_return']) stockDisposition!: 'restock' | 'waste' | 'no_return';
   @ApiProperty() @IsString() reason!: string;
   @ApiProperty({ description: 'Manager user id (override is mandatory for a void).' })
   @IsString() overrideById!: string;
 }
 
 class AddToTabDto {
+  @IsOptional() @IsString() cashSessionId?: string;
   @ApiProperty({ type: [CheckoutLineDto] })
   @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => CheckoutLineDto)
   lines!: CheckoutLineDto[];
@@ -164,6 +177,12 @@ class AddToTabDto {
 }
 
 class SaveTabDto {
+  @IsOptional() @IsString() cashSessionId?: string;
+  @IsOptional() @IsIn(['percentage', 'fixed_amount']) transactionDiscountType?: 'percentage' | 'fixed_amount';
+  @IsOptional() @IsNumber() @Min(0) transactionDiscountAmount?: number;
+  @IsOptional() @IsString() discountReason?: string;
+  @IsOptional() @IsNumber() transactionDiscountPercent?: number;
+
   @ApiProperty({ type: [CheckoutLineDto], description: 'The full current item set for the order. An empty array cancels the draft and frees the table.' })
   @IsArray() @ValidateNested({ each: true }) @Type(() => CheckoutLineDto)
   lines!: CheckoutLineDto[];
@@ -174,6 +193,9 @@ class SaveTabDto {
 }
 
 class SettleTabDto {
+  @IsOptional() @IsNumber() expectedVersion?: number;
+  @IsOptional() @IsString() approvalToken?: string;
+  @IsOptional() @IsNumber() @Min(0) expectedTotal?: number;
   @ApiProperty({ required: false, type: [PaymentTenderDto] })
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => PaymentTenderDto)
   tenders?: PaymentTenderDto[];
@@ -191,12 +213,30 @@ class SettleTabDto {
   /** Offline-first: when the settle actually happened on the device (ISO-8601). */
   @ApiProperty({ required: false })
   @IsOptional() @IsISO8601() occurredAt?: string;
+  @ApiProperty({ required: false, enum: ['tender', 'credit'], description: "'credit' books the whole bill to the customer's AR — nothing is collected now." })
+  @IsOptional() @IsIn(['tender', 'credit']) settleMode?: 'tender' | 'credit';
+  @ApiProperty({ required: false, description: 'Customer attached at charge time; moved onto the order before it is billed.' })
+  @IsOptional() @IsString() partnerId?: string;
 }
 
 class UpdatePosSettingsDto {
   @ApiProperty({ required: false, enum: ['cafe', 'retail'], description: 'POS mode: cafe/restaurant or retail' })
   @IsOptional() @IsString() @IsIn(['cafe', 'retail'])
   posMode?: string;
+
+  @ApiProperty({ required: false, description: 'One till shared by several servers. Off by default: a collection must land in the drawer of the cashier who counts it.' })
+  @IsOptional() @IsBoolean()
+  sharedDrawer?: boolean;
+}
+
+class OperationApprovalDto {
+  @IsString() managerId!: string;
+  @IsString() pin!: string;
+  @IsString() operationKey!: string;
+  @IsString() endpoint!: string;
+  @IsObject() payload!: Record<string, unknown>;
+  /** What the grant authorises. The consuming service re-checks it. */
+  @IsOptional() @IsIn(['discount', 'price_change', 'void', 'manual_refund', 'write_off']) overrideKind?: OverrideKind;
 }
 
 @ApiTags('pos')
@@ -206,6 +246,7 @@ export class PosController {
   constructor(
     private readonly svc: PosService,
     private readonly billing: PosInvoiceService,
+    private readonly overrides: PosOverridesService,
   ) {}
 
   @Get('settings')
@@ -213,6 +254,15 @@ export class PosController {
   getSettings() {
     return this.svc.getPosSettings();
   }
+
+  @Post('operation-approval')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @RequirePermissions('pos:checkout')
+  operationApproval(@Body() dto: OperationApprovalDto) { return this.overrides.authorizeOperation(dto); }
+
+  @Get('payment-accounts')
+  @RequirePermissions('pos:checkout')
+  paymentAccounts() { return this.svc.paymentAccounts(); }
 
   @Patch('settings')
   @RequirePermissions('setting:update')
@@ -243,6 +293,9 @@ export class PosController {
   void(@Param('id') id: string, @Body() dto: VoidDto) {
     return this.billing.refund(id, `VOID: ${dto.reason}`, {
       overrideById: dto.overrideById,
+      overridePin: dto.overridePin,
+      stockDisposition: dto.stockDisposition,
+      cashSessionId: dto.cashSessionId,
       requireOverride: true,
     });
   }

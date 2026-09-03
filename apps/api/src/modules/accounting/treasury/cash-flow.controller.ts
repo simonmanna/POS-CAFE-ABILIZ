@@ -73,6 +73,12 @@ export class CashFlowController {
     return this.cashFlow.remove(id);
   }
 
+  @Get('transactions')
+  @RequirePermissions(PERMISSIONS.account.read)
+  allTransactions(@Query() query: TransactionsQueryDto) {
+    return this.cashFlow.getAllTransactions(query.page, query.pageSize);
+  }
+
   @Get(':id/transactions')
   @RequirePermissions(PERMISSIONS.account.read)
   transactions(@Param('id') id: string, @Query() query: TransactionsQueryDto) {
