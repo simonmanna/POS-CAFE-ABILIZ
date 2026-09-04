@@ -76,7 +76,9 @@ export const TableSelectorDialog: React.FC<Props> = ({
       map.set(key, arr);
     }
     for (const arr of map.values()) arr.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.number - b.number);
-    const zoneOrder = new Map(zones.map((z, i) => [z.key, i]));
+    // Zone groups follow the user's View Order preference (zone.sortOrder) —
+    // unknown zone keys sort last, then by key.
+    const zoneOrder = new Map(zones.map((z) => [z.key, z.sortOrder]));
     return Array.from(map.entries()).sort(
       (a, b) =>
         (zoneOrder.get(a[0]) ?? 999) - (zoneOrder.get(b[0]) ?? 999) || a[0].localeCompare(b[0]),

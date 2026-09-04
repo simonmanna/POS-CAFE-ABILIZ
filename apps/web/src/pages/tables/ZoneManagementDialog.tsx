@@ -3,18 +3,28 @@
  *
  * Full CRUD for the PosTableZone catalog: create, rename, recolor, reorder,
  * archive (soft delete — refused while active tables reference the zone) and
- * restore. Sorted by sortOrder. Opened from TablesPage's "Manage Zones" hero
- * action (gated behind the `tables:zones` permission).
+ * restore. Ordered by View Order (sortOrder) — the same order POS selling
+ * pages use when grouping tables by zone. Opened from TablesPage's "Manage
+ * Zones" hero action (gated behind the `tables:zones` permission).
  */
 import React, { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Archive, RotateCcw, Pencil, Check, X, Map } from 'lucide-react';
+import {
+  Plus,
+  Archive,
+  RotateCcw,
+  Pencil,
+  Map,
+  ChevronUp,
+  ChevronDown,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -51,14 +61,17 @@ export const ZoneManagementDialog: React.FC<{
   const archive = useArchiveZone();
   const restore = useRestoreZone();
 
+  // ── Create form ──
   const [name, setName] = useState('');
   const [key, setKey] = useState('');
   const [color, setColor] = useState('#10b981');
   const [sortOrder, setSortOrder] = useState(0);
   const [keyTouched, setKeyTouched] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
+
+  // ── Full edit dialog ──
+  const [editTarget, setEditTarget] = useState<PosTableZoneConfig | null>(null);
   const [editName, setEditName] = useState('');
-  const [editColor, setEditColor] = useState('');
+  const [editColor, setEditColor] = useState('#10b981');
   const [editOrder, setEditOrder] = useState(0);
 
   const active = useMemo(() => sortZones(zones.filter((z) => !z.deletedAt)), [zones]);
@@ -93,27 +106,48 @@ export const ZoneManagementDialog: React.FC<{
     }
   }
 
-  function startEdit(z: PosTableZoneConfig) {
-    setEditingId(z.id);
+  function openEdit(z: PosTableZoneConfig) {
+    setEditTarget(z);
     setEditName(z.name);
     setEditColor(z.color);
     setEditOrder(z.sortOrder);
   }
 
-  async function doSaveEdit(z: PosTableZoneConfig) {
+  function closeEdit() {
+    setEditTarget(null);
+  }
+
+  async function doSaveEdit() {
+    if (!editTarget) return;
     if (!editName.trim()) {
       toast.error('Zone name is required');
       return;
     }
     try {
       await update.mutateAsync({
-        id: z.id,
+        id: editTarget.id,
         body: { name: editName.trim(), color: editColor, sortOrder: editOrder },
       });
       toast.success('Zone updated');
-      setEditingId(null);
+      closeEdit();
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Failed to update zone');
+    }
+  }
+
+  /** Move a zone one step up/down in View Order (swaps sortOrder values). */
+  async function doMove(z: PosTableZoneConfig, dir: -1 | 1) {
+    const idx = active.findIndex((a) => a.id === z.id);
+    if (idx < 0) return;
+    const other = active[idx + dir];
+    if (!other) return;
+    try {
+      await Promise.all([
+        update.mutateAsync({ id: z.id, body: { sortOrder: other.sortOrder } }),
+        update.mutateAsync({ id: other.id, body: { sortOrder: z.sortOrder } }),
+      ]);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to reorder zone');
     }
   }
 
@@ -144,8 +178,9 @@ export const ZoneManagementDialog: React.FC<{
           </DialogTitle>
           <DialogDescription>
             Dining areas &amp; table categories — create, rename, recolor and
-            reorder. Archiving is refused while active tables still reference a
-            zone.
+            reorder. View Order controls the position of each zone on the POS
+            selling pages. Archiving is refused while active tables still
+            reference a zone.
           </DialogDescription>
         </DialogHeader>
 
@@ -190,10 +225,10 @@ export const ZoneManagementDialog: React.FC<{
               />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-28">
+          <div className="flex items-end gap-2">
+            <div className="w-32">
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                Sort order
+                View order
               </label>
               <Input
                 type="number"
@@ -201,10 +236,14 @@ export const ZoneManagementDialog: React.FC<{
                 onChange={(e) => setSortOrder(Number(e.target.value))}
               />
             </div>
+            <p className="flex-1 text-[11px] text-slate-400 leading-snug pb-2">
+              Lower numbers appear first — sets the zone's position on the POS
+              selling pages.
+            </p>
             <Button
               onClick={doCreate}
               disabled={create.isPending}
-              className="mt-auto bg-blue-600 hover:bg-blue-700 text-white"
+              className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               <Plus className="w-4 h-4 mr-1.5" /> Add zone
             </Button>
@@ -223,7 +262,7 @@ export const ZoneManagementDialog: React.FC<{
               No zones yet — add one above.
             </div>
           ) : (
-            active.map((z) => (
+            active.map((z, i) => (
               <div
                 key={z.id}
                 className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
@@ -232,67 +271,54 @@ export const ZoneManagementDialog: React.FC<{
                   className="w-4 h-4 rounded-full shrink-0 border border-slate-200"
                   style={{ background: z.color }}
                 />
-                {editingId === z.id ? (
-                  <>
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="h-8 flex-1"
-                    />
-                    <input
-                      type="color"
-                      value={editColor}
-                      onChange={(e) => setEditColor(e.target.value)}
-                      className="h-8 w-10 rounded border border-slate-200 cursor-pointer"
-                    />
-                    <Input
-                      type="number"
-                      value={editOrder}
-                      onChange={(e) => setEditOrder(Number(e.target.value))}
-                      className="h-8 w-20"
-                    />
-                    <Button
-                      size="sm"
-                      className="h-8 bg-emerald-600 hover:bg-emerald-700"
-                      onClick={() => doSaveEdit(z)}
-                      disabled={update.isPending}
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditingId(null)}>
-                      <X className="w-3.5 h-3.5" />
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-bold truncate">{z.name}</div>
-                      <div className="text-[11px] text-slate-400 font-mono">{z.key}</div>
-                    </div>
-                    <div className="text-[11px] text-slate-500 w-14 text-right">
-                      #{z.sortOrder}
-                    </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 text-slate-500"
-                      onClick={() => startEdit(z)}
-                      title="Edit"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 text-rose-600 hover:text-rose-700"
-                      onClick={() => doArchive(z)}
-                      disabled={archive.isPending}
-                      title="Archive"
-                    >
-                      <Archive className="w-3.5 h-3.5" />
-                    </Button>
-                  </>
-                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold truncate">{z.name}</div>
+                  <div className="text-[11px] text-slate-400 font-mono">{z.key}</div>
+                </div>
+                <div className="text-[11px] text-slate-500 w-14 text-right" title="View order">
+                  #{z.sortOrder}
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-5 w-6 text-slate-500"
+                    onClick={() => doMove(z, -1)}
+                    disabled={update.isPending || i === 0}
+                    title="Move up in view order"
+                  >
+                    <ChevronUp className="w-3 h-3" />
+                  </Button>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-5 w-6 text-slate-500"
+                    onClick={() => doMove(z, 1)}
+                    disabled={update.isPending || i === active.length - 1}
+                    title="Move down in view order"
+                  >
+                    <ChevronDown className="w-3 h-3" />
+                  </Button>
+                </div>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-slate-500"
+                  onClick={() => openEdit(z)}
+                  title="Edit"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 text-rose-600 hover:text-rose-700"
+                  onClick={() => doArchive(z)}
+                  disabled={archive.isPending}
+                  title="Archive"
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                </Button>
               </div>
             ))
           )}
@@ -330,6 +356,77 @@ export const ZoneManagementDialog: React.FC<{
             ))}
           </div>
         ) : null}
+
+        {/* ── Full edit dialog ── */}
+        <Dialog open={!!editTarget} onOpenChange={(o) => !o && closeEdit()}>
+          <DialogContent className="sm:max-w-[440px]">
+            <DialogHeader>
+              <DialogTitle>Edit zone</DialogTitle>
+              <DialogDescription>
+                Rename, recolor, or change where this zone appears. View Order
+                controls its position on the POS selling pages — lower numbers
+                first.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Name
+                </label>
+                <Input
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="Rooftop"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Key (immutable)
+                </label>
+                <Input
+                  value={editTarget?.key ?? ''}
+                  readOnly
+                  className="font-mono text-slate-500 bg-slate-50"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    Color
+                  </label>
+                  <input
+                    type="color"
+                    value={editColor}
+                    onChange={(e) => setEditColor(e.target.value)}
+                    className="h-10 w-full rounded-md border border-slate-200 bg-white cursor-pointer"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                    View order
+                  </label>
+                  <Input
+                    type="number"
+                    value={editOrder}
+                    onChange={(e) => setEditOrder(Number(e.target.value))}
+                  />
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={closeEdit}>
+                Cancel
+              </Button>
+              <Button
+                onClick={doSaveEdit}
+                disabled={update.isPending}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Save changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );
