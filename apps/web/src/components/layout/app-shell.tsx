@@ -77,6 +77,8 @@ import {
 } from '@/components/ui/select';
 import { useAuthStore } from '@/stores/auth.store';
 import { useSidebarStore } from '@/lib/sidebar.store';
+import { useOrgFeatures } from '@/lib/use-org-features';
+import { sectionEnabled } from '@/lib/features';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { GlobalSearch } from '@/components/global-search';
@@ -140,7 +142,7 @@ interface NavItem {
   permission?: string;
   badge?: string;
   /** Per-item feature gate, resolved the same way as section flags. */
-  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS' | 'VITE_ENABLE_COMMUNICATION';
+  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS';
 }
 
 interface NavSection {
@@ -153,7 +155,7 @@ interface NavSection {
    * here without gating the module server-side would leave its routes, crons
    * and boot hooks live.
    */
-  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_ASSETS' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_RENTAL' | 'VITE_ENABLE_REPAIR' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS' | 'VITE_ENABLE_COMMUNICATION';
+  flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS';
 }
 
 const flagEnabled = (flag?: string): boolean =>
@@ -328,7 +330,6 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Repair & Maintenance',
     icon: Wrench,
-    flag: 'VITE_ENABLE_REPAIR',
     items: [
       { to: '/repair', label: 'Dashboard', icon: Wrench, permission: PERMISSIONS.repair.read },
       { to: '/repair/orders', label: 'Repair Orders', icon: FileText, permission: PERMISSIONS.repair.read },
@@ -343,7 +344,6 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Rentals',
     icon: KeyRound,
-    flag: 'VITE_ENABLE_RENTAL',
     items: [
       { to: '/rental', label: 'Dashboard', icon: CalendarDays, permission: PERMISSIONS.rental.read },
       { to: '/rental/agreements', label: 'Agreements', icon: FileText, permission: PERMISSIONS.rental.read },
@@ -356,7 +356,6 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Communication',
     icon: MessagesSquare,
-    flag: 'VITE_ENABLE_COMMUNICATION',
     items: [
       { to: '/communication', label: 'Inbox', icon: MessagesSquare, permission: PERMISSIONS.communication.conversationRead },
       { to: '/communication/channels', label: 'Channels', icon: Radio, permission: PERMISSIONS.communication.channelRead },
@@ -366,7 +365,6 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: 'Fixed Assets',
     icon: Landmark,
-    flag: 'VITE_ENABLE_ASSETS',
     items: [
       { to: '/fixed-assets', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.fixedAsset.read },
       { to: '/fixed-assets/register', label: 'Asset Register', icon: Building2, permission: PERMISSIONS.fixedAsset.read },
@@ -445,6 +443,11 @@ export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebarStore();
+
+  // Developer Settings (/settings/developer) can switch optional modules off;
+  // a disabled module's parent nav group disappears from the sidebar.
+  const { data: orgFeatures } = useOrgFeatures();
+  const sections = VISIBLE_SECTIONS.filter((s) => sectionEnabled(orgFeatures, s.title));
 
   // Accordion state: which titled sections are expanded (expanded sidebar only).
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
@@ -525,7 +528,7 @@ export function AppShell() {
   // Close mobile drawer on navigation.
   useEffect(() => setMobileOpen(false), [location.pathname]);
 
-  const allItems = VISIBLE_SECTIONS.flatMap((s) => s.items);
+  const allItems = sections.flatMap((s) => s.items);
   const current =
     allItems.find(
       (n) =>
@@ -546,7 +549,7 @@ export function AppShell() {
   const renderNav = (onItemClick?: () => void, collapsed = false) => {
     return (
       <nav className="flex-1 space-y-1 overflow-y-auto px-1 py-1">
-        {VISIBLE_SECTIONS.map((section, idx) => {
+        {sections.map((section, idx) => {
           const items = section.items.filter(
                       (i) => flagEnabled(i.flag) && (!i.permission || hasPermission(i.permission)),
                     );

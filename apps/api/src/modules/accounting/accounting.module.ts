@@ -24,6 +24,8 @@ import { TreasuryService } from './treasury/treasury.service';
 import { TreasuryController } from './treasury/treasury.controller';
 import { CashFlowService } from './treasury/cash-flow.service';
 import { CashFlowController } from './treasury/cash-flow.controller';
+import { PosPaymentMethodService } from './treasury/pos-payment-method.service';
+import { PosPaymentMethodController } from './treasury/pos-payment-method.controller';
 import { BankReconciliationService } from './treasury/bank-reconciliation.service';
 import { BankReconciliationController } from './treasury/bank-reconciliation.controller';
 import { CashRegisterService } from './treasury/cash-register.service';
@@ -59,6 +61,7 @@ import { InventoryValuationController } from './reporting/inventory-valuation.co
   imports: [AccountingBootstrapModule],
   controllers: [
     CashFlowController,
+    PosPaymentMethodController,
     AccountController,
     AccountCategoryController,
     JournalController,
@@ -90,6 +93,7 @@ import { InventoryValuationController } from './reporting/inventory-valuation.co
     BankAccountService,
     TreasuryService,
     CashFlowService,
+    PosPaymentMethodService,
     BankReconciliationService,
     CashRegisterService,
     CashSessionService,
@@ -115,6 +119,7 @@ import { InventoryValuationController } from './reporting/inventory-valuation.co
     FiscalPeriodService,
     CashSessionService,
     CashRegisterService,
+    PosPaymentMethodService,
     PeriodCloseService,
     CurrencyService,
     RevaluationService,

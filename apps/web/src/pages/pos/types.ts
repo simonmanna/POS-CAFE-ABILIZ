@@ -144,6 +144,7 @@ export interface SessionHistoryItem {
   closingCounted: string | null;
   closingExpected: string | null;
   closingDifference: string | null;
+  bankedAmount: string | null;
   movementCount: number;
   varianceReason: string | null;
   varianceStatus: string | null;
@@ -272,7 +273,14 @@ export interface SalesReportRow {
   time?: string;
   subtotal: string;
   discount: string;
+  tax?: string;
   totalAmount: string;
+  amountPaid?: string;
+  /** Cumulative refunded against this sale; `netAmount` = total − refunded. */
+  amountRefunded?: string;
+  netAmount?: string;
+  status?: string;
+  paymentMethod?: string | null;
   waiterName: string | null;
 }
 
@@ -296,14 +304,32 @@ export interface CashierReportRow {
   salesAmount: string;
   paymentMethod: string | null;
   received: string;
+  /** ISO instant — formatted client-side so the time reads in the viewer's TZ. */
+  saleDate?: string;
   time?: string;
+  status?: string;
+  amountRefunded?: string;
+  discount?: string;
 }
 
 export interface CashierShiftSummaryRow {
   shift: string;
+  sessionId?: string;
+  registerName?: string;
+  openedAt?: string | null;
+  closedAt?: string | null;
+  status?: string | null;
   cashierName: string | null;
   openingCash: string;
+  /** Cash into the drawer (kept for back-compat; same as `cashSales`). */
   sales: string;
+  cashSales?: string;
+  /** Every tender rung up on the shift — what the terminal shows. */
+  totalSales?: string;
+  saleCount?: number;
+  cashRefunds?: string;
+  payIns?: string;
+  payOuts?: string;
   expectedCash: string;
   actualCash: string | null;
   difference: string | null;
@@ -329,6 +355,37 @@ export interface ItemsByGroupRow {
   totalQuantity: string;
   totalAmount: string;
   itemCount: number;
+}
+
+export interface ItemSalesRow {
+  itemKey: string;
+  item: string;
+  categoryId: string | null;
+  categoryName: string;
+  quantity: string;
+  unitPrice: string;
+  totalAmount: string;
+}
+
+/** Shared dropdown source for every report tab (`/pos/reports/filter-options`). */
+export interface ReportFilterOptions {
+  fromDate: string;
+  toDate: string;
+  waiters: Array<{ id: string; name: string }>;
+  categories: Array<{ id: string; name: string }>;
+  paymentMethods: Array<{ id: string; name: string; seen: boolean }>;
+  orderTypes: Array<{ id: string; name: string }>;
+  orderStatuses: Array<{ id: string; name: string }>;
+  registers: Array<{ id: string; name: string }>;
+}
+
+export interface ItemSalesReport {
+  rows: ItemSalesRow[];
+  filters: {
+    items: Array<{ key: string; name: string }>;
+    waiters: Array<{ id: string; name: string }>;
+    categories: Array<{ id: string; name: string }>;
+  };
 }
 
 export { type CartLine };

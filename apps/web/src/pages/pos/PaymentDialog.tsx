@@ -1,4 +1,7 @@
-import { accountsForMethod, usePaymentAccounts } from '@/features/pos/payment-accounts';
+import {
+  methodsByKind, usePosPaymentMethods, TENDER_KIND_COLOR, TENDER_KIND_LABEL, TENDER_KIND_ORDER,
+  type PosPaymentMethod as PosMethod,
+} from '@/features/pos/payment-accounts';
 import { useAuthStore } from '@/stores/auth.store';
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Multi-tender payment dialog. Maps directly to POST /pos/checkout with `tenders`.
@@ -6,25 +9,35 @@ const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR'
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Banknote, Smartphone, CreditCard, Building2, Wallet, Check, X, Plus, Gift, UserPlus, AlertTriangle,
+  Settings2,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { PaymentMethod, PaymentTender } from './types';
 
-/** The pay panel offers the tender methods PLUS a non-tender "settle on account"
+/** The pay panel offers the tender kinds PLUS a non-tender "settle on account"
  *  mode (credit_settlement) that books the sale to the customer's AR instead of
  *  collecting money now. It is routed to onCreditSale, not added as a tender. */
 type SettleMode = PaymentMethod | 'credit_settlement';
-type MethodTile = { key: SettleMode; label: string; icon: React.ReactNode; color: string };
+type MethodTile = {
+  key: SettleMode;
+  label: string;
+  icon: React.ReactNode;
+  color: string;
+  /** Configured methods behind this tile. Empty = nothing configured for this kind. */
+  methods: PosMethod[];
+};
 
-const METHODS: MethodTile[] = [
-  { key: 'cash', label: 'Cash', icon: <Banknote className="h-4 w-4" />, color: '#16a34a' },
-  { key: 'mobile_money', label: 'Mobile Money', icon: <Smartphone className="h-4 w-4" />, color: '#f59e0b' },
-  { key: 'card', label: 'Card', icon: <CreditCard className="h-4 w-4" />, color: '#1a7fcf' },
-  { key: 'bank', label: 'Bank', icon: <Building2 className="h-4 w-4" />, color: '#8b5cf6' },
-];
+const KIND_ICON: Record<string, React.ReactNode> = {
+  cash: <Banknote className="h-4 w-4" />,
+  mobile_money: <Smartphone className="h-4 w-4" />,
+  card: <CreditCard className="h-4 w-4" />,
+  bank: <Building2 className="h-4 w-4" />,
+  store_credit: <Gift className="h-4 w-4" />,
+};
 
 const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
@@ -62,13 +75,16 @@ export const PaymentDialog: React.FC<Props> = ({
   open, total, effectiveDiscountPercent = 0, storeCreditBalance = 0, onRequestOverride, onClose, onSettle,
   creditEnabled = false, onCreditSale, customerName, creditInfo, onPickCustomer,
 }) => {
-  const { data: paymentAccounts = [] } = usePaymentAccounts();
-  const [accountId, setAccountId] = useState('');
+  const { data: paymentMethods = [] } = usePosPaymentMethods();
+  /** Configured method chosen within the active kind (the "provider" step). */
+  const [methodId, setMethodId] = useState('');
   const [tenders, setTenders] = useState<PaymentTender[]>([]);
   // Raw amount entered per tender, aligned index-wise with `tenders`. For cash this
   // may exceed the applied leg (over-tender → change); it is never sent as a tender.
   const [tenderRaw, setTenderRaw] = useState<number[]>([]);
-  const [activeMethod, setActiveMethod] = useState<SettleMode>('cash');
+  /** Method label per tender, index-aligned — what the cashier actually picked. */
+  const [tenderLabels, setTenderLabels] = useState<string[]>([]);
+  const [activeKind, setActiveKind] = useState<SettleMode>('cash');
   const [tendered, setTendered] = useState(() => String(total));
   const [reference, setReference] = useState('');
   const [busy, setBusy] = useState(false);
@@ -80,32 +96,50 @@ export const PaymentDialog: React.FC<Props> = ({
     if (!open) return;
     setTenders([]);
     setTenderRaw([]);
+    setTenderLabels([]);
     setTendered(String(total));
     setReference('');
     setError(null);
     setOverrideId(undefined);
     setOverridePin(undefined);
-    setActiveMethod('cash');
+    setActiveKind('cash');
+    setMethodId('');
   }, [open, total]);
 
   // Store-credit tile only appears when the selected customer carries a balance.
   // Credit-settlement ("Credit") is ALWAYS offered: hiding it until a customer
   // was picked made the whole feature look missing. With no customer the tile
   // still shows and its panel explains what to do.
+  const byKind = useMemo(() => methodsByKind(paymentMethods), [paymentMethods]);
+
+  // One tile per tender kind, always shown so the layout is stable — a kind with
+  // nothing configured renders disabled with instructions rather than vanishing.
   const methods = useMemo(() => {
-    const base = [...METHODS];
+    const base: MethodTile[] = TENDER_KIND_ORDER.map((kind) => ({
+      key: kind as SettleMode,
+      label: TENDER_KIND_LABEL[kind],
+      icon: KIND_ICON[kind],
+      color: TENDER_KIND_COLOR[kind],
+      methods: byKind.get(kind) ?? [],
+    }));
     if (storeCreditBalance > 0) {
-      base.push({ key: 'store_credit', label: 'Store Credit', icon: <Gift className="h-4 w-4" />, color: '#0ea5e9' });
+      base.push({ key: 'store_credit', label: 'Store Credit', icon: KIND_ICON.store_credit, color: TENDER_KIND_COLOR.store_credit, methods: [] });
     }
     if (onCreditSale) {
-      base.push({ key: 'credit_settlement', label: 'Credit', icon: <Wallet className="h-4 w-4" />, color: '#0284c7' });
+      base.push({ key: 'credit_settlement', label: 'Credit', icon: <Wallet className="h-4 w-4" />, color: '#0284c7', methods: [] });
     }
     return base;
-  }, [storeCreditBalance, onCreditSale]);
+  }, [byKind, storeCreditBalance, onCreditSale]);
 
-  const matchingAccounts = accountsForMethod(paymentAccounts, activeMethod);
-  const selectedAccount = matchingAccounts.some((a) => a.id === accountId) ? accountId : matchingAccounts.length === 1 ? matchingAccounts[0].id : '';
-  const isCredit = activeMethod === 'credit_settlement';
+  const activeTile = methods.find((m) => m.key === activeKind);
+  const kindMethods = activeTile?.methods ?? [];
+  // Cash and store credit never need an account; every other kind does. A kind
+  // with exactly one configured method skips the provider step entirely.
+  const needsMethod = activeKind !== 'cash' && activeKind !== 'store_credit' && activeKind !== 'credit_settlement';
+  const selectedMethod = kindMethods.find((m) => m.id === methodId)
+    ?? (kindMethods.length === 1 ? kindMethods[0] : undefined);
+  const unconfigured = needsMethod && kindMethods.length === 0;
+  const isCredit = activeKind === 'credit_settlement';
 
   const paid = useMemo(() => tenders.reduce((s, t) => s + (t.amount || 0), 0), [tenders]);
   const remaining = Math.max(0, total - paid);
@@ -123,7 +157,25 @@ export const PaymentDialog: React.FC<Props> = ({
   const availableCredit = Math.max(0, storeCreditBalance - creditUsed);
   const tenderNum = Number(tendered);
   const tenderValid = Number.isFinite(tenderNum) && tenderNum > 0;
-  const creditBlocked = activeMethod === 'store_credit' && availableCredit <= 0;
+  const creditBlocked = activeKind === 'store_credit' && availableCredit <= 0;
+  // A provider transaction id is PROMPTED, never demanded: a sale must never be
+  // blocked on a number the customer has not read off their phone yet.
+  const referenceWanted = !!selectedMethod?.requiresReference && !reference.trim();
+
+  // Why Add is unavailable, in the cashier's words. A disabled button that says
+  // nothing reads as a broken terminal — this is what the till shows instead.
+  const blockedReason = (() => {
+    if (unconfigured) return `No ${TENDER_KIND_LABEL[activeKind]?.toLowerCase()} account is set up yet.`;
+    if (needsMethod && !selectedMethod) {
+      return activeKind === 'mobile_money'
+        ? 'Choose which wallet the customer paid into.'
+        : `Choose which ${TENDER_KIND_LABEL[activeKind]?.toLowerCase()} account this went to.`;
+    }
+    if (remaining <= 0) return 'This bill is already fully covered.';
+    if (creditBlocked) return 'This customer has no store credit left.';
+    if (!tenderValid) return 'Enter the amount to charge.';
+    return null;
+  })();
 
   // Why an on-account sale can't go through right now (null = it can). The API
   // enforces all of this too; this only saves the cashier a round-trip.
@@ -139,25 +191,34 @@ export const PaymentDialog: React.FC<Props> = ({
 
   const addTender = () => {
     // credit_settlement is not a tender — it's routed to onCreditSale instead.
-    if (activeMethod === 'credit_settlement') return;
+    if (activeKind === 'credit_settlement') return;
     if (!tenderValid || remaining <= 0 || creditBlocked) return;
-    if (['bank', 'card', 'mobile_money'].includes(activeMethod) && !selectedAccount) { setError('Choose the receiving bank or wallet account'); return; }
+    // The tile decides the account. Only ask when a kind has SEVERAL providers
+    // and none is picked yet; a kind with nothing configured is disabled upstream.
+    if (needsMethod && !selectedMethod) {
+      setError(`Choose which ${TENDER_KIND_LABEL[activeKind] ?? activeKind} account this payment went to`);
+      return;
+    }
     let amount = Math.min(tenderNum, remaining);
-    if (activeMethod === 'store_credit') amount = Math.min(amount, availableCredit);
+    if (activeKind === 'store_credit') amount = Math.min(amount, availableCredit);
     if (amount <= 0) return;
-    const method: PaymentMethod = activeMethod;
+    const method: PaymentMethod = activeKind;
     // Cash may exceed the bill (customer overpays → change). The tender LEG stays
     // clamped to `remaining` so tenders still sum to the total (backend guard),
     // while the raw amount handed over is remembered to compute the change.
     const raw = method === 'cash' ? tenderNum : amount;
-    setTenders((prev) => [...prev, { method, amount, accountId: selectedAccount || undefined, reference: reference.trim() || undefined }]);
+    // Cash carries no account: the register's own drawer wins server-side.
+    const accountId = method === 'cash' ? undefined : selectedMethod?.accountId ?? undefined;
+    setTenders((prev) => [...prev, { method, amount, accountId, reference: reference.trim() || undefined }]);
     setTenderRaw((prev) => [...prev, raw]);
-    setTendered(''); setReference('');
+    setTenderLabels((prev) => [...prev, selectedMethod?.label ?? TENDER_KIND_LABEL[method] ?? method]);
+    setTendered(''); setReference(''); setError(null);
   };
 
   const removeTender = (i: number) => {
     setTenders((prev) => prev.filter((_, idx) => idx !== i));
     setTenderRaw((prev) => prev.filter((_, idx) => idx !== i));
+    setTenderLabels((prev) => prev.filter((_, idx) => idx !== i));
   };
 
   const canSettle = tenders.length > 0 && paid >= total - 0.01;
@@ -216,22 +277,28 @@ export const PaymentDialog: React.FC<Props> = ({
           <div className="p-4 space-y-3">
             {/* Method tabs */}
             <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {methods.map((m) => (
-                <button
-                  key={m.key}
-                  type="button"
-                  className="flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 transition-all"
-                  style={{
-                    borderColor: activeMethod === m.key ? m.color : '#e2e8f0',
-                    background: activeMethod === m.key ? `${m.color}15` : '#fff',
-                    color: activeMethod === m.key ? m.color : '#64748b',
-                  }}
-                  onClick={() => setActiveMethod(m.key)}
-                >
-                  {m.icon}
-                  <span className="text-[11px] font-bold">{m.label}</span>
-                </button>
-              ))}
+              {methods.map((m) => {
+                const active = activeKind === m.key;
+                return (
+                  <button
+                    key={m.key}
+                    type="button"
+                    className="flex flex-col items-center gap-1 p-2.5 rounded-lg border-2 transition-all"
+                    style={{
+                      borderColor: active ? m.color : '#e2e8f0',
+                      background: active ? `${m.color}15` : '#fff',
+                      color: active ? m.color : '#64748b',
+                    }}
+                    onClick={() => { setActiveKind(m.key); setMethodId(''); setError(null); }}
+                  >
+                    {m.icon}
+                    <span className="text-[11px] font-bold">{m.label}</span>
+                    {m.methods.length > 1 ? (
+                      <span className="text-[9px] font-semibold opacity-70">{m.methods.length} accounts</span>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
 
             {isCredit ? (
@@ -297,16 +364,65 @@ export const PaymentDialog: React.FC<Props> = ({
               </div>
             ) : (
             <>
-            {['bank', 'card', 'mobile_money'].includes(activeMethod) && <div>
-              <Label>Receiving account</Label>
-              <select aria-label="Receiving account" className="w-full border rounded p-2 text-sm" value={selectedAccount} onChange={(e) => setAccountId(e.target.value)}>
-                <option value="">Choose account</option>
-                {matchingAccounts.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.code}</option>)}
-              </select>
-              {!matchingAccounts.length && <p className="text-xs text-amber-700">Create this account in Accounting → Cash Accounts before taking this tender.</p>}
-            </div>}
+            {/* Nothing configured for this kind — say what to do instead of failing on Add. */}
+            {unconfigured ? (
+              <div className="rounded-lg border-2 border-amber-200 bg-amber-50 p-4 space-y-2">
+                <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
+                  <AlertTriangle className="h-4 w-4" /> No {TENDER_KIND_LABEL[activeKind]?.toLowerCase()} account is set up
+                </div>
+                <p className="text-xs text-amber-700">
+                  A {TENDER_KIND_LABEL[activeKind]?.toLowerCase()} payment has to land in a named finance
+                  account. Ask finance to add one under Financial Accounts, then bind it to a POS payment
+                  method — the mode will appear here automatically.
+                </p>
+                <Link
+                  to="/accounts/cash-accounts"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
+                >
+                  <Settings2 className="h-3.5 w-3.5" /> Open Financial Accounts
+                </Link>
+              </div>
+            ) : null}
+
+            {/* Provider step — only when a kind actually has a choice to make. */}
+            {needsMethod && kindMethods.length > 1 ? (
+              <div>
+                <Label>{activeKind === 'mobile_money' ? 'Mobile money provider' : 'Account'}</Label>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {kindMethods.map((m) => {
+                    const picked = selectedMethod?.id === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => { setMethodId(m.id); setError(null); }}
+                        className="rounded-full border-2 px-3 py-1.5 text-xs font-bold transition-all"
+                        style={{
+                          borderColor: picked ? activeTile?.color : '#e2e8f0',
+                          background: picked ? `${activeTile?.color}15` : '#fff',
+                          color: picked ? activeTile?.color : '#64748b',
+                        }}
+                      >
+                        {m.provider ?? m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {/* The account is configuration, not a cashier decision — show it, don't ask. */}
+            {needsMethod && selectedMethod?.accountId ? (
+              <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Receiving account</span>
+                <span className="flex items-center gap-1.5 text-sm font-bold text-slate-700">
+                  {selectedMethod.accountName} · {selectedMethod.accountCode}
+                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                </span>
+              </div>
+            ) : null}
             <div>
-              <Label>{activeMethod === 'cash' ? 'Cash tendered' : 'Amount to charge'}</Label>
+              <Label>{activeKind === 'cash' ? 'Cash tendered' : 'Amount to charge'}</Label>
               <Input
                 type="number"
                 value={tendered}
@@ -314,9 +430,10 @@ export const PaymentDialog: React.FC<Props> = ({
                 placeholder="0"
                 className="text-right text-xl h-12 font-mono font-bold"
                 autoFocus
+                disabled={unconfigured}
                 onKeyDown={(e) => { if (e.key === 'Enter') addTender(); }}
               />
-              {activeMethod === 'store_credit' ? (
+              {activeKind === 'store_credit' ? (
                 <div className="flex items-center gap-2 mt-2 text-xs">
                   <span className="font-semibold text-sky-700">Available credit: {fmt(availableCredit)}</span>
                   <button
@@ -331,21 +448,37 @@ export const PaymentDialog: React.FC<Props> = ({
               ) : null}
             </div>
 
-            {activeMethod !== 'cash' && activeMethod !== 'store_credit' ? (
+            {activeKind !== 'cash' && activeKind !== 'store_credit' && !unconfigured ? (
               <div>
-                <Label>Reference / transaction id (optional)</Label>
+                <Label>
+                  Reference / transaction id {selectedMethod?.requiresReference ? '(recommended)' : '(optional)'}
+                </Label>
                 <Input
                   value={reference}
                   onChange={(e) => setReference(e.target.value)}
-                  placeholder="e.g. MTN-12345"
+                  placeholder={selectedMethod?.provider ? `e.g. ${selectedMethod.provider.toUpperCase()}-12345` : 'e.g. MTN-12345'}
                   className="font-mono"
                 />
               </div>
             ) : null}
 
-            <Button onClick={addTender} disabled={!tenderValid || remaining <= 0 || creditBlocked} className="w-full" style={{ background: methods.find((m) => m.key === activeMethod)?.color }}>
-              <Plus className="h-4 w-4 mr-1" /> Add {methods.find((m) => m.key === activeMethod)?.label} — {fmt(activeMethod === 'cash' ? (tenderValid ? tenderNum : remaining) : Math.min(tenderValid ? tenderNum : remaining, activeMethod === 'store_credit' ? Math.min(remaining, availableCredit) : remaining))}
+            <Button
+              onClick={addTender}
+              disabled={blockedReason != null}
+              className="w-full"
+              style={{ background: activeTile?.color }}
+            >
+              <Plus className="h-4 w-4 mr-1" /> Add {selectedMethod?.label ?? activeTile?.label} — {fmt(activeKind === 'cash' ? (tenderValid ? tenderNum : remaining) : Math.min(tenderValid ? tenderNum : remaining, activeKind === 'store_credit' ? Math.min(remaining, availableCredit) : remaining))}
             </Button>
+
+            {/* Never leave a dead button unexplained. */}
+            {blockedReason ? (
+              <p className="text-center text-xs font-semibold text-slate-500">{blockedReason}</p>
+            ) : referenceWanted ? (
+              <p className="text-center text-xs text-amber-700">
+                Add the {selectedMethod?.label} transaction id if the customer has it — you can still take the payment without it.
+              </p>
+            ) : null}
             </>
 
             )}
@@ -372,8 +505,8 @@ export const PaymentDialog: React.FC<Props> = ({
               ) : tenders.map((t, i) => (
                 <div key={i} className="flex items-center justify-between bg-white rounded border border-slate-200 px-2 py-1.5 text-xs">
                   <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full" style={{ background: methods.find((m) => m.key === t.method)?.color }} />
-                    <span className="font-bold">{paymentAccounts.find((a) => a.id === t.accountId)?.name ?? t.method.replace('_', ' ')}</span>
+                    <span className="w-2 h-2 rounded-full" style={{ background: TENDER_KIND_COLOR[t.method] }} />
+                    <span className="font-bold">{tenderLabels[i] ?? TENDER_KIND_LABEL[t.method] ?? t.method.replace('_', ' ')}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="font-mono font-bold">{fmt(t.amount)}</span>

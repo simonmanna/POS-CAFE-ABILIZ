@@ -1,119 +1,141 @@
-import { useAuthStore } from '@/stores/auth.store';
-const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 /**
- * Reports page — shift reports + daily/weekly/monthly sales + analytics.
+ * POS Reports — shift reports, sales summaries and operational analytics.
  * Manager-gated (`pos:reports`). Navigated to from the terminal Topbar.
+ *
+ * Two rules hold this page together:
+ *
+ *  1. ONE filter state for the whole suite. The date range and the filters carry
+ *     across tabs, and each tab declares which filters it supports — a control
+ *     that appears is a control that reaches the API. Previously each tab kept
+ *     its own dates and passed `undefined` for every non-date filter the API
+ *     supported, which is why the reports "did not show the filtered ones".
+ *  2. Money is summed in whole cents (`sumMoney`), and dates/times are formatted
+ *     from the ISO instant in the VIEWER's timezone — never from the
+ *     pre-formatted string the API host produced in its own locale.
  */
-
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BarChart3, Clock, TrendingUp, RefreshCw, Printer, CalendarDays, Download, FileText, Eye } from 'lucide-react';
+import { BarChart3, Clock, TrendingUp, RefreshCw, Printer, CalendarDays, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useAuthStore } from '@/stores/auth.store';
 
-import { useXReport, useZReport, useSalesByHour, useTopItems, useOpenSession, useSalesSummary, useSoldItems, useSalesReport, useCategories, useOrderReport, useCashierReport, useCashierShiftSummary, useWaiterReport, useItemsByGroup } from './api';
-import type { XReport as XReportType, SalesSummaryReport, SoldItem, SalesReportRow, OrderReportRow, CashierReportRow, CashierShiftSummaryRow, WaiterReportRow, ItemsByGroupRow } from './types';
+import {
+  useXReport, useZReport, useSalesByHour, useTopItems, useOpenSession, useSalesSummary,
+  useSoldItems, useSalesReport, useOrderReport, useCashierReport, useCashierShiftSummary,
+  useWaiterReport, useItemsByGroup, useItemSales, useReportFilterOptions,
+} from './api';
+import type {
+  XReport as XReportType, SalesSummaryReport, SoldItem, SalesReportRow, OrderReportRow,
+  CashierReportRow, CashierShiftSummaryRow, WaiterReportRow, ItemsByGroupRow, ItemSalesReport,
+  ReportFilterOptions,
+} from './types';
+import ReportFilterBar, { emptyFilters, scopedFilters } from './ReportFilterBar';
+import type { ReportFilterField, ReportFilterState } from './ReportFilterBar';
+import ReportTable from './ReportTable';
+import type { ReportColumn } from './ReportTable';
+import { sumMoney, fmtDate, fmtTime, humanise } from './report-utils';
 import './pos-pro.css';
-import { exportCSV } from '@/lib/export-csv';
-import { exportPDF } from '@/lib/export-pdf';
 
+const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
+
+/** Money for display. Kept as a function so a currency switch re-reads the org. */
 const fmt = (n: number | string | null | undefined) =>
-  `${orgCur()} ${Number(n || 0).toLocaleString()}`;
+  `${orgCur()} ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/** Local-timezone YYYY-MM-DD. Never use toISOString() here — it's UTC, so in
- *  UTC+ zones it rolls back to "yesterday" during the early-morning hours. */
-const isoLocal = (d: Date): string => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+/** Plain 2-dp number for CSV — no currency prefix, no thousands separators. */
+const num = (n: number | string | null | undefined) => Number(n || 0).toFixed(2);
+
+type TabId =
+  | 'sales' | 'items' | 'item-sales' | 'items-by-group' | 'orders' | 'cashier'
+  | 'cashier-summary' | 'waiter' | 'daily' | 'weekly' | 'monthly' | 'hourly'
+  | 'top' | 'x' | 'z';
+
+/**
+ * Which filters each tab supports. This is the contract: a field listed here is
+ * rendered AND sent; anything else is dropped before the request so a leftover
+ * selection from another tab cannot silently narrow this one.
+ */
+const TAB_FIELDS: Record<TabId, readonly ReportFilterField[]> = {
+  sales: ['waiter', 'payment', 'orderType', 'search'],
+  items: ['category', 'waiter', 'payment', 'orderType', 'search', 'itemSearch'],
+  'item-sales': ['category', 'waiter', 'payment', 'orderType', 'item', 'itemSearch'],
+  'items-by-group': ['category', 'waiter', 'payment', 'orderType'],
+  orders: ['waiter', 'orderType', 'orderStatus', 'search', 'includeCancelled'],
+  cashier: ['cashier', 'payment', 'orderType', 'search'],
+  'cashier-summary': ['cashier', 'register', 'sessionStatus'],
+  waiter: ['waiter', 'payment', 'orderType', 'search'],
+  daily: ['waiter', 'payment', 'orderType'],
+  weekly: ['waiter', 'payment', 'orderType'],
+  monthly: ['waiter', 'payment', 'orderType'],
+  hourly: ['waiter', 'payment', 'orderType'],
+  top: ['category', 'waiter', 'payment', 'orderType'],
+  x: [],
+  z: [],
 };
 
-const todayIso = () => isoLocal(new Date());
-
-/** First day (Monday) of the ISO week containing the given ISO date string. */
-function weekStartFromDay(isoDate: string): string {
-  const d = new Date(isoDate + 'T12:00:00');
-  if (Number.isNaN(d.getTime())) return isoDate;
-  const dow = d.getDay();
-  const diff = d.getDate() - dow + (dow === 0 ? -6 : 1);
-  d.setDate(diff);
-  return isoLocal(d);
-}
-
-/** YYYY-MM-DD for the first of a YYYY-MM month string. */
-function monthStart(ym: string): string {
-  return ym + '-01';
-}
+const TABS: Array<{ id: TabId; label: string }> = [
+  { id: 'sales', label: 'Sales Report' },
+  { id: 'items', label: 'Items Report' },
+  { id: 'item-sales', label: 'Item Sales' },
+  { id: 'items-by-group', label: 'Items by Group' },
+  { id: 'orders', label: 'Order Reports' },
+  { id: 'cashier', label: 'Cashier Reports' },
+  { id: 'cashier-summary', label: 'Cashier Shift Summary' },
+  { id: 'waiter', label: 'Waiter Report' },
+  { id: 'daily', label: 'Daily Sales' },
+  { id: 'weekly', label: 'Weekly Sales' },
+  { id: 'monthly', label: 'Monthly Sales' },
+  { id: 'hourly', label: 'Sales by hour' },
+  { id: 'top', label: 'Top items' },
+  { id: 'x', label: 'X-Report' },
+  { id: 'z', label: 'Z-Report' },
+];
 
 const ReportsPage: React.FC = () => {
   const permissions = useAuthStore((s) => s.permissions);
-  const [tab, setTab] = useState<'sales'| 'items' | 'items-by-group' | 'x' | 'z' | 'daily' | 'weekly' | 'monthly' | 'hourly' | 'top'  | 'orders' | 'cashier' | 'cashier-summary' | 'waiter'>('sales');
-  const [fromDate, setFromDate] = useState(todayIso());
-  const [toDate, setToDate] = useState(todayIso());
-  const [topCategoryId, setTopCategoryId] = useState<string | undefined>();
+  const [tab, setTab] = useState<TabId>('sales');
+  const [filters, setFilters] = useState<ReportFilterState>(emptyFilters());
+  const [hourFilter, setHourFilter] = useState<string | undefined>();
   const { data: openSession } = useOpenSession();
 
-  // Each report query is gated on its tab being active so a page load fires ONE
-  // request, not all ~13. Switching tabs lazily fetches (and React Query caches).
-  const { data: x, isLoading: xLoading, refetch: xRefetch, error: xError } = useXReport(openSession?.id, tab === 'x');
-  const { data: z, isLoading: zLoading, refetch: zRefetch, error: zError } = useZReport(openSession?.id, tab === 'z');
-  const [hFrom, setHFrom] = useState(todayIso());
-  const [hTo, setHTo] = useState(todayIso());
-  const [hFilter, setHFilter] = useState<string | undefined>();
-  const { data: hourly, isLoading: hLoading } = useSalesByHour(hFrom, hTo, hFilter, tab === 'hourly');
-  const { data: topItems, isLoading: tLoading } = useTopItems(fromDate, toDate, 20, topCategoryId, tab === 'top');
+  const { fromDate, toDate } = filters;
+  const fields = TAB_FIELDS[tab];
+  const scoped = useMemo(() => scopedFilters(filters, fields), [filters, fields]);
+  const isDateTab = tab !== 'x' && tab !== 'z';
 
-  const { data: categories } = useCategories();
+  const { data: options } = useReportFilterOptions(fromDate, toDate, isDateTab);
 
-  const [itemsFromDate, setItemsFromDate] = useState(todayIso());
-  const [itemsToDate, setItemsToDate] = useState(todayIso());
-  const [itemsCategoryId, setItemsCategoryId] = useState<string | undefined>();
-  const [itemsOrderType, setItemsOrderType] = useState<string | undefined>();
-  const { data: soldItems, isLoading: itemsLoading } = useSoldItems(itemsFromDate, itemsToDate, itemsCategoryId, undefined, itemsOrderType, tab === 'items');
+  // Each query is gated on its tab so a page load fires ONE request, not fifteen.
+  const x = useXReport(openSession?.id, tab === 'x');
+  const z = useZReport(openSession?.id, tab === 'z');
+  const hourly = useSalesByHour(fromDate, toDate, hourFilter, scoped, tab === 'hourly');
+  const top = useTopItems(fromDate, toDate, 20, scoped, tab === 'top');
+  const sales = useSalesReport(fromDate, toDate, scoped, tab === 'sales');
+  const items = useSoldItems(fromDate, toDate, scoped, tab === 'items');
+  const itemSales = useItemSales(fromDate, toDate, filters.itemKey, scoped, tab === 'item-sales');
+  const itemsByGroup = useItemsByGroup(fromDate, toDate, scoped, tab === 'items-by-group');
+  const orders = useOrderReport(fromDate, toDate, scoped, Boolean(filters.includeCancelled), tab === 'orders');
+  const cashier = useCashierReport(fromDate, toDate, scoped, tab === 'cashier');
+  const shifts = useCashierShiftSummary(fromDate, toDate, scoped, tab === 'cashier-summary');
+  const waiter = useWaiterReport(fromDate, toDate, scoped, tab === 'waiter');
+  const daily = useSalesSummary(fromDate, toDate, 'day', scoped, tab === 'daily');
+  const weekly = useSalesSummary(fromDate, toDate, 'week', scoped, tab === 'weekly');
+  const monthly = useSalesSummary(fromDate, toDate, 'month', scoped, tab === 'monthly');
 
-  const [salesFromDate, setSalesFromDate] = useState(todayIso());
-  const [salesToDate, setSalesToDate] = useState(todayIso());
-  const [salesOrderType, setSalesOrderType] = useState<string | undefined>();
-  const { data: salesReport, isLoading: salesLoading } = useSalesReport(salesFromDate, salesToDate, undefined, undefined, undefined, salesOrderType, tab === 'sales');
+  const active: Record<TabId, { data?: any; isLoading: boolean; isFetching: boolean; refetch: () => void; error?: unknown }> = {
+    x, z, hourly, top, sales, items, 'item-sales': itemSales, 'items-by-group': itemsByGroup,
+    orders, cashier, 'cashier-summary': shifts, waiter, daily, weekly, monthly,
+  } as any;
+  const current = active[tab];
 
-  const [ordersFromDate, setOrdersFromDate] = useState(todayIso());
-  const [ordersToDate, setOrdersToDate] = useState(todayIso());
-  const [ordersOrderType, setOrdersOrderType] = useState<string | undefined>();
-  const { data: orderReport, isLoading: ordersLoading } = useOrderReport(ordersFromDate, ordersToDate, ordersOrderType, undefined, tab === 'orders');
-
-  const [cashierFromDate, setCashierFromDate] = useState(todayIso());
-  const [cashierToDate, setCashierToDate] = useState(todayIso());
-  const [cashierOrderType, setCashierOrderType] = useState<string | undefined>();
-  const { data: cashierReport, isLoading: cashierLoading } = useCashierReport(cashierFromDate, cashierToDate, undefined, undefined, undefined, cashierOrderType, tab === 'cashier');
-
-  const [csFromDate, setCsFromDate] = useState(todayIso());
-  const [csToDate, setCsToDate] = useState(todayIso());
-  const { data: cashierShiftSummary, isLoading: csLoading } = useCashierShiftSummary(csFromDate, csToDate, undefined, tab === 'cashier-summary');
-
-  const [waiterFromDate, setWaiterFromDate] = useState(todayIso());
-    const [waiterToDate, setWaiterToDate] = useState(todayIso());
-    const [waiterOrderType, setWaiterOrderType] = useState<string | undefined>();
-    const { data: waiterReport, isLoading: waiterLoading } = useWaiterReport(waiterFromDate, waiterToDate, undefined, waiterOrderType, tab === 'waiter');
-
-    const [ibgFromDate, setIbgFromDate] = useState(todayIso());
-    const [ibgToDate, setIbgToDate] = useState(todayIso());
-    const [ibgOrderType, setIbgOrderType] = useState<string | undefined>();
-    const { data: itemsByGroup, isLoading: ibgLoading } = useItemsByGroup(ibgFromDate, ibgToDate, ibgOrderType, tab === 'items-by-group');
-
-  // Daily / weekly / monthly sales summary with from/to ranges
-    const [dailyFrom, setDailyFrom] = useState(todayIso());
-    const [dailyTo, setDailyTo] = useState(todayIso());
-    const { data: daily, isLoading: dailyLoading } = useSalesSummary(dailyFrom, dailyTo, 'day', tab === 'daily');
-
-    const [weeklyFrom, setWeeklyFrom] = useState(todayIso());
-    const [weeklyTo, setWeeklyTo] = useState(todayIso());
-    const { data: weekly, isLoading: weeklyLoading } = useSalesSummary(weeklyFrom, weeklyTo, 'week', tab === 'weekly');
-
-    const [monthlyFrom, setMonthlyFrom] = useState(todayIso());
-    const [monthlyTo, setMonthlyTo] = useState(todayIso());
-    const { data: monthly, isLoading: monthlyLoading } = useSalesSummary(monthlyFrom, monthlyTo, 'month', tab === 'monthly');
+  const rowCount = (() => {
+    const d = current?.data;
+    if (Array.isArray(d)) return d.length;
+    if (d && Array.isArray(d.rows)) return d.rows.length;
+    if (d && Array.isArray(d.periods)) return d.periods.length;
+    return undefined;
+  })();
 
   const denied = !permissions.includes('pos:reports');
 
@@ -126,11 +148,11 @@ const ReportsPage: React.FC = () => {
           </h1>
         </div>
         <div className="flex gap-2 no-print">
-          {tab === 'x' ? (
-            <Button variant="outline" onClick={() => xRefetch()}><RefreshCw className="h-4 w-4 mr-1" /> Refresh</Button>
-          ) : tab === 'z' ? (
-            <Button variant="outline" onClick={() => zRefetch()}><RefreshCw className="h-4 w-4 mr-1" /> Refresh</Button>
-          ) : null}
+          {(tab === 'x' || tab === 'z') && (
+            <Button variant="outline" onClick={() => current.refetch()}>
+              <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+            </Button>
+          )}
           <Button variant="outline" onClick={() => window.print()}><Printer className="h-4 w-4 mr-1" /> Print</Button>
         </div>
       </div>
@@ -142,146 +164,100 @@ const ReportsPage: React.FC = () => {
       ) : (
         <>
           <div className="pos-reports-tabs pos-reports-tabs-wide no-print">
-            <button className={'pos-reports-tab' + (tab === 'sales' ? ' active' : '')} onClick={() => setTab('sales')}>
-              Sales Report
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'items' ? ' active' : '')} onClick={() => setTab('items')}>
-              Items Report
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'items-by-group' ? ' active' : '')} onClick={() => setTab('items-by-group')}>
-              Items by Group
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'orders' ? ' active' : '')} onClick={() => setTab('orders')}>
-              Order Reports
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'cashier' ? ' active' : '')} onClick={() => setTab('cashier')}>
-              Cashier Reports
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'cashier-summary' ? ' active' : '')} onClick={() => setTab('cashier-summary')}>
-              Cashier Shift Summary
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'waiter' ? ' active' : '')} onClick={() => setTab('waiter')}>
-                          Waiter Report
-                        </button>
-                        <button className={'pos-reports-tab' + (tab === 'daily' ? ' active' : '')} onClick={() => setTab('daily')}>
-              Daily Sales
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'weekly' ? ' active' : '')} onClick={() => setTab('weekly')}>
-              Weekly Sales
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'monthly' ? ' active' : '')} onClick={() => setTab('monthly')}>
-              Monthly Sales
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'hourly' ? ' active' : '')} onClick={() => setTab('hourly')}>
-              Sales by hour
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'top' ? ' active' : '')} onClick={() => setTab('top')}>
-              Top items
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'x' ? ' active' : '')} onClick={() => setTab('x')}>
-              X-Report
-            </button>
-            <button className={'pos-reports-tab' + (tab === 'z' ? ' active' : '')} onClick={() => setTab('z')}>
-              Z-Report
-            </button>
+            {TABS.map((t) => (
+              <button
+                key={t.id}
+                className={'pos-reports-tab' + (tab === t.id ? ' active' : '')}
+                onClick={() => setTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
 
+          {isDateTab && (
+            <div className="mb-4">
+              <ReportFilterBar
+                state={filters}
+                onChange={setFilters}
+                fields={fields}
+                options={options as ReportFilterOptions | undefined}
+                onRefresh={() => current.refetch()}
+                isFetching={current?.isFetching}
+                resultCount={rowCount}
+              />
+            </div>
+          )}
+
+          {(current as any)?.error && isDateTab ? (
+            <div className="mb-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-rose-700 text-sm">
+              {((current as any).error?.response?.data?.message as string) || 'Could not load this report.'}
+            </div>
+          ) : null}
+
           {tab === 'x' ? (
-            <XReportView report={x as any} loading={xLoading} error={xError as any} kind="X" />
+            <XReportView report={x.data as any} loading={x.isLoading} error={x.error} kind="X" />
           ) : tab === 'z' ? (
-            <XReportView report={z as any} loading={zLoading} error={zError as any} kind="Z" />
+            <XReportView report={z.data as any} loading={z.isLoading} error={z.error} kind="Z" />
           ) : tab === 'daily' ? (
-            <DailySalesView
-              fromDate={dailyFrom} setFromDate={setDailyFrom}
-              toDate={dailyTo} setToDate={setDailyTo}
-              report={daily as SalesSummaryReport | undefined}
-              loading={dailyLoading}
-            />
+            <SalesSummaryView report={daily.data as SalesSummaryReport | undefined} loading={daily.isLoading} periodLabel="Day" range={filters} />
           ) : tab === 'weekly' ? (
-            <WeeklySalesView
-              fromDate={weeklyFrom} setFromDate={setWeeklyFrom}
-              toDate={weeklyTo} setToDate={setWeeklyTo}
-              report={weekly as SalesSummaryReport | undefined}
-              loading={weeklyLoading}
-            />
+            <SalesSummaryView report={weekly.data as SalesSummaryReport | undefined} loading={weekly.isLoading} periodLabel="Week" range={filters} />
           ) : tab === 'monthly' ? (
-            <MonthlySalesView
-              fromDate={monthlyFrom} setFromDate={setMonthlyFrom}
-              toDate={monthlyTo} setToDate={setMonthlyTo}
-              report={monthly as SalesSummaryReport | undefined}
-              loading={monthlyLoading}
-            />
+            <SalesSummaryView report={monthly.data as SalesSummaryReport | undefined} loading={monthly.isLoading} periodLabel="Month" range={filters} />
           ) : tab === 'hourly' ? (
-            <HourlyView
-              fromDate={hFrom} setFromDate={setHFrom}
-              toDate={hTo} setToDate={setHTo}
-              hFilter={hFilter} setHFilter={setHFilter}
-              data={hourly as any} loading={hLoading}
-            />
+            <HourlyView data={hourly.data} loading={hourly.isLoading} hFilter={hourFilter} setHFilter={setHourFilter} range={filters} />
           ) : tab === 'sales' ? (
-            <SalesReportView
-              fromDate={salesFromDate} setFromDate={setSalesFromDate}
-              toDate={salesToDate} setToDate={setSalesToDate}
-              orderType={salesOrderType} setOrderType={setSalesOrderType}
-              rows={(salesReport as SalesReportRow[]) ?? []} loading={salesLoading}
-            />
+            <SalesReportView rows={(sales.data as SalesReportRow[]) ?? []} loading={sales.isLoading} range={filters} />
           ) : tab === 'cashier' ? (
-            <CashierReportView
-              fromDate={cashierFromDate} setFromDate={setCashierFromDate}
-              toDate={cashierToDate} setToDate={setCashierToDate}
-              orderType={cashierOrderType} setOrderType={setCashierOrderType}
-              rows={(cashierReport as CashierReportRow[]) ?? []} loading={cashierLoading}
-            />
+            <CashierReportView rows={(cashier.data as CashierReportRow[]) ?? []} loading={cashier.isLoading} range={filters} />
           ) : tab === 'cashier-summary' ? (
-            <CashierShiftSummaryView
-              fromDate={csFromDate} setFromDate={setCsFromDate}
-              toDate={csToDate} setToDate={setCsToDate}
-              rows={(cashierShiftSummary as CashierShiftSummaryRow[]) ?? []} loading={csLoading}
-            />
+            <CashierShiftSummaryView rows={(shifts.data as CashierShiftSummaryRow[]) ?? []} loading={shifts.isLoading} range={filters} />
           ) : tab === 'waiter' ? (
-                      <WaiterReportView
-                        fromDate={waiterFromDate} setFromDate={setWaiterFromDate}
-                        toDate={waiterToDate} setToDate={setWaiterToDate}
-                        orderType={waiterOrderType} setOrderType={setWaiterOrderType}
-                        rows={(waiterReport as WaiterReportRow[]) ?? []} loading={waiterLoading}
-                      />
-                    ) : tab === 'items-by-group' ? (
-                      <ItemsByGroupView
-                        fromDate={ibgFromDate} setFromDate={setIbgFromDate}
-                        toDate={ibgToDate} setToDate={setIbgToDate}
-                        orderType={ibgOrderType} setOrderType={setIbgOrderType}
-                        rows={(itemsByGroup as ItemsByGroupRow[]) ?? []} loading={ibgLoading}
-                      />
-                    ) : tab === 'orders' ? (
-            <OrderReportView
-              fromDate={ordersFromDate} setFromDate={setOrdersFromDate}
-              toDate={ordersToDate} setToDate={setOrdersToDate}
-              orderType={ordersOrderType} setOrderType={setOrdersOrderType}
-              rows={(orderReport as OrderReportRow[]) ?? []} loading={ordersLoading}
+            <WaiterReportView rows={(waiter.data as WaiterReportRow[]) ?? []} loading={waiter.isLoading} range={filters} />
+          ) : tab === 'items-by-group' ? (
+            <ItemsByGroupView rows={(itemsByGroup.data as ItemsByGroupRow[]) ?? []} loading={itemsByGroup.isLoading} range={filters} />
+          ) : tab === 'orders' ? (
+            <OrderReportView rows={(orders.data as OrderReportRow[]) ?? []} loading={orders.isLoading} range={filters} />
+          ) : tab === 'item-sales' ? (
+            <ItemSalesView
+              report={itemSales.data as ItemSalesReport | undefined}
+              loading={itemSales.isLoading}
+              range={filters}
+              itemKey={filters.itemKey}
+              setItemKey={(v) => setFilters((f) => ({ ...f, itemKey: v }))}
             />
           ) : tab === 'items' ? (
-            <ItemsReportView
-              fromDate={itemsFromDate} setFromDate={setItemsFromDate}
-              toDate={itemsToDate} setToDate={setItemsToDate}
-              categoryId={itemsCategoryId} setCategoryId={setItemsCategoryId}
-              orderType={itemsOrderType} setOrderType={setItemsOrderType}
-              categories={categories ?? []}
-              items={(soldItems as SoldItem[]) ?? []} loading={itemsLoading}
-            />
+            <ItemsReportView items={(items.data as SoldItem[]) ?? []} loading={items.isLoading} range={filters} />
           ) : (
-            <TopItemsView
-              fromDate={fromDate} setFromDate={setFromDate}
-              toDate={toDate} setToDate={setToDate}
-              categoryId={topCategoryId} setCategoryId={setTopCategoryId}
-              categories={(categories ?? []) as Array<{ id: string; name: string; icon?: string | null }>}
-              items={(topItems as any) ?? []} loading={tLoading}
-            />
+            <TopItemsView items={(top.data as any) ?? []} loading={top.isLoading} range={filters} />
           )}
         </>
       )}
     </div>
   );
 };
+
+/* ============== shared bits ============== */
+
+type Range = { fromDate: string; toDate: string };
+const suffix = (r: Range) => `${r.fromDate}-${r.toDate}`;
+const heading = (label: string, r: Range) => `${label} — ${r.fromDate} → ${r.toDate}`;
+
+const ReportCard: React.FC<{ title: string; value: string; sub?: string; accent?: boolean }> = ({ title, value, sub, accent }) => (
+  <div className="pos-report-card">
+    <h3>{title}</h3>
+    <div className={'big ' + (accent ? 'text-emerald-600' : '')}>{value}</div>
+    {sub ? <p className="text-sm text-slate-500 mt-1">{sub}</p> : null}
+  </div>
+);
+
+const money = (v: unknown) => <span className="font-mono">{fmt(v as string)}</span>;
+const moneyBold = (v: unknown) => <span className="font-mono font-bold">{fmt(v as string)}</span>;
+
+/** Footer cell that totals a money column in whole cents. */
+const totalOf = <T,>(pick: (r: T) => string | number | null | undefined) =>
+  (rows: T[]) => <span className="font-mono">{fmt(sumMoney(rows, pick))}</span>;
 
 /* ============== X / Z ============== */
 
@@ -308,17 +284,16 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
   return (
     <div className="space-y-4">
       <div className="pos-shift-banner">
-        <span>
-          Shift opened {report.cashSession.openedAt ? new Date(report.cashSession.openedAt).toLocaleString() : '—'}
-        </span>
+        <span>Shift opened {report.cashSession.openedAt ? new Date(report.cashSession.openedAt).toLocaleString() : '—'}</span>
         <span className="font-mono">Opening float: {fmt(report.cashSession.openingFloat)}</span>
       </div>
 
       <div className="pos-report-grid">
         <ReportCard title="Gross sales" value={fmt(t.grossSales)} sub={`incl. tax · ${t.saleCount} sale${t.saleCount === 1 ? '' : 's'}`} />
+        <ReportCard title="Net revenue" value={fmt(t.netRevenue)} sub="ex-tax" />
         <ReportCard title="Discounts" value={fmt(t.discountTotal)} sub="given this shift" />
         <ReportCard title="Cash collected" value={fmt(t.cashCollected)} sub="cash tenders into drawer" />
-        <ReportCard title="Expected cash" value={fmt(t.expectedCash)} sub={`float + cash + in − out`} accent />
+        <ReportCard title="Expected cash" value={fmt(t.expectedCash)} sub="float + cash − refunds + ins − outs" accent />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -327,20 +302,15 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
           {report.byMethod.length === 0 ? (
             <p className="text-sm text-slate-500">No sales yet this shift.</p>
           ) : (
-            <div>
-              {report.byMethod.map((m) => (
-                <div key={m.method} className="pos-report-bar-row">
-                  <div className="pos-report-bar-label">{m.method}</div>
-                  <div className="pos-report-bar-track">
-                    <div
-                      className="pos-report-bar-fill"
-                      style={{ width: `${(Number(m.total) / maxMethod) * 100}%` }}
-                    />
-                  </div>
-                  <div className="pos-report-bar-value">{fmt(m.total)} ({m.count})</div>
+            report.byMethod.map((m) => (
+              <div key={m.method} className="pos-report-bar-row">
+                <div className="pos-report-bar-label">{humanise(m.method)}</div>
+                <div className="pos-report-bar-track">
+                  <div className="pos-report-bar-fill" style={{ width: `${(Number(m.total) / maxMethod) * 100}%` }} />
                 </div>
-              ))}
-            </div>
+                <div className="pos-report-bar-value">{fmt(m.total)} ({m.count})</div>
+              </div>
+            ))
           )}
         </div>
 
@@ -349,20 +319,15 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
           {report.byCategory.length === 0 ? (
             <p className="text-sm text-slate-500">No sales yet this shift.</p>
           ) : (
-            <div>
-              {report.byCategory.map((c) => (
-                <div key={c.categoryId ?? 'uncategorised'} className="pos-report-bar-row">
-                  <div className="pos-report-bar-label">{c.categoryName}</div>
-                  <div className="pos-report-bar-track">
-                    <div
-                      className="pos-report-bar-fill"
-                      style={{ width: `${(Number(c.total) / maxCategory) * 100}%` }}
-                    />
-                  </div>
-                  <div className="pos-report-bar-value">{fmt(c.total)} ({c.count})</div>
+            report.byCategory.map((c) => (
+              <div key={c.categoryId ?? 'uncategorised'} className="pos-report-bar-row">
+                <div className="pos-report-bar-label">{c.categoryName}</div>
+                <div className="pos-report-bar-track">
+                  <div className="pos-report-bar-fill" style={{ width: `${(Number(c.total) / maxCategory) * 100}%` }} />
                 </div>
-              ))}
-            </div>
+                <div className="pos-report-bar-value">{fmt(c.total)} ({c.count})</div>
+              </div>
+            ))
           )}
         </div>
       </div>
@@ -372,87 +337,22 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
   );
 };
 
-const ReportCard: React.FC<{ title: string; value: string; sub?: string; accent?: boolean }> = ({ title, value, sub, accent }) => (
-  <div className="pos-report-card">
-    <h3>{title}</h3>
-    <div className={'big ' + (accent ? 'text-emerald-600' : '')}>{value}</div>
-    {sub ? <p className="text-sm text-slate-500 mt-1">{sub}</p> : null}
-  </div>
-);
-
-/* ============== Quick Presets ============== */
-
-const QuickPresets: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-}> = ({ fromDate, setFromDate, toDate, setToDate }) => {
-  const presets = [
-    { label: 'Today', get: () => { const t = todayIso(); return { f: t, t: t }; } },
-    { label: 'Yesterday', get: () => { const d = new Date(); d.setDate(d.getDate() - 1); const s = isoLocal(d); return { f: s, t: s }; } },
-    { label: 'This Week', get: () => { const s = weekStartFromDay(todayIso()); return { f: s, t: todayIso() }; } },
-    { label: 'This Month', get: () => { const s = monthStart(todayIso().slice(0, 7)); return { f: s, t: todayIso() }; } },
-    { label: 'Last 7 Days', get: () => { const d = new Date(); d.setDate(d.getDate() - 6); return { f: isoLocal(d), t: todayIso() }; } },
-    { label: 'Last 30 Days', get: () => { const d = new Date(); d.setDate(d.getDate() - 29); return { f: isoLocal(d), t: todayIso() }; } },
-    { label: 'This Year', get: () => { const y = todayIso().slice(0, 4); return { f: y + '-01-01', t: todayIso() }; } },
-  ];
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {presets.map((p) => {
-        const { f, t } = p.get();
-        const active = fromDate === f && toDate === t;
-        return (
-          <button
-            key={p.label}
-            className={'pos-reports-tab ' + (active ? 'active' : '')}
-            style={{ fontSize: 14, padding: '2px 8px' }}
-            onClick={() => { setFromDate(f); setToDate(t); }}
-          >
-            {p.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-};
-
-const ORDER_TYPES = [
-  { value: '', label: 'All Types' },
-  { value: 'dine_in', label: 'Dine In' },
-  { value: 'takeaway', label: 'Takeaway' },
-  { value: 'delivery', label: 'Delivery' },
-];
-
-const OrderTypeSelect: React.FC<{
-  value: string | undefined;
-  onChange: (v: string | undefined) => void;
-}> = ({ value, onChange }) => (
-  <div>
-    <Label>Order Type</Label>
-    <select
-      className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm"
-      value={value ?? ''}
-      onChange={(e) => onChange(e.target.value || undefined)}
-    >
-      {ORDER_TYPES.map((ot) => (
-        <option key={ot.value} value={ot.value}>{ot.label}</option>
-      ))}
-    </select>
-  </div>
-);
-
 /* ============== Hourly ============== */
 
 const HourlyView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
+  data: any; loading: boolean; range: Range;
   hFilter: string | undefined; setHFilter: (h: string | undefined) => void;
-  data: any; loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, hFilter, setHFilter, data, loading }) => {
+}> = ({ data, loading, range, hFilter, setHFilter }) => {
   const buckets: Array<{ hour: number; count: number; total: string }> = data?.buckets ?? [];
-  const allHours = Array.from({ length: 24 }, (_, i) => i);
   const selectedHours = hFilter ? new Set(hFilter.split(',').map(Number)) : null;
-  const max = Math.max(1, ...buckets.map((b) => Number(b.total)));
-  const peak = buckets.reduce((best, b) => (Number(b.total) > Number(best.total) ? b : best), buckets[0] ?? { hour: 0, total: '0', count: 0 });
+  const visible = buckets.filter((b) => !selectedHours || selectedHours.has(b.hour));
+  const max = Math.max(1, ...visible.map((b) => Number(b.total)));
+  const peak = visible.reduce(
+    (best, b) => (Number(b.total) > Number(best.total) ? b : best),
+    visible[0] ?? { hour: 0, total: '0', count: 0 },
+  );
+  const total = sumMoney(visible, (b) => b.total);
+  const count = visible.reduce((s, b) => s + b.count, 0);
 
   const toggleHour = (hour: number) => {
     const current = hFilter ? hFilter.split(',').map(Number) : [];
@@ -464,32 +364,26 @@ const HourlyView: React.FC<{
 
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        {peak && Number(peak.total) > 0 ? (
-          <div className="pos-shift-banner" style={{ marginLeft: 'auto' }}>
-            <TrendingUp className="h-3.5 w-3.5" /> Peak hour: {peak.hour}:00–{peak.hour + 1}:00 · {fmt(peak.total)} ({peak.count} sale{peak.count === 1 ? '' : 's'})
-          </div>
-        ) : null}
+      <div className="pos-report-grid">
+        <ReportCard title="Gross sales" value={fmt(total)} sub={`${count} sale${count === 1 ? '' : 's'}`} accent />
+        <ReportCard
+          title="Peak hour"
+          value={peak && Number(peak.total) > 0 ? `${String(peak.hour).padStart(2, '0')}:00–${String(peak.hour + 1).padStart(2, '0')}:00` : '—'}
+          sub={peak && Number(peak.total) > 0 ? `${fmt(peak.total)} · ${peak.count} sale${peak.count === 1 ? '' : 's'}` : 'No sales in range'}
+        />
+        <ReportCard title="Avg per active hour" value={fmt(visible.filter((b) => b.count > 0).length ? total / visible.filter((b) => b.count > 0).length : 0)} />
       </div>
 
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
-
-      <div className="flex flex-wrap gap-1">
-        <Label className="w-full text-sm text-slate-500 mb-1">Filter by hour:</Label>
-        {allHours.map((h) => {
-          const active = !selectedHours || selectedHours.has(h);
+      <div className="flex flex-wrap gap-1 no-print">
+        <Label className="w-full text-sm text-slate-500 mb-1">
+          Filter by hour {hFilter ? <button className="underline" onClick={() => setHFilter(undefined)}>(show all)</button> : null}
+        </Label>
+        {Array.from({ length: 24 }, (_, h) => h).map((h) => {
+          const on = !selectedHours || selectedHours.has(h);
           return (
             <button
               key={h}
-              className={'pos-reports-tab ' + (active ? 'active' : '')}
+              className={'pos-reports-tab ' + (on ? 'active' : '')}
               style={{ fontSize: 13, padding: '1px 6px' }}
               onClick={() => toggleHour(h)}
             >
@@ -499,28 +393,47 @@ const HourlyView: React.FC<{
         })}
       </div>
 
-      <div className="pos-report-card">
-        <h3>Hourly sales — {fromDate} → {toDate}</h3>
-        {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-        <div>
-          {buckets.map((b) => {
-            const show = !selectedHours || selectedHours.has(b.hour);
-            if (!show) return null;
-            return (
-              <div key={b.hour} className="pos-report-bar-row">
-                <div className="pos-report-bar-label">{String(b.hour).padStart(2, '0')}:00</div>
-                <div className="pos-report-bar-track">
-                  <div
-                    className="pos-report-bar-fill"
-                    style={{ width: `${(Number(b.total) / max) * 100}%` }}
-                  />
-                </div>
-                <div className="pos-report-bar-value">{fmt(b.total)} ({b.count})</div>
+      <ReportTable<{ hour: number; count: number; total: string }>
+        title={heading('Hourly sales', range)}
+        note={<><TrendingUp className="inline h-3.5 w-3.5 mr-1" />Gross sales incl. tax, bucketed by the hour the sale was rung up.</>}
+        rows={visible}
+        loading={loading}
+        exportName={`sales-by-hour-${suffix(range)}`}
+        emptyMessage="No sales in this date range."
+        initialSortKey="hour"
+        initialSortDir="asc"
+        rowKey={(b) => String(b.hour)}
+        columns={[
+          {
+            key: 'hour', header: 'Hour', sort: (b) => b.hour,
+            cell: (b) => <span className="font-mono">{String(b.hour).padStart(2, '0')}:00</span>,
+            text: (b) => `${String(b.hour).padStart(2, '0')}:00`,
+            footer: () => 'Total',
+          },
+          {
+            key: 'bar', header: '', cell: (b) => (
+              <div className="pos-report-bar-track" style={{ minWidth: 120 }}>
+                <div className="pos-report-bar-fill" style={{ width: `${(Number(b.total) / max) * 100}%` }} />
               </div>
-            );
-          })}
-        </div>
-      </div>
+            ),
+          },
+          {
+            key: 'count', header: 'Sales', align: 'right', sort: (b) => b.count,
+            cell: (b) => <span className="font-mono">{b.count}</span>, text: (b) => String(b.count),
+            footer: (rows) => <span className="font-mono">{rows.reduce((s, b) => s + b.count, 0)}</span>,
+          },
+          {
+            key: 'total', header: 'Total', align: 'right', sort: (b) => Number(b.total),
+            cell: (b) => moneyBold(b.total), text: (b) => num(b.total), pdf: (b) => fmt(b.total),
+            footer: totalOf((b: { total: string }) => b.total),
+          },
+          {
+            key: 'share', header: '% of range', align: 'right', sort: (b) => Number(b.total),
+            cell: (b) => <span className="font-mono">{total > 0 ? `${((Number(b.total) / total) * 100).toFixed(1)}%` : '—'}</span>,
+            text: (b) => (total > 0 ? `${((Number(b.total) / total) * 100).toFixed(1)}%` : '—'),
+          },
+        ]}
+      />
     </div>
   );
 };
@@ -528,861 +441,452 @@ const HourlyView: React.FC<{
 /* ============== Top items ============== */
 
 const TopItemsView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  categoryId: string | undefined; setCategoryId: (id: string | undefined) => void;
-  categories: Array<{ id: string; name: string; icon?: string | null }>;
   items: Array<{ productId: string; name: string; sku: string | null; quantity: number; total: string }>;
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, categoryId, setCategoryId, categories, items, loading }) => {
-  const total = items.reduce((s, i) => s + Number(i.total), 0);
-  const topCsvHeaders = ['#', 'Item', 'SKU', 'Qty', 'Total', '% of sales'];
-  const handleTopCSV = () => {
-    const data = items.map((it, i) => [
-      String(i + 1), it.name, it.sku ?? '—', String(it.quantity),
-      String(Number(it.total).toFixed(2)),
-      total > 0 ? ((Number(it.total) / total) * 100).toFixed(1) + '%' : '—',
-    ]);
-    exportCSV(`top-items-${fromDate}-${toDate}.csv`, topCsvHeaders, data);
-  };
-  const handleTopPDF = () => {
-    const data = items.map((it, i) => [
-      String(i + 1), it.name, it.sku ?? '—', String(it.quantity),
-      fmt(it.total),
-      total > 0 ? ((Number(it.total) / total) * 100).toFixed(1) + '%' : '—',
-    ]);
-    exportPDF(`top-items-${fromDate}-${toDate}.pdf`, `Top Items — ${fromDate} → ${toDate}`, topCsvHeaders, data);
-  };
+  loading: boolean; range: Range;
+}> = ({ items, loading, range }) => {
+  const total = sumMoney(items, (i) => i.total);
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>Category</Label>
-          <select
-            className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm"
-            value={categoryId ?? ''}
-            onChange={(e) => setCategoryId(e.target.value || undefined)}
-          >
-            <option value="">All Categories</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.icon ? `${c.icon} ` : ''}{c.name}</option>
-            ))}
-          </select>
-        </div>
-        <div className="ml-auto pos-report-card" style={{ minWidth: 220 }}>
-          <h3>Period total</h3>
-          <div className="big">{fmt(total)}</div>
-        </div>
+      <div className="pos-report-grid">
+        <ReportCard title="Period total" value={fmt(total)} sub={`${items.length} item${items.length === 1 ? '' : 's'} ranked`} accent />
       </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
-
-      <div className="pos-report-card">
-        <div className="flex items-center justify-between mb-2">
-          <h3>Top 20 items — {fromDate} → {toDate}</h3>
-          {items.length > 0 && (
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={handleTopCSV}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
-              <Button variant="outline" size="sm" onClick={handleTopPDF}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
-            </div>
-          )}
-        </div>
-        {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-        {items.length === 0 && !loading ? (
-          <p className="text-sm text-slate-500">No sales in this date range.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b border-slate-200 text-slate-600">
-                  <th className="py-2 pr-3">#</th>
-                  <th className="py-2 pr-3">Item</th>
-                  <th className="py-2 pr-3">SKU</th>
-                  <th className="py-2 pr-3 text-right">Qty</th>
-                  <th className="py-2 pr-3 text-right">Total</th>
-                  <th className="py-2 pr-3 text-right">% of sales</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it, i) => (
-                  <tr key={it.productId || it.name} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 text-slate-500">{i + 1}</td>
-                    <td className="py-2 pr-3 font-semibold">{it.name}</td>
-                    <td className="py-2 pr-3 text-slate-500 font-mono text-sm">{it.sku ?? '—'}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{it.quantity}</td>
-                    <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(it.total)}</td>
-                    <td className="py-2 pr-3 text-right font-mono">
-                      {total > 0 ? `${((Number(it.total) / total) * 100).toFixed(1)}%` : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      <ReportTable<typeof items[number]>
+        title={heading('Top items', range)}
+        note="Ranked by gross line total (incl. tax). Menu items and catalogue products are both counted."
+        rows={items}
+        loading={loading}
+        exportName={`top-items-${suffix(range)}`}
+        emptyMessage="No sales in this date range."
+        initialSortKey="total"
+        rowKey={(it) => it.productId || it.name}
+        columns={[
+          { key: 'name', header: 'Item', sort: (i) => i.name, cell: (i) => <span className="font-semibold">{i.name}</span>, text: (i) => i.name, footer: () => 'Total' },
+          { key: 'sku', header: 'SKU', sort: (i) => i.sku ?? '', cell: (i) => <span className="text-slate-500 font-mono text-sm">{i.sku ?? '—'}</span>, text: (i) => i.sku ?? '—' },
+          {
+            key: 'qty', header: 'Qty', align: 'right', sort: (i) => i.quantity,
+            cell: (i) => <span className="font-mono">{i.quantity}</span>, text: (i) => String(i.quantity),
+            footer: (rows) => <span className="font-mono">{rows.reduce((s, i) => s + Number(i.quantity), 0)}</span>,
+          },
+          {
+            key: 'total', header: 'Total', align: 'right', sort: (i) => Number(i.total),
+            cell: (i) => moneyBold(i.total), text: (i) => num(i.total), pdf: (i) => fmt(i.total),
+            footer: totalOf((i: { total: string }) => i.total),
+          },
+          {
+            key: 'share', header: '% of sales', align: 'right', sort: (i) => Number(i.total),
+            cell: (i) => <span className="font-mono">{total > 0 ? `${((Number(i.total) / total) * 100).toFixed(1)}%` : '—'}</span>,
+            text: (i) => (total > 0 ? `${((Number(i.total) / total) * 100).toFixed(1)}%` : '—'),
+          },
+        ]}
+      />
     </div>
   );
 };
 
 /* ============== Sales Report ============== */
 
-const SalesReportView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  orderType: string | undefined; setOrderType: (v: string | undefined) => void;
-  rows: SalesReportRow[];
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, orderType, setOrderType, rows, loading }) => {
+const SalesReportView: React.FC<{ rows: SalesReportRow[]; loading: boolean; range: Range }> = ({ rows, loading, range }) => {
   const navigate = useNavigate();
-  const totals = rows.reduce(
-    (s, r) => ({
-      subtotal: s.subtotal + Number(r.subtotal),
-      discount: s.discount + Number(r.discount),
-      totalAmount: s.totalAmount + Number(r.totalAmount),
-    }),
-    { subtotal: 0, discount: 0, totalAmount: 0 },
-  );
-  const sCsvHeaders = ['Order #', 'Invoice #', 'Sale Date', 'Time', 'Subtotal', 'Discount', 'Total Amount', 'Waiter'];
-  const handleSalesCSV = () => {
-    const data = rows.map((r) => [
-      r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(), r.time || new Date(r.saleDate).toLocaleTimeString(),
-      String(Number(r.subtotal).toFixed(2)), String(Number(r.discount).toFixed(2)),
-      String(Number(r.totalAmount).toFixed(2)), r.waiterName ?? '—',
-    ]);
-    exportCSV(`sales-report-${fromDate}-${toDate}.csv`, sCsvHeaders, data);
-  };
-  const handleSalesPDF = () => {
-    const data = rows.map((r) => [
-      r.orderNumber, r.invoiceNumber, new Date(r.saleDate).toLocaleDateString(), r.time || new Date(r.saleDate).toLocaleTimeString(),
-      fmt(r.subtotal), fmt(r.discount), fmt(r.totalAmount), r.waiterName ?? '—',
-    ]);
-    exportPDF(`sales-report-${fromDate}-${toDate}.pdf`, `Sales Report — ${fromDate} → ${toDate}`, sCsvHeaders, data);
-  };
+  const gross = sumMoney(rows, (r) => r.totalAmount);
+  const refunded = sumMoney(rows, (r) => r.amountRefunded ?? 0);
+  const net = sumMoney(rows, (r) => r.subtotal);
+
+  const columns: Array<ReportColumn<SalesReportRow>> = [
+    { key: 'order', header: 'Order #', sort: (r) => r.orderNumber, cell: (r) => <span className="font-mono text-sm">{r.orderNumber}</span>, text: (r) => r.orderNumber, footer: () => `Total (${rows.length})` },
+    { key: 'invoice', header: 'Invoice #', sort: (r) => r.invoiceNumber, cell: (r) => <span className="font-mono text-sm">{r.invoiceNumber}</span>, text: (r) => r.invoiceNumber },
+    { key: 'date', header: 'Sale Date', sort: (r) => r.saleDate, cell: (r) => <span className="text-sm">{fmtDate(r.saleDate)}</span>, text: (r) => fmtDate(r.saleDate) },
+    { key: 'time', header: 'Time', sort: (r) => r.saleDate, cell: (r) => <span className="text-sm">{fmtTime(r.saleDate)}</span>, text: (r) => fmtTime(r.saleDate) },
+    { key: 'type', header: 'Type', sort: (r) => r.orderType ?? '', cell: (r) => <span className="text-sm">{humanise(r.orderType)}</span>, text: (r) => humanise(r.orderType) },
+    { key: 'tender', header: 'Tender', sort: (r) => r.paymentMethod ?? '', cell: (r) => <span className="text-sm">{humanise(r.paymentMethod)}</span>, text: (r) => humanise(r.paymentMethod) },
+    { key: 'subtotal', header: 'Subtotal', align: 'right', sort: (r) => Number(r.subtotal), cell: (r) => money(r.subtotal), text: (r) => num(r.subtotal), pdf: (r) => fmt(r.subtotal), footer: totalOf((r: SalesReportRow) => r.subtotal) },
+    { key: 'discount', header: 'Discount', align: 'right', sort: (r) => Number(r.discount), cell: (r) => money(r.discount), text: (r) => num(r.discount), pdf: (r) => fmt(r.discount), footer: totalOf((r: SalesReportRow) => r.discount) },
+    { key: 'tax', header: 'Tax', align: 'right', sort: (r) => Number(r.tax ?? 0), cell: (r) => money(r.tax ?? 0), text: (r) => num(r.tax ?? 0), pdf: (r) => fmt(r.tax ?? 0), footer: totalOf((r: SalesReportRow) => r.tax ?? 0) },
+    { key: 'total', header: 'Total', align: 'right', sort: (r) => Number(r.totalAmount), cell: (r) => moneyBold(r.totalAmount), text: (r) => num(r.totalAmount), pdf: (r) => fmt(r.totalAmount), footer: totalOf((r: SalesReportRow) => r.totalAmount) },
+    {
+      // A fully-refunded sale still appears (it happened); this column is what
+      // makes the gross figure reconcile against the bank on the same row.
+      key: 'refunded', header: 'Refunded', align: 'right', sort: (r) => Number(r.amountRefunded ?? 0),
+      cell: (r) => (Number(r.amountRefunded ?? 0) > 0 ? <span className="font-mono text-rose-600">{fmt(r.amountRefunded)}</span> : <span className="text-slate-400">—</span>),
+      text: (r) => num(r.amountRefunded ?? 0), pdf: (r) => fmt(r.amountRefunded ?? 0),
+      footer: totalOf((r: SalesReportRow) => r.amountRefunded ?? 0),
+    },
+    { key: 'waiter', header: 'Waiter', sort: (r) => r.waiterName ?? '', cell: (r) => <span className="text-sm">{r.waiterName ?? '—'}</span>, text: (r) => r.waiterName ?? '—' },
+    {
+      key: 'action', header: '', align: 'center',
+      cell: (r) => (
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 no-print" onClick={() => navigate(`/invoices/${r.id}`)} title="Open invoice">
+          <Eye className="h-4 w-4" />
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        <OrderTypeSelect value={orderType} onChange={setOrderType} />
+      <div className="pos-report-grid">
+        <ReportCard title="Gross sales" value={fmt(gross)} sub={`incl. tax · ${rows.length} sale${rows.length === 1 ? '' : 's'}`} accent />
+        <ReportCard title="Net revenue" value={fmt(net)} sub="ex-tax (invoice subtotal)" />
+        <ReportCard title="Refunded" value={fmt(refunded)} sub={`net of refunds ${fmt(gross - refunded)}`} />
+        <ReportCard title="Avg sale" value={fmt(rows.length ? gross / rows.length : 0)} />
       </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
-
-      <div className="pos-report-card">
-        <div className="flex items-center justify-between mb-2">
-          <h3>Sales Report — {fromDate} → {toDate}</h3>
-          {rows.length > 0 && (
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={handleSalesCSV}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
-              <Button variant="outline" size="sm" onClick={handleSalesPDF}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
-            </div>
-          )}
-        </div>
-        {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-        {rows.length === 0 && !loading ? (
-          <p className="text-sm text-slate-500">No sales in this date range.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b border-slate-200 text-slate-600">
-                  <th className="py-2 pr-3">Order #</th>
-                  <th className="py-2 pr-3">Invoice #</th>
-                  <th className="py-2 pr-3">Sale Date</th>
-                  <th className="py-2 pr-3">Time</th>
-                  <th className="py-2 pr-3 text-right">Subtotal</th>
-                  <th className="py-2 pr-3 text-right">Discount</th>
-                  <th className="py-2 pr-3 text-right">Total Amount</th>
-                  <th className="py-2 pr-3">Waiter</th>
-                  <th className="py-2 pr-3 w-16 text-center">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
-                    <td className="py-2 pr-3 font-mono text-sm">{r.invoiceNumber}</td>
-                    <td className="py-2 pr-3 text-sm">{new Date(r.saleDate).toLocaleDateString()}</td>
-                    <td className="py-2 pr-3 text-sm">{r.time || new Date(r.saleDate).toLocaleTimeString()}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(r.subtotal)}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(r.discount)}</td>
-                    <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
-                    <td className="py-2 pr-3 text-sm">{r.waiterName ?? '—'}</td>
-                    <td className="py-2 pr-3 text-center">
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => navigate(`/invoices/${r.id}`)}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 pr-3" colSpan={4}>Total</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.subtotal)}</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.discount)}</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.totalAmount)}</td>
-                  <td className="py-2 pr-3" />
-                  <td className="py-2 pr-3" />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </div>
+      <ReportTable
+        title={heading('Sales Report', range)}
+        note="One row per POS invoice. Refunded sales stay listed with the amount returned shown separately."
+        rows={rows} loading={loading} columns={columns}
+        exportName={`sales-report-${suffix(range)}`}
+        emptyMessage="No sales in this date range."
+        initialSortKey="date" initialSortDir="asc"
+        rowKey={(r) => r.id}
+      />
     </div>
   );
 };
 
 /* ============== Cashier Reports ============== */
 
-const CashierReportView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  orderType: string | undefined; setOrderType: (v: string | undefined) => void;
-  rows: CashierReportRow[];
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, orderType, setOrderType, rows, loading }) => {
-  const totals = rows.reduce(
-    (s, r) => ({ salesAmount: s.salesAmount + Number(r.salesAmount), received: s.received + Number(r.received) }),
-    { salesAmount: 0, received: 0 },
-  );
-  const cashierCsvHeaders = ['Cashier', 'Order', 'Invoice', 'Time', 'Sales Amount', 'Payment Method', 'Received'];
-  const handleCashierCSV = () => {
-    const data = rows.map((r) => [
-      r.cashierName ?? '—', r.orderNumber, r.invoiceNumber, r.time || '',
-      String(Number(r.salesAmount).toFixed(2)), r.paymentMethod ?? '—',
-      String(Number(r.received).toFixed(2)),
-    ]);
-    exportCSV(`cashier-report-${fromDate}-${toDate}.csv`, cashierCsvHeaders, data);
-  };
-  const handleCashierPDF = () => {
-    const data = rows.map((r) => [
-      r.cashierName ?? '—', r.orderNumber, r.invoiceNumber, r.time || '',
-      fmt(r.salesAmount), r.paymentMethod ?? '—', fmt(r.received),
-    ]);
-    exportPDF(`cashier-report-${fromDate}-${toDate}.pdf`, `Cashier Report — ${fromDate} → ${toDate}`, cashierCsvHeaders, data);
-  };
+const CashierReportView: React.FC<{ rows: CashierReportRow[]; loading: boolean; range: Range }> = ({ rows, loading, range }) => {
+  const salesTotal = sumMoney(rows, (r) => r.salesAmount);
+  const received = sumMoney(rows, (r) => r.received);
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        <OrderTypeSelect value={orderType} onChange={setOrderType} />
+      <div className="pos-report-grid">
+        <ReportCard title="Sales" value={fmt(salesTotal)} sub={`${rows.length} sale${rows.length === 1 ? '' : 's'}`} accent />
+        <ReportCard title="Received" value={fmt(received)} sub={received < salesTotal ? `${fmt(salesTotal - received)} outstanding` : 'fully settled'} />
       </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
-
-      <div className="pos-report-card">
-        <div className="flex items-center justify-between mb-2">
-          <h3>Cashier Reports — {fromDate} → {toDate}</h3>
-          {rows.length > 0 && (
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={handleCashierCSV}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
-              <Button variant="outline" size="sm" onClick={handleCashierPDF}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
-            </div>
-          )}
-        </div>
-        {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-        {rows.length === 0 && !loading ? (
-          <p className="text-sm text-slate-500">No sales in this date range.</p>
-        ) : (
-          <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left border-b border-slate-200 text-slate-600">
-                    <th className="py-2 pr-3">Cashier</th>
-                    <th className="py-2 pr-3">Order</th>
-                    <th className="py-2 pr-3">Invoice</th>
-                    <th className="py-2 pr-3">Time</th>
-                    <th className="py-2 pr-3 text-right">Sales Amount</th>
-                    <th className="py-2 pr-3">Payment Method</th>
-                    <th className="py-2 pr-3 text-right">Received</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i} className="border-b border-slate-100">
-                      <td className="py-2 pr-3 text-sm">{r.cashierName ?? '—'}</td>
-                      <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
-                      <td className="py-2 pr-3 font-mono text-sm">{r.invoiceNumber}</td>
-                      <td className="py-2 pr-3 text-sm">{r.time || ''}</td>
-                      <td className="py-2 pr-3 text-right font-mono">{fmt(r.salesAmount)}</td>
-                      <td className="py-2 pr-3 text-sm capitalize">{r.paymentMethod ?? '—'}</td>
-                      <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.received)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                    <td className="py-2 pr-3" colSpan={4}>Total ({rows.length} sales)</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(totals.salesAmount)}</td>
-                    <td className="py-2 pr-3" />
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(totals.received)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-          </div>
-        )}
-      </div>
+      <ReportTable<CashierReportRow>
+        title={heading('Cashier Reports', range)}
+        note="Per-sale detail for the cashier who rang it up. 'Received' is the amount settled — a credit sale shows less than its total."
+        rows={rows} loading={loading}
+        exportName={`cashier-report-${suffix(range)}`}
+        emptyMessage="No sales in this date range."
+        initialSortKey="date"
+        rowKey={(r, i) => `${r.invoiceNumber}-${i}`}
+        columns={[
+          { key: 'cashier', header: 'Cashier', sort: (r) => r.cashierName ?? '', cell: (r) => <span className="text-sm">{r.cashierName ?? '—'}</span>, text: (r) => r.cashierName ?? '—', footer: () => `Total (${rows.length})` },
+          { key: 'order', header: 'Order', sort: (r) => r.orderNumber, cell: (r) => <span className="font-mono text-sm">{r.orderNumber}</span>, text: (r) => r.orderNumber },
+          { key: 'invoice', header: 'Invoice', sort: (r) => r.invoiceNumber, cell: (r) => <span className="font-mono text-sm">{r.invoiceNumber}</span>, text: (r) => r.invoiceNumber },
+          { key: 'date', header: 'Date', sort: (r) => r.saleDate ?? '', cell: (r) => <span className="text-sm">{fmtDate(r.saleDate)}</span>, text: (r) => fmtDate(r.saleDate) },
+          { key: 'time', header: 'Time', sort: (r) => r.saleDate ?? '', cell: (r) => <span className="text-sm">{r.saleDate ? fmtTime(r.saleDate) : (r.time ?? '—')}</span>, text: (r) => (r.saleDate ? fmtTime(r.saleDate) : (r.time ?? '—')) },
+          { key: 'type', header: 'Type', sort: (r) => r.orderType ?? '', cell: (r) => <span className="text-sm">{humanise(r.orderType)}</span>, text: (r) => humanise(r.orderType) },
+          { key: 'method', header: 'Payment Method', sort: (r) => r.paymentMethod ?? '', cell: (r) => <span className="text-sm">{humanise(r.paymentMethod)}</span>, text: (r) => humanise(r.paymentMethod) },
+          { key: 'sales', header: 'Sales Amount', align: 'right', sort: (r) => Number(r.salesAmount), cell: (r) => money(r.salesAmount), text: (r) => num(r.salesAmount), pdf: (r) => fmt(r.salesAmount), footer: totalOf((r: CashierReportRow) => r.salesAmount) },
+          { key: 'received', header: 'Received', align: 'right', sort: (r) => Number(r.received), cell: (r) => moneyBold(r.received), text: (r) => num(r.received), pdf: (r) => fmt(r.received), footer: totalOf((r: CashierReportRow) => r.received) },
+          {
+            key: 'refunded', header: 'Refunded', align: 'right', sort: (r) => Number(r.amountRefunded ?? 0),
+            cell: (r) => (Number(r.amountRefunded ?? 0) > 0 ? <span className="font-mono text-rose-600">{fmt(r.amountRefunded)}</span> : <span className="text-slate-400">—</span>),
+            text: (r) => num(r.amountRefunded ?? 0), pdf: (r) => fmt(r.amountRefunded ?? 0),
+            footer: totalOf((r: CashierReportRow) => r.amountRefunded ?? 0),
+          },
+        ]}
+      />
     </div>
   );
 };
 
 /* ============== Cashier Shift Summary ============== */
 
-const CashierShiftSummaryView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  rows: CashierShiftSummaryRow[];
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, rows, loading }) => {
-  const totals = rows.reduce(
-    (s, r) => ({
-      openingCash: s.openingCash + Number(r.openingCash),
-      sales: s.sales + Number(r.sales),
-      expectedCash: s.expectedCash + Number(r.expectedCash),
-      actualCash: s.actualCash + (r.actualCash ? Number(r.actualCash) : 0),
-      difference: s.difference + (r.difference ? Number(r.difference) : 0),
-    }),
-    { openingCash: 0, sales: 0, expectedCash: 0, actualCash: 0, difference: 0 },
-  );
-  const csCsvHeaders = ['Shift', 'Cashier', 'Opening Cash', 'Sales', 'Expected Cash', 'Actual Cash', 'Difference'];
-  const handleCS_CSV = () => {
-    const data = rows.map((r) => [
-      r.shift, r.cashierName ?? '—', String(Number(r.openingCash).toFixed(2)),
-      String(Number(r.sales).toFixed(2)), String(Number(r.expectedCash).toFixed(2)),
-      r.actualCash ? String(Number(r.actualCash).toFixed(2)) : '—',
-      r.difference ? String(Number(r.difference).toFixed(2)) : '—',
-    ]);
-    exportCSV(`cashier-shift-summary-${fromDate}-${toDate}.csv`, csCsvHeaders, data);
+const CashierShiftSummaryView: React.FC<{ rows: CashierShiftSummaryRow[]; loading: boolean; range: Range }> = ({ rows, loading, range }) => {
+  const variance = sumMoney(rows, (r) => r.difference ?? 0);
+  const counted = rows.filter((r) => r.actualCash != null);
+  const short = rows.filter((r) => Number(r.difference ?? 0) < 0).length;
+  const over = rows.filter((r) => Number(r.difference ?? 0) > 0).length;
+
+  const diffCell = (v: string | null | undefined) => {
+    if (v == null) return <span className="text-slate-400">—</span>;
+    const n = Number(v);
+    return <span className={'font-mono ' + (n < 0 ? 'text-rose-600' : n > 0 ? 'text-emerald-600' : '')}>{fmt(v)}</span>;
   };
-  const handleCS_PDF = () => {
-    const data = rows.map((r) => [
-      r.shift, r.cashierName ?? '—', fmt(r.openingCash), fmt(r.sales),
-      fmt(r.expectedCash), r.actualCash ? fmt(r.actualCash) : '—',
-      r.difference ? fmt(r.difference) : '—',
-    ]);
-    exportPDF(`cashier-shift-summary-${fromDate}-${toDate}.pdf`, `Cashier Shift Summary — ${fromDate} → ${toDate}`, csCsvHeaders, data);
-  };
+
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
+      <div className="pos-report-grid">
+        <ReportCard title="Shifts" value={String(rows.length)} sub={`${counted.length} counted · ${rows.length - counted.length} still open`} />
+        <ReportCard title="Total sales" value={fmt(sumMoney(rows, (r) => r.totalSales ?? 0))} sub="all tenders" accent />
+        <ReportCard title="Cash into drawer" value={fmt(sumMoney(rows, (r) => r.cashSales ?? r.sales))} sub="cash tenders only" />
+        <ReportCard title="Cash variance" value={fmt(variance)} sub={`${short} short · ${over} over`} />
       </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
-
-      <div className="pos-report-card">
-        <div className="flex items-center justify-between mb-2">
-          <h3>Cashier Shift Summary — {fromDate} → {toDate}</h3>
-          {rows.length > 0 && (
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={handleCS_CSV}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
-              <Button variant="outline" size="sm" onClick={handleCS_PDF}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
-            </div>
-          )}
-        </div>
-        {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-        {rows.length === 0 && !loading ? (
-          <p className="text-sm text-slate-500">No shifts in this date range.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b border-slate-200 text-slate-600">
-                  <th className="py-2 pr-3">Shift</th>
-                  <th className="py-2 pr-3">Cashier</th>
-                  <th className="py-2 pr-3 text-right">Opening Cash</th>
-                  <th className="py-2 pr-3 text-right">Sales</th>
-                  <th className="py-2 pr-3 text-right">Expected Cash</th>
-                  <th className="py-2 pr-3 text-right">Actual Cash</th>
-                  <th className="py-2 pr-3 text-right">Difference</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 text-sm font-mono">{r.shift}</td>
-                    <td className="py-2 pr-3 text-sm">{r.cashierName ?? '—'}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(r.openingCash)}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(r.sales)}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(r.expectedCash)}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{r.actualCash ? fmt(r.actualCash) : '—'}</td>
-                    <td className={`py-2 pr-3 text-right font-mono ${r.difference ? (Number(r.difference) < 0 ? 'text-rose-600' : Number(r.difference) > 0 ? 'text-emerald-600' : '') : ''}`}>
-                      {r.difference ? fmt(r.difference) : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 pr-3" colSpan={2}>Total ({rows.length} shift{rows.length === 1 ? '' : 's'})</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.openingCash)}</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.sales)}</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.expectedCash)}</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.actualCash)}</td>
-                  <td className={`py-2 pr-3 text-right font-mono ${totals.difference < 0 ? 'text-rose-600' : totals.difference > 0 ? 'text-emerald-600' : ''}`}>
-                    {fmt(totals.difference)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </div>
+      <ReportTable<CashierShiftSummaryRow>
+        title={heading('Cashier Shift Summary', range)}
+        note="'Cash sales' is what hit the drawer; 'Total sales' is every tender rung up on the shift. Variance compares the counted cash against the expected drawer balance."
+        rows={rows} loading={loading}
+        exportName={`cashier-shift-summary-${suffix(range)}`}
+        emptyMessage="No shifts in this date range."
+        initialSortKey="opened"
+        rowKey={(r, i) => r.sessionId ?? String(i)}
+        columns={[
+          { key: 'shift', header: 'Shift', sort: (r) => r.openedAt ?? r.shift, cell: (r) => <span className="text-sm font-mono">{r.shift}</span>, text: (r) => r.shift, footer: () => `Total (${rows.length})` },
+          { key: 'opened', header: 'Opened', sort: (r) => r.openedAt ?? '', cell: (r) => <span className="text-sm">{r.openedAt ? `${fmtDate(r.openedAt)} ${fmtTime(r.openedAt)}` : '—'}</span>, text: (r) => (r.openedAt ? `${fmtDate(r.openedAt)} ${fmtTime(r.openedAt)}` : '—') },
+          { key: 'closed', header: 'Closed', sort: (r) => r.closedAt ?? '', cell: (r) => <span className="text-sm">{r.closedAt ? `${fmtDate(r.closedAt)} ${fmtTime(r.closedAt)}` : <span className="text-amber-600">open</span>}</span>, text: (r) => (r.closedAt ? `${fmtDate(r.closedAt)} ${fmtTime(r.closedAt)}` : 'open') },
+          { key: 'cashier', header: 'Cashier', sort: (r) => r.cashierName ?? '', cell: (r) => <span className="text-sm">{r.cashierName ?? '—'}</span>, text: (r) => r.cashierName ?? '—' },
+          { key: 'opening', header: 'Opening Cash', align: 'right', sort: (r) => Number(r.openingCash), cell: (r) => money(r.openingCash), text: (r) => num(r.openingCash), pdf: (r) => fmt(r.openingCash), footer: totalOf((r: CashierShiftSummaryRow) => r.openingCash) },
+          { key: 'cashSales', header: 'Cash Sales', align: 'right', sort: (r) => Number(r.cashSales ?? r.sales), cell: (r) => money(r.cashSales ?? r.sales), text: (r) => num(r.cashSales ?? r.sales), pdf: (r) => fmt(r.cashSales ?? r.sales), footer: totalOf((r: CashierShiftSummaryRow) => r.cashSales ?? r.sales) },
+          { key: 'totalSales', header: 'Total Sales', align: 'right', sort: (r) => Number(r.totalSales ?? 0), cell: (r) => moneyBold(r.totalSales ?? 0), text: (r) => num(r.totalSales ?? 0), pdf: (r) => fmt(r.totalSales ?? 0), footer: totalOf((r: CashierShiftSummaryRow) => r.totalSales ?? 0) },
+          { key: 'expected', header: 'Expected Cash', align: 'right', sort: (r) => Number(r.expectedCash), cell: (r) => money(r.expectedCash), text: (r) => num(r.expectedCash), pdf: (r) => fmt(r.expectedCash), footer: totalOf((r: CashierShiftSummaryRow) => r.expectedCash) },
+          {
+            key: 'actual', header: 'Actual Cash', align: 'right', sort: (r) => (r.actualCash == null ? null : Number(r.actualCash)),
+            cell: (r) => (r.actualCash == null ? <span className="text-slate-400">not counted</span> : money(r.actualCash)),
+            text: (r) => (r.actualCash == null ? '—' : num(r.actualCash)), pdf: (r) => (r.actualCash == null ? '—' : fmt(r.actualCash)),
+            // Only counted shifts contribute — summing an uncounted shift as 0
+            // made the total read like a huge shortage.
+            footer: totalOf((r: CashierShiftSummaryRow) => r.actualCash ?? 0),
+          },
+          {
+            key: 'difference', header: 'Difference', align: 'right', sort: (r) => (r.difference == null ? null : Number(r.difference)),
+            cell: (r) => diffCell(r.difference), text: (r) => (r.difference == null ? '—' : num(r.difference)), pdf: (r) => (r.difference == null ? '—' : fmt(r.difference)),
+            footer: () => diffCell(String(variance)),
+          },
+        ]}
+      />
     </div>
   );
 };
 
 /* ============== Waiter Report ============== */
 
-const WaiterReportView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  orderType: string | undefined; setOrderType: (v: string | undefined) => void;
-  rows: WaiterReportRow[];
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, orderType, setOrderType, rows, loading }) => {
-  const totals = rows.reduce(
-    (s, r) => ({
-      quantity: s.quantity + Number(r.quantity),
-      total: s.total + Number(r.total),
-    }),
-    { quantity: 0, total: 0 },
+const WaiterReportView: React.FC<{ rows: WaiterReportRow[]; loading: boolean; range: Range }> = ({ rows, loading, range }) => {
+  const total = sumMoney(rows, (r) => r.total);
+  const waiters = new Set(rows.map((r) => r.waiterName ?? '—')).size;
+  return (
+    <div className="space-y-4">
+      <div className="pos-report-grid">
+        <ReportCard title="Line revenue" value={fmt(total)} sub={`${rows.length} line${rows.length === 1 ? '' : 's'} · ${waiters} waiter${waiters === 1 ? '' : 's'}`} accent />
+        <ReportCard title="Avg line value" value={fmt(rows.length ? total / rows.length : 0)} />
+      </div>
+      <ReportTable<WaiterReportRow>
+        title={heading('Waiter Report', range)}
+        note="One row per sold line, attributed to the waiter on the invoice. Totals include tax and any line discount."
+        rows={rows} loading={loading}
+        exportName={`waiter-report-${suffix(range)}`}
+        emptyMessage="No sales in this date range."
+        initialSortKey="date"
+        rowKey={(r, i) => `${r.orderNumber}-${r.item}-${i}`}
+        columns={[
+          { key: 'waiter', header: 'Waiter', sort: (r) => r.waiterName ?? '', cell: (r) => <span className="text-sm">{r.waiterName ?? '—'}</span>, text: (r) => r.waiterName ?? '—', footer: () => `Total (${rows.length})` },
+          { key: 'order', header: 'Order #', sort: (r) => r.orderNumber, cell: (r) => <span className="font-mono text-sm">{r.orderNumber}</span>, text: (r) => r.orderNumber },
+          { key: 'table', header: 'Table', sort: (r) => r.tableName ?? '', cell: (r) => <span className="text-sm">{r.tableName ?? '—'}</span>, text: (r) => r.tableName ?? '—' },
+          { key: 'item', header: 'Item', sort: (r) => r.item, cell: (r) => <span className="font-semibold">{r.item}</span>, text: (r) => r.item },
+          {
+            key: 'qty', header: 'Qty', align: 'right', sort: (r) => Number(r.quantity),
+            cell: (r) => <span className="font-mono">{Number(r.quantity).toFixed(2)}</span>, text: (r) => num(r.quantity),
+            footer: (rs) => <span className="font-mono">{sumMoney(rs, (r) => r.quantity).toFixed(2)}</span>,
+          },
+          { key: 'unit', header: 'Unit Price', align: 'right', sort: (r) => Number(r.unitPrice), cell: (r) => money(r.unitPrice), text: (r) => num(r.unitPrice), pdf: (r) => fmt(r.unitPrice) },
+          { key: 'disc', header: 'Discount %', align: 'right', sort: (r) => Number(r.discountPercent), cell: (r) => <span className="font-mono">{Number(r.discountPercent).toFixed(2)}%</span>, text: (r) => `${Number(r.discountPercent).toFixed(2)}%` },
+          { key: 'total', header: 'Total', align: 'right', sort: (r) => Number(r.total), cell: (r) => moneyBold(r.total), text: (r) => num(r.total), pdf: (r) => fmt(r.total), footer: totalOf((r: WaiterReportRow) => r.total) },
+          { key: 'date', header: 'Date', sort: (r) => r.date, cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span>, text: (r) => fmtDate(r.date) },
+          { key: 'time', header: 'Time', sort: (r) => r.date, cell: (r) => <span className="text-sm">{fmtTime(r.date)}</span>, text: (r) => fmtTime(r.date) },
+        ]}
+      />
+    </div>
   );
-  const waiterCsvHeaders = ['Waiter', 'Order #', 'Table', 'Item', 'Qty', 'Unit Price', 'Discount %', 'Total', 'Date', 'Time'];
-  const handleWaiterCSV = () => {
-    const data = rows.map((r) => [
-      r.waiterName ?? '—', r.orderNumber, r.tableName ?? '—', r.item,
-      String(Number(r.quantity).toFixed(2)), String(Number(r.unitPrice).toFixed(2)),
-      r.discountPercent, String(Number(r.total).toFixed(2)),
-      new Date(r.date).toLocaleDateString(), r.time || new Date(r.date).toLocaleTimeString(),
-    ]);
-    exportCSV(`waiter-report-${fromDate}-${toDate}.csv`, waiterCsvHeaders, data);
-  };
-  const handleWaiterPDF = () => {
-    const data = rows.map((r) => [
-      r.waiterName ?? '—', r.orderNumber, r.tableName ?? '—', r.item,
-      String(Number(r.quantity).toFixed(2)), fmt(r.unitPrice),
-      `${r.discountPercent}%`, fmt(r.total),
-      new Date(r.date).toLocaleDateString(), r.time || new Date(r.date).toLocaleTimeString(),
-    ]);
-    exportPDF(`waiter-report-${fromDate}-${toDate}.pdf`, `Waiter Report — ${fromDate} → ${toDate}`, waiterCsvHeaders, data);
-  };
+};
+
+/* ============== Item Sales (grouped by item) ============== */
+
+const ItemSalesView: React.FC<{
+  report: ItemSalesReport | undefined; loading: boolean; range: Range;
+  itemKey: string | undefined; setItemKey: (v: string | undefined) => void;
+}> = ({ report, loading, range, itemKey, setItemKey }) => {
+  const rows = report?.rows ?? [];
+  const itemOptions = report?.filters?.items ?? [];
+  const totalAmt = sumMoney(rows, (r) => r.totalAmount);
+  const totalQty = sumMoney(rows, (r) => r.quantity);
+
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        <OrderTypeSelect value={orderType} onChange={setOrderType} />
+      <div className="pos-report-grid">
+        <ReportCard title="Item revenue" value={fmt(totalAmt)} sub={`${rows.length} distinct item${rows.length === 1 ? '' : 's'}`} accent />
+        <ReportCard title="Units sold" value={totalQty.toFixed(2)} />
+        <ReportCard title="Avg unit price" value={fmt(totalQty > 0 ? totalAmt / totalQty : 0)} sub="effective, after discounts" />
       </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
 
-      <div className="pos-report-card">
-        <div className="flex items-center justify-between mb-2">
-          <h3>Waiter Report — {fromDate} → {toDate}</h3>
-          {rows.length > 0 && (
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={handleWaiterCSV}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
-              <Button variant="outline" size="sm" onClick={handleWaiterPDF}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
-            </div>
-          )}
+      <div className="flex flex-wrap items-end gap-2 no-print">
+        <div className="min-w-[240px]">
+          <Label>Menu item</Label>
+          <select
+            className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm"
+            value={itemKey ?? ''}
+            onChange={(e) => setItemKey(e.target.value || undefined)}
+          >
+            <option value="">All items</option>
+            {itemOptions.map((i) => (
+              <option key={i.key} value={i.key}>{i.name}</option>
+            ))}
+          </select>
         </div>
-        {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-        {rows.length === 0 && !loading ? (
-          <p className="text-sm text-slate-500">No sales in this date range.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b border-slate-200 text-slate-600">
-                  <th className="py-2 pr-3">Waiter</th>
-                  <th className="py-2 pr-3">Order #</th>
-                  <th className="py-2 pr-3">Table</th>
-                  <th className="py-2 pr-3">Item</th>
-                  <th className="py-2 pr-3 text-right">Qty</th>
-                  <th className="py-2 pr-3 text-right">Unit Price</th>
-                  <th className="py-2 pr-3 text-right">Discount %</th>
-                  <th className="py-2 pr-3 text-right">Total</th>
-                  <th className="py-2 pr-3">Date</th>
-                  <th className="py-2 pr-3">Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 text-sm">{r.waiterName ?? '—'}</td>
-                    <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
-                    <td className="py-2 pr-3 text-sm">{r.tableName ?? '—'}</td>
-                    <td className="py-2 pr-3 font-semibold">{r.item}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{r.quantity}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(r.unitPrice)}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{r.discountPercent}%</td>
-                    <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.total)}</td>
-                    <td className="py-2 pr-3 text-sm">{new Date(r.date).toLocaleDateString()}</td>
-                    <td className="py-2 pr-3 text-sm">{r.time || new Date(r.date).toLocaleTimeString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 pr-3" colSpan={4}>Total</td>
-                  <td className="py-2 pr-3 text-right font-mono">{totals.quantity.toFixed(2)}</td>
-                  <td className="py-2 pr-3" colSpan={3} />
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totals.total)}</td>
-                  <td className="py-2 pr-3" />
-                </tr>
-              </tfoot>
-            </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            };
+      </div>
 
-            /* ============== Items by Group ============== */
+      <ReportTable<ItemSalesReport['rows'][number]>
+        title={heading('Item Sales', range)}
+        note="One row per item across the whole range. Unit price is the effective average (total ÷ qty), so the three money columns always reconcile."
+        rows={rows} loading={loading}
+        exportName={`item-sales-${suffix(range)}`}
+        emptyMessage="No items sold for these filters."
+        initialSortKey="total"
+        rowKey={(r) => r.itemKey}
+        columns={[
+          {
+            key: 'item', header: 'Item', sort: (r) => r.item,
+            cell: (r) => (
+              <div>
+                <span className="font-semibold">{r.item}</span>
+                {/* Two catalogue items can share a name — the category is what
+                    keeps those rows tellable apart. */}
+                <span className="block text-xs font-normal text-slate-500">{r.categoryName}</span>
+              </div>
+            ),
+            text: (r) => r.item,
+            footer: () => `Total (${rows.length})`,
+          },
+          { key: 'category', header: 'Category', sort: (r) => r.categoryName, cell: (r) => <span className="text-sm text-slate-500">{r.categoryName}</span>, text: (r) => r.categoryName },
+          {
+            key: 'qty', header: 'Qty Sold', align: 'right', sort: (r) => Number(r.quantity),
+            cell: (r) => <span className="font-mono">{Number(r.quantity).toFixed(2)}</span>, text: (r) => num(r.quantity),
+            footer: (rs) => <span className="font-mono">{sumMoney(rs, (r) => r.quantity).toFixed(2)}</span>,
+          },
+          { key: 'unit', header: 'Unit Price', align: 'right', sort: (r) => Number(r.unitPrice), cell: (r) => money(r.unitPrice), text: (r) => num(r.unitPrice), pdf: (r) => fmt(r.unitPrice), footer: () => <span className="text-slate-400">—</span> },
+          { key: 'total', header: 'Total Price', align: 'right', sort: (r) => Number(r.totalAmount), cell: (r) => moneyBold(r.totalAmount), text: (r) => num(r.totalAmount), pdf: (r) => fmt(r.totalAmount), footer: totalOf((r: { totalAmount: string }) => r.totalAmount) },
+          {
+            key: 'share', header: '% of sales', align: 'right', sort: (r) => Number(r.totalAmount),
+            cell: (r) => <span className="font-mono">{totalAmt > 0 ? `${((Number(r.totalAmount) / totalAmt) * 100).toFixed(1)}%` : '—'}</span>,
+            text: (r) => (totalAmt > 0 ? `${((Number(r.totalAmount) / totalAmt) * 100).toFixed(1)}%` : '—'),
+          },
+        ]}
+      />
+    </div>
+  );
+};
 
-            const ItemsByGroupView: React.FC<{
-              fromDate: string; setFromDate: (d: string) => void;
-              toDate: string; setToDate: (d: string) => void;
-              orderType: string | undefined; setOrderType: (v: string | undefined) => void;
-              rows: ItemsByGroupRow[];
-              loading: boolean;
-            }> = ({ fromDate, setFromDate, toDate, setToDate, orderType, setOrderType, rows, loading }) => {
-              const grandTotalQty = rows.reduce((s, r) => s + Number(r.totalQuantity), 0);
-              const grandTotalAmt = rows.reduce((s, r) => s + Number(r.totalAmount), 0);
-              const grandTotalItems = rows.reduce((s, r) => s + r.itemCount, 0);
-  
-              const ibgCsvHeaders = ['Item Group', 'Items Count', 'Total Quantity', 'Total Amount'];
-              const handleIBGCsv = () => {
-                const data = rows.map((r) => [
-                  r.groupName, String(r.itemCount), String(Number(r.totalQuantity).toFixed(2)), String(Number(r.totalAmount).toFixed(2)),
-                ]);
-                exportCSV(`items-by-group-${fromDate}-${toDate}.csv`, ibgCsvHeaders, data);
-              };
-              const handleIBGPdf = () => {
-                const data = rows.map((r) => [
-                  r.groupName, String(r.itemCount), String(Number(r.totalQuantity).toFixed(2)), fmt(r.totalAmount),
-                ]);
-                exportPDF(`items-by-group-${fromDate}-${toDate}.pdf`, `Items by Group — ${fromDate} → ${toDate}`, ibgCsvHeaders, data);
-              };
-  
-              return (
-                <div className="space-y-4">
-                  <div className="flex items-end gap-2">
-                    <div>
-                      <Label>From</Label>
-                      <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-                    </div>
-                    <div>
-                      <Label>To</Label>
-                      <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-                    </div>
-                    <OrderTypeSelect value={orderType} onChange={setOrderType} />
-                  </div>
-                  <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
+/* ============== Items by Group ============== */
 
-                  <div className="pos-report-card">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3>Items by Group — {fromDate} → {toDate}</h3>
-                      {rows.length > 0 && (
-                        <div className="flex gap-1">
-                          <Button variant="outline" size="sm" onClick={handleIBGCsv}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
-                          <Button variant="outline" size="sm" onClick={handleIBGPdf}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
-                        </div>
-                      )}
-                    </div>
-                    {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-                    {rows.length === 0 && !loading ? (
-                      <p className="text-sm text-slate-500">No sales in this date range.</p>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-left border-b border-slate-200 text-slate-600">
-                              <th className="py-2 pr-3">Item Group</th>
-                              <th className="py-2 pr-3 text-right">Items Count</th>
-                              <th className="py-2 pr-3 text-right">Total Quantity</th>
-                              <th className="py-2 pr-3 text-right">Total Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {rows.map((r, i) => (
-                              <tr key={r.groupId ?? i} className="border-b border-slate-100">
-                                <td className="py-2 pr-3 font-semibold">{r.groupName}</td>
-                                <td className="py-2 pr-3 text-right font-mono">{r.itemCount}</td>
-                                <td className="py-2 pr-3 text-right font-mono">{Number(r.totalQuantity).toFixed(2)}</td>
-                                <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                          <tfoot>
-                            <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                              <td className="py-2 pr-3">Total</td>
-                              <td className="py-2 pr-3 text-right font-mono">{grandTotalItems}</td>
-                              <td className="py-2 pr-3 text-right font-mono">{grandTotalQty.toFixed(2)}</td>
-                              <td className="py-2 pr-3 text-right font-mono">{fmt(grandTotalAmt)}</td>
-                            </tr>
-                          </tfoot>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            };
-
-            /* ============== Order Reports ============== */
-
-const OrderReportView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  orderType: string | undefined; setOrderType: (v: string | undefined) => void;
-  rows: OrderReportRow[];
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, orderType, setOrderType, rows, loading }) => {
-  const totalAmount = rows.reduce((s, r) => s + Number(r.totalAmount), 0);
-  const orderCsvHeaders = ['Order No', 'Date', 'Time', 'Table', 'Waiter', 'Customer', 'Status', 'Total'];
-  const handleOrderCSV = () => {
-    const data = rows.map((r) => [
-      r.orderNumber, new Date(r.date).toLocaleDateString(), r.time || new Date(r.date).toLocaleTimeString(),
-      r.tableName ?? '—', r.waiterName ?? '—', r.customerName ?? '—', r.status,
-      String(Number(r.totalAmount).toFixed(2)),
-    ]);
-    exportCSV(`order-report-${fromDate}-${toDate}.csv`, orderCsvHeaders, data);
-  };
-  const handleOrderPDF = () => {
-    const data = rows.map((r) => [
-      r.orderNumber, new Date(r.date).toLocaleDateString(), r.time || new Date(r.date).toLocaleTimeString(),
-      r.tableName ?? '—', r.waiterName ?? '—', r.customerName ?? '—', r.status,
-      fmt(r.totalAmount),
-    ]);
-    exportPDF(`order-report-${fromDate}-${toDate}.pdf`, `Order Report — ${fromDate} → ${toDate}`, orderCsvHeaders, data);
-  };
+const ItemsByGroupView: React.FC<{ rows: ItemsByGroupRow[]; loading: boolean; range: Range }> = ({ rows, loading, range }) => {
+  const grandTotal = sumMoney(rows, (r) => r.totalAmount);
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        <OrderTypeSelect value={orderType} onChange={setOrderType} />
+      <div className="pos-report-grid">
+        <ReportCard title="Group revenue" value={fmt(grandTotal)} sub={`${rows.length} group${rows.length === 1 ? '' : 's'}`} accent />
       </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
+      <ReportTable<ItemsByGroupRow>
+        title={heading('Items by Group', range)}
+        note="Sold lines rolled up by the item's category. Lines whose item has no category land in 'Uncategorised'."
+        rows={rows} loading={loading}
+        exportName={`items-by-group-${suffix(range)}`}
+        emptyMessage="No sales in this date range."
+        initialSortKey="total"
+        rowKey={(r, i) => r.groupId ?? `uncat-${i}`}
+        columns={[
+          { key: 'group', header: 'Item Group', sort: (r) => r.groupName, cell: (r) => <span className="font-semibold">{r.groupName}</span>, text: (r) => r.groupName, footer: () => 'Total' },
+          {
+            key: 'lines', header: 'Lines', align: 'right', sort: (r) => r.itemCount,
+            cell: (r) => <span className="font-mono">{r.itemCount}</span>, text: (r) => String(r.itemCount),
+            footer: (rs) => <span className="font-mono">{rs.reduce((s, r) => s + r.itemCount, 0)}</span>,
+          },
+          {
+            key: 'qty', header: 'Total Quantity', align: 'right', sort: (r) => Number(r.totalQuantity),
+            cell: (r) => <span className="font-mono">{Number(r.totalQuantity).toFixed(2)}</span>, text: (r) => num(r.totalQuantity),
+            footer: (rs) => <span className="font-mono">{sumMoney(rs, (r) => r.totalQuantity).toFixed(2)}</span>,
+          },
+          { key: 'total', header: 'Total Amount', align: 'right', sort: (r) => Number(r.totalAmount), cell: (r) => moneyBold(r.totalAmount), text: (r) => num(r.totalAmount), pdf: (r) => fmt(r.totalAmount), footer: totalOf((r: ItemsByGroupRow) => r.totalAmount) },
+          {
+            key: 'share', header: '% of sales', align: 'right', sort: (r) => Number(r.totalAmount),
+            cell: (r) => <span className="font-mono">{grandTotal > 0 ? `${((Number(r.totalAmount) / grandTotal) * 100).toFixed(1)}%` : '—'}</span>,
+            text: (r) => (grandTotal > 0 ? `${((Number(r.totalAmount) / grandTotal) * 100).toFixed(1)}%` : '—'),
+          },
+        ]}
+      />
+    </div>
+  );
+};
 
-      <div className="pos-report-card">
-        <div className="flex items-center justify-between mb-2">
-          <h3>Order Reports — {fromDate} → {toDate}</h3>
-          {rows.length > 0 && (
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={handleOrderCSV}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
-              <Button variant="outline" size="sm" onClick={handleOrderPDF}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
-            </div>
-          )}
-        </div>
-        {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-        {rows.length === 0 && !loading ? (
-          <p className="text-sm text-slate-500">No orders in this date range.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b border-slate-200 text-slate-600">
-                  <th className="py-2 pr-3">Order No</th>
-                  <th className="py-2 pr-3">Date</th>
-                  <th className="py-2 pr-3">Time</th>
-                  <th className="py-2 pr-3">Table</th>
-                  <th className="py-2 pr-3">Waiter</th>
-                  <th className="py-2 pr-3">Customer</th>
-                  <th className="py-2 pr-3">Status</th>
-                  <th className="py-2 pr-3 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 font-mono text-sm">{r.orderNumber}</td>
-                    <td className="py-2 pr-3 text-sm">{new Date(r.date).toLocaleDateString()}</td>
-                    <td className="py-2 pr-3 text-sm">{r.time || new Date(r.date).toLocaleTimeString()}</td>
-                    <td className="py-2 pr-3 text-sm">{r.tableName ?? '—'}</td>
-                    <td className="py-2 pr-3 text-sm">{r.waiterName ?? '—'}</td>
-                    <td className="py-2 pr-3 text-sm">{r.customerName ?? '—'}</td>
-                    <td className="py-2 pr-3 text-sm capitalize">{r.status}</td>
-                    <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(r.totalAmount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 pr-3" colSpan={7}>Total ({rows.length} orders)</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(totalAmount)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
+/* ============== Order Reports ============== */
+
+const ORDER_STATUS_TONE: Record<string, string> = {
+  draft: 'bg-slate-100 text-slate-600',
+  confirmed: 'bg-sky-100 text-sky-700',
+  in_progress: 'bg-amber-100 text-amber-700',
+  completed: 'bg-emerald-100 text-emerald-700',
+  closed: 'bg-emerald-100 text-emerald-700',
+  cancelled: 'bg-rose-100 text-rose-700',
+};
+
+const OrderReportView: React.FC<{ rows: OrderReportRow[]; loading: boolean; range: Range }> = ({ rows, loading, range }) => {
+  const total = sumMoney(rows, (r) => r.totalAmount);
+  const openOrders = rows.filter((r) => r.status === 'draft' || r.status === 'confirmed' || r.status === 'in_progress');
+  return (
+    <div className="space-y-4">
+      <div className="pos-report-grid">
+        <ReportCard title="Order value" value={fmt(total)} sub={`${rows.length} order${rows.length === 1 ? '' : 's'}`} accent />
+        <ReportCard title="Still open" value={String(openOrders.length)} sub={`${fmt(sumMoney(openOrders, (r) => r.totalAmount))} unbilled`} />
+        <ReportCard title="Avg order" value={fmt(rows.length ? total / rows.length : 0)} />
       </div>
+      <ReportTable<OrderReportRow>
+        title={heading('Order Reports', range)}
+        note="Operational orders, including drafts that were never billed — so this total is expected to exceed the Sales Report. Cancelled orders are hidden unless you tick 'Include cancelled'."
+        rows={rows} loading={loading}
+        exportName={`order-report-${suffix(range)}`}
+        emptyMessage="No orders in this date range."
+        initialSortKey="date"
+        rowKey={(r, i) => `${r.orderNumber}-${i}`}
+        columns={[
+          { key: 'order', header: 'Order No', sort: (r) => r.orderNumber, cell: (r) => <span className="font-mono text-sm">{r.orderNumber}</span>, text: (r) => r.orderNumber, footer: () => `Total (${rows.length})` },
+          { key: 'date', header: 'Date', sort: (r) => r.date, cell: (r) => <span className="text-sm">{fmtDate(r.date)}</span>, text: (r) => fmtDate(r.date) },
+          { key: 'time', header: 'Time', sort: (r) => r.date, cell: (r) => <span className="text-sm">{fmtTime(r.date)}</span>, text: (r) => fmtTime(r.date) },
+          { key: 'type', header: 'Type', sort: (r) => r.orderType ?? '', cell: (r) => <span className="text-sm">{humanise(r.orderType)}</span>, text: (r) => humanise(r.orderType) },
+          { key: 'table', header: 'Table', sort: (r) => r.tableName ?? '', cell: (r) => <span className="text-sm">{r.tableName ?? '—'}</span>, text: (r) => r.tableName ?? '—' },
+          { key: 'waiter', header: 'Waiter', sort: (r) => r.waiterName ?? '', cell: (r) => <span className="text-sm">{r.waiterName ?? '—'}</span>, text: (r) => r.waiterName ?? '—' },
+          { key: 'customer', header: 'Customer', sort: (r) => r.customerName ?? '', cell: (r) => <span className="text-sm">{r.customerName ?? '—'}</span>, text: (r) => r.customerName ?? '—' },
+          {
+            key: 'status', header: 'Status', sort: (r) => r.status,
+            cell: (r) => (
+              <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${ORDER_STATUS_TONE[r.status] ?? 'bg-slate-100 text-slate-600'}`}>
+                {humanise(r.status)}
+              </span>
+            ),
+            text: (r) => humanise(r.status),
+          },
+          { key: 'total', header: 'Total', align: 'right', sort: (r) => Number(r.totalAmount), cell: (r) => moneyBold(r.totalAmount), text: (r) => num(r.totalAmount), pdf: (r) => fmt(r.totalAmount), footer: totalOf((r: OrderReportRow) => r.totalAmount) },
+        ]}
+      />
     </div>
   );
 };
 
 /* ============== Items Report ============== */
 
-const ItemsReportView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  categoryId: string | undefined; setCategoryId: (id: string | undefined) => void;
-  orderType: string | undefined; setOrderType: (v: string | undefined) => void;
-  categories: Array<{ id: string; name: string }>;
-  items: SoldItem[];
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, categoryId, setCategoryId, orderType, setOrderType, categories, items, loading }) => {
-  const grandTotal = items.reduce((s, i) => s + Number(i.totalAmount), 0);
-  const itemsCsvHeaders = ['Order #', 'Invoice #', 'Sale Date', 'Time', 'Item', 'Category', 'Unit Price', 'Discount %', 'Qty', 'Total Amount', 'Waiter'];
-  const handleItemsCSV = () => {
-    const data = items.map((it) => [
-      it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(), it.time || new Date(it.saleDate).toLocaleTimeString(),
-      it.item, it.categoryName ?? '—', String(Number(it.unitPrice).toFixed(2)),
-      it.discountPercent, String(Number(it.quantity).toFixed(2)),
-      String(Number(it.totalAmount).toFixed(2)), it.waiterName ?? '—',
-    ]);
-    exportCSV(`items-report-${fromDate}-${toDate}.csv`, itemsCsvHeaders, data);
-  };
-  const handleItemsPDF = () => {
-    const data = items.map((it) => [
-      it.orderNumber, it.invoiceNumber, new Date(it.saleDate).toLocaleDateString(), it.time || new Date(it.saleDate).toLocaleTimeString(),
-      it.item, it.categoryName ?? '—', fmt(it.unitPrice),
-      `${it.discountPercent}%`, String(Number(it.quantity).toFixed(2)),
-      fmt(it.totalAmount), it.waiterName ?? '—',
-    ]);
-    exportPDF(`items-report-${fromDate}-${toDate}.pdf`, `Items Report — ${fromDate} → ${toDate}`, itemsCsvHeaders, data);
-  };
+const ItemsReportView: React.FC<{ items: SoldItem[]; loading: boolean; range: Range }> = ({ items, loading, range }) => {
+  const grandTotal = sumMoney(items, (i) => i.totalAmount);
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>Category</Label>
-          <select
-            className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm"
-            value={categoryId ?? ''}
-            onChange={(e) => setCategoryId(e.target.value || undefined)}
-          >
-            <option value="">All Categories</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
-        </div>
-        <OrderTypeSelect value={orderType} onChange={setOrderType} />
+      <div className="pos-report-grid">
+        <ReportCard title="Line revenue" value={fmt(grandTotal)} sub={`${items.length} line${items.length === 1 ? '' : 's'}`} accent />
+        <ReportCard title="Units sold" value={sumMoney(items, (i) => i.quantity).toFixed(2)} />
       </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
-
-      <div className="pos-report-card">
-        <div className="flex items-center justify-between mb-2">
-          <h3>Items Report — {fromDate} → {toDate}</h3>
-          {items.length > 0 && (
-            <div className="flex gap-1">
-              <Button variant="outline" size="sm" onClick={handleItemsCSV}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
-              <Button variant="outline" size="sm" onClick={handleItemsPDF}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
-            </div>
-          )}
-        </div>
-        {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
-        {items.length === 0 && !loading ? (
-          <p className="text-sm text-slate-500">No sales in this date range.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b border-slate-200 text-slate-600">
-                  <th className="py-2 pr-3">Order #</th>
-                  <th className="py-2 pr-3">Invoice #</th>
-                  <th className="py-2 pr-3">Sale Date</th>
-                  <th className="py-2 pr-3">Time</th>
-                  <th className="py-2 pr-3">Item</th>
-                  <th className="py-2 pr-3">Category</th>
-                  <th className="py-2 pr-3 text-right">Unit Price</th>
-                  <th className="py-2 pr-3 text-right">Discount %</th>
-                  <th className="py-2 pr-3 text-right">Qty</th>
-                  <th className="py-2 pr-3 text-right">Total Amount</th>
-                  <th className="py-2 pr-3">Waiter</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it, i) => (
-                  <tr key={i} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 font-mono text-sm">{it.orderNumber}</td>
-                    <td className="py-2 pr-3 font-mono text-sm">{it.invoiceNumber}</td>
-                    <td className="py-2 pr-3 text-sm">{new Date(it.saleDate).toLocaleDateString()}</td>
-                    <td className="py-2 pr-3 text-sm">{it.time || new Date(it.saleDate).toLocaleTimeString()}</td>
-                    <td className="py-2 pr-3 font-semibold">{it.item}</td>
-                    <td className="py-2 pr-3 text-sm text-slate-500">{it.categoryName ?? '—'}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{fmt(it.unitPrice)}</td>
-                    <td className="py-2 pr-3 text-right font-mono">{it.discountPercent}%</td>
-                    <td className="py-2 pr-3 text-right font-mono">{it.quantity}</td>
-                    <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(it.totalAmount)}</td>
-                    <td className="py-2 pr-3 text-sm">{it.waiterName ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-slate-300 font-bold text-slate-800">
-                  <td className="py-2 pr-3" colSpan={8}>Total</td>
-                  <td className="py-2 pr-3 text-right font-mono">
-                    {items.reduce((s, i) => s + Number(i.quantity), 0).toFixed(2)}
-                  </td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(grandTotal)}</td>
-                  <td className="py-2 pr-3" />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        )}
-      </div>
+      <ReportTable<SoldItem>
+        title={heading('Items Report', range)}
+        note="Every sold line in the range. Total amount includes tax and the line discount."
+        rows={items} loading={loading}
+        exportName={`items-report-${suffix(range)}`}
+        emptyMessage="No sales in this date range."
+        initialSortKey="date"
+        rowKey={(it, i) => `${it.invoiceNumber}-${it.item}-${i}`}
+        columns={[
+          { key: 'order', header: 'Order #', sort: (i) => i.orderNumber, cell: (i) => <span className="font-mono text-sm">{i.orderNumber}</span>, text: (i) => i.orderNumber, footer: () => `Total (${items.length})` },
+          { key: 'invoice', header: 'Invoice #', sort: (i) => i.invoiceNumber, cell: (i) => <span className="font-mono text-sm">{i.invoiceNumber}</span>, text: (i) => i.invoiceNumber },
+          { key: 'date', header: 'Sale Date', sort: (i) => i.saleDate, cell: (i) => <span className="text-sm">{fmtDate(i.saleDate)}</span>, text: (i) => fmtDate(i.saleDate) },
+          { key: 'time', header: 'Time', sort: (i) => i.saleDate, cell: (i) => <span className="text-sm">{fmtTime(i.saleDate)}</span>, text: (i) => fmtTime(i.saleDate) },
+          { key: 'item', header: 'Item', sort: (i) => i.item, cell: (i) => <span className="font-semibold">{i.item}</span>, text: (i) => i.item },
+          { key: 'category', header: 'Category', sort: (i) => i.categoryName ?? '', cell: (i) => <span className="text-sm text-slate-500">{i.categoryName ?? '—'}</span>, text: (i) => i.categoryName ?? '—' },
+          { key: 'unit', header: 'Unit Price', align: 'right', sort: (i) => Number(i.unitPrice), cell: (i) => money(i.unitPrice), text: (i) => num(i.unitPrice), pdf: (i) => fmt(i.unitPrice) },
+          { key: 'disc', header: 'Discount %', align: 'right', sort: (i) => Number(i.discountPercent), cell: (i) => <span className="font-mono">{Number(i.discountPercent).toFixed(2)}%</span>, text: (i) => `${Number(i.discountPercent).toFixed(2)}%` },
+          {
+            key: 'qty', header: 'Qty', align: 'right', sort: (i) => Number(i.quantity),
+            cell: (i) => <span className="font-mono">{Number(i.quantity).toFixed(2)}</span>, text: (i) => num(i.quantity),
+            footer: (rs) => <span className="font-mono">{sumMoney(rs, (i) => i.quantity).toFixed(2)}</span>,
+          },
+          { key: 'total', header: 'Total Amount', align: 'right', sort: (i) => Number(i.totalAmount), cell: (i) => moneyBold(i.totalAmount), text: (i) => num(i.totalAmount), pdf: (i) => fmt(i.totalAmount), footer: totalOf((i: SoldItem) => i.totalAmount) },
+          { key: 'waiter', header: 'Waiter', sort: (i) => i.waiterName ?? '', cell: (i) => <span className="text-sm">{i.waiterName ?? '—'}</span>, text: (i) => i.waiterName ?? '—' },
+        ]}
+      />
     </div>
   );
 };
@@ -1394,246 +898,89 @@ const MethodBar: React.FC<{ byMethod: SalesSummaryReport['byMethod'] }> = ({ byM
   return (
     <div className="pos-report-card">
       <h3>By payment method</h3>
+      <p className="text-sm text-slate-500 mb-2">
+        Money actually allocated to these invoices. A credit sale settled later shows under the tender that eventually paid it.
+      </p>
       {byMethod.length === 0 ? (
-        <p className="text-sm text-slate-500">No sales in this period.</p>
+        <p className="text-sm text-slate-500">No payments allocated in this period.</p>
       ) : (
-        <div>
-          {byMethod.map((m) => (
-            <div key={m.method} className="pos-report-bar-row">
-              <div className="pos-report-bar-label">{m.method}</div>
-              <div className="pos-report-bar-track">
-                <div className="pos-report-bar-fill" style={{ width: `${(Number(m.total) / max) * 100}%` }} />
-              </div>
-              <div className="pos-report-bar-value">{fmt(m.total)} ({m.count})</div>
+        byMethod.map((m) => (
+          <div key={m.method} className="pos-report-bar-row">
+            <div className="pos-report-bar-label">{humanise(m.method)}</div>
+            <div className="pos-report-bar-track">
+              <div className="pos-report-bar-fill" style={{ width: `${(Number(m.total) / max) * 100}%` }} />
             </div>
-          ))}
-        </div>
+            <div className="pos-report-bar-value">{fmt(m.total)} ({m.count})</div>
+          </div>
+        ))
       )}
     </div>
   );
 };
 
-const PeriodTable: React.FC<{
-  periods: SalesSummaryReport['periods'];
-  periodLabel?: string;
-  fromDate?: string;
-  toDate?: string;
-}> = ({ periods, periodLabel = 'Period', fromDate = '', toDate = '' }) => {
-  const grandTotal = periods.reduce((s, p) => s + Number(p.revenue), 0);
-  const periodCsvHeaders = [periodLabel, 'Orders', 'Revenue', 'Avg', 'Discounts', '%'];
-  const handlePeriodCSV = () => {
-    const data = periods.map((p) => [
-      p.periodKey, String(p.orders), String(Number(p.revenue).toFixed(2)),
-      String(Number(p.avgOrderValue).toFixed(2)), String(Number(p.discounts).toFixed(2)),
-      grandTotal > 0 ? ((Number(p.revenue) / grandTotal) * 100).toFixed(1) + '%' : '—',
-    ]);
-    const suffix = fromDate ? `-${fromDate}-${toDate}` : '';
-    exportCSV(`${periodLabel.toLowerCase()}-breakdown${suffix}.csv`, periodCsvHeaders, data);
-  };
-  const handlePeriodPDF = () => {
-    const data = periods.map((p) => [
-      p.periodKey, String(p.orders), fmt(p.revenue), fmt(p.avgOrderValue),
-      fmt(p.discounts), grandTotal > 0 ? ((Number(p.revenue) / grandTotal) * 100).toFixed(1) + '%' : '—',
-    ]);
-    const suffix = fromDate ? ` — ${fromDate} → ${toDate}` : '';
-    exportPDF(
-      `${periodLabel.toLowerCase()}-breakdown${fromDate ? `-${fromDate}-${toDate}` : ''}.pdf`,
-      `${periodLabel} breakdown${suffix}`, periodCsvHeaders, data,
+const SalesSummaryView: React.FC<{
+  report: SalesSummaryReport | undefined; loading: boolean; periodLabel: 'Day' | 'Week' | 'Month'; range: Range;
+}> = ({ report, loading, periodLabel, range }) => {
+  if (loading) return <div className="text-slate-500 p-4">Loading {periodLabel.toLowerCase()} sales…</div>;
+  if (!report) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
+        <CalendarDays className="h-10 w-10 mx-auto mb-2 opacity-50" />
+        <p className="font-semibold">No data for {range.fromDate} → {range.toDate}</p>
+      </div>
     );
-  };
-  return (
-    <div className="pos-report-card">
-      <div className="flex items-center justify-between mb-2">
-        <h3>{periodLabel} breakdown</h3>
-        {periods.length > 0 && (
-          <div className="flex gap-1">
-            <Button variant="outline" size="sm" onClick={handlePeriodCSV}><Download className="h-3.5 w-3.5 mr-1" /> CSV</Button>
-            <Button variant="outline" size="sm" onClick={handlePeriodPDF}><FileText className="h-3.5 w-3.5 mr-1" /> PDF</Button>
-          </div>
-        )}
-      </div>
-      {periods.length === 0 ? (
-        <p className="text-sm text-slate-500">No sales in this period.</p>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left border-b border-slate-200 text-slate-600">
-                <th className="py-2 pr-3">{periodLabel}</th>
-                <th className="py-2 pr-3 text-right">Orders</th>
-                <th className="py-2 pr-3 text-right">Revenue</th>
-                <th className="py-2 pr-3 text-right">Avg</th>
-                <th className="py-2 pr-3 text-right">Discounts</th>
-                <th className="py-2 pr-3 text-right">%</th>
-              </tr>
-            </thead>
-            <tbody>
-              {periods.map((p) => (
-                <tr key={p.periodKey} className="border-b border-slate-100">
-                  <td className="py-2 pr-3 font-semibold">{p.periodKey}</td>
-                  <td className="py-2 pr-3 text-right font-mono">{p.orders}</td>
-                  <td className="py-2 pr-3 text-right font-mono font-bold">{fmt(p.revenue)}</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(p.avgOrderValue)}</td>
-                  <td className="py-2 pr-3 text-right font-mono">{fmt(p.discounts)}</td>
-                  <td className="py-2 pr-3 text-right font-mono">
-                    {grandTotal > 0 ? `${((Number(p.revenue) / grandTotal) * 100).toFixed(1)}%` : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-};
+  }
 
-const DailySalesView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  report: SalesSummaryReport | undefined;
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, report, loading }) => {
-  const t = report?.totals;
+  const t = report.totals;
+  const periods = report.periods;
+  const grandRevenue = sumMoney(periods, (p) => p.revenue);
+
   return (
     <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        {t && (
-          <div className="pos-shift-banner">
-            <BarChart3 className="h-3.5 w-3.5" /> {t.orders} order{t.orders === 1 ? '' : 's'} · {fmt(t.revenue)}
-          </div>
-        )}
+      <div className="pos-report-grid">
+        <ReportCard title="Net revenue" value={fmt(t.revenue)} sub={`ex-tax · ${t.orders} order${t.orders === 1 ? '' : 's'}`} accent />
+        <ReportCard title="Gross sales" value={fmt(t.grossSales)} sub="incl. tax" />
+        <ReportCard title="Avg order value" value={fmt(t.avgOrderValue)} />
+        <ReportCard title="Discounts" value={fmt(t.discounts)} />
+        <ReportCard title="Taxes" value={fmt(t.taxes)} />
+        <ReportCard title="Refunds" value={fmt(t.refunds)} sub={`net sales ${fmt(t.netSales)}`} />
       </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
-      {loading ? (
-        <div className="text-slate-500 p-4">Loading daily sales…</div>
-      ) : !report ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
-          <CalendarDays className="h-10 w-10 mx-auto mb-2 opacity-50" />
-          <p className="font-semibold">No data for {fromDate} → {toDate}</p>
-        </div>
-      ) : (
-        <>
-          <div className="pos-report-grid">
-            <ReportCard title="Net revenue" value={fmt(t!.revenue)} sub={`ex-tax · ${t!.orders} order${t!.orders === 1 ? '' : 's'}`} accent />
-            <ReportCard title="Gross sales" value={fmt(t!.grossSales)} sub="incl. tax" />
-            <ReportCard title="Avg order value" value={fmt(t!.avgOrderValue)} />
-            <ReportCard title="Discounts" value={fmt(t!.discounts)} />
-            <ReportCard title="Taxes" value={fmt(t!.taxes)} />
-            <ReportCard title="Refunds" value={fmt(t!.refunds)} sub={`net sales ${fmt(t!.netSales)}`} />
-          </div>
-          <PeriodTable periods={report.periods} periodLabel="Day" fromDate={fromDate} toDate={toDate} />
-          <MethodBar byMethod={report.byMethod} />
-        </>
-      )}
-    </div>
-  );
-};
 
-const WeeklySalesView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  report: SalesSummaryReport | undefined;
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, report, loading }) => {
-  const t = report?.totals;
-  return (
-    <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        {t && (
-          <div className="pos-shift-banner">
-            <BarChart3 className="h-3.5 w-3.5" /> {fromDate} → {toDate} · {t.orders} order{t.orders === 1 ? '' : 's'} · {fmt(t.revenue)}
-          </div>
-        )}
-      </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
-      {loading ? (
-        <div className="text-slate-500 p-4">Loading weekly sales…</div>
-      ) : !report ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
-          <CalendarDays className="h-10 w-10 mx-auto mb-2 opacity-50" />
-          <p className="font-semibold">No data for {fromDate} → {toDate}</p>
-        </div>
-      ) : (
-        <>
-          <div className="pos-report-grid">
-            <ReportCard title="Net revenue" value={fmt(t!.revenue)} sub={`ex-tax · ${t!.orders} order${t!.orders === 1 ? '' : 's'}`} accent />
-            <ReportCard title="Gross sales" value={fmt(t!.grossSales)} sub="incl. tax" />
-            <ReportCard title="Avg order value" value={fmt(t!.avgOrderValue)} />
-            <ReportCard title="Discounts" value={fmt(t!.discounts)} />
-            <ReportCard title="Taxes" value={fmt(t!.taxes)} />
-            <ReportCard title="Refunds" value={fmt(t!.refunds)} sub={`net sales ${fmt(t!.netSales)}`} />
-          </div>
-          <PeriodTable periods={report.periods} periodLabel="Week" fromDate={fromDate} toDate={toDate} />
-          <MethodBar byMethod={report.byMethod} />
-        </>
-      )}
-    </div>
-  );
-};
+      <ReportTable<SalesSummaryReport['periods'][number]>
+        title={`${periodLabel} breakdown — ${range.fromDate} → ${range.toDate}`}
+        note="Revenue is NET of tax. Periods with no sales are shown as explicit zeros so a quiet day cannot be mistaken for a missing one."
+        rows={periods}
+        exportName={`${periodLabel.toLowerCase()}-breakdown-${suffix(range)}`}
+        exportTitle={`${periodLabel} breakdown — ${range.fromDate} → ${range.toDate}`}
+        emptyMessage="No sales in this period."
+        initialSortKey="period" initialSortDir="asc"
+        rowKey={(p) => p.periodKey}
+        columns={[
+          { key: 'period', header: periodLabel, sort: (p) => p.periodKey, cell: (p) => <span className="font-semibold">{p.periodKey}</span>, text: (p) => p.periodKey, footer: () => 'Total' },
+          {
+            key: 'orders', header: 'Orders', align: 'right', sort: (p) => p.orders,
+            cell: (p) => <span className="font-mono">{p.orders}</span>, text: (p) => String(p.orders),
+            footer: (rs) => <span className="font-mono">{rs.reduce((s, p) => s + p.orders, 0)}</span>,
+          },
+          { key: 'revenue', header: 'Revenue', align: 'right', sort: (p) => Number(p.revenue), cell: (p) => moneyBold(p.revenue), text: (p) => num(p.revenue), pdf: (p) => fmt(p.revenue), footer: totalOf((p: { revenue: string }) => p.revenue) },
+          { key: 'gross', header: 'Gross', align: 'right', sort: (p) => Number(p.grossSales), cell: (p) => money(p.grossSales), text: (p) => num(p.grossSales), pdf: (p) => fmt(p.grossSales), footer: totalOf((p: { grossSales: string }) => p.grossSales) },
+          { key: 'avg', header: 'Avg', align: 'right', sort: (p) => Number(p.avgOrderValue), cell: (p) => money(p.avgOrderValue), text: (p) => num(p.avgOrderValue), pdf: (p) => fmt(p.avgOrderValue) },
+          { key: 'discounts', header: 'Discounts', align: 'right', sort: (p) => Number(p.discounts), cell: (p) => money(p.discounts), text: (p) => num(p.discounts), pdf: (p) => fmt(p.discounts), footer: totalOf((p: { discounts: string }) => p.discounts) },
+          {
+            key: 'refunds', header: 'Refunds', align: 'right', sort: (p) => Number(p.refunds),
+            cell: (p) => (Number(p.refunds) > 0 ? <span className="font-mono text-rose-600">{fmt(p.refunds)}</span> : <span className="text-slate-400">—</span>),
+            text: (p) => num(p.refunds), pdf: (p) => fmt(p.refunds),
+            footer: totalOf((p: { refunds: string }) => p.refunds),
+          },
+          {
+            key: 'share', header: '%', align: 'right', sort: (p) => Number(p.revenue),
+            cell: (p) => <span className="font-mono">{grandRevenue > 0 ? `${((Number(p.revenue) / grandRevenue) * 100).toFixed(1)}%` : '—'}</span>,
+            text: (p) => (grandRevenue > 0 ? `${((Number(p.revenue) / grandRevenue) * 100).toFixed(1)}%` : '—'),
+          },
+        ]}
+      />
 
-const MonthlySalesView: React.FC<{
-  fromDate: string; setFromDate: (d: string) => void;
-  toDate: string; setToDate: (d: string) => void;
-  report: SalesSummaryReport | undefined;
-  loading: boolean;
-}> = ({ fromDate, setFromDate, toDate, setToDate, report, loading }) => {
-  const t = report?.totals;
-  return (
-    <div className="space-y-4">
-      <div className="flex items-end gap-2">
-        <div>
-          <Label>From</Label>
-          <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-        </div>
-        <div>
-          <Label>To</Label>
-          <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-        </div>
-        {t && (
-          <div className="pos-shift-banner">
-            <BarChart3 className="h-3.5 w-3.5" /> {fromDate} → {toDate} · {t.orders} order{t.orders === 1 ? '' : 's'} · {fmt(t.revenue)}
-          </div>
-        )}
-      </div>
-      <QuickPresets fromDate={fromDate} setFromDate={setFromDate} toDate={toDate} setToDate={setToDate} />
-      {loading ? (
-        <div className="text-slate-500 p-4">Loading monthly sales…</div>
-      ) : !report ? (
-        <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
-          <CalendarDays className="h-10 w-10 mx-auto mb-2 opacity-50" />
-          <p className="font-semibold">No data for {fromDate} → {toDate}</p>
-        </div>
-      ) : (
-        <>
-          <div className="pos-report-grid">
-            <ReportCard title="Net revenue" value={fmt(t!.revenue)} sub={`ex-tax · ${t!.orders} order${t!.orders === 1 ? '' : 's'}`} accent />
-            <ReportCard title="Gross sales" value={fmt(t!.grossSales)} sub="incl. tax" />
-            <ReportCard title="Avg order value" value={fmt(t!.avgOrderValue)} />
-            <ReportCard title="Discounts" value={fmt(t!.discounts)} />
-            <ReportCard title="Taxes" value={fmt(t!.taxes)} />
-            <ReportCard title="Refunds" value={fmt(t!.refunds)} sub={`net sales ${fmt(t!.netSales)}`} />
-          </div>
-          <PeriodTable periods={report.periods} periodLabel="Month" fromDate={fromDate} toDate={toDate} />
-          <MethodBar byMethod={report.byMethod} />
-        </>
-      )}
+      <MethodBar byMethod={report.byMethod} />
     </div>
   );
 };

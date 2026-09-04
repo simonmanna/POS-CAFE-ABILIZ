@@ -62,6 +62,8 @@ export interface CheckoutLine {
   comboId?: string;
   /** P10: override the product's taxInclusive flag for this line. */
   taxInclusive?: boolean;
+  /** P5 course grouping for fire/hold (1=starter, 2=main, 3=dessert, …). */
+  course?: number;
 }
 
 export interface PaymentTender {
@@ -630,6 +632,8 @@ export class PosService {
       await this.linkTableOrder(input.tableId, order.id, input.guestCount);
       if (input.sendToKitchen) {
         await this.orders.fireKitchen(order.id).catch((e: any) => this.logger.warn(`fireKitchen failed: ${e?.message}`));
+      } else {
+        await this.autoSendRoutedLines(order.id);
       }
     }
     return this.toTabView(order);
@@ -640,7 +644,9 @@ export class PosService {
    * Source-of-truth write for the "one open order per table" model: the cart on
    * screen always equals the table's draft order. Creates the order on the first
    * save; when the line set becomes empty the draft is cancelled and the table is
-   * freed. No GL / stock / cash / kitchen effect — that all happens at settle.
+   * freed. No GL / stock / cash effect — that all happens at settle. The only
+   * kitchen effect is auto-send: lines whose MenuItem pins an explicit
+   * `stationCode` go straight to that KDS station (see `autoSendRoutedLines`).
    */
   async saveTabItems(input: {
     tableId: string;
@@ -703,8 +709,25 @@ export class PosService {
         ...input, lines,
       } as CreateOrderDto);
       await this.linkTableOrder(input.tableId, order.id, input.guestCount);
+      await this.autoSendRoutedLines(order.id);
     }
     return this.toTabView(order);
+  }
+
+  /**
+   * Auto-send: push every un-fired line that is pinned to a prep station
+   * (`MenuItem.stationCode`) to the KDS. Items with no station configured are
+   * untouched — they still wait for the cashier's explicit "Send to Kitchen".
+   *
+   * Best-effort by design: the kitchen display must never be able to fail a
+   * sale, and `fireKitchen` is delta-based, so a retry re-sends nothing.
+   */
+  private async autoSendRoutedLines(orderId: string) {
+    try {
+      await this.orders.fireKitchen(orderId, { onlyRouted: true });
+    } catch (e: any) {
+      this.logger.warn(`auto-send to KDS failed for order ${orderId}: ${e?.message}`);
+    }
   }
 
   /**

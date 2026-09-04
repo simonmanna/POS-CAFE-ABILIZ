@@ -3,6 +3,8 @@
  *
  * Handles the full MenuItem payload:
  *   - metadata: code, name, description, image, prep time, availability
+ *   - routing:  prep station (optional) — pinning a KitchenStation makes the
+ *               item auto-send to that KDS screen the moment it is ordered
  *   - money:    basePrice (major units in the UI, converted to minor units on submit)
  *   - tree:     category picker
  *   - composition: ingredients (product picker with quantity) — fully editable
@@ -33,6 +35,7 @@ import {
   type ProductMini,
 } from '@/features/menu/api';
 import {
+  useKitchenStations,
   useVariants,
   useCreateVariant,
   useUpdateVariant,
@@ -76,6 +79,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingImg, setUploadingImg] = useState(false);
   const [prepTime, setPrepTime] = useState('');
+  const [stationCode, setStationCode] = useState('');
   const [isAvailable, setIsAvailable] = useState(true);
   const [isInventoryTracked, setIsInventoryTracked] = useState(false);
   const [ingredients, setIngredients] = useState<DraftIngredient[]>([]);
@@ -83,6 +87,18 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
   const [submitting, setSubmitting] = useState(false);
 
   const products = useProductPicker(productSearch);
+
+  // Prep stations for the routing picker. Active stations only — pinning an
+  // item to a disabled screen would silently strand its tickets.
+  const stationsQuery = useKitchenStations();
+  const stations = useMemo(
+    () => (stationsQuery.data ?? []).filter((st) => st.isActive),
+    [stationsQuery.data],
+  );
+  const stationLabel = useMemo(
+    () => stations.find((st) => st.code === stationCode)?.name ?? stationCode,
+    [stations, stationCode],
+  );
 
   // Full product list (fetched once when the dialog opens so the picker is
   // never empty on first render, even before any search text is typed).
@@ -134,7 +150,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
     if (!open) return;
     if (!item) {
       setName(''); setCode(''); setDescription(''); setCategoryId('');
-      setBasePrice(''); setPrepTime(''); setIsAvailable(true); setIsInventoryTracked(false);
+      setBasePrice(''); setPrepTime(''); setStationCode(''); setIsAvailable(true); setIsInventoryTracked(false);
       setIngredients([]);
       setPreviewSrc(''); imageFileIdRef.current = '';
       return;
@@ -145,6 +161,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
     setCategoryId(item.categoryId ?? '');
     setBasePrice(item.basePrice != null ? String(item.basePrice) : '');
     setPrepTime(item.preparationTime != null ? String(item.preparationTime) : '');
+    setStationCode(item.stationCode ?? '');
     setIsAvailable(item.isAvailable ?? true);
     setIsInventoryTracked(item.isInventoryTracked ?? false);
     setIngredients(
@@ -235,6 +252,8 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                 // mints a fresh signed URL on every read.
                 image: imageFileIdRef.current || (previewSrc || undefined),
                 preparationTime: prepTime ? Number(prepTime) : undefined,
+                // null (not undefined) so clearing the station actually unsets it.
+                stationCode: stationCode || null,
                 isAvailable,
                 isInventoryTracked,
                 ingredients: ingredients.map(({ productId, quantity }) => ({
@@ -281,6 +300,25 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
               <Input id="mi-prep" type="number" min="0" step="1"
                 value={prepTime}
                 onChange={(e) => setPrepTime(e.target.value)} />
+            </div>
+            <div className="md:col-span-2">
+              <Label htmlFor="mi-station" className="text-sm font-medium text-slate-700 mb-1.5">
+                Prep station <span className="font-normal text-slate-400">(optional)</span>
+              </Label>
+              <Select value={stationCode || '_none'} onValueChange={(v) => setStationCode(v === '_none' ? '' : v)}>
+                <SelectTrigger id="mi-station"><SelectValue placeholder="No station — derive from recipe" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">— No station —</SelectItem>
+                  {stations.map((st) => (
+                    <SelectItem key={st.id} value={st.code}>{st.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500 mt-1">
+                {stationCode
+                  ? `Ordering this item sends it straight to the ${stationLabel} screen on the Kitchen Display.`
+                  : 'Leave empty to route by the recipe’s products (or the default station). Pick a station to send this item to the Kitchen Display as soon as it is ordered.'}
+              </p>
             </div>
             <div className="md:col-span-2">
               <Label htmlFor="mi-img" className="text-sm font-medium text-slate-700 mb-1.5">Image</Label>

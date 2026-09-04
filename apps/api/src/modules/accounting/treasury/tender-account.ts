@@ -2,6 +2,21 @@ import { BadRequestException } from '@nestjs/common';
 
 export type TenderMethod = 'cash' | 'bank' | 'card' | 'mobile_money' | 'store_credit';
 
+/** Tender kinds a POS payment method may be configured as (`cheque` is
+ *  accepted by the resolver for invoice collections but has no POS tile). */
+export const POS_TENDER_METHODS: TenderMethod[] = ['cash', 'bank', 'card', 'mobile_money', 'store_credit'];
+
+/**
+ * Which AccountCategory keys may back each tender method. Exported so POS
+ * payment-method configuration validates against the SAME rule the posting
+ * engine enforces below — a tile that saves can never produce a tender this
+ * resolver later rejects.
+ */
+export const ALLOWED_CATEGORIES_BY_METHOD: Record<string, string[]> = {
+  cash: ['cash', 'petty_cash'], bank: ['bank'], cheque: ['bank'], card: ['bank', 'current_asset'],
+  mobile_money: ['mobile_money'], store_credit: ['current_liabilities', 'other_current_liabilities'],
+};
+
 /** One resolver for POS, invoice collections and refunds. No electronic-to-cash fallback. */
 export async function resolveTenderAccount(
   tx: any, determination: any, organizationId: string,
@@ -36,10 +51,7 @@ export async function resolveTenderAccount(
     const org = await tx.organization.findUnique({ where: { id: organizationId }, select: { currencyCode: true } });
     if (org && account.currencyId !== org.currencyCode) throw new BadRequestException('POS tenders must use the organization currency; convert foreign currency through treasury first');
   }
-  const allowed: Record<string, string[]> = {
-    cash: ['cash', 'petty_cash'], bank: ['bank'], cheque: ['bank'], card: ['bank', 'current_asset'],
-    mobile_money: ['mobile_money'], store_credit: ['current_liabilities', 'other_current_liabilities'],
-  };
+  const allowed = ALLOWED_CATEGORIES_BY_METHOD;
   // Store credit must use the configured liability, regardless of category naming.
   if (method === 'store_credit') {
     if (account.id !== await determination.mapped('store_credit', tx)) throw new BadRequestException('Store credit must use its configured liability account');

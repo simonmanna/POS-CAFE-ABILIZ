@@ -1293,3 +1293,72 @@ export function useRestoreFiscalPosition() {
   });
 }
 
+
+// ── POS payment methods (mode → finance account binding) ──
+
+export interface PosPaymentMethodConfig {
+  id: string;
+  code: string;
+  label: string;
+  kind: 'cash' | 'mobile_money' | 'card' | 'bank' | 'store_credit';
+  provider: string | null;
+  accountId: string | null;
+  accountName: string | null;
+  accountCode: string | null;
+  icon: string;
+  sortOrder: number;
+  requiresReference: boolean;
+  trackInShift: boolean;
+  isActive: boolean;
+}
+
+export type PosPaymentMethodInput = Partial<Omit<PosPaymentMethodConfig, 'id' | 'accountName' | 'accountCode'>>;
+
+/** AccountCategory keys each kind may be bound to — mirrors the server's
+ *  ALLOWED_CATEGORIES_BY_METHOD so the picker cannot offer an invalid pairing. */
+export const POS_METHOD_ACCOUNT_TYPES: Record<string, string[]> = {
+  cash: [],
+  mobile_money: ['mobile_money'],
+  card: ['bank', 'current_asset'],
+  bank: ['bank'],
+  store_credit: [],
+};
+
+export function usePosPaymentMethodConfig() {
+  return useQuery({
+    queryKey: ['pos-payment-method-config'],
+    queryFn: async () => (await api.get<PosPaymentMethodConfig[]>('/accounts/pos-payment-methods')).data,
+  });
+}
+
+function invalidatePosMethods(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ['pos-payment-method-config'] });
+  // The terminal reads its tiles from a different key.
+  qc.invalidateQueries({ queryKey: ['pos-payment-methods'] });
+}
+
+export function useCreatePosPaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: PosPaymentMethodInput) =>
+      (await api.post<PosPaymentMethodConfig>('/accounts/pos-payment-methods', body)).data,
+    onSuccess: () => invalidatePosMethods(qc),
+  });
+}
+
+export function useUpdatePosPaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...body }: PosPaymentMethodInput & { id: string }) =>
+      (await api.patch<PosPaymentMethodConfig>(`/accounts/pos-payment-methods/${id}`, body)).data,
+    onSuccess: () => invalidatePosMethods(qc),
+  });
+}
+
+export function useDeletePosPaymentMethod() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => { await api.delete(`/accounts/pos-payment-methods/${id}`); },
+    onSuccess: () => invalidatePosMethods(qc),
+  });
+}

@@ -42,6 +42,7 @@ import {
   type PaymentTender,
 } from './pos.service';
 import { PosInvoiceService } from './billing/pos-invoice.service';
+import { PosPaymentMethodService } from '../accounting/treasury/pos-payment-method.service';
 
 class CheckoutLineModifierDto implements CheckoutLineModifier {
   @ApiProperty() @IsString() modifierId!: string;
@@ -91,6 +92,8 @@ class CheckoutLineDto implements CheckoutLine {
   @IsOptional() @IsString() comboId?: string;
   @ApiProperty({ required: false, description: 'P10 per-line tax-inclusive override.' })
   @IsOptional() @IsBoolean() taxInclusive?: boolean;
+  @ApiProperty({ required: false, description: 'P5 course grouping for fire/hold (1=starter, 2=main, 3=dessert, …).' })
+  @IsOptional() @IsNumber() course?: number;
 }
 
 class PaymentTenderDto implements PaymentTender {
@@ -247,6 +250,7 @@ export class PosController {
     private readonly svc: PosService,
     private readonly billing: PosInvoiceService,
     private readonly overrides: PosOverridesService,
+    private readonly paymentMethods: PosPaymentMethodService,
   ) {}
 
   @Get('settings')
@@ -263,6 +267,12 @@ export class PosController {
   @Get('payment-accounts')
   @RequirePermissions('pos:checkout')
   paymentAccounts() { return this.svc.paymentAccounts(); }
+
+  /** Configured payment modes for the Charge dialog — each already bound to the
+   *  finance account its money lands in, so the cashier never picks an account. */
+  @Get('payment-methods')
+  @RequirePermissions('pos:checkout')
+  listPaymentMethods() { return this.paymentMethods.listForTerminal(); }
 
   @Patch('settings')
   @RequirePermissions('setting:update')

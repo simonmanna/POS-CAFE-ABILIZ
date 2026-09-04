@@ -39,6 +39,7 @@ function TabOverview({ item }: { item: NonNullable<ReturnType<typeof useMenuItem
             <InfoRow label="Category" value={item.category?.name ? <span className="font-semibold">{item.category.name}</span> : null} />
             <InfoRow label="Status" value={item.isAvailable ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Available</Badge> : <Badge variant="secondary" className="text-xs">Unavailable</Badge>} />
             <InfoRow label="Prep Time" value={item.preparationTime != null ? `${item.preparationTime}m` : null} />
+            <InfoRow label="Prep Station" value={item.stationCode ? <Badge variant="outline" className="text-xs">{item.stationCode}</Badge> : null} />
             <InfoRow label="Display Order" value={item.displayOrder != null ? String(item.displayOrder) : null} />
           </dl>
         </CardContent>

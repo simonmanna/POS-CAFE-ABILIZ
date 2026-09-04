@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Loader2, Upload, Building2, Puzzle } from 'lucide-react';
+import { Save, Loader2, Upload, Building2, Puzzle, Blocks } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,8 @@ import { usePosSettings, useUpdatePosSettings } from '@/features/pos/api';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
+import { MODULE_FEATURES, featureEnabled } from '@/lib/features';
+import { ORG_FEATURES_QUERY_KEY } from '@/lib/use-org-features';
 
 interface DeveloperSettings {
   logoUrl: string | null;
@@ -18,13 +20,13 @@ interface DeveloperSettings {
   features: Record<string, boolean>;
 }
 
+/**
+ * Feature switches that do not gate a sidebar section. Modules that DO gate
+ * navigation live in MODULE_FEATURES so the sidebar and this page cannot drift.
+ */
 const KNOWN_FEATURES: Array<{ key: string; label: string; description: string }> = [
-  { key: 'accounting', label: 'Accounting', description: 'Chart of accounts, journals, posting engine' },
-  { key: 'assets', label: 'Assets', description: 'Fixed asset register and depreciation' },
   { key: 'inventory', label: 'Inventory', description: 'Stock tracking, batches, serial numbers' },
   { key: 'multiCurrency', label: 'Multi-Currency', description: 'Foreign currency support and FX revaluation' },
-  { key: 'expense', label: 'Expense', description: 'Employee expense reports, approvals, and reimbursements' },
-  { key: 'taskBoard', label: 'Task Board', description: 'Kanban-style task management and workflow tracking' },
   { key: 'alcoholBeverageMonitor', label: 'Alcohol Beverage Monitor', description: 'Alcohol stock, duty tracking, and compliance reporting' },
   { key: 'offlineDevices', label: 'Offline Devices', description: 'Offline-capable POS terminals and device sync management' },
   { key: 'procurement', label: 'Procurement', description: 'Purchase requests, orders, and receipts' },
@@ -81,6 +83,7 @@ export function DevCompanySettingsPage() {
         auth.setOrganization({ ...org, name: data.name });
       }
       qc.invalidateQueries({ queryKey: ['settings-developer'] });
+      qc.invalidateQueries({ queryKey: ORG_FEATURES_QUERY_KEY });
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
   });
@@ -119,6 +122,12 @@ export function DevCompanySettingsPage() {
 
   const toggleFeature = (key: string) => {
     setFeatures((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // Module features default to enabled when the key was never written, so the
+  // toggle flips against the resolved value rather than the raw map.
+  const toggleModule = (key: string) => {
+    setFeatures((prev) => ({ ...prev, [key]: !featureEnabled(prev, key) }));
   };
 
   return (
@@ -255,6 +264,54 @@ export function DevCompanySettingsPage() {
                   )}
                 </div>
               </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Modules — these gate the left sidebar navigation */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Blocks className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <CardTitle>Modules</CardTitle>
+                <CardDescription>
+                  Turn a module off to hide its group from the left sidebar navigation.
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {q.isLoading ? (
+              <Skeleton className="h-48 w-full" />
+            ) : (
+              <div className="space-y-3">
+                {MODULE_FEATURES.map((feat) => {
+                  const on = featureEnabled(features, feat.key);
+                  return (
+                    <label
+                      key={feat.key}
+                      className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 rounded"
+                        checked={on}
+                        onChange={() => toggleModule(feat.key)}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          {feat.label}
+                          <Badge variant={on ? 'secondary' : 'outline'} className="text-[10px]">
+                            {on ? 'visible' : 'hidden'}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{feat.description}</p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
             )}
           </CardContent>
         </Card>

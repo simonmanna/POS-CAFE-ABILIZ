@@ -724,82 +724,142 @@ export function useZReport(cashSessionId?: string, enabled = true) {
   });
 }
 
-export function useSalesByHour(fromDate: string, toDate: string, hours?: string, enabled = true) {
+/**
+ * Filters shared by every range report. The API rejects unknown values rather
+ * than ignoring them, so the UI must send exactly what `filter-options` offered.
+ */
+export interface ReportFilters {
+  waiterId?: string;
+  paymentMethod?: string;
+  orderType?: string;
+  search?: string;
+  categoryId?: string;
+  status?: string;
+  itemSearch?: string;
+  registerId?: string;
+}
+
+/** Blank strings mean "no filter" — never send them as a value. */
+const clean = (f: ReportFilters = {}): Record<string, string | undefined> => {
+  const out: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(f)) {
+    const trimmed = typeof v === 'string' ? v.trim() : v;
+    if (trimmed) out[k] = trimmed as string;
+  }
+  return out;
+};
+
+/** Stable cache key for a filter set (object identity would thrash the cache). */
+const filterKey = (f: ReportFilters = {}) =>
+  Object.entries(clean(f)).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}:${v}`).join('|') || 'none';
+
+/**
+ * Dropdown values for the report filter bar, scoped to the visible date range —
+ * so a manager can only pick a waiter/category that actually rang up a sale in
+ * the range, and an empty table always means "no sales", never "bad filter".
+ */
+export function useReportFilterOptions(fromDate: string, toDate: string, enabled = true) {
   return useQuery({
-    queryKey: ['pos-reports', 'hourly', fromDate, toDate, hours ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/sales-by-hour', { params: { fromDate, toDate, hours: hours || undefined } })).data,
+    queryKey: ['pos-reports', 'filter-options', fromDate, toDate],
+    queryFn: async () => (await api.get('/pos/reports/filter-options', { params: { fromDate, toDate } })).data,
+    enabled: !!fromDate && !!toDate && enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useSalesByHour(fromDate: string, toDate: string, hours?: string, filters: ReportFilters = {}, enabled = true) {
+  return useQuery({
+    queryKey: ['pos-reports', 'hourly', fromDate, toDate, hours ?? 'all', filterKey(filters)],
+    queryFn: async () => (await api.get('/pos/reports/sales-by-hour', { params: { fromDate, toDate, hours: hours || undefined, ...clean(filters) } })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }
 
-export function useSalesSummary(fromDate: string, toDate: string, groupBy: 'day' | 'week' | 'month', enabled = true) {
+export function useSalesSummary(fromDate: string, toDate: string, groupBy: 'day' | 'week' | 'month', filters: ReportFilters = {}, enabled = true) {
   return useQuery({
-    queryKey: ['pos-reports', 'sales-summary', fromDate, toDate, groupBy],
-    queryFn: async () => (await api.get('/pos/reports/sales-summary', { params: { fromDate, toDate, groupBy } })).data,
+    queryKey: ['pos-reports', 'sales-summary', fromDate, toDate, groupBy, filterKey(filters)],
+    queryFn: async () => (await api.get('/pos/reports/sales-summary', { params: { fromDate, toDate, groupBy, ...clean(filters) } })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }
 
-export function useTopItems(fromDate: string, toDate: string, limit = 20, categoryId?: string, enabled = true) {
+export function useTopItems(fromDate: string, toDate: string, limit = 20, filters: ReportFilters = {}, enabled = true) {
   return useQuery({
-    queryKey: ['pos-reports', 'top-items', fromDate, toDate, limit, categoryId ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/top-items', { params: { fromDate, toDate, limit, categoryId: categoryId || undefined } })).data,
+    queryKey: ['pos-reports', 'top-items', fromDate, toDate, limit, filterKey(filters)],
+    queryFn: async () => (await api.get('/pos/reports/top-items', { params: { fromDate, toDate, limit, ...clean(filters) } })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }
 
-export function useSalesReport(fromDate: string, toDate: string, waiterId?: string, search?: string, paymentMethod?: string, orderType?: string, enabled = true) {
+export function useSalesReport(fromDate: string, toDate: string, filters: ReportFilters = {}, enabled = true) {
   return useQuery({
-    queryKey: ['pos-reports', 'sales-report', fromDate, toDate, waiterId ?? 'all', search ?? '', paymentMethod ?? 'all', orderType ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/sales-report', { params: { fromDate, toDate, waiterId, search: search || undefined, paymentMethod, orderType } })).data,
+    queryKey: ['pos-reports', 'sales-report', fromDate, toDate, filterKey(filters)],
+    queryFn: async () => (await api.get('/pos/reports/sales-report', { params: { fromDate, toDate, ...clean(filters) } })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }
 
-export function useWaiterReport(fromDate: string, toDate: string, waiterId?: string, orderType?: string, enabled = true) {
+export function useWaiterReport(fromDate: string, toDate: string, filters: ReportFilters = {}, enabled = true) {
   return useQuery({
-    queryKey: ['pos-reports', 'waiter-report', fromDate, toDate, waiterId ?? 'all', orderType ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/waiter-report', { params: { fromDate, toDate, waiterId, orderType } })).data,
+    queryKey: ['pos-reports', 'waiter-report', fromDate, toDate, filterKey(filters)],
+    queryFn: async () => (await api.get('/pos/reports/waiter-report', { params: { fromDate, toDate, ...clean(filters) } })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }
 
-export function useCashierShiftSummary(fromDate: string, toDate: string, cashierId?: string, enabled = true) {
+export function useCashierShiftSummary(fromDate: string, toDate: string, filters: ReportFilters = {}, enabled = true) {
+  const { waiterId, registerId, status } = filters;
   return useQuery({
-    queryKey: ['pos-reports', 'cashier-shift-summary', fromDate, toDate, cashierId ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/cashier-shift-summary', { params: { fromDate, toDate, cashierId } })).data,
+    queryKey: ['pos-reports', 'cashier-shift-summary', fromDate, toDate, filterKey({ waiterId, registerId, status })],
+    queryFn: async () =>
+      (await api.get('/pos/reports/cashier-shift-summary', {
+        // The endpoint keys the cashier as `cashierId`; the bar calls it waiterId.
+        params: { fromDate, toDate, ...clean({ registerId, status }), cashierId: waiterId?.trim() || undefined },
+      })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }
 
-export function useCashierReport(fromDate: string, toDate: string, waiterId?: string, search?: string, paymentMethod?: string, orderType?: string, enabled = true) {
+export function useCashierReport(fromDate: string, toDate: string, filters: ReportFilters = {}, enabled = true) {
   return useQuery({
-    queryKey: ['pos-reports', 'cashier-report', fromDate, toDate, waiterId ?? 'all', search ?? '', paymentMethod ?? 'all', orderType ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/cashier-report', { params: { fromDate, toDate, waiterId, search: search || undefined, paymentMethod, orderType } })).data,
+    queryKey: ['pos-reports', 'cashier-report', fromDate, toDate, filterKey(filters)],
+    queryFn: async () => (await api.get('/pos/reports/cashier-report', { params: { fromDate, toDate, ...clean(filters) } })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }
 
-export function useOrderReport(fromDate: string, toDate: string, orderType?: string, status?: string, enabled = true) {
+export function useOrderReport(fromDate: string, toDate: string, filters: ReportFilters = {}, includeCancelled = false, enabled = true) {
   return useQuery({
-    queryKey: ['pos-reports', 'order-report', fromDate, toDate, orderType ?? 'all', status ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/order-report', { params: { fromDate, toDate, orderType, status: status && status !== 'draft' ? status : undefined } })).data,
+    queryKey: ['pos-reports', 'order-report', fromDate, toDate, filterKey(filters), includeCancelled],
+    queryFn: async () =>
+      (await api.get('/pos/reports/order-report', {
+        params: { fromDate, toDate, ...clean(filters), includeCancelled: includeCancelled ? 'true' : undefined },
+      })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }
 
-export function useSoldItems(fromDate: string, toDate: string, categoryId?: string, waiterId?: string, orderType?: string, enabled = true) {
+export function useSoldItems(fromDate: string, toDate: string, filters: ReportFilters = {}, enabled = true) {
   return useQuery({
-    queryKey: ['pos-reports', 'sold-items', fromDate, toDate, categoryId ?? 'all', waiterId ?? 'all', orderType ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/sold-items', { params: { fromDate, toDate, categoryId: categoryId || undefined, waiterId, orderType } })).data,
+    queryKey: ['pos-reports', 'sold-items', fromDate, toDate, filterKey(filters)],
+    queryFn: async () => (await api.get('/pos/reports/sold-items', { params: { fromDate, toDate, ...clean(filters) } })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }
 
-export function useItemsByGroup(fromDate: string, toDate: string, orderType?: string, enabled = true) {
+export function useItemSales(fromDate: string, toDate: string, itemKey: string | undefined, filters: ReportFilters = {}, enabled = true) {
   return useQuery({
-    queryKey: ['pos-reports', 'items-by-group', fromDate, toDate, orderType ?? 'all'],
-    queryFn: async () => (await api.get('/pos/reports/items-by-group', { params: { fromDate, toDate, orderType } })).data,
+    queryKey: ['pos-reports', 'item-sales', fromDate, toDate, itemKey ?? 'all', filterKey(filters)],
+    queryFn: async () =>
+      (await api.get('/pos/reports/item-sales', { params: { fromDate, toDate, itemKey: itemKey || undefined, ...clean(filters) } })).data,
+    enabled: !!fromDate && !!toDate && enabled,
+  });
+}
+
+export function useItemsByGroup(fromDate: string, toDate: string, filters: ReportFilters = {}, enabled = true) {
+  return useQuery({
+    queryKey: ['pos-reports', 'items-by-group', fromDate, toDate, filterKey(filters)],
+    queryFn: async () => (await api.get('/pos/reports/items-by-group', { params: { fromDate, toDate, ...clean(filters) } })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }

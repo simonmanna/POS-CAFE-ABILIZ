@@ -1,4 +1,5 @@
 import { TenderSettlementPanel } from './TenderSettlementPanel';
+import { PosPaymentMethodsPanel } from './PosPaymentMethodsPanel';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Wallet, ArrowRightLeft, ArrowDownToLine, ArrowUpFromLine, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -221,6 +222,8 @@ export function CashAccountsPage() {
           </Button>
         </div>
       </div>
+
+      <PosPaymentMethodsPanel />
 
       <TenderSettlementPanel />
       <div className="flex flex-col sm:flex-row gap-3">

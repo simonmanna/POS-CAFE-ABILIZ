@@ -62,6 +62,8 @@ export interface MenuItem {
   basePrice: string | null;
   image: string | null;
   preparationTime: number | null;
+  /** KitchenStation.code this item is prepared at. Null = derive from the recipe. */
+  stationCode: string | null;
   isAvailable: boolean;
   isInventoryTracked: boolean;
   displayOrder: number;
@@ -110,6 +112,8 @@ export interface CreateMenuItemInput {
   basePrice?: number;
   image?: string;
   preparationTime?: number;
+  /** Optional prep station. Set = the item auto-sends to that KDS screen when ordered. */
+  stationCode?: string | null;
   isAvailable?: boolean;
   isInventoryTracked?: boolean;
   displayOrder?: number;
@@ -124,6 +128,8 @@ export interface UpdateMenuItemInput {
   basePrice?: number | null;
   image?: string | null;
   preparationTime?: number | null;
+  /** Optional prep station; null clears the routing override. */
+  stationCode?: string | null;
   isAvailable?: boolean;
   isInventoryTracked?: boolean;
   displayOrder?: number;

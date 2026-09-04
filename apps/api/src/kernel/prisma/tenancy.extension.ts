@@ -78,6 +78,8 @@ const ORG_SCOPED = new Set<string>([
   'PosApprovalGrant',
   'TenderSettlement',
   'CashMovement',
+  // POS payment modes: config rows binding a tender kind to its finance account
+  'PosPaymentMethod',
   // D1-2 — idempotency cache (org-scoped transactional; no soft delete)
   'IdempotencyRecord',
   // D3 — reporting snapshots (no soft delete; rebuilt periodically)
@@ -336,6 +338,8 @@ const SOFT_DELETE = new Set<string>([
   'BottleCountSession',
   // M5 — cash register is config; sessions/movements use status, not soft-delete
   'CashRegister',
+  // POS payment modes are config and carry deletedAt (retired, not erased)
+  'PosPaymentMethod',
   // F.5 — Webhook endpoints are config; deliveries are immutable.
   'WebhookEndpoint',
   // F.6 — Procurement config (transactional records use status, not soft delete)

@@ -90,8 +90,13 @@ export class PosOrdersController {
 
   @Post()
   @RequirePermissions('pos:checkout')
-  create(@Body() dto: CreateOrderDto) {
-    return this.orders.createOrder(dto);
+  async create(@Body() dto: CreateOrderDto) {
+    const order = await this.orders.createOrder(dto);
+    // Menu items pinned to a prep station reach the KDS as soon as they are
+    // ordered. Done here rather than in createOrder so the checkout path (which
+    // fires the whole order once, right after creating it) keeps one ticket.
+    await this.orders.autoSendRoutedLines(order.id);
+    return order;
   }
 
   /** Auto-save: replace the order's whole item set. */

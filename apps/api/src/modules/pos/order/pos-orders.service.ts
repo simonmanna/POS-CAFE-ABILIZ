@@ -331,7 +331,7 @@ export class PosOrdersService {
     if (dto.lines?.length) await this.validateLines(dto.lines, bypassRequired);
     const resolved = dto.lines?.length ? await this.resolveLines(dto.lines) : [];
 
-    return this.prisma.client.$transaction(async (tx: any) => {
+    const saved = await this.prisma.client.$transaction(async (tx: any) => {
       const order = await this.lockOrder(tx, orderId);
       this.assertEditable(order);
       this.assertVersion(order, dto.expectedVersion);
@@ -352,6 +352,26 @@ export class PosOrdersService {
       this.events.publish(EVENTS.PosOrderUpdated, { organizationId: orgId, orderId, version: fresh.version });
       return fresh;
     });
+    await this.autoSendRoutedLines(orderId);
+    return saved;
+  }
+
+  /**
+   * Auto-send: push un-fired lines that are pinned to a prep station
+   * (`MenuItem.stationCode`) to the KDS, so configuring a station is all it
+   * takes for an ordered item to appear on the kitchen board. Lines with no
+   * station configured are left for the explicit "Send to Kitchen" action.
+   *
+   * Best-effort — the kitchen display must never fail a sale — and delta-based,
+   * so re-running it sends nothing new.
+   */
+  async autoSendRoutedLines(orderId: string) {
+    try {
+      return await this.fireKitchen(orderId, { onlyRouted: true });
+    } catch (e: any) {
+      this.logger.warn(`auto-send to KDS failed for order ${orderId}: ${String(e?.message ?? e)}`);
+      return null;
+    }
   }
 
   /** Append a round of items to an order (creates none — order must exist). */
@@ -372,6 +392,8 @@ export class PosOrdersService {
 
     if (dto.sendToKitchen) {
       await this.fireKitchen(orderId).catch((e) => this.logger.warn(`addItems fire-kitchen failed: ${String(e?.message ?? e)}`));
+    } else {
+      await this.autoSendRoutedLines(orderId);
     }
     return result;
   }
@@ -476,8 +498,13 @@ export class PosOrdersService {
   /**
    * Fire the order's un-printed item quantities (delta) to the KDS, one ticket
    * per station. Marks each item sent so re-firing only sends genuinely new qty.
+   *
+   * `opts.onlyRouted` restricts the fire to lines whose MenuItem carries an
+   * explicit `stationCode`. That is what auto-send uses: an item configured with
+   * a prep station reaches the KDS the moment it is ordered, while everything
+   * else still waits for the cashier to press "Send to Kitchen".
    */
-  async fireKitchen(orderId: string, opts: { course?: number | null } = {}) {
+  async fireKitchen(orderId: string, opts: { course?: number | null; onlyRouted?: boolean } = {}) {
     const orgId = this.tenant.organizationId;
     const order = await this.prisma.client.order.findFirst({ where: { id: orderId, organizationId: orgId } });
     if (!order) throw new NotFoundException('Order not found');
@@ -506,6 +533,8 @@ export class PosOrdersService {
         // P5 — "Fire course": when a course is given, only fire that course's lines
         // (leave earlier/later courses held). Uncoursed lines always fire.
         if (opts.course != null && it.course != null && it.course !== opts.course) continue;
+        // Auto-send pass: only lines explicitly pinned to a station.
+        if (opts.onlyRouted && !(await this.explicitStationFor(it, stationCache))) continue;
         const printed = Number(it.kitchenPrintedQty ?? 0);
         const delta = Number(it.quantity) - printed;
         if (delta > 0) deltas.push({ item: it, delta });
@@ -601,16 +630,8 @@ export class PosOrdersService {
     cache: Map<string, string>,
   ): Promise<string> {
     // 1. Explicit menu-item override.
-    if (it.menuItemId) {
-      const okey = `mo:${it.menuItemId}`;
-      let override = cache.get(okey);
-      if (override === undefined) {
-        const mi = await this.prisma.client.menuItem.findFirst({ where: { id: it.menuItemId }, select: { stationCode: true } });
-        override = ((mi as any)?.stationCode ?? '') as string;
-        cache.set(okey, override);
-      }
-      if (override) return override;
-    }
+    const override = await this.explicitStationFor(it, cache);
+    if (override) return override;
     // 2. Stock product line.
     if (it.productId) {
       const key = `p:${it.productId}`;
@@ -634,6 +655,22 @@ export class PosOrdersService {
       return st;
     }
     return this.defaultStationCode(cache);
+  }
+
+  /**
+   * The station a line is explicitly pinned to via `MenuItem.stationCode`, or ''
+   * when it has none (then routing derives from the recipe / product / default).
+   * Cached per pass under the same key `stationForOrderItem` uses.
+   */
+  private async explicitStationFor(it: any, cache: Map<string, string>): Promise<string> {
+    if (!it.menuItemId) return '';
+    const key = `mo:${it.menuItemId}`;
+    const cached = cache.get(key);
+    if (cached !== undefined) return cached;
+    const mi = await this.prisma.client.menuItem.findFirst({ where: { id: it.menuItemId }, select: { stationCode: true } });
+    const code = ((mi as any)?.stationCode ?? '') as string;
+    cache.set(key, code);
+    return code;
   }
 
   /** The org's default KitchenStation code (routing fallback). Cached per pass. */
@@ -730,54 +767,62 @@ export class PosOrdersService {
     for (const l of inputLines) {
       if (!Number.isFinite(Number(l.quantity)) || Number(l.quantity) <= 0) throw new BadRequestException('Sale quantities must be positive');
       if (l.comboId) throw new BadRequestException('Combo selling is paused until component quantities and prices can be preserved through order editing. Sell the individual catalog items.');
+      const productId = l.productId ?? skuMap.get(l.sku?.toLowerCase() ?? '') ?? null;
+      const product = productId
+        ? await this.prisma.client.product.findFirst({ where: { id: productId, organizationId: orgId, isActive: true } })
+        : null;
+      const menuItem = l.menuItemId
+        ? await this.prisma.client.menuItem.findFirst({ where: { id: l.menuItemId, organizationId: orgId, isAvailable: true } })
+        : null;
+      // A line saved against a menu item that has since been removed (or
+      // reseeded under a new id) must not brick the open order — fall back to
+      // the line's own product when it is still sellable. Never block a sale.
+      const menuItemId = menuItem ? l.menuItemId! : null;
+      const catalog = menuItem ?? product;
+      if (!catalog) throw new BadRequestException('A sale line must identify an available catalog item');
       // SECURITY: re-resolve each modifier's price from the DB (reject unknown
       // ids) rather than trusting the client-sent priceDelta. Mirrors how
       // variants/accompaniments are already server-resolved below.
       const resolvedMods = l.modifiers?.length
         ? await this.modifiers.resolveSelectedModifiers({
-            menuItemId: l.menuItemId, productId: l.productId, modifierIds: l.modifiers.map((m) => m.modifierId),
+            menuItemId: menuItemId ?? undefined, productId: l.productId, modifierIds: l.modifiers.map((m) => m.modifierId),
           })
         : [];
       const modifierDelta = resolvedMods.reduce((s, m) => s + m.priceDelta, 0);
       let variantName: string | undefined;
       let variantPrice = 0;
       let hasVariant = false;
-      if (l.variantId && l.menuItemId) {
-        const v = await this.variants.validateVariant(l.menuItemId, l.variantId);
+      if (l.variantId && menuItemId) {
+        const v = await this.variants.validateVariant(menuItemId, l.variantId);
         variantName = v.name; variantPrice = v.price; hasVariant = true;
       }
       let accompanimentImpact = 0;
       let accompanimentNames: string[] = [];
-      if (l.accompanimentOptionIds?.length && l.menuItemId) {
+      if (l.accompanimentOptionIds?.length && menuItemId) {
         // Resolution only — rule enforcement already ran in validateLines (with
         // the caller's override state). Re-running strict here would 400 an
         // override-approved save.
-        const r = await this.accompaniments.validateSelections(l.menuItemId, l.accompanimentOptionIds, true);
+        const r = await this.accompaniments.validateSelections(menuItemId, l.accompanimentOptionIds, true);
         accompanimentImpact = r.priceImpact; accompanimentNames = r.names;
       }
-      const productId = l.productId ?? skuMap.get(l.sku?.toLowerCase() ?? '') ?? null;
-      const catalog = l.menuItemId
-        ? await this.prisma.client.menuItem.findFirst({ where: { id: l.menuItemId, organizationId: orgId, isAvailable: true } })
-        : productId ? await this.prisma.client.product.findFirst({ where: { id: productId, organizationId: orgId, isActive: true } }) : null;
-      if (!catalog) throw new BadRequestException('A sale line must identify an available catalog item');
-      if (l.variantId && productId && !l.menuItemId) {
+      if (l.variantId && productId && !menuItemId) {
         const variant = await this.prisma.client.productVariant.findFirst({ where: { id: l.variantId, productId, organizationId: orgId, isActive: true, deletedAt: null } });
         if (!variant) throw new BadRequestException('Variant does not belong to this product');
         variantName = variant.name;
         if (variant.salesPrice != null) { variantPrice = Number(variant.salesPrice); hasVariant = true; }
       }
-      const catalogPrice = l.menuItemId ? (catalog as any).basePrice : (catalog as any).salesPrice;
+      const catalogPrice = menuItemId ? (catalog as any).basePrice : (catalog as any).salesPrice;
       if (!hasVariant && catalogPrice == null) throw new BadRequestException('Configure a catalog selling price before selling this item');
       const baseUnitPrice = hasVariant ? variantPrice : Number(catalogPrice);
       const finalUnitPrice = baseUnitPrice + accompanimentImpact + modifierDelta;
       if (!Number.isFinite(finalUnitPrice) || finalUnitPrice < 0) throw new BadRequestException('Catalog price must be finite and non-negative');
       const taxId = catalog.taxId ?? null;
       const tax = taxId ? await this.prisma.client.tax.findFirst({ where: { id: taxId } }) : null;
-      const taxInclusive = l.menuItemId ? Boolean(tax?.isInclusive) : Boolean((catalog as any).taxInclusive);
+      const taxInclusive = menuItemId ? Boolean(tax?.isInclusive) : Boolean((catalog as any).taxInclusive);
       const noteParts = [l.note, ...accompanimentNames.map((n) => `+ ${n}`), ...resolvedMods.map((m) => `+ ${m.name}`)].filter(Boolean);
       lines.push({
         productId,
-        menuItemId: l.menuItemId ?? null,
+        menuItemId: menuItemId,
         description: l.description,
         quantity: l.quantity,
         unitPrice: finalUnitPrice,

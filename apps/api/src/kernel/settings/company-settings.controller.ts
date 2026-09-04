@@ -158,6 +158,24 @@ export class CompanySettingsController {
   }
 
   /**
+   * GET /settings/features — the org's module feature switches.
+   *
+   * Authenticated but unprivileged: every user needs this to render their
+   * sidebar, while editing the switches still requires setting:update.
+   */
+  @Get('features')
+  async getFeatures() {
+    const org = await this.prisma.raw.organization.findUnique({
+      where: { id: this.tenant.organizationId },
+      select: { settings: true },
+    });
+    if (!org) throw new NotFoundException('Organization not found');
+
+    const settings = (org.settings as Record<string, unknown>) || {};
+    return { features: (settings.features as Record<string, boolean>) || {} };
+  }
+
+  /**
    * GET /settings/developer — return developer-level org settings.
    */
   @Get('developer')

@@ -113,6 +113,52 @@ describe('PosOrdersService — fireKitchen (menu-item routing)', () => {
     expect(res.count).toBe(1);
   });
 
+  /**
+   * Auto-send. A MenuItem with an explicit `stationCode` is "prepared at that
+   * station", so ordering it must reach the KDS on its own. Items with no
+   * station stay behind until the cashier presses Send to Kitchen.
+   */
+  describe('onlyRouted (auto-send)', () => {
+    it('fires a line whose menu item pins an explicit station, using that station', async () => {
+      prisma.client.menuItem.findFirst.mockResolvedValue({ stationCode: 'grill', preparationTime: null });
+
+      const res = await svc.fireKitchen('o1', { onlyRouted: true });
+
+      expect(kds.createTicketsForSale).toHaveBeenCalledTimes(1);
+      const arg = kds.createTicketsForSale.mock.calls[0][0];
+      expect(arg.items).toHaveLength(1);
+      // The explicit override wins over the recipe-derived 'kitchen'.
+      expect(arg.items[0]).toMatchObject({ productId: 'm1', station: 'grill' });
+      expect(res.count).toBe(1);
+    });
+
+    it('fires nothing when the menu item has no station pinned', async () => {
+      // menuItem.stationCode is null in the default fixture.
+      const res = await svc.fireKitchen('o1', { onlyRouted: true });
+
+      expect(kds.createTicketsForSale).not.toHaveBeenCalled();
+      expect(res.count).toBe(0);
+      // Un-fired lines must stay un-printed so Send to Kitchen still sends them.
+      expect(prisma.client.orderItem.update).not.toHaveBeenCalled();
+    });
+
+    it('leaves stock-product lines (no menu item) to the explicit send', async () => {
+      prisma.client.orderItem.findMany.mockResolvedValueOnce([
+        { id: 'i9', productId: 'p1', menuItemId: null, description: 'Bottled water', quantity: 1, kitchenPrintedQty: 0, note: null, modifiers: [], accompanimentNames: [] },
+      ]);
+      const res = await svc.fireKitchen('o1', { onlyRouted: true });
+      expect(kds.createTicketsForSale).not.toHaveBeenCalled();
+      expect(res.count).toBe(0);
+    });
+
+    it('never throws out of autoSendRoutedLines — the KDS cannot fail a sale', async () => {
+      prisma.client.menuItem.findFirst.mockResolvedValue({ stationCode: 'grill', preparationTime: null });
+      kds.createTicketsForSale.mockRejectedValueOnce(new Error('KDS down'));
+
+      await expect(svc.autoSendRoutedLines('o1')).resolves.toBeNull();
+    });
+  });
+
   describe('pickPrimaryStation', () => {
     it('returns the majority station', () => {
       expect((svc as any).pickPrimaryStation(['bar', 'bar', 'kitchen'])).toBe('bar');

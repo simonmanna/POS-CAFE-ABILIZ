@@ -136,7 +136,7 @@ const SalesReportTab: React.FC<{
   toDate: string; setToDate: (d: string) => void;
   orderType: string | undefined; setOrderType: (v: string | undefined) => void;
 }> = ({ fromDate, setFromDate, toDate, setToDate, orderType, setOrderType }) => {
-  const { data: _raw, isLoading } = useSalesReport(fromDate, toDate, undefined, undefined, undefined, orderType);
+  const { data: _raw, isLoading } = useSalesReport(fromDate, toDate, { orderType });
   const rows: SalesReportRow[] = (_raw ?? []) as SalesReportRow[];
   const totals = rows.reduce(
     (s: { subtotal: number; discount: number; totalAmount: number }, r: SalesReportRow) => ({
@@ -216,7 +216,7 @@ const ItemsReportTab: React.FC<{
   orderType: string | undefined; setOrderType: (v: string | undefined) => void;
   categories: Array<{ id: string; name: string }>;
 }> = ({ fromDate, setFromDate, toDate, setToDate, categoryId, setCategoryId, orderType, setOrderType, categories }) => {
-  const { data: _raw, isLoading } = useSoldItems(fromDate, toDate, categoryId, undefined, orderType);
+  const { data: _raw, isLoading } = useSoldItems(fromDate, toDate, { categoryId, orderType });
   const items: SoldItem[] = (_raw ?? []) as SoldItem[];
   const grandTotal = items.reduce((s: number, i: SoldItem) => s + Number(i.totalAmount), 0);
   const hdr = ['Order #', 'Invoice #', 'Sale Date', 'Time', 'Item', 'Category', 'Unit Price', 'Discount %', 'Qty', 'Total Amount', 'Waiter'];

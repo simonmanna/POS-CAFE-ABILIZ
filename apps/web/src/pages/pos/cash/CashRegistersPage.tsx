@@ -35,6 +35,7 @@ import {
   useSessionHistory, useSessionMovements, useUpdateVariance,
 } from '../api';
 import { HandoverDialog } from '../HandoverDialog';
+import { PaymentAccountsPanel } from './PaymentAccountsPanel';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import type {
   CashMovementItem, CashRegister, CashSession,
@@ -164,6 +165,13 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
   const [showHandover, setShowHandover] = useState(false);
   const [showBankDeposit, setShowBankDeposit] = useState(false);
   const currentUserId = usePosAuthStore((s) => s.user?.userId);
+  // The drawer's cash is usually carried to the bank after the Z-read, so the
+  // last closed session still owns it. Until it is banked, its counted cash sits
+  // on the drawer ledger and the next open is refused for being below it.
+  const { data: recent } = useSessionHistory(1, 1, registerId);
+  const lastClosed = (recent?.data ?? []).find((s: SessionHistoryItem) => s.status === 'closed') ?? null;
+  const unbanked = lastClosed ? Number(lastClosed.closingCounted ?? 0) - Number(lastClosed.bankedAmount ?? 0) : 0;
+  const bankSessionId = thisSession?.id ?? (unbanked > 0 ? lastClosed!.id : null);
 
   // Refresh when dialogs close
   const handleSessionChange = () => {
@@ -201,6 +209,9 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
             </Button>
           </div>
 
+          {/* Money buckets: every cash account + whether the POS can receive into it */}
+          <PaymentAccountsPanel session={thisSession} registerId={registerId} />
+
           {/* Drawer audit trail */}
           <CashDrawerAudit sessionId={thisSession.id} />
         </>
@@ -215,6 +226,21 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
               <Calculator className="h-4 w-4 mr-1" /> Open register
             </Button>
           </div>
+
+          {unbanked > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 flex items-center justify-between gap-3">
+              <div className="text-sm text-amber-900">
+                <p className="font-semibold">{fmt(unbanked)} from the last session is still in the drawer</p>
+                <p className="text-amber-800">Bank it (or record the removal) before opening with a smaller float — the opening count cannot be below the drawer ledger.</p>
+              </div>
+              <Button variant="outline" className="border-blue-300 text-blue-700 shrink-0" onClick={() => setShowBankDeposit(true)}>
+                <Banknote className="h-4 w-4 mr-1" /> Bank Deposit
+              </Button>
+            </div>
+          )}
+
+          {/* Money buckets are worth seeing even with the register closed */}
+          <PaymentAccountsPanel session={null} registerId={registerId} />
 
           {/* Past sessions for this register */}
           <div>
@@ -231,10 +257,10 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
         onOpened={handleSessionChange}
         preselectedRegisterId={registerId}
       />
-      {thisSession && (
+      {bankSessionId && (
         <BankDepositDialog
           open={showBankDeposit}
-          sessionId={thisSession.id}
+          sessionId={bankSessionId}
           onClose={() => setShowBankDeposit(false)}
           onDone={onSessionChange}
         />

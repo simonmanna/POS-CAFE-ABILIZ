@@ -220,11 +220,15 @@ export class PosMenuService {
     isInventoryTracked?: boolean;
     image?: string;
     preparationTime?: number;
+    /// Optional KitchenStation.code. Set = this item is prepared at that station
+    /// and routes straight to its KDS screen when ordered.
+    stationCode?: string | null;
     isAvailable?: boolean;
     displayOrder?: number;
     ingredients?: { productId: string; quantity?: number }[];
   }) {
     const tracked = input.isInventoryTracked === true;
+    const stationCode = await this.normalizeStationCode(input.stationCode);
     return this.prisma.client.$transaction(async (tx) => {
       const item = await tx.menuItem.create({
         data: {
@@ -237,6 +241,7 @@ export class PosMenuService {
           isInventoryTracked: tracked,
           image: input.image,
           preparationTime: input.preparationTime ?? null,
+          stationCode,
           isAvailable: input.isAvailable ?? true,
           displayOrder: input.displayOrder ?? 0,
         },
@@ -267,12 +272,14 @@ export class PosMenuService {
     isInventoryTracked: boolean;
     image: string | null;
     preparationTime: number | null;
+    stationCode: string | null;
     isAvailable: boolean;
     displayOrder: number;
     ingredients: { productId: string; quantity?: number }[];
   }>) {
     await this.getOne(id);
     const { ingredients, isInventoryTracked, ...data } = patch;
+    if ('stationCode' in data) data.stationCode = await this.normalizeStationCode(data.stationCode);
     const tracked = isInventoryTracked === true;
     return this.prisma.client.$transaction(async (tx) => {
       if (data && Object.keys(data).length > 0) {
@@ -296,6 +303,27 @@ export class PosMenuService {
         include: { ingredients: { include: { product: true } }, category: true },
       });
     });
+  }
+
+  /**
+   * Validate the optional prep-station override. Empty string / null clears it
+   * (the station is then derived from the recipe, as before). A non-empty code
+   * must match a live `KitchenStation` for the org, so a typo can never route an
+   * order to a screen nobody is watching.
+   *
+   * KitchenStation is tenant-isolated by a policy that reads `app.org_id`, which
+   * is only set inside `$transaction` — hence the wrapper.
+   */
+  private async normalizeStationCode(code: string | null | undefined): Promise<string | null> {
+    if (code === undefined) return null;
+    const trimmed = (code ?? '').trim();
+    if (!trimmed) return null;
+    const station = (await this.prisma.client.$transaction((tx: any) =>
+      tx.kitchenStation.findFirst({ where: { code: trimmed, deletedAt: null }, select: { code: true, isActive: true } }),
+    )) as { code: string; isActive: boolean } | null;
+    if (!station) throw new BadRequestException(`Unknown kitchen station "${trimmed}"`);
+    if (!station.isActive) throw new BadRequestException(`Kitchen station "${trimmed}" is inactive`);
+    return station.code;
   }
 
   async setAvailability(id: string, isAvailable: boolean) {

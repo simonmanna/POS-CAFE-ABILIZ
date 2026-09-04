@@ -39,6 +39,8 @@ class CreateMenuItemDto {
   @IsOptional() @IsBoolean() isInventoryTracked?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsString() image?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() preparationTime?: number;
+  @ApiProperty({ required: false, description: 'KitchenStation.code this item is prepared at. Optional — when set, ordering the item routes it straight to that KDS station.' })
+  @IsOptional() @IsString() stationCode?: string;
   @ApiProperty({ required: false, default: true }) @IsOptional() @IsBoolean() isAvailable?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() displayOrder?: number;
   @ApiProperty({ required: false, type: () => [IngredientDto] })
@@ -60,6 +62,8 @@ class UpdateMenuItemDto {
   @IsOptional() @IsBoolean() isInventoryTracked?: boolean;
   @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsString() image?: string | null;
   @ApiProperty({ required: false, nullable: true }) @IsOptional() @IsNumber() preparationTime?: number | null;
+  @ApiProperty({ required: false, nullable: true, description: 'KitchenStation.code; null clears the routing override.' })
+  @IsOptional() @IsString() stationCode?: string | null;
   @ApiProperty({ required: false }) @IsOptional() @IsBoolean() isAvailable?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() displayOrder?: number;
   @ApiProperty({ required: false, type: () => [IngredientDto] })

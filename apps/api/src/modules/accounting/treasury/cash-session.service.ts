@@ -715,6 +715,9 @@ export class CashSessionService {
         closingCounted: s.closingCounted ? dec(s.closingCounted).toString() : null,
         closingExpected: s.closingExpected ? dec(s.closingExpected).toString() : null,
         closingDifference: s.closingDifference ? dec(s.closingDifference).toString() : null,
+        // What has already left the drawer for the bank — the rest of the
+        // counted cash is still sitting on the drawer ledger.
+        bankedAmount: s.bankedAmount ? dec(s.bankedAmount).toString() : null,
         movementCount: s._count.movements,
         varianceReason: s.varianceReason ?? null,
         varianceStatus: s.varianceStatus ?? null,
@@ -737,15 +740,29 @@ export class CashSessionService {
         where: { id: sessionId, organizationId },
       });
       if (!session) throw new NotFoundException('Cash session not found');
-      await this.lockOpenSession(tx, sessionId);
+      // Banking usually happens on the open drawer, but the cash is often only
+      // carried to the bank after the Z-read. A closed session must still be
+      // bankable — otherwise its counted cash stays on the drawer ledger for
+      // ever and the next open fails with "Opening count is below the drawer
+      // ledger". A reconciled session is final.
+      await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', sessionId, organizationId);
+      if (session.status === 'reconciled') throw new BadRequestException('This session is reconciled; record the movement in treasury instead');
       if (!dto.destinationAccountId) throw new BadRequestException('Select the destination bank account');
 
       const amt = dec(dto.amount);
       if (amt.lessThanOrEqualTo(0)) throw new BadRequestException('Deposit amount must be positive');
 
-      // H5 — cannot bank more than is actually in the drawer.
+      // H5 — cannot bank more than is actually in the drawer. An open drawer is
+      // bounded by its running expected cash; a closed one by what was counted
+      // at close, less anything already taken out of it since.
       const previousBanked = session.bankedAmount ? dec(session.bankedAmount) : ZERO;
-      const onHand = await this.computeExpected(tx, session);
+      let onHand = await this.computeExpected(tx, session);
+      if (session.status === 'closed' && session.closingCounted != null) {
+        const takenSinceClose = (await tx.cashMovement.findMany({
+          where: { organizationId, cashSessionId: session.id, movementType: 'pay_out' as any, createdAt: { gt: session.closedAt ?? new Date(0) } },
+        })).reduce((sum: any, m: any) => sum.plus(dec(m.amount)), ZERO);
+        onHand = dec(session.closingCounted).minus(takenSinceClose);
+      }
       if (amt.greaterThan(onHand)) {
         throw new BadRequestException(
           `Deposit ${amt.toString()} exceeds cash on hand ${onHand.toString()}`,

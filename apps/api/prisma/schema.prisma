@@ -1374,6 +1374,7 @@ model Account {
   mappings      AccountMapping[]
   bankAccount   BankAccount?     @relation("Account_bankAccount")
   cashRegisters CashRegister[]   @relation("CashRegisterDefaultAccount")
+  posPaymentMethods PosPaymentMethod[] @relation("PosPaymentMethodAccount")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -3910,6 +3911,49 @@ model CashMovement {
   @@index([organizationId])
   @@index([cashSessionId])
   @@index([paymentId])
+}
+
+/// A payment mode the cashier can pick in the Charge dialog, bound to the finance
+/// account the money lands in. Separates "how the customer paid" (the mode the
+/// cashier understands) from "where it is booked" (the account finance
+/// configures once). Two methods may share one account.
+model PosPaymentMethod {
+  id             String @id @default(uuid())
+  organizationId String
+  /// Stable machine key, unique per org: "cash", "momo_mtn", "momo_airtel".
+  code           String
+  /// Cashier-facing label: "MTN MoMo".
+  label          String
+  /// Tender kind — drives the tile group, the journal code and the drawer rules.
+  /// cash | mobile_money | card | bank | store_credit. Mirrors TenderMethod in
+  /// treasury/tender-account.ts; the account's category must satisfy that
+  /// resolver's allowed-category map for this kind.
+  kind           String
+  /// Brand shown as the provider pill when a kind has more than one method.
+  provider       String?
+  /// Where the money lands. Null only for kind='cash' — the register's own
+  /// drawer account wins at post time regardless of what is configured here.
+  accountId      String?
+  /// lucide-react icon name, optional; the kind supplies a default.
+  icon           String?
+  sortOrder      Int     @default(0)
+  isActive       Boolean @default(true)
+  /// Cashier must enter a provider transaction id before the tender is accepted.
+  requiresReference Boolean @default(false)
+  /// Count this account's balance at shift open/close. Never true for cash —
+  /// physical drawer cash is counted separately.
+  trackInShift   Boolean @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
+
+  account Account? @relation("PosPaymentMethodAccount", fields: [accountId], references: [id])
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+  @@index([accountId])
 }
 
 /// Immutable snapshot of a POS Z-report. Written once when the cash session
