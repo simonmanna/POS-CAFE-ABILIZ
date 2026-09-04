@@ -16,7 +16,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useCreateTask, useUpdateTask, useTask } from '@/features/tasks/api';
+import { useCreateTask, useUpdateTask, useTask, useTaskAssignees, useTaskBranches } from '@/features/tasks/api';
 import { notify } from '@/lib/notify';
 import {
   TaskType, TaskPriority, TaskStatus, TaskCategory, TaskArea
@@ -170,6 +170,8 @@ export function TaskEditPage() {
   const [saving, setSaving] = useState(false);
 
   const { data: existingTask, isLoading: loadingTask } = useTask(id ?? null);
+  const { data: assignees = [], isLoading: loadingAssignees } = useTaskAssignees();
+  const { data: branches = [] } = useTaskBranches();
   const createTask = useCreateTask();
   const updateTask = useUpdateTask();
 
@@ -483,18 +485,64 @@ export function TaskEditPage() {
                 <CardContent className="px-5 py-4 space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="assignedToId" className="text-sm font-medium">Assigned To (User ID)</Label>
-                      <Input id="assignedToId" {...form.register('assignedToId')} placeholder="User ID" />
+                      <Label htmlFor="assignedToId" className="text-sm font-medium">Assign To</Label>
+                      <Select
+                        onValueChange={(value) => {
+                          handleSelectChange('assignedToId')(value);
+                          // Picking an assignee moves a draft/pending task into
+                          // the Assigned column so it doesn't linger in To Do.
+                          const status = form.getValues('status');
+                          if (value && (status === TaskStatus.DRAFT || status === TaskStatus.PENDING)) {
+                            form.setValue('status', TaskStatus.ASSIGNED, { shouldValidate: true });
+                          }
+                        }}
+                        defaultValue={form.watch('assignedToId') ?? ''}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder={loadingAssignees ? 'Loading users…' : 'Select user'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">Unassigned</SelectItem>
+                          {assignees.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      {assignees.length > 0 && form.watch('assignedToId') && (
+                        <p className="text-xs text-muted-foreground">
+                          {assignees.find((u) => u.id === form.watch('assignedToId'))?.email}
+                        </p>
+                      )}
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="supervisorId" className="text-sm font-medium">Supervisor (User ID)</Label>
-                      <Input id="supervisorId" {...form.register('supervisorId')} placeholder="Supervisor User ID" />
+                      <Label htmlFor="supervisorId" className="text-sm font-medium">Supervisor</Label>
+                      <Select onValueChange={handleSelectChange('supervisorId')} defaultValue={form.watch('supervisorId') ?? ''}>
+                        <SelectTrigger>
+                          <SelectValue placeholder={loadingAssignees ? 'Loading users…' : 'Select supervisor'} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {assignees.map((u) => (
+                            <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="branchId" className="text-sm font-medium">Branch ID</Label>
-                    <Input id="branchId" {...form.register('branchId')} placeholder="Branch ID" />
+                    <Label htmlFor="branchId" className="text-sm font-medium">Branch</Label>
+                    <Select onValueChange={handleSelectChange('branchId')} defaultValue={form.watch('branchId') ?? ''}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select branch" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">All branches</SelectItem>
+                        {branches.map((b) => (
+                          <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </CardContent>
               </Card>

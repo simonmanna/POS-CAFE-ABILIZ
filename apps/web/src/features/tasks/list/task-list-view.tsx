@@ -11,10 +11,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Eye, Plus } from 'lucide-react';
-import { useTasks } from '../api';
+import { useTasks, useUpdateTask, useTaskAssignees } from '../api';
 import { useTaskStore } from '../task.store';
 import { PRIORITY_COLORS, PRIORITY_LABELS, CATEGORY_LABELS } from '../kanban/column-config';
 import type { Task, TaskFilters } from '../types';
+import { TaskStatus } from '../types';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-slate-100 text-slate-700',
@@ -30,9 +31,31 @@ const STATUS_COLORS: Record<string, string> = {
   OVERDUE: 'bg-red-200 text-red-800',
 };
 
+const STATUS_OPTIONS: TaskStatus[] = [
+  TaskStatus.DRAFT, TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS,
+  TaskStatus.WAITING, TaskStatus.REVIEW, TaskStatus.VERIFIED, TaskStatus.COMPLETED,
+  TaskStatus.CANCELLED, TaskStatus.SKIPPED,
+];
+
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Draft',
+  PENDING: 'Pending',
+  ASSIGNED: 'Assigned',
+  IN_PROGRESS: 'In Progress',
+  WAITING: 'Waiting',
+  REVIEW: 'Review',
+  VERIFIED: 'Verified',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+  SKIPPED: 'Skipped',
+  OVERDUE: 'Overdue',
+};
+
 export function TaskListView() {
   const navigate = useNavigate();
   const { filters, setFilters, openDrawer } = useTaskStore();
+  const updateTask = useUpdateTask();
+  const { data: assignees = [] } = useTaskAssignees();
 
   const queryFilters: TaskFilters = {
     ...(filters.status.length ? { status: filters.status.join(',') } : {}),
@@ -102,9 +125,24 @@ export function TaskListView() {
       key: 'status',
       header: 'Status',
       render: (row) => (
-        <Badge className={`text-xs ${STATUS_COLORS[row.status] ?? ''}`}>
-          {row.status.replace('_', ' ')}
-        </Badge>
+        <Select
+          value={row.status}
+          onValueChange={(v) => updateTask.mutate({ id: row.id, status: v as TaskStatus })}
+          disabled={updateTask.isPending}
+        >
+          <SelectTrigger className="h-7 w-[130px] text-xs border-0 bg-transparent p-0 focus:ring-0 shadow-none">
+            <Badge className={`text-xs ${STATUS_COLORS[row.status] ?? ''}`}>
+              {STATUS_LABELS[row.status] ?? row.status.replace('_', ' ')}
+            </Badge>
+          </SelectTrigger>
+          <SelectContent>
+            {STATUS_OPTIONS.map((s) => (
+              <SelectItem key={s} value={s} className="text-xs">
+                {STATUS_LABELS[s] ?? s}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       ),
     },
     {
@@ -170,6 +208,20 @@ export function TaskListView() {
             <SelectItem value="">All Priorities</SelectItem>
             {Object.entries(PRIORITY_LABELS).map(([k, v]) => (
               <SelectItem key={k} value={k}>{v}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select
+          value={filters.assignedToId ?? ''}
+          onValueChange={(v) => setFilters({ assignedToId: v })}
+        >
+          <SelectTrigger className="h-8 w-40">
+            <SelectValue placeholder="Assignee" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All Assignees</SelectItem>
+            {assignees.map((u) => (
+              <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>

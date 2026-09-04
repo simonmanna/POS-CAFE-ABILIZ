@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { KanbanBoard } from '@/features/tasks/kanban/kanban-board';
 import { TaskListView } from '@/features/tasks/list/task-list-view';
@@ -7,20 +7,35 @@ import { TaskDrawer } from '@/features/tasks/drawer/task-drawer';
 import { TaskViewSwitcher } from '@/features/tasks/task-view-switcher';
 import { Button } from '@/components/ui/button';
 import { Plus } from 'lucide-react';
-import { useTasks, useReorderTask } from '@/features/tasks/api';
+import { useTasks, useReorderTask, useUpdateTask } from '@/features/tasks/api';
 import { useTaskStore } from '@/features/tasks/task.store';
+import type { TaskStatus } from '@/features/tasks/types';
 
 export function TasksPage() {
   const navigate = useNavigate();
   const { filters, selectedTaskId, drawerOpen, openDrawer, closeDrawer } = useTaskStore();
   const reorderTask = useReorderTask();
+  const updateTask = useUpdateTask();
   const { data, isLoading } = useTasks();
+  const [busyTaskId, setBusyTaskId] = useState<string>();
 
   const handleReorder = useCallback(
     (taskId: string, newStatus: string) => {
       reorderTask.mutate({ id: taskId, status: newStatus });
     },
     [reorderTask],
+  );
+
+  const handleQuickStatus = useCallback(
+    async (taskId: string, status: TaskStatus) => {
+      setBusyTaskId(taskId);
+      try {
+        await updateTask.mutateAsync({ id: taskId, status });
+      } finally {
+        setBusyTaskId(undefined);
+      }
+    },
+    [updateTask],
   );
 
   const handleTaskClick = useCallback(
@@ -55,6 +70,8 @@ export function TasksPage() {
             tasks={data?.items ?? []}
             onReorder={handleReorder}
             onTaskClick={handleTaskClick}
+            onQuickStatus={handleQuickStatus}
+            busyTaskId={busyTaskId}
             loading={isLoading}
           />
         )}

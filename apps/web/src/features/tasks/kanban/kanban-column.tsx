@@ -2,16 +2,18 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { cn } from '@/lib/utils';
 import { TaskCard } from './task-card';
-import type { Task } from '../types';
+import type { Task, TaskStatus } from '../types';
 import type { ColumnDef } from './column-config';
 
 interface KanbanColumnProps {
   column: ColumnDef;
   tasks: Task[];
   onTaskClick: (taskId: string) => void;
+  onQuickStatus?: (taskId: string, status: TaskStatus) => void;
+  busyTaskId?: string;
 }
 
-export function KanbanColumn({ column, tasks, onTaskClick }: KanbanColumnProps) {
+export function KanbanColumn({ column, tasks, onTaskClick, onQuickStatus, busyTaskId }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
 
   return (
@@ -55,6 +57,8 @@ export function KanbanColumn({ column, tasks, onTaskClick }: KanbanColumnProps) 
                 key={task.id}
                 task={task}
                 onClick={() => onTaskClick(task.id)}
+                onQuickStatus={onQuickStatus}
+                busy={busyTaskId === task.id}
               />
             ))
           )}

@@ -7,6 +7,44 @@ import type {
 
 const TASKS_KEY = 'tasks';
 
+/** User option for assignment dropdowns. */
+export interface TaskUserOption {
+  id: string;
+  name: string;
+  email: string;
+}
+
+/** Org users reshaped for Assign To / Supervisor selects. Handles both the
+ *  paginated `{ data, meta }` and flat-array /users responses. */
+export function useTaskAssignees() {
+  return useQuery<TaskUserOption[]>({
+    queryKey: [TASKS_KEY, 'assignees'],
+    queryFn: async () => {
+      const res = await api.get('/users', { params: { page: 1, pageSize: 200 } });
+      const rows: Array<Record<string, unknown>> = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      return rows.map((u) => ({
+        id: String(u.id),
+        email: String(u.email ?? ''),
+        name: [u.firstName, u.lastName].filter(Boolean).join(' ') || String(u.email ?? ''),
+      }));
+    },
+    staleTime: 60_000,
+  });
+}
+
+/** Branch options for the Branch select (mirrors the app-shell switcher). */
+export function useTaskBranches() {
+  return useQuery<Array<{ id: string; code: string; name: string }>>({
+    queryKey: [TASKS_KEY, 'branches'],
+    queryFn: async () => {
+      const res = await api.get('/branches', { params: { pageSize: 200 } });
+      const rows = Array.isArray(res.data) ? res.data : (res.data?.data ?? []);
+      return rows as Array<{ id: string; code: string; name: string }>;
+    },
+    staleTime: 60_000,
+  });
+}
+
 // ─── Queries ─────────────────────────────────────────────────────────
 
 export function useTasks(filters?: TaskFilters) {

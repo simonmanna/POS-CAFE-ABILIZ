@@ -2,20 +2,43 @@ import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
-import { Clock, MessageSquare, Paperclip, RotateCcw, User, CheckSquare } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+  Clock, MessageSquare, Paperclip, RotateCcw, CheckSquare, ChevronRight, CircleCheck,
+} from 'lucide-react';
 import type { Task } from '../types';
+import { TaskStatus } from '../types';
 import {
   PRIORITY_COLORS,
   PRIORITY_LABELS,
   TASK_TYPE_ICONS,
 } from './column-config';
 
+/** Next status in the happy-path flow for the quick-advance button. */
+const NEXT_STATUS: Partial<Record<TaskStatus, TaskStatus>> = {
+  [TaskStatus.DRAFT]: TaskStatus.ASSIGNED,
+  [TaskStatus.PENDING]: TaskStatus.ASSIGNED,
+  [TaskStatus.ASSIGNED]: TaskStatus.IN_PROGRESS,
+  [TaskStatus.IN_PROGRESS]: TaskStatus.REVIEW,
+  [TaskStatus.REVIEW]: TaskStatus.COMPLETED,
+  [TaskStatus.WAITING]: TaskStatus.IN_PROGRESS,
+};
+
 interface TaskCardProps {
   task: Task;
   onClick?: () => void;
+  onQuickStatus?: (taskId: string, status: TaskStatus) => void;
+  busy?: boolean;
 }
 
-export function TaskCard({ task, onClick }: TaskCardProps) {
+/** Two-letter initials for the assignee chip. */
+function initials(firstName?: string | null, lastName?: string | null): string {
+  const a = (firstName ?? '').trim().charAt(0);
+  const b = (lastName ?? '').trim().charAt(0);
+  return (a + b).toUpperCase() || '?';
+}
+
+export function TaskCard({ task, onClick, onQuickStatus, busy }: TaskCardProps) {
   const {
     attributes,
     listeners,
@@ -31,8 +54,10 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
   };
 
   const priorityColor = PRIORITY_COLORS[task.priority] ?? '#94a3b8';
+  const isDone = task.status === 'COMPLETED' || task.status === 'VERIFIED';
   const isOverdue = task.status !== 'COMPLETED' && task.status !== 'CANCELLED' &&
-    task.dueDate && new Date(task.dueDate) < new Date();
+    task.status !== 'SKIPPED' && task.dueDate && new Date(task.dueDate) < new Date();
+  const next = NEXT_STATUS[task.status];
 
   return (
     <div
@@ -42,7 +67,7 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
       {...listeners}
       onClick={onClick}
       className={cn(
-        'group rounded-lg border bg-card p-3 shadow-sm transition-all hover:shadow-md cursor-pointer',
+        'group relative rounded-lg border bg-card p-3 shadow-sm transition-all hover:shadow-md cursor-pointer',
         isDragging && 'opacity-50 shadow-lg',
         isOverdue && 'border-red-300',
       )}
@@ -54,7 +79,10 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
         {/* Row 1: Type icon + Title */}
         <div className="flex items-start gap-2">
           <span className="mt-0.5 text-sm">{TASK_TYPE_ICONS[task.taskType] ?? '📌'}</span>
-          <h4 className="flex-1 text-sm font-medium leading-tight line-clamp-2">
+          <h4 className={cn(
+            'flex-1 text-sm font-medium leading-tight line-clamp-2',
+            isDone && 'line-through text-muted-foreground',
+          )}>
             {task.title}
           </h4>
           <Badge
@@ -70,20 +98,18 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
           </Badge>
         </div>
 
-        {/* Row 2: Assignee + Due Date */}
+        {/* Row 2: Assignee chip + Due Date */}
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            {task.assignedTo ? (
-              <span className="flex items-center gap-1">
-                <User className="h-3 w-3" />
-                <span className="truncate max-w-[80px]">
-                  {task.assignedTo.firstName}
-                </span>
-              </span>
-            ) : (
-              <span className="text-muted-foreground/50">Unassigned</span>
-            )}
-          </div>
+          {task.assignedTo ? (
+            <span
+              className="flex items-center justify-center h-5 w-5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold"
+              title={`${task.assignedTo.firstName} ${task.assignedTo.lastName ?? ''}`.trim()}
+            >
+              {initials(task.assignedTo.firstName, task.assignedTo.lastName)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground/50">Unassigned</span>
+          )}
           {task.dueDate && (
             <span className={cn('flex items-center gap-1', isOverdue && 'text-red-500 font-medium')}>
               <Clock className="h-3 w-3" />
@@ -150,6 +176,30 @@ export function TaskCard({ task, onClick }: TaskCardProps) {
               className="h-full rounded-full bg-primary transition-all"
               style={{ width: `${task.checklistProgress}%` }}
             />
+          </div>
+        )}
+
+        {/* Quick-advance: move to the next status without opening the drawer.
+            Stop propagation so the drag/click handlers don't fire. */}
+        {next && onQuickStatus && (
+          <div
+            className="pt-1 border-t border-dashed border-muted opacity-0 group-hover:opacity-100 transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-full text-[11px] text-muted-foreground hover:text-primary"
+              disabled={busy}
+              onClick={(e) => {
+                e.stopPropagation();
+                onQuickStatus(task.id, next);
+              }}
+              title={`Move to ${next.replace('_', ' ').toLowerCase()}`}
+            >
+              {next === 'COMPLETED' ? <CircleCheck className="h-3 w-3 mr-1" /> : <ChevronRight className="h-3 w-3 mr-1" />}
+              {next === 'COMPLETED' ? 'Mark complete' : `Move to ${next.replace('_', ' ').toLowerCase()}`}
+            </Button>
           </div>
         )}
       </div>

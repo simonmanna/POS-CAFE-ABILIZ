@@ -17,10 +17,12 @@ interface KanbanBoardProps {
   tasks: Task[];
   onReorder: (taskId: string, newStatus: string) => void;
   onTaskClick: (taskId: string) => void;
+  onQuickStatus?: (taskId: string, status: TaskStatus) => void;
+  busyTaskId?: string;
   loading?: boolean;
 }
 
-export function KanbanBoard({ tasks, onReorder, onTaskClick, loading }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, onReorder, onTaskClick, onQuickStatus, busyTaskId, loading }: KanbanBoardProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -91,6 +93,8 @@ export function KanbanBoard({ tasks, onReorder, onTaskClick, loading }: KanbanBo
             column={col}
             tasks={columnTasks.get(col.id) ?? []}
             onTaskClick={onTaskClick}
+            onQuickStatus={onQuickStatus}
+            busyTaskId={busyTaskId}
           />
         ))}
       </div>

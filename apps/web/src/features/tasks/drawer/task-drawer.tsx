@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
   DialogContent,
@@ -6,8 +8,12 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Calendar,
   Clock,
@@ -21,8 +27,14 @@ import {
   AlertTriangle,
   MapPin,
   Layers,
+  Pencil,
+  ShieldCheck,
+  Send,
+  CircleCheck,
 } from 'lucide-react';
-import { useTask } from '../api';
+import {
+  useTask, useUpdateTask, useToggleChecklist, useAddComment, useVerifyTask, useTaskAssignees,
+} from '../api';
 import {
   PRIORITY_COLORS,
   PRIORITY_LABELS,
@@ -30,6 +42,7 @@ import {
   CATEGORY_LABELS,
 } from '../kanban/column-config';
 import type { TaskComment } from '../types';
+import { TaskStatus } from '../types';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-slate-100 text-slate-700',
@@ -44,6 +57,27 @@ const STATUS_COLORS: Record<string, string> = {
   SKIPPED: 'bg-gray-100 text-gray-700',
   OVERDUE: 'bg-red-200 text-red-800',
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: 'Draft',
+  PENDING: 'Pending',
+  ASSIGNED: 'Assigned',
+  IN_PROGRESS: 'In Progress',
+  WAITING: 'Waiting',
+  REVIEW: 'Review',
+  VERIFIED: 'Verified',
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled',
+  SKIPPED: 'Skipped',
+  OVERDUE: 'Overdue',
+};
+
+const PRIORITY_LIST = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'OPTIONAL'];
+const STATUS_LIST: TaskStatus[] = [
+  TaskStatus.DRAFT, TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS,
+  TaskStatus.WAITING, TaskStatus.REVIEW, TaskStatus.VERIFIED, TaskStatus.COMPLETED,
+  TaskStatus.CANCELLED, TaskStatus.SKIPPED,
+];
 
 interface TaskDrawerProps {
   taskId: string | null;
@@ -64,32 +98,99 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
 }
 
 export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
+  const navigate = useNavigate();
   const { data: task, isLoading } = useTask(taskId);
+  const { data: assignees = [] } = useTaskAssignees();
+  const updateTask = useUpdateTask();
+  const toggleChecklist = useToggleChecklist();
+  const addComment = useAddComment();
+  const verifyTask = useVerifyTask();
+
+  const [comment, setComment] = useState('');
+  const [verifyNote, setVerifyNote] = useState('');
+  const [showVerify, setShowVerify] = useState(false);
+
+  if (!task) {
+    return (
+      <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+        <DialogContent className="max-w-lg sm:max-w-xl max-h-[90vh] overflow-y-auto">
+          {isLoading ? (
+            <div className="space-y-4 p-4">
+              <Skeleton className="h-6 w-3/4" />
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-32 w-full" />
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-40 text-muted-foreground">
+              Task not found
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  const patch = (data: Record<string, unknown>) =>
+    updateTask.mutate({ id: task.id, ...data });
+
+  const submitComment = async () => {
+    if (!comment.trim()) return;
+    try {
+      await addComment.mutateAsync({ taskId: task.id, content: comment.trim() });
+      setComment('');
+    } catch {
+      // toast surfaced by the caller's error handling; keep the text so it isn't lost
+    }
+  };
+
+  const doVerify = async () => {
+    try {
+      await verifyTask.mutateAsync({
+        id: task.id,
+        verificationMethod: task.verificationMethod ?? 'MANAGER_PIN',
+        verificationNote: verifyNote.trim() || undefined,
+      });
+      setShowVerify(false);
+      setVerifyNote('');
+    } catch {
+      // keep the form open on failure
+    }
+  };
 
   return (
-    <Dialog open={open} onOpenChange={(open) => !open && onClose()}>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg sm:max-w-xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <div className="flex items-center gap-2">
-            {task && (
-              <>
-                <span className="text-lg">{TASK_TYPE_ICONS[task.taskType] ?? '📌'}</span>
-                <Badge className={`text-xs ${STATUS_COLORS[task.status] ?? ''}`}>
-                  {task.status.replace('_', ' ')}
-                </Badge>
-                <Badge
-                  variant="outline"
-                  className="text-xs"
-                  style={{
-                    backgroundColor: `${PRIORITY_COLORS[task.priority] ?? '#94a3b8'}20`,
-                    color: PRIORITY_COLORS[task.priority] ?? '#94a3b8',
-                    borderColor: `${PRIORITY_COLORS[task.priority] ?? '#94a3b8'}40`,
-                  }}
-                >
-                  {PRIORITY_LABELS[task.priority] ?? task.priority}
-                </Badge>
-              </>
-            )}
+        <DialogHeader className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-lg">{TASK_TYPE_ICONS[task.taskType] ?? '📌'}</span>
+              <Badge className={`text-xs ${STATUS_COLORS[task.status] ?? ''}`}>
+                {STATUS_LABELS[task.status] ?? task.status.replace('_', ' ')}
+              </Badge>
+              <Badge
+                variant="outline"
+                className="text-xs"
+                style={{
+                  backgroundColor: `${PRIORITY_COLORS[task.priority] ?? '#94a3b8'}20`,
+                  color: PRIORITY_COLORS[task.priority] ?? '#94a3b8',
+                  borderColor: `${PRIORITY_COLORS[task.priority] ?? '#94a3b8'}40`,
+                }}
+              >
+                {PRIORITY_LABELS[task.priority] ?? task.priority}
+              </Badge>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={() => {
+                onClose();
+                navigate(`/tasks/${task.id}/edit`);
+              }}
+              title="Edit task"
+            >
+              <Pencil className="h-4 w-4" />
+            </Button>
           </div>
         </DialogHeader>
 
@@ -108,6 +209,56 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
                   {task.description}
                 </DialogDescription>
               )}
+            </div>
+
+            {/* ── Quick actions: status / priority / assignee ── */}
+            <div className="grid grid-cols-3 gap-3 rounded-lg border bg-muted/30 p-3">
+              <div className="space-y-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
+                <Select
+                  value={task.status}
+                  onValueChange={(value) => patch({ status: value })}
+                  disabled={updateTask.isPending}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {STATUS_LIST.map((s) => (
+                      <SelectItem key={s} value={s} className="text-xs">{STATUS_LABELS[s] ?? s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Priority</span>
+                <Select
+                  value={task.priority}
+                  onValueChange={(value) => patch({ priority: value })}
+                  disabled={updateTask.isPending}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {PRIORITY_LIST.map((p) => (
+                      <SelectItem key={p} value={p} className="text-xs">{PRIORITY_LABELS[p] ?? p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Assignee</span>
+                <Select
+                  value={task.assignedToId ?? ''}
+                  onValueChange={(value) => patch({ assignedToId: value || null })}
+                  disabled={updateTask.isPending}
+                >
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="" className="text-xs">Unassigned</SelectItem>
+                    {assignees.map((u) => (
+                      <SelectItem key={u.id} value={u.id} className="text-xs">{u.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             <Separator />
@@ -136,17 +287,24 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
                 </h4>
                 <div className="space-y-1">
                   {task.checklistItems.map((item) => (
-                    <div key={item.id} className="flex items-center gap-2 text-sm">
+                    <label key={item.id} className="flex items-center gap-2 text-sm cursor-pointer">
                       <input
                         type="checkbox"
                         checked={item.isCompleted}
-                        readOnly
+                        disabled={toggleChecklist.isPending}
+                        onChange={(e) =>
+                          toggleChecklist.mutate({
+                            taskId: task.id,
+                            itemId: item.id,
+                            isCompleted: e.target.checked,
+                          })
+                        }
                         className="h-3.5 w-3.5 rounded border-gray-300"
                       />
                       <span className={item.isCompleted ? 'line-through text-muted-foreground' : ''}>
                         {item.description}
                       </span>
-                    </div>
+                    </label>
                   ))}
                 </div>
               </div>
@@ -163,19 +321,39 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
 
             <Separator />
 
-            {task.comments && task.comments.length > 0 && (
-              <div>
-                <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
-                  <MessageSquare className="h-4 w-4" />
-                  Comments ({task.comments.length})
-                </h4>
+            {/* ── Comments + composer ── */}
+            <div>
+              <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
+                <MessageSquare className="h-4 w-4" />
+                Comments {(task.comments?.length ?? 0) > 0 && `(${task.comments!.length})`}
+              </h4>
+              <div className="flex items-end gap-2 mb-3">
+                <Textarea
+                  value={comment}
+                  onChange={(e) => setComment(e.target.value)}
+                  rows={2}
+                  placeholder="Write a comment…"
+                  className="text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitComment();
+                  }}
+                />
+                <Button
+                  size="sm"
+                  onClick={submitComment}
+                  disabled={!comment.trim() || addComment.isPending}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {task.comments && task.comments.length > 0 && (
                 <div className="space-y-3">
-                  {task.comments.map((comment) => (
-                    <CommentBubble key={comment.id} comment={comment} />
+                  {task.comments.map((c) => (
+                    <CommentBubble key={c.id} comment={c} />
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             <Separator />
 
@@ -198,17 +376,41 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
               </div>
             )}
 
+            {/* ── Verification ── */}
             {task.requiresVerification && (
-              <div>
-                <h4 className="flex items-center gap-2 text-sm font-semibold mb-2 text-amber-600">
+              <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
+                <h4 className="flex items-center gap-2 text-sm font-semibold mb-1 text-amber-700">
                   <AlertTriangle className="h-4 w-4" />
                   Verification Required
                 </h4>
-                <div className="text-sm text-muted-foreground">
-                  {task.verifiedAt
-                    ? `Verified on ${new Date(task.verifiedAt).toLocaleDateString()}`
-                    : 'Pending verification'}
-                </div>
+                {task.verifiedAt ? (
+                  <div className="flex items-center gap-2 text-sm text-emerald-700">
+                    <CircleCheck className="h-4 w-4" />
+                    Verified on {new Date(task.verifiedAt).toLocaleDateString()}
+                    {task.verifiedBy && ` by ${task.verifiedBy.firstName} ${task.verifiedBy.lastName ?? ''}`.trim()}
+                  </div>
+                ) : showVerify ? (
+                  <div className="space-y-2 mt-2">
+                    <Input
+                      value={verifyNote}
+                      onChange={(e) => setVerifyNote(e.target.value)}
+                      placeholder="Verification note (optional)"
+                      className="text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={doVerify} disabled={verifyTask.isPending}>
+                        <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                        {verifyTask.isPending ? 'Verifying…' : 'Confirm verification'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setShowVerify(false)}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="outline" className="mt-1" onClick={() => setShowVerify(true)}>
+                    <ShieldCheck className="h-3.5 w-3.5 mr-1" />
+                    Mark verified
+                  </Button>
+                )}
               </div>
             )}
           </div>

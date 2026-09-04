@@ -13,7 +13,7 @@ import {
   Timer,
   type LucideIcon,
 } from 'lucide-react';
-import { useTaskDashboard } from '../api';
+import { useTaskDashboard, useTaskAssignees } from '../api';
 
 interface KpiCardProps {
   title: string;
@@ -46,6 +46,10 @@ function KpiCard({ title, value, icon: Icon, color, bgColor, suffix }: KpiCardPr
 
 export function TaskDashboard() {
   const { data: dash, isLoading } = useTaskDashboard();
+  const { data: assignees = [] } = useTaskAssignees();
+
+  const nameOf = (id: string) =>
+    assignees.find((u) => u.id === id)?.name ?? `#${id.slice(0, 8)}`;
 
   if (isLoading) {
     return (
@@ -120,8 +124,11 @@ export function TaskDashboard() {
               <div className="space-y-2">
                 {dash.topEmployees.slice(0, 5).map((emp, i) => (
                   <div key={emp.assignedToId} className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">#{i + 1} Employee</span>
-                    <span className="font-medium">{emp.completedCount} done</span>
+                    <span className="truncate">
+                      <span className="text-muted-foreground mr-1.5">#{i + 1}</span>
+                      {nameOf(emp.assignedToId)}
+                    </span>
+                    <span className="font-medium shrink-0 ml-2">{emp.completedCount} done</span>
                   </div>
                 ))}
               </div>
