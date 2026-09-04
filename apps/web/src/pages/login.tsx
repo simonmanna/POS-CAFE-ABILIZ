@@ -116,9 +116,14 @@ interface LoginResponse {
 
 type View = 'login' | 'mfa' | 'forgot' | 'forgot-sent';
 
+/** Organization code sent with every sign-in; never prompted for. */
+const DEFAULT_ORG_CODE = 'DEMO';
+
 export function LoginPage() {
   const [view, setView] = useState<View>('login');
-  const [orgCode, setOrgCode] = useState('DEMO');
+  // Single-tenant deployment: the organization is fixed, so the field is not
+  // shown. Override with VITE_ORG_CODE at build time for another tenant.
+  const orgCode = (import.meta.env.VITE_ORG_CODE as string | undefined) ?? DEFAULT_ORG_CODE;
   const [email, setEmail] = useState('admin@demo.test');
   const [password, setPassword] = useState('');
   const [mfaToken, setMfaToken] = useState('');
@@ -242,7 +247,7 @@ export function LoginPage() {
                 {view === 'forgot-sent' && 'Check your inbox'}
               </h2>
               <p className="text-sm text-white/60 mt-2">
-                {view === 'login' && 'Sign in to your organization to continue.'}
+                {view === 'login' && 'Sign in to continue.'}
                 {view === 'mfa' && 'Enter the 6-digit code from your authenticator.'}
                 {view === 'forgot' && "We'll email you a secure reset link."}
                 {view === 'forgot-sent' && 'If the account exists, a reset link is on its way.'}
@@ -254,16 +259,6 @@ export function LoginPage() {
                 className="space-y-4"
                 onSubmit={(e) => { e.preventDefault(); login.mutate(); }}
               >
-                <Field label="Organization Code">
-                  <Input
-                    value={orgCode}
-                    onChange={(e) => setOrgCode(e.target.value)}
-                    autoComplete="organization"
-                    required
-                    className="h-12 rounded-xl bg-white/5 border-white/15 text-white placeholder:text-white/30 focus:border-amber-400 focus:ring-amber-400/40"
-                    placeholder="DEMO"
-                  />
-                </Field>
                 <Field label="Email">
                   <Input
                     type="email"
@@ -358,9 +353,6 @@ export function LoginPage() {
                 className="space-y-4"
                 onSubmit={(e) => { e.preventDefault(); forgot.mutate(); }}
               >
-                <Field label="Organization code">
-                  <Input value={orgCode} onChange={(e) => setOrgCode(e.target.value)} required className="h-12 rounded-xl bg-white/5 border-white/15 text-white placeholder:text-white/30 focus:border-amber-400 focus:ring-amber-400/40" />
-                </Field>
                 <Field label="Email">
                   <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-12 rounded-xl bg-white/5 border-white/15 text-white placeholder:text-white/30 focus:border-amber-400 focus:ring-amber-400/40" />
                 </Field>
