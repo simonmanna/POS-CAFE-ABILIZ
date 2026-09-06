@@ -1,6 +1,6 @@
 // Receipt preview + print / reprint / email actions.
 import React, { useCallback, useRef, useState } from 'react';
-import { Printer, Download, RefreshCw, X } from 'lucide-react';
+import { Printer, Download, RefreshCw, X, LogOut } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
@@ -18,9 +18,11 @@ interface Props {
   onClose: () => void;
   onVoid?: (invoiceId: string, invoiceNumber: string) => void;
   canReprint?: boolean;
+  /** Log off the POS session — returns to the terminal PIN login screen. */
+  onLogoff?: () => void;
 }
 
-export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoiceNumber, receiptHtml, onClose, onVoid: _onVoid, canReprint = false }) => {
+export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoiceNumber, receiptHtml, onClose, onVoid: _onVoid, canReprint = false, onLogoff }) => {
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState<'print' | 'email' | null>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -151,6 +153,11 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
             <X className="h-4 w-4 mr-1" /> Close
           </Button>
           <div className="flex gap-2">
+            {onLogoff && (
+              <Button variant="outline" onClick={onLogoff} title="Log off this POS terminal — back to staff PIN login" className="text-rose-700 border-rose-300 hover:bg-rose-50">
+                <LogOut className="h-4 w-4 mr-1" /> Log off
+              </Button>
+            )}
             <Button variant="outline" onClick={onDownload} disabled={!pdfUrl && !receiptHtml}>
               <Download className="h-4 w-4 mr-1" /> {receiptHtml ? 'Download HTML' : 'Download PDF'}
             </Button>

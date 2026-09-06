@@ -17,7 +17,6 @@ import {
   ShoppingCart,
   StickyNote,
   Trash2,
-  X,
   Tag,
   CreditCard,
   Receipt,
@@ -31,7 +30,6 @@ import {
   Delete as BackspaceIcon,
   MoreHorizontal,
 } from "lucide-react";
-import { getFoodEmoji } from "./food-images";
 import {
   selectItemCount,
   selectSubtotal,
@@ -54,7 +52,6 @@ export type OrderTypeOption = 'dine-in' | 'takeaway' | 'delivery';
 
 interface Props {
   quotedTotal?: number;
-  quotedTax?: number;
   customerName?: string;
   orderTypeLabel?: string;
   orderType: OrderTypeOption;
@@ -71,7 +68,6 @@ interface Props {
   onSplit: () => void;
   onAddCustomer: () => void;
   onAddDiscount: () => void;
-  onCloseOrder: () => void;
   onPrintKot: () => void;
   onVoidItem?: (line: CartLine) => void;
   onMoveItems?: () => void;
@@ -99,7 +95,9 @@ interface Props {
 // was the lone hard-coded UGX, so an org on another currency showed two symbols
 // on one screen.
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
-const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
+/** Cart rows omit the currency symbol (tight space); totals keep it. */
+const fmt = (n: number | string, withCurrency = true) =>
+  `${withCurrency ? orgCur() + ' ' : ''}${Number(n || 0).toLocaleString()}`;
 
 const ORDER_TYPES: Array<{ key: 'dine-in' | 'takeaway' | 'delivery'; label: string }> = [
   { key: 'dine-in', label: 'Dine In' },
@@ -110,7 +108,7 @@ const ORDER_TYPES: Array<{ key: 'dine-in' | 'takeaway' | 'delivery'; label: stri
 type NumMode = 'qty' | 'disc' | 'price';
 
 export const OrderPanel: React.FC<Props> = ({
-  quotedTotal, quotedTax,
+  quotedTotal,
   customerName,
   orderType,
   onChangeOrderType,
@@ -123,7 +121,6 @@ export const OrderPanel: React.FC<Props> = ({
   onSplit,
   onAddCustomer,
   onAddDiscount,
-  onCloseOrder,
   onPrintKot,
   onVoidItem,
   onMoveItems,
@@ -286,11 +283,6 @@ export const OrderPanel: React.FC<Props> = ({
               ))}
             </select>
           </div>
-          {lines.length > 0 ? (
-            <button type="button" className="pos-ord-action" onClick={onCloseOrder} title="Clear cart">
-              <X className="h-4 w-4" />
-            </button>
-          ) : null}
         </div>
       </div>
 
@@ -311,7 +303,6 @@ export const OrderPanel: React.FC<Props> = ({
         <div className="pos-order-list min-h-0">
           {lines.map((it) => {
             const isCombo = Boolean(it.comboId);
-            const emoji = isCombo ? '🍱' : getFoodEmoji(it.name);
             const lineSub = it.quantity * it.unitPrice * (1 - it.discountPercent / 100);
             const isSel = it.lineId === selectedLineId;
             return (
@@ -323,15 +314,13 @@ export const OrderPanel: React.FC<Props> = ({
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectLine(it.lineId); } }}
               >
-                <div className="pos-oline-qty">{it.quantity}<span className="pos-oline-x">×</span></div>
-                <div className="pos-oline-emoji">{emoji}</div>
                 <div className="pos-oline-body">
                   <div className="pos-oline-name truncate">
                     {it.name}
                     {isCombo ? <span className="pos-oline-combo">COMBO</span> : null}
                   </div>
                   <div className="pos-oline-sub">
-                    @ {fmt(it.unitPrice)}{it.discountPercent > 0 ? ` · −${it.discountPercent}%` : ""}
+                    @ {fmt(it.unitPrice, false)}{it.discountPercent > 0 ? ` · −${it.discountPercent}%` : ""}
                   </div>
                   {it.variantName && <div className="pos-oline-meta truncate">{it.variantName}</div>}
                   {it.accompanimentNames && it.accompanimentNames.length > 0 && (
@@ -344,7 +333,8 @@ export const OrderPanel: React.FC<Props> = ({
                   ) : null}
                   {it.note ? <div className="pos-oline-note truncate">! {it.note}</div> : null}
                 </div>
-                <div className="pos-oline-price">{fmt(lineSub)}</div>
+                <div className="pos-oline-qty">{it.quantity}</div>
+                <div className="pos-oline-price">{fmt(lineSub, false)}</div>
               </div>
             );
           })}
@@ -363,7 +353,6 @@ export const OrderPanel: React.FC<Props> = ({
             <span className="pos-amt text-emerald-600">−{fmt(txDisc)}</span>
           </div>
         ) : null}
-        {quotedTax != null && <div className="pos-totals-row"><span>Tax (included in total)</span><span className="pos-amt">{fmt(quotedTax)}</span></div>}
         {quotedTotal == null && <div className="text-xs text-amber-700">Estimated — waiting for server quote</div>}
         <div className="pos-totals-row big">
           <span>TOTAL</span>

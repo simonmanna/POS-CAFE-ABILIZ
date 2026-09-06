@@ -1,4 +1,6 @@
 import { PendingSaleRecovery } from './PendingSaleRecovery';
+import { OfflineIndicator } from './OfflineIndicator';
+import { PosLogoffButton } from './PosLogoffButton';
 import { useSaleQuote } from '@/features/pos/use-sale-quote';
 import { cartLinePayload, cartSignature, draftPricing, draftRestore, serverLineToCart } from '@/features/pos/cart-payload';
 import { useAuthStore } from '@/stores/auth.store';
@@ -545,28 +547,6 @@ const TerminalPage: React.FC = () => {
     saveCurrentTableCart(); setSelectedTableId(null); setTableView('grid');
   }, [saveCurrentTableCart, flushCurrentOrder]);
 
-  /* Close / clear the current order. B4: also cancel the SERVER draft (empty
-   * save → draft cancelled + table freed) so a reload can't resurrect stale
-   * items. We only wipe local state once the server confirms. */
-  const handleCloseOrder = useCallback(async () => {
-    const closingTableId = useCartStore.getState().tableId;
-    if (closingTableId) {
-      try {
-        await saveTab.mutateAsync({ tableId: closingTableId, lines: [], partnerId: customer?.id, expectedVersion: useCartStore.getState().tabVersion });
-      } catch (e: any) {
-        toast.error(e?.response?.data?.message || 'Failed to cancel the order on the server');
-        return;
-      }
-      tableCartsRef.current.delete(closingTableId);
-    }
-    tabSyncSig.current = orderSig([]);
-    setSelectedTableId(null);
-    setTableView('grid');
-    clearCart();
-    setCustomer(null);
-    useCartStore.setState({ tableId: undefined, tableNumber: undefined, tableName: undefined, sentToKitchen: false });
-  }, [saveTab, customer?.id, clearCart]);
-
   /* Auto-save cart to tableCartsRef when leaving the OrderPanel view. */
   useEffect(() => {
     if (tableView === 'ordering') {
@@ -838,8 +818,8 @@ const TerminalPage: React.FC = () => {
     setPendingRemoveLine(null);
   };
   const onLineDiscount = (line: CartLine) => setLineForDiscount(line);
-  const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType) => {
-    setDiscount(lineId, amount, type);
+  const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType, reason?: string) => {
+    setDiscount(lineId, amount, type, reason);
     if (amount > 0) {
       toast.success(type === 'fixed_amount' ? `Line discount ${fmt(amount)} applied` : `Line discount ${amount}% applied`);
     } else {
@@ -1307,6 +1287,16 @@ const TerminalPage: React.FC = () => {
     navigate('/login', { replace: true });
   };
 
+  /* Log off the POS session only — drops the POS PIN user (shift stays open,
+   * app login untouched) and returns to the terminal PIN login screen where
+   * another waiter can sign in. */
+  const logoffPosSession = () => {
+    setLastCompleted(null);
+    usePosAuthStore.getState().logout();
+    setShowPosLogin(true);
+    refetchSession();
+  };
+
   const handleUserChanged = () => {
     // Force re-render — locked state recalculates via posUser
     setShowPosLogin(!usePosAuthStore.getState().user);
@@ -1339,7 +1329,15 @@ const TerminalPage: React.FC = () => {
         onUserChanged={handleUserChanged}
         onOpenOrders={() => setShowOrders(true)}
         ordersCount={ordersCount}
-        // rightExtras={<OfflineIndicator />}
+        // A-004: the offline queue indicator (health probe + auto-replay +
+        // failed-sale review) MUST be mounted — without it, sales parked in
+        // the offline queue are invisible until shift close blocks.
+        rightExtras={(
+          <>
+            <PosLogoffButton onLoggedOff={() => { setShowPosLogin(true); refetchSession(); }} />
+            <OfflineIndicator />
+          </>
+        )}
         orderType={orderTypeFromStore ?? 'dine-in'}
       />
 
@@ -1552,13 +1550,11 @@ const TerminalPage: React.FC = () => {
             onLineDiscount={onLineDiscount}
             onPrintBill={onPrintBill}
             quotedTotal={saleQuote.data?.total}
-            quotedTax={saleQuote.data?.taxAmount}
             canOverridePrice={false}
             onCharge={onCharge}
             onSplit={onSplit}
             onAddCustomer={() => setShowCustomer(true)}
             onAddDiscount={() => setShowDiscount(true)}
-            onCloseOrder={handleCloseOrder}
             onPrintKot={async () => {
               if (lines.length === 0) { toast.error('Cart is empty'); return; }
               let printedLineIds = new Set<string>();
@@ -1783,6 +1779,7 @@ const TerminalPage: React.FC = () => {
             setShowCancelOrder(true);
           }}
           onClose={() => setLastCompleted(null)}
+          onLogoff={logoffPosSession}
         />
       ) : lastCompleted ? (
         <ReceiptPreview

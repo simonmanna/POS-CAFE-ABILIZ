@@ -9,6 +9,7 @@ import { ShoppingBag, Lock as LockIcon } from 'lucide-react';
 
 import { Topbar } from './Topbar';
 import { OfflineIndicator } from './OfflineIndicator';
+import { PosLogoffButton } from './PosLogoffButton';
 import { CategoryStrip } from './CategoryStrip';
 import { MenuGrid } from './MenuGrid';
 import { OrderPanel } from './OrderPanel';
@@ -393,9 +394,16 @@ const RetailTerminal: React.FC = () => {
     try {
       const res = await api.get('/pos/lookup', { params: { sku: code } }) as any;
       if (seq !== scanSeq.current) return; // a newer scan superseded this lookup
-      const product = res.data;
-      if (product?.id) {
+      // A-003: the endpoint returns an ARRAY of matches (≤5) — unwrap the best
+      // one instead of reading `.id` off the array, which never resolved and
+      // silently killed every barcode beyond the loaded catalog page.
+      const rows = Array.isArray(res.data) ? res.data : [res.data];
+      const product = rows.find((p: any) => p && p.id);
+      if (product) {
         addLine({ productId: product.id, sku: product.sku ?? undefined, name: product.name, quantity: 1, unitPrice: Number(product.salesPrice || 0) });
+        setSearch('');
+      } else {
+        toast.error(`No product matches "${code.slice(0, 24)}"`);
         setSearch('');
       }
     } catch { /* no match on server either */ }
@@ -414,8 +422,8 @@ const RetailTerminal: React.FC = () => {
     setPendingRemoveLine(null);
   };
   const onLineDiscount = (line: CartLine) => setLineForDiscount(line);
-  const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType) => {
-    setDiscount(lineId, amount, type);
+  const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType, reason?: string) => {
+    setDiscount(lineId, amount, type, reason);
     toast.success(type === 'fixed_amount' ? `Line discount ${fmt(amount)} applied` : `Line discount ${amount}% applied`);
   };
   const onLineNote = (line: CartLine) => {
@@ -622,6 +630,15 @@ const RetailTerminal: React.FC = () => {
     navigate('/login', { replace: true });
   };
 
+  /* Log off the POS session only — drops the POS PIN user (shift stays open,
+   * app login untouched) and returns to the terminal PIN login screen. */
+  const logoffPosSession = () => {
+    setLastCompleted(null);
+    usePosAuthStore.getState().logout();
+    setShowPosLogin(true);
+    refetchSession();
+  };
+
   const handleUserChanged = () => {
     setShowPosLogin(!usePosAuthStore.getState().user);
     refetchSession();
@@ -659,7 +676,12 @@ const RetailTerminal: React.FC = () => {
         onUserChanged={handleUserChanged}
         onOpenOrders={() => setShowOrders(true)}
         ordersCount={ordersCount}
-        rightExtras={<OfflineIndicator />}
+        rightExtras={(
+          <>
+            <PosLogoffButton onLoggedOff={() => { setShowPosLogin(true); refetchSession(); }} />
+            <OfflineIndicator />
+          </>
+        )}
       />
 
       <div className="pos-body-pro">
@@ -712,13 +734,11 @@ const RetailTerminal: React.FC = () => {
             onLineDiscount={onLineDiscount}
             onPrintBill={() => {}}
             quotedTotal={saleQuote.data?.total}
-            quotedTax={saleQuote.data?.taxAmount}
             canOverridePrice={false}
             onCharge={onCharge}
             onSplit={() => {}}
             onAddCustomer={() => setShowCustomer(true)}
             onAddDiscount={() => setShowDiscount(true)}
-            onCloseOrder={() => { clearCart(); setCustomer(null); }}
             onPrintKot={() => {}}
             onVoidItem={canVoidItem ? (line) => setVoidLine(line) : undefined}
             hideCafeFeatures
@@ -767,6 +787,7 @@ const RetailTerminal: React.FC = () => {
         <ReceiptPreviewDialog open invoiceId={lastCompleted.invoiceId} invoiceNumber={lastCompleted.invoiceNumber}
           receiptHtml={lastCompleted.receiptHtml} canReprint={false}
           onVoid={(id, num) => { setLastCompleted(null); setCancelInvoice({ id, number: num }); setShowCancelOrder(true); }}
+          onLogoff={logoffPosSession}
           onClose={() => setLastCompleted(null)} />
       ) : lastCompleted ? (
         <ReceiptPreview open onClose={() => setLastCompleted(null)} type="bill"
