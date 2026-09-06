@@ -67,6 +67,30 @@ export function sortZones(zones: PosTableZoneConfig[]): PosTableZoneConfig[] {
   );
 }
 
+/**
+ * Rank of each zone key in the catalog's View Order (index into `sortZones`).
+ * Callers group tables by zone key and sort the groups with this map so the
+ * POS selling pages match the Manage Zones list exactly — including how ties
+ * on `sortOrder` are broken (by zone NAME, not by key).
+ */
+export function zoneRankMap(zones: PosTableZoneConfig[]): Map<string, number> {
+  return new Map(sortZones(zones).map((z, i) => [z.key, i]));
+}
+
+/**
+ * Comparator for zone KEYS against a `zoneRankMap`. Keys with no zone row
+ * (table pointing at an archived/unknown zone) sort last, then alphabetically.
+ */
+export function compareZoneKeys(
+  rank: Map<string, number>,
+  a: string,
+  b: string,
+): number {
+  const ra = rank.get(a) ?? Number.MAX_SAFE_INTEGER;
+  const rb = rank.get(b) ?? Number.MAX_SAFE_INTEGER;
+  return ra - rb || a.localeCompare(b);
+}
+
 export const SHAPE_LABEL: Record<string, string> = {
   square: 'Square',
   rectangle: 'Rectangle',

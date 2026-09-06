@@ -39,7 +39,12 @@ export function useTableZones() {
     queryKey: ['pos-tables', 'zones'],
     queryFn: async () => {
       const res = await api.get<PosTableZoneConfig[]>('/pos/tables/zones');
-      return Array.isArray(res.data) ? res.data : [];
+      // Guard: anything that isn't a zone row (e.g. a tables array from a
+      // mis-keyed cache write) is rejected, not rendered.
+      const rows = Array.isArray(res.data) ? res.data : [];
+      return rows.filter(
+        (z) => z && typeof z === 'object' && 'key' in z && 'sortOrder' in z,
+      );
     },
     refetchInterval: 30_000,
   });
@@ -60,6 +65,17 @@ function invalidateZoneQueries(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['pos-tables', 'zones'] });
   // Table lists carry enriched zoneName/zoneColor — refresh them too.
   qc.invalidateQueries({ queryKey: ['pos-tables'] });
+}
+
+/**
+ * Force a refetch of the zone catalog. Used to self-heal a stale list: a row
+ * the client still shows but the server no longer has (e.g. the tab was left
+ * open across a DB reset, which re-seeds the default zones with fresh ids)
+ * answers every mutation with 404 until the list is refetched.
+ */
+export function useRefreshZones() {
+  const qc = useQueryClient();
+  return () => invalidateZoneQueries(qc);
 }
 
 export function useCreateZone() {

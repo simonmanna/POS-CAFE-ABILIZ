@@ -56,7 +56,14 @@ import { VoidItemDialog } from './VoidItemDialog';
 import { CancelOrderDialog } from './CancelOrderDialog';
 import { ReprintDialog } from './ReprintDialog';
 import type { PosTable } from '@/features/tables/types';
-import { STATUS_META, zoneLabel as zoneLabelOf, fmtMoney, minutesBetween } from '@/features/tables/utils';
+import {
+  STATUS_META,
+  zoneLabel as zoneLabelOf,
+  zoneRankMap,
+  compareZoneKeys,
+  fmtMoney,
+  minutesBetween,
+} from '@/features/tables/utils';
 import { useTables, useTransferItems, usePosTablesStream, useTableZones } from '@/features/tables/api';
 
 import {
@@ -1383,25 +1390,44 @@ const TerminalPage: React.FC = () => {
                     <p className="font-semibold">No tables configured</p>
                     <p className="text-xs mt-1">Create tables in the Tables admin page first.</p>
                   </div>
+                ) : zones.filter((z) => z.active).length === 0 ? (
+                  <div className="text-center text-slate-400 py-12">
+                    <LayoutGrid className="h-10 w-10 mx-auto mb-3 opacity-50" />
+                    <p className="font-semibold">No active zones</p>
+                    <p className="text-xs mt-1">All zones are Inactive — activate one in Table Zones management.</p>
+                  </div>
                 ) : (() => {
+                  // Only active zones surface in the selling terminal — an
+                  // Inactive zone hides its tables from the floor map (the
+                  // tables keep their assignment and stay visible in admin).
+                  const activeZoneKeys = new Set(
+                    zones.filter((z) => z.active).map((z) => z.key),
+                  );
                   const grouped = new Map<string, PosTable[]>();
                   for (const t of tables) {
+                    if (!activeZoneKeys.has(t.zone)) continue;
                     const key = t.zone;
                     const arr = grouped.get(key) ?? [];
                     arr.push(t);
                     grouped.set(key, arr);
                   }
                   // Zone groups follow the user's View Order preference
-                  // (zone.sortOrder) — unknown zone keys sort last, then by key.
-                  const zoneOrder = new Map(zones.map((z) => [z.key, z.sortOrder]));
-                  return Array.from(grouped.entries())
-                    .sort((a, b) =>
-                      (zoneOrder.get(a[0]) ?? 999) - (zoneOrder.get(b[0]) ?? 999) || a[0].localeCompare(b[0]),
-                    );
-                })().map(([zoneKey, list]) => (
+                  // (zone.sortOrder), tie-broken exactly like the Manage Zones
+                  // list; unknown zone keys sort last.
+                  const rank = zoneRankMap(zones);
+                  return Array.from(grouped.entries()).sort((a, b) =>
+                    compareZoneKeys(rank, a[0], b[0]),
+                  );
+                })().map(([zoneKey, list]) => {
+                  const zMeta = zones.find((z) => z.key === zoneKey);
+                  return (
                   <div key={zoneKey} className="mb-6 last:mb-0">
-                    <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">
-                      {zoneLabelOf(zones, zoneKey)} · {list.length}
+                    <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.15em] text-slate-400 mb-3">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full"
+                        style={{ background: zMeta?.color ?? '#cbd5e1' }}
+                      />
+                      {zoneLabelOf(zones, zoneKey)} · {list.length} table{list.length === 1 ? '' : 's'}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
                       {list.map((t) => {
@@ -1413,7 +1439,6 @@ const TerminalPage: React.FC = () => {
                         const combinedCount = openOrders.length + (hasLocal ? 1 : 0);
                         const meta = STATUS_META[t.status] ?? STATUS_META.available;
                         const statusLabel = t.status === 'occupied' ? 'Occupied' : t.status === 'out_of_service' ? 'Out of service' : t.status === 'reserved' ? 'Reserved' : 'Available';
-                        const zoneLabel = t.zoneName ?? t.zone;
                         return (
                           <button
                             key={t.id}
@@ -1444,16 +1469,13 @@ const TerminalPage: React.FC = () => {
                               {t.name}
                             </div>
 
-                            {/* Zone label below name */}
-                            <div className="text-sm font-medium text-slate-400 capitalize mb-auto">
-                              {zoneLabel} - T{t.number}
+                            {/* Table number below name */}
+                            <div className="text-sm font-medium text-slate-400 mb-auto">
+                              T{t.number} · {t.seats} seats
                             </div>
 
-                            {/* Table code (replaces seats) + status */}
-                            <div className="flex items-center justify-between mt-2">
-                              <span className="text-sm font-bold text-slate-600 bg-white/70 px-2 py-1 rounded border border-slate-200 font-mono tracking-wider">
-                                {t.name}
-                              </span>
+                            {/* Status only (zone is the group header) */}
+                            <div className="flex items-center justify-end mt-2">
                               <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${meta.pill}`}>
                                 {statusLabel}
                               </span>
@@ -1478,7 +1500,8 @@ const TerminalPage: React.FC = () => {
                       })}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1887,7 +1910,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
             </span>
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">
-            {table.seats} seats · Zone: {table.zone} · {openOrders.length} open order{openOrders.length !== 1 ? 's' : ''}
+            {table.seats} seats · Zone: {table.zoneName ?? table.zone} · {openOrders.length} open order{openOrders.length !== 1 ? 's' : ''}
             {tableTotal > 0 && <span className="ml-2 font-semibold text-slate-700">· Total {fmt(tableTotal)}</span>}
             {hasLocalCart && <span className="ml-2 font-semibold text-amber-600">· ⚡ Draft in progress</span>}
           </div>

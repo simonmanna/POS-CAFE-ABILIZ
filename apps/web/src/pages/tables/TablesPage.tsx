@@ -18,7 +18,7 @@ import {
   LayoutGrid,
   ChevronRight,
   Search,
-  Map,
+  Map as MapIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -59,10 +59,9 @@ import type {
   PosTableZone,
   UpdateTableInput,
 } from '@/features/tables/types';
-import { STATUS_META, fmtMoney } from '@/features/tables/utils';
+import { STATUS_META, fmtMoney, sortZones } from '@/features/tables/utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { TableDetailDialog } from './TableDetailDialog';
-import { ZoneManagementDialog } from './ZoneManagementDialog';
 
 type FormState = Omit<CreateTableInput, 'number'> & { number: string };
 
@@ -92,19 +91,31 @@ export const TablesPage: React.FC = () => {
   const setStatus = useSetTableStatus();
 
   const [filter, setFilter] = useState<'all' | PosTableStatus>('all');
+  const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<PosTable | null>(null);
   const [viewTarget, setViewTarget] = useState<PosTable | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<PosTable | null>(null);
-  const [zonesOpen, setZonesOpen] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+
+  /** Tables grouped per zone key (list view sections). */
+  const zoneSections = useMemo(() => {
+    const map = new Map<string, PosTable[]>();
+    for (const t of tables) {
+      const arr = map.get(t.zone) ?? [];
+      arr.push(t);
+      map.set(t.zone, arr);
+    }
+    return map;
+  }, [tables]);
 
   const filtered = useMemo(() => {
       const q = search.toLowerCase().trim();
       // Sort tables by sortOrder ascending, ties broken by number
       const sortedTables = [...tables].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.number - b.number);
       let arr = filter === 'all' ? sortedTables : sortedTables.filter((t) => t.status === filter);
+      if (zoneFilter !== 'all') arr = arr.filter((t) => t.zone === zoneFilter);
       if (q) {
         arr = arr.filter(
           (t) =>
@@ -114,7 +125,7 @@ export const TablesPage: React.FC = () => {
         );
       }
       return arr;
-    }, [tables, filter, search]);
+    }, [tables, filter, zoneFilter, search]);
 
   function openCreate() {
     setForm({ ...EMPTY_FORM, number: String((tables.at(-1)?.number ?? 0) + 1) });
@@ -246,11 +257,13 @@ export const TablesPage: React.FC = () => {
             </Button>
             {canManageZones ? (
               <Button
+                asChild
                 variant="outline"
                 className="border-white/30 bg-white/10 text-white hover:bg-white/20"
-                onClick={() => setZonesOpen(true)}
               >
-                <Map className="w-4 h-4 mr-1.5" /> Manage Zones
+                <a href="/tables/zones">
+                  <MapIcon className="w-4 h-4 mr-1.5" /> Manage Zones
+                </a>
               </Button>
             ) : null}
             <Button
@@ -263,29 +276,10 @@ export const TablesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Stats strip (kpi-tile style) ── */}
-      <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
-        <StatTile label="Total"          value={stats?.total ?? 0}        tone="from-slate-500 to-slate-700" />
-        <StatTile label="Available"      value={stats?.available ?? 0}    tone="from-emerald-500 to-teal-500" />
-        <StatTile label="Occupied"       value={stats?.occupied ?? 0}     tone="from-orange-500 to-rose-500" />
-        <StatTile label="Reserved"       value={stats?.reserved ?? 0}     tone="from-blue-500 to-indigo-500" />
-        <StatTile label="Cleaning"       value={stats?.cleaning ?? 0}    tone="from-cyan-500 to-teal-500" />
-        <StatTile
-          label="Occupancy"
-          value={`${stats?.occupancyPct ?? 0}%`}
-          tone="from-sky-500 to-blue-600"
-          trailing={
-            <div className="text-[11px] text-muted-foreground mt-1">
-              Across {stats?.total ?? 0} active tables
-            </div>
-          }
-        />
-      </div>
-
       {/* ── Toolbar ── */}
-      <div className="glass-card p-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="glass-card p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="section-title mr-2">Filter</span>
+          <span className="section-title mr-2">Status</span>
           {(['all', 'available', 'occupied', 'reserved', 'out_of_service', 'cleaning'] as const).map(
             (k) => (
               <button
@@ -305,7 +299,40 @@ export const TablesPage: React.FC = () => {
             ),
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="section-title mr-2">Zone</span>
+          <button
+            onClick={() => setZoneFilter('all')}
+            className={`pill transition-all ${
+              zoneFilter === 'all'
+                ? 'bg-slate-700 text-white shadow-md'
+                : 'bg-white text-muted-foreground border border-border hover:border-slate-400 hover:text-slate-600'
+            }`}
+          >
+            All · {tables.length}
+          </button>
+          {sortZones(zones).map((z) => {
+            const count = zoneSections.get(z.key)?.length ?? 0;
+            return (
+              <button
+                key={z.id}
+                onClick={() => setZoneFilter(z.key)}
+                className={`pill transition-all inline-flex items-center gap-1.5 ${
+                  zoneFilter === z.key
+                    ? 'bg-slate-700 text-white shadow-md'
+                    : 'bg-white text-muted-foreground border border-border hover:border-slate-400 hover:text-slate-600'
+                }`}
+              >
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ background: z.color }}
+                />
+                {z.name} · {count}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2 pt-1">
           <div className="relative w-48">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -370,14 +397,11 @@ export const TablesPage: React.FC = () => {
                         {table.name}
                       </div>
                       <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
-                        <span className="text-[10px] font-bold text-slate-500 bg-white/70 px-1.5 py-0.5 rounded border border-slate-200 font-mono tracking-wider">
-                          {table.name}
-                        </span>
                         <span
                           className="inline-block w-2 h-2 rounded-full"
                           style={{ background: table.zoneColor ?? '#cbd5e1' }}
                         />
-                        {table.zoneName ?? table.zone}
+                        {table.zoneName ?? table.zone} · {table.seats} seat{table.seats === 1 ? '' : 's'}
                       </div>
                     </div>
                     <span
@@ -510,7 +534,14 @@ export const TablesPage: React.FC = () => {
                 value={form.zone}
                 onChange={(e) => setForm((f) => ({ ...f, zone: e.target.value as PosTableZone }))}
               >
-                {zones.map((z) => (
+                {/* Keep the table's current zone selectable even when its key is
+                    not in the catalog (archived zone / zones still loading) —
+                    otherwise the select shows blank and saving silently resets
+                    the zone to the first option. */}
+                {form.zone && !zones.some((z) => z.key === form.zone) && (
+                  <option value={form.zone}>{editTarget?.zoneName ?? form.zone}</option>
+                )}
+                {sortZones(zones.filter((z) => z.active)).map((z) => (
                   <option key={z.key} value={z.key}>
                     {z.name}
                   </option>
@@ -612,10 +643,6 @@ export const TablesPage: React.FC = () => {
         }}
       />
 
-      {/* ── Zone management (configurable dining areas / categories) ── */}
-      {canManageZones ? (
-        <ZoneManagementDialog open={zonesOpen} onClose={() => setZonesOpen(false)} />
-      ) : null}
     </div>
   );
 };
@@ -630,22 +657,6 @@ const Field: React.FC<{ label: string; className?: string; children: React.React
       {label}
     </label>
     {children}
-  </div>
-);
-
-const StatTile: React.FC<{
-  label: string;
-  value: number | string;
-  tone: string;
-  trailing?: React.ReactNode;
-}> = ({ label, value, tone, trailing }) => (
-  <div className="kpi-tile h-full">
-    <div className="flex items-start justify-between mb-2">
-      <div className="section-title">{label}</div>
-      <div className={`h-2.5 w-2.5 rounded-full bg-gradient-to-br ${tone}`} />
-    </div>
-    <div className="text-2xl font-extrabold tracking-tight">{value}</div>
-    {trailing}
   </div>
 );
 

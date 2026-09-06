@@ -165,6 +165,7 @@ import DigitalMenuPage from '@/pages/pos/DigitalMenuPage';
 import TablesPage from '@/pages/tables/TablesPage';
 import ReservationsPage from '@/pages/tables/ReservationsPage';
 import TableReportsPage from '@/pages/tables/TableReportsPage';
+import ZonesPage from '@/pages/tables/ZonesPage';
 import ReportCenterPage from '@/pages/reports/ReportCenterPage';
 import { StaffPage } from '@/pages/staff/StaffPage';
 import { RolesPage } from '@/pages/staff/RolesPage';
@@ -197,6 +198,8 @@ export function App() {
           <Route path="/tables" element={<TablesPage />} />
           <Route path="/tables/reservations" element={<ReservationsPage />} />
           <Route path="/tables/reports" element={<TableReportsPage />} />
+          {/* Zone (dining area) catalog — View Order drives POS table grouping. */}
+          <Route path="/tables/zones" element={<ZonesPage />} />
           <Route path="/staff" element={<StaffPage />} />
           <Route path="/staff/roles" element={<RolesPage />} />
           <Route path="/staff/roles/:id/edit" element={<RoleEditPage />} />

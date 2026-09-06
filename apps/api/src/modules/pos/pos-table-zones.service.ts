@@ -293,10 +293,11 @@ export class PosTableZonesService {
     return zone;
   }
 
-  /** Bulk zone metadata for join enrichment (name + color by key). */
+  /** Bulk zone metadata for join enrichment (name + color by key) — active
+   *  zones only, matching what resolveKey allows for table assignment. */
   async mapForOrganization(organizationId: string): Promise<Map<string, { name: string; color: string }>> {
     const zones = await this.prisma.client.posTableZone.findMany({
-      where: { organizationId, deletedAt: null },
+      where: { organizationId, deletedAt: null, active: true },
       select: { key: true, name: true, color: true },
     });
     return new Map(zones.map((z) => [z.key, { name: z.name, color: z.color }]));

@@ -21,7 +21,14 @@ import {
   usePosTablesStream,
 } from '@/features/tables/api';
 import type { PosTable, PosTableStatus } from '@/features/tables/types';
-import { STATUS_META, zoneLabel, fmtMoney, minutesBetween } from '@/features/tables/utils';
+import {
+  STATUS_META,
+  zoneLabel,
+  zoneRankMap,
+  compareZoneKeys,
+  fmtMoney,
+  minutesBetween,
+} from '@/features/tables/utils';
 
 interface Props {
   open: boolean;
@@ -59,7 +66,13 @@ export const TableSelectorDialog: React.FC<Props> = ({
   }, [open]);
 
   const grouped = useMemo(() => {
+    // Only active zones surface in the POS — an Inactive zone hides its
+    // tables from the picker (they keep their zone assignment in admin).
+    const activeZoneKeys = new Set(
+      zones.filter((z) => z.active).map((z) => z.key),
+    );
     const filtered = tables.filter((t) => {
+      if (!activeZoneKeys.has(t.zone)) return false;
       if (filter !== 'all' && t.status !== filter) return false;
       const q = search.trim().toLowerCase();
       if (q) {
@@ -76,13 +89,10 @@ export const TableSelectorDialog: React.FC<Props> = ({
       map.set(key, arr);
     }
     for (const arr of map.values()) arr.sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.number - b.number);
-    // Zone groups follow the user's View Order preference (zone.sortOrder) —
-    // unknown zone keys sort last, then by key.
-    const zoneOrder = new Map(zones.map((z) => [z.key, z.sortOrder]));
-    return Array.from(map.entries()).sort(
-      (a, b) =>
-        (zoneOrder.get(a[0]) ?? 999) - (zoneOrder.get(b[0]) ?? 999) || a[0].localeCompare(b[0]),
-    );
+    // Zone groups follow the user's View Order preference (zone.sortOrder),
+    // tie-broken exactly like the Manage Zones list; unknown keys sort last.
+    const rank = zoneRankMap(zones);
+    return Array.from(map.entries()).sort((a, b) => compareZoneKeys(rank, a[0], b[0]));
   }, [tables, filter, search, zones]);
 
   return (
@@ -165,23 +175,30 @@ export const TableSelectorDialog: React.FC<Props> = ({
               <p className="font-semibold">No tables match this filter</p>
             </div>
           ) : (
-            grouped.map(([zoneKey, list]) => (
-              <div key={zoneKey} className="mb-8">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
-                  {zoneLabel(zones, zoneKey)} · {list.length}
-                </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  {list.map((t) => (
-                    <TableCard
-                      key={t.id}
-                      table={t}
-                      selected={t.id === selectedId}
-                      onPick={() => onPick(t)}
+            grouped.map(([zoneKey, list]) => {
+              const zMeta = zones.find((z) => z.key === zoneKey);
+              return (
+                <div key={zoneKey} className="mb-8">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400 mb-4">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ background: zMeta?.color ?? '#cbd5e1' }}
                     />
-                  ))}
+                    {zoneLabel(zones, zoneKey)} · {list.length} table{list.length === 1 ? '' : 's'}
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {list.map((t) => (
+                      <TableCard
+                        key={t.id}
+                        table={t}
+                        selected={t.id === selectedId}
+                        onPick={() => onPick(t)}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -238,13 +255,6 @@ const TableCard: React.FC<{
         {meta.label}
       </span>
 
-      {/* Zone pill */}
-      <div className="mb-1.5">
-        <span className={`text-[9px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded-full ${table.status === 'available' ? 'bg-emerald-100 text-emerald-700' : 'bg-white/60 text-slate-500'}`}>
-          {table.zoneName ?? table.zone}
-        </span>
-      </div>
-
       {/* Table number + name */}
       <div className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-0.5">
         T{table.number}
@@ -253,21 +263,14 @@ const TableCard: React.FC<{
         {table.name}
       </div>
 
-      {/* Zone label below name */}
-      <div className="text-sm font-medium text-slate-400 capitalize mb-auto">
-        {table.zoneName ?? table.zone}
+      {/* Seats (zone is the group header above) */}
+      <div className="text-sm font-medium text-slate-400 mb-auto">
+        {table.seats} seat{table.seats === 1 ? '' : 's'}
       </div>
 
-      {/* Table code (replaces seats) */}
-      <div className="mt-2">
-        <span className="text-sm font-bold text-slate-600 bg-white/70 px-2 py-1 rounded border border-slate-200 font-mono tracking-wider">
-          {table.name}
-        </span>
-      </div>
-
-      {/* Open order info — time & price on one line */}
+      {/* Merged indicator */}
       {table.mergedIntoId && (
-        <div className="text-[11px] text-orange-600 font-semibold mt-2">
+        <div className="text-[11px] text-orange-600 font-semibold mt-1">
           Merged · orders on T{table.mergedInto?.number ?? '?'}
         </div>
       )}
