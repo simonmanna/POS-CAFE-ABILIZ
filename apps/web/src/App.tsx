@@ -114,6 +114,8 @@ import InventoryDetailPage from '@/pages/inventory/InventoryDetailPage';
 import { StockAdjustmentsPage } from '@/pages/inventory/StockAdjustmentsPage';
 import { StockTransfersPage } from '@/pages/inventory/StockTransfersPage';
 import { InventoryCountPage } from '@/pages/inventory/InventoryCountPage';
+import { InventoryReportsPage } from '@/pages/inventory/InventoryReportsPage';
+import { InventoryReportsPage } from '@/pages/inventory/InventoryReportsPage';
 import { BottleCountPage } from '@/pages/beverage/BottleCountPage';
 import { BeverageDashboardPage } from '@/pages/beverage/BeverageDashboardPage';
 import { RentalDashboardPage } from '@/pages/rental/RentalDashboardPage';
@@ -303,6 +305,7 @@ export function App() {
           <Route path="/inventory/items/:productId" element={<InventoryDetailPage />} />
           <Route path="/inventory/adjustments" element={<StockAdjustmentsPage />} />
           <Route path="/inventory/transfers" element={<StockTransfersPage />} />
+          <Route path="/inventory/reports" element={<InventoryReportsPage />} />
           <Route path="/inventory/count" element={<InventoryCountPage />} />
           <Route path="/beverage" element={<BeverageDashboardPage />} />
           <Route path="/beverage/count" element={<BottleCountPage />} />

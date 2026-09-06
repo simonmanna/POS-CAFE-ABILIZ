@@ -198,6 +198,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/inventory/adjustments', label: 'Stock Adjustments', icon: Scale, permission: 'inventory:move' },
       { to: '/inventory/transfers', label: 'Stock Transfers', icon: Truck, permission: 'inventory:move' },
       { to: '/inventory/locations', label: 'Locations', icon: MapPin, permission: PERMISSIONS.inventoryLocation.read },
+      { to: '/inventory/reports', label: 'Inventory Reports', icon: BarChart3, permission: 'inventory:read' },
     ],
   },
   {

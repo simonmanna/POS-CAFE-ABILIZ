@@ -490,6 +490,144 @@ export class InventoryQueryService {
   }
 
   /**
+   * Item movement summary report: one row per product over a window with
+   *   opening  = Σ quantityChange where createdAt < start
+   *   qtyIn    = Σ quantityChange of inbound move types in [start, end]
+   *   qtyOut   = Σ |quantityChange| of outbound move types in [start, end]
+   *   balance  = opening + net movement in the window
+   * Products with an empty window but a non-zero opening still appear, so the
+   * balance column doubles as a stock-on-hand snapshot as of `end`.
+   */
+  private static readonly MOVEMENT_IN_TYPES = new Set([
+    'receipt',
+    'adjustment_in',
+    'transfer_in',
+    'opening_balance',
+    'return_in',
+    'production_output',
+  ]);
+
+  async getItemMovementSummary(query: {
+    start?: string;
+    end?: string;
+    locationId?: string;
+    productId?: string;
+    categoryId?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const organizationId = this.tenant.organizationId;
+    const page = Math.max(1, Number(query.page) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(query.pageSize) || 50));
+
+    const baseWhere: any = { organizationId };
+    if (query.locationId) baseWhere.locationId = query.locationId;
+    if (query.productId) baseWhere.productId = query.productId;
+    if (query.categoryId) {
+      baseWhere.product = { categoryId: query.categoryId };
+    }
+
+    const start = query.start ? new Date(query.start) : undefined;
+    const end = query.end ? new Date(query.end) : undefined;
+
+    const windowWhere: any = { ...baseWhere };
+    if (start || end) {
+      windowWhere.createdAt = {};
+      if (start) windowWhere.createdAt.gte = start;
+      if (end) {
+        // Inclusive of the whole "end" day.
+        const endExclusive = new Date(end);
+        endExclusive.setHours(24, 0, 0, 0);
+        windowWhere.createdAt.lt = endExclusive;
+      }
+    }
+
+    const openingWhere: any = { ...baseWhere };
+    if (start) openingWhere.createdAt = { lt: start };
+
+    const [windowed, opening, typed] = await Promise.all([
+      this.prisma.client.inventoryLedger.groupBy({
+        by: ['productId'],
+        where: windowWhere,
+        _sum: { quantityChange: true, totalValue: true },
+      }),
+      start
+        ? this.prisma.client.inventoryLedger.groupBy({
+            by: ['productId'],
+            where: openingWhere,
+            _sum: { quantityChange: true },
+          })
+        : Promise.resolve([]),
+      this.prisma.client.inventoryLedger.groupBy({
+        by: ['productId', 'type'],
+        where: windowWhere,
+        _sum: { quantityChange: true },
+      }),
+    ]);
+
+    const productIds = [...new Set([...windowed.map((g) => g.productId), ...opening.map((g) => g.productId)])];
+    const products = productIds.length
+      ? await this.prisma.client.product.findMany({
+          where: { id: { in: productIds } },
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            uom: { select: { code: true } },
+            category: { select: { id: true, name: true } },
+          },
+        })
+      : [];
+
+    const openingById = new Map<string, number>(
+      opening.map((g: any) => [g.productId, Number(g._sum.quantityChange ?? 0)]),
+    );
+    const windowById = new Map<string, { qty: number; value: number }>(
+      windowed.map((g: any) => [
+        g.productId,
+        { qty: Number(g._sum.quantityChange ?? 0), value: Number(g._sum.totalValue ?? 0) },
+      ]),
+    );
+    const inOutByProduct = new Map<string, { in: number; out: number }>();
+    for (const g of typed as any[]) {
+      const row = inOutByProduct.get(g.productId) ?? { in: 0, out: 0 };
+      const qty = Number(g._sum.quantityChange ?? 0);
+      if (InventoryQueryService.MOVEMENT_IN_TYPES.has(g.type)) {
+        row.in += qty;
+      } else if (qty >= 0) {
+        row.in += qty;
+      } else {
+        row.out += Math.abs(qty);
+      }
+      inOutByProduct.set(g.productId, row);
+    }
+
+    const rows = products.map((p) => {
+      const openingQty = openingById.get(p.id) ?? 0;
+      const win = windowById.get(p.id) ?? { qty: 0, value: 0 };
+      const io = inOutByProduct.get(p.id) ?? { in: 0, out: 0 };
+      return {
+        productId: p.id,
+        code: p.code,
+        name: p.name,
+        category: p.category?.name ?? null,
+        uom: p.uom?.code ?? null,
+        openingQty,
+        qtyIn: io.in,
+        qtyOut: io.out,
+        netQty: win.qty,
+        balance: openingQty + win.qty,
+        totalValue: win.value,
+      };
+    });
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+
+    const total = rows.length;
+    const data = rows.slice((page - 1) * pageSize, page * pageSize);
+    return { data, meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) } };
+  }
+
+  /**
    * Stock reconciliation: for every (product, variant, location) cell, compare
    * the three sources of on-hand truth and surface any that disagree:
    *   - cached   = StockItem.quantity           (what every read path uses)

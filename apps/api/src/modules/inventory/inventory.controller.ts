@@ -173,6 +173,35 @@ export class InventoryController {
     return this.queries.getMovementSummary(query);
   }
 
+  /**
+   * Item movement summary report — per item: Qty Before (opening), Qty In,
+   * Qty Out and Balance over the selected window. Optional filters: location,
+   * single item, product category, paging.
+   */
+  @Get('reports/item-movements')
+  @RequirePermissions(PERMISSIONS.inventory.read)
+  itemMovements(
+    @Query() query: {
+      start?: string;
+      end?: string;
+      locationId?: string;
+      productId?: string;
+      categoryId?: string;
+      page?: string;
+      pageSize?: string;
+    },
+  ) {
+    return this.queries.getItemMovementSummary({
+      start: query.start,
+      end: query.end,
+      locationId: query.locationId,
+      productId: query.productId,
+      categoryId: query.categoryId,
+      page: query.page != null ? Number(query.page) : undefined,
+      pageSize: query.pageSize != null ? Number(query.pageSize) : undefined,
+    });
+  }
+
   @Get('reports/reconciliation')
   @RequirePermissions(PERMISSIONS.inventory.read)
   reconciliation(
