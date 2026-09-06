@@ -24,7 +24,21 @@ export function usePosTablesStream() {
       try {
         const msg = JSON.parse(evt.data);
         if (msg.type === 'snapshot' && Array.isArray(msg.tables)) {
-          qc.setQueriesData({ queryKey: ['pos-tables'] }, msg.tables);
+          // A bare prefix match on ['pos-tables'] would ALSO overwrite the
+          // zone catalog (['pos-tables','zones']) with the tables array —
+          // rendering table names ("Table 1", "Bar Counter") on the Zones
+          // page until the 30s zone refetch restored them. Target only actual
+          // table-list queries: key[0]='pos-tables' and key[1] is the filter
+          // object (useTables) — never a string ('zones' | 'stats' | 'detail').
+          qc.setQueriesData(
+            {
+              predicate: (q) =>
+                q.queryKey[0] === 'pos-tables' &&
+                typeof q.queryKey[1] === 'object' &&
+                q.queryKey[1] !== null,
+            },
+            msg.tables,
+          );
           qc.setQueryData(['pos-tables', 'stats'], msg.stats);
         }
       } catch {
