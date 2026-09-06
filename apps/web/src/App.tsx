@@ -115,7 +115,6 @@ import { StockAdjustmentsPage } from '@/pages/inventory/StockAdjustmentsPage';
 import { StockTransfersPage } from '@/pages/inventory/StockTransfersPage';
 import { InventoryCountPage } from '@/pages/inventory/InventoryCountPage';
 import { InventoryReportsPage } from '@/pages/inventory/InventoryReportsPage';
-import { InventoryReportsPage } from '@/pages/inventory/InventoryReportsPage';
 import { BottleCountPage } from '@/pages/beverage/BottleCountPage';
 import { BeverageDashboardPage } from '@/pages/beverage/BeverageDashboardPage';
 import { RentalDashboardPage } from '@/pages/rental/RentalDashboardPage';
