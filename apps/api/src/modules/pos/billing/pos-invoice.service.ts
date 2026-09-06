@@ -1,6 +1,6 @@
 import { resolveTenderAccount } from '../../accounting/treasury/tender-account';
 import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
-import { assertPricingAuthority, discountedLines } from '../pricing-policy';
+import { assertPricingAuthority, currentPermissions, discountedLines } from '../pricing-policy';
 import { refundInvoice, type RefundOptions } from './refund-operation';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
@@ -566,6 +566,13 @@ export class PosInvoiceService {
       if (invoice.paymentMode === 'credit') throw new BadRequestException('Invoice is already settled on credit');
       if (Number(invoice.amountResidual) <= 0.001) throw new BadRequestException('Invoice is already settled');
 
+      // A-020: the direct endpoint historically skipped the walk-in guard the
+      // checkout path enforces — a WALKIN invoice must never enter AR.
+      const partner = await tx.partner.findFirst({ where: { id: invoice.partnerId, organizationId: orgId } });
+      if (!partner || partner.code === 'WALKIN') {
+        throw new BadRequestException('A credit sale needs a named customer — walk-in invoices cannot be settled on account');
+      }
+
       await this.assertCreditAllowed(invoice.partnerId, Number(invoice.amountResidual), tx);
       await tx.invoice.update({ where: { id: invoiceId }, data: { paymentMode: 'credit', settlementStatus: 'unsettled', settledBy: this.tenant.userId ?? null, version: { increment: 1 } } });
       const receipt = await this.createReceipt(tx, invoice, 'credit_issue_receipt', null);
@@ -596,7 +603,10 @@ export class PosInvoiceService {
 
   /** Write off the outstanding balance (Dr bad-debt / Cr AR). */
   async writeOff(invoiceId: string, dto: WriteOffDto) {
-    if (!this.tenant.permissions.includes('pos:write_off')) throw new BadRequestException('Write-off permission is required');
+    // A-030: re-read live roles instead of trusting the (possibly 12h-stale)
+    // POS-token claims — a revoked pos:write_off must bite immediately.
+    const perms = await currentPermissions(this as any, this.tenant.userId);
+    if (!perms.includes('pos:write_off')) throw new BadRequestException('Write-off permission is required');
     if (!dto.reason?.trim()) throw new BadRequestException('A reason is required to write off an invoice');
     const orgId = this.tenant.organizationId;
     return this.prisma.client.$transaction(async (tx: any) => {

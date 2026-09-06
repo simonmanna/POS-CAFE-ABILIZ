@@ -144,7 +144,10 @@ export function posSaleWhere(
     // accounting module and must never inflate POS figures.
     orderId: { not: null },
     status: { in: [...POS_SALE_STATUSES] },
-    createdAt: { gte: start, lte: end },
+    // A-031: bucket by the BUSINESS date (issueDate) — an offline sale keeps
+    // its original day even when it syncs later. createdAt would mis-date it
+    // to the sync day and disagree with the GL (postingDate == issueDate).
+    issueDate: { gte: start, lte: end },
     ...(f.waiterId ? { waiterId: f.waiterId } : {}),
     ...(f.tableId ? { tableId: f.tableId } : {}),
     ...(f.cashSessionId ? { cashSessionId: f.cashSessionId } : {}),
@@ -311,12 +314,12 @@ export class PosReportsService {
 
     const invoices = await this.prisma.client.invoice.findMany({
       where: posSaleWhere(organizationId, start, end, filters),
-      select: { totalAmount: true, createdAt: true },
+      select: { totalAmount: true, issueDate: true },
     });
 
     const buckets = new Array(24).fill(0).map((_, hour) => ({ hour, count: 0, total: dec(0) }));
     for (const d of invoices as any[]) {
-      const hour = new Date(d.createdAt).getHours();
+      const hour = new Date(d.issueDate).getHours(); // A-031: business hour
       if (hourFilter && !hourFilter.has(hour)) continue;
       buckets[hour].count += 1;
       buckets[hour].total = buckets[hour].total.plus(dec(d.totalAmount));
@@ -350,7 +353,7 @@ export class PosReportsService {
 
     const invoices = await this.prisma.client.invoice.findMany({
       where: posSaleWhere(organizationId, start, end, filters),
-      select: { id: true, subtotal: true, totalAmount: true, discountTotal: true, taxAmount: true, status: true, createdAt: true },
+      select: { id: true, subtotal: true, totalAmount: true, discountTotal: true, taxAmount: true, status: true, createdAt: true, issueDate: true },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -380,7 +383,7 @@ export class PosReportsService {
     const overall = fresh();
 
     for (const r of rows as any[]) {
-      const key = periodKey(new Date(r.createdAt));
+      const key = periodKey(new Date(r.issueDate ?? r.createdAt)); // A-031: business date
       const cur = grouped.get(key) ?? fresh();
       cur.gross = cur.gross.plus(dec(r.totalAmount));
       cur.net = cur.net.plus(dec(r.subtotal));
@@ -512,7 +515,7 @@ export class PosReportsService {
     const invGroups = await this.prisma.client.invoiceItem.groupBy({
       by: ['productId', 'menuItemId'],
       where: itemWhere,
-      _sum: { quantity: true, total: true },
+      _sum: { quantity: true, total: true, refundedQty: true },
     });
 
     type Row = { key: string; productId: string | null; menuItemId: string | null; quantity: Money; total: Money };
@@ -527,8 +530,14 @@ export class PosReportsService {
       const cur = merged.get(key) ?? { key, productId, menuItemId, quantity: dec(0), total: dec(0) };
       cur.productId = cur.productId ?? productId;
       cur.menuItemId = cur.menuItemId ?? menuItemId;
-      cur.quantity = cur.quantity.plus(dec(g._sum?.quantity ?? 0));
-      cur.total = cur.total.plus(dec(g._sum?.total ?? 0));
+      // A-031: NET of refunds — refundedQty is persisted per line by the refund
+      // operation, so returned goods no longer inflate top-item figures.
+      const refunded = dec(g._sum?.refundedQty ?? 0);
+      cur.quantity = cur.quantity.plus(dec(g._sum?.quantity ?? 0)).minus(refunded);
+      const unitAvg = dec(g._sum?.quantity ?? 0).gt(0)
+        ? dec(g._sum?.total ?? 0).dividedBy(dec(g._sum?.quantity ?? 0))
+        : dec(0);
+      cur.total = cur.total.plus(dec(g._sum?.total ?? 0)).minus(unitAvg.times(refunded));
       merged.set(key, cur);
     }
 
@@ -603,10 +612,10 @@ export class PosReportsService {
       orderNumber: inv.order?.orderNumber ?? '—',
       orderType: inv.order?.orderType ?? null,
       invoiceNumber: inv.invoiceNumber,
-      saleDate: inv.createdAt?.toISOString() ?? '',
+      saleDate: (inv.issueDate ?? inv.createdAt)?.toISOString() ?? '',
       // Kept for older consumers; the UI formats from `saleDate` so the time is
       // rendered in the READER's timezone, not the API host's.
-      time: new Date(inv.createdAt).toLocaleTimeString(),
+      time: new Date(inv.issueDate ?? inv.createdAt).toLocaleTimeString(),
       // Raw invoice subtotal (ex-tax, pre-discount) — matches the Daily/Weekly/
       // Monthly "Net revenue" definition. The previous subtotal+discount sum
       // matched no other report.
@@ -668,8 +677,8 @@ export class PosReportsService {
       invoiceNumber: inv.invoiceNumber,
       // The row had a clock time but no date, so a multi-day range showed a
       // column of times that could not be told apart. Both now ship.
-      saleDate: inv.createdAt?.toISOString() ?? '',
-      time: new Date(inv.createdAt).toLocaleTimeString(),
+      saleDate: (inv.issueDate ?? inv.createdAt)?.toISOString() ?? '',
+      time: new Date(inv.issueDate ?? inv.createdAt).toLocaleTimeString(),
       status: inv.status,
       amountRefunded: dec(inv.amountRefunded ?? 0).toFixed(2),
       salesAmount: dec(inv.totalAmount).toFixed(2),
@@ -750,16 +759,23 @@ export class PosReportsService {
       let cashRefunds = dec(0);
       let payIns = dec(0);
       let payOuts = dec(0);
+      let adjustments = dec(0);
       for (const m of s.movements ?? []) {
         const amt = dec(m.amount);
         if (m.movementType === 'sale') cashCollected = cashCollected.plus(amt);
         else if (m.movementType === 'refund') cashRefunds = cashRefunds.plus(amt);
         else if (m.movementType === 'pay_in') payIns = payIns.plus(amt);
         else if (m.movementType === 'pay_out') payOuts = payOuts.plus(amt);
+        // A-006: adjustments are part of the drawer. computeExpected and the
+        // close-time reconciliation both include them — omitting them here made
+        // this report disagree with the frozen Z on any shift that had one.
+        else if (m.movementType === 'adjustment') adjustments = adjustments.plus(amt);
       }
 
       const openingCash = dec(s.openingFloat);
-      const expectedCash = openingCash.plus(cashCollected).minus(cashRefunds).plus(payIns).minus(payOuts);
+      // A-006: same formula as CashSessionService.computeExpected —
+      // opening + sales + pay_in + adjustment − pay_out − refunds.
+      const expectedCash = openingCash.plus(cashCollected).minus(cashRefunds).plus(payIns).minus(payOuts).plus(adjustments);
       const actualCash = s.closingCounted != null ? dec(s.closingCounted) : null;
       const difference = actualCash != null ? actualCash.minus(expectedCash) : null;
 
@@ -783,6 +799,7 @@ export class PosReportsService {
         cashRefunds: cashRefunds.toFixed(2),
         payIns: payIns.toFixed(2),
         payOuts: payOuts.toFixed(2),
+        adjustments: adjustments.toFixed(2),
         expectedCash: expectedCash.toFixed(2),
         actualCash: actualCash?.toFixed(2) ?? null,
         difference: difference?.toFixed(2) ?? null,
@@ -854,7 +871,7 @@ export class PosReportsService {
       const orderType = inv.order?.orderType ?? null;
       const tableName = inv.order?.tableId ? (tableMap.get(inv.order.tableId) ?? null) : null;
       const waiterName = inv.waiterId ? (waiterMap.get(inv.waiterId) ?? null) : null;
-      const invoiceTime = new Date(inv.createdAt).toLocaleTimeString();
+      const invoiceTime = new Date(inv.issueDate ?? inv.createdAt).toLocaleTimeString();
       for (const it of inv.items ?? []) {
         rows.push({
           waiterName,
@@ -871,7 +888,7 @@ export class PosReportsService {
           // Line total incl. tax + line discount — identical definition to the
           // Items Report so per-line figures reconcile across the two tabs.
           total: dec(it.total).toFixed(2),
-          date: inv.createdAt?.toISOString() ?? '',
+          date: (inv.issueDate ?? inv.createdAt)?.toISOString() ?? '',
           time: invoiceTime,
         });
       }
@@ -1085,7 +1102,7 @@ export class PosReportsService {
     for (const inv of invoices as any[]) {
       const orderNumber = inv.order?.orderNumber ?? '—';
       const orderType = inv.order?.orderType ?? null;
-      const invoiceTime = new Date(inv.createdAt).toLocaleTimeString();
+      const invoiceTime = new Date(inv.issueDate ?? inv.createdAt).toLocaleTimeString();
       for (const it of inv.items ?? []) {
         const prod = it.productId ? productMap.get(it.productId) : null;
         const miCat = it.menuItemId ? menuItemMap.get(it.menuItemId)?.categoryName : null;
@@ -1113,7 +1130,7 @@ export class PosReportsService {
           orderNumber,
           orderType,
           invoiceNumber: inv.invoiceNumber,
-          saleDate: inv.createdAt?.toISOString() ?? '',
+          saleDate: (inv.issueDate ?? inv.createdAt)?.toISOString() ?? '',
           time: invoiceTime,
           item: it.description,
           unitPrice: dec(it.unitPrice).toFixed(2),

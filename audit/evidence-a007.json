@@ -1,0 +1,14 @@
+{
+  "changeManagerPasswordByPin": {
+    "status": 200,
+    "ok": true,
+    "body": ""
+  },
+  "rotationLogin": {
+    "success": true,
+    "sameUser": true
+  },
+  "restored": {
+    "status": 200
+  }
+}

@@ -58,7 +58,7 @@ interface CartState {
   addLine: (line: Omit<CartLine, 'lineId' | 'discountPercent'> & { discountPercent?: number }) => void;
   setQuantity: (lineId: string, qty: number) => void;
   /** Set line discount. amount is percent or fixed amount based on type. */
-  setDiscount: (lineId: string, amount: number, type?: DiscountType) => void;
+  setDiscount: (lineId: string, amount: number, type?: DiscountType, reason?: string) => void;
   /** Odoo-numpad "Price" mode — override a line's unit price directly. */
   setUnitPrice: (lineId: string, price: number) => void;
   /** P5 — assign a course to a line for fire/hold (undefined = uncoursed). */
@@ -178,7 +178,7 @@ export const useCartStore = create<CartState>()(
             .map((l) => (l.lineId === lineId ? { ...l, quantity: Math.max(0, qty) } : l))
             .filter((l) => l.quantity > 0),
         })),
-      setDiscount: (lineId, amount, type) =>
+      setDiscount: (lineId, amount, type, reason) =>
         set((state) => ({
           lines: state.lines.map((l) =>
             l.lineId === lineId
@@ -187,6 +187,9 @@ export const useCartStore = create<CartState>()(
                   discountPercent: type === 'fixed_amount' ? 0 : Math.max(0, Math.min(100, amount)),
                   discountType: type ?? 'percentage',
                   discountAmount: type === 'fixed_amount' ? Math.max(0, amount) : undefined,
+                  // A-002: line reasons are mandatory server-side; persist what
+                  // the dialog collected (clear when the discount is removed).
+                  discountReason: amount > 0 ? (reason ?? l.discountReason) : undefined,
                 }
               : l,
           ),

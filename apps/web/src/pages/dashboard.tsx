@@ -707,8 +707,14 @@ export function DashboardPage() {
 
         {/* ── Master data counts ── */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <SmallStat label="Partners" value={partners.data?.total} href="/partners" icon={Users} tone="from-sky-500 to-cyan-500" />
-          <SmallStat label="Products" value={products.data?.meta.total} href="/products" icon={Package} tone="from-cyan-500 to-teal-500" />
+          {/*
+            `meta` is optional-chained as well as `data`. The query cache is
+            persisted across reloads, so a payload written by an earlier build
+            can be restored with a shape this render never expected — and a
+            dashboard tile is not worth white-screening the page over.
+          */}
+          <SmallStat label="Partners" value={partners.data?.meta?.total} href="/partners" icon={Users} tone="from-sky-500 to-cyan-500" />
+          <SmallStat label="Products" value={products.data?.meta?.total} href="/products" icon={Package} tone="from-cyan-500 to-teal-500" />
           <SmallStat label="Open Invoices" value={kpi.data?.openInvoices} href="/invoices" icon={Receipt} tone="from-blue-500 to-sky-500" />
           <SmallStat label="Overdue" value={kpi.data?.overdueInvoices} href="/ar-aging" icon={AlertCircle} tone="from-rose-500 to-red-500" />
         </div>

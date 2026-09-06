@@ -1,6 +1,8 @@
 import { useAuthStore } from '@/stores/auth.store';
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
-// Per-line discount dialog. Updates the cart line's discount in the store.
+// Per-line discount dialog. Updates the cart line's discount + reason in the
+// store. The reason is REQUIRED for any line discount (A-002): the backend's
+// pricing policy rejects a discounted sale without one at quote/settle time.
 import React, { useEffect, useState } from 'react';
 import { Tag, Percent, DollarSign } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -13,24 +15,28 @@ interface Props {
   open: boolean;
   line: CartLine | null;
   onClose: () => void;
-  /** Receives a percent 0–100 and the discount type. */
-  onApply: (lineId: string, amount: number, type?: DiscountType) => void;
+  /** Receives the percent/fixed amount, the type, and the (required) reason. */
+  onApply: (lineId: string, amount: number, type: DiscountType, reason: string) => void;
 }
 
 const fmt = (n: number) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
+const COMMON_REASONS = ['Staff', 'Regular customer', 'Promotion', 'Damaged item', 'Price match'];
+
 export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApply }) => {
   const [mode, setMode] = useState<DiscountType>('percentage');
   const [value, setValue] = useState('');
+  const [reason, setReason] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (open && line) {
       setValue(String(line.discountPercent || ''));
       setMode(line.discountType ?? 'percentage');
+      setReason(line.discountReason ?? '');
       setErr(null);
     } else if (!open) {
-      setValue(''); setErr(null);
+      setValue(''); setReason(''); setErr(null);
     }
   }, [open, line?.lineId]);
 
@@ -40,7 +46,7 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
   const validPercent = Number.isFinite(num) && num >= 0 && num <= 100;
   const validFixed = Number.isFinite(num) && num >= 0;
   const valid = mode === 'percentage' ? validPercent : validFixed;
-  const requiresOverride = mode === 'percentage' ? num >= 10 : num >= 50000;
+  const requiresOverride = mode === 'percentage' ? num > 10 : num > 50000;
 
   const currentDisc = line.discountType === 'fixed_amount'
     ? (line.discountAmount ?? 0)
@@ -54,7 +60,7 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Tag className="h-4 w-4" /> Line discount</DialogTitle>
-          <DialogDescription>Discount a single item. ≥ 10% or {orgCur()} 50,000 needs a manager override.</DialogDescription>
+          <DialogDescription>Discount a single item. A reason is required; ≥10% or {orgCur()} 50,000 needs a manager override.</DialogDescription>
         </DialogHeader>
 
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -87,7 +93,7 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
         </div>
 
         <div>
-          <Label>{mode === 'percentage' ? 'Percent off (%)' : 'Amount off ({orgCur()})'}</Label>
+          <Label>{mode === 'percentage' ? 'Percent off (%)' : `Amount off (${orgCur()})`}</Label>
           <Input
             type="number"
             value={value}
@@ -96,6 +102,30 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
             className="text-right text-lg h-11 font-mono font-bold"
             autoFocus
           />
+        </div>
+
+        {/* A-002: the reason is mandatory — the server rejects a discounted
+            line without one, so collect it up front instead of failing the
+            sale at quote time with no way to fix it. */}
+        <div>
+          <Label>Reason (required)</Label>
+          <Input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Why is this line discounted?"
+          />
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            {COMMON_REASONS.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setReason(r)}
+                className="px-2 py-0.5 rounded-full border border-slate-200 bg-white text-[11px] font-semibold text-slate-600 hover:border-amber-400 hover:text-amber-700"
+              >
+                {r}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 text-sm">
@@ -111,7 +141,7 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
 
         {requiresOverride ? (
           <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2">
-            ⚠ This line discount requires a manager override.
+            ✓ This line discount requires a manager override at charge time.
           </div>
         ) : null}
 
@@ -122,7 +152,8 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
           <Button
             onClick={() => {
               if (!valid) { setErr(mode === 'percentage' ? 'Enter a percent between 0 and 100' : 'Enter a valid amount'); return; }
-              onApply(line.lineId, num, mode);
+              if (!reason.trim()) { setErr('A discount reason is required'); return; }
+              onApply(line.lineId, num, mode, reason.trim());
               onClose();
             }}
             style={{ background: '#f59e0b' }}

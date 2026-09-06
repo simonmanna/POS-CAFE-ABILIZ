@@ -221,7 +221,9 @@ export const PaymentDialog: React.FC<Props> = ({
     setTenderLabels((prev) => prev.filter((_, idx) => idx !== i));
   };
 
-  const canSettle = tenders.length > 0 && paid >= total - 0.01;
+  // A-019: match the backend's ε (1e-6) — the old 0.01 slack let a 1-cent-short
+  // tender through to the server, which then 400'd mid-payment.
+  const canSettle = tenders.length > 0 && paid >= total - 0.000001;
 
   const settle = async () => {
     if (!canSettle) return;

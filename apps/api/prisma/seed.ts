@@ -735,9 +735,12 @@ async function main(): Promise<void> {
       'inventory_doc:read', 'inventory_doc:create', 'inventory_doc:approve',
       'product:read', 'products.view', 'partner:read',
       'pos:read', 'pos:reports', 'pos:kds',
-      // Beverage Control — runs bottle counts + product setup. NOT beverage:approve
+      // A-103: a floor supervisor must be able to void an in-flight sale line
+      // (with manager-override approval still required for settled refunds).
+      'pos:void',
+      // Beverage Control - runs bottle counts + product setup. NOT beverage:approve
       // (segregation of duties: the person who counts cannot approve their own
-      // over-tolerance count — that stays with an Administrator/manager).
+      // over-tolerance count - that stays with an Administrator/manager).
       'beverage:read', 'beverage:count', 'beverage:setup',
     ];
     await prisma.role.upsert({

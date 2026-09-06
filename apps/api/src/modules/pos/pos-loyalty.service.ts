@@ -29,11 +29,15 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
-  BadRequestException, Injectable, NotFoundException,
+  BadRequestException, ForbiddenException, Injectable, NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { PostingService } from '../accounting/posting/posting.service';
+import { AccountDeterminationService } from '../accounting/posting/account-determination.service';
+import { SettingResolverService } from '../../kernel/settings/setting-resolver.service';
+import { resolveTenderAccount } from '../accounting/treasury/tender-account';
 
 @Injectable()
 export class PosLoyaltyService {
@@ -41,6 +45,9 @@ export class PosLoyaltyService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly audit: AuditService,
+    private readonly posting: PostingService,
+    private readonly determination: AccountDeterminationService,
+    private readonly settings: SettingResolverService,
   ) {}
 
   /* ====================== Loyalty program ====================== */
@@ -165,11 +172,51 @@ export class PosLoyaltyService {
     return { balance: Number(row.balance), expiresAt: row.expiresAt?.toISOString() ?? null };
   }
 
-  /** Issue store credit (gift card, refund-to-credit, promo bonus). */
-  async issueCredit(args: { partnerId: string; amount: number; source: string; expiresAt?: Date; notes?: string }): Promise<{ balance: number }> {
+  /**
+   * Issue store credit (gift card, promo bonus).
+   *
+   * A-001 remediation (audit POS-CAFE-PHASE14): minting spendable credit is a
+   * money-moving operation, so it must behave like one:
+   *   1. Capped by the `pos.storeCreditIssueLimit` org setting (default 0 =
+   *      manual issuance disabled — only refund-to-credit remains).
+   *   2. FUNDED: the caller must name a real funding account (cash/bank/expense)
+   *      whose GL is debited in the SAME transaction — credit can never appear
+   *      without a corresponding debit. Cash drawers are rejected as a funding
+   *      source (issuing credit is not a drawer operation).
+   *   3. Race-safe: the StoreCredit row is locked FOR UPDATE so concurrent
+   *      issues cannot lose updates.
+   *   4. Audited: an AuditLog row is written inside the same transaction.
+   * The `notes` argument no longer reaches the ledger row (that column does not
+   * exist — it previously 500'd with a PrismaClientValidationError, A-100);
+   * it is persisted on the StoreCredit row instead.
+   */
+  async issueCredit(args: {
+    partnerId: string;
+    amount: number;
+    source: string;
+    /** GL account the credit is funded from (cash/bank/expense). Required. */
+    fundingAccountId: string;
+    notes?: string;
+    expiresAt?: Date;
+  }): Promise<{ balance: number }> {
     const orgId = this.tenant.organizationId;
-    if (args.amount <= 0) throw new BadRequestException('Amount must be positive');
+    const amount = Number(args.amount);
+    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Amount must be positive');
+
+    // 1) Org-configured per-issue cap. 0 (default) disables manual issuance.
+    const cap = Number(await this.settings.resolve('pos.storeCreditIssueLimit') ?? 0);
+    if (!Number.isFinite(cap) || cap < 0) throw new BadRequestException('Store credit issue limit is misconfigured');
+    if (cap === 0) {
+      throw new ForbiddenException('Manual store-credit issuance is disabled. Credit is created by refunds to store credit, or ask an accountant to raise the pos.storeCreditIssueLimit setting.');
+    }
+    if (amount > cap) {
+      throw new BadRequestException(`Store credit issue exceeds the configured limit of ${cap.toLocaleString()}`);
+    }
+    if (!args.fundingAccountId) throw new BadRequestException('Choose the account funding this store credit');
+
     return this.prisma.client.$transaction(async (tx: any) => {
+      // 3) Serialize concurrent issues for the same customer.
+      await tx.$queryRawUnsafe('SELECT id FROM "StoreCredit" WHERE "organizationId" = $1 AND "partnerId" = $2 FOR UPDATE', orgId, args.partnerId);
       let row = await tx.storeCredit.findFirst({
         where: { organizationId: orgId, partnerId: args.partnerId, isActive: true },
       });
@@ -178,14 +225,52 @@ export class PosLoyaltyService {
           data: { organizationId: orgId, partnerId: args.partnerId, source: args.source, notes: args.notes },
         });
       }
-      const newBalance = Number(row.balance) + Number(args.amount);
-      await tx.storeCredit.update({ where: { id: row.id }, data: { balance: newBalance } });
+
+      // 2) Funding GL: Dr funding account / Cr store-credit liability —
+      //    same transaction, so an unfunded credit can never commit.
+      const { accountId: liabilityAccountId } = await resolveTenderAccount(tx, this.determination, orgId, { method: 'store_credit' });
+      const funding = await tx.account.findFirst({
+        where: { id: args.fundingAccountId, organizationId: orgId, isActive: true, deletedAt: null },
+        include: { category: true },
+      });
+      if (!funding) throw new BadRequestException('Funding account is inactive or unavailable');
+      const fundingCategory = funding.category?.key;
+      if (!['cash', 'petty_cash', 'bank', 'operating_expense', 'other_expense', 'current_asset'].includes(fundingCategory ?? '')) {
+        throw new BadRequestException('Store credit must be funded from a cash, bank or expense account');
+      }
+      if (fundingCategory === 'cash' || fundingCategory === 'petty_cash') {
+        // A drawer account may not fund credit: issuing credit is not a till
+        // operation, and crediting a drawer here would corrupt expected-cash.
+        const drawerRegister = await tx.cashRegister.findFirst({ where: { organizationId: orgId, defaultAccountId: funding.id, isActive: true, deletedAt: null } });
+        if (drawerRegister) throw new BadRequestException('Store credit cannot be funded from a cash drawer account. Use a bank or expense account.');
+      }
+      await this.posting.post({
+        journalCode: 'GEN',
+        date: new Date(),
+        description: `Store credit issued · ${args.source}${args.notes ? ` · ${args.notes}` : ''}`,
+        sourceType: 'store_credit_issue',
+        sourceId: row.id,
+        postingType: 'primary',
+        lines: [
+          { accountId: funding.id, debit: amount.toString(), description: `Store credit funding · ${funding.name}` },
+          { accountId: liabilityAccountId, credit: amount.toString(), description: 'Store credit issued' },
+        ],
+      } as any, tx);
+
+      const newBalance = Number(row.balance) + amount;
+      await tx.storeCredit.update({ where: { id: row.id }, data: { balance: newBalance, ...(args.notes ? { notes: args.notes } : {}) } });
       await tx.storeCreditLedger.create({
         data: {
           organizationId: orgId, storeCreditId: row.id,
-          delta: args.amount, balanceAfter: newBalance,
-          reason: args.source, notes: args.notes,
+          delta: amount, balanceAfter: newBalance,
+          reason: args.source,
         },
+      });
+
+      // 4) Audit trail, inside the same transaction.
+      await this.audit.recordInTx(tx, {
+        entity: 'StoreCredit', entityId: row.id, action: 'issue',
+        newValues: { partnerId: args.partnerId, amount, source: args.source, fundingAccountId: funding.id, notes: args.notes ?? null, balanceAfter: newBalance },
       });
       return { balance: newBalance };
     });

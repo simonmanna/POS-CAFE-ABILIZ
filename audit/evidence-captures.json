@@ -1,0 +1,421 @@
+[
+  {
+    "step": "sessions",
+    "at": "2026-09-05T08:53:54.058Z",
+    "adminUserId": "1fa767c0-061f-4f5c-a030-984f576d2ad7",
+    "cashierUserId": "756089ed-a4ad-4c04-b4cf-5c2c82798f58",
+    "adminToken": "Bearer eyJhbGciOiJI…"
+  },
+  {
+    "step": "cashier-me",
+    "at": "2026-09-05T08:53:54.066Z",
+    "permissions": [
+      "pos:read",
+      "pos:checkout",
+      "pos:hold",
+      "pos:discount",
+      "pos:void",
+      "pos:kds",
+      "cash_session:open",
+      "cash_session:read",
+      "cash_session:close",
+      "tables:view",
+      "tables:transfer",
+      "tables:edit",
+      "partner:read",
+      "partners.view",
+      "products.view",
+      "menu.view"
+    ]
+  },
+  {
+    "step": "a001-open-shift",
+    "at": "2026-09-05T08:53:54.153Z",
+    "httpStatus": 200,
+    "sessionId": "215fd393-b187-4c73-b118-a4750f200260"
+  },
+  {
+    "step": "a001-notes-crash",
+    "at": "2026-09-05T08:53:54.177Z",
+    "httpStatus": 500,
+    "prismaError": true
+  },
+  {
+    "step": "a001-mint",
+    "at": "2026-09-05T08:53:54.192Z",
+    "request": "POST /pos/loyalty/credit/issue {amount:100000}",
+    "response": {
+      "balance": 400000
+    },
+    "httpStatus": 201
+  },
+  {
+    "step": "a001-dbstate",
+    "at": "2026-09-05T08:53:54.330Z",
+    "storeCredit": [
+      {
+        "balance": "400000.000000",
+        "isActive": true
+      }
+    ],
+    "ledger": [
+      {
+        "delta": "100000.000000",
+        "balanceAfter": "400000.000000",
+        "reason": "cashier_test",
+        "documentId": null
+      },
+      {
+        "delta": "100000.000000",
+        "balanceAfter": "300000.000000",
+        "reason": "cashier_test",
+        "documentId": null
+      },
+      {
+        "delta": "100000.000000",
+        "balanceAfter": "200000.000000",
+        "reason": "cashier_test",
+        "documentId": null
+      }
+    ],
+    "glEntries": 2,
+    "loyaltyAuditRows": 0
+  },
+  {
+    "step": "a001-spend",
+    "at": "2026-09-05T08:53:55.064Z",
+    "request": "POST /pos/checkout store_credit 16000",
+    "response": {
+      "invoiceNumber": "INV-2026-000001",
+      "invoiceId": "2b0f20bf-8d8f-45cf-a9b3-5d51b0c1ce88",
+      "paymentIds": [
+        "5f1c6934-a958-4003-a249-8d262f9f09fc"
+      ]
+    },
+    "httpStatus": 200
+  },
+  {
+    "step": "a001-spend-db",
+    "at": "2026-09-05T08:53:55.209Z",
+    "invoice": {
+      "invoiceNumber": "INV-2026-000001",
+      "status": "paid",
+      "settlementStatus": "settled",
+      "totalAmount": "16000.000000",
+      "amountResidual": "0.000000"
+    },
+    "storeCreditBalanceAfter": 384000,
+    "cakeStockAfter": 50,
+    "glByAccount": [
+      {
+        "code": "1101",
+        "dr": "50000.000000",
+        "cr": "0.000000"
+      },
+      {
+        "code": "1200",
+        "dr": "500000.000000",
+        "cr": "50000.000000"
+      },
+      {
+        "code": "1300",
+        "dr": "16000.000000",
+        "cr": "16000.000000"
+      },
+      {
+        "code": "2350",
+        "dr": "16000.000000",
+        "cr": "0.000000"
+      },
+      {
+        "code": "3100",
+        "dr": "0.000000",
+        "cr": "500000.000000"
+      },
+      {
+        "code": "4100",
+        "dr": "0.000000",
+        "cr": "16000.000000"
+      }
+    ]
+  },
+  {
+    "step": "a001-audit",
+    "at": "2026-09-05T08:53:55.245Z",
+    "count": 20,
+    "rows": [
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:37:21.103Z"
+      },
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:37:21.229Z"
+      },
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:39:08.043Z"
+      },
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:40:06.752Z"
+      },
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:40:06.872Z"
+      },
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:47:01.419Z"
+      },
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:47:01.541Z"
+      },
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:52:49.314Z"
+      },
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:52:49.462Z"
+      },
+      {
+        "entity": "User",
+        "action": "login",
+        "createdAt": "2026-09-05T05:53:25.884Z"
+      }
+    ]
+  },
+  {
+    "step": "a002-quote",
+    "at": "2026-09-05T08:53:55.281Z",
+    "httpStatus": 201,
+    "response": {
+      "baseLines": [
+        {
+          "productId": "d2b0a419-8b85-4f62-a4a1-40d90774f4a5",
+          "menuItemId": null,
+          "description": "Audit Tea",
+          "quantity": 1,
+          "unitPrice": 3000,
+          "taxId": null,
+          "discountPercent": 10,
+          "discountType": "percentage",
+          "discountReason": null,
+          "note": null,
+          "taxInclusive": false,
+          "modifiers": [],
+          "accompanimentNames": [],
+          "accompanimentOptionIds": [],
+          "station": "cafe",
+          "course": null
+        }
+      ],
+      "pricingVersion": 1,
+      "subtotal": 2700,
+      "discountTotal": 300,
+      "taxAmount": 0,
+      "total": 2700,
+      "lines": [
+        {
+          "productId": "d2b0a419-8b85-4f62-a4a1-40d90774f4a5",
+          "menuItemId": null,
+          "variantId": null,
+          "variantName": null,
+          "accountId": null,
+          "description": "Audit Tea",
+          "quantity": "1",
+          "unitPrice": "3000",
+          "discountPercent": "10",
+          "discountType": "fixed_amount",
+          "discountAmount": "300",
+          "discountReason": null,
+          "discountSource": "manual",
+          "taxId": null,
+          "lineType": "product",
+          "subtotal": "2700",
+          "taxAmount": "0",
+          "total": "2700",
+          "lineNumber": 1,
+          "taxInclusive": false
+        }
+      ]
+    }
+  },
+  {
+    "step": "a002-checkout",
+    "at": "2026-09-05T08:53:55.336Z",
+    "httpStatus": 400,
+    "response": {
+      "message": "A discount reason is required",
+      "error": "Bad Request",
+      "statusCode": 400,
+      "safeToRetry": true
+    }
+  },
+  {
+    "step": "a002-control",
+    "at": "2026-09-05T08:53:55.789Z",
+    "httpStatus": 200,
+    "response": {
+      "invoiceNumber": "INV-2026-000002"
+    }
+  },
+  {
+    "step": "a003-lookup",
+    "at": "2026-09-05T08:53:55.811Z",
+    "isArray": true,
+    "bodyType": "object",
+    "body": [
+      {
+        "id": "d2b0a419-8b85-4f62-a4a1-40d90774f4a5",
+        "organizationId": "d86cfbc8-b114-4ef9-ae45-0ed4ebc4d207",
+        "code": "AUD-TEA",
+        "sku": null,
+        "barcode": null,
+        "name": "Audit Tea",
+        "description": null,
+        "image": null,
+        "productType": "stockable",
+        "costingMethod": "AVCO",
+        "categoryId": "74ea9ea8-6542-49f0-b76d-6c3b78cd664b",
+        "brandId": null,
+        "supplierId": null,
+        "uomId": null,
+        "purchaseUomId": null,
+        "uomConversion": "1",
+        "salesUomId": null,
+        "recipeUomId": null,
+        "productionUomId": null,
+        "manufacturingRole": null,
+        "allowFractionalSale": true,
+        "minSaleQty": null,
+        "maxSaleQty": null,
+        "taxId": null,
+        "salesPrice": "3000",
+        "costPrice": "1500",
+        "trackInventory": true,
+        "batchTracking": false,
+        "expiryTracking": false,
+        "serialTracking": false,
+        "pickingStrategy": "FEFO",
+        "hasVariants": false,
+        "incomeAccountOverrideId": null,
+        "expenseAccountOverrideId": null,
+        "inventoryAccountOverrideId": null,
+        "cogsAccountOverrideId": null,
+        "shrinkageAccountOverrideId": null,
+        "damageAccountOverrideId": null,
+        "expiryAccountOverrideId": null,
+        "varianceGainAccountOverrideId": null,
+        "reorderQty": "0",
+        "station": "cafe",
+        "minQuantity": "0",
+        "maxQuantity": "0",
+        "stockPolicy": "silent",
+        "taxInclusive": false,
+        "measurementMethod": "count",
+        "containerVolumeMl": null,
+        "emptyBottleWeightG": null,
+        "actualEmptyWeightG": null,
+        "fullBottleWeightG": null,
+        "liquidWeightG": null,
+        "conversionFactorMlPerG": null,
+        "standardPourMl": null,
+        "allowPartialBottle": true,
+        "varianceToleranceG": null,
+        "isRentable": false,
+        "rentalIsPooled": false,
+        "rentalDepositAmount": null,
+        "rentalReplacementCost": null,
+        "rentalLateFeePerPeriod": null,
+        "rentalDefaultPeriod": null,
+        "rentalMinPeriods": null,
+        "rentalMaxPeriods": null,
+        "rentalBufferDays": 0,
+        "rentalRequiresCleaning": false,
+        "isActive": true,
+        "customFields": {},
+        "createdAt": "2026-09-05T11:31:45.480Z",
+        "updatedAt": "2026-09-05T11:31:45.480Z",
+        "createdBy": null,
+        "updatedBy": null,
+        "deletedAt": null,
+        "stockItems": [
+          {
+            "id": "a95552eb-2c5c-4d3c-a1ac-a6139759037a",
+            "organizationId": "d86cfbc8-b114-4ef9-ae45-0ed4ebc4d207",
+            "productId": "d2b0a419-8b85-4f62-a4a1-40d90774f4a5",
+            "variantId": null,
+            "variantKey": "",
+            "locationId": "d6d51c75-6712-4cdf-84ea-713469fa105e",
+            "quantity": "100",
+            "runningAverageCost": "1500",
+            "createdAt": "2026-09-05T11:31:45.480Z",
+            "updatedAt": "2026-09-05T11:31:45.480Z"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "step": "a005-bruteforce",
+    "at": "2026-09-05T08:53:57.337Z",
+    "attempts": [
+      401,
+      401,
+      401,
+      401,
+      401,
+      401,
+      401,
+      401,
+      401,
+      401
+    ],
+    "lockoutCounter": 0,
+    "auditedFailures": 0
+  },
+  {
+    "step": "a005-good-pin",
+    "at": "2026-09-05T08:53:57.347Z",
+    "httpStatus": 429,
+    "unlocked": false
+  },
+  {
+    "step": "a006-adjustment",
+    "at": "2026-09-05T08:53:57.371Z",
+    "httpStatus": 403,
+    "response": {
+      "message": "This cash session belongs to a different cashier",
+      "error": "Forbidden",
+      "statusCode": 403,
+      "safeToRetry": true
+    }
+  },
+  {
+    "step": "a007-change-password",
+    "at": "2026-09-05T08:53:57.620Z",
+    "httpStatus": 200,
+    "response": ""
+  },
+  {
+    "step": "a007-rotation",
+    "at": "2026-09-05T08:53:57.993Z",
+    "loginWithNewPassword": {
+      "success": true,
+      "sameUser": true
+    },
+    "restored": 200
+  }
+]

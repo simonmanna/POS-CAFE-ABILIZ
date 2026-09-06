@@ -254,7 +254,7 @@ export function usePosChangePin() {
 
 export function usePosChangePassword() {
   return useMutation({
-    mutationFn: async (input: { currentPin: string; newPassword: string }) =>
+    mutationFn: async (input: { currentPassword: string; newPassword: string }) =>
       (await api.post('/pos/auth/change-password', input)).data,
   });
 }

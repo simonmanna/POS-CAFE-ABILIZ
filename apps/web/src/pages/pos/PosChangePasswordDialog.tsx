@@ -11,12 +11,12 @@ interface Props {
 }
 
 export function PosChangePasswordDialog({ open, onOpenChange }: Props) {
-  const [currentPin, setCurrentPin] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const changePassword = usePosChangePassword();
 
-  const reset = () => { setCurrentPin(''); setNewPassword(''); setConfirmPassword(''); };
+  const reset = () => { setCurrentPassword(''); setNewPassword(''); setConfirmPassword(''); };
 
   const handleOpenChange = (v: boolean) => {
     if (!v) reset();
@@ -24,11 +24,11 @@ export function PosChangePasswordDialog({ open, onOpenChange }: Props) {
   };
 
   const mismatch = newPassword !== confirmPassword;
-  const canSubmit = currentPin.length >= 4 && newPassword.length >= 8 && !mismatch;
+  const canSubmit = currentPassword.length >= 1 && newPassword.length >= 8 && !mismatch;
 
   const handleSubmit = async () => {
     try {
-      await changePassword.mutateAsync({ currentPin, newPassword });
+      await changePassword.mutateAsync({ currentPassword, newPassword });
       reset();
       onOpenChange(false);
     } catch {
@@ -41,19 +41,17 @@ export function PosChangePasswordDialog({ open, onOpenChange }: Props) {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Change Password</DialogTitle>
-          <DialogDescription>Use your current POS PIN to verify your identity, then set a new password.</DialogDescription>
+          <DialogDescription>Confirm with your current login password, then set a new one. Changing it signs other devices out.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="currentPin">Current PIN</Label>
+            <Label htmlFor="currentPassword">Current password</Label>
             <Input
-              id="currentPin"
+              id="currentPassword"
               type="password"
-              inputMode="numeric"
-              maxLength={8}
-              value={currentPin}
-              onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
-              placeholder="4-8 digits"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Your login password"
             />
           </div>
           <div className="space-y-1.5">

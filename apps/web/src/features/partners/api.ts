@@ -98,10 +98,19 @@ export function useCustomerStatement(partnerId: string | undefined) {
   });
 }
 
+/**
+ * Partner count for the dashboard tile.
+ *
+ * `/partners` is a BaseCrudService list route, so it answers `{ data, meta }`
+ * like every other list endpoint — the count is on `meta.total`, not at the top
+ * level. Typing it as `{ total: number }` made `data.total` permanently
+ * `undefined`, so the tile rendered blank without ever erroring.
+ */
 export function usePartnerStats() {
   return useQuery({
     queryKey: ['partners-stats'],
-    queryFn: async () => (await api.get<{ total: number }>('/partners', { params: { page: 1, pageSize: 1 } })).data,
+    queryFn: async () =>
+      (await api.get<PaginatedResult<Partner>>('/partners', { params: { page: 1, pageSize: 1 } })).data,
   });
 }
 

@@ -1,0 +1,224 @@
+{
+  "openShift": {
+    "status": 400
+  },
+  "mintWithNotes": {
+    "status": 500,
+    "ok": false,
+    "error": "PrismaClientValidationError",
+    "message": "Internal Server Error"
+  },
+  "mint": {
+    "status": 201,
+    "ok": true,
+    "body": {
+      "balance": 484000
+    }
+  },
+  "dbState": {
+    "storeCredit": [
+      {
+        "balance": "484000.000000",
+        "isActive": true
+      }
+    ],
+    "ledger": [
+      {
+        "delta": "100000.000000",
+        "balanceAfter": "484000.000000",
+        "reason": "cashier_test",
+        "documentId": null
+      },
+      {
+        "delta": "-16000.000000",
+        "balanceAfter": "384000.000000",
+        "reason": "sale",
+        "documentId": "5f1c6934-a958-4003-a249-8d262f9f09fc"
+      },
+      {
+        "delta": "100000.000000",
+        "balanceAfter": "400000.000000",
+        "reason": "cashier_test",
+        "documentId": null
+      }
+    ],
+    "glEntries": 8,
+    "loyaltyAuditRows": 0
+  },
+  "spendSale": {
+    "status": 400,
+    "ok": false
+  },
+  "auditRows": [
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:37:21.103Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:37:21.229Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:39:08.043Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:40:06.752Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:40:06.872Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:47:01.419Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:47:01.541Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:52:49.314Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:52:49.462Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:53:25.884Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:53:53.906Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:53:54.054Z"
+    },
+    {
+      "entity": "CashSession",
+      "action": "create",
+      "createdAt": "2026-09-05T05:53:54.145Z"
+    },
+    {
+      "entity": "Order",
+      "action": "create",
+      "createdAt": "2026-09-05T05:53:54.467Z"
+    },
+    {
+      "entity": "order",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:54.494Z"
+    },
+    {
+      "entity": "Order",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:54.502Z"
+    },
+    {
+      "entity": "order",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:54.670Z"
+    },
+    {
+      "entity": "Invoice",
+      "action": "post",
+      "createdAt": "2026-09-05T05:53:54.681Z"
+    },
+    {
+      "entity": "Payment",
+      "action": "create",
+      "createdAt": "2026-09-05T05:53:54.810Z"
+    },
+    {
+      "entity": "order",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:54.882Z"
+    },
+    {
+      "entity": "Order",
+      "action": "create",
+      "createdAt": "2026-09-05T05:53:55.437Z"
+    },
+    {
+      "entity": "order",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:55.459Z"
+    },
+    {
+      "entity": "Order",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:55.462Z"
+    },
+    {
+      "entity": "order",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:55.588Z"
+    },
+    {
+      "entity": "Invoice",
+      "action": "post",
+      "createdAt": "2026-09-05T05:53:55.600Z"
+    },
+    {
+      "entity": "Payment",
+      "action": "create",
+      "createdAt": "2026-09-05T05:53:55.672Z"
+    },
+    {
+      "entity": "order",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:55.709Z"
+    },
+    {
+      "entity": "User",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:57.617Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:53:57.775Z"
+    },
+    {
+      "entity": "User",
+      "action": "update",
+      "createdAt": "2026-09-05T05:53:57.992Z"
+    },
+    {
+      "entity": "StockItem",
+      "action": "issue",
+      "createdAt": "2026-09-05T05:54:00.100Z"
+    },
+    {
+      "entity": "StockItem",
+      "action": "issue",
+      "createdAt": "2026-09-05T05:54:00.153Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:55:10.906Z"
+    },
+    {
+      "entity": "User",
+      "action": "login",
+      "createdAt": "2026-09-05T05:55:11.070Z"
+    }
+  ]
+}

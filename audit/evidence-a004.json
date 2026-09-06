@@ -1,0 +1,8 @@
+{
+  "finding": "OfflineIndicator (mounts useOfflineQueue — health probe + auto-replay) is commented out of cafe Terminal.tsx:1341",
+  "staticEvidence": {
+    "terminal": "apps/web/src/pages/pos/Terminal.tsx:1341 // rightExtras={<OfflineIndicator />}",
+    "retail": "apps/web/src/pages/pos/RetailTerminal.tsx:661 (mounted)"
+  },
+  "repro": "Browser-level; not reproducible over API. Status carried from Phase 1/8 static evidence."
+}

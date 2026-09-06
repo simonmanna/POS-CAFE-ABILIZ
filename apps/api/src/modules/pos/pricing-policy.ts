@@ -31,7 +31,10 @@ export async function assertPricingAuthority(ctx: any, lines: any[], input: any)
     return Math.max(m, gross > 0 ? Number(l.discountAmount) / gross * 100 : 0);
   }, 0);
   if (max === 0) return 0;
-  const permissions: string[] = ctx.tenant.permissions ?? [];
+  // A-030: never trust the (up to 12h-stale) POS-token permission claims for a
+  // money decision — re-read the caller's CURRENT roles from the database, so
+  // a revoked pos:discount bites on the very next request.
+  const permissions = await currentPermissions(ctx, ctx.tenant.userId);
   const org = await ctx.prisma.raw.organization.findUnique({ where: { id: ctx.tenant.organizationId }, select: { settings: true } });
   const configured = Number((org?.settings as any)?.discountApproval?.tier1 ?? 10);
   const threshold = Number.isFinite(configured) ? Math.max(0, Math.min(100, configured)) : 10;
@@ -41,4 +44,22 @@ export async function assertPricingAuthority(ctx: any, lines: any[], input: any)
     await ctx.overrides.verifyOperationApproval(input.overrideById, input.overridePin, 'discount');
   }
   return max;
+}
+
+/**
+ * A-030 helper: resolve the caller's live permission set from their CURRENT
+ * roles. Falls back to the tenant-context claims only when the caller cannot
+ * be resolved (e.g. device-sync actor with no user row) — the sync plane
+ * intentionally carries an empty claim set, so that fallback stays closed.
+ */
+export async function currentPermissions(ctx: any, userId?: string | null): Promise<string[]> {
+  if (!userId) return [];
+  const user = await ctx.prisma.raw.user.findFirst({
+    where: { id: userId, isActive: true, deletedAt: null },
+    include: { roles: true },
+  });
+  if (!user) return [];
+  const perms = new Set<string>();
+  for (const role of user.roles ?? []) for (const p of role.permissions ?? []) perms.add(p);
+  return [...perms];
 }

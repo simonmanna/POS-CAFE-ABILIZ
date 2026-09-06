@@ -1,0 +1,89 @@
+{
+  "passed": 9,
+  "failed": 0,
+  "results": [
+    {
+      "check": "A-001: cashier mint → 403 (pos:override gate)",
+      "pass": true,
+      "detail": {
+        "httpStatus": 403,
+        "message": "Missing required permission(s): pos:override"
+      }
+    },
+    {
+      "check": "A-001: manager mint without funding → 400 (funding required)",
+      "pass": true,
+      "detail": {
+        "httpStatus": 400,
+        "message": "fundingAccountId must be a string"
+      }
+    },
+    {
+      "check": "A-001: funded mint with cap=0 → 403 (issuance disabled by default)",
+      "pass": true,
+      "detail": {
+        "httpStatus": 403,
+        "message": "Manual store-credit issuance is disabled. Credit is created by refunds to store credit, or ask an accountant to raise the pos.storeCreditIssueLimit setting."
+      }
+    },
+    {
+      "check": "A-001: cap setting raised",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "check": "A-001: funded mint within cap → 201",
+      "pass": true,
+      "detail": {
+        "httpStatus": 201,
+        "body": {
+          "balance": 494000
+        }
+      }
+    },
+    {
+      "check": "A-001: funding GL posted (Dr expense / Cr liability, balanced)",
+      "pass": true,
+      "detail": [
+        {
+          "entryNumber": "GEN/2026/00002",
+          "code": "2350",
+          "dr": "0.000000",
+          "cr": "10000.000000"
+        },
+        {
+          "entryNumber": "GEN/2026/00002",
+          "code": "5200",
+          "dr": "10000.000000",
+          "cr": "0.000000"
+        }
+      ]
+    },
+    {
+      "check": "A-001: AuditLog row written",
+      "pass": true,
+      "detail": [
+        {
+          "entity": "StoreCredit",
+          "action": "issue"
+        }
+      ]
+    },
+    {
+      "check": "A-001: balance moved by exactly the minted amount",
+      "pass": true,
+      "detail": {
+        "before": 484000,
+        "after": 494000
+      }
+    },
+    {
+      "check": "A-100: notes field accepted without PrismaClientValidationError",
+      "pass": true,
+      "detail": {
+        "httpStatus": 201
+      }
+    }
+  ],
+  "at": "2026-09-05T15:43:37.554Z"
+}

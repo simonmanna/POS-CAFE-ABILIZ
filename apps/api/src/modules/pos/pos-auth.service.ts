@@ -163,12 +163,21 @@ export class PosAuthService {
     this.events.publish('user.pos_pin_changed' as any, { userId, organizationId: user.organizationId, at: new Date().toISOString() });
   }
 
-  async changePassword(userId: string, currentPin: string, newPassword: string): Promise<void> {
+  /**
+   * Rotate the back-office password from the POS terminal.
+   *
+   * A-007 remediation: the caller's LOGIN PASSWORD is the required proof — a
+   * 4-digit PIN (shoulder-surfable, brute-forceable within the throttle) must
+   * no longer be sufficient to rotate the back-office credential and revoke
+   * refresh tokens. The PIN may still rotate itself via changePin.
+   */
+  async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
     const user = await this.prisma.client.user.findFirst({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
-    if (!user.pinHash) throw new BadRequestException('No POS PIN set. Ask a manager.');
-    const ok = await this.password.compare(currentPin, user.pinHash);
-    if (!ok) throw new BadRequestException('PIN is incorrect');
+    if (!currentPassword) throw new BadRequestException('Your current login password is required');
+    const ok = await this.password.compare(currentPassword, user.passwordHash);
+    if (!ok) throw new BadRequestException('Current password is incorrect');
+    if (currentPassword === newPassword) throw new BadRequestException('New password must be different from the current password');
     const hash = await this.password.hash(newPassword);
     await this.prisma.client.$transaction([
       this.prisma.client.user.update({
@@ -177,7 +186,7 @@ export class PosAuthService {
       }),
       this.prisma.client.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } }),
     ]);
-    await this.audit.record({ entity: 'User', entityId: userId, action: 'update', newValues: { passwordChanged: true } });
+    await this.audit.record({ entity: 'User', entityId: userId, action: 'update', newValues: { passwordChanged: true, via: 'pos' } });
     this.events.publish('user.password_changed' as any, { userId, organizationId: user.organizationId, at: new Date().toISOString() });
   }
 }

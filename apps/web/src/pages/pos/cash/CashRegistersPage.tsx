@@ -1,5 +1,4 @@
 import { useAccounts } from '@/features/accounting/api';
-import { usePaymentAccounts } from '@/features/pos/payment-accounts';
 import { ShiftOpenDialog as OpenShiftDialog } from '../ShiftOpenDialog';
 import { ShiftCloseDialog as CloseShiftDialog } from '../ShiftCloseDialog';
 import { useAuthStore } from '@/stores/auth.store';
@@ -14,7 +13,6 @@ const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR'
  *   - Cash in / Cash out
  *   - Shift close with variance
  *   - Variance explanation + approval
- *   - Banking deposit
  *   - Session history
  *   - Daily reconciliation report
  */
@@ -31,7 +29,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
   useCashRegisters, useDailyReconciliation,
-  useOpenSession, useRecordBankDeposit, useRecordMovement,
+  useOpenSession, useRecordMovement,
   useSessionHistory, useSessionMovements, useUpdateVariance,
 } from '../api';
 import { HandoverDialog } from '../HandoverDialog';
@@ -49,6 +47,8 @@ const fmt = (n: number | string | null | undefined) => (n == null ? '—' : `${o
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
 type Tab = 'register' | 'history' | 'reconciliation';
+
+const SHOW_CASH_MOVEMENTS = false;
 
 /* ==========================================================================
    Main Page
@@ -163,7 +163,6 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
   const [showOpenShift, setShowOpenShift] = useState(false);
   const [showCloseShift, setShowCloseShift] = useState(false);
   const [showHandover, setShowHandover] = useState(false);
-  const [showBankDeposit, setShowBankDeposit] = useState(false);
   const currentUserId = usePosAuthStore((s) => s.user?.userId);
   // The drawer's cash is usually carried to the bank after the Z-read, so the
   // last closed session still owns it. Until it is banked, its counted cash sits
@@ -171,7 +170,6 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
   const { data: recent } = useSessionHistory(1, 1, registerId);
   const lastClosed = (recent?.data ?? []).find((s: SessionHistoryItem) => s.status === 'closed') ?? null;
   const unbanked = lastClosed ? Number(lastClosed.closingCounted ?? 0) - Number(lastClosed.bankedAmount ?? 0) : 0;
-  const bankSessionId = thisSession?.id ?? (unbanked > 0 ? lastClosed!.id : null);
 
   // Refresh when dialogs close
   const handleSessionChange = () => {
@@ -196,13 +194,12 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
 
           {/* Actions */}
           <div className="flex gap-2 flex-wrap">
-          <CashInOutButton sessionId={thisSession.id} onDone={onSessionChange} direction="pay_in" />
-          <CashInOutButton sessionId={thisSession.id} onDone={onSessionChange} direction="pay_out" />
+            {SHOW_CASH_MOVEMENTS && (<>
+              <CashInOutButton sessionId={thisSession.id} onDone={onSessionChange} direction="pay_in" />
+              <CashInOutButton sessionId={thisSession.id} onDone={onSessionChange} direction="pay_out" />
+            </>)}
             <Button variant="outline" className="border-indigo-300 text-indigo-700" onClick={() => setShowHandover(true)}>
               <ArrowLeftRight className="h-4 w-4 mr-1" /> Handover
-            </Button>
-            <Button variant="outline" className="border-blue-300 text-blue-700" onClick={() => setShowBankDeposit(true)}>
-              <Banknote className="h-4 w-4 mr-1" /> Bank Deposit
             </Button>
             <Button variant="outline" className="border-rose-300 text-rose-700" onClick={() => setShowCloseShift(true)}>
               <LogOut className="h-4 w-4 mr-1" /> Close register
@@ -233,9 +230,6 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
                 <p className="font-semibold">{fmt(unbanked)} from the last session is still in the drawer</p>
                 <p className="text-amber-800">Bank it (or record the removal) before opening with a smaller float — the opening count cannot be below the drawer ledger.</p>
               </div>
-              <Button variant="outline" className="border-blue-300 text-blue-700 shrink-0" onClick={() => setShowBankDeposit(true)}>
-                <Banknote className="h-4 w-4 mr-1" /> Bank Deposit
-              </Button>
             </div>
           )}
 
@@ -257,14 +251,6 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
         onOpened={handleSessionChange}
         preselectedRegisterId={registerId}
       />
-      {bankSessionId && (
-        <BankDepositDialog
-          open={showBankDeposit}
-          sessionId={bankSessionId}
-          onClose={() => setShowBankDeposit(false)}
-          onDone={onSessionChange}
-        />
-      )}
       <CloseShiftDialog
         open={showCloseShift}
         session={thisSession}
@@ -293,7 +279,7 @@ const Power: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 /* ==========================================================================
-   Cash In / Cash Out Button + Dialog
+   Cash In / Cash Out Button + Dialog (hidden — enable via SHOW_CASH_MOVEMENTS)
    ========================================================================== */
 
 const CashInOutButton: React.FC<{
@@ -498,84 +484,6 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
         session={session}
         movements={movements}
       />
-    </div>
-  );
-};
-
-/* ==========================================================================
-   Open Shift Dialog (extended)
-   ========================================================================== */
-
-const BankDepositDialog: React.FC<{
-  open: boolean;
-  sessionId: string;
-  onClose: () => void;
-  onDone: () => void;
-}> = ({ open, sessionId, onClose, onDone }) => {
-  const [amount, setAmount] = useState('');
-  const [bankName, setBankName] = useState('');
-  const { data: accounts = [] } = usePaymentAccounts();
-  const [destinationAccountId, setDestinationAccountId] = useState('');
-  const [reference, setReference] = useState('');
-  const [err, setErr] = useState<string | null>(null);
-  const deposit = useRecordBankDeposit();
-
-  useEffect(() => {
-    if (open) { setAmount(''); setBankName(''); setReference(''); setErr(null); }
-  }, [open]);
-
-  if (!open) return null;
-
-  const submit = async () => {
-    setErr(null);
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) { setErr('Enter a valid amount'); return; }
-    if (!bankName.trim()) { setErr('Bank name is required'); return; }
-    try {
-      await deposit.mutateAsync({ sessionId, destinationAccountId, amount: amt, bankName: bankName.trim(), reference: reference.trim() || undefined });
-      toast.success('Bank deposit recorded');
-      onDone();
-      onClose();
-    } catch (e: any) {
-      setErr(e?.response?.data?.message || 'Failed to record bank deposit');
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold flex items-center gap-2">
-            <Banknote className="h-4 w-4 text-blue-600" /> Bank Deposit
-          </h2>
-          <button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button>
-        </div>
-
-        <div>
-          <Label>Amount ({orgCur()})</Label>
-          <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus />
-        </div>
-
-        <div>
-          <Label>Bank account</Label>
-          <select className="block w-full border rounded p-2" value={destinationAccountId} onChange={(e) => { setDestinationAccountId(e.target.value); setBankName(accounts.find((a) => a.id === e.target.value)?.name ?? ''); }}><option value="">Choose bank account</option>{accounts.filter((a) => a.accountType === 'bank').map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}</select>
-          <Input value={bankName} onChange={(e) => setBankName(e.target.value)} placeholder="e.g. Stanbic" />
-        </div>
-
-        <div>
-          <Label>Reference (optional)</Label>
-          <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. Deposit slip #123" />
-        </div>
-
-        {err && <p className="text-sm text-rose-600">{err}</p>}
-
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={submit} disabled={deposit.isPending} style={{ background: '#2563eb' }}>
-            {deposit.isPending ? 'Recording…' : 'Record Deposit'}
-          </Button>
-        </div>
-      </div>
     </div>
   );
 };

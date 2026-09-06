@@ -818,7 +818,18 @@ export class PosOrdersService {
       if (!Number.isFinite(finalUnitPrice) || finalUnitPrice < 0) throw new BadRequestException('Catalog price must be finite and non-negative');
       const taxId = catalog.taxId ?? null;
       const tax = taxId ? await this.prisma.client.tax.findFirst({ where: { id: taxId } }) : null;
-      const taxInclusive = menuItemId ? Boolean(tax?.isInclusive) : Boolean((catalog as any).taxInclusive);
+      // A-101: tri-state tax-inclusive resolution. The caller's line flag wins
+      // when present; otherwise the TAX ROW's own isInclusive decides; only
+      // when both are silent does the product's display default apply. The old
+      // `Boolean(product.taxInclusive)` overwrite defeated a Tax configured
+      // inclusive whenever the product flag was false — mis-pricing every such
+      // line exclusively (GT-07 live evidence).
+      const taxInclusive =
+        typeof l.taxInclusive === 'boolean'
+          ? l.taxInclusive
+          : typeof tax?.isInclusive === 'boolean'
+            ? tax.isInclusive
+            : Boolean((catalog as any).taxInclusive);
       const noteParts = [l.note, ...accompanimentNames.map((n) => `+ ${n}`), ...resolvedMods.map((m) => `+ ${m.name}`)].filter(Boolean);
       lines.push({
         productId,

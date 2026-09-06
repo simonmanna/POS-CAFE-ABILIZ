@@ -256,7 +256,14 @@ export class CashSessionService {
         await this.lockOpenSession(tx, session.id);
         if (session.status !== 'open') throw new BadRequestException('Session is not open');
 
+      // A-012: the client-asserted pendingSyncCount stays, but the SERVER now
+      // also counts unresolved offline ops (open dead letters in this org) —
+      // a cashier can no longer close over a device queue the server can see.
       if ((dto.pendingSyncCount ?? 0) > 0) throw new BadRequestException('Sync or resolve pending device operations before closing');
+      const openDeadLetters = await tx.syncOpDeadLetter.count({ where: { organizationId, status: 'open' } });
+      if (openDeadLetters > 0) {
+        throw new BadRequestException(`${openDeadLetters} unresolved offline operation(s) must be synced or resolved before closing this shift`);
+      }
       const reconciliation = await reconcileSession(tx, organizationId, session);
       if (reconciliation.unsettledOrders || reconciliation.pendingPayments || reconciliation.pendingPostings || reconciliation.issues.length) {
         throw new BadRequestException({ message: 'Resolve unsettled orders, payments and posting differences before closing', reconciliation });

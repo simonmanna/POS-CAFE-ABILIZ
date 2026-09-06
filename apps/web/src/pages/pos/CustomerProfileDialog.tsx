@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import { toast } from 'sonner';
 
 interface Props {
@@ -69,14 +70,21 @@ export const CustomerProfileDialog: React.FC<Props> = ({ open, partnerId, partne
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Redemption failed'),
   });
   const issueCredit = useMutation({
-    mutationFn: async (body: { amount: number; source: string }) => (await api.post('/pos/loyalty/credit/issue', { partnerId, ...body })).data,
+    // A-001: issuance is a manager-only, funded, capped operation. The cashier
+    // UI requires pos:override and a named funding account (bank/expense) —
+    // credit can never be minted out of thin air from the terminal.
+    mutationFn: async (body: { amount: number; source: string; fundingAccountId: string; notes?: string }) =>
+      (await api.post('/pos/loyalty/credit/issue', { partnerId, ...body })).data,
     onSuccess: (r: any) => {
       toast.success(`Issued ${fmt(body_credit_amount)} credit. New balance: ${fmt(r.balance)}`);
       qc.invalidateQueries({ queryKey: ['pos-credit', partnerId] });
       setCreditAmount('');
+      setCreditFunding('');
     },
     onError: (e: any) => toast.error(e?.response?.data?.message || 'Issuance failed'),
   });
+  const canIssueCredit = usePosAuthStore((s) => s.user?.permissions?.includes('pos:override') ?? false);
+  const [creditFunding, setCreditFunding] = useState('');
   const openTab = useMutation({
     mutationFn: async () => (await api.post('/pos/loyalty/tab/open', { partnerId })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-tab', partnerId] }),
@@ -173,21 +181,40 @@ export const CustomerProfileDialog: React.FC<Props> = ({ open, partnerId, partne
             </div>
             <div>
               <Label>Issue credit (gift card / promo / refund-to-credit)</Label>
-              <div className="flex gap-2">
-                <Input
-                  type="number"
-                  value={creditAmount}
-                  onChange={(e) => setCreditAmount(e.target.value)}
-                  placeholder="e.g. 10000"
-                />
-                <Button
-                  onClick={() => issueCredit.mutate({ amount: body_credit_amount, source: 'gift_card' })}
-                  disabled={issueCredit.isPending || !body_credit_amount}
-                  style={{ background: '#16a34a' }}
-                >
-                  <Plus className="h-4 w-4 mr-1" /> Issue
-                </Button>
-              </div>
+              {canIssueCredit ? (
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      value={creditAmount}
+                      onChange={(e) => setCreditAmount(e.target.value)}
+                      placeholder="e.g. 10000"
+                    />
+                    <Input
+                      value={creditFunding}
+                      onChange={(e) => setCreditFunding(e.target.value)}
+                      placeholder="Funding account id (bank/expense)"
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      onClick={() => issueCredit.mutate({ amount: body_credit_amount, source: 'gift_card', fundingAccountId: creditFunding.trim() })}
+                      disabled={issueCredit.isPending || !body_credit_amount || !creditFunding.trim()}
+                      style={{ background: '#16a34a' }}
+                    >
+                      <Plus className="h-4 w-4 mr-1" /> Issue
+                    </Button>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Manager override required. Credit is funded from a named bank/expense account
+                    and posts a funding journal — it can never be created without money behind it.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500 py-2">
+                  Issuing store credit requires manager authority (pos:override). Ask a manager,
+                  or refund a payment to store credit instead.
+                </p>
+              )}
             </div>
           </div>
         ) : null}

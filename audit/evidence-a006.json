@@ -1,0 +1,37 @@
+{
+  "adjustment": {
+    "status": 200,
+    "movementId": "10d0ec47-74b4-4f8c-98c8-db5e8c8b27f4",
+    "amount": 5000,
+    "movementType": "adjustment"
+  },
+  "ownerEnforcement": {
+    "note": "admin-as-caller 403-blocked (good control); movement posted by session-owner cashier with manager approval"
+  },
+  "reconciliationExpected": {
+    "sessionId": "215fd393-b187-4c73-b118-a4750f200260",
+    "expectedCash": "57700"
+  },
+  "cashierShiftSummary": [
+    {
+      "shift": "AUD-REG1 - Audit Till 1 · 05/09/2026 11:53",
+      "sessionId": "215fd393-b187-4c73-b118-a4750f200260",
+      "registerName": "AUD-REG1 - Audit Till 1",
+      "openedAt": "2026-09-05T08:53:54.102Z",
+      "closedAt": null,
+      "status": "open",
+      "cashierName": "Cashier Audit",
+      "openingCash": "50000.00",
+      "sales": "2700.00",
+      "cashSales": "2700.00",
+      "totalSales": "18700.00",
+      "saleCount": 2,
+      "cashRefunds": "0.00",
+      "payIns": "0.00",
+      "payOuts": "0.00",
+      "expectedCash": "52700.00",
+      "actualCash": null,
+      "difference": null
+    }
+  ]
+}

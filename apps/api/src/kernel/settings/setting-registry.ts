@@ -322,6 +322,21 @@ export const SETTING_DEFINITIONS = {
     cascades: false,
     scopeLevels: ORG_ONLY,
   },
+  // A-001 remediation: per-issue cap for manual store-credit issuance. 0 = the
+  // mint endpoint is fully disabled — the ONLY ways credit then enter the system
+  // are the refund-to-credit flow (backed by a real payment reversal) or an
+  // accountant's explicit funding journal. Enforced in PosLoyaltyService.issueCredit
+  // BEFORE any write.
+  'pos.storeCreditIssueLimit': {
+    key: 'pos.storeCreditIssueLimit',
+    group: 'accounting',
+    type: 'number',
+    label: 'Store Credit Issue Limit',
+    description: 'Maximum amount for a single manual store-credit issue. 0 disables manual issuance entirely.',
+    default: 0,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
 
   // ---- Rental Management --------------------------------------------------
   'rental.autoHoldMinutes': {

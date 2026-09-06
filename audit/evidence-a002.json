@@ -1,0 +1,71 @@
+{
+  "quoteWithLineDiscountNoReason": {
+    "status": 201,
+    "ok": true,
+    "body": {
+      "baseLines": [
+        {
+          "productId": "d2b0a419-8b85-4f62-a4a1-40d90774f4a5",
+          "menuItemId": null,
+          "description": "Audit Tea",
+          "quantity": 1,
+          "unitPrice": 3000,
+          "taxId": null,
+          "discountPercent": 10,
+          "discountType": "percentage",
+          "discountReason": null,
+          "note": null,
+          "taxInclusive": false,
+          "modifiers": [],
+          "accompanimentNames": [],
+          "accompanimentOptionIds": [],
+          "station": "cafe",
+          "course": null
+        }
+      ],
+      "pricingVersion": 1,
+      "subtotal": 2700,
+      "discountTotal": 300,
+      "taxAmount": 0,
+      "total": 2700,
+      "lines": [
+        {
+          "productId": "d2b0a419-8b85-4f62-a4a1-40d90774f4a5",
+          "menuItemId": null,
+          "variantId": null,
+          "variantName": null,
+          "accountId": null,
+          "description": "Audit Tea",
+          "quantity": "1",
+          "unitPrice": "3000",
+          "discountPercent": "10",
+          "discountType": "fixed_amount",
+          "discountAmount": "300",
+          "discountReason": null,
+          "discountSource": "manual",
+          "taxId": null,
+          "lineType": "product",
+          "subtotal": "2700",
+          "taxAmount": "0",
+          "total": "2700",
+          "lineNumber": 1,
+          "taxInclusive": false
+        }
+      ]
+    }
+  },
+  "checkoutWithLineDiscount": {
+    "status": 400,
+    "ok": false,
+    "body": {
+      "message": "Select an open register before completing any POS sale",
+      "error": "Bad Request",
+      "statusCode": 400,
+      "safeToRetry": true
+    }
+  },
+  "controlWithLineReason": {
+    "status": 400,
+    "ok": false
+  }
+}

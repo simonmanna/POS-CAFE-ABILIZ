@@ -25,7 +25,8 @@ class ChangePinDto {
 }
 
 class ChangePasswordDto {
-  @IsString() @Length(4, 8) currentPin!: string;
+  /** A-007: the current LOGIN PASSWORD (not the POS PIN) authorises rotation. */
+  @IsString() @MinLength(1) currentPassword!: string;
   @IsString() @MinLength(8) newPassword!: string;
 }
 
@@ -60,6 +61,6 @@ export class PosAuthController {
   @HttpCode(200)
   @RequirePermissions('pos:read')
   changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
-    return this.svc.changePassword(user.sub, dto.currentPin, dto.newPassword);
+    return this.svc.changePassword(user.sub, dto.currentPassword, dto.newPassword);
   }
 }

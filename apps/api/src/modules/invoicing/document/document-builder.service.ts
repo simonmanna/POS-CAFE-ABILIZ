@@ -148,11 +148,15 @@ export class DocumentBuilderService {
       const taxId = isMeta ? null : (l.taxId ?? product?.taxId ?? null);
       let taxRow: any = null;
       if (taxId) taxRow = await client.tax.findFirst({ where: { id: taxId } });
-      // P10: per-line taxInclusive override wins over product/tax default.
-      // Falls back to product.taxInclusive (if set), then Tax.isInclusive.
-      const taxInclusive = l.taxInclusive
-        ?? (product as any)?.taxInclusive
-        ?? (taxRow ? !!taxRow.isInclusive : false);
+      // P10 / A-101: per-line flag first, then the TAX row's own isInclusive,
+      // then the product display default. (Product flag previously outranked
+      // the tax row and silently forced exclusive pricing.)
+      const taxInclusive =
+        typeof l.taxInclusive === 'boolean'
+          ? l.taxInclusive
+          : taxRow
+            ? !!taxRow.isInclusive
+            : Boolean((product as any)?.taxInclusive);
       const result = this.tax.computeLine(
         afterDiscount,
         taxRow

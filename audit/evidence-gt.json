@@ -1,0 +1,530 @@
+{
+  "run": "1788623078684",
+  "orgId": "d86cfbc8-b114-4ef9-ae45-0ed4ebc4d207",
+  "passed": 46,
+  "failed": 5,
+  "results": [
+    {
+      "gt": "GT-01",
+      "check": "checkout 200",
+      "pass": true,
+      "detail": "INV-2026-000047"
+    },
+    {
+      "gt": "GT-01",
+      "check": "invoice settled",
+      "pass": true,
+      "detail": {
+        "invoiceNumber": "INV-2026-000047",
+        "status": "paid",
+        "settlementStatus": "settled",
+        "paymentMode": "cash",
+        "totalAmount": "6000.000000",
+        "amountPaid": "6000.000000",
+        "amountResidual": "0.000000",
+        "amountRefunded": "0.000000"
+      }
+    },
+    {
+      "gt": "GT-01",
+      "check": "payment→drawer acct 1101",
+      "pass": true,
+      "detail": [
+        "1101:6000.000000"
+      ]
+    },
+    {
+      "gt": "GT-01",
+      "check": "GL Dr1101=6000 / Cr1300=6000 / Cr4100=6000",
+      "pass": true,
+      "detail": [
+        {
+          "code": "1101",
+          "dr": "6000.000000",
+          "cr": "0.000000"
+        },
+        {
+          "code": "1300",
+          "dr": "6000.000000",
+          "cr": "6000.000000"
+        },
+        {
+          "code": "4100",
+          "dr": "0.000000",
+          "cr": "6000.000000"
+        }
+      ]
+    },
+    {
+      "gt": "GT-01",
+      "check": "drawer movement sale 6000",
+      "pass": true,
+      "detail": [
+        {
+          "movementType": "sale",
+          "amount": "6000.000000"
+        }
+      ]
+    },
+    {
+      "gt": "GT-01",
+      "check": "receipts (payment+merchant)",
+      "pass": true,
+      "detail": [
+        {
+          "type": "payment_receipt",
+          "receiptNumber": "RCT-000091"
+        },
+        {
+          "type": "merchant_copy",
+          "receiptNumber": "RCT-000092"
+        }
+      ]
+    },
+    {
+      "gt": "GT-01",
+      "check": "stock job done + ledger −2 tea",
+      "pass": true,
+      "detail": {
+        "job": "done",
+        "ledger": [
+          {
+            "type": "issue",
+            "quantityChange": "-2.000000",
+            "balanceAfter": "82.500000",
+            "referenceType": "pos_invoice"
+          }
+        ]
+      }
+    },
+    {
+      "gt": "GT-01",
+      "check": "order closed",
+      "pass": true,
+      "detail": {
+        "status": "closed",
+        "invoiceId": "a8615f1a-b477-44d6-8e89-7b3944624719"
+      }
+    },
+    {
+      "gt": "GT-02",
+      "check": "checkout 200",
+      "pass": true,
+      "detail": "INV-2026-000048"
+    },
+    {
+      "gt": "GT-02",
+      "check": "payment→MOMO-MTN(2110)",
+      "pass": true,
+      "detail": [
+        "2110:8000.000000"
+      ]
+    },
+    {
+      "gt": "GT-02",
+      "check": "no drawer movement (electronic)",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "gt": "GT-02",
+      "check": "GL Dr2110 / Cr4100",
+      "pass": true,
+      "detail": [
+        {
+          "code": "1300",
+          "dr": "8000.000000",
+          "cr": "8000.000000"
+        },
+        {
+          "code": "2110",
+          "dr": "8000.000000",
+          "cr": "0.000000"
+        },
+        {
+          "code": "4100",
+          "dr": "0.000000",
+          "cr": "8000.000000"
+        }
+      ]
+    },
+    {
+      "gt": "GT-03",
+      "check": "checkout 200",
+      "pass": true,
+      "detail": "INV-2026-000049"
+    },
+    {
+      "gt": "GT-03",
+      "check": "payment→MOMO-AIRTEL(2120)",
+      "pass": true,
+      "detail": [
+        "2120:8000.000000"
+      ]
+    },
+    {
+      "gt": "GT-03",
+      "check": "no drawer movement",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "gt": "GT-04",
+      "check": "checkout 200",
+      "pass": true,
+      "detail": "INV-2026-000050"
+    },
+    {
+      "gt": "GT-04",
+      "check": "payment→bank(1200)",
+      "pass": true,
+      "detail": [
+        "1200:8000.000000"
+      ]
+    },
+    {
+      "gt": "GT-04",
+      "check": "reference persisted",
+      "pass": true,
+      "detail": [
+        {
+          "reference": "AUD-TRF-001"
+        }
+      ]
+    },
+    {
+      "gt": "GT-05",
+      "check": "checkout 200",
+      "pass": true,
+      "detail": "INV-2026-000051"
+    },
+    {
+      "gt": "GT-05",
+      "check": "two payments 40k/60k on right accounts",
+      "pass": true,
+      "detail": [
+        "1101:40000.000000:inbound",
+        "2110:60000.000000:inbound"
+      ]
+    },
+    {
+      "gt": "GT-05",
+      "check": "allocations sum = 100,000",
+      "pass": true,
+      "detail": 100000
+    },
+    {
+      "gt": "GT-05",
+      "check": "paymentMode mixed",
+      "pass": true,
+      "detail": "mixed"
+    },
+    {
+      "gt": "GT-05",
+      "check": "drawer movement 40k only (MM no drawer)",
+      "pass": true,
+      "detail": [
+        {
+          "movementType": "sale",
+          "amount": "40000.000000"
+        }
+      ]
+    },
+    {
+      "gt": "GT-06",
+      "check": "checkout 200 (override honored)",
+      "pass": true,
+      "detail": "INV-2026-000052"
+    },
+    {
+      "gt": "GT-06",
+      "check": "total 10,200 & discountTotal 1,800",
+      "pass": true,
+      "detail": {
+        "total": "10200.000000"
+      }
+    },
+    {
+      "gt": "GT-06",
+      "check": "discount recorded",
+      "pass": true,
+      "detail": {
+        "discountTotal": "1800.000000"
+      }
+    },
+    {
+      "gt": "GT-06",
+      "check": "GL revenue credited net",
+      "pass": true,
+      "detail": [
+        {
+          "code": "1101",
+          "dr": "10200.000000",
+          "cr": "0.000000"
+        },
+        {
+          "code": "1300",
+          "dr": "10200.000000",
+          "cr": "10200.000000"
+        },
+        {
+          "code": "4100",
+          "dr": "0.000000",
+          "cr": "10200.000000"
+        }
+      ]
+    },
+    {
+      "gt": "GT-07",
+      "check": "checkout 200",
+      "pass": false,
+      "detail": "Tenders sum 10000 does not match amount due 11800"
+    },
+    {
+      "gt": "GT-08",
+      "check": "checkout 200 (decimal qty accepted)",
+      "pass": true,
+      "detail": "INV-2026-000053 expected 18500"
+    },
+    {
+      "gt": "GT-08",
+      "check": "total matches line math",
+      "pass": true,
+      "detail": {
+        "total": "18500.000000",
+        "expected": 18500
+      }
+    },
+    {
+      "gt": "GT-08",
+      "check": "decimal quantities persisted",
+      "pass": true,
+      "detail": [
+        {
+          "description": "Audit Tea",
+          "quantity": "1.500000"
+        },
+        {
+          "description": "Audit Cake",
+          "quantity": "0.500000"
+        },
+        {
+          "description": "Audit Service",
+          "quantity": "1.000000"
+        }
+      ]
+    },
+    {
+      "gt": "GT-09",
+      "check": "void 200",
+      "pass": false,
+      "detail": "Missing required permission(s): pos:void"
+    },
+    {
+      "gt": "GT-10",
+      "check": "refund 200",
+      "pass": true,
+      "detail": "refunded"
+    },
+    {
+      "gt": "GT-10",
+      "check": "cake restocked (42→43)",
+      "pass": true,
+      "detail": {
+        "before": 42,
+        "after": 43
+      }
+    },
+    {
+      "gt": "GT-10",
+      "check": "refund returned to MTN account (electronic to original)",
+      "pass": true,
+      "detail": [
+        {
+          "direction": "outbound",
+          "paymentMethod": "mobile_money",
+          "code": "2110"
+        }
+      ]
+    },
+    {
+      "gt": "GT-10",
+      "check": "PosRefund row + GL linked",
+      "pass": true,
+      "detail": [
+        {
+          "amount": "8000.000000",
+          "stockDisposition": "restock",
+          "journalEntryId": "9a92a0af-e65d-4164-84fe-da87f578609c"
+        }
+      ]
+    },
+    {
+      "gt": "GT-11",
+      "check": "partial refund 200",
+      "pass": true,
+      "detail": "partially_refunded"
+    },
+    {
+      "gt": "GT-11",
+      "check": "status partially_refunded, refunded=3,000",
+      "pass": true,
+      "detail": {
+        "status": "partially_refunded",
+        "amount": "3000"
+      }
+    },
+    {
+      "gt": "GT-11",
+      "check": "cash refund via drawer (1101)",
+      "pass": true,
+      "detail": {
+        "paymentNumber": "PV-2026-000013",
+        "direction": "outbound",
+        "paymentMethod": "cash",
+        "amount": "3000.000000",
+        "accountId": "0fa12090-8410-4696-98b0-4f72f1717745",
+        "refundedAmount": "0.000000",
+        "acct": "1101"
+      }
+    },
+    {
+      "gt": "GT-14",
+      "check": "same-key replay creates NO new invoice",
+      "pass": true,
+      "detail": {
+        "httpStatus": 200,
+        "invoicesBefore": 52,
+        "invoicesAfter": 52
+      }
+    },
+    {
+      "gt": "GT-14",
+      "check": "concurrent same-key → exactly ONE sale",
+      "pass": true,
+      "detail": {
+        "statuses": [
+          409,
+          200
+        ],
+        "invoices": 1
+      }
+    },
+    {
+      "gt": "GT-15",
+      "check": "both concurrent sales succeeded (never-block policy)",
+      "pass": true,
+      "detail": {
+        "statuses": [
+          200,
+          200
+        ]
+      }
+    },
+    {
+      "gt": "GT-15",
+      "check": "stock -46 → -46 (negative allowed by policy)",
+      "pass": false,
+      "detail": {
+        "before": -46,
+        "after": -46
+      }
+    },
+    {
+      "gt": "GT-15",
+      "check": "ledger rows arithmetically consistent; qtyBefore distinct=4 (F4-2 chain race observable if >1 among concurrent pair)",
+      "pass": true,
+      "detail": {
+        "distinctBefore": 4,
+        "lowLedger": [
+          {
+            "qtyBefore": "-48.000000",
+            "quantityChange": "-2.000000",
+            "balanceAfter": "-50.000000"
+          },
+          {
+            "qtyBefore": "-46.000000",
+            "quantityChange": "-2.000000",
+            "balanceAfter": "-48.000000"
+          },
+          {
+            "qtyBefore": "-44.000000",
+            "quantityChange": "-2.000000",
+            "balanceAfter": "-46.000000"
+          },
+          {
+            "qtyBefore": "-42.000000",
+            "quantityChange": "-2.000000",
+            "balanceAfter": "-44.000000"
+          }
+        ]
+      }
+    },
+    {
+      "gt": "GT-16",
+      "check": "print endpoint responds without mutating sale",
+      "pass": false,
+      "detail": {
+        "httpStatus": 403,
+        "invStatusStable": true
+      }
+    },
+    {
+      "gt": "GT-17",
+      "check": "client-retry-after-timeout ⇒ replay, single sale (covered by GT-14 same-key evidence)",
+      "pass": true,
+      "detail": {
+        "invoicesDelta": 0
+      }
+    },
+    {
+      "gt": "GT-18",
+      "check": "close 200",
+      "pass": true,
+      "detail": "50a0d788-3e3d-41b0-9db9-a7e994ee7049"
+    },
+    {
+      "gt": "GT-18",
+      "check": "expected=counted, variance 0",
+      "pass": true,
+      "detail": {
+        "closingExpected": "537100.000000",
+        "closingCounted": "537100.000000",
+        "closingDifference": "0.000000",
+        "varianceStatus": null,
+        "status": "closed"
+      }
+    },
+    {
+      "gt": "GT-18",
+      "check": "Z snapshot frozen",
+      "pass": true,
+      "detail": [
+        {
+          "kind": "z"
+        }
+      ]
+    },
+    {
+      "gt": "GT-18",
+      "check": "cashier summary retrieved (A-006 drift check on adjustment)",
+      "pass": true,
+      "detail": [
+        "537100.00",
+        "429400.00",
+        "396400.00",
+        "372400.00",
+        "151400.00"
+      ]
+    },
+    {
+      "gt": "GT-12",
+      "check": "device registered",
+      "pass": false,
+      "detail": [
+        "property label should not exist",
+        "name must be a string"
+      ]
+    }
+  ]
+}

@@ -303,7 +303,10 @@ export const OrderPanel: React.FC<Props> = ({
         <div className="pos-order-list min-h-0">
           {lines.map((it) => {
             const isCombo = Boolean(it.comboId);
-            const lineSub = it.quantity * it.unitPrice * (1 - it.discountPercent / 100);
+            // A-022: fixed-amount discounts must not display as a percentage off
+            const lineSub = it.discountType === 'fixed_amount'
+              ? it.quantity * it.unitPrice - (it.discountAmount ?? 0)
+              : it.quantity * it.unitPrice * (1 - it.discountPercent / 100);
             const isSel = it.lineId === selectedLineId;
             return (
               <div
@@ -320,7 +323,8 @@ export const OrderPanel: React.FC<Props> = ({
                     {isCombo ? <span className="pos-oline-combo">COMBO</span> : null}
                   </div>
                   <div className="pos-oline-sub">
-                    @ {fmt(it.unitPrice, false)}{it.discountPercent > 0 ? ` · −${it.discountPercent}%` : ""}
+                    @ {fmt(it.unitPrice, false)}
+                    {it.discountPercent > 0 ? ` · −${it.discountPercent}%` : it.discountType === 'fixed_amount' && (it.discountAmount ?? 0) > 0 ? ` · −${fmt(it.discountAmount!, false)} fixed` : ""}
                   </div>
                   {it.variantName && <div className="pos-oline-meta truncate">{it.variantName}</div>}
                   {it.accompanimentNames && it.accompanimentNames.length > 0 && (

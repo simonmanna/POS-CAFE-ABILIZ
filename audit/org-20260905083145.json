@@ -1,0 +1,76 @@
+{
+  "orgId": "d86cfbc8-b114-4ef9-ae45-0ed4ebc4d207",
+  "users": {
+    "admin": "1fa767c0-061f-4f5c-a030-984f576d2ad7",
+    "manager": "5b062eed-d8e4-4e95-8305-c8b0d3299830",
+    "supervisor": "50bb5d61-4edc-4554-897a-39757658c0b6",
+    "cashier": "756089ed-a4ad-4c04-b4cf-5c2c82798f58"
+  },
+  "roles": {
+    "admin": "b97d95ce-efb2-4da8-af17-3ea5df9e899b",
+    "manager": "0233f72f-3d57-4f3a-bc37-deac5478ad8b",
+    "cashier": "29a03070-b826-40a6-b278-ba1de755bb49",
+    "waiter": "06600109-83cc-408c-9734-95da62958fd3",
+    "supervisor": "e802d19f-3707-4a6f-8f1a-9919466b23d2",
+    "kitchen": "37508af0-036d-4c6e-a96d-ed5f7257fe34"
+  },
+  "accounts": {
+    "ar": "4974c146-d12b-48b0-9cf7-27c68368e2d2",
+    "revenue": "1e891274-a899-4cc2-ae9d-1c86f01e50cb",
+    "tax": "e0bd32c3-69a4-4e6f-8965-7e26152bda8d",
+    "cogs": "60b9b7ec-f0ca-4212-bcb6-9595d15b69cf",
+    "stockVal": "f5fcfbf4-76fc-4f2f-bf60-3ce1d7a78659",
+    "rounding": "9fc32a35-cb44-4557-b5bb-e838c51b720a",
+    "mmMtn": "29d67bb5-9baf-410b-8d8c-bb096de75fdc",
+    "mmAirtel": "9142c897-44b2-424e-a33f-d2d910178f41",
+    "bank": "14b5a533-df0c-4f3f-9396-8122cfdd3ec8",
+    "card": "a5c10f9b-0506-4130-830b-13aeb11317c3",
+    "storeCredit": "15367b35-282b-4b4f-956c-914af3149497",
+    "expense": "58ab77e2-6e25-49f9-8ea2-51d0828e4ddf",
+    "shortOver": "a2763be3-3dc1-4cd3-a169-c43ae89dc9fc",
+    "drawer": "0fa12090-8410-4696-98b0-4f72f1717745"
+  },
+  "productCategories": {
+    "main": "74ea9ea8-6542-49f0-b76d-6c3b78cd664b"
+  },
+  "products": {
+    "AUD-TEA": "d2b0a419-8b85-4f62-a4a1-40d90774f4a5",
+    "AUD-COFFEE": "92e8c7b1-234f-4902-8705-391bf3111005",
+    "AUD-CAKE": "0d3f9745-4aa8-478e-8d2f-efa0aa98bc0b",
+    "AUD-ZERO": "4c7b9921-2d16-4142-8ebc-c73e377dadec",
+    "AUD-LOW": "7fa1d2fe-e37a-4884-9794-803eba38e2e4",
+    "AUD-SVC": "bc8c64b0-abb3-4c0f-89b0-b72bcf993be6"
+  },
+  "tax": {
+    "vat18": "6722f7f8-be7c-45a2-bdc2-42f4229f5677"
+  },
+  "paymentMethods": {
+    "cash": "4f1ce201-9c38-4c52-aa7f-3a6e194d7765",
+    "momo_mtn": "d0a04a0f-bc58-4dd8-9d35-72a034729477",
+    "momo_airtel": "cf2017c8-6679-41ee-97c3-9f8e721da399",
+    "bank_main": "8d570fba-0653-4d74-a75e-ba4c7c454c49",
+    "card_main": "1954618a-ddbb-44aa-ab61-4fec33bf59db"
+  },
+  "register": {
+    "id": "0437944d-3fb1-48e7-b5b0-d1b477c13d00"
+  },
+  "warehouse": {
+    "id": "d6d51c75-6712-4cdf-84ea-713469fa105e"
+  },
+  "walkin": {
+    "id": "50d2cb89-3466-4697-a043-66e903f702db"
+  },
+  "pin": {
+    "admin": "2468",
+    "manager": "1357",
+    "supervisor": "9573",
+    "cashier": "8642"
+  },
+  "passwords": {
+    "admin": "Audit@123",
+    "manager": "Audit@123",
+    "supervisor": "Audit@123",
+    "cashier": "Audit@123"
+  },
+  "creditCustomer": "bf3bd5a5-4eb1-449f-b7cf-1ff03854af12"
+}
