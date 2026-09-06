@@ -266,6 +266,7 @@ const TerminalPage: React.FC = () => {
   } | null>(null);
   const canReprint = usePosAuthStore((s) => s.user?.permissions?.includes('pos:reports') ?? false);
   const canDeleteItem = usePosAuthStore((s) => s.user?.permissions?.includes('pos:delete_item') ?? false);
+  const canVoidItem = usePosAuthStore((s) => s.user?.permissions?.includes('pos:void') ?? false);
   /* pos:discount gates the numpad % mode + Disc/Discount buttons, and is reused
    * as the price-override right (no dedicated pos:price_override permission). */
   const canDiscount = usePosAuthStore((s) => s.user?.permissions?.includes('pos:discount') ?? false);
@@ -1574,7 +1575,7 @@ const TerminalPage: React.FC = () => {
               setKotLines(unprinted);
               setShowKotPreview(true);
             }}
-            onVoidItem={(line) => setVoidLine(line)}
+            onVoidItem={canVoidItem ? (line) => setVoidLine(line) : undefined}
             onMoveItems={() => setShowMoveItems(true)}
             onSettleTab={tableId ? handleSettleTab : undefined}
           />
@@ -1659,6 +1660,9 @@ const TerminalPage: React.FC = () => {
         line={voidLine}
         onClose={() => setVoidLine(null)}
         onConfirm={(lineId) => {
+          // A-016: the line is removed from the active cart. The reason is
+          // PIN-verified in the dialog; server-side per-line void reasons land
+          // with the A-016 batch (order-item voidReason column).
           removeLine(lineId);
           toast.success('Item voided');
         }}

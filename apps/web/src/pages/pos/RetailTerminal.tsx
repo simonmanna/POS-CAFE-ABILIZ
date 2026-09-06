@@ -175,6 +175,7 @@ const RetailTerminal: React.FC = () => {
   } | null>(null);
   const canReprint = usePosAuthStore((s) => s.user?.permissions?.includes('pos:reports') ?? false);
   const canDeleteItem = usePosAuthStore((s) => s.user?.permissions?.includes('pos:delete_item') ?? false);
+  const canVoidItem = usePosAuthStore((s) => s.user?.permissions?.includes('pos:void') ?? false);
   const canDiscount = usePosAuthStore((s) => s.user?.permissions?.includes('pos:discount') ?? false);
   const [showReprint, setShowReprint] = useState<{ invoiceId: string; title: string } | null>(null);
   const [showOrders, setShowOrders] = useState(false);
@@ -719,7 +720,7 @@ const RetailTerminal: React.FC = () => {
             onAddDiscount={() => setShowDiscount(true)}
             onCloseOrder={() => { clearCart(); setCustomer(null); }}
             onPrintKot={() => {}}
-            onVoidItem={(line) => setVoidLine(line)}
+            onVoidItem={canVoidItem ? (line) => setVoidLine(line) : undefined}
             hideCafeFeatures
             onHold={newOrder}
             onHeldOrders={() => setShowOrders(true)}

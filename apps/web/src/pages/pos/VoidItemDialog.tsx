@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, KeyRound } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,10 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { CartLine } from '@/features/pos/types';
+import { useVerifyPin } from './api';
 
 interface Props {
   open: boolean;
@@ -20,12 +23,28 @@ interface Props {
 
 export const VoidItemDialog: React.FC<Props> = ({ open, line, onClose, onConfirm }) => {
   const [reason, setReason] = useState('');
+  const [pin, setPin] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const verify = useVerifyPin();
 
   React.useEffect(() => {
-    if (!open) { setReason(''); }
+    if (!open) { setReason(''); setPin(''); setErr(null); }
   }, [open]);
 
   if (!line) return null;
+
+  const submit = async () => {
+    setErr(null);
+    if (!reason.trim()) { setErr('A reason is required'); return; }
+    if (!pin) { setErr('PIN is required'); return; }
+    try {
+      await verify.mutateAsync(pin);
+      onConfirm(line.lineId, reason.trim());
+      onClose();
+    } catch (e: any) {
+      setErr(e?.response?.data?.message || 'Invalid PIN');
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -41,7 +60,7 @@ export const VoidItemDialog: React.FC<Props> = ({ open, line, onClose, onConfirm
 
         <div className="space-y-3">
           <div className="text-xs text-slate-500">
-            A reason is required. This action is logged for audit.
+            A reason and your PIN are required to void this item.
           </div>
           <textarea
             autoFocus
@@ -50,14 +69,28 @@ export const VoidItemDialog: React.FC<Props> = ({ open, line, onClose, onConfirm
             placeholder="e.g. Customer changed mind, wrong item ordered…"
             className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm resize-none h-20"
           />
+          <div className="space-y-2 px-1 py-2">
+            <Label className="flex items-center gap-1">
+              <KeyRound className="h-3 w-3" /> Your PIN (4–8 digits)
+            </Label>
+            <Input
+              type="password"
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+              placeholder="••••"
+              maxLength={8}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+            />
+          </div>
+          {err ? <p className="text-sm text-rose-600">{err}</p> : null}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button
             variant="destructive"
-            disabled={!reason.trim()}
-            onClick={() => { onConfirm(line.lineId, reason.trim()); onClose(); }}
+            disabled={!reason.trim() || !pin || verify.isPending}
+            onClick={submit}
           >
             <AlertTriangle className="w-4 h-4 mr-1" /> Void Item
           </Button>

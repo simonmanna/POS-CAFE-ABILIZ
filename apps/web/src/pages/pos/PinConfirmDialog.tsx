@@ -47,7 +47,7 @@ export const PinConfirmDialog: React.FC<Props> = ({ open, title, description, on
           </DialogDescription>
         </DialogHeader>
 
-        <div>
+        <div className="space-y-2 px-1 py-2">
           <Label className="flex items-center gap-1">
             <KeyRound className="h-3 w-3" /> Your PIN (4–8 digits)
           </Label>
