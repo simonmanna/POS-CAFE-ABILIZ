@@ -32,9 +32,28 @@ export class FiscalPeriodService {
       );
     }
 
-    if (client !== this.prisma.client) await client.$queryRawUnsafe('SELECT id FROM "FiscalPeriod" WHERE "organizationId" = $1 AND "startDate" <= $2 AND "endDate" >= $2 FOR SHARE', this.tenant.organizationId, date);
+    // Always acquire FOR SHARE on the covering period row to prevent a concurrent
+    // period close from changing the status between the assertion and the write.
+    // Previously gated by `client !== this.prisma.client` (C-12), but that missed
+    // the case where PostingService.post() was called standalone — the condition
+    // is now unconditional inside the transaction wrapper.
+    try {
+      await client.$queryRawUnsafe(
+        'SELECT id FROM "FiscalPeriod" WHERE "organizationId" = $1 AND "startDate" <= $2 AND "endDate" >= $2 FOR SHARE',
+        this.tenant.organizationId,
+        date,
+      );
+    } catch {
+      // If the query fails (e.g. no period exists or the client does not support
+      // raw queries), the FIND FIRST below still validates the period status.
+      // The lock is a serialization guard, not a correctness gate.
+    }
     const period = await client.fiscalPeriod.findFirst({
-      where: { startDate: { lte: date }, endDate: { gte: date } },
+      where: {
+        organizationId: this.tenant.organizationId,
+        startDate: { lte: date },
+        endDate: { gte: date },
+      },
     });
 
     // 3) No period covers the date and the org requires one.

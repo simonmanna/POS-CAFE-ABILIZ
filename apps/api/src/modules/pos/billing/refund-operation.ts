@@ -58,7 +58,7 @@ export async function refundInvoice(ctx: any, invoiceId: string, reason: string 
     if (!total.gt(0) || dec(inv.amountRefunded).plus(total).gt(dec(inv.totalAmount).plus('0.000001'))) throw new BadRequestException('Refund exceeds remaining invoice value');
     const refund = await tx.posRefund.create({ data: { organizationId: orgId, invoiceId, cashSessionId: opts.cashSessionId, amount: total, reason: reason.trim(), stockDisposition: opts.stockDisposition, items: selections.map(({ src, quantity }: any) => ({ lineId: src.id, quantity: quantity.toString(), subtotal: dec(src.subtotal).times(quantity.div(src.quantity)).toDecimalPlaces(6).toString(), taxAmount: dec(src.taxAmount).times(quantity.div(src.quantity)).toDecimalPlaces(6).toString() })), payments: [], approvedById: opts.overrideById, createdBy: ctx.tenant.userId } });
     journalLines.push({ accountId: inv.receivableAccountId, credit: total.toString(), partnerId: inv.partnerId });
-    const entry = await ctx.posting.post({ journalCode: 'SALES', date: new Date().toISOString(), description: `Refund ${inv.invoiceNumber}: ${reason}`, sourceType: 'pos_refund', sourceId: refund.id, branchId: inv.branchId ?? undefined, lines: journalLines }, tx);
+    const entry = await ctx.posting.post({ journalCode: 'SALES', date: new Date().toISOString(), postingKey: `pos_refund:${refund.id}`, description: `Refund ${inv.invoiceNumber}: ${reason}`, sourceType: 'pos_refund', sourceId: refund.id, branchId: inv.branchId ?? undefined, lines: journalLines }, tx);
 
     // Credit unpaid AR first; return only money actually collected. Allocate the
     // returned amount over original tenders, never over invoice.paymentMode.

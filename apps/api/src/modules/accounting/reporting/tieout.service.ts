@@ -49,10 +49,10 @@ export class TieOutService {
 
     // 1) Find AR and AP control accounts.
     const arMapping = await this.prisma.client.accountMapping.findFirst({
-      where: { key: 'accounts_receivable' },
+      where: { key: 'accounts_receivable', organizationId },
     });
     const apMapping = await this.prisma.client.accountMapping.findFirst({
-      where: { key: 'accounts_payable' },
+      where: { key: 'accounts_payable', organizationId },
     });
     if (!arMapping || !apMapping) {
       this.logger.warn(`Org ${organizationId} missing AR/AP account mapping; skipping tie-out`);
@@ -60,40 +60,50 @@ export class TieOutService {
     }
 
     // 2) Sum GL AR/AP balances (debit-normal AR, credit-normal AP → absolute).
-    const arLines = await this.prisma.client.journalLine.groupBy({
-      by: ['accountId'],
-      where: {
-        accountId: arMapping.accountId,
-        entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } },
-      },
-      _sum: { baseDebit: true, baseCredit: true },
-    });
-    const apLines = await this.prisma.client.journalLine.groupBy({
-      by: ['accountId'],
-      where: {
-        accountId: apMapping.accountId,
-        entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } },
-      },
-      _sum: { baseDebit: true, baseCredit: true },
-    });
-    const arGl = (arLines as any[]).reduce(
+    const arStatements = [];
+    if (arMapping) {
+      const arLines = await this.prisma.client.journalLine.groupBy({
+        by: ['accountId'],
+        where: {
+          organizationId,
+          accountId: arMapping.accountId,
+          entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } },
+        },
+        _sum: { baseDebit: true, baseCredit: true },
+      });
+      arStatements.push(...(arLines as any[]));
+    }
+    const apStatements = [];
+    if (apMapping) {
+      const apLines = await this.prisma.client.journalLine.groupBy({
+        by: ['accountId'],
+        where: {
+          organizationId,
+          accountId: apMapping.accountId,
+          entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } },
+        },
+        _sum: { baseDebit: true, baseCredit: true },
+      });
+      apStatements.push(...(apLines as any[]));
+    }
+    const arGl = arStatements.reduce(
       (acc, g) => acc.plus(g._sum.baseDebit ?? 0).minus(g._sum.baseCredit ?? 0),
       ZERO,
     );
-    const apGl = (apLines as any[]).reduce(
+    const apGl = apStatements.reduce(
       (acc, g) => acc.plus(g._sum.baseCredit ?? 0).minus(g._sum.baseDebit ?? 0),
       ZERO,
     );
 
     // 3) Sum open invoice / bill residuals.
     const openInvoices = await this.prisma.client.document.findMany({
-      where: { documentType: 'sales_invoice', status: { in: ['posted', 'paid'] } },
+      where: { organizationId, documentType: 'sales_invoice', status: { in: ['posted', 'paid'] } },
       select: { amountResidual: true },
     });
     // R2: POS sales invoices live in the separate `Invoice` table but post AR to
     // the same control account, so include their residuals in the sub-ledger sum.
     const openPosInvoices = await this.prisma.client.invoice.findMany({
-      where: { status: { in: ['posted', 'paid'] } },
+      where: { organizationId, status: { in: ['posted', 'paid'] } },
       select: { amountResidual: true },
     });
     const arSub = [...(openInvoices as any[]), ...(openPosInvoices as any[])].reduce(
@@ -101,7 +111,7 @@ export class TieOutService {
       ZERO,
     );
     const openBills = await this.prisma.client.document.findMany({
-      where: { documentType: 'vendor_bill', status: { in: ['posted', 'paid'] } },
+      where: { organizationId, documentType: 'vendor_bill', status: { in: ['posted', 'paid'] } },
       select: { amountResidual: true },
     });
     const apSub = (openBills as any[]).reduce(

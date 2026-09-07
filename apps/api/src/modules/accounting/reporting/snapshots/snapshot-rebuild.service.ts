@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../kernel/prisma/prisma.service';
 import { BALANCE_AFFECTING_STATUSES } from '../../posting/posting.types';
 import { AccountResolverService } from '../../posting/account-resolver.service';
-import { displayBalance, isProfitAndLoss } from '../account-classification';
+import { displayBalance } from '../account-classification';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -61,7 +61,7 @@ export class SnapshotRebuildService {
 
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
+      where: { organizationId, entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
       _sum: { baseDebit: true, baseCredit: true },
     });
     if (grouped.length === 0) return;
@@ -102,7 +102,7 @@ export class SnapshotRebuildService {
 
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
+      where: { organizationId, entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
       _sum: { baseDebit: true, baseCredit: true },
     });
     const meta = await this.accounts.meta((grouped as any[]).map((g) => g.accountId));
@@ -160,7 +160,7 @@ export class SnapshotRebuildService {
 
     const grouped = await this.prisma.client.journalLine.groupBy({
       by: ['accountId'],
-      where: { entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
+      where: { organizationId, entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { lte: asOf } } },
       _sum: { baseDebit: true, baseCredit: true },
     });
     const accountIds = (grouped as any[]).map((g) => g.accountId);
@@ -174,8 +174,14 @@ export class SnapshotRebuildService {
       // Balance sheet accounts only — skip income/expense (those are P&L),
       // off-balance memo accounts, and group nodes (no category, hence no
       // classification; they cannot be posted to, so this is belt-and-braces).
+      // A live Balance Sheet includes current-year earnings (P&L accounts roll
+      // into the earnings line until the period is closed into Retained Earnings).
+      // The snapshot MUST mirror that: write P&L rows too so the snapshot reader
+      // accumulates the same `currentYearEarnings` the live path does. Skipping them
+      // (the pre-F-1 behaviour) made snapshot BS consistently drop current-year earnings,
+      // so a snapshot Balance Sheet disagreed with the live one until a period close ran.
       if (!acct.categoryId) continue;
-      if (isProfitAndLoss(acct.classification) || acct.classification === 'off_balance') continue;
+      if (acct.classification === 'off_balance') continue;
       const debit = new Prisma.Decimal(g._sum.baseDebit ?? 0);
       const credit = new Prisma.Decimal(g._sum.baseCredit ?? 0);
       // Persist the display balance so readers do not have to re-derive the sign.
@@ -207,6 +213,7 @@ export class SnapshotRebuildService {
 
     const bills = await this.prisma.client.document.findMany({
       where: {
+        organizationId,
         documentType: 'vendor_bill',
         status: { in: ['posted', 'paid'] },
         amountResidual: { gt: 0 },

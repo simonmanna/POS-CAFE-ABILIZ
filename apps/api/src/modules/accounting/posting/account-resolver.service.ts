@@ -131,7 +131,9 @@ export class AccountResolverService {
   }
 
   async byMappingOptional(key: string, client: any = this.prisma.client): Promise<string | null> {
-    const mapping = await client.accountMapping.findFirst({ where: { key } });
+    const mapping = await client.accountMapping.findFirst({
+      where: { key, organizationId: this.tenant.organizationId },
+    });
     return mapping?.accountId ?? null;
   }
 
@@ -225,9 +227,13 @@ export class AccountResolverService {
       if (mapped) return mapped;
     }
 
-    let account = await client.account.findFirst({ where: { code } });
+    let account = await client.account.findFirst({
+      where: { code, organizationId, deletedAt: null },
+    });
     if (!account) {
-      const category = await client.accountCategory.findFirst({ where: { key: def.categoryKey } });
+      const category = await client.accountCategory.findFirst({
+        where: { key: def.categoryKey },
+      });
       if (!category) {
         throw new BadRequestException(
           `Account category '${def.categoryKey}' is missing for this organization. ` +
@@ -287,7 +293,7 @@ export class AccountResolverService {
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.byId;
 
     const rows = await this.prisma.client.account.findMany({
-      where: { deletedAt: null },
+      where: { organizationId, deletedAt: null },
       include: { category: true },
     });
 

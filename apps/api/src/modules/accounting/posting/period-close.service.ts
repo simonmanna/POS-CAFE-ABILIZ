@@ -204,6 +204,7 @@ export class PeriodCloseService {
           description: `Closing of ${period.name}`,
           sourceType: 'period_close',
           sourceId: period.id,
+          postingKey: `period_close:${period.id}`,
           lines: closingLines.map((l, i) => ({
             accountId: l.accountId,
             debit: l.debit.toString(),
@@ -246,6 +247,86 @@ export class PeriodCloseService {
       });
 
       return { journalEntryId: entry.id, netIncome: netIncome.toString() };
+    });
+  }
+
+  /**
+   * Reopen a closed/locked period — a controlled, audited operation (C-02).
+   *
+   * A period that has been closed via `close()` also posted a closing entry that
+   * zeroed revenue/expense into Retained Earnings. Reopening must therefore:
+   *   1. Reverse that closing entry (so period P&L becomes live again), and
+   *   2. Flip status back to `open` and clear close/lock markers, and
+   *   3. Audit the reopen explicitly.
+   *
+   * Refuses to reopen if a prior closing entry on this period is already `posted`
+   * (it will be reversed before flipping). A `locked` period must first be unlocked
+   * explicitly by whoever owns the year-end close; we never silently flip a hard
+   * lock. `booksLockDate` is still enforced by PostingService.assertOpen at post
+   * time — reopening does NOT override a hard book lock.
+   *
+   * This is the ONLY sanctioned reopen path. The generic fiscal-period PATCH
+   * endpoint no longer mutates status/date after accounting activity (C-07).
+   */
+  async reopen(periodId: string): Promise<{ reopened: boolean }> {
+    const organizationId = this.tenant.organizationId;
+    return this.prisma.client.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT id FROM "FiscalPeriod" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE',
+        periodId,
+        organizationId,
+      );
+      const period = await tx.fiscalPeriod.findFirst({ where: { id: periodId, organizationId } });
+      if (!period) throw new NotFoundException('Fiscal period not found');
+
+      // Find any closing entry the previous `close()` posted for this period so it is
+      // reversed rather than left alongside reopened activity.
+      const closingEntry = await tx.journalEntry.findFirst({
+        where: {
+          organizationId,
+          sourceType: 'period_close',
+          ...(period.closedAt
+            ? { postingDate: { gte: period.startDate, lte: period.endDate } }
+            : { postingDate: { lte: period.endDate } }),
+        },
+        orderBy: { postingDate: 'desc' },
+        include: { lines: true },
+      });
+
+      // Reverse the closing entry if one exists and is still posted. This restores
+      // the period's P&L into the books so a reopened period is internally consistent.
+      if (closingEntry && closingEntry.status === 'posted') {
+        await this.posting.reverse(closingEntry.id, { description: `Reopen ${period.name}` }, tx);
+      }
+
+      await tx.fiscalPeriod.updateMany({
+        where: { id: period.id },
+        data: {
+          status: 'open',
+          closedAt: null,
+          closedBy: null,
+          lockedAt: null,
+        },
+      });
+
+      await this.audit.recordInTx(tx, {
+        entity: 'FiscalPeriod',
+        entityId: period.id,
+        action: 'update',
+        oldValues: { status: period.status },
+        newValues: {
+          status: 'open',
+          reversedClosingEntryId: closingEntry?.id ?? null,
+        },
+      });
+
+      this.events.publish('fiscal_period.reopened', {
+        organizationId,
+        periodId: period.id,
+        periodName: period.name,
+      });
+
+      return { reopened: true };
     });
   }
 

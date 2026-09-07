@@ -4,6 +4,7 @@ import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { ApiProperty } from '@nestjs/swagger';
 import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 
 class ActivityQuery {
   @ApiProperty({ required: false, default: 10, minimum: 1, maximum: 50 })
@@ -61,7 +62,7 @@ export class ReportsDashboardController {
         JOIN "AccountCategory" ac ON ac.id = a."categoryId"
         JOIN "JournalEntry" je ON je.id = jl."journalEntryId"
         WHERE jl."organizationId" = ${orgId}
-          AND je.status = 'posted'
+          AND je.status IN ('posted', 'reversed')
           AND ac."isCashEquivalent" = true
       `,
       this.aggSectionSince(orgId, ['revenue', 'other_income'], startOfMonth),
@@ -179,7 +180,7 @@ export class ReportsDashboardController {
       JOIN "AccountCategory" ac ON ac.id = a."categoryId"
       JOIN "JournalEntry" je ON je.id = jl."journalEntryId"
       WHERE jl."organizationId" = ${orgId}
-        AND je.status = 'posted'
+        AND je.status IN ('posted', 'reversed')
         AND je."postingDate" >= ${since}
         AND ac."reportSection"::text = ANY(${sections})
     `;

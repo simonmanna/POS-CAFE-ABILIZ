@@ -261,6 +261,7 @@ export class PaymentService {
             description: `${verb} ${paymentNumber} · ${partner.name}`,
             sourceType: 'payment',
             sourceId: payment.id,
+            postingKey: `payment:${payment.id}`,
             lines,
           },
           tx,

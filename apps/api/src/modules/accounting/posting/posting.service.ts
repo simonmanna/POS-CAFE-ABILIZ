@@ -315,6 +315,7 @@ export class PostingService {
     if (!journal) throw new BadRequestException(`Journal '${request.journalCode}' not found`);
 
     const date = new Date(request.date);
+    await this.fiscalPeriod.assertOpen(date, client);
     const org = await client.organization.findUnique({ where: { id: this.tenant.organizationId } });
     const baseCode = org?.currencyCode ?? 'USD';
     let rate = dec(request.exchangeRate ?? 1);
@@ -339,9 +340,12 @@ export class PostingService {
     }
     // Postability is category-aware now: group / inactive / deprecated accounts
     // are rejected, as are accounts whose category forbids manual posting.
-    // Entries produced by the engine itself pass `systemContext`.
+    // Manual entries (this path — doStageDraft) do NOT pass `systemContext`
+    // so they are blocked from posting to control accounts (AR, AP, tax,
+    // inventory — C-06). The system posting path (doPost) passes systemContext
+    // because it originates from a validated business document.
     for (const a of accounts as any[]) {
-      this.accounts.assertPostable(toMeta(a), { systemContext: true });
+      this.accounts.assertPostable(toMeta(a));
     }
 
     await this.applyRounding(lines, client);

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -74,7 +75,7 @@ export class FiscalPeriodCrudController {
     });
   }
 
-  /** Update a period's metadata (not close/lock — those are separate ops). */
+  /** Update a period's metadata (not close/lock/reopen — those are separate ops). */
   @Patch(':id')
   @RequirePermissions(PERMISSIONS.fiscalPeriod.update)
   async update(
@@ -83,6 +84,28 @@ export class FiscalPeriodCrudController {
   ) {
     const data: any = {};
     if (dto.name) data.name = dto.name;
+    // C-07: once a period carries posted journals, its date range is financially
+    // significant. Refuse to mutate start/end dates after accounting activity so a
+    // period cannot be stretched to absorb or relocate postings retroactively. The
+    // controlled period-close/reopen flow is the sanctioned path.
+    if (dto.startDate || dto.endDate) {
+      const count = await this.prisma.client.journalEntry.count({
+        where: {
+          organizationId: this.tenant.organizationId,
+          ...(dto.startDate
+            ? { postingDate: { gte: new Date(dto.startDate) } }
+            : {}),
+          ...(dto.endDate
+            ? { postingDate: { lte: new Date(dto.endDate) } }
+            : {}),
+        },
+      });
+      if (count > 0) {
+        throw new BadRequestException(
+          'This fiscal period (or date range) already has posted journals. Do not change period dates after accounting activity — reopen via the controlled period-close report instead.',
+        );
+      }
+    }
     if (dto.startDate) data.startDate = new Date(dto.startDate);
     if (dto.endDate) data.endDate = new Date(dto.endDate);
     const r = await this.prisma.client.fiscalPeriod.updateMany({
@@ -91,24 +114,5 @@ export class FiscalPeriodCrudController {
     });
     if (r.count === 0) throw new NotFoundException('Fiscal period not found');
     return { updated: true };
-  }
-
-  /** Reopen a closed/locked period (sets status back to 'open'). */
-  @Post(':id/reopen')
-  @RequirePermissions(PERMISSIONS.fiscalPeriod.update)
-  async reopen(@Param('id') id: string) {
-    const orgId = this.tenant.organizationId;
-    const period = await this.prisma.client.fiscalPeriod.findFirst({
-      where: { id, organizationId: orgId },
-    });
-    if (!period) throw new NotFoundException('Fiscal period not found');
-    if (period.status === 'open') {
-      return { reopened: true, status: 'open' };
-    }
-    await this.prisma.client.fiscalPeriod.updateMany({
-      where: { id },
-      data: { status: 'open', closedAt: null, closedBy: null, lockedAt: null },
-    });
-    return { reopened: true, status: 'open' };
   }
 }
