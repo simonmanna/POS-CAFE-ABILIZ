@@ -1285,7 +1285,20 @@ export class PosInvoiceService {
     if (status.creditHold) {
       throw new BadRequestException('This customer is on credit hold — new credit sales are blocked');
     }
-    if (status.creditLimit <= 0) return; // no limit configured
+    if (status.creditLimit <= 0) {
+      // Audit#2 N-05 — credit control used to FAIL OPEN here. `Partner.creditLimit`
+      // defaults to 0 and 0 was read as "unlimited", so every customer created
+      // in the back office carried unbounded credit and any cashier holding
+      // pos:checkout could put any amount on their account. An unset limit is
+      // not a decision to extend infinite credit; it is an absence of one.
+      //
+      // Orgs that genuinely run open accounts declare it once, deliberately.
+      const org = await this.prisma.raw.organization.findUnique({ where: { id: orgId }, select: { settings: true } });
+      if ((org?.settings as any)?.credit?.allowUnlimited === true) return;
+      throw new BadRequestException(
+        'This customer has no credit limit set, so they cannot buy on account. Set a credit limit on the customer first.',
+      );
+    }
     if (status.outstanding + amount > status.creditLimit + 0.01) {
       throw new BadRequestException(
         `Credit limit exceeded: outstanding ${status.outstanding} + ${amount} > limit ${status.creditLimit}`,

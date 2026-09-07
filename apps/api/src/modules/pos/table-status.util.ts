@@ -62,7 +62,7 @@ export async function recomputeTableStatus(
   const table = await tx.posTable.findFirst({ where: { id: tableId } });
   if (!table) return null;
   // Overrides win — these statuses are not driven by item count.
-  if (table.status === 'out_of_service' || table.status === 'reserved' || table.status === 'cleaning') {
+  if (table.status === 'out_of_service' || table.status === 'reserved') {
     return table.status;
   }
 
@@ -75,6 +75,18 @@ export async function recomputeTableStatus(
       },
     },
   });
+
+  // Audit#2 N-09 — `cleaning` used to short-circuit above, alongside the manual
+  // overrides, so the moment a table went dirty its status stopped being derived
+  // at all. Seat a new party on a cleaning table and it kept reading "cleaning"
+  // while holding a live order; have the busser mark it clean and it read
+  // "available" while holding one, and the host then met a 409 on a table the
+  // floor map showed as free.
+  //
+  // Cleaning is not an override — it is a state a table LEAVES when work
+  // arrives. Live items win; an empty dirty table stays dirty until someone
+  // clears it.
+  if (table.status === 'cleaning' && activeItems === 0) return 'cleaning';
 
   let next: 'available' | 'occupied' | 'cleaning' = activeItems > 0 ? 'occupied' : 'available';
   // Audit F-06 — a settled table needs bussing before the next party sits down.

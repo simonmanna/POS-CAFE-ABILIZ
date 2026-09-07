@@ -30,6 +30,18 @@ export interface PricingAuthority {
   maxDiscountPercent: number;
   /** The org's tier-1 approval threshold (`settings.discountApproval.tier1`). */
   threshold: number;
+  /** Total money discounted across the cart. */
+  discountAmount: number;
+  /**
+   * Audit#2 N-06 — the org's absolute-amount tier
+   * (`settings.discountApproval.tier1Amount`); 0 disables it.
+   *
+   * Percent alone is not a control on a large bill: 9% of a 5,000,000 UGX
+   * banquet is 450,000 given away under a 10% threshold with nobody asked. The
+   * pre-remediation terminal did carry a hardcoded 50,000 amount prompt; F-03
+   * removed it without giving the server an equivalent, so the cap disappeared.
+   */
+  thresholdAmount: number;
   /** True when a discount is present but no reason has been supplied for it. */
   requiresReason: boolean;
   /** True when this cashier cannot authorise this discount on their own. */
@@ -61,6 +73,7 @@ export async function evaluatePricingAuthority(ctx: any, lines: any[], input: an
   if (maxDiscountPercent === 0) {
     return {
       maxDiscountPercent: 0, threshold: DEFAULT_DISCOUNT_TIER1,
+      discountAmount: 0, thresholdAmount: 0,
       requiresReason: false, requiresApproval: false, hasDiscountPermission: true,
     };
   }
@@ -71,6 +84,8 @@ export async function evaluatePricingAuthority(ctx: any, lines: any[], input: an
   const permissions = await currentPermissions(ctx, ctx.tenant.userId);
   const org = await ctx.prisma.raw.organization.findUnique({ where: { id: ctx.tenant.organizationId }, select: { settings: true } });
   const threshold = resolveDiscountThreshold((org?.settings as any)?.discountApproval?.tier1);
+  const thresholdAmount = resolveDiscountAmountThreshold((org?.settings as any)?.discountApproval?.tier1Amount);
+  const discountAmount = discounted.reduce((sum, l) => sum + Number(l.discountAmount ?? 0), 0);
 
   const hasDiscountPermission = permissions.includes('pos:discount');
   // An order-level discount always needs its own reason; a line discount is
@@ -78,13 +93,30 @@ export async function evaluatePricingAuthority(ctx: any, lines: any[], input: an
   const orderDiscount = Number(input.transactionDiscountPercent || input.transactionDiscountAmount) > 0;
   const everyLineReasoned = lines.every((l) => !(Number(l.discountPercent) || Number(l.discountAmount)) || l.discountReason?.trim());
   const requiresReason = !input.discountReason?.trim() && (orderDiscount || !everyLineReasoned);
-  const requiresApproval = !hasDiscountPermission || maxDiscountPercent > threshold;
+  const requiresApproval = !hasDiscountPermission
+    || maxDiscountPercent > threshold
+    || (thresholdAmount > 0 && discountAmount > thresholdAmount);
 
-  return { maxDiscountPercent, threshold, requiresReason, requiresApproval, hasDiscountPermission };
+  return {
+    maxDiscountPercent, threshold, discountAmount, thresholdAmount,
+    requiresReason, requiresApproval, hasDiscountPermission,
+  };
 }
 
 /** Fallback when an org has not configured `discountApproval.tier1`. */
 export const DEFAULT_DISCOUNT_TIER1 = 10;
+
+/**
+ * Default for the absolute-amount tier. 0 = disabled, which keeps every existing
+ * org behaving exactly as it does today until someone sets a figure.
+ */
+export const DEFAULT_DISCOUNT_TIER1_AMOUNT = 0;
+
+/** The org's absolute-amount threshold, clamped and defaulted. */
+export function resolveDiscountAmountThreshold(configured: unknown): number {
+  const n = Number(configured ?? DEFAULT_DISCOUNT_TIER1_AMOUNT);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_DISCOUNT_TIER1_AMOUNT;
+}
 
 /** The org's tier-1 threshold, clamped and defaulted. One reader, one rule. */
 export function resolveDiscountThreshold(configured: unknown): number {

@@ -193,6 +193,11 @@ class SaveTabDto {
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() guestCount?: number;
   @ApiProperty({ required: false, description: 'H2: optimistic-lock token from the last tab read; rejects a stale overwrite (409).' })
   @IsOptional() @IsNumber() expectedVersion?: number;
+  @ApiProperty({ required: false, description: 'Audit#2 N-02: why the cart was cleared. Required when the kitchen already holds food on this order.' })
+  @IsOptional() @IsString() cancelReason?: string;
+  @ApiProperty({ required: false, description: 'Manager approving the cancellation of an order the kitchen has already cooked.' })
+  @IsOptional() @IsString() overrideById?: string;
+  @IsOptional() @IsString() overridePin?: string;
 }
 
 class SettleTabDto {
@@ -325,9 +330,22 @@ export class PosController {
     return this.svc.getTab(tableId);
   }
 
-  /** Add a round of items to a table's tab (creates the tab on the first round). */
+  /**
+   * Add a round of items to a table's tab (creates the tab on the first round).
+   *
+   * Audit#2 N-01 — this APPENDS, so running it twice charges the round twice and
+   * sends the kitchen a second ticket. It carried no idempotency at all, while
+   * `offline-queue.ts` contains an `enqueueTabRound` helper built to REPLAY
+   * exactly this endpoint (and `replayAll` duly sends an `Idempotency-Key` the
+   * server was ignoring). That helper has no callers today, so nothing was
+   * double-charging — but it is a loaded trap for whoever wires it up, and the
+   * replay path keeps a request queued precisely in the network/5xx cases where
+   * the server may already have committed. Protected now, before it is used.
+   */
   @Post('tabs/:tableId/items')
   @RequirePermissions('pos:checkout')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent({ required: true })
   addToTab(@Param('tableId') tableId: string, @Body() dto: AddToTabDto) {
     return this.svc.addToTab({ tableId, ...dto });
   }

@@ -361,6 +361,10 @@ export const PERMISSIONS = {
     discount: 'pos:discount',         // apply > 0% discount without override
     priceOverride: 'pos:price_override', // set a line price away from the catalogue
     void: 'pos:void',                 // void a line or a sale
+    // Audit#2 N-05: hand goods over on a house account. A different decision
+    // from taking money, so it is a different right — it used to ride on
+    // pos:checkout while credit control itself failed open at limit 0.
+    credit: 'pos:credit',
     writeOff: 'pos:write_off',        // write off an uncollectable POS invoice
     override: 'pos:override',         // approve a manager override (PIN)
     reports: 'pos:reports',           // X/Z + sales analytics

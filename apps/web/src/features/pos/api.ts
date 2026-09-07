@@ -233,7 +233,7 @@ export function usePosSettings() {
       posMode?: string;
       sharedDrawer?: boolean;
       /** F-03: the ONE discount-approval threshold. Never hardcode it again. */
-      discountApproval?: { tier1: number };
+      discountApproval?: { tier1: number; tier1Amount?: number };
     }>('/pos/settings')).data,
     staleTime: 60_000,
   });

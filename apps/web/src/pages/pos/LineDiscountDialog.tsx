@@ -17,13 +17,19 @@ interface Props {
   onClose: () => void;
   /** Receives the percent/fixed amount, the type, and the (required) reason. */
   onApply: (lineId: string, amount: number, type: DiscountType, reason: string) => void;
+  /**
+   * Audit#2 N-03 — served by GET /pos/settings. Was hardcoded to 10% / 50,000,
+   * which disagreed with the org's configured value AND with DiscountDialog
+   * (which used >= where this used >).
+   */
+  thresholdPercent: number;
 }
 
 const fmt = (n: number) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
 const COMMON_REASONS = ['Staff', 'Regular customer', 'Promotion', 'Damaged item', 'Price match'];
 
-export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApply }) => {
+export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApply, thresholdPercent }) => {
   const [mode, setMode] = useState<DiscountType>('percentage');
   const [value, setValue] = useState('');
   const [reason, setReason] = useState('');
@@ -46,7 +52,11 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
   const validPercent = Number.isFinite(num) && num >= 0 && num <= 100;
   const validFixed = Number.isFinite(num) && num >= 0;
   const valid = mode === 'percentage' ? validPercent : validFixed;
-  const requiresOverride = mode === 'percentage' ? num > 10 : num > 50000;
+  // Judged as a percentage of the line's GROSS, which is the denominator
+  // evaluatePricingAuthority uses (discountAmount / (quantity * unitPrice)).
+  const lineGross = line.quantity * line.unitPrice;
+  const asPercent = mode === 'fixed_amount' ? (lineGross > 0 ? (num / lineGross) * 100 : 0) : num;
+  const requiresOverride = num > 0 && asPercent > thresholdPercent;
 
   const currentDisc = line.discountType === 'fixed_amount'
     ? (line.discountAmount ?? 0)

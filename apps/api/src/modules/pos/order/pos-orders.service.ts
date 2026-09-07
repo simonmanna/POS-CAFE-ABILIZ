@@ -1,5 +1,6 @@
 import { businessOperation, recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import { discountedLines, evaluatePricingAuthority } from '../pricing-policy';
+import { assertNoFiredItemLoss, assertOrderCancellationAllowed } from './order-mutation-policy';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException,
@@ -214,6 +215,18 @@ export class PosOrdersService {
       // with a cryptic 409. A billed order settles on its own bill; a new round
       // starts a fresh order. We still block a second genuinely-editable tab.
       if ((dto.orderType ?? 'dine_in') === 'dine_in' && dto.tableId) {
+        // Audit#2 N-04 — serialise concurrent opens of the SAME table. This was
+        // a bare check-then-act inside a READ COMMITTED transaction: two
+        // terminals both read "no open tab" and both inserted, leaving a second
+        // tab that `getOpenOrderForTable` cannot see — its food served, never
+        // billed, and the table held until someone finds it in the database.
+        // The table row is the natural lock: every path that opens a dine-in tab
+        // passes through here. The partial unique index in migration
+        // 20260907120000_one_open_tab_per_table is the database-level backstop.
+        await tx.$queryRawUnsafe(
+          'SELECT id FROM "PosTable" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE',
+          dto.tableId, orgId,
+        );
         const held = await tx.order.findFirst({
           where: { tableId: dto.tableId, orderType: 'dine_in', invoiceId: null, status: { in: TABLE_HELD_ORDER_STATUSES as any } },
           select: { id: true, orderNumber: true },
@@ -267,6 +280,13 @@ export class PosOrdersService {
   async createOrderFromResolved(input: {
     orderType?: 'dine_in' | 'takeaway' | 'delivery';
     tableId?: string;
+    /**
+     * Provenance for an order this system generated to be billed, rather than a
+     * tab the floor opened. Audit#2 N-04: the one-open-tab-per-table index skips
+     * these, because a split bill legitimately raises a second dine-in order on
+     * an occupied table and bills it inside the same transaction.
+     */
+    sourceDocumentType?: string;
     partnerId?: string;
     cashSessionId?: string;
     branchId?: string;
@@ -323,6 +343,7 @@ export class PosOrdersService {
           orderType: input.orderType ?? 'dine_in',
           status: 'confirmed',
           tableId: input.tableId ?? null,
+          sourceDocumentType: input.sourceDocumentType ?? null,
           partnerId,
           waiterId: this.tenant.userId ?? null,
           branchId: input.branchId ?? null,
@@ -414,14 +435,31 @@ export class PosOrdersService {
     return result;
   }
 
-  /** Cancel the whole order (only while un-billed). */
-  async cancelOrder(orderId: string, reason?: string, expectedVersion?: number) {
+  /**
+   * Cancel the whole order (only while un-billed).
+   *
+   * Audit#2 N-02 — this used to be the cheap way around the per-line void
+   * controls: `voidItem` demands `pos:void` + a reason + a manager PIN for ONE
+   * fired line, while cancelling the whole order (directly, or by saving an
+   * empty cart) demanded nothing at all. Both now go through the same policy.
+   */
+  async cancelOrder(
+    orderId: string,
+    reason?: string,
+    expectedVersion?: number,
+    approval: { overrideById?: string; overridePin?: string } = {},
+  ) {
     const orgId = this.tenant.organizationId;
     return this.prisma.client.$transaction(async (tx: any) => {
       const order = await this.lockOrder(tx, orderId);
       if (order.invoiceId) throw new ConflictException('Order already billed — refund/void the invoice instead');
       if (order.status === 'cancelled' || order.status === 'closed') return order;
       if (expectedVersion != null) this.assertVersion(order, expectedVersion);
+      // Same authority as a per-line void, once the kitchen holds the food. An
+      // order the kitchen never saw still cancels freely.
+      const firedLost = await assertOrderCancellationAllowed(this as any, tx, orderId, {
+        reason, overrideById: approval.overrideById, overridePin: approval.overridePin,
+      });
       // The engine validates the transition and writes status + cancelledAt/By,
       // the AuditLog row and the domain event (ADR-007). Domain-specific columns
       // it does not know about are written after it, on the same tx.
@@ -435,7 +473,15 @@ export class PosOrdersService {
       });
       await this.syncTableOnClose(tx, order.tableId);
       this.events.publish(EVENTS.PosOrderCancelled, { organizationId: orgId, orderId, reason });
-      await this.audit.recordInTx(tx, { entity: 'Order', entityId: orderId, action: 'cancel', newValues: { reason: reason ?? null } });
+      await this.audit.recordInTx(tx, { entity: 'Order', entityId: orderId, action: 'cancel', newValues: {
+        reason: reason ?? null,
+        approvedById: approval.overrideById ?? null,
+        // Name what was destroyed. "An order was cancelled" is not reviewable;
+        // "these three cooked mains were cancelled" is.
+        firedItems: firedLost.map((f) => ({
+          description: f.description, quantity: f.quantity, firedQuantity: f.kitchenPrintedQty,
+        })),
+      } });
       return updated;
     });
   }
@@ -1160,19 +1206,18 @@ export class PosOrdersService {
     // the cart, which is precisely the event that used to vanish silently.
     const removed: any[] = ([] as any[]).concat(...Array.from(queue.values()));
 
-    // A-016 — the kitchen has already committed food to these. They may only
-    // leave through the audited, manager-approved void route.
-    const firedRemoved = removed.filter((r) => Number(r.kitchenPrintedQty ?? 0) > 0);
-    const firedCut = pairs.filter((p) =>
-      p.row && Number(p.row.kitchenPrintedQty ?? 0) > 0 &&
-      Number(p.prepared.quantity) < Number(p.row.kitchenPrintedQty) - 0.000001);
-    if (firedRemoved.length || firedCut.length) {
-      const names = [...firedRemoved, ...firedCut.map((p) => p.row)]
-        .map((r: any) => r.description).join(', ');
-      throw new ConflictException(
-        `Already sent to the kitchen: ${names}. Void the item (reason + manager PIN) instead of removing it.`,
-      );
-    }
+    // A-016 / audit#2 N-02 — the kitchen has already committed food to these.
+    // They may only leave through the audited, manager-approved void route. The
+    // rule lives in order-mutation-policy so that every door which can drop a
+    // fired line states it identically (see assertOrderCancellationAllowed for
+    // the whole-order case, which used to have no rule at all).
+    assertNoFiredItemLoss(
+      removed,
+      pairs
+        .filter((p) => p.row && Number(p.row.kitchenPrintedQty ?? 0) > 0 &&
+          Number(p.prepared.quantity) < Number(p.row.kitchenPrintedQty) - 0.000001)
+        .map((p) => p.row),
+    );
 
     for (const { src, prepared, row } of pairs) {
       const data = {

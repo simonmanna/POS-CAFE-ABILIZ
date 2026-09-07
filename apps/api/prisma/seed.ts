@@ -686,6 +686,8 @@ async function main(): Promise<void> {
     // --- Staff roles ---------------------------------------------------------
     const cashierPerms = [
       'pos:read', 'pos:checkout', 'pos:hold', 'pos:discount', 'pos:void', 'pos:kds',
+      // Cashiers run the house accounts in a cafe; waiters do not.
+      'pos:credit',
       'cash_session:open', 'cash_session:read', 'cash_session:close',
       'tables:view', 'tables:transfer', 'tables:edit',
       'partner:read',

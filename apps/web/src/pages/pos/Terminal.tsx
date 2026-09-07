@@ -278,6 +278,8 @@ const TerminalPage: React.FC = () => {
    * org's configured value and pushed the rejection to the payment screen. */
   const { data: posSettings } = usePosSettings();
   const discountTier1 = Number(posSettings?.discountApproval?.tier1 ?? 10);
+  /* Audit#2 N-06 — the absolute-amount tier; 0 means the org has not set one. */
+  const discountTier1Amount = Number(posSettings?.discountApproval?.tier1Amount ?? 0);
   const [showReprint, setShowReprint] = useState<{ invoiceId: string; title: string } | null>(null);
 
   /* ============== Order type (Dine In / Takeaway / Delivery) ============== */
@@ -400,6 +402,9 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Cart (zustand) ============== */
   const lines = useCartStore((s) => s.lines);
+  /* Reactive cart subtotal, so the discount dialog judges a fixed amount the
+   * same way the server will (as a percentage of what the cart is worth). */
+  const cartSubtotal = useCartStore(selectSubtotal);
   const transactionDiscountPercent = useCartStore((s) => s.transactionDiscountPercent);
   const transactionDiscountType = useCartStore((s) => s.transactionDiscountType);
   const transactionDiscountAmount = useCartStore((s) => s.transactionDiscountAmount);
@@ -909,7 +914,12 @@ const TerminalPage: React.FC = () => {
     // threshold. The old rule compared UGX 50,000 to a currency-blind constant.
     const sub = selectSubtotal(useCartStore.getState());
     const asPercent = type === 'fixed_amount' ? (sub > 0 ? (amount / sub) * 100 : 0) : amount;
-    const needsOverride = amount > 0 && (!canDiscount || asPercent > discountTier1);
+    const givenAway = type === 'fixed_amount' ? amount : (sub * amount) / 100;
+    const needsOverride = amount > 0 && (
+      !canDiscount
+      || asPercent > discountTier1
+      || (discountTier1Amount > 0 && givenAway > discountTier1Amount)
+    );
     const label = type === 'fixed_amount' ? `${fmt(amount)} discount` : `${amount}% discount`;
     if (needsOverride) {
       requestOverride('discount').then((result) => {
@@ -1715,6 +1725,9 @@ const TerminalPage: React.FC = () => {
         key={'discount-' + showDiscount}
         open={showDiscount}
         initialPercent={transactionDiscountPercent}
+        thresholdPercent={discountTier1}
+        thresholdAmount={discountTier1Amount}
+        subtotal={cartSubtotal}
         onClose={() => setShowDiscount(false)}
         onApply={onApplyOrderDiscount}
         onApplyEx={onApplyOrderDiscountEx}
@@ -1723,6 +1736,7 @@ const TerminalPage: React.FC = () => {
         <LineDiscountDialog
           open={!!lineForDiscount}
           line={lineForDiscount}
+          thresholdPercent={discountTier1}
           onClose={() => setLineForDiscount(null)}
           onApply={onLineDiscountApply}
         />

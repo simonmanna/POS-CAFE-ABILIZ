@@ -97,6 +97,9 @@ export class VoidOrderItemDto {
 
 export class CancelOrderDto {
   @IsOptional() @IsString() reason?: string;
+  /** Audit#2 N-02 — required once the kitchen already holds food on this order. */
+  @IsOptional() @IsString() overrideById?: string;
+  @IsOptional() @IsString() overridePin?: string;
 }
 
 export class MoveTableDto {

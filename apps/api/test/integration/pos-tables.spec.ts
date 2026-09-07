@@ -299,8 +299,31 @@ describeDb('POS Tables Management (ADR-012)', () => {
       const tab2 = await createDraftTab(orgId, [{ description: 'Sale2', quantity: 2, unitPrice: 30000 }]);
       // 'served' is the billed state on OrderStatus; the old 'posted' was a
       // Document status and is not a member of the Order enum at all.
-      await prisma.order.update({ where: { id: tab1.id }, data: { tableId: tId, status: 'served' } });
-      await prisma.order.update({ where: { id: tab2.id }, data: { tableId: tId, status: 'served' } });
+      //
+      // Audit#2 N-04 — this fixture used to leave both orders UNBILLED, which is
+      // a state the floor cannot produce: two parties cannot both be served and
+      // unbilled on one physical table, and the new partial unique index now
+      // says so. Two rounds billed on one table across a shift is the real
+      // shape, and it exercises the index's deliberate carve-out (a billed order
+      // still holds the table but must not block the next round).
+      const billed = async (orderId: string, n: number) => {
+        const inv = await prisma.invoice.create({
+          data: {
+            organizationId: orgId,
+            invoiceNumber: `RPT-${Date.now()}-${n}`,
+            partnerId,
+            issueDate: new Date(),
+            subtotal: 0, taxAmount: 0, totalAmount: 0, amountResidual: 0,
+            status: 'posted',
+          },
+        });
+        await prisma.order.update({
+          where: { id: orderId }, data: { tableId: tId, status: 'served', invoiceId: inv.id },
+        });
+        return inv.id;
+      };
+      const inv1 = await billed(tab1.id, 1);
+      const inv2 = await billed(tab2.id, 2);
 
       const agg = await prisma.order.aggregate({
         where: { tableId: tId, organizationId: orgId, status: 'served' },
@@ -310,6 +333,7 @@ describeDb('POS Tables Management (ADR-012)', () => {
 
       await deleteTab(tab1.id);
       await deleteTab(tab2.id);
+      await prisma.invoice.deleteMany({ where: { id: { in: [inv1, inv2] } } });
       await prisma.posTable.delete({ where: { id: tId } });
     });
   });

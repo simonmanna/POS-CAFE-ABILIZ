@@ -1095,20 +1095,34 @@ export class PosTablesService {
 
       const itemById = new Map<string, any>((sourceOrder.items as any[]).map((i) => [i.id, i]));
 
-      // Stash kitchen print lifecycle by product so split tickets don't re-print
-      // items already sent to the kitchen.
+    // Audit#2 N-08b — kitchen lifecycle is carried per SOURCE LINE, not per
+    // product, and its fired quantity is ALLOCATED across the children rather
+    // than copied to each.
+    //
+    // Keying on `productId` silently dropped every cafe line: a MenuItem carries
+    // `menuItemId` and no `productId`, so the lookup was always null and the
+    // child inherited `kitchenPrintedQty: null`. Firing a split bill then
+    // computed `delta = full quantity` and re-sent the whole order — the kitchen
+    // cooked the entire table a second time, on a routine operation.
+    //
+    // Copying the source's whole fired quantity onto EACH child was the mirror
+    // defect: splitting 4 fired beers 3 + 1 left the 3-line claiming 4 fired, so
+    // adding a 4th to that child produced delta 0 and the kitchen never saw it.
+    //
+    // The source item id is already on every split line, so no signature
+    // matching is needed here — the mapping is exact.
       const srcLifecycle = new Map<string, any>();
+      const firedRemaining = new Map<string, number>();
       for (const it of sourceOrder.items as any[]) {
-        if (!it.productId) continue;
-        srcLifecycle.set(it.productId, {
+        srcLifecycle.set(it.id, {
           kitchenPrintCount: it.kitchenPrintCount ?? 0,
           kitchenLastPrintedAt: it.kitchenLastPrintedAt ?? null,
-          kitchenPrintedQty: it.kitchenPrintedQty ?? null,
           cancelPrintCount: it.cancelPrintCount ?? 0,
           cancelLastPrintedAt: it.cancelLastPrintedAt ?? null,
           lastKitchenPrintedById: it.lastKitchenPrintedById ?? null,
           kitchenStatus: it.kitchenStatus ?? 'pending',
         });
+        firedRemaining.set(it.id, Number(it.kitchenPrintedQty ?? 0));
       }
 
       // Close the source tab link — it is about to be cancelled and replaced.
@@ -1164,22 +1178,35 @@ export class PosTablesService {
         });
         await this.rebuildOrderItems(tx, organizationId, child.id, inputs, mods);
 
-        // Inherit kitchen lifecycle by product so already-fired items aren't
-        // re-sent to the kitchen on the split tickets.
-        const childItems = await tx.orderItem.findMany({ where: { orderId: child.id } });
-        for (const ci of childItems) {
-          const lc = ci.productId ? srcLifecycle.get(ci.productId) : null;
+        // Inherit the kitchen lifecycle so already-cooked food is not re-sent on
+        // the split tickets. `rebuildOrderItems` writes one row per input in
+        // order, so lineNumber N maps to split.lines[N-1] and thence to its
+        // source item — hence the explicit ordering.
+        const childItems = await tx.orderItem.findMany({
+          where: { orderId: child.id }, orderBy: { lineNumber: 'asc' },
+        });
+        for (let ci = 0; ci < childItems.length; ci++) {
+          const item = childItems[ci];
+          const sourceItemId = split.lines[ci]?.sourceItemId;
+          const lc = sourceItemId ? srcLifecycle.get(sourceItemId) : null;
           if (!lc) continue;
+          // Claim only as much fired quantity as this child actually carries,
+          // and only what earlier children have not already claimed.
+          const left = firedRemaining.get(sourceItemId!) ?? 0;
+          const claimed = Math.min(Number(item.quantity), left);
+          firedRemaining.set(sourceItemId!, left - claimed);
           await tx.orderItem.update({
-            where: { id: ci.id },
+            where: { id: item.id },
             data: {
-              kitchenPrintCount: lc.kitchenPrintCount,
-              kitchenLastPrintedAt: lc.kitchenLastPrintedAt,
-              kitchenPrintedQty: lc.kitchenPrintedQty,
+              kitchenPrintCount: claimed > 0 ? lc.kitchenPrintCount : 0,
+              kitchenLastPrintedAt: claimed > 0 ? lc.kitchenLastPrintedAt : null,
+              kitchenPrintedQty: claimed > 0 ? claimed : null,
               cancelPrintCount: lc.cancelPrintCount,
               cancelLastPrintedAt: lc.cancelLastPrintedAt,
-              lastKitchenPrintedById: lc.lastKitchenPrintedById,
-              kitchenStatus: lc.kitchenStatus,
+              lastKitchenPrintedById: claimed > 0 ? lc.lastKitchenPrintedById : null,
+              // A child that claimed nothing is genuinely unfired, whatever the
+              // source line's status was.
+              kitchenStatus: claimed > 0 ? lc.kitchenStatus : 'pending',
             },
           });
         }

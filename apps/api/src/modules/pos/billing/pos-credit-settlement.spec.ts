@@ -28,7 +28,7 @@ const CREDIT_INVOICE = {
   amountResidual: 150,
 };
 
-function mockPrisma(overrides: { partner?: any; tab?: any; outstanding?: number } = {}): any {
+function mockPrisma(overrides: { partner?: any; tab?: any; outstanding?: number; allowUnlimited?: boolean } = {}): any {
   const client: any = {
     $queryRawUnsafe: jest.fn(),
     order: { findFirst: jest.fn().mockResolvedValue(null), update: jest.fn(), updateMany: jest.fn() },
@@ -43,7 +43,10 @@ function mockPrisma(overrides: { partner?: any; tab?: any; outstanding?: number 
     receiptItem: { createMany: jest.fn() },
     partner: {
       findFirst: jest.fn().mockResolvedValue(
-        overrides.partner === undefined ? { creditLimit: 0, creditHold: false } : overrides.partner,
+        // Audit#2 N-05 — the default used to be `creditLimit: 0`, which the guard
+        // read as UNLIMITED. Tests about settlement mechanics now carry a real
+        // limit; the zero case is exercised deliberately below.
+        overrides.partner === undefined ? { creditLimit: 10_000, creditHold: false } : overrides.partner,
       ),
     },
     customerTab: { findFirst: jest.fn().mockResolvedValue(overrides.tab ?? null) },
@@ -51,7 +54,15 @@ function mockPrisma(overrides: { partner?: any; tab?: any; outstanding?: number 
     cashMovement: { create: jest.fn() },
   };
   client.$transaction = jest.fn((cb: any) => cb(client));
-  return { client };
+  // N-05: the unlimited-credit escape hatch is an explicit org setting.
+  const raw = {
+    organization: {
+      findUnique: jest.fn().mockResolvedValue({
+        settings: overrides.allowUnlimited ? { credit: { allowUnlimited: true } } : {},
+      }),
+    },
+  };
+  return { client, raw };
 }
 
 function makeService(prisma: any) {
@@ -197,11 +208,46 @@ describe('credit control', () => {
     await expect(svc.settleCredit('inv-1')).resolves.toMatchObject({ paymentMode: 'credit' });
   });
 
-  it('treats a zero limit as unlimited', async () => {
-    const prisma = mockPrisma({ partner: { creditLimit: 0, creditHold: false }, outstanding: 999_999 });
-    const { svc } = makeService(prisma);
+  /**
+   * Audit#2 N-05 — this block used to contain a test called "treats a zero limit
+   * as unlimited", which asserted the defect as intended behaviour.
+   *
+   * `Partner.creditLimit` defaults to 0, so every customer created in the back
+   * office carried unbounded credit and any cashier could put any amount on
+   * their account. An unset limit is the ABSENCE of a decision, not a decision
+   * to extend infinite credit.
+   */
+  describe('an unset limit is not unlimited (N-05)', () => {
+    it('refuses a credit sale when no limit has been set', async () => {
+      const prisma = mockPrisma({ partner: { creditLimit: 0, creditHold: false } });
+      const { svc } = makeService(prisma);
 
-    await expect(svc.settleCredit('inv-1')).resolves.toMatchObject({ paymentMode: 'credit' });
+      await expect(svc.settleCredit('inv-1')).rejects.toThrow(/no credit limit set/i);
+      expect(prisma.client.invoice.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses however large the outstanding balance already is', async () => {
+      const prisma = mockPrisma({ partner: { creditLimit: 0, creditHold: false }, outstanding: 999_999 });
+      const { svc } = makeService(prisma);
+
+      await expect(svc.settleCredit('inv-1')).rejects.toThrow(/no credit limit set/i);
+    });
+
+    it('honours an org that has deliberately declared open accounts', async () => {
+      const prisma = mockPrisma({
+        partner: { creditLimit: 0, creditHold: false }, outstanding: 999_999, allowUnlimited: true,
+      });
+      const { svc } = makeService(prisma);
+
+      await expect(svc.settleCredit('inv-1')).resolves.toMatchObject({ paymentMode: 'credit' });
+    });
+
+    it('still blocks a held customer even with open accounts declared', async () => {
+      const prisma = mockPrisma({ partner: { creditLimit: 0, creditHold: true }, allowUnlimited: true });
+      const { svc } = makeService(prisma);
+
+      await expect(svc.settleCredit('inv-1')).rejects.toThrow(/credit hold/i);
+    });
   });
 });
 

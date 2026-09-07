@@ -46,7 +46,19 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     await prisma.currency.upsert({ where: { code: 'UGX' }, update: {}, create: { code: 'UGX', name: 'Ugandan Shilling', symbol: 'USh' } });
     const org = await prisma.organization.create({ data: { id: organizationId, code: `INT-POS-${Date.now()}`, name: 'POS Pipeline Org', currencyCode: 'UGX' } });
     organizationId = org.id;
-    cashierId = (await prisma.user.create({ data: { organizationId, email: 'pipeline@fixture.test', firstName: 'Cashier', passwordHash: 'not-a-login' } })).id;
+    // A-030 — `evaluatePricingAuthority` reads the caller's permissions LIVE from
+    // their roles rather than trusting the (up to 12h-stale) POS-token claims, so
+    // a revoked pos:discount bites on the very next request. This fixture used to
+    // create a cashier with no roles at all while declaring the permissions only
+    // in the tenant context, so every discounted assertion in this file failed
+    // with "This discount requires manager approval and PIN" — the test's own
+    // declared permissions have to exist in the database to be read back.
+    cashierId = (await prisma.user.create({
+      data: {
+        organizationId, email: 'pipeline@fixture.test', firstName: 'Cashier', passwordHash: 'not-a-login',
+        roles: { create: { organizationId, name: 'Pipeline Cashier', permissions: ['pos:checkout', 'pos:discount'] } },
+      },
+    })).id;
     customerId = (await prisma.partner.create({ data: { organizationId, code: 'POS-CUST', name: 'Pipeline Cust', isCustomer: true } })).id;
     productId = (await prisma.product.create({ data: { organizationId, code: 'POS-SVC', name: 'Coffee', productType: 'service', salesPrice: 100, costPrice: 0 } })).id;
 

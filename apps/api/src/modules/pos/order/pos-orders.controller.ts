@@ -106,9 +106,17 @@ export class PosOrdersController {
     return this.orders.saveItems(id, dto);
   }
 
-  /** Add a round of items (append). */
+  /**
+   * Add a round of items (append).
+   *
+   * Audit#2 N-01 — append is the one item shape a retry cannot make safe on its
+   * own: a replayed save is a no-op, a replayed append is a second round on the
+   * bill and a second ticket in the kitchen.
+   */
   @Post(':id/items')
   @RequirePermissions('pos:checkout')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent({ required: true })
   addItems(@Param('id') id: string, @Body() dto: AddOrderItemsDto) {
     return this.orders.addItems(id, dto);
   }
@@ -145,7 +153,9 @@ export class PosOrdersController {
   @Post(':id/cancel')
   @RequirePermissions('pos:checkout')
   cancel(@Param('id') id: string, @Body() dto: CancelOrderDto) {
-    return this.orders.cancelOrder(id, dto.reason);
+    return this.orders.cancelOrder(id, dto.reason, undefined, {
+      overrideById: dto.overrideById, overridePin: dto.overridePin,
+    });
   }
 
   @Post(':id/reopen')
@@ -179,9 +189,15 @@ export class PosBillingController {
     return this.billing.receivePayment(id, dto);
   }
 
-  /** Settle on credit (postpaid house account). */
+  /**
+   * Settle on credit (postpaid house account).
+   *
+   * Audit#2 N-05 — handing goods over against a promise to pay is a different
+   * decision from taking money, so it carries its own right rather than riding
+   * on pos:checkout.
+   */
   @Post(':id/credit')
-  @RequirePermissions('pos:checkout')
+  @RequirePermissions('pos:checkout', 'pos:credit')
   @UseInterceptors(IdempotencyInterceptor)
   @Idempotent({ required: true })
   settleCredit(@Param('id') id: string, @Body() dto: SettleCreditDto) {

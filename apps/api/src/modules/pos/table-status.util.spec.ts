@@ -118,4 +118,35 @@ describe('recomputeTableStatus — dirtyOnRelease (F-06)', () => {
     await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('out_of_service');
     expect(tx.posTable.update).not.toHaveBeenCalled();
   });
+
+  /**
+   * Audit#2 N-09 — `cleaning` used to short-circuit alongside the admin holds,
+   * so a dirty table stopped being derived entirely. Seat a party on it and it
+   * still read "cleaning" while holding a live order; mark it clean and it read
+   * "available" while holding one, and the host then hit a 409 opening a table
+   * the floor map showed as free.
+   */
+  describe('cleaning is derived, not an override (N-09)', () => {
+    it('goes occupied when a party is seated on a dirty table', async () => {
+      const tx = makeTx('cleaning', 3);
+      await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('occupied');
+      expect(tx.posTable.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'occupied' } });
+    });
+
+    it('stays dirty while it is empty', async () => {
+      const tx = makeTx('cleaning', 0);
+      await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('cleaning');
+      expect(tx.posTable.update).not.toHaveBeenCalled();
+    });
+
+    it('still stays dirty on a settle that leaves it empty', async () => {
+      const tx = makeTx('cleaning', 0);
+      await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('cleaning');
+    });
+
+    it('an admin hold still beats live items', async () => {
+      const tx = makeTx('out_of_service', 4);
+      await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('out_of_service');
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import { businessOperation } from '../../kernel/idempotency/business-outcome';
-import { assertPricingAuthority, resolveDiscountThreshold } from './pricing-policy';
+import { assertPricingAuthority, resolveDiscountAmountThreshold, resolveDiscountThreshold } from './pricing-policy';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from 'node:crypto';
 import { resolvePosStockLocation } from '../inventory/pos-stock-location';
@@ -665,6 +665,10 @@ export class PosService {
     transactionDiscountType?: 'percentage' | 'fixed_amount';
     transactionDiscountAmount?: number;
     discountReason?: string;
+    /** Audit#2 N-02 — why the cart was cleared; required once food was fired. */
+    cancelReason?: string;
+    overrideById?: string;
+    overridePin?: string;
   }) {
     const existing = await this.orders.getOpenOrderForTable(input.tableId);
 
@@ -690,10 +694,23 @@ export class PosService {
     const lines = (input.lines ?? []).map((l) => this.toOrderLine(l));
 
     // Empty order → cancel the open order and free the table.
+    //
+    // Audit#2 N-02 — this short-circuits before `saveItems`, so it never met the
+    // fired-item rule inside `writeItems`: clearing the cart voided every cooked
+    // line for free while voiding ONE of them needed a manager. It now hands the
+    // decision to the same policy `cancelOrder` uses. The default reason is
+    // deliberately a placeholder the policy rejects, so an order the kitchen has
+    // seen forces the cashier to supply a real one, while an untouched cart
+    // still clears in one tap.
     if (lines.length === 0) {
       if (existing) {
         if (input.expectedVersion == null) throw new BadRequestException('An order version is required before clearing saved items');
-        await this.orders.cancelOrder(existing.id, 'Order emptied', input.expectedVersion);
+        await this.orders.cancelOrder(
+          existing.id,
+          input.cancelReason ?? 'Order emptied',
+          input.expectedVersion,
+          { overrideById: input.overrideById, overridePin: input.overridePin },
+        );
         await this.closeTableLink(input.tableId, existing.id);
       }
       return null;

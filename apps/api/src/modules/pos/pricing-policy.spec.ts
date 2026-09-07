@@ -18,11 +18,11 @@ import { TaxCalculationService } from '../invoicing/tax/tax-calculation.service'
  * same answers.
  */
 describe('pricing policy — one rule, read twice (F-02/F-03)', () => {
-  const ctx = (opts: { tier1?: unknown; permissions?: string[] } = {}) => ({
+  const ctx = (opts: { tier1?: unknown; tier1Amount?: unknown; permissions?: string[] } = {}) => ({
     tenant: { organizationId: 'org-1', userId: 'u-1' },
     prisma: {
       raw: {
-        organization: { findUnique: jest.fn().mockResolvedValue({ settings: { discountApproval: { tier1: opts.tier1 } } }) },
+        organization: { findUnique: jest.fn().mockResolvedValue({ settings: { discountApproval: { tier1: opts.tier1, tier1Amount: opts.tier1Amount } } }) },
         user: { findFirst: jest.fn().mockResolvedValue({ id: 'u-1', roles: [{ permissions: opts.permissions ?? ['pos:discount'] }] }) },
       },
     },
@@ -45,9 +45,49 @@ describe('pricing policy — one rule, read twice (F-02/F-03)', () => {
     it('touches no database at all for an undiscounted cart', async () => {
       const c = ctx();
       const v = await evaluatePricingAuthority(c, [line()], {});
-      expect(v).toEqual({ maxDiscountPercent: 0, threshold: 10, requiresReason: false, requiresApproval: false, hasDiscountPermission: true });
+      expect(v).toEqual({ maxDiscountPercent: 0, threshold: 10, discountAmount: 0, thresholdAmount: 0, requiresReason: false, requiresApproval: false, hasDiscountPermission: true });
       expect(c.prisma.raw.organization.findUnique).not.toHaveBeenCalled();
       expect(c.prisma.raw.user.findFirst).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Audit#2 N-06 — percent alone is not a control on a large bill. 9% of a
+     * 5,000,000 UGX banquet is 450,000 given away under a 10% threshold with
+     * nobody asked. F-03 removed the terminal's hardcoded 50,000 amount prompt
+     * without giving the server an equivalent; this is that equivalent.
+     */
+    describe('absolute-amount tier (N-06)', () => {
+      const bigLine = { quantity: 1, unitPrice: 5_000_000, discountPercent: 9, discountType: 'percentage', discountAmount: 0 };
+
+      it('is disabled by default, so existing orgs are unchanged', async () => {
+        const v = await evaluatePricingAuthority(ctx(), [bigLine], { discountReason: 'Regular' });
+        expect(v.thresholdAmount).toBe(0);
+        expect(v.discountAmount).toBeCloseTo(450_000);
+        expect(v.requiresApproval).toBe(false);
+      });
+
+      it('demands approval once the money given away crosses the tier', async () => {
+        const v = await evaluatePricingAuthority(ctx({ tier1Amount: 100_000 }), [bigLine], { discountReason: 'Regular' });
+        expect(v.requiresApproval).toBe(true);
+      });
+
+      it('leaves a small discount alone even under a tight amount tier', async () => {
+        const v = await evaluatePricingAuthority(
+          ctx({ tier1Amount: 100_000 }),
+          [{ quantity: 1, unitPrice: 10_000, discountPercent: 5, discountType: 'percentage', discountAmount: 0 }],
+          { discountReason: 'Regular' },
+        );
+        expect(v.discountAmount).toBeCloseTo(500);
+        expect(v.requiresApproval).toBe(false);
+      });
+
+      it('sums the whole cart, so many small line discounts still trip it', async () => {
+        const many = Array.from({ length: 6 }, () => ({ quantity: 1, unitPrice: 500_000, discountPercent: 5, discountType: 'percentage', discountAmount: 0 }));
+        const v = await evaluatePricingAuthority(ctx({ tier1Amount: 100_000 }), many, { discountReason: 'Staff party' });
+        expect(v.maxDiscountPercent).toBeCloseTo(5); // under the percent tier
+        expect(v.discountAmount).toBeCloseTo(150_000);
+        expect(v.requiresApproval).toBe(true);
+      });
     });
 
     it('flags a line discount with no reason — the F-02 case', async () => {

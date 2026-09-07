@@ -38,6 +38,7 @@ import {
   useOrdersList, useResumeOrder, useSettleOrder, useSaveOrderItems, useCancelOrder, type OrderLineBody,
 } from './api';
 import { useCombos } from './pos-features-api';
+import { usePosSettings } from '@/features/pos/api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
 import type { Customer, SettleMode } from './types';
@@ -227,6 +228,13 @@ const RetailTerminal: React.FC = () => {
   const orderId = useCartStore((s) => s.orderId);
   const setOrderId = useCartStore((s) => s.setOrderId);
   const setTabVersion = useCartStore((s) => s.setTabVersion);
+
+  /* Audit#2 N-03 — the ONE discount-approval threshold, served by
+   * GET /pos/settings. This terminal used to hardcode 10% / 50,000 and never
+   * read the org's configured value at all. */
+  const { data: posSettings } = usePosSettings();
+  const discountTier1 = Number(posSettings?.discountApproval?.tier1 ?? 10);
+  const discountTier1Amount = Number(posSettings?.discountApproval?.tier1Amount ?? 0);
 
   /* ============== Mutations ============== */
   const checkout = useCheckout();
@@ -448,7 +456,16 @@ const RetailTerminal: React.FC = () => {
   /* ============== Order-level discount ============== */
   const onApplyOrderDiscount = (percent: number) => { onApplyOrderDiscountEx(percent, 'percentage'); };
   const onApplyOrderDiscountEx = (amount: number, type: DiscountType) => {
-    const needsOverride = type === 'percentage' ? amount >= 10 : amount >= 50000;
+    // Audit#2 N-03 — this was the live F-03 defect: the retail terminal never
+    // read the org's threshold at all, so tightening discountApproval.tier1 left
+    // the cashier unprompted and the sale 403'ing at the payment screen. Same
+    // rule and same comparison as evaluatePricingAuthority now.
+    const sub = selectSubtotal(useCartStore.getState());
+    const asPercent = type === 'fixed_amount' ? (sub > 0 ? (amount / sub) * 100 : 0) : amount;
+    const givenAway = type === 'fixed_amount' ? amount : (sub * amount) / 100;
+    const needsOverride = amount > 0 && (
+      asPercent > discountTier1 || (discountTier1Amount > 0 && givenAway > discountTier1Amount)
+    );
     if (needsOverride) {
       requestOverride('discount').then((result) => {
         if (!result) { toast.error('Manager override cancelled'); return; }
@@ -756,9 +773,10 @@ const RetailTerminal: React.FC = () => {
       <CustomerDialog open={showCustomer} onClose={() => setShowCustomer(false)}
         onPick={(c) => { setCustomer(c); toast.success(`Customer: ${c.name}`); }} />
       <DiscountDialog key={'discount-' + showDiscount} open={showDiscount} initialPercent={transactionDiscountPercent}
+        thresholdPercent={discountTier1} thresholdAmount={discountTier1Amount} subtotal={selectSubtotal(useCartStore.getState())}
         onClose={() => setShowDiscount(false)} onApply={onApplyOrderDiscount} onApplyEx={onApplyOrderDiscountEx} />
       {lineForDiscount ? (
-        <LineDiscountDialog open={!!lineForDiscount} line={lineForDiscount} onClose={() => setLineForDiscount(null)}
+        <LineDiscountDialog open={!!lineForDiscount} line={lineForDiscount} thresholdPercent={discountTier1} onClose={() => setLineForDiscount(null)}
           onApply={onLineDiscountApply} />
       ) : null}
       <DiscountReasonDialog open={showDiscountReason} onClose={() => setShowDiscountReason(false)}

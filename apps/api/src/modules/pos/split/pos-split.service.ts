@@ -226,7 +226,11 @@ export class PosSplitService {
       const priced = await this.billing.quoteSavedItems(lines, {}, tx);
       const due = Number(priced.total);
       if (dto.expectedTotal != null && Math.abs(due - dto.expectedTotal) > 0.000001) throw new ConflictException('The split price changed. Refresh the bill before paying');
-      const billOrder = await this.orders.createOrderFromResolved({ orderType: 'dine_in', tableId: bill.tableId, partnerId: bill.partnerId ?? order.partnerId, cashSessionId: dto.cashSessionId, branchId: order.branchId, lines }, tx);
+      // `sourceDocumentType` marks this as a bill-carrier, not a tab the floor
+      // opened: it is raised on a table that still holds its open source order
+      // and is invoiced in this same transaction. Audit#2 N-04's uniqueness
+      // index is scoped to floor-opened tabs and skips it.
+      const billOrder = await this.orders.createOrderFromResolved({ orderType: 'dine_in', tableId: bill.tableId, sourceDocumentType: 'pos_split_bill', partnerId: bill.partnerId ?? order.partnerId, cashSessionId: dto.cashSessionId, branchId: order.branchId, lines }, tx);
       const invoice = await this.billing.generateInvoice(billOrder.id, { expectedTotal: due, cashSessionId: dto.cashSessionId, occurredAt: dto.occurredAt }, tx);
       const pay = await this.billing.receivePayment(invoice.id, dto, tx);
       await tx.splitBill.update({ where: { id: billId }, data: { status: 'settled', invoiceId: invoice.id, settledAt: new Date(), subtotal: invoice.subtotal, totalAmount: invoice.totalAmount, amountPaid: invoice.totalAmount } });
