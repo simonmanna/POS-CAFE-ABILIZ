@@ -5823,7 +5823,9 @@ model InvoiceItemRecipeIngredient {
   invoiceId      String?
   createdAt      DateTime @default(now())
 
-  invoiceItem InvoiceItem @relation(fields: [invoiceItemId], references: [id], onDelete: Cascade)
+  /// Historical COGS record: never cascade-deleted. RESTRICT keeps this
+  /// table authoritative even if an invoice line were removed by hand.
+  invoiceItem InvoiceItem @relation(fields: [invoiceItemId], references: [id], onDelete: Restrict)
 
   @@index([organizationId])
   @@index([invoiceItemId])
