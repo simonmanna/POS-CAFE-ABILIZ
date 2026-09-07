@@ -28,7 +28,7 @@ export class PeriodCloseController {
 
   @Post(':id/reopen')
   @Idempotent()
-  @RequirePermissions(PERMISSIONS.fiscalPeriod.update)
+  @RequirePermissions(PERMISSIONS.fiscalPeriod.reopen)
   reopen(@Param('id') id: string) {
     return this.periodClose.reopen(id);
   }

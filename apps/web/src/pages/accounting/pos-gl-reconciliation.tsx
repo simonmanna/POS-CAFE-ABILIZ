@@ -76,9 +76,9 @@ export function PosGlReconciliationPage() {
             <CardContent className="p-5 space-y-2 text-sm">
               <Row label="POS gross subtotal" value={money(data.pos.grossSubtotal)} />
               <Row label="POS discounts" value={`− ${money(data.pos.discounts)}`} />
-              <Row label="POS refunds" value={`− ${money(data.pos.refunded)}`} />
+              <Row label="Refunded revenue" value={`− ${money(data.pos.refundedRevenue)}`} />
               {data.pos.refundCount > 0 && (
-                <Row label="Refund events" value={`${data.pos.refundCount} · ${money(data.pos.refundTotal)}`} />
+                <Row label="Refund events" value={`${data.pos.refundCount} · ${money(data.pos.refundedTotal)} (rev ${money(data.pos.refundedRevenue)} + tax ${money(data.pos.refundedTax)})`} />
               )}
               <Row label="POS expected net revenue" value={money(data.pos.expectedNetRevenue)} bold />
               <div className="border-t pt-2 space-y-2">
@@ -120,6 +120,8 @@ export function PosGlReconciliationPage() {
             </CardHeader>
             <CardContent className="p-5 space-y-2 text-sm">
               <Row label="POS tax charged" value={money(data.pos.tax)} />
+              <Row label="Refunded tax" value={`− ${money(data.pos.refundedTax)}`} />
+              <Row label="POS expected net tax" value={money(data.pos.expectedNetTax)} bold />
               <Row label="GL tax payable movement" value={money(data.gl.tax)} />
               <div className="border-t pt-2">
                 <Row
@@ -130,7 +132,8 @@ export function PosGlReconciliationPage() {
                 />
               </div>
               <p className="text-[10px] text-muted-foreground italic">
-                Refunds reverse tax inside the refund journal entry, so both sides move together.
+                Refund revenue and tax portions are derived from the recorded refund line fractions, not
+                the invoice refund header — both sides move together.
               </p>
             </CardContent>
           </Card>

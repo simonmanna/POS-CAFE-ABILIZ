@@ -506,10 +506,12 @@ export interface PosGlReconciliation {
     grossSubtotal: string;
     discounts: string;
     tax: string;
-    refunded: string;
+    refundedRevenue: string;
+    refundedTax: string;
+    refundedTotal: string;
     expectedNetRevenue: string;
+    expectedNetTax: string;
     refundCount: number;
-    refundTotal: string;
   };
   gl: {
     revenue: string;

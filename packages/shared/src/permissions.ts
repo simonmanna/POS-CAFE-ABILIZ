@@ -75,6 +75,9 @@ export const PERMISSIONS = {
     read: 'fiscal_period:read',
     update: 'fiscal_period:update',
     delete: 'fiscal_period:delete',
+    // N-2: reopen is a distinct control from ordinary period updates — it
+    // reverses a closing journal and reopens posted books.
+    reopen: 'fiscal_period:reopen',
   },
   setting: {
     read: 'setting:read',

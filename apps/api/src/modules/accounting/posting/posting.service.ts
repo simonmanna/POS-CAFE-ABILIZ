@@ -68,9 +68,18 @@ export class PostingService {
     // exists for it, replay that entry instead of writing a duplicate journal.
     // The @@unique([organizationId, postingKey]) index is the hard backstop for
     // the concurrent-race case (the loser's insert throws and rolls back).
+    // N-1: only POSTED entries are replays. A REVERSED entry (e.g. a period's
+    // closing journal reversed by a reopen) must never be returned as the
+    // result of a fresh post — the caller (period re-close) needs a NEW entry,
+    // and doReverse has already suffixed the original's key so the unique
+    // index permits re-posting the canonical key.
     if (request.postingKey) {
       const existing = await client.journalEntry.findFirst({
-        where: { organizationId: this.tenant.organizationId, postingKey: request.postingKey },
+        where: {
+          organizationId: this.tenant.organizationId,
+          postingKey: request.postingKey,
+          status: 'posted',
+        },
         include: { lines: true },
       });
       if (existing) return existing;
@@ -251,6 +260,19 @@ export class PostingService {
       where: { id: original.id },
       data: { status: 'reversed', reversedEntryId: reversal.id },
     });
+
+    // N-1: free the canonical postingKey slot so a re-post of the same key is
+    // possible after a reversal. The original keeps its provenance under a
+    // suffixed key (`{key}:rev:{reversalId}`); the @@unique index then allows
+    // a fresh entry to claim the canonical key (e.g. period re-close after
+    // reopen posts `period_close:{id}` again). Without this, the re-close
+    // insert would collide with the reversed original and roll back.
+    if (original.postingKey) {
+      await client.journalEntry.updateMany({
+        where: { id: original.id },
+        data: { postingKey: `${original.postingKey}:rev:${reversal.id}` },
+      });
+    }
 
     this.events.publish('journal.reversed', {
       organizationId,

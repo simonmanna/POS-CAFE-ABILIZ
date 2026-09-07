@@ -60,7 +60,12 @@ export class PosGlReconciliationService {
     // ── POS side — what the POS invoices actually say ─────────────────────
     // POS sales live in the `Invoice` table (R2); back-office sales invoices in
     // `Document`. Both post revenue through the same engine, so both count.
-    const [posAgg, docAgg, glSections, stockBacklog, stockCogs, refundsAgg] = await Promise.all([
+    // Refunds are counted SEPARATELY, split into their revenue and tax portions
+    // from the immutable PosRefund.items record (each line carries the refunded
+    // subtotal + taxAmount at 6dp). Basis: invoices bucket by issueDate (drives
+    // the original sale JE), refunds by createdAt (drives the refund JE) — both
+    // sides of each comparison therefore share one posting-date basis (R-1/R-2).
+    const [posAgg, docAgg, glSections, stockBacklog, stockCogs, refundRows] = await Promise.all([
       this.prisma.client.invoice.aggregate({
         where: {
           organizationId,
@@ -72,7 +77,6 @@ export class PosGlReconciliationService {
           taxAmount: true,
           discountTotal: true,
           totalAmount: true,
-          amountRefunded: true,
         },
         _count: { _all: true },
       }),
@@ -88,7 +92,6 @@ export class PosGlReconciliationService {
           taxAmount: true,
           discountTotal: true,
           totalAmount: true,
-          amountResidual: true,
         },
         _count: { _all: true },
       }),
@@ -107,24 +110,38 @@ export class PosGlReconciliationService {
         },
         _sum: { totalValue: true },
       }),
-      this.prisma.client.posRefund.aggregate({
+      this.prisma.client.posRefund.findMany({
         where: { organizationId, createdAt: { gte: from, lte: to } },
-        _sum: { amount: true },
-        _count: { _all: true },
+        select: { amount: true, items: true },
       }),
     ]);
 
-    // POS-side totals (net-of-refund revenue + tax + discounts).
+    // POS-side totals (gross), plus the refund split.
     const posSubtotal = new Prisma.Decimal((posAgg._sum.subtotal as any) ?? 0)
       .plus(new Prisma.Decimal((docAgg._sum?.subtotal as any) ?? 0));
     const posTax = new Prisma.Decimal((posAgg._sum.taxAmount as any) ?? 0)
       .plus(new Prisma.Decimal((docAgg._sum?.taxAmount as any) ?? 0));
     const posDiscount = new Prisma.Decimal((posAgg._sum.discountTotal as any) ?? 0)
       .plus(new Prisma.Decimal((docAgg._sum?.discountTotal as any) ?? 0));
-    const posRefunded = new Prisma.Decimal((posAgg._sum.amountRefunded as any) ?? 0);
     const posInvoiceCount = (posAgg._count as any) + ((docAgg._count as any) ?? 0);
-    const refundCount = (refundsAgg._count as any) ?? 0;
-    const refundTotal = new Prisma.Decimal((refundsAgg._sum?.amount as any) ?? 0);
+
+    // R-1: split each refund into revenue vs tax portions from its recorded
+    // line fractions. amountRefunded (invoice header) mixes both portions and
+    // cannot be used — comparing it against GL revenue produces a false variance
+    // equal to the refunded tax on every tax-inclusive sale.
+    let refundCount = 0;
+    let refundedRevenue = ZERO;
+    let refundedTax = ZERO;
+    let refundTotal = ZERO;
+    for (const r of refundRows as any[]) {
+      refundCount++;
+      refundTotal = refundTotal.plus(new Prisma.Decimal(r.amount ?? 0));
+      // items[] rows carry { subtotal, taxAmount } per refunded line fraction.
+      for (const it of (Array.isArray(r.items) ? r.items : []) as any[]) {
+        refundedRevenue = refundedRevenue.plus(new Prisma.Decimal(it.subtotal ?? 0));
+        refundedTax = refundedTax.plus(new Prisma.Decimal(it.taxAmount ?? 0));
+      }
+    }
 
     // GL-side totals by section, signed for display.
     const glRevenue = glSections.get('revenue') ?? ZERO;
@@ -134,12 +151,15 @@ export class PosGlReconciliationService {
 
     // The POS posts NET revenue (discount folded in — C-09 net method), so the
     // expected GL revenue for the window is gross subtotal minus discounts,
-    // minus refunded revenue, plus other income booked directly to the ledger.
-    const expectedRevenue = posSubtotal.minus(posDiscount).minus(posRefunded);
+    // minus the refunded REVENUE portion (not the full refund amount).
+    const expectedRevenue = posSubtotal.minus(posDiscount).minus(refundedRevenue);
     const actualRevenue = glRevenue.plus(glOtherIncome).minus(glContraRevenue);
 
     const revenueVariance = actualRevenue.minus(expectedRevenue);
-    const taxVariance = glTax.minus(posTax.minus(new Prisma.Decimal(0))); // refunds reverse tax inside the refund JE
+    // Expected tax = gross POS tax minus the refunded TAX portion. (The refund
+    // journal debits the tax account for exactly the refunded tax fraction.)
+    const expectedTax = posTax.minus(refundedTax);
+    const taxVariance = glTax.minus(expectedTax);
 
     // ── Inventory / COGS lag (C-08) ────────────────────────────────────────
     const cogsGl = glSections.get('cogs') ?? ZERO;
@@ -156,10 +176,15 @@ export class PosGlReconciliationService {
         grossSubtotal: posSubtotal.toString(),
         discounts: posDiscount.toString(),
         tax: posTax.toString(),
-        refunded: posRefunded.toString(),
+        // R-1: refund split — revenue and tax portions derived from the
+        // immutable PosRefund.items line fractions, never from the invoice's
+        // mixed amountRefunded header field.
+        refundedRevenue: refundedRevenue.toString(),
+        refundedTax: refundedTax.toString(),
+        refundedTotal: refundTotal.toString(),
         expectedNetRevenue: expectedRevenue.toString(),
+        expectedNetTax: expectedTax.toString(),
         refundCount,
-        refundTotal: refundTotal.toString(),
       },
       gl: {
         revenue: glRevenue.toString(),

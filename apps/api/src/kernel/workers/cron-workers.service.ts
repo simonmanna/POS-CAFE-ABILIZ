@@ -91,17 +91,26 @@ export class CronWorkersService {
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, { name: 'cleanup-tokens' })
   async cleanupTokens() {
-    // Expired one-time tokens, idempotency records > 7d, revoked refresh tokens > 30d.
+    // Expired one-time tokens, revoked refresh tokens > 30d, idempotency
+    // records > 90d.
+    //
+    // Q3 (rc-cert-1): idempotency retention extended from 7d to 90d. The
+    // replay cache is the first line of defence against duplicate money
+    // operations (payments, settles, refunds, sync ops); 7d left a replay
+    // window open for any operation re-delivered after a week (offline
+    // terminals replaying an old queue, retrying clients, restored network).
+    // NOTE: 90d EXTENDS, but does not guarantee, replay safety — permanent
+    // exactly-once protection is the GL postingKey coverage (R-3, P2 backlog).
     const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const [tokens, idemp, refresh] = await Promise.all([
       this.prisma.raw.oneTimeToken.deleteMany({ where: { expiresAt: { lt: now } } }),
-      this.prisma.raw.idempotencyRecord.deleteMany({ where: { createdAt: { lt: sevenDaysAgo } } }),
+      this.prisma.raw.idempotencyRecord.deleteMany({ where: { createdAt: { lt: ninetyDaysAgo } } }),
       this.prisma.raw.refreshToken.deleteMany({ where: { revokedAt: { lt: thirtyDaysAgo } } }),
     ]);
     this.logger.log(
-      `Daily cleanup: ${tokens.count} expired tokens, ${idemp.count} idempotency rows, ${refresh.count} refresh tokens`,
+      `Daily cleanup: ${tokens.count} expired tokens, ${idemp.count} idempotency rows (>90d), ${refresh.count} refresh tokens`,
     );
   }
 }

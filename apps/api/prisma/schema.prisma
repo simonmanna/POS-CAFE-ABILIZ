@@ -616,9 +616,11 @@ model Partner {
   creditLimit             Decimal       @default(0) @db.Decimal(20, 2)
   creditHold              Boolean       @default(false)
   paymentTermId           String?
-  /// Opening balance when the partner is first created (e.g. brought-forward
-  /// AR/AP from a legacy system). Written once at create; stored as a signed
-  /// decimal (negative = credit balance owed to the partner).
+  /// DEPRECATED (F-6, rc-cert-1): stored but NEVER READ by AR, aging,
+  /// statements, or the AR↔GL tie-out. The UI no longer edits it. Kept only
+  /// so existing data is not silently destroyed; bring-forward balances must
+  /// be entered as a manual journal entry against the AR/AP control account.
+  /// Do not build features on this field — remove it in a future release.
   openingBalance          Decimal       @default(0) @db.Decimal(20, 2)
   status                  PartnerStatus @default(active)
   categoryId              String?

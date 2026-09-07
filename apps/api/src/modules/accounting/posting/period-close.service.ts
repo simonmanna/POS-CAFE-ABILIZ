@@ -304,6 +304,21 @@ export class PeriodCloseService {
       const period = await tx.fiscalPeriod.findFirst({ where: { id: periodId, organizationId } });
       if (!period) throw new NotFoundException('Fiscal period not found');
 
+      // N-2: a LOCKED period is the year-end hard lock — it must never be
+      // silently reopened by the ordinary reopen operation. If a locked period
+      // genuinely must reopen, that is an explicit unlock flow (two-person,
+      // its own audit event) — deliberately not this one.
+      if (period.status === 'locked') {
+        throw new BadRequestException(
+          `Fiscal period '${period.name}' is locked; a locked period cannot be reopened. Unlock requires an explicit year-end unlock operation.`,
+        );
+      }
+      // Idempotent no-op: an open period needs no reopen (no writes, no audit
+      // noise, no closing-entry side effects).
+      if (period.status === 'open') {
+        return { reopened: true };
+      }
+
       // Find any closing entry the previous `close()` posted for this period so it is
       // reversed rather than left alongside reopened activity.
       const closingEntry = await tx.journalEntry.findFirst({

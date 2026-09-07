@@ -61,7 +61,6 @@ import {
 import { DataTable, type Column } from '@/components/data-table';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { notify } from '@/lib/notify';
-import { useOrgCurrency } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -134,7 +133,6 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
   const [membershipLevel, setMembershipLevel] = useState('');
   const [gender, setGender] = useState('');
   const [partnerKind, setPartnerKind] = useState<'individual' | 'business'>('individual');
-  const [openingBalance, setOpeningBalance] = useState('');
   const [paymentTermId, setPaymentTermId] = useState('');
   const [notes, setNotes] = useState('');
   const [contactFirstName, setContactFirstName] = useState('');
@@ -156,7 +154,6 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
   const canCreate = hasPermission(PERMISSIONS.partners.create);
   const canEdit = hasPermission(PERMISSIONS.partners.edit);
   const canDelete = hasPermission(PERMISSIONS.partners.delete);
-  const currency = useOrgCurrency();
 
   useEffect(() => setPage(1), [search]);
 
@@ -221,7 +218,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
       setGender(p?.gender ?? '');
       setNotes(p?.notes ?? '');
       setPartnerKind(p?.isCompany ? 'business' : 'individual');
-      setOpeningBalance(p?.openingBalance != null ? String(p.openingBalance) : '');
+      // F-6: openingBalance deprecated — no longer edited from the UI.
       setPaymentTermId(p?.paymentTermId ?? '');
       setContactFirstName(p?.contacts?.find((c) => c.isPrimary)?.firstName ?? '');
       setContactLastName(p?.contacts?.find((c) => c.isPrimary)?.lastName ?? '');
@@ -290,7 +287,8 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
         membershipLevel: membershipLevel || null,
         gender: gender || null,
         notes: notes || null,
-        openingBalance: openingBalance ? Number(openingBalance) : 0,
+        // F-6: openingBalance intentionally NOT sent — deprecated, unread by
+        // accounting. Never overwrite existing stored values from this form.
         paymentTermId: paymentTermId || null,
       };
       if (contacts.length > 0) payload.contacts = contacts;
@@ -725,23 +723,12 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                       </Select>
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="openingBalance" className="text-sm font-medium text-gray-700">
-                      Opening Balance <span className="text-gray-400">(brought forward)</span>
-                    </Label>
-                    <div className="relative">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">{currency}</span>
-                      <Input
-                        id="openingBalance"
-                        type="number"
-                        step="0.01"
-                        className="pl-12 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                        placeholder="0.00"
-                        value={openingBalance}
-                        onChange={(e) => setOpeningBalance(e.target.value)}
-                      />
-                    </div>
-                  </div>
+                  {/* F-6 (rc-cert-1): the Opening Balance field is DEPRECATED and
+                      hidden. Partner.openingBalance is stored but never read by
+                      AR, aging, statements or the AR↔GL tie-out — a saved value
+                      silently implied an accounting effect that does not exist.
+                      Bring-forward balances must be entered as a manual journal
+                      entry instead. */}
                   </div>
 
                   {/* ── Contact Details (Customer only) ── */}
