@@ -203,6 +203,23 @@ describeDb('integration: inventory engine', () => {
       });
       expect(Number(si!.runningAverageCost)).toBe(110);
     }, 60_000);
+
+    it('INV-023: converting via a purchase unit preserves the recorded base-unit quantity', async () => {
+      const product = await makeProduct('UOM-HIST');
+      await asOrg(() =>
+        stock.receiveForDocument(
+          { productId: product.id, locationId: mainLocationId, quantity: 12, uomId: 'uom-carton', unitCost: 120 } as any,
+          { sourceType: 'test_receipt', sourceId: 'uom-hist', date: new Date() },
+        ),
+      );
+      const ledgerRows = await prisma.inventoryLedger.findMany({
+        where: { organizationId, productId: product.id, referenceType: 'test_receipt', referenceId: 'uom-hist' },
+      });
+      // The ledger captured the recorded base-unit quantity; a later conversion
+      // change cannot rewrite immutable history.
+      expect(Number(ledgerRows[0].quantityChange)).toBe(12);
+      expect(await ledgerSum(product.id, mainLocationId)).toBe(12);
+    }, 60_000);
   });
 
   describe('negative stock (never-block-sales)', () => {
@@ -215,6 +232,31 @@ describeDb('integration: inventory engine', () => {
 
       expect(await onHand(product.id, mainLocationId)).toBe(-10);
       expect(await ledgerSum(product.id, mainLocationId)).toBe(-10);
+    }, 60_000);
+
+    it('two concurrent sales of the final unit cannot oversell when allowNegativeStock=false (INV-024)', async () => {
+      const product = await makeProduct('LAST-UNIT', { stockPolicy: 'block' });
+      await asOrg(() =>
+        stock.receiveForDocument(
+          { productId: product.id, locationId: mainLocationId, quantity: 1, unitCost: 10 } as any,
+          { sourceType: 'test_receipt', sourceId: 'last-unit', date: new Date() },
+        ),
+      );
+
+      // Two terminals trying to sell the single unit in parallel.
+      const results = await Promise.allSettled([
+        asOrg(() => stock.issue({ productId: product.id, locationId: mainLocationId, quantity: 1, distStrategy: 'FEFO' } as any)),
+        asOrg(() => stock.issue({ productId: product.id, locationId: mainLocationId, quantity: 1, distStrategy: 'FEFO' } as any)),
+      ]);
+
+      // Exactly one succeeds; the other is rejected for insufficient stock.
+      const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
+      expect(fulfilled).toBe(1);
+
+      // Stock must never go negative.
+      expect(await onHand(product.id, mainLocationId)).toBe(0);
+      // And the ledger must show exactly one unit out.
+      expect(await ledgerSum(product.id, mainLocationId)).toBe(0);
     }, 60_000);
 
     it('squares up COGS and valuation on the covering receipt', async () => {

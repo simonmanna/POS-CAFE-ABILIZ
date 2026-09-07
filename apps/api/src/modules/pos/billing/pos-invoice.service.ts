@@ -197,6 +197,41 @@ export class PosInvoiceService {
     // to the InventoryPostingSubscriber.
     const timing = await this.stockPostingTiming();
 
+    // Available-to-Promise (ATP) check: when configured, warn or block before
+    // the invoice is created. `post_commit` (default) skips the check entirely.
+    const atpMode = (await this.settings.resolveEnum<'post_commit' | 'pre_invoice' | 'strict'>('inventory.atpMode')) ?? 'post_commit';
+    if (atpMode !== 'post_commit' && this.prisma.raw) {
+      const atpWarehouse = await resolvePosStockLocation(this.prisma, orgId, db);
+      if (atpWarehouse) {
+        for (const it of items) {
+          if (it.menuItemId) {
+            const recipe = await db.menuProduct.findMany({ where: { menuItemId: it.menuItemId } });
+            for (const ing of recipe) {
+              const qty = Number(ing.quantity) * Number(it.quantity);
+              const atp = await this.reservations.availableToPromise(ing.productId, atpWarehouse.id);
+              if (dec(qty).gt(dec(atp.available))) {
+                const msg = `Low stock for "${it.description}": need ${qty} of ingredient, ${atp.available} available`;
+                if (atpMode === 'strict') {
+                  throw new BadRequestException(msg);
+                }
+                this.logger.warn(`[atp] ${msg}`);
+              }
+            }
+          } else if (it.productId) {
+            const qty = Number(it.quantity);
+            const atp = await this.reservations.availableToPromise(it.productId, atpWarehouse.id);
+            if (dec(qty).gt(dec(atp.available))) {
+              const msg = `Low stock for "${it.description}": need ${qty}, ${atp.available} available`;
+              if (atpMode === 'strict') {
+                throw new BadRequestException(msg);
+              }
+              this.logger.warn(`[atp] ${msg}`);
+            }
+          }
+        }
+      }
+    }
+
     // Resolve discount type/value: DTO overrides order defaults.
     const txDiscType = dto.transactionDiscountType ?? order.transactionDiscountType ?? 'percentage';
     const txDiscValue = txDiscType === 'fixed_amount'
@@ -676,8 +711,8 @@ export class PosInvoiceService {
    * `dir` = 'issue' on sale, 'receive' on refund. Best-effort per unit: a missing
    * link or stock error is logged, never thrown (mirrors "never block sales").
    */
-  private async issueLineExtras(db: any, item: any, lineQty: number, warehouseId: string, reference: string): Promise<LineExtraFailure[]> {
-    return this.moveLineExtras(db, 'issue', item, lineQty, warehouseId, reference);
+  private async issueLineExtras(db: any, item: any, lineQty: number, warehouseId: string, reference: string, ctx?: StockPostingCtx, tx?: any): Promise<LineExtraFailure[]> {
+    return this.moveLineExtras(db, 'issue', item, lineQty, warehouseId, reference, ctx, tx);
   }
 
   /**
@@ -688,14 +723,16 @@ export class PosInvoiceService {
    */
   private async moveLineExtras(
     db: any, dir: 'issue' | 'receive', item: any, lineQty: number, warehouseId: string, reference: string,
+    ctx?: StockPostingCtx, tx?: any,
   ): Promise<LineExtraFailure[]> {
     const failures: LineExtraFailure[] = [];
+    const orgId = this.tenant.organizationId;
     if (!(lineQty > 0)) return failures;
     // F14 — one selection consumes `consumptionQty` of its linked product in
     // `consumptionUomId` (falling back to the product's stock unit), scaled by
     // the line quantity. "Extra milk" can now mean 30 ml × N drinks, not N whole
     // units. consumptionQty defaults to 1, so unconfigured options are unchanged.
-    const move = async (productId: string, componentId: string, consumptionQty: number, uomId?: string | null) => {
+    const move = async (productId: string, componentId: string, consumptionQty: number, uomId?: string | null, componentType?: string) => {
       const qty = lineQty * (Number.isFinite(consumptionQty) && consumptionQty > 0 ? consumptionQty : 1);
       // Deterministic per-component movement id: a retry of the same job cannot
       // book the same extra twice, and the ledger row traces back to the option.
@@ -703,15 +740,37 @@ export class PosInvoiceService {
         productId, locationId: warehouseId, quantity: qty, reference, uomId: uomId ?? undefined,
         sourceType: 'pos_invoice_extra', sourceId: `${item.id}:${componentId}`,
       } as any;
-      if (dir === 'issue') await this.stock.issue(args, db);
-      else await this.stock.receiveReturn(args, db);
+      if (dir === 'issue') {
+        const result = await this.stock.issue(args, db);
+        // Capture modifier/accompaniment snapshot
+        const cost = result?.unitCost ? Number(result.unitCost) : 0;
+        const value = result?.totalValue ? Number(result.totalValue) : 0;
+        if (ctx && tx && value > 0) {
+          await tx.invoiceItemRecipeIngredient.create({
+            data: {
+              organizationId: orgId,
+              invoiceItemId: item.id,
+              invoiceId: ctx.invoiceId,
+              productId,
+              quantity: qty,
+              unitCost: cost,
+              totalValue: value,
+              variantMultiplier: 1,
+              componentType: componentType ?? null,
+              componentId,
+            },
+          });
+        }
+      } else {
+        await this.stock.receiveReturn(args, db);
+      }
     };
     // Modifiers (structured on the line).
     for (const m of (item.modifiers ?? []) as any[]) {
       if (!m.modifierId) continue;
       try {
         const mod = await db.modifier.findFirst({ where: { id: m.modifierId }, select: { inventoryItemId: true, consumptionQty: true, consumptionUomId: true } });
-        if (mod?.inventoryItemId) await move(mod.inventoryItemId, m.modifierId, Number(mod.consumptionQty ?? 1), mod.consumptionUomId);
+        if (mod?.inventoryItemId) await move(mod.inventoryItemId, m.modifierId, Number(mod.consumptionQty ?? 1), mod.consumptionUomId, 'modifier');
       } catch (e: any) {
         this.logger.error(`[stock] modifier extra ${dir} failed (${m.modifierId}) on ${reference} (kept): ${e?.message ?? e}`);
         failures.push({ componentId: m.modifierId, componentType: 'modifier', productId: null, error: e });
@@ -724,7 +783,7 @@ export class PosInvoiceService {
         const opts = await db.accompanimentOption.findMany({ where: { id: { in: accIds } }, select: { id: true, inventoryItemId: true, consumptionQty: true, consumptionUomId: true } });
         for (const o of opts as any[]) {
           if (!o.inventoryItemId) continue;
-          try { await move(o.inventoryItemId, o.id, Number(o.consumptionQty ?? 1), o.consumptionUomId); }
+          try { await move(o.inventoryItemId, o.id, Number(o.consumptionQty ?? 1), o.consumptionUomId, 'accompaniment'); }
           catch (e: any) {
             this.logger.error(`[stock] accompaniment extra ${dir} failed on ${reference} (kept): ${e?.message ?? e}`);
             failures.push({ componentId: o.id, componentType: 'accompaniment_option', productId: o.inventoryItemId, error: e });
@@ -984,12 +1043,31 @@ export class PosInvoiceService {
       if (it.rentalAgreementLineId || it.repairOrderLineId) continue;
       try {
         if (it.menuItemId) {
-          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx, it.variantId ?? null);
+          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx, it.variantId ?? null, it.id);
         } else if (it.productId) {
           const product = await db.product.findFirst({ where: { id: it.productId } });
           if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
             // Sell-in-sales-unit: line qty is in the product's sales unit → convert to base.
-            await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref, sourceType: 'pos_invoice', sourceId: ctx.invoiceId } as any, tx);
+            const issueResult = await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref, sourceType: 'pos_invoice', sourceId: ctx.invoiceId } as any, tx);
+            // Capture recipe snapshot for product-direct issues
+            const cost = issueResult?.unitCost ? Number(issueResult.unitCost) : 0;
+            const value = issueResult?.totalValue ? Number(issueResult.totalValue) : 0;
+            if (value > 0) {
+              await tx.invoiceItemRecipeIngredient.create({
+                data: {
+                  organizationId: orgId,
+                  invoiceItemId: it.id,
+                  invoiceId: ctx.invoiceId,
+                  productId: it.productId,
+                  quantity: Number(it.quantity),
+                  unitCost: cost,
+                  totalValue: value,
+                  variantMultiplier: 1,
+                  componentType: null,
+                  componentId: null,
+                },
+              });
+            }
           }
         }
       } catch (e: any) {
@@ -1005,7 +1083,7 @@ export class PosInvoiceService {
       // H3: deplete paid modifiers + accompaniments. A failure here never blocks
       // the (already final) sale, but it IS counted and recorded like any other
       // un-deducted line so the back office sees the drift.
-      for (const f of await this.issueLineExtras(db, it, Number(it.quantity), warehouse.id, ref)) {
+      for (const f of await this.issueLineExtras(db, it, Number(it.quantity), warehouse.id, ref, ctx, tx)) {
         failures++;
         await this.recordInventoryException(ctx, {
           kind: 'line_extras',
@@ -1109,9 +1187,11 @@ export class PosInvoiceService {
 
   /** Issue a menu item's recipe BOM. Returns the count of ingredients that failed
    *  (each recorded as an InventoryException). Never throws — a bad ingredient
-   *  can't stop the rest, and the sale is already final. */
-  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx, tx: any, variantId?: string | null): Promise<number> {
+   *  can't stop the rest, and the sale is already final.
+   *  @param invoiceItemId - the InvoiceItem id for recipe snapshot capture */
+  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx, tx: any, variantId?: string | null, invoiceItemId?: string): Promise<number> {
     const db = tx ?? this.prisma.client;
+    const orgId = this.tenant.organizationId;
     const menuItem = await db.menuItem.findUnique({
       where: { id: menuItemId },
       select: { isInventoryTracked: true, name: true },
@@ -1127,7 +1207,7 @@ export class PosInvoiceService {
       if (Number.isFinite(m) && m > 0) recipeMultiplier = m;
     }
     const effectiveLineQty = lineQty * recipeMultiplier;
-    const recipe = await db.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
+    const recipe = await db.menuProduct.findMany({ where: { menuItemId, organizationId: orgId } });
     const reference = ctx.invoiceNumber;
     const ref = `POS bill ${reference}`;
 
@@ -1157,7 +1237,7 @@ export class PosInvoiceService {
         // A-024: stamp the recipe issue with the owning menu item + invoice so
         // the ledger row is traceable (referenceType/referenceId), and keep the
         // human-readable `reference` for the notes/reference column.
-        await this.stock.issue({
+        const issueResult = await this.stock.issue({
           productId: ing.productId,
           locationId: warehouseId,
           quantity: qty,
@@ -1167,6 +1247,26 @@ export class PosInvoiceService {
           sourceId: ctx.invoiceId,
           notes: `${menuItem.name ?? 'menu item'} → ${ref}`,
         } as any, tx);
+        // Capture recipe snapshot so historical COGS is preserved even if the
+        // MenuProduct recipe changes later. Written atomically with the stock issue.
+        const cost = issueResult?.unitCost ? Number(issueResult.unitCost) : 0;
+        const value = issueResult?.totalValue ? Number(issueResult.totalValue) : 0;
+        if (invoiceItemId && value > 0) {
+          await tx.invoiceItemRecipeIngredient.create({
+            data: {
+              organizationId: orgId,
+              invoiceItemId,
+              invoiceId: ctx.invoiceId,
+              productId: ing.productId,
+              quantity: qty,
+              unitCost: cost,
+              totalValue: value,
+              variantMultiplier: recipeMultiplier,
+              componentType: 'recipe',
+              componentId: null,
+            },
+          });
+        }
       } catch (e: any) {
         failures++;
         this.logger.error(`[stock] recipe issue failed (menuItem ${menuItemId}, product ${ing.productId}) on ${reference} (sale kept): ${e?.message ?? e}`);

@@ -229,6 +229,15 @@ export class StockService {
       where: { organizationId: this.tenant.organizationId, productId, variantKey: variantId ?? '', locationId },
     });
     if (item && dec(item.runningAverageCost).gt(ZERO)) return dec(item.runningAverageCost);
+    // Fall back to the last known receipt cost from the ledger when the running
+    // average is zero or negative (e.g. after overselling with no covering receipt).
+    if (item && dec(item.runningAverageCost).lte(ZERO)) {
+      const lastLedgerEntry = await tx.inventoryLedger.findFirst({
+        where: { organizationId: this.tenant.organizationId, productId, variantId: variantId ?? null, locationId, type: 'receipt', quantityChange: { gt: 0 } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (lastLedgerEntry && dec(lastLedgerEntry.unitCost).gt(ZERO)) return dec(lastLedgerEntry.unitCost);
+    }
     return dec(product?.costPrice ?? 0);
   }
 

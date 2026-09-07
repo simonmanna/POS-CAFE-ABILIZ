@@ -78,6 +78,31 @@ export class PeriodCloseService {
         );
       }
 
+      // Also check for pending synchronous inventory mutations that could post
+      // to the GL for this period. These are not queued (they post synchronously
+      // when approved), so the queue check above does not catch them.
+      const pendingStockOuts = await tx.stockOut.count({
+        where: { organizationId, status: { in: ['draft', 'pending', 'approved'] } },
+      });
+      const pendingWaste = await tx.wasteRecord.count({
+        where: { organizationId, status: { in: ['draft', 'pending', 'approved'] } },
+      });
+      const pendingAdjustments = await tx.stockAdjustment.count({
+        where: { organizationId, status: { in: ['draft', 'pending', 'approved'] } },
+      });
+      const pendingTransfers = await tx.stockTransfer.count({
+        where: { organizationId, status: { in: ['draft', 'pending', 'approved'] } },
+      });
+      const totalPending = pendingStockOuts + pendingWaste + pendingAdjustments + pendingTransfers;
+      if (totalPending > 0) {
+        throw new BadRequestException(
+          `Cannot close '${period.name}': ${totalPending} pending inventory mutation(s) ` +
+            `(${pendingStockOuts} stock-outs, ${pendingWaste} waste, ` +
+            `${pendingAdjustments} adjustments, ${pendingTransfers} transfers). ` +
+            `Post or cancel them before closing.`,
+        );
+      }
+
       // 1) Sum every revenue / contra-revenue / expense / COGS line posted in
       //    this period's date range.
       const grouped = await tx.journalLine.groupBy({

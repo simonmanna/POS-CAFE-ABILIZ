@@ -822,7 +822,7 @@ model Product {
   maxQuantity                   Decimal            @default(0) @db.Decimal(20, 6)
   /// POS Phase P9: how the cashier flow handles an attempted sale that
   /// exceeds on-hand stock. Default 'silent' = current behaviour.
-  stockPolicy                   PosStockPolicy     @default(silent)
+  stockPolicy                   PosStockPolicy     @default(warn)
   /// POS Phase P10: when true, the line's `unitPrice` is the GROSS amount
   /// (VAT included). The DocumentBuilderService splits it as
   ///   net = unitPrice / (1 + taxRate/100)
@@ -5790,6 +5790,47 @@ model TenderSettlement {
   @@index([organizationId, cashSessionId])
 }
 
+/// Snapshot of the recipe ingredients consumed by a POS invoice line, captured
+/// at the time the stock posting job processes the invoice. This is the historical
+/// record — the current MenuProduct configuration may change, but COGS for this
+/// invoice was calculated from these rows. One row per ingredient per invoice line,
+/// written atomically with the stock issue inside the same transaction.
+model InvoiceItemRecipeIngredient {
+  id             String   @id @default(uuid())
+  organizationId String
+  invoiceItemId  String
+  /// The inventory product that was consumed (FK to Product, no cascade to avoid
+  /// accidental deletion of history if the product is later soft-deleted).
+  productId      String
+  /// Quantity consumed, in the ingredient's base stock unit (already converted
+  /// from the recipe-line uomId). This is exactly what was deducted from stock.
+  quantity       Decimal  @db.Decimal(20, 6)
+  /// Unit cost at time of issue (copied from the ledger row for independent
+  /// COGS verifiability, even if the ledger is later purged).
+  unitCost       Decimal  @db.Decimal(20, 6)
+  /// Total value of this ingredient line (quantity × unitCost).
+  totalValue     Decimal  @db.Decimal(20, 6)
+  /// The menu item variant multiplier applied (1.0 = base recipe, >1 = size
+  /// variant multiplies consumption).
+  variantMultiplier Decimal @default(1) @db.Decimal(12, 6)
+  /// Source of this ingredient: 'recipe' for base BOM, 'modifier' for a paid
+  /// extra, 'accompaniment' for a side option. Null for product-direct lines.
+  componentType  String?
+  /// The modifier or accompaniment option id that added this ingredient, when
+  /// componentType is 'modifier' or 'accompaniment'.
+  componentId    String?
+  /// Reference back to the invoice for cross-lookup.
+  invoiceId      String?
+  createdAt      DateTime @default(now())
+
+  invoiceItem InvoiceItem @relation(fields: [invoiceItemId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([invoiceItemId])
+  @@index([productId])
+  @@index([invoiceId])
+}
+
 /// A line on a POS Invoice (mirrors DocumentLine but on the separate Invoice).
 model InvoiceItem {
   taxAccountId String?
@@ -5825,8 +5866,9 @@ model InvoiceItem {
   lineNumber             Int            @default(0)
   createdAt              DateTime       @default(now())
 
-  invoice   Invoice               @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  modifiers InvoiceItemModifier[]
+  invoice    Invoice                         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  modifiers   InvoiceItemModifier[]
+  ingredients InvoiceItemRecipeIngredient[]
 
   @@index([organizationId])
   @@index([invoiceId])

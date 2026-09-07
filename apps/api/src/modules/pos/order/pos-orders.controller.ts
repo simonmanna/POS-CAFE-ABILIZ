@@ -128,6 +128,8 @@ export class PosOrdersController {
    */
   @Delete(':id/items/:itemId')
   @RequirePermissions('pos:void')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent({ required: true })
   voidItem(@Param('id') id: string, @Param('itemId') itemId: string, @Body() dto: VoidOrderItemDto) {
     return this.orders.voidItem(id, itemId, dto);
   }
@@ -152,6 +154,8 @@ export class PosOrdersController {
 
   @Post(':id/cancel')
   @RequirePermissions('pos:checkout')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent({ required: true })
   cancel(@Param('id') id: string, @Body() dto: CancelOrderDto) {
     return this.orders.cancelOrder(id, dto.reason, undefined, {
       overrideById: dto.overrideById, overridePin: dto.overridePin,

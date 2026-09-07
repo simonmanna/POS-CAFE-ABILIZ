@@ -74,6 +74,19 @@ export const SETTING_DEFINITIONS = {
     cascades: true,
     scopeLevels: ALL_LEVELS,
   },
+  'inventory.atpMode': {
+    key: 'inventory.atpMode',
+    group: 'inventory',
+    type: 'enum',
+    label: 'Available-to-Promise Mode',
+    description:
+      'post_commit = sale proceeds, reservation is best-effort (default). ' +
+      'pre_invoice = check ATP before invoice, warn if insufficient. ' +
+      'strict = check ATP before invoice, block if insufficient.',
+    default: 'post_commit',
+    cascades: true,
+    scopeLevels: ALL_LEVELS,
+  },
   'inventory.defaultPickingStrategy': {
     key: 'inventory.defaultPickingStrategy',
     group: 'inventory',

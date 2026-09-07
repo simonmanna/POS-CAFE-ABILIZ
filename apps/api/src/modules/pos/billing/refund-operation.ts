@@ -1,6 +1,7 @@
 import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { dec } from '../../../kernel/common/money';
+import { resolvePosStockLocation } from '../../inventory/pos-stock-location';
 
 export interface RefundOptions {
   overrideById?: string;
@@ -37,7 +38,11 @@ export async function refundInvoice(ctx: any, invoiceId: string, reason: string 
       if (!src) throw new BadRequestException('Refund line is not on this invoice');
       const quantity = dec(sel.quantity);
       if (!quantity.isFinite() || !quantity.gt(0) || quantity.gt(dec(src.quantity).minus(src.refundedQty))) throw new BadRequestException('Refund quantity exceeds the remaining quantity');
-      if (opts.stockDisposition === 'restock' && (src.menuItemId || !src.productId)) throw new BadRequestException('Prepared menu items cannot restore recipe ingredients. Select waste or no return.');
+      // Menu items are restockable via the recipe snapshot (ingredient-level).
+      // Direct products without a productId cannot be restocked.
+      if (opts.stockDisposition === 'restock' && !src.productId && !src.menuItemId) {
+        throw new BadRequestException('Cannot restock this line type');
+      }
       return { src, quantity };
     });
     let total = dec(0);
@@ -86,17 +91,46 @@ export async function refundInvoice(ctx: any, invoiceId: string, reason: string 
       const jobs = await tx.stockPostingJob.count({ where: { invoiceId, status: { not: 'done' } } });
       if (jobs) throw new BadRequestException('Resolve pending stock posting before restocking this return');
       for (const { src, quantity } of selections) {
-        const issues = await tx.inventoryLedger.findMany({ where: { organizationId: orgId, productId: src.productId, variantId: src.variantId ?? null, referenceId: invoiceId, referenceType: 'pos_invoice', quantityChange: { lt: 0 } } });
-        const locations = [...new Set(issues.map((it: any) => it.locationId))];
-        if (locations.length !== 1) throw new BadRequestException('Original stock issue location is missing or ambiguous; resolve the stock disposition first');
-        const product = await tx.product.findFirst({ where: { id: src.productId, organizationId: orgId } });
-        if (!product || product.serialTracking || product.batchTracking) throw new BadRequestException('Tracked returns require an identified stock return; choose no return and record the stock disposition separately');
-        const issuedQty = issues.reduce((n: any, it: any) => n.plus(dec(it.quantityChange).abs()), dec(0));
-        const issuedValue = issues.reduce((n: any, it: any) => n.plus(dec(it.quantityChange).abs().times(it.unitCost)), dec(0));
-        const unitCost = issuedValue.div(issuedQty);
-        const soldQty = inv.items.filter((it: any) => it.productId === src.productId && (it.variantId ?? null) === (src.variantId ?? null) && !it.menuItemId).reduce((n: any, it: any) => n.plus(it.quantity), dec(0));
-        const returnedBaseQty = issuedQty.times(quantity).div(soldQty).toDecimalPlaces(6);
-        await ctx.stock.receiveReturn({ productId: src.productId, variantId: src.variantId ?? undefined, locationId: locations[0], quantity: Number(returnedBaseQty), unitCost: Number(unitCost), reference: `Refund ${refund.id}`, sourceType: 'pos_refund', sourceId: refund.id }, tx);
+        // Use the recipe snapshot when available (menu items with ingredients)
+        // so historical COGS is preserved regardless of current MenuProduct changes.
+        const ingredients = await tx.invoiceItemRecipeIngredient.findMany({
+          where: { invoiceItemId: src.id, organizationId: orgId },
+        });
+        if (ingredients.length > 0) {
+          // Restock from the snapshot: the exact ingredients that were consumed
+          const posLoc = await resolvePosStockLocation(ctx.prisma, orgId, tx);
+          const locId = posLoc?.id;
+          if (!locId) throw new BadRequestException('No active warehouse configured — cannot restock inventory');
+          for (const ing of ingredients) {
+            const fraction = quantity.div(src.quantity);
+            const returnQty = dec(ing.quantity).times(fraction).toDecimalPlaces(6);
+            if (returnQty.lte(0)) continue;
+            await ctx.stock.receiveReturn({
+              productId: ing.productId,
+              locationId: locId,
+              quantity: Number(returnQty),
+              unitCost: Number(ing.unitCost),
+              reference: `Refund ${refund.id}`,
+              sourceType: 'pos_refund',
+              sourceId: refund.id,
+            }, tx);
+          }
+        } else {
+          // Fallback for legacy rows and direct-product issues: derive from ledger
+          const issues = await tx.inventoryLedger.findMany({
+            where: { organizationId: orgId, productId: src.productId, variantId: src.variantId ?? null, referenceId: invoiceId, referenceType: 'pos_invoice', quantityChange: { lt: 0 } },
+          });
+          const locations = [...new Set(issues.map((it: any) => it.locationId))];
+          if (locations.length !== 1) throw new BadRequestException('Original stock issue location is missing or ambiguous; resolve the stock disposition first');
+          const product = await tx.product.findFirst({ where: { id: src.productId, organizationId: orgId } });
+          if (!product || product.serialTracking || product.batchTracking) throw new BadRequestException('Tracked returns require an identified stock return; choose no return and record the stock disposition separately');
+          const issuedQty = issues.reduce((n: any, it: any) => n.plus(dec(it.quantityChange).abs()), dec(0));
+          const issuedValue = issues.reduce((n: any, it: any) => n.plus(dec(it.quantityChange).abs().times(it.unitCost)), dec(0));
+          const unitCost = issuedValue.div(issuedQty);
+          const soldQty = inv.items.filter((it: any) => it.productId === src.productId && (it.variantId ?? null) === (src.variantId ?? null) && !it.menuItemId).reduce((n: any, it: any) => n.plus(it.quantity), dec(0));
+          const returnedBaseQty = issuedQty.times(quantity).div(soldQty).toDecimalPlaces(6);
+          await ctx.stock.receiveReturn({ productId: src.productId, variantId: src.variantId ?? undefined, locationId: locations[0], quantity: Number(returnedBaseQty), unitCost: Number(unitCost), reference: `Refund ${refund.id}`, sourceType: 'pos_refund', sourceId: refund.id }, tx);
+        }
       }
     }
     for (const { src, quantity } of selections) await tx.invoiceItem.update({ where: { id: src.id }, data: { refundedQty: { increment: quantity } } });

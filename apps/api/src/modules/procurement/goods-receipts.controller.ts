@@ -1,6 +1,8 @@
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseInterceptors } from '@nestjs/common';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
+import { IdempotencyInterceptor } from '../../kernel/idempotency/idempotency.interceptor';
+import { Idempotent } from '../../kernel/idempotency/idempotent.decorator';
 import { GoodsReceiptsService } from './goods-receipts.service';
 
 @ApiTags('procurement')
@@ -68,6 +70,8 @@ export class GoodsReceiptsController {
 
   @Patch(':id/post')
   @RequirePermissions('goods_receipt:create')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent({ required: true })
   post(@Param('id') id: string) {
     return this.svc.post(id);
   }

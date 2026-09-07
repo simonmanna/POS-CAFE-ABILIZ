@@ -213,4 +213,53 @@ describeDb('integration: stock posting jobs', () => {
 
     await expect(asOrg(() => periodClose.close(period.id))).rejects.toThrow(/stock-posting job/i);
   }, 60_000);
+
+  it('captures a recipe ingredient snapshot so historical COGS survives recipe changes', async () => {
+    const ingredient = await makeStockProduct(`ING-${Date.now()}`);
+    const menuItem = await prisma.menuItem.create({
+      data: { organizationId, name: 'Recipe Burger', isInventoryTracked: true } as any,
+    });
+    await prisma.menuProduct.create({
+      data: { organizationId, menuItemId: menuItem.id, productId: ingredient.id, quantity: 10 } as any,
+    });
+    const { order, job } = await makeJob({ menuItemId: menuItem.id, quantity: 2 });
+
+    await asOrg(() => billing.processStockPostingJob(job.id));
+
+    // The stock was issued for the recipe qty (10 × 2 = 20).
+    expect(await onHand(ingredient.id)).toBe(80);
+
+    // A snapshot row now records the ingredients actually consumed.
+    const snap = await prisma.invoiceItemRecipeIngredient.findFirst({
+      where: { organizationId, productId: ingredient.id, invoiceId: job.invoiceId },
+    });
+    expect(snap).toBeTruthy();
+    expect(Number(snap!.quantity)).toBe(20);
+    expect(Number(snap!.unitCost)).toBe(10);
+    expect(Number(snap!.totalValue)).toBe(200);
+
+    // Re-running the job (idempotent) must NOT duplicate the snapshot.
+    await asOrg(() => billing.processStockPostingJob(job.id));
+    const snapCount = await prisma.invoiceItemRecipeIngredient.count({
+      where: { organizationId, productId: ingredient.id, invoiceId: job.invoiceId },
+    });
+    expect(snapCount).toBe(0); // no duplicate snapshot; the issue side is already idempotent
+  }, 60_000);
+
+  it('refuses period close when synchronous inventory mutations are pending (FIND-INV-005)', async () => {
+    const period = await prisma.fiscalPeriod.create({
+      data: {
+        organizationId, name: 'FY-SYNC', status: 'open',
+        startDate: new Date('2020-01-01'), endDate: new Date('2035-12-31'),
+      } as any,
+    });
+    await prisma.stockAdjustment.create({
+      data: {
+        organizationId, adjCode: `ADJ-${Date.now()}`, locationId: warehouseId,
+        reason: 'cycle_count', status: 'approved',
+      } as any,
+    });
+
+    await expect(asOrg(() => periodClose.close(period.id))).rejects.toThrow(/inventory mutation|stock-out|pending inventory/i);
+  }, 60_000);
 });

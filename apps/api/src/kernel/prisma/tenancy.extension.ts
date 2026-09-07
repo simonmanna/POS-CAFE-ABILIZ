@@ -189,6 +189,7 @@ const ORG_SCOPED = new Set<string>([
   'Invoice',
   'InvoiceItem',
   'InvoiceItemModifier',
+  'InvoiceItemRecipeIngredient',
   // POS — Split bills (dine-in bill splitting)
   'SplitBill',
   'SplitBillItem',

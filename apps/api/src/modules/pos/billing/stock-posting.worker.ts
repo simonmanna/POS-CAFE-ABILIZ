@@ -54,14 +54,9 @@ export class StockPostingWorker {
     // so the only symptom is silently stale on-hand — log loudly enough that it
     // reaches whatever aggregates the API logs.
     if (claimed.length >= this.batchSize) {
-      const backlog = await this.prisma.raw.stockPostingJob.count({
-        where: { status: { in: ['pending', 'processing'] } },
-      });
-      if (backlog > this.batchSize) {
-        this.logger.warn(
-          `stock posting backlog: ${backlog} job(s) queued after claiming ${claimed.length} — on-hand is behind actual sales`,
-        );
-      }
+      this.logger.warn(
+        `stock posting backlog: claimed ${claimed.length} job(s) — on-hand is behind actual sales`,
+      );
     }
 
     for (const { id } of claimed) {
