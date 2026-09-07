@@ -497,6 +497,53 @@ export function useTieOut(asOf?: string) {
   });
 }
 
+/* ── POS → GL Reconciliation (C-20) + inventory/COGS lag (C-08) ── */
+
+export interface PosGlReconciliation {
+  window: { from: string; to: string };
+  pos: {
+    invoiceCount: number;
+    grossSubtotal: string;
+    discounts: string;
+    tax: string;
+    refunded: string;
+    expectedNetRevenue: string;
+    refundCount: number;
+    refundTotal: string;
+  };
+  gl: {
+    revenue: string;
+    otherIncome: string;
+    contraRevenue: string;
+    tax: string;
+    actualNetRevenue: string;
+    cogs: string;
+  };
+  variance: { revenue: string; revenueBalanced: boolean; tax: string; taxBalanced: boolean };
+  inventory: {
+    stockCogsValue: string;
+    glCogs: string;
+    cogsVariance: string;
+    cogsBalanced: boolean;
+    jobCounts: Record<string, number>;
+    unpostedJobs: number;
+    note: string;
+  };
+  balanced: boolean;
+}
+
+export function usePosGlReconciliation(from?: string, to?: string) {
+  return useQuery({
+    queryKey: ['pos-gl-reconciliation', from, to],
+    queryFn: async () =>
+      (
+        await api.get<PosGlReconciliation>('/reports/accounting/pos-gl-reconciliation', {
+          params: { from, to },
+        })
+      ).data,
+  });
+}
+
 /* ── Audit Log ─────────────────────────────────────────────────── */
 
 export interface AuditLogEntry {

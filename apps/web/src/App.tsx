@@ -57,6 +57,7 @@ import { ProfitAndLossPage } from '@/pages/accounting/profit-and-loss';
 import { CashFlowPage } from '@/pages/accounting/cash-flow';
 import { AccountLedgerPage } from '@/pages/accounting/account-ledger';
 import { TieOutPage } from '@/pages/accounting/tieout';
+import { PosGlReconciliationPage } from '@/pages/accounting/pos-gl-reconciliation';
 import { AuditLogPage } from '@/pages/accounting/audit-log';
 import FiscalPeriodsPage from '@/pages/accounting/fiscal-periods';
 import TaxesPage from '@/pages/accounting/taxes';
@@ -264,6 +265,7 @@ export function App() {
           <Route path="/cash-flow" element={<CashFlowPage />} />
           <Route path="/accounts/ledger/:id" element={<AccountLedgerPage />} />
           <Route path="/tieout" element={<TieOutPage />} />
+          <Route path="/pos-gl-reconciliation" element={<PosGlReconciliationPage />} />
           <Route path="/audit-log" element={<AuditLogPage />} />
           <Route path="/fiscal-periods" element={<FiscalPeriodsPage />} />
           <Route path="/taxes" element={<TaxesPage />} />

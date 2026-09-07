@@ -8,6 +8,7 @@ import { BalanceSheetReportService } from './balance-sheet-report.service';
 import { CashFlowReportService } from './cash-flow-report.service';
 import { TieOutService } from './tieout.service';
 import { SnapshotRebuildService } from './snapshots/snapshot-rebuild.service';
+import { PosGlReconciliationService } from './pos-gl-reconciliation.service';
 
 @Controller('reports/accounting')
 @RequirePermissions(PERMISSIONS.report.accounting)
@@ -19,6 +20,7 @@ export class AccountingReportingController {
     private readonly cashFlow: CashFlowReportService,
     private readonly tieOut: TieOutService,
     private readonly snapshots: SnapshotRebuildService,
+    private readonly posGlRecon: PosGlReconciliationService,
     private readonly tenant: TenantContextService,
   ) {}
 
@@ -75,6 +77,15 @@ export class AccountingReportingController {
   @Get('tieout')
   tieout(@Query('asOf') asOf?: string) {
     return this.tieOut.latest(asOf);
+  }
+
+  /**
+   * Independent POS → GL reconciliation (C-20) + inventory/COGS lag monitor (C-08).
+   * Re-derives both sides from independent sources: POS invoices vs ledger lines.
+   */
+  @Get('pos-gl-reconciliation')
+  posGlReconciliation(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.posGlRecon.reconcile({ from, to });
   }
 
   /** Operator-triggered: rebuild the snapshot for the current org now. */
