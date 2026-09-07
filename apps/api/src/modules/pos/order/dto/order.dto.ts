@@ -83,6 +83,18 @@ export class AddOrderItemsDto {
   @IsOptional() @IsNumber() transactionDiscountPercent?: number;
 }
 
+/**
+ * A-016 — void one line off an open order. `quantity` omitted voids the whole
+ * line. A line already fired to the kitchen additionally requires a manager
+ * approval (`overrideById` + `overridePin`), enforced server-side.
+ */
+export class VoidOrderItemDto {
+  @IsString() reason!: string;
+  @IsOptional() @IsNumber() @Min(0) quantity?: number;
+  @IsOptional() @IsString() overrideById?: string;
+  @IsOptional() @IsString() overridePin?: string;
+}
+
 export class CancelOrderDto {
   @IsOptional() @IsString() reason?: string;
 }

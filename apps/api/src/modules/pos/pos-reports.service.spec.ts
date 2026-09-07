@@ -17,6 +17,7 @@ function mockPrisma(): any {
       order: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
       paymentAllocation: { findMany: jest.fn().mockResolvedValue([]) },
       posReportSnapshot: { upsert: jest.fn(), findFirst: jest.fn(), findUnique: jest.fn() },
+      menuProduct: { findMany: jest.fn().mockResolvedValue([]) },
       invoiceItem: { groupBy: jest.fn().mockResolvedValue([]) },
       documentLine: { groupBy: jest.fn().mockResolvedValue([]) },
     },
@@ -131,7 +132,8 @@ describe('PosReportsService (financial accuracy)', () => {
       expect(invoiceCalls.length).toBeGreaterThan(0);
       const where = invoiceCalls[0][0].where;
       expect(where.organizationId).toBe(orgId);
-      expect(where.createdAt).toEqual({ gte: expect.any(Date), lte: expect.any(Date) });
+      // A-031: POS sales are bucketed by the BUSINESS date, not the sync date.
+      expect(where.issueDate).toEqual({ gte: expect.any(Date), lte: expect.any(Date) });
       expect(prisma.client.document.findMany).not.toHaveBeenCalled();
     });
   });
@@ -360,9 +362,10 @@ describe('PosReportsService (financial accuracy)', () => {
     it('buckets by local hour and honours the hours filter', async () => {
       const at = (h: number) => new Date(2026, 5, 1, h, 0, 0); // local 2026-06-01
       prisma.client.invoice.findMany.mockResolvedValue([
-        { totalAmount: '10', createdAt: at(9) },
-        { totalAmount: '20', createdAt: at(9) },
-        { totalAmount: '30', createdAt: at(14) },
+        { totalAmount: '10', issueDate: at(9), createdAt: at(9) },
+        { totalAmount: '20', issueDate: at(9), createdAt: at(9) },
+        // No issueDate — must fall back to createdAt instead of bucketing NaN.
+        { totalAmount: '30', issueDate: null, createdAt: at(14) },
       ]);
       const r = await svc.salesByHour('2026-06-01', '2026-06-01');
       expect(r.buckets[9]).toMatchObject({ count: 2, total: '30.00' });
@@ -585,7 +588,9 @@ describe('PosReportsService (financial accuracy)', () => {
       prisma.client.menuItem.findMany.mockResolvedValue([]);
       const rows = await svc.itemsByGroup('2026-06-01', '2026-06-01', undefined, undefined, 'cat-1');
       expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ groupId: 'cat-1', totalAmount: '10.00' });
+      // groupId is the typed key — MenuCategory and ProductCategory ids no
+      // longer share one keyspace.
+      expect(rows[0]).toMatchObject({ groupId: 'product:cat-1', totalAmount: '10.00' });
     });
 
     it('soldItems filters by item description text', async () => {
@@ -607,18 +612,228 @@ describe('PosReportsService (financial accuracy)', () => {
     });
   });
 
+  /* ── One category rule across every item report ───────────────────────── */
+
+  describe('category resolution (shared resolver)', () => {
+    /**
+     * Catalogue fixture. `menuProducts` is the recipe bridge: [productId,
+     * menuItemId] pairs, resolved through `menuItems` to a MenuCategory.
+     */
+    function catalogue(opts: {
+      products?: any[];
+      menuItems?: any[];
+      menuProducts?: Array<{ productId: string; menuItemId: string }>;
+    }) {
+      const products = opts.products ?? [];
+      const menuItems = opts.menuItems ?? [];
+      const menuProducts = opts.menuProducts ?? [];
+
+      prisma.client.product.findMany.mockImplementation((args: any) => {
+        let rows = products;
+        const ids = args?.where?.id?.in;
+        if (ids) rows = rows.filter((p: any) => ids.includes(p.id));
+        if (args?.where?.categoryId === null) rows = rows.filter((p: any) => !p.category);
+        else if (args?.where?.categoryId) rows = rows.filter((p: any) => p.category?.id === args.where.categoryId);
+        return Promise.resolve(rows);
+      });
+      prisma.client.menuItem.findMany.mockImplementation((args: any) => {
+        let rows = menuItems;
+        const ids = args?.where?.id?.in;
+        if (ids) rows = rows.filter((m: any) => ids.includes(m.id));
+        if (args?.where?.categoryId) rows = rows.filter((m: any) => m.category?.id === args.where.categoryId);
+        return Promise.resolve(rows);
+      });
+      prisma.client.menuProduct.findMany.mockImplementation((args: any) => {
+        let rows = menuProducts;
+        const ids = args?.where?.productId?.in;
+        if (ids) rows = rows.filter((mp) => ids.includes(mp.productId));
+        const catId = args?.where?.menuItem?.categoryId;
+        if (catId) {
+          rows = rows.filter((mp) => menuItems.find((m: any) => m.id === mp.menuItemId)?.category?.id === catId);
+        }
+        return Promise.resolve(
+          rows.map((mp) => ({
+            productId: mp.productId,
+            menuItem: { category: menuItems.find((m: any) => m.id === mp.menuItemId)?.category ?? null },
+          })),
+        );
+      });
+    }
+
+    function saleOf(item: any) {
+      prisma.client.invoice.findMany.mockResolvedValue([
+        {
+          id: 'i1', organizationId: orgId, orderId: 'o1', status: 'paid', invoiceNumber: 'INV-1',
+          waiterId: null, issueDate: new Date('2026-06-01T10:00:00Z'), createdAt: new Date('2026-06-01T10:00:00Z'),
+          order: { orderNumber: 'ORD-1', orderType: null },
+          items: [{
+            id: 'li1', description: 'Croissant', quantity: '1', unitPrice: '10', subtotal: '10',
+            total: '10', discountPercent: '0', discountAmount: '0', ...item,
+          }],
+        },
+      ]);
+    }
+
+    /** The same line, as each of the three item reports names its category. */
+    async function categoryEverywhere(): Promise<[string, string, string]> {
+      const sold = await svc.soldItems('2026-06-01', '2026-06-01');
+      const grouped = await svc.itemsByGroup('2026-06-01', '2026-06-01');
+      const sales = await svc.itemSales('2026-06-01', '2026-06-01');
+      return [sold[0].categoryName as string, grouped[0].groupName, sales.rows[0].categoryName];
+    }
+
+    it('uses the MenuCategory when a line carries both ids and the product is uncategorised', async () => {
+      // The live "Croissant" case: `resolveSkus` stamped an incidental
+      // productId onto a menu line, the product had no ProductCategory, and
+      // any report that consulted the product first printed "Uncategorised".
+      catalogue({
+        products: [{ id: 'p1', name: 'Croissant', category: null }],
+        menuItems: [{ id: 'm1', name: 'Croissant', category: { id: 'mc1', name: 'Pastries' } }],
+      });
+      saleOf({ productId: 'p1', menuItemId: 'm1' });
+      expect(await categoryEverywhere()).toEqual(['Pastries', 'Pastries', 'Pastries']);
+    });
+
+    it('prefers the MenuCategory over the ProductCategory, identically in all three reports', async () => {
+      // The report-disagreement regression: soldItems was product-first while
+      // itemsByGroup and itemSales were menu-first, so one range produced two
+      // different category totals depending on which tab you opened.
+      catalogue({
+        products: [{ id: 'p1', name: 'Croissant', category: { id: 'pc1', name: 'Bakery Stock' } }],
+        menuItems: [{ id: 'm1', name: 'Croissant', category: { id: 'mc1', name: 'Pastries' } }],
+      });
+      saleOf({ productId: 'p1', menuItemId: 'm1' });
+      expect(await categoryEverywhere()).toEqual(['Pastries', 'Pastries', 'Pastries']);
+    });
+
+    it('falls through to the ProductCategory when the menu item has no MenuCategory', async () => {
+      // The old `if (menuItemId) ... else if (productId)` shape stopped at the
+      // first id that merely EXISTED, so a menu item with a null category was
+      // a dead end. The rule falls through on a null CATEGORY.
+      catalogue({
+        products: [{ id: 'p1', name: 'Croissant', category: { id: 'pc1', name: 'Bakery Stock' } }],
+        menuItems: [{ id: 'm1', name: 'Croissant', category: null }],
+      });
+      saleOf({ productId: 'p1', menuItemId: 'm1' });
+      expect(await categoryEverywhere()).toEqual(['Bakery Stock', 'Bakery Stock', 'Bakery Stock']);
+    });
+
+    it('bridges a product-only legacy line through its recipe when unambiguous', async () => {
+      catalogue({
+        products: [{ id: 'p1', name: 'Sugar', category: null }],
+        menuItems: [{ id: 'm1', name: 'Latte', category: { id: 'mc2', name: 'Drinks' } }],
+        menuProducts: [{ productId: 'p1', menuItemId: 'm1' }],
+      });
+      saleOf({ productId: 'p1', menuItemId: null });
+      expect(await categoryEverywhere()).toEqual(['Drinks', 'Drinks', 'Drinks']);
+    });
+
+    it('reports an ambiguous bridge as Legacy unresolved instead of guessing', async () => {
+      // A product used by menu items in DIFFERENT categories has no honest
+      // answer. The old `distinct: ['productId']` took whatever row the
+      // database returned first, so the same sale could change category
+      // between two runs of the same report.
+      catalogue({
+        products: [{ id: 'p1', name: 'Sugar', category: null }],
+        menuItems: [
+          { id: 'm1', name: 'Latte', category: { id: 'mc2', name: 'Drinks' } },
+          { id: 'm2', name: 'Cake', category: { id: 'mc1', name: 'Pastries' } },
+        ],
+        menuProducts: [{ productId: 'p1', menuItemId: 'm1' }, { productId: 'p1', menuItemId: 'm2' }],
+      });
+      saleOf({ productId: 'p1', menuItemId: null });
+      expect(await categoryEverywhere()).toEqual(['Legacy unresolved', 'Legacy unresolved', 'Legacy unresolved']);
+    });
+
+    it('reports a free-text line with no catalog identity as Uncategorised', async () => {
+      catalogue({});
+      saleOf({ productId: null, menuItemId: null });
+      expect(await categoryEverywhere()).toEqual(['Uncategorised', 'Uncategorised', 'Uncategorised']);
+    });
+
+    it('offers a bridged category in filterOptions and can then filter by it', async () => {
+      // The bridge block in filterOptions was a silent no-op: the `select`
+      // omitted the product's own `id`, so `productId: { in: [undefined] }`
+      // matched nothing and the category never reached the dropdown.
+      catalogue({
+        products: [{ id: 'p1', name: 'Sugar', category: null }],
+        menuItems: [{ id: 'm1', name: 'Latte', category: { id: 'mc2', name: 'Drinks' } }],
+        menuProducts: [{ productId: 'p1', menuItemId: 'm1' }],
+      });
+      saleOf({ productId: 'p1', menuItemId: null });
+      prisma.client.cashRegister.findMany = jest.fn().mockResolvedValue([]);
+
+      const o = await svc.filterOptions('2026-06-01', '2026-06-01');
+      expect(o.categories).toEqual([{ id: 'menu:mc2', name: 'Drinks' }]);
+
+      // A category the filter bar offers must be one the reports can narrow to.
+      const key = o.categories[0].id;
+      expect(await svc.soldItems('2026-06-01', '2026-06-01', key)).toHaveLength(1);
+      expect(await svc.itemsByGroup('2026-06-01', '2026-06-01', undefined, undefined, key)).toHaveLength(1);
+      expect((await svc.itemSales('2026-06-01', '2026-06-01', undefined, key)).rows).toHaveLength(1);
+    });
+
+    it('topItems includes bridged products in a category filter', async () => {
+      // topItems filters in SQL, so it needs the bridge reproduced as an id
+      // allow-list — without it a bridged item showed in every other tab but
+      // vanished from a category-filtered Top Items.
+      catalogue({
+        products: [{ id: 'p1', name: 'Sugar', category: null }],
+        menuItems: [{ id: 'm1', name: 'Latte', category: { id: 'mc2', name: 'Drinks' } }],
+        menuProducts: [{ productId: 'p1', menuItemId: 'm1' }],
+      });
+      prisma.client.invoiceItem.groupBy.mockResolvedValue([
+        { productId: 'p1', menuItemId: null, _sum: { quantity: '2', total: '100' } },
+      ]);
+
+      const rows = await svc.topItems('2026-06-01', '2026-06-01', 20, 'menu:mc2');
+      const where = prisma.client.invoiceItem.groupBy.mock.calls[0][0].where;
+      // Both clauses are correct: m1 IS in mc2, and p1 reaches mc2 only
+      // through the recipe bridge. Before, the product clause was missing.
+      expect(where.OR).toEqual([{ productId: { in: ['p1'] } }, { menuItemId: { in: ['m1'] } }]);
+      expect(rows[0]).toMatchObject({ productId: 'p1', quantity: 2 });
+    });
+
+    it('keeps a MenuCategory and a ProductCategory that share an id apart', async () => {
+      // Typed keys exist because the two trees are disjoint. Under the old
+      // bare-id keyspace one dropdown entry could match lines from both.
+      catalogue({
+        products: [{ id: 'p2', name: 'Beans 1kg', category: { id: 'shared', name: 'Retail Beans' } }],
+        menuItems: [{ id: 'm1', name: 'Latte', category: { id: 'shared', name: 'Drinks' } }],
+      });
+      prisma.client.invoice.findMany.mockResolvedValue([
+        {
+          id: 'i1', organizationId: orgId, orderId: 'o1', status: 'paid', invoiceNumber: 'INV-1',
+          waiterId: null, issueDate: new Date('2026-06-01T10:00:00Z'), createdAt: new Date('2026-06-01T10:00:00Z'),
+          order: { orderNumber: 'ORD-1', orderType: null },
+          items: [
+            { id: 'li1', productId: null, menuItemId: 'm1', description: 'Latte', quantity: '1', unitPrice: '10', subtotal: '10', total: '10', discountPercent: '0', discountAmount: '0' },
+            { id: 'li2', productId: 'p2', menuItemId: null, description: 'Beans 1kg', quantity: '1', unitPrice: '20', subtotal: '20', total: '20', discountPercent: '0', discountAmount: '0' },
+          ],
+        },
+      ]);
+
+      const groups = await svc.itemsByGroup('2026-06-01', '2026-06-01');
+      expect(groups.map((g: any) => g.groupId).sort()).toEqual(['menu:shared', 'product:shared']);
+
+      const drinks = await svc.soldItems('2026-06-01', '2026-06-01', 'menu:shared');
+      expect(drinks).toHaveLength(1);
+      expect(drinks[0].item).toBe('Latte');
+    });
+  });
+
   describe('filterOptions', () => {
     it('offers only the staff and categories that appear in the range', async () => {
       prisma.client.invoice.findMany.mockResolvedValue([
         { waiterId: 'u1', paymentMode: 'cash', items: [{ productId: 'p1', menuItemId: null }] },
       ]);
       prisma.client.user.findMany.mockResolvedValue([{ id: 'u1', firstName: 'Al', lastName: 'Ice' }]);
-      prisma.client.product.findMany.mockResolvedValue([{ category: { id: 'cat-1', name: 'Drinks' } }]);
+      prisma.client.product.findMany.mockResolvedValue([{ id: 'p1', name: 'Coffee', category: { id: 'cat-1', name: 'Drinks' } }]);
       prisma.client.menuItem.findMany.mockResolvedValue([]);
       prisma.client.cashRegister.findMany = jest.fn().mockResolvedValue([{ id: 'r1', code: 'R1', name: 'Counter' }]);
       const o = await svc.filterOptions('2026-06-01', '2026-06-01');
       expect(o.waiters).toEqual([{ id: 'u1', name: 'Al Ice' }]);
-      expect(o.categories).toEqual([{ id: 'cat-1', name: 'Drinks' }]);
+      expect(o.categories).toEqual([{ id: 'product:cat-1', name: 'Drinks' }]);
       expect(o.registers).toEqual([{ id: 'r1', name: 'R1 - Counter' }]);
       expect(o.paymentMethods.find((m: any) => m.id === 'cash')).toMatchObject({ seen: true });
       expect(o.paymentMethods.find((m: any) => m.id === 'card')).toMatchObject({ seen: false });

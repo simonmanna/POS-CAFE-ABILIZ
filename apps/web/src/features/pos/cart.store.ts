@@ -69,6 +69,14 @@ interface CartState {
   setTransactionDiscount: (amount: number, type?: DiscountType) => void;
   setOverrideById: (id: string | undefined) => void;
   setCashSession: (id: string | undefined) => void;
+  /**
+   * A-016 — cart lineId -> server OrderItem id, refreshed on every load/save.
+   * Kept OUT of `lines` so adopting server ids never changes a React key, the
+   * numpad selection, or the cart signature. Voiding a line needs the server id;
+   * a line with no entry here has never been saved and is removed locally.
+   */
+  serverLineIds: Record<string, string>;
+  setServerLineIds: (map: Record<string, string>) => void;
   /** H2 — record the tab's server version (from a load or a save response). */
   setTabVersion: (v: number | undefined) => void;
   /** Multi-order — bind/unbind the cart to its open server Order. */
@@ -122,6 +130,7 @@ export const useCartStore = create<CartState>()(
       overridePin: undefined,
       cashSessionId: undefined,
       tabVersion: undefined,
+      serverLineIds: {},
       orderId: undefined,
       orderType: undefined,
       tableId: undefined,
@@ -221,6 +230,7 @@ export const useCartStore = create<CartState>()(
         })),
       setOverrideById: (id) => set({ overrideById: id, overridePin: undefined }),
       setCashSession: (id) => set({ cashSessionId: id }),
+      setServerLineIds: (map) => set({ serverLineIds: map }),
       setTabVersion: (v) => set({ tabVersion: v }),
       setOrderId: (id) => set({ orderId: id }),
       setOrderType: (type) => set({ orderType: type }),
@@ -236,6 +246,8 @@ export const useCartStore = create<CartState>()(
           transactionDiscountReason: opts?.transactionDiscountReason,
           overrideById: opts?.overrideById,
           overridePin: opts?.overridePin,
+          // Ids are re-adopted by the caller from the server payload it just read.
+          serverLineIds: {},
           // New order loaded → new sale → fresh idempotency key.
           idempotencyKey: newLineId(),
         }),
@@ -244,7 +256,7 @@ export const useCartStore = create<CartState>()(
         operationPending: false, lines: [], transactionDiscountPercent: 0, transactionDiscountType: 'percentage',
         transactionDiscountAmount: 0, transactionDiscountReason: undefined,
         overrideById: undefined, overridePin: undefined,
-        orderId: undefined, tabVersion: undefined, cashSessionId: undefined,
+        orderId: undefined, tabVersion: undefined, serverLineIds: {}, cashSessionId: undefined,
         orderType: undefined, tableId: undefined, tableNumber: undefined, tableName: undefined,
         sentToKitchen: false,
         // Previous sale finished → mint a key for the next cart.

@@ -55,6 +55,7 @@ export function isTableHeldOrderStatus(status: string | null | undefined): boole
 export async function recomputeTableStatus(
   tx: any,
   tableId?: string | null,
+  opts: { dirtyOnRelease?: boolean } = {},
 ): Promise<'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning' | null> {
   if (!tableId) return null;
 
@@ -75,7 +76,17 @@ export async function recomputeTableStatus(
     },
   });
 
-  const next = activeItems > 0 ? 'occupied' : 'available';
+  let next: 'available' | 'occupied' | 'cleaning' = activeItems > 0 ? 'occupied' : 'available';
+  // Audit F-06 — a settled table needs bussing before the next party sits down.
+  // The cleaning flip used to live in PosTablesService.closeTableOrder, which
+  // runs AFTER the payment transaction has already recomputed the table to
+  // 'available' — so its `existing.status === 'occupied'` guard could never be
+  // true and the whole cleaning workflow was dead code. The transition is only
+  // observable here, inside the same transaction that releases the table, so
+  // this is where settlement asks for it.
+  if (opts.dirtyOnRelease && next === 'available' && table.status === 'occupied') {
+    next = 'cleaning';
+  }
   if (table.status !== next) {
     await tx.posTable.update({ where: { id: tableId }, data: { status: next as any } });
   }

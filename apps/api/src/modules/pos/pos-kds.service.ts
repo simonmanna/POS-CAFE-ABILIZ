@@ -174,6 +174,79 @@ export class PosKdsService {
   }
 
   /**
+   * A-016 — pull ONE voided line off the kitchen board.
+   *
+   * `cancelTicketsForOrder` handles a whole-order cancel; this is its per-line
+   * counterpart, so voiding one dish no longer leaves the pass cooking it. The
+   * denormalised `items` JSON is rewritten in place: the matching entry is
+   * reduced by `quantity` (or struck out entirely when `quantity` is null), and
+   * a ticket left with nothing active is cancelled outright.
+   *
+   * Matching prefers the exact `orderItemId` stamped on tickets fired after this
+   * change, and falls back to product identity + name for tickets already on the
+   * board when it shipped. Never throws — a sale is never blocked by the KDS.
+   */
+  async cancelOrderItemTickets(
+    orderId: string,
+    orderItemId: string,
+    quantity: number | null,
+    reason: string,
+  ): Promise<number> {
+    const orgId = this.tenant.organizationId;
+    const active = await this.prisma.client.kitchenTicket.findMany({
+      where: { orderId, organizationId: orgId, status: { in: ['new', 'preparing', 'ready'] } },
+      select: { id: true, station: true, items: true },
+    });
+    if (!active.length) return 0;
+
+    let remaining = quantity == null ? Number.POSITIVE_INFINITY : Number(quantity);
+    let touched = 0;
+
+    for (const ticket of active) {
+      if (remaining <= 0) break;
+      const items: any[] = Array.isArray(ticket.items) ? (ticket.items as any[]) : [];
+      let changed = false;
+      const next = items.map((it) => {
+        if (remaining <= 0 || it?.cancelled) return it;
+        const isMatch = it?.orderItemId
+          ? it.orderItemId === orderItemId
+          : false;
+        if (!isMatch) return it;
+        const have = Number(it.quantity ?? 0);
+        const take = Math.min(have, remaining);
+        if (!(take > 0)) return it;
+        remaining -= take;
+        changed = true;
+        const left = have - take;
+        return left > 0.000001
+          ? { ...it, quantity: left, cancelledQty: Number(it.cancelledQty ?? 0) + take, cancelReason: reason }
+          : { ...it, quantity: 0, cancelled: true, cancelledQty: Number(it.cancelledQty ?? 0) + take, cancelReason: reason };
+      });
+      if (!changed) continue;
+
+      const anyActive = next.some((it) => !it?.cancelled && Number(it?.quantity ?? 0) > 0.000001);
+      await this.prisma.client.kitchenTicket.update({
+        where: { id: ticket.id },
+        data: {
+          items: next as any,
+          ...(anyActive ? {} : { status: 'cancelled' as any }),
+          recallReason: reason,
+        },
+      });
+      this.events.publish('pos.kds.ticket_updated' as any, { organizationId: orgId, ticketId: ticket.id, station: ticket.station });
+      touched++;
+    }
+
+    if (touched) {
+      await this.audit.record({
+        entity: 'Order', entityId: orderId, action: 'cancel' as any,
+        newValues: { kind: 'kds_item_cancel', orderItemId, quantity, reason, tickets: touched },
+      });
+    }
+    return touched;
+  }
+
+  /**
    * Pre-payment "Send To Kitchen" — creates tickets from cart items before
    * the sale is settled. Looks up each product's station from the DB and
    * groups tickets by station.

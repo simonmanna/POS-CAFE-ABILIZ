@@ -28,5 +28,6 @@ export function serverLineToCart(l: any): CartLine {
     modifiers: (l.modifiers ?? []).map((m: any) => ({ modifierId: m.modifierId ?? '', name: m.name, priceDelta: Number(m.priceDelta ?? 0) })),
     variantId: l.variantId ?? undefined, variantName: l.variantName ?? undefined, variantPrice: l.variantPrice == null ? undefined : Number(l.variantPrice),
     accompanimentOptionIds: l.accompanimentOptionIds ?? [], accompanimentNames: l.accompanimentNames ?? [], accompanimentPriceImpact: Number(l.accompanimentPriceImpact ?? 0), course: l.course ?? undefined,
+    kitchenPrintedQty: Number(l.kitchenPrintedQty ?? 0),
   };
 }

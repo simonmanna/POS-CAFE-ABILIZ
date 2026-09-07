@@ -102,6 +102,8 @@ export const EVENTS = {
   PosOrderInvoiced: 'pos.order.invoiced',
   PosOrderClosed: 'pos.order.closed',
   PosOrderCancelled: 'pos.order.cancelled',
+  /** A-016: a single line was voided off an open order (partial or whole). */
+  PosOrderItemVoided: 'pos.order.item_voided',
   PosInvoiceSettled: 'pos.invoice.settled',
   PosInvoiceCredited: 'pos.invoice.credited',
   PosInvoiceWrittenOff: 'pos.invoice.written_off',
@@ -332,6 +334,12 @@ export interface DomainEventMap {
   'pos.order.invoiced': { organizationId: string; orderId: string; invoiceId: string; invoiceNumber: string };
   'pos.order.closed': { organizationId: string; orderId: string; invoiceId?: string };
   'pos.order.cancelled': { organizationId: string; orderId: string; reason?: string };
+  /** A-016: one line was voided off an open order (partial or whole). */
+  'pos.order.item_voided': {
+    organizationId: string; orderId: string; orderItemId: string;
+    description: string; quantity: number; whole: boolean;
+    reason: string; approvedById?: string | null;
+  };
   'pos.invoice.settled': { organizationId: string; invoiceId: string; invoiceNumber: string; paymentMode: string };
   'pos.invoice.credited': { organizationId: string; invoiceId: string; invoiceNumber: string; partnerId: string; amount: string };
   'pos.invoice.written_off': { organizationId: string; invoiceId: string; invoiceNumber: string; amount: string };

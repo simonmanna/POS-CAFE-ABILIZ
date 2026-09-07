@@ -1,5 +1,5 @@
 import { businessOperation, recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
-import { discountedLines } from '../pricing-policy';
+import { discountedLines, evaluatePricingAuthority } from '../pricing-policy';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException,
@@ -15,13 +15,14 @@ import { PosVariantService } from '../pos-variant.service';
 import { PosAccompanimentService } from '../pos-accompaniment.service';
 import { PosModifiersService } from '../pos-modifiers.service';
 import { PosKdsService } from '../pos-kds.service';
+import { PosOverridesService } from '../pos-overrides.service';
 import { PosReceiptsService } from '../pos-receipts.service';
 import { dec } from '../../../kernel/common/money';
 import { recomputeTableStatus, TABLE_HELD_ORDER_STATUSES } from '../table-status.util';
 import { toCanonicalOrderStatus, withLegacyOrderStatus } from '../order-status.util';
 import { WorkflowService } from '../../../kernel/workflow/workflow.service';
 import { MilestoneService } from '../../../kernel/milestones/milestone.service';
-import type { CreateOrderDto, SaveOrderItemsDto, AddOrderItemsDto, OrderLineDto } from './dto/order.dto';
+import type { CreateOrderDto, SaveOrderItemsDto, AddOrderItemsDto, OrderLineDto, VoidOrderItemDto } from './dto/order.dto';
 
 /** A cart line resolved to ledger-ready values (modifiers/variant folded into unitPrice). */
 interface ResolvedLine {
@@ -44,7 +45,6 @@ interface ResolvedLine {
   variantName?: string;
   accompanimentNames: string[];
   accompanimentOptionIds: string[];
-  station: 'bar' | 'kitchen' | 'cafe';
   /** P5 course grouping (1=starter, 2=main, …). */
   course?: number | null;
 }
@@ -70,16 +70,33 @@ export class PosOrdersService {
     private readonly accompaniments: PosAccompanimentService,
     private readonly modifiers: PosModifiersService,
     private readonly kds: PosKdsService,
+    private readonly overrides: PosOverridesService,
     private readonly receipts: PosReceiptsService,
     private readonly workflows: WorkflowService,
     private readonly milestones: MilestoneService,
   ) {}
 
-  async quote(input: { lines: OrderLineDto[]; transactionDiscountType?: string; transactionDiscountAmount?: number; transactionDiscountPercent?: number }) {
+  /**
+   * Price a cart without saving it.
+   *
+   * Audit F-02/F-03 — the quote now also reports what the discount rules make of
+   * the cart (`authority`), evaluated by exactly the code that will enforce them
+   * at settle. The terminal reads it to prompt for a reason or a manager PIN at
+   * the moment the discount is applied, instead of letting the cashier discover
+   * the problem at the payment screen. Advisory only: this endpoint never throws
+   * on a policy breach.
+   */
+  async quote(input: { lines: OrderLineDto[]; transactionDiscountType?: string; transactionDiscountAmount?: number; transactionDiscountPercent?: number; discountReason?: string }) {
     await this.validateLines(input.lines, false);
     const resolved = await this.resolveLines(input.lines);
     const totals = await this.builder.prepareLines(this.prisma.client, discountedLines(resolved, input));
-    return { baseLines: resolved, pricingVersion: 1, subtotal: Number(totals.subtotal), discountTotal: Number(totals.discountTotal), taxAmount: Number(totals.taxAmount), total: Number(totals.total), lines: totals.prepared };
+    const authority = await evaluatePricingAuthority(this, resolved, input);
+    return {
+      baseLines: resolved, pricingVersion: 1,
+      subtotal: Number(totals.subtotal), discountTotal: Number(totals.discountTotal),
+      taxAmount: Number(totals.taxAmount), total: Number(totals.total), lines: totals.prepared,
+      authority,
+    };
   }
 
   // ─── Queries ───────────────────────────────────────────────────────────────
@@ -295,7 +312,6 @@ export class PosOrdersService {
       accompanimentOptionIds: l.accompanimentOptionIds ?? [],
       variantId: l.variantId ?? undefined,
       variantName: l.variantName ?? undefined,
-      station: 'cafe',
       course: l.course ?? null,
     }));
     const run = async (tx: any) => {
@@ -424,6 +440,106 @@ export class PosOrdersService {
     });
   }
 
+  /**
+   * A-016 / audit F-01 — void a single line off an open order.
+   *
+   * This is the ONLY way an item that has already been fired to the kitchen may
+   * leave an order. `writeItems` rejects such a removal outright, so the audited
+   * path cannot be sidestepped by a plain auto-save.
+   *
+   * Voiding never deletes: a whole void soft-cancels the row (keeping its
+   * description, quantity, prices and kitchen history), and a partial void
+   * reduces the live quantity while recording how much came off. Either way the
+   * row remembers who did it, why, and which manager signed for it.
+   *
+   * A line the kitchen never saw still needs a reason, but no approval — nothing
+   * has been consumed yet, and demanding a manager for every mis-tap would push
+   * cashiers back onto workarounds.
+   */
+  async voidItem(orderId: string, itemId: string, dto: VoidOrderItemDto) {
+    const orgId = this.tenant.organizationId;
+    const reason = dto.reason?.trim();
+    if (!reason) throw new BadRequestException('A reason is required to void an item');
+
+    const outcome = await this.prisma.client.$transaction(async (tx: any) => {
+      const order = await this.lockOrder(tx, orderId);
+      this.assertEditable(order);
+      const row = await tx.orderItem.findFirst({ where: { id: itemId, orderId, organizationId: orgId } });
+      if (!row) throw new NotFoundException('Order item not found');
+      if (row.cancelled) throw new ConflictException('That item has already been voided');
+
+      const current = Number(row.quantity);
+      const asked = dto.quantity == null ? current : Number(dto.quantity);
+      if (!Number.isFinite(asked) || asked <= 0 || asked > current + 0.000001) {
+        throw new BadRequestException(`Void quantity must be between 0 and ${current}`);
+      }
+      const whole = asked >= current - 0.000001;
+      const firedQty = Number(row.kitchenPrintedQty ?? 0);
+
+      // Food the kitchen has already committed to is a manager's decision.
+      if (firedQty > 0) {
+        if (!dto.overrideById) {
+          throw new ForbiddenException('This item was already sent to the kitchen — a manager approval and PIN are required to void it');
+        }
+        await this.overrides.verifyOperationApproval(dto.overrideById, dto.overridePin, 'void');
+      }
+
+      const remaining = current - asked;
+      if (whole) {
+        await tx.orderItem.update({
+          where: { id: row.id },
+          data: {
+            cancelled: true, cancelledAt: new Date(), cancelReason: reason,
+            voidedBy: this.tenant.userId ?? null,
+            voidApprovedBy: dto.overrideById ?? null,
+            voidedQty: current,
+          },
+        });
+      } else {
+        await tx.orderItem.update({
+          where: { id: row.id },
+          data: {
+            quantity: remaining,
+            // Never let a later re-fire re-send what was just voided off.
+            kitchenPrintedQty: row.kitchenPrintedQty == null ? null : Math.min(firedQty, remaining),
+            voidedQty: Number(row.voidedQty ?? 0) + asked,
+            cancelReason: reason,
+            voidedBy: this.tenant.userId ?? null,
+            voidApprovedBy: dto.overrideById ?? null,
+          },
+        });
+      }
+
+      await this.recomputeOrderTotals(tx, orderId);
+      await recomputeTableStatus(tx, order.tableId);
+      await this.audit.recordInTx(tx, {
+        entity: 'OrderItem', entityId: row.id, action: 'cancel',
+        newValues: {
+          kind: 'item_void', orderId, orderNumber: order.orderNumber,
+          description: row.description, voidedQuantity: asked, remainingQuantity: whole ? 0 : remaining,
+          whole, reason, approvedById: dto.overrideById ?? null,
+          hadBeenFired: firedQty > 0, firedQuantity: firedQty,
+          unitPrice: String(row.unitPrice),
+        },
+      });
+      return { order, row, asked, whole, firedQty };
+    });
+
+    // Post-commit: the kitchen board and the event ledger only ever see a void
+    // that actually committed.
+    if (outcome.firedQty > 0) {
+      await this.kds
+        .cancelOrderItemTickets(orderId, outcome.row.id, outcome.whole ? null : outcome.asked, `Voided: ${reason}`)
+        .catch((e: any) => this.logger.warn(`KDS cancel failed for voided item ${outcome.row.id}: ${String(e?.message ?? e)}`));
+    }
+    this.events.publish(EVENTS.PosOrderItemVoided, {
+      organizationId: orgId, orderId, orderItemId: outcome.row.id,
+      description: outcome.row.description, quantity: outcome.asked,
+      whole: outcome.whole, reason, approvedById: dto.overrideById ?? null,
+    });
+    return this.getOrder(orderId);
+  }
+
   /** Reopen a cancelled order (un-billed only). */
   async reopenOrder(orderId: string) {
     return this.prisma.client.$transaction(async (tx: any) => {
@@ -544,6 +660,9 @@ export class PosOrdersService {
       const kdsItems: Array<Record<string, any>> = [];
       for (const { item, delta } of deltas) {
         kdsItems.push({
+          // A-016: exact back-reference so a later per-line void can pull this
+          // entry off the board without guessing from product identity.
+          orderItemId: item.id,
           productId: item.productId ?? item.menuItemId,
           productName: item.description,
           quantity: delta,
@@ -619,9 +738,12 @@ export class PosOrdersService {
   /**
    * Resolve the KDS/kitchen station CODE for an order line. Precedence:
    *   1. MenuItem.stationCode override (explicit, wins),
-   *   2. stock-product line → Product.station,
-   *   3. menu-item line → primary station across the recipe's products,
+   *   2. menu-item line → primary station across the recipe's products,
+   *   3. stock-product line → Product.station,
    *   4. the org's default KitchenStation (fallback).
+   * Menu identity leads: a legacy row can carry BOTH ids (see `resolveSkus`),
+   * and it was sold as a menu item, so it routes off its recipe rather than off
+   * the incidentally-stamped product.
    * Codes are configurable per org (KitchenStation table). Results are cached
    * per invocation to avoid N+1 lookups.
    */
@@ -632,16 +754,7 @@ export class PosOrdersService {
     // 1. Explicit menu-item override.
     const override = await this.explicitStationFor(it, cache);
     if (override) return override;
-    // 2. Stock product line.
-    if (it.productId) {
-      const key = `p:${it.productId}`;
-      if (cache.has(key)) return cache.get(key)!;
-      const p = await this.prisma.client.product.findFirst({ where: { id: it.productId }, select: { station: true } });
-      const st = ((p as any)?.station || (await this.defaultStationCode(cache)));
-      cache.set(key, st);
-      return st;
-    }
-    // 3. Menu-item line derives from the recipe.
+    // 2. Menu-item line derives from the recipe.
     if (it.menuItemId) {
       const key = `m:${it.menuItemId}`;
       if (cache.has(key)) return cache.get(key)!;
@@ -651,6 +764,15 @@ export class PosOrdersService {
       });
       const stations = (recipe as any[]).map((r) => (r.product?.station ?? '') as string).filter(Boolean);
       const st = stations.length ? this.pickPrimaryStation(stations) : await this.defaultStationCode(cache);
+      cache.set(key, st);
+      return st;
+    }
+    // 3. Stock product line.
+    if (it.productId) {
+      const key = `p:${it.productId}`;
+      if (cache.has(key)) return cache.get(key)!;
+      const p = await this.prisma.client.product.findFirst({ where: { id: it.productId }, select: { station: true } });
+      const st = ((p as any)?.station || (await this.defaultStationCode(cache)));
       cache.set(key, st);
       return st;
     }
@@ -753,20 +875,19 @@ export class PosOrdersService {
   private async resolveLines(inputLines: OrderLineDto[]): Promise<ResolvedLine[]> {
     const orgId = this.tenant.organizationId;
     const skuMap = await this.resolveSkus(inputLines);
-    const productStationCache = new Map<string, 'bar' | 'kitchen' | 'cafe'>();
-    const stationFor = async (productId: string | null): Promise<'bar' | 'kitchen' | 'cafe'> => {
-      if (!productId) return 'cafe';
-      if (productStationCache.has(productId)) return productStationCache.get(productId)!;
-      const p = await this.prisma.client.product.findFirst({ where: { id: productId }, select: { station: true } });
-      const st = ((p as any)?.station ?? 'cafe') as 'bar' | 'kitchen' | 'cafe';
-      productStationCache.set(productId, st);
-      return st;
-    };
 
     const lines: ResolvedLine[] = [];
     for (const l of inputLines) {
       if (!Number.isFinite(Number(l.quantity)) || Number(l.quantity) <= 0) throw new BadRequestException('Sale quantities must be positive');
       if (l.comboId) throw new BadRequestException('Combo selling is paused until component quantities and prices can be preserved through order editing. Sell the individual catalog items.');
+      // IDENTITY: a sale line represents exactly ONE catalog thing. The client
+      // says which by sending `menuItemId` (cafe) or `productId` (retail); the
+      // server never infers the other one. In particular a product is NEVER
+      // resolved into a menu item through `MenuProduct` — that table is a
+      // recipe (one product belongs to many menu items), so the inference is
+      // ambiguous AND it would re-price the line at `MenuItem.basePrice`, apply
+      // the menu item's tax, route the wrong dish to the kitchen, and relieve
+      // the whole recipe from stock instead of the product actually sold.
       const productId = l.productId ?? skuMap.get(l.sku?.toLowerCase() ?? '') ?? null;
       const product = productId
         ? await this.prisma.client.product.findFirst({ where: { id: productId, organizationId: orgId, isActive: true } })
@@ -849,8 +970,7 @@ export class PosOrdersService {
         variantName,
         accompanimentNames,
         accompanimentOptionIds: l.accompanimentOptionIds ?? [],
-        station: await stationFor(productId),
-        course: l.course ?? null,
+          course: l.course ?? null,
       });
     }
 
@@ -866,13 +986,19 @@ export class PosOrdersService {
    * re-fired. The signature now covers the whole customization, and matching is
    * a one-to-one multiset consume (see `writeItems`), so two genuinely identical
    * lines each keep their own lifecycle row instead of sharing the last one.
+   *
+   * The base leads with the MENU identity, not the product. A row written
+   * before `resolveSkus` stopped stamping an incidental productId onto menu
+   * lines carries both ids; keying on the product would make it fail to match
+   * the same item saved today (menuItemId only) and silently reset the
+   * kitchen lifecycle of every order open across that deploy.
    */
   private lineSignature(it: {
     productId?: string | null; menuItemId?: string | null; variantName?: string | null;
     description?: string | null; note?: string | null; course?: number | null;
     modifierIds?: (string | null)[]; accompanimentOptionIds?: string[];
   }): string {
-    const base = it.productId ? `p:${it.productId}` : it.menuItemId ? `m:${it.menuItemId}` : `d:${it.description ?? ''}`;
+    const base = it.menuItemId ? `m:${it.menuItemId}` : it.productId ? `p:${it.productId}` : `d:${it.description ?? ''}`;
     const mods = [...(it.modifierIds ?? [])].filter(Boolean).sort().join(',');
     const accs = [...(it.accompanimentOptionIds ?? [])].filter(Boolean).sort().join(',');
     return [base, it.variantName ?? '', it.course ?? '', (it.note ?? '').trim(), mods, accs].join('|');
@@ -918,52 +1044,14 @@ export class PosOrdersService {
       variantName: it.variantName ?? undefined,
       accompanimentNames: it.accompanimentNames ?? [],
       accompanimentOptionIds: it.accompanimentOptionIds ?? [],
-      station: 'cafe',
       course: it.course ?? null,
     };
   }
 
-  /**
-   * Persist resolved lines as OrderItems and recompute the order header totals.
-   * `replace` wipes existing items first (auto-save); `append` keeps them.
-   * Kitchen lifecycle counters are preserved across a replace by productId.
-   */
-  private async writeItems(
-    tx: any,
-    orderId: string,
-    resolved: ResolvedLine[],
-    opts: { replace?: boolean; append?: boolean } & Partial<SaveOrderItemsDto> = {},
-  ): Promise<void> {
-    const orgId = this.tenant.organizationId;
-
-    let baseline: ResolvedLine[] = [];
-    // F10 — preserve each line's kitchen lifecycle across a replace/auto-save by
-    // its full-customization signature, matched ONE-TO-ONE. Old rows sharing a
-    // signature form a queue; each new line consumes at most one, so a second
-    // identical line cannot inherit the first's sent quantity and two distinct
-    // customizations of the same product never cross-contaminate.
-    const lifecycleQueue = new Map<string, any[]>();
-    const enqueue = (rows: any[]) => {
-      for (const o of rows) {
-        const sig = this.rowSignature(o);
-        (lifecycleQueue.get(sig) ?? lifecycleQueue.set(sig, []).get(sig)!).push(o);
-      }
-    };
-    if (opts.append) {
-      const existing = await tx.orderItem.findMany({ where: { orderId, cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' } });
-      baseline = existing.map((it: any) => this.itemToResolved(it));
-      // Preserve the already-fired kitchen state of existing lines across the append.
-      enqueue(existing);
-    } else if (opts.replace) {
-      const old = await tx.orderItem.findMany({
-        where: { orderId }, include: { modifiers: { select: { modifierId: true } } },
-      });
-      enqueue(old);
-    }
-    const all = [...baseline, ...resolved];
-
-    // Price through the tax engine for authoritative subtotal/tax/total.
-    const totals = await this.builder.prepareLines(tx, all.map((l) => ({
+  /** Map a resolved line to the tax-engine input shape. One mapper, used by
+   *  both the write path and the header recompute, so they cannot diverge. */
+  private toPreparedInput(l: ResolvedLine) {
+    return {
       productId: l.productId ?? undefined,
       menuItemId: l.menuItemId ?? undefined,
       variantId: l.variantId ?? undefined,
@@ -978,69 +1066,198 @@ export class PosOrdersService {
       discountReason: l.discountReason ?? undefined,
       discountSource: 'manual' as const,
       taxInclusive: l.taxInclusive,
-    })));
+    };
+  }
 
-    if (opts.replace || opts.append) {
-      await tx.orderItem.deleteMany({ where: { orderId } });
+  /**
+   * Recompute the order header snapshot from its ACTIVE (non-cancelled) items.
+   * Split out of `writeItems` so a void — which edits one row rather than
+   * rewriting the set — refreshes the same totals through the same code.
+   */
+  private async recomputeOrderTotals(
+    tx: any,
+    orderId: string,
+    pricing: Partial<SaveOrderItemsDto> = {},
+  ): Promise<void> {
+    const orgId = this.tenant.organizationId;
+    const header = await tx.order.findFirst({ where: { id: orderId, organizationId: orgId } });
+    const rows = await tx.orderItem.findMany({
+      where: { orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
+    });
+    const lines = rows.map((it: any) => this.itemToResolved(it));
+    const applied = lines.length ? {
+      transactionDiscountType: pricing.transactionDiscountType ?? header.transactionDiscountType ?? 'percentage',
+      transactionDiscountPercent: pricing.transactionDiscountPercent ?? Number(header.transactionDiscountPercent ?? 0),
+      transactionDiscountAmount: pricing.transactionDiscountAmount ?? Number(header.transactionDiscountAmount ?? 0),
+      discountReason: pricing.discountReason ?? header.discountReason ?? null,
+    } : { transactionDiscountType: 'percentage', transactionDiscountPercent: 0, transactionDiscountAmount: 0, discountReason: null };
+    const discounted = await this.builder.prepareLines(
+      tx,
+      discountedLines(lines.map((l: ResolvedLine) => this.toPreparedInput(l)), applied),
+    );
+    await tx.order.update({ where: { id: orderId }, data: {
+      subtotal: discounted.subtotal, taxAmount: discounted.taxAmount, totalAmount: discounted.total,
+      discountTotal: discounted.discountTotal, ...applied, version: { increment: 1 },
+    } });
+  }
+
+  /**
+   * Persist resolved lines as OrderItems and recompute the order header totals.
+   *
+   * A-016 / audit F-01 — this used to `deleteMany` the whole item set and
+   * re-create it, which meant a line removed from the cart left NO trace: no
+   * audit row, no cancellation flag, no reason, no approver. A waiter could fire
+   * an item to the kitchen, serve it, drop it before billing and pocket the
+   * cash, and nothing in the order remembered the item had ever existed.
+   *
+   * It now diffs. Incoming lines are matched one-to-one against the existing
+   * ACTIVE rows by full-customization signature (F10), so a matched row keeps
+   * its id and its kitchen lifecycle and is updated in place. Whatever is left
+   * unmatched was genuinely taken off the order and is SOFT-cancelled with
+   * who/when/why. Nothing is ever deleted.
+   *
+   * A line the kitchen has already been told to cook cannot leave this way at
+   * all: removing it, or cutting its quantity below what was fired, is rejected
+   * and must go through `voidItem`, which demands a reason and a manager PIN.
+   */
+  private async writeItems(
+    tx: any,
+    orderId: string,
+    resolved: ResolvedLine[],
+    opts: { replace?: boolean; append?: boolean } & Partial<SaveOrderItemsDto> = {},
+  ): Promise<void> {
+    const orgId = this.tenant.organizationId;
+
+    // The rows an incoming line may match against. A fresh order has none.
+    const existing: any[] = (opts.replace || opts.append)
+      ? await tx.orderItem.findMany({
+          where: { orderId, cancelled: false }, include: { modifiers: true }, orderBy: { lineNumber: 'asc' },
+        })
+      : [];
+
+    // Append keeps everything already on the order and adds to it; replace lets
+    // the incoming set stand alone (and cancels whatever it leaves behind).
+    const baseline: ResolvedLine[] = opts.append ? existing.map((it: any) => this.itemToResolved(it)) : [];
+    const all = [...baseline, ...resolved];
+
+    // F10 — one-to-one signature match. `shift()` means a second identical line
+    // consumes the next row rather than sharing the first one's lifecycle.
+    const queue = new Map<string, any[]>();
+    for (const row of existing) {
+      const sig = this.rowSignature(row);
+      (queue.get(sig) ?? queue.set(sig, []).get(sig)!).push(row);
     }
 
-    for (let i = 0; i < totals.prepared.length; i++) {
-      const p = totals.prepared[i];
-      const src = all[i];
-      // Consume one lifecycle row for this line's signature (F10). shift() makes
-      // the match one-to-one: the next identical line gets the next row, or none.
-      const lc = lifecycleQueue.get(this.resolvedSignature(src))?.shift();
-      const item = await tx.orderItem.create({
-        data: {
-          organizationId: orgId,
-          orderId,
-          productId: p.productId,
-          menuItemId: p.menuItemId,
-          variantId: p.variantId ?? undefined,
-          variantName: p.variantName ?? undefined,
-          description: p.description,
-          quantity: p.quantity,
-          unitPrice: p.unitPrice,
-          discountPercent: p.discountPercent,
-          discountType: (p as any).discountType ?? 'percentage',
-          discountAmount: (p as any).discountAmount ?? 0,
-          discountReason: (p as any).discountReason ?? null,
-          taxId: p.taxId,
-          taxInclusive: p.taxInclusive,
-          note: src?.note ?? null,
-          accompanimentNames: src?.accompanimentNames ?? [],
-          accompanimentOptionIds: src?.accompanimentOptionIds ?? [],
-          course: src?.course ?? null,
-          lineNumber: p.lineNumber,
-          kitchenStatus: lc?.kitchenStatus ?? 'pending',
-          kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
-          kitchenLastPrintedAt: lc?.kitchenLastPrintedAt ?? null,
-          kitchenPrintedQty: lc?.kitchenPrintedQty ?? null,
-          cancelPrintCount: lc?.cancelPrintCount ?? 0,
-          cancelLastPrintedAt: lc?.cancelLastPrintedAt ?? null,
-          lastKitchenPrintedById: lc?.lastKitchenPrintedById ?? null,
-        },
-      });
+    // Price through the tax engine for authoritative subtotal/tax/total.
+    const totals = await this.builder.prepareLines(tx, all.map((l) => this.toPreparedInput(l)));
+
+    const pairs = all.map((src, i) => ({
+      src,
+      prepared: totals.prepared[i] as any,
+      row: queue.get(this.resolvedSignature(src))?.shift() ?? null,
+    }));
+    // Anything still queued was not matched by an incoming line: it is gone from
+    // the cart, which is precisely the event that used to vanish silently.
+    const removed: any[] = ([] as any[]).concat(...Array.from(queue.values()));
+
+    // A-016 — the kitchen has already committed food to these. They may only
+    // leave through the audited, manager-approved void route.
+    const firedRemoved = removed.filter((r) => Number(r.kitchenPrintedQty ?? 0) > 0);
+    const firedCut = pairs.filter((p) =>
+      p.row && Number(p.row.kitchenPrintedQty ?? 0) > 0 &&
+      Number(p.prepared.quantity) < Number(p.row.kitchenPrintedQty) - 0.000001);
+    if (firedRemoved.length || firedCut.length) {
+      const names = [...firedRemoved, ...firedCut.map((p) => p.row)]
+        .map((r: any) => r.description).join(', ');
+      throw new ConflictException(
+        `Already sent to the kitchen: ${names}. Void the item (reason + manager PIN) instead of removing it.`,
+      );
+    }
+
+    for (const { src, prepared, row } of pairs) {
+      const data = {
+        productId: prepared.productId,
+        menuItemId: prepared.menuItemId,
+        variantId: prepared.variantId ?? undefined,
+        variantName: prepared.variantName ?? undefined,
+        description: prepared.description,
+        quantity: prepared.quantity,
+        unitPrice: prepared.unitPrice,
+        discountPercent: prepared.discountPercent,
+        discountType: prepared.discountType ?? 'percentage',
+        discountAmount: prepared.discountAmount ?? 0,
+        discountReason: prepared.discountReason ?? null,
+        taxId: prepared.taxId,
+        taxInclusive: prepared.taxInclusive,
+        note: src?.note ?? null,
+        accompanimentNames: src?.accompanimentNames ?? [],
+        accompanimentOptionIds: src?.accompanimentOptionIds ?? [],
+        course: src?.course ?? null,
+        lineNumber: prepared.lineNumber,
+      };
       const mods = src?.modifiers ?? [];
+      let itemId: string;
+      if (row) {
+        // Matched: keep the row (id + kitchen lifecycle) and refresh its values.
+        await tx.orderItem.update({ where: { id: row.id }, data });
+        itemId = row.id;
+        // The signature guarantees the same modifier ids, but their catalog
+        // priceDelta may have moved since — restate them so the KOT and the
+        // eventual InvoiceItemModifier carry today's numbers.
+        await tx.orderItemModifier.deleteMany({ where: { orderItemId: row.id } });
+      } else {
+        const item = await tx.orderItem.create({
+          data: {
+            organizationId: orgId, orderId, ...data,
+            kitchenStatus: 'pending', kitchenPrintCount: 0, kitchenLastPrintedAt: null,
+            kitchenPrintedQty: null, cancelPrintCount: 0, cancelLastPrintedAt: null,
+            lastKitchenPrintedById: null,
+          },
+        });
+        itemId = item.id;
+      }
       if (mods.length) {
         await tx.orderItemModifier.createMany({
-          data: mods.map((m) => ({ organizationId: orgId, orderItemId: item.id, modifierId: m.modifierId ?? null, name: m.name, kitchenPrintName: (m as any).kitchenPrintName ?? null, priceDelta: m.priceDelta })),
+          data: mods.map((m) => ({ organizationId: orgId, orderItemId: itemId, modifierId: m.modifierId ?? null, name: m.name, kitchenPrintName: (m as any).kitchenPrintName ?? null, priceDelta: m.priceDelta })),
         });
       }
     }
 
-    const header = await tx.order.findFirst({ where: { id: orderId, organizationId: orgId } });
-    const pricing = all.length ? {
-      transactionDiscountType: opts.transactionDiscountType ?? header.transactionDiscountType ?? 'percentage',
-      transactionDiscountPercent: opts.transactionDiscountPercent ?? Number(header.transactionDiscountPercent ?? 0),
-      transactionDiscountAmount: opts.transactionDiscountAmount ?? Number(header.transactionDiscountAmount ?? 0),
-      discountReason: opts.discountReason ?? header.discountReason ?? null,
-    } : { transactionDiscountType: 'percentage', transactionDiscountPercent: 0, transactionDiscountAmount: 0, discountReason: null };
-    const discounted = await this.builder.prepareLines(tx, discountedLines(all, pricing));
-    await tx.order.update({ where: { id: orderId }, data: {
-      subtotal: discounted.subtotal, taxAmount: discounted.taxAmount, totalAmount: discounted.total,
-      discountTotal: discounted.discountTotal, ...pricing, version: { increment: 1 },
-    } });
+    // Soft-cancel what the cart dropped. Never delete.
+    const now = new Date();
+    for (const row of removed) {
+      await tx.orderItem.update({
+        where: { id: row.id },
+        data: {
+          cancelled: true, cancelledAt: now,
+          cancelReason: 'Removed from the order before it was sent to the kitchen',
+          voidedBy: this.tenant.userId ?? null,
+          voidedQty: row.quantity,
+        },
+      });
+    }
+
+    // One audit row per save carrying the whole diff, so "what changed on this
+    // order and who changed it" is answerable without replaying events.
+    if (opts.replace || opts.append) {
+      const added = pairs.filter((p) => !p.row)
+        .map((p) => ({ description: p.prepared.description, quantity: Number(p.prepared.quantity) }));
+      const requantified = pairs
+        .filter((p) => p.row && Math.abs(Number(p.prepared.quantity) - Number(p.row.quantity)) > 0.000001)
+        .map((p) => ({ description: p.prepared.description, from: Number(p.row.quantity), to: Number(p.prepared.quantity) }));
+      const dropped = removed.map((r) => ({ description: r.description, quantity: Number(r.quantity) }));
+      if (added.length || requantified.length || dropped.length) {
+        await this.audit.recordInTx(tx, {
+          entity: 'Order', entityId: orderId, action: 'update',
+          newValues: { kind: 'items_saved', added, requantified, removed: dropped },
+        });
+      }
+    }
+
+    await this.recomputeOrderTotals(tx, orderId, all.length ? opts : {
+      transactionDiscountType: 'percentage', transactionDiscountPercent: 0,
+      transactionDiscountAmount: 0, discountReason: undefined,
+    });
   }
 
   private async reload(tx: any, orderId: string) {
@@ -1088,7 +1305,13 @@ export class PosOrdersService {
   }
 
   private async resolveSkus(lines: OrderLineDto[]): Promise<Map<string, string>> {
-    const skus = Array.from(new Set(lines.filter((l) => !l.productId && l.sku).map((l) => l.sku!.toLowerCase())));
+    // Only a line with NO catalog identity at all is resolved by SKU. A line
+    // that already carries `menuItemId` must not be searched in the Product
+    // table: a MenuItem and a Product routinely share a code/SKU, and the match
+    // would stamp an incidental `productId` onto a menu sale — the second
+    // identity that made reports read ProductCategory (null) and print
+    // "Uncategorised".
+    const skus = Array.from(new Set(lines.filter((l) => !l.productId && !l.menuItemId && l.sku).map((l) => l.sku!.toLowerCase())));
     if (skus.length === 0) return new Map();
     const products = await this.prisma.client.product.findMany({
       where: { organizationId: this.tenant.organizationId, isActive: true, OR: [{ sku: { in: skus, mode: 'insensitive' } }, { code: { in: skus, mode: 'insensitive' } }] },

@@ -178,15 +178,24 @@ export const OrderPanel: React.FC<Props> = ({
   const pickMode = useCallback((m: NumMode) => {
     if (m === 'disc' && !canDiscount) return;
     if (m === 'price' && !canOverridePrice) return;
+    // F-02: a discount typed straight onto the numpad carried no reason, so the
+    // server rejected the sale at the payment screen — the one place a cashier
+    // cannot fix it. The % key now opens the dialog that collects the reason
+    // (and, above the org's threshold, the manager approval) up front.
+    if (m === 'disc') {
+      const line = useCartStore.getState().lines.find((l) => l.lineId === selectedLineId);
+      if (line) onLineDiscount?.(line);
+      return;
+    }
     setMode(m);
     bufferRef.current = '';
     setEditing(false);
-  }, [canDiscount, canOverridePrice]);
+  }, [canDiscount, canOverridePrice, selectedLineId, onLineDiscount]);
 
   /* A permission that was revoked (or a mode the cashier can't use) must never
    * stay active — fall back to Qty so digits can't apply to a gated field. */
   useEffect(() => {
-    if ((mode === 'disc' && !canDiscount) || (mode === 'price' && !canOverridePrice)) {
+    if (mode === 'disc' || (mode === 'price' && !canOverridePrice)) {
       setMode('qty');
       bufferRef.current = '';
       setEditing(false);
@@ -204,8 +213,9 @@ export const OrderPanel: React.FC<Props> = ({
       if (Number.isNaN(num) || num <= 0) return;
       setQuantity(line.lineId, num);
     } else if (mode === 'disc') {
-      if (!canDiscount) return; // gated: requires pos:discount
-      setDiscount(line.lineId, Number.isNaN(num) ? 0 : Math.max(0, Math.min(100, num)), 'percentage');
+      // Unreachable: pickMode routes 'disc' to the reason dialog (F-02). Kept as
+      // a guard so a stale mode can never apply an unreasoned discount.
+      return;
     } else {
       if (!canOverridePrice) return; // gated: price override right
       setUnitPrice(line.lineId, Number.isNaN(num) ? 0 : Math.max(0, num));

@@ -20,6 +20,7 @@ import { PrismaClient } from '@prisma/client';
 import { describeDb } from './_setup';
 import { ensureAccountCategories, makeAccountFactory, type TestAccountCategory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
+import { DocumentsModule } from '../../src/modules/documents/documents.module';
 import { CoreModule } from '../../src/modules/core/core.module';
 import { AccountingModule } from '../../src/modules/accounting/accounting.module';
 import { CashFlowService } from '../../src/modules/accounting/treasury/cash-flow.service';
@@ -103,7 +104,7 @@ describeDb('integration: cash reconciliation (F-CASH-1 / F-CASH-2)', () => {
     // 5) Bank deposit — cash-to-cash, must NOT appear as a cash flow.
     await post('REC-5', 'posted', [{ accountId: bankId, debit: 200 }, { accountId: cashId, credit: 200 }]);
 
-    moduleRef = await Test.createTestingModule({ imports: [KernelModule, CoreModule, AccountingModule] }).compile();
+    moduleRef = await Test.createTestingModule({ imports: [KernelModule, DocumentsModule, CoreModule, AccountingModule] }).compile();
     await moduleRef.init();
     tenant = moduleRef.get(TenantContextService);
     treasury = moduleRef.get(CashFlowService);

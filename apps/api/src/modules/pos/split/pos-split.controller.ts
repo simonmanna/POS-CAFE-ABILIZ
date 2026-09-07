@@ -80,7 +80,7 @@ export class PosSplitController {
   @Post('split-bills/:billId/settle')
   @RequirePermissions('pos:checkout')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   settle(@Param('billId') billId: string, @Body() dto: ReceivePaymentDto) {
     return this.svc.settleBill(billId, dto);
   }

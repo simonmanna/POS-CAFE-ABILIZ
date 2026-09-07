@@ -283,7 +283,7 @@ export class PosController {
   @Post('checkout')
   @RequirePermissions('pos:checkout')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   checkout(@Body() dto: CheckoutDto) {
     return this.svc.checkout(dto);
   }
@@ -299,7 +299,7 @@ export class PosController {
   @Post('sales/:id/void')
   @RequirePermissions('pos:void')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   void(@Param('id') id: string, @Body() dto: VoidDto) {
     return this.billing.refund(id, `VOID: ${dto.reason}`, {
       overrideById: dto.overrideById,
@@ -350,7 +350,7 @@ export class PosController {
   @Post('tabs/:tableId/settle')
   @RequirePermissions('pos:checkout')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   settleTab(@Param('tableId') tableId: string, @Body() dto: SettleTabDto) {
     return this.svc.settleTab({ tableId, ...dto });
   }
@@ -371,7 +371,7 @@ export class PosController {
   @Post('orders/:id/settle')
   @RequirePermissions('pos:checkout')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   settleOrder(@Param('id') id: string, @Body() dto: SettleTabDto) {
     return this.svc.settleOrder({ orderId: id, ...dto });
   }

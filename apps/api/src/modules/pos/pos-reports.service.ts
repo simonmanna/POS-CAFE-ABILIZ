@@ -193,6 +193,41 @@ export interface XReport {
   byCategory: Array<{ categoryId: string | null; categoryName: string; count: number; total: string }>;
 }
 
+/**
+ * A POS sale line's category, resolved once and used identically by every item
+ * report (display AND filtering).
+ *
+ * `key` is the TYPED filter key. `MenuCategory` and `ProductCategory` are two
+ * disjoint trees; collapsing them into one bare-id keyspace let a filter match
+ * across trees and split one logical category into two dropdown entries. Until
+ * a common `SalesCategory` dimension exists, the key carries its tree.
+ */
+export type SaleCategory = {
+  key: string | null;
+  id: string | null;
+  name: string;
+  source: 'snapshot' | 'menu' | 'product' | 'legacy_bridge' | null;
+};
+
+/** The line shape the resolver needs — an OrderItem or an InvoiceItem row. */
+export type SaleCategoryLine = {
+  productId?: string | null;
+  menuItemId?: string | null;
+  /** Phase 2 snapshot columns. Absent today; read first once they exist. */
+  salesCategoryId?: string | null;
+  salesCategoryName?: string | null;
+  salesCategorySource?: string | null;
+};
+
+const UNCATEGORISED: SaleCategory = { key: null, id: null, name: 'Uncategorised', source: null };
+/**
+ * The product carries no ProductCategory and its `MenuProduct` recipes lead to
+ * MORE THAN ONE MenuCategory, so no honest answer exists. Reported as its own
+ * bucket rather than silently picking the first row, so the Phase 4 backfill
+ * gets a worklist instead of a guess baked into history.
+ */
+const LEGACY_UNRESOLVED: SaleCategory = { key: null, id: null, name: 'Legacy unresolved', source: null };
+
 @Injectable()
 export class PosReportsService {
   constructor(
@@ -201,6 +236,203 @@ export class PosReportsService {
     private readonly audit: AuditService,
     private readonly events: EventBus,
   ) {}
+
+  /**
+   * Build the ONE category rule shared by every POS item report.
+   *
+   * A sale line can carry a `menuItemId`, a `productId`, or (on rows written
+   * before `resolveSkus` stopped stamping an incidental productId onto menu
+   * lines) both. Each report used to re-infer the answer with its own
+   * precedence, so the same range produced different category totals in
+   * Items, Items by Group and Item Sales. This is that precedence, once:
+   *
+   *   1. the invoice's own snapshot, when present (Phase 2 — no-op today)
+   *   2. menuItemId -> MenuItem.category      (MenuCategory)
+   *   3. productId  -> Product.category       (ProductCategory)
+   *   4. productId  -> MenuProduct -> MenuItem.category, ONLY when unambiguous
+   *   5. Uncategorised / Legacy unresolved
+   *
+   * It falls through on a NULL CATEGORY, not merely on a missing id — a menu
+   * item that has no MenuCategory still defers to the product beneath it,
+   * which the old `if (menuItemId) ... else if (productId)` shape could not do.
+   *
+   * Step 4 is a LEGACY path only. `MenuProduct` is a recipe (one product
+   * belongs to many menu items), so it can never say which menu item was
+   * sold; it is consulted solely to classify historical product-only cafe
+   * rows, and only when every recipe it appears in agrees on one category.
+   */
+  private async saleCategoryResolver(lines: SaleCategoryLine[]): Promise<{
+    resolve: (line: SaleCategoryLine) => SaleCategory;
+    productName: (id: string) => string | null;
+    menuItemName: (id: string) => string | null;
+  }> {
+    const productIds = new Set<string>();
+    const menuItemIds = new Set<string>();
+    for (const l of lines) {
+      if (l.productId) productIds.add(l.productId);
+      if (l.menuItemId) menuItemIds.add(l.menuItemId);
+    }
+
+    // `id` MUST be selected on the row itself, not only on the relation — the
+    // previous shape selected just `category { id, name }`, so `p.id` was
+    // undefined and every downstream `productId: { in: [...] }` matched nothing.
+    const [products, menuItems] = await Promise.all([
+      productIds.size
+        ? this.prisma.client.product.findMany({
+            where: { id: { in: Array.from(productIds) } },
+            select: { id: true, name: true, category: { select: { id: true, name: true } } },
+          })
+        : Promise.resolve([] as any[]),
+      menuItemIds.size
+        ? this.prisma.client.menuItem.findMany({
+            where: { id: { in: Array.from(menuItemIds) } },
+            select: { id: true, name: true, category: { select: { id: true, name: true } } },
+          })
+        : Promise.resolve([] as any[]),
+    ]);
+
+    const productMap = new Map(
+      (products as any[]).map((p) => [
+        p.id as string,
+        {
+          name: p.name as string,
+          categoryId: (p.category?.id ?? null) as string | null,
+          categoryName: (p.category?.name ?? null) as string | null,
+        },
+      ]),
+    );
+    const menuItemMap = new Map(
+      (menuItems as any[]).map((m) => [
+        m.id as string,
+        {
+          name: m.name as string,
+          categoryId: (m.category?.id ?? null) as string | null,
+          categoryName: (m.category?.name ?? null) as string | null,
+        },
+      ]),
+    );
+
+    const bridge = await this.legacyBridge(
+      Array.from(productMap.entries())
+        .filter(([, v]) => !v.categoryId)
+        .map(([id]) => id),
+    );
+
+    const resolve = (line: SaleCategoryLine): SaleCategory => {
+      // 1. Snapshot wins outright — it is what the sale actually was.
+      if (line.salesCategoryId || line.salesCategoryName) {
+        const tree = line.salesCategorySource === 'product' ? 'product' : 'menu';
+        return {
+          key: line.salesCategoryId ? tree + ':' + line.salesCategoryId : null,
+          id: line.salesCategoryId ?? null,
+          name: line.salesCategoryName ?? 'Uncategorised',
+          source: 'snapshot',
+        };
+      }
+      // 2. Menu identity.
+      const mi = line.menuItemId ? menuItemMap.get(line.menuItemId) : null;
+      if (mi?.categoryId) {
+        return { key: 'menu:' + mi.categoryId, id: mi.categoryId, name: mi.categoryName ?? 'Uncategorised', source: 'menu' };
+      }
+      // 3. Product identity.
+      const prod = line.productId ? productMap.get(line.productId) : null;
+      if (prod?.categoryId) {
+        return { key: 'product:' + prod.categoryId, id: prod.categoryId, name: prod.categoryName ?? 'Uncategorised', source: 'product' };
+      }
+      // 4. Legacy recipe bridge, unambiguous only.
+      if (line.productId) {
+        const b = bridge.get(line.productId);
+        if (b === 'ambiguous') return LEGACY_UNRESOLVED;
+        if (b) return { key: 'menu:' + b.id, id: b.id, name: b.name, source: 'legacy_bridge' };
+      }
+      return UNCATEGORISED;
+    };
+
+    return {
+      resolve,
+      productName: (id: string) => productMap.get(id)?.name ?? null,
+      menuItemName: (id: string) => menuItemMap.get(id)?.name ?? null,
+    };
+  }
+
+  /**
+   * `productId -> MenuCategory` for products that have no ProductCategory of
+   * their own, but ONLY where every menu item the product appears in resolves
+   * to the same category. A product used by menu items in different categories
+   * yields `'ambiguous'`; the caller reports it as Legacy unresolved rather
+   * than taking whatever row the database happened to return first (the old
+   * `distinct: ['productId']` with no `orderBy`).
+   */
+  private async legacyBridge(
+    productIds: string[],
+  ): Promise<Map<string, { id: string; name: string } | 'ambiguous'>> {
+    const out = new Map<string, { id: string; name: string } | 'ambiguous'>();
+    if (!productIds.length) return out;
+    const rows = await this.prisma.client.menuProduct.findMany({
+      where: { productId: { in: productIds } },
+      select: { productId: true, menuItem: { select: { category: { select: { id: true, name: true } } } } },
+    });
+    const seen = new Map<string, Map<string, string>>();
+    for (const r of rows as any[]) {
+      const cat = r.menuItem?.category;
+      if (!cat?.id) continue;
+      if (!seen.has(r.productId)) seen.set(r.productId, new Map());
+      seen.get(r.productId)!.set(cat.id, cat.name);
+    }
+    for (const [productId, cats] of seen) {
+      if (cats.size !== 1) {
+        out.set(productId, 'ambiguous');
+        continue;
+      }
+      const entry = cats.entries().next().value as [string, string];
+      out.set(productId, { id: entry[0], name: entry[1] });
+    }
+    return out;
+  }
+
+  /**
+   * Products that the legacy recipe bridge assigns to `menuCategoryId` — i.e.
+   * they carry no ProductCategory of their own and every menu item they appear
+   * in resolves to that one category. The SQL counterpart of step 4 of
+   * `saleCategoryResolver`, for reports that must filter in the database.
+   */
+  private async bridgedProductIds(menuCategoryId: string): Promise<string[]> {
+    const rows = await this.prisma.client.menuProduct.findMany({
+      where: { menuItem: { categoryId: menuCategoryId } },
+      select: { productId: true },
+    });
+    const candidates = Array.from(new Set((rows as any[]).map((r) => r.productId as string)));
+    if (!candidates.length) return [];
+    // Only products with NO ProductCategory fall through to the bridge at all.
+    const uncategorised = await this.prisma.client.product.findMany({
+      where: { id: { in: candidates }, categoryId: null },
+      select: { id: true },
+    });
+    const bridge = await this.legacyBridge((uncategorised as any[]).map((p) => p.id as string));
+    const out: string[] = [];
+    for (const [productId, resolved] of bridge) {
+      if (resolved !== 'ambiguous' && resolved.id === menuCategoryId) out.push(productId);
+    }
+    return out;
+  }
+
+  /**
+   * Does a resolved category match the filter the UI sent?
+   *
+   * Accepts the typed key (`menu:<id>` / `product:<id>`) and, for links and
+   * saved views created before typing, a bare category id.
+   */
+  private matchesCategory(cat: SaleCategory, filter: string): boolean {
+    return cat.key === filter || cat.id === filter;
+  }
+
+  /** Split a typed filter key into its tree and raw id. */
+  private parseCategoryFilter(filter: string): { tree: 'menu' | 'product' | null; id: string } {
+    const i = filter.indexOf(':');
+    if (i < 0) return { tree: null, id: filter };
+    const tree = filter.slice(0, i);
+    return { tree: tree === 'menu' || tree === 'product' ? tree : null, id: filter.slice(i + 1) };
+  }
 
   /**
    * Everything the report filter bar needs, in one round-trip.
@@ -228,42 +460,31 @@ export class PosReportsService {
     ]);
 
     const waiterIds = new Set<string>();
-    const productIds = new Set<string>();
-    const menuItemIds = new Set<string>();
     const paymentModes = new Set<string>();
+    const lines: SaleCategoryLine[] = [];
     for (const inv of invoices as any[]) {
       if (inv.waiterId) waiterIds.add(inv.waiterId);
       if (inv.paymentMode) paymentModes.add(inv.paymentMode);
-      for (const it of inv.items ?? []) {
-        if (it.productId) productIds.add(it.productId);
-        if (it.menuItemId) menuItemIds.add(it.menuItemId);
-      }
+      for (const it of inv.items ?? []) lines.push(it);
     }
 
-    const [waiters, products, menuItems] = await Promise.all([
+    const [waiters, cat] = await Promise.all([
       waiterIds.size
         ? this.prisma.client.user.findMany({
             where: { id: { in: Array.from(waiterIds) } },
             select: { id: true, firstName: true, lastName: true },
           })
         : Promise.resolve([] as any[]),
-      productIds.size
-        ? this.prisma.client.product.findMany({
-            where: { id: { in: Array.from(productIds) } },
-            select: { category: { select: { id: true, name: true } } },
-          })
-        : Promise.resolve([] as any[]),
-      menuItemIds.size
-        ? this.prisma.client.menuItem.findMany({
-            where: { id: { in: Array.from(menuItemIds) } },
-            select: { category: { select: { id: true, name: true } } },
-          })
-        : Promise.resolve([] as any[]),
+      this.saleCategoryResolver(lines),
     ]);
 
+    // The dropdown is built by running the SAME resolver the reports run, over
+    // the SAME lines. Anything else lets a manager pick a category no report
+    // will ever attribute a line to (or hides one that every report shows).
     const categories = new Map<string, string>();
-    for (const row of [...(products as any[]), ...(menuItems as any[])]) {
-      if (row.category?.id) categories.set(row.category.id, row.category.name);
+    for (const line of lines) {
+      const c = cat.resolve(line);
+      if (c.key) categories.set(c.key, c.name);
     }
 
     const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
@@ -314,12 +535,16 @@ export class PosReportsService {
 
     const invoices = await this.prisma.client.invoice.findMany({
       where: posSaleWhere(organizationId, start, end, filters),
-      select: { totalAmount: true, issueDate: true },
+      select: { totalAmount: true, issueDate: true, createdAt: true },
     });
 
     const buckets = new Array(24).fill(0).map((_, hour) => ({ hour, count: 0, total: dec(0) }));
     for (const d of invoices as any[]) {
-      const hour = new Date(d.issueDate).getHours(); // A-031: business hour
+      // A-031: business hour. The `?? createdAt` fallback is not cosmetic — a
+      // row with a null issueDate produced `new Date(null).getHours()` = NaN,
+      // and `buckets[NaN].count += 1` threw, taking the whole report down.
+      // Every other method in this file already reads `issueDate ?? createdAt`.
+      const hour = new Date(d.issueDate ?? d.createdAt).getHours();
       if (hourFilter && !hourFilter.has(hour)) continue;
       buckets[hour].count += 1;
       buckets[hour].total = buckets[hour].total.plus(dec(d.totalAmount));
@@ -496,12 +721,24 @@ export class PosReportsService {
     if (categoryId) {
       // InvoiceItem carries loose productId/menuItemId (no relations), so the
       // category scope is applied via the line's product OR menu item.
+      //
+      // Unlike the in-memory reports this one filters in SQL (the groupBy has
+      // to stay in the database), so the resolver's precedence is reproduced
+      // here as id allow-lists — including the legacy recipe bridge, without
+      // which a bridged item was displayed by every other tab but invisible
+      // to a category-filtered Top Items.
+      const { tree, id } = this.parseCategoryFilter(categoryId);
       const [catsProducts, catsMenuItems] = await Promise.all([
-        this.prisma.client.product.findMany({ where: { organizationId, categoryId }, select: { id: true } }),
-        this.prisma.client.menuItem.findMany({ where: { organizationId, categoryId }, select: { id: true } }),
+        tree === 'menu'
+          ? Promise.resolve([] as any[])
+          : this.prisma.client.product.findMany({ where: { organizationId, categoryId: id }, select: { id: true } }),
+        tree === 'product'
+          ? Promise.resolve([] as any[])
+          : this.prisma.client.menuItem.findMany({ where: { organizationId, categoryId: id }, select: { id: true } }),
       ]);
       const allowedProductIds = (catsProducts as any[]).map((p) => p.id);
       const allowedMenuItemIds = (catsMenuItems as any[]).map((m) => m.id);
+      if (tree !== 'product') allowedProductIds.push(...(await this.bridgedProductIds(id)));
       if (allowedProductIds.length === 0 && allowedMenuItemIds.length === 0) return [];
       itemWhere.OR = [
         ...(allowedProductIds.length ? [{ productId: { in: allowedProductIds } }] : []),
@@ -1028,58 +1265,10 @@ export class PosReportsService {
       : [];
     const waiterMap = new Map(waiters.map((w: any) => [w.id, `${w.firstName}${w.lastName ? ' ' + w.lastName : ''}`]));
 
-    // Collect all product IDs from invoice items
-    const productIds = new Set<string>();
-    for (const inv of invoices as any[]) {
-      for (const it of inv.items ?? []) {
-        if (it.productId) productIds.add(it.productId);
-      }
-    }
-
-    // Build product → category lookup
-    const products = productIds.size
-      ? await this.prisma.client.product.findMany({
-          where: { id: { in: Array.from(productIds) } },
-          include: { category: { select: { name: true } } },
-        })
-      : [];
-    const productMap = new Map(
-      products.map((p: any) => [
-        p.id,
-        {
-          name: p.name,
-          productCategoryName: p.category?.name ?? null,
-          categoryId: p.category?.id ?? null,
-        },
-      ]),
+    // One category rule for every item report — see `saleCategoryResolver`.
+    const cat = await this.saleCategoryResolver(
+      (invoices as any[]).flatMap((inv) => (inv.items ?? []) as SaleCategoryLine[]),
     );
-
-    // Build menuItem → menuCategory lookup (fallback for menu-driven sales)
-    const menuItemIds = new Set<string>();
-    for (const inv of invoices as any[]) {
-      for (const it of inv.items ?? []) {
-        const mid = it.menuItemId;
-        if (mid) menuItemIds.add(mid);
-      }
-    }
-    const menuItems = menuItemIds.size
-      ? await this.prisma.client.menuItem.findMany({
-          where: { id: { in: Array.from(menuItemIds) } },
-          include: { category: { select: { id: true, name: true } } },
-        })
-      : [];
-    const menuItemMap = new Map(
-      menuItems.map((mi: any) => [
-        mi.id,
-        { categoryId: mi.category?.id ?? null, categoryName: mi.category?.name ?? null },
-      ]),
-    );
-
-    // If category filter is active, resolve allowed product IDs (from product)
-    // and menu item IDs. A line matches when EITHER its product OR its menu
-    // item belongs to the selected category.
-    const allowedProductIds = categoryId ? new Set(products.filter((p: any) => (p.categoryId ?? p.category?.id) === categoryId).map((p: any) => p.id)) : null;
-    const allowedMenuItemIds = categoryId ? new Set(menuItems.filter((mi: any) => (mi.categoryId ?? mi.category?.id) === categoryId).map((mi: any) => mi.id)) : null;
 
     const rows: Array<{
       orderNumber: string;
@@ -1104,23 +1293,16 @@ export class PosReportsService {
       const orderType = inv.order?.orderType ?? null;
       const invoiceTime = new Date(inv.issueDate ?? inv.createdAt).toLocaleTimeString();
       for (const it of inv.items ?? []) {
-        const prod = it.productId ? productMap.get(it.productId) : null;
-        const miCat = it.menuItemId ? menuItemMap.get(it.menuItemId)?.categoryName : null;
-        const categoryName = prod?.productCategoryName ?? miCat ?? 'Uncategorised';
+        // This report used to check the PRODUCT first, so a menu line whose
+        // incidentally-stamped product had no ProductCategory printed
+        // "Uncategorised" while Items by Group showed the real MenuCategory.
+        const c = cat.resolve(it);
+        const categoryName = c.name;
 
-        // Apply category filter — keep ONLY items whose product or menu item
-        // belongs to the selected category. (The previous logic inverted the
-        // test — `has()` → `continue` — so it returned everything EXCEPT the
-        // selected category whenever both lookup sets were populated.)
-        if (allowedProductIds && allowedMenuItemIds) {
-          const byProduct = it.productId && allowedProductIds.has(it.productId);
-          const byMenuItem = it.menuItemId && allowedMenuItemIds.has(it.menuItemId);
-          if (!byProduct && !byMenuItem) continue;
-        } else if (allowedProductIds) {
-          if (!(it.productId && allowedProductIds.has(it.productId))) continue;
-        } else if (allowedMenuItemIds) {
-          if (!(it.menuItemId && allowedMenuItemIds.has(it.menuItemId))) continue;
-        }
+        // Filtering runs off the SAME resolved value that is displayed, so a
+        // category the report shows is always a category the report can narrow
+        // to — including one reached through the legacy recipe bridge.
+        if (categoryId && !this.matchesCategory(c, categoryId)) continue;
 
         // Free-text item search — the line description is what the operator
         // recognises, and it survives a menu item being renamed or deleted.
@@ -1177,49 +1359,9 @@ export class PosReportsService {
         include: { items: true },
       });
 
-      // Collect product IDs and menu item IDs
-      const productIds = new Set<string>();
-      const menuItemIds = new Set<string>();
-      for (const inv of invoices as any[]) {
-        for (const it of inv.items ?? []) {
-          if (it.productId) productIds.add(it.productId);
-          if (it.menuItemId) menuItemIds.add(it.menuItemId);
-        }
-      }
-
-      // Build product → category lookup
-      const products = productIds.size
-        ? await this.prisma.client.product.findMany({
-            where: { id: { in: Array.from(productIds) } },
-            include: { category: { select: { id: true, name: true } } },
-          })
-        : [];
-      const productMap = new Map(
-        products.map((p: any) => [
-          p.id,
-          {
-            name: p.name,
-            categoryId: p.category?.id ?? null,
-            categoryName: p.category?.name ?? null,
-          },
-        ]),
-      );
-
-      // Build menuItem → menuCategory lookup
-      const menuItems = menuItemIds.size
-        ? await this.prisma.client.menuItem.findMany({
-            where: { id: { in: Array.from(menuItemIds) } },
-            include: { category: { select: { id: true, name: true } } },
-          })
-        : [];
-      const menuItemMap = new Map(
-        menuItems.map((mi: any) => [
-          mi.id,
-          {
-            categoryId: mi.category?.id ?? null,
-            categoryName: mi.category?.name ?? null,
-          },
-        ]),
+      // One category rule for every item report — see `saleCategoryResolver`.
+      const cat = await this.saleCategoryResolver(
+        (invoices as any[]).flatMap((inv) => (inv.items ?? []) as SaleCategoryLine[]),
       );
 
       // Aggregate by category
@@ -1236,26 +1378,16 @@ export class PosReportsService {
 
       for (const inv of invoices as any[]) {
         for (const it of inv.items ?? []) {
-          let groupId: string | null = null;
-          let groupName = 'Uncategorised';
+          const c = cat.resolve(it);
+          const groupId = c.key;
+          const groupName = c.name;
 
-          if (it.productId) {
-            const prod = productMap.get(it.productId);
-            if (prod) {
-              groupId = prod.categoryId;
-              groupName = prod.categoryName ?? 'Uncategorised';
-            }
-          } else if (it.menuItemId) {
-            const mi = menuItemMap.get(it.menuItemId);
-            if (mi) {
-              groupId = mi.categoryId;
-              groupName = mi.categoryName ?? 'Uncategorised';
-            }
-          }
+          if (categoryId && !this.matchesCategory(c, categoryId)) continue;
 
-          if (categoryId && groupId !== categoryId) continue;
-
-          const key = groupId ?? 'uncategorised';
+          // Bucket on the TYPED key so a MenuCategory and a ProductCategory can
+          // never collide, and so "Uncategorised" and "Legacy unresolved" stay
+          // separate lines instead of one misleading total.
+          const key = c.key ?? c.name;
           const bucket = groupMap.get(key) ?? {
             groupName,
             groupId,
@@ -1326,44 +1458,22 @@ export class PosReportsService {
       });
       const itemNeedle = itemSearch?.trim().toLowerCase() || null;
 
-      const productIds = new Set<string>();
-      const menuItemIds = new Set<string>();
       const waiterIds = new Set<string>();
       for (const inv of invoices as any[]) {
         if (inv.waiterId) waiterIds.add(inv.waiterId);
-        for (const it of inv.items ?? []) {
-          if (it.productId) productIds.add(it.productId);
-          if (it.menuItemId) menuItemIds.add(it.menuItemId);
-        }
       }
 
-      const [products, menuItems, waiters] = await Promise.all([
-        productIds.size
-          ? this.prisma.client.product.findMany({
-              where: { id: { in: Array.from(productIds) } },
-              select: { id: true, name: true, categoryId: true, category: { select: { id: true, name: true } } },
-            })
-          : Promise.resolve([] as any[]),
-        menuItemIds.size
-          ? this.prisma.client.menuItem.findMany({
-              where: { id: { in: Array.from(menuItemIds) } },
-              select: { id: true, name: true, categoryId: true, category: { select: { id: true, name: true } } },
-            })
-          : Promise.resolve([] as any[]),
+      // One category rule for every item report — see `saleCategoryResolver`.
+      const [waiters, cat] = await Promise.all([
         waiterIds.size
           ? this.prisma.client.user.findMany({
               where: { id: { in: Array.from(waiterIds) } },
               select: { id: true, firstName: true, lastName: true },
             })
           : Promise.resolve([] as any[]),
+        this.saleCategoryResolver((invoices as any[]).flatMap((inv) => (inv.items ?? []) as SaleCategoryLine[])),
       ]);
 
-      const productMap = new Map(
-        (products as any[]).map((p) => [p.id, { name: p.name, categoryId: p.category?.id ?? null, categoryName: p.category?.name ?? null }]),
-      );
-      const menuItemMap = new Map(
-        (menuItems as any[]).map((mi) => [mi.id, { name: mi.name, categoryId: mi.category?.id ?? null, categoryName: mi.category?.name ?? null }]),
-      );
       const waiterMap = new Map(
         (waiters as any[]).map((w) => [w.id, `${w.firstName}${w.lastName ? ' ' + w.lastName : ''}`]),
       );
@@ -1390,22 +1500,26 @@ export class PosReportsService {
         if (invWaiterId) waiterOptions.set(invWaiterId, waiterMap.get(invWaiterId) ?? '—');
 
         for (const it of inv.items ?? []) {
-          const meta = it.menuItemId
-            ? menuItemMap.get(it.menuItemId)
-            : it.productId
-              ? productMap.get(it.productId)
-              : null;
-
+          // The grouping key is the sale IDENTITY: a menu item and a product
+          // are different things even when one is made from the other, so they
+          // stay separate rows rather than being merged on a guess.
           const key = it.menuItemId ?? it.productId ?? `desc:${it.description}`;
-          const name = meta?.name ?? it.description;
-          const catId: string | null = meta?.categoryId ?? null;
-          const catName = meta?.categoryName ?? 'Uncategorised';
+          const name =
+            (it.menuItemId ? cat.menuItemName(it.menuItemId) : it.productId ? cat.productName(it.productId) : null) ??
+            it.description;
+
+          // The bridge is no longer gated on `!it.menuItemId` — the resolver
+          // falls through on a NULL CATEGORY, so a menu item with no
+          // MenuCategory still reaches the product and the legacy bridge.
+          const c = cat.resolve(it);
+          const catId = c.key;
+          const catName = c.name;
 
           itemOptions.set(key, name);
           if (catId) categoryOptions.set(catId, catName);
 
           if (itemKey && key !== itemKey) continue;
-          if (categoryId && catId !== categoryId) continue;
+          if (categoryId && !this.matchesCategory(c, categoryId)) continue;
           if (waiterId && invWaiterId !== waiterId) continue;
           if (itemNeedle && !String(name ?? '').toLowerCase().includes(itemNeedle)) continue;
 

@@ -36,7 +36,7 @@ export class PosShiftController {
   constructor(private readonly svc: PosShiftService) {}
 
   @Post('handover')
-  @Idempotent()
+  @Idempotent({ required: true })
   @UseInterceptors(IdempotencyInterceptor)
   @RequirePermissions('pos:close_session')
   handover(@Body() body: HandoverBody) {

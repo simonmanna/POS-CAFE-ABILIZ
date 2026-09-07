@@ -32,6 +32,12 @@ export interface CartLine {
   accompanimentNames?: string[];
   /** Sum of accompaniment price impacts. */
   accompanimentPriceImpact?: number;
+  /**
+   * A-016 — how much of this line the kitchen has already been told to cook.
+   * Above zero, the line can only leave the order through the audited void
+   * route, and that route needs a manager PIN. Set from the server on load/save.
+   */
+  kitchenPrintedQty?: number;
   /** P4: if set, this line is a combo. Backend expands it on checkout. */
   comboId?: string;
   /** P10: when true, the line's price is VAT-inclusive. */

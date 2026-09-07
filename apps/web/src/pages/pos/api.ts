@@ -990,6 +990,29 @@ export function useMergeOrders() {
   });
 }
 
+/**
+ * A-016 — void one line off an open order. The server records who, why, how
+ * much and (for an item the kitchen already has) which manager approved it, and
+ * pulls the line off the KDS. Omit `quantity` to void the whole line.
+ *
+ * The server answers 403 when the line was already fired and no approval was
+ * supplied; the caller collects a manager PIN and retries.
+ */
+export function useVoidOrderItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ orderId, itemId, ...body }: {
+      orderId: string; itemId: string; reason: string; quantity?: number;
+      overrideById?: string; overridePin?: string;
+    }) => (await api.delete(`/pos/orders/${orderId}/items/${itemId}`, { data: body })).data,
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] });
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+      qc.invalidateQueries({ queryKey: ['pos-kds'] });
+    },
+  });
+}
+
 export function useCancelOrder() {
   const qc = useQueryClient();
   return useMutation({
@@ -1112,8 +1135,11 @@ export function useOpenCreditInvoices(params: { partnerId?: string; search?: str
 export function useWriteOffInvoice() {
   const qc = useQueryClient();
   return useMutation({
+    // F-04: a write-off moves money, so it carries a durable operation key like
+    // every other money route — a lost response replays instead of writing off
+    // the same balance twice.
     mutationFn: async ({ invoiceId, reason }: { invoiceId: string; reason: string }) =>
-      (await api.post(`/pos/invoices/${invoiceId}/write-off`, { reason })).data,
+      submitEntitySaleOperation(`/pos/invoices/${invoiceId}/write-off`, { reason }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-reports'] }),
   });
 }

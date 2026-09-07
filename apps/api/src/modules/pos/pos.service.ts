@@ -1,5 +1,5 @@
 import { businessOperation } from '../../kernel/idempotency/business-outcome';
-import { assertPricingAuthority } from './pricing-policy';
+import { assertPricingAuthority, resolveDiscountThreshold } from './pricing-policy';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from 'node:crypto';
 import { resolvePosStockLocation } from '../inventory/pos-stock-location';
@@ -536,6 +536,10 @@ export class PosService {
           taxInclusive: it.taxInclusive ?? false,
           discountPercent: String(it.discountPercent ?? 0),
           discountType: it.discountType, discountAmount: String(it.discountAmount ?? 0), discountReason: it.discountReason, course: it.course,
+          // A-016: the terminal needs to know a line is already with the kitchen
+          // — that line may only leave through the audited void route.
+          kitchenPrintedQty: Number(it.kitchenPrintedQty ?? 0),
+          kitchenStatus: it.kitchenStatus ?? 'pending',
           note: userNote || null,
           variantId: it.variantId ?? null,
           variantName: it.variantName ?? null,
@@ -1045,21 +1049,49 @@ export class PosService {
     }
   }
 
+  /**
+   * Barcode / SKU lookup for the terminal.
+   *
+   * Audit F-07 — the café terminal used to resolve a scan against the MenuItems
+   * it happened to have loaded, so anything outside the current page or category
+   * simply did not scan, and an unknown code produced no feedback at all. This
+   * is the server-authoritative answer both terminals now use, and it searches
+   * the MENU as well as the product catalogue: a café sells menu items, and a
+   * menu item carries its own punch-in code.
+   *
+   * Menu matches lead — a MenuItem and a Product routinely share a code, and on
+   * a café till the menu item is what was meant.
+   */
   async findBySku(sku: string) {
     const orgId = this.tenant.organizationId;
-    return this.prisma.client.product.findMany({
-      where: {
-        organizationId: orgId,
-        isActive: true,
-        OR: [
-          { sku: { equals: sku, mode: 'insensitive' } },
-          { code: { equals: sku, mode: 'insensitive' } },
-          { barcode: { equals: sku, mode: 'insensitive' } },
-        ],
-      },
-      include: { stockItems: true },
-      take: 5,
-    });
+    const [menuItems, products] = await Promise.all([
+      this.prisma.client.menuItem.findMany({
+        where: { organizationId: orgId, isAvailable: true, code: { equals: sku, mode: 'insensitive' } },
+        take: 5,
+      }),
+      this.prisma.client.product.findMany({
+        where: {
+          organizationId: orgId,
+          isActive: true,
+          OR: [
+            { sku: { equals: sku, mode: 'insensitive' } },
+            { code: { equals: sku, mode: 'insensitive' } },
+            { barcode: { equals: sku, mode: 'insensitive' } },
+          ],
+        },
+        include: { stockItems: true },
+        take: 5,
+      }),
+    ]);
+    // One shape for the terminal: `kind` says which catalogue answered, and
+    // `salesPrice` is the sellable price whichever it was.
+    return [
+      ...(menuItems as any[]).map((m) => ({
+        ...m, kind: 'menu_item' as const, menuItemId: m.id,
+        sku: m.code ?? null, salesPrice: m.basePrice,
+      })),
+      ...(products as any[]).map((p) => ({ ...p, kind: 'product' as const })),
+    ].slice(0, 5);
   }
 
   async listForCashSession(cashSessionId: string) {
@@ -1180,12 +1212,31 @@ export class PosService {
     return created.id;
   }
 
-  /** Return the POS module config (posMode, etc). */
+  /**
+   * Return the POS module config (posMode, sharedDrawer, …) PLUS the pricing
+   * policy the terminal has to obey.
+   *
+   * Audit F-03 — the terminal used to carry its own hardcoded discount
+   * threshold (10% / 50,000), which silently disagreed with the org's
+   * configured `settings.discountApproval.tier1`: lower the org value and
+   * cashiers applied discounts unprompted, then hit a 403 at the payment
+   * screen. There is one threshold now, and this is where the terminal reads it.
+   */
   async getPosSettings(): Promise<Record<string, unknown>> {
-    const mod = await this.prisma.client.organizationModule.findUnique({
-      where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: 'pos' } },
-    });
-    return (mod?.config as Record<string, unknown>) ?? { posMode: 'cafe' };
+    const orgId = this.tenant.organizationId;
+    const [mod, org] = await Promise.all([
+      this.prisma.client.organizationModule.findUnique({
+        where: { organizationId_moduleName: { organizationId: orgId, moduleName: 'pos' } },
+      }),
+      this.prisma.raw.organization.findUnique({ where: { id: orgId }, select: { settings: true } }),
+    ]);
+    const config = (mod?.config as Record<string, unknown>) ?? { posMode: 'cafe' };
+    return {
+      ...config,
+      discountApproval: {
+        tier1: resolveDiscountThreshold((org?.settings as any)?.discountApproval?.tier1),
+      },
+    };
   }
 
   /** Update POS module config (posMode, sharedDrawer, etc). */

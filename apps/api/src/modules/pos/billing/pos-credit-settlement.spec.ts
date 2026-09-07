@@ -76,6 +76,7 @@ function makeService(prisma: any) {
     { recordSynchronousOverride: jest.fn() } as any,
     { transition: jest.fn().mockResolvedValue({}) } as any,
     { resolveEnum: jest.fn().mockResolvedValue('at_invoice') } as any,
+    { send: jest.fn().mockResolvedValue(undefined) } as any, // notifications (F-08)
   );
   return { svc, payments, posting, events, audit };
 }

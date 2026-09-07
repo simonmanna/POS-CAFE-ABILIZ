@@ -24,12 +24,14 @@ describe('PosOrdersService — fireKitchen (menu-item routing)', () => {
   const workflows = { transition: jest.fn().mockResolvedValue({ fromState: 'confirmed', toState: 'in_progress' }) };
 
   const milestones = { forEntity: jest.fn().mockResolvedValue([]) };
+  // A-016 manager approval for voiding an already-fired line.
+  const overrides = { verifyOperationApproval: jest.fn().mockResolvedValue({ id: 'mgr' }) };
 
   const build = () =>
     new PosOrdersService(
       prisma as any, tenant as any, audit as any, events as any,
       {} as any, {} as any, {} as any, {} as any, {} as any, kds as any,
-      receipts as any, workflows as any, milestones as any,
+      overrides as any, receipts as any, workflows as any, milestones as any,
     );
 
   beforeEach(() => {

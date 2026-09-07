@@ -522,6 +522,11 @@ export class StockService {
       'inventory.allowNegativeStock',
       settingCtx,
     );
+    // A-024: persist the caller's human-readable `reference` on every ledger row
+    // this issue writes (merged with any explicit notes). Previously `reference`
+    // was accepted on the DTO but silently dropped, so recipe issues could not be
+    // traced back to the bill/menu item they served.
+    const ledgerNotes = [dto.notes, dto.reference].filter(Boolean).join(' · ') || null;
 
     const run = async (tx: any) => {
       let stockItem = await tx.stockItem.findFirst({
@@ -540,6 +545,28 @@ export class StockService {
           },
         });
       }
+
+      // A-025: serialise issues on the StockItem row before writing the ledger
+      // chain. Without this, two concurrent issues both read the same
+      // stockItem.quantity snapshot and stamp the SAME qtyBefore on their
+      // ledger rows — per-row arithmetic stays exact but the chain
+      // (qtyBefore → balanceAfter → next qtyBefore) links on a stale value
+      // (live-proven in GT-15: 4 concurrent rows shared one qtyBefore). FOR
+      // UPDATE makes the second reader block until the first commits, so each
+      // ledger row starts where the previous one ended.
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM "StockItem" WHERE "organizationId" = $1 AND "productId" = $2 AND "variantKey" = $3 AND "locationId" = $4 FOR UPDATE`,
+        organizationId,
+        dto.productId,
+        variantKey,
+        dto.locationId,
+      );
+      // Re-read under the lock: the pre-lock read may be stale if another
+      // issue/transfer/adjust committed while we waited. Every ledger path
+      // below derives qtyBefore/balanceAfter from this fresh row.
+      stockItem = await tx.stockItem.findFirst({
+        where: { organizationId, productId: dto.productId, variantKey, locationId: dto.locationId },
+      });
 
       // Strict-mode oversell guard. Skipped entirely when negative stock is allowed
       // (the default), so the never-block-sales behaviour is unchanged out of the box.
@@ -657,7 +684,7 @@ export class StockService {
               totalValue: sUnit,
               referenceType: dto.sourceType ?? null,
               referenceId: dto.sourceId ?? null,
-              notes: dto.notes ?? null,
+              notes: ledgerNotes,
               performedBy: this.tenant.userId ?? null,
             },
           });
@@ -694,7 +721,7 @@ export class StockService {
               totalValue: overflowValue,
               referenceType: dto.sourceType ?? null,
               referenceId: dto.sourceId ?? null,
-              notes: dto.notes ?? null,
+              notes: ledgerNotes,
               performedBy: this.tenant.userId ?? null,
             },
           });
@@ -773,7 +800,7 @@ export class StockService {
               totalValue: consumedValue,
               referenceType: dto.sourceType ?? null,
               referenceId: dto.sourceId ?? null,
-              notes: dto.notes ?? null,
+              notes: ledgerNotes,
               performedBy: this.tenant.userId ?? null,
             },
           });
@@ -808,7 +835,7 @@ export class StockService {
               totalValue: overflowValue,
               referenceType: dto.sourceType ?? null,
               referenceId: dto.sourceId ?? null,
-              notes: dto.notes ?? null,
+              notes: ledgerNotes,
               performedBy: this.tenant.userId ?? null,
             },
           });
@@ -858,7 +885,7 @@ export class StockService {
             totalValue,
             referenceType: dto.sourceType ?? null,
             referenceId: dto.sourceId ?? null,
-            notes: dto.notes ?? null,
+            notes: ledgerNotes,
             performedBy: this.tenant.userId ?? null,
           },
         });

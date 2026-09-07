@@ -229,7 +229,12 @@ export function useTopItems(fromDate: string, toDate: string, limit = 20) {
 export function usePosSettings() {
   return useQuery({
     queryKey: ['pos-settings'],
-    queryFn: async () => (await api.get<{ posMode?: string }>('/pos/settings')).data,
+    queryFn: async () => (await api.get<{
+      posMode?: string;
+      sharedDrawer?: boolean;
+      /** F-03: the ONE discount-approval threshold. Never hardcode it again. */
+      discountApproval?: { tier1: number };
+    }>('/pos/settings')).data,
     staleTime: 60_000,
   });
 }

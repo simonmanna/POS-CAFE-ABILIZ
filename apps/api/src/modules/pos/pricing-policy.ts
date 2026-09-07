@@ -24,26 +24,83 @@ export function discountedLines(lines: any[], input: any): any[] {
   });
 }
 
-export async function assertPricingAuthority(ctx: any, lines: any[], input: any): Promise<number> {
+/** What the discount rules make of a cart, without deciding anything yet. */
+export interface PricingAuthority {
+  /** Largest effective line discount in the cart, as a percentage of gross. */
+  maxDiscountPercent: number;
+  /** The org's tier-1 approval threshold (`settings.discountApproval.tier1`). */
+  threshold: number;
+  /** True when a discount is present but no reason has been supplied for it. */
+  requiresReason: boolean;
+  /** True when this cashier cannot authorise this discount on their own. */
+  requiresApproval: boolean;
+  /** Whether the caller currently holds `pos:discount` (read live, not claimed). */
+  hasDiscountPermission: boolean;
+}
+
+/**
+ * Evaluate the discount rules WITHOUT enforcing them.
+ *
+ * Audit F-02/F-03 — the quote endpoint used to say nothing about discount
+ * policy, so a cashier could apply a discount, auto-save it, walk to the payment
+ * screen and only there discover that the sale could not complete. The frontend
+ * meanwhile carried its own hardcoded threshold, which disagreed with the org's
+ * configured one. Both now read this single function: the terminal calls it
+ * through `POST /pos/orders/quote` to decide what to prompt for, and the settle
+ * path calls it through `assertPricingAuthority` to decide what to allow.
+ */
+export async function evaluatePricingAuthority(ctx: any, lines: any[], input: any): Promise<PricingAuthority> {
   const discounted = discountedLines(lines, input);
-  const max = discounted.reduce((m, l) => {
+  const maxDiscountPercent = discounted.reduce((m, l) => {
     const gross = Number(l.quantity) * Number(l.unitPrice);
     return Math.max(m, gross > 0 ? Number(l.discountAmount) / gross * 100 : 0);
   }, 0);
-  if (max === 0) return 0;
+
+  // An undiscounted cart has no policy to evaluate, so it asks the database
+  // nothing — the settle path runs this on every sale.
+  if (maxDiscountPercent === 0) {
+    return {
+      maxDiscountPercent: 0, threshold: DEFAULT_DISCOUNT_TIER1,
+      requiresReason: false, requiresApproval: false, hasDiscountPermission: true,
+    };
+  }
+
   // A-030: never trust the (up to 12h-stale) POS-token permission claims for a
   // money decision — re-read the caller's CURRENT roles from the database, so
   // a revoked pos:discount bites on the very next request.
   const permissions = await currentPermissions(ctx, ctx.tenant.userId);
   const org = await ctx.prisma.raw.organization.findUnique({ where: { id: ctx.tenant.organizationId }, select: { settings: true } });
-  const configured = Number((org?.settings as any)?.discountApproval?.tier1 ?? 10);
-  const threshold = Number.isFinite(configured) ? Math.max(0, Math.min(100, configured)) : 10;
-  if (!input.discountReason?.trim() && (Number(input.transactionDiscountPercent || input.transactionDiscountAmount) > 0 || !lines.every((l) => !(Number(l.discountPercent) || Number(l.discountAmount)) || l.discountReason?.trim()))) throw new BadRequestException('A discount reason is required');
-  if (!permissions.includes('pos:discount') || max > threshold) {
+  const threshold = resolveDiscountThreshold((org?.settings as any)?.discountApproval?.tier1);
+
+  const hasDiscountPermission = permissions.includes('pos:discount');
+  // An order-level discount always needs its own reason; a line discount is
+  // satisfied by its own, so a cart of reasoned lines does not need one too.
+  const orderDiscount = Number(input.transactionDiscountPercent || input.transactionDiscountAmount) > 0;
+  const everyLineReasoned = lines.every((l) => !(Number(l.discountPercent) || Number(l.discountAmount)) || l.discountReason?.trim());
+  const requiresReason = !input.discountReason?.trim() && (orderDiscount || !everyLineReasoned);
+  const requiresApproval = !hasDiscountPermission || maxDiscountPercent > threshold;
+
+  return { maxDiscountPercent, threshold, requiresReason, requiresApproval, hasDiscountPermission };
+}
+
+/** Fallback when an org has not configured `discountApproval.tier1`. */
+export const DEFAULT_DISCOUNT_TIER1 = 10;
+
+/** The org's tier-1 threshold, clamped and defaulted. One reader, one rule. */
+export function resolveDiscountThreshold(configured: unknown): number {
+  const n = Number(configured ?? DEFAULT_DISCOUNT_TIER1);
+  return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : DEFAULT_DISCOUNT_TIER1;
+}
+
+export async function assertPricingAuthority(ctx: any, lines: any[], input: any): Promise<number> {
+  const verdict = await evaluatePricingAuthority(ctx, lines, input);
+  if (verdict.maxDiscountPercent === 0) return 0;
+  if (verdict.requiresReason) throw new BadRequestException('A discount reason is required');
+  if (verdict.requiresApproval) {
     if (!input.overrideById) throw new ForbiddenException('This discount requires manager approval and PIN');
     await ctx.overrides.verifyOperationApproval(input.overrideById, input.overridePin, 'discount');
   }
-  return max;
+  return verdict.maxDiscountPercent;
 }
 
 /**

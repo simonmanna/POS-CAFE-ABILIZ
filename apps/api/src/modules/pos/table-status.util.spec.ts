@@ -73,3 +73,49 @@ describe('recomputeTableStatus', () => {
     expect(TABLE_HELD_ORDER_STATUSES).not.toContain('cancelled');
   });
 });
+
+/**
+ * Audit F-06 — a settled table has to be bussed before the next party sits.
+ *
+ * The defect: the cleaning flip lived in PosTablesService.closeTableOrder, which
+ * runs AFTER the payment transaction has already recomputed the table to
+ * 'available'. Its `existing.status === 'occupied'` guard could therefore never
+ * be true, and the whole cleaning workflow was dead code. The transition is only
+ * observable inside the transaction that releases the table, so that is where
+ * settlement now asks for it.
+ */
+describe('recomputeTableStatus — dirtyOnRelease (F-06)', () => {
+  const makeTx = (tableStatus: string, activeItems: number) => ({
+    posTable: { findFirst: jest.fn().mockResolvedValue({ id: 't1', status: tableStatus }), update: jest.fn() },
+    orderItem: { count: jest.fn().mockResolvedValue(activeItems) },
+  });
+
+  it('sends an occupied table to cleaning when settlement releases it', async () => {
+    const tx = makeTx('occupied', 0);
+    await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('cleaning');
+    expect(tx.posTable.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'cleaning' } });
+  });
+
+  it('frees it straight to available for an ordinary item edit', async () => {
+    const tx = makeTx('occupied', 0);
+    await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('available');
+    expect(tx.posTable.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'available' } });
+  });
+
+  it('leaves a still-occupied table occupied even on a settle', async () => {
+    const tx = makeTx('occupied', 2);
+    await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('occupied');
+  });
+
+  it('does not dirty a table that was already free', async () => {
+    const tx = makeTx('available', 0);
+    await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('available');
+    expect(tx.posTable.update).not.toHaveBeenCalled();
+  });
+
+  it('never overrides an admin hold', async () => {
+    const tx = makeTx('out_of_service', 0);
+    await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('out_of_service');
+    expect(tx.posTable.update).not.toHaveBeenCalled();
+  });
+});

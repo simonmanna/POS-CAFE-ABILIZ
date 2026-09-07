@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { describeDb } from './_setup';
 import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
+import { DocumentsModule } from '../../src/modules/documents/documents.module';
 import { ProcurementModule } from '../../src/modules/procurement/procurement.module';
 import { PurchaseOrdersService } from '../../src/modules/procurement/purchase-orders.service';
 import { TenantContextService } from '../../src/kernel/tenancy/tenant-context.service';
@@ -29,6 +30,8 @@ describeDb('integration: purchase order → goods receipt → GL', () => {
   let productId: string;
   let acct: Record<string, string>;
 
+  let cashRegisterId: string;
+  let cashSessionId: string;
   const asOrg = <T>(fn: () => Promise<T>): Promise<T> => tenant.run({ organizationId }, fn);
 
   /** Net movement (debits − credits) on one account. */
@@ -117,8 +120,23 @@ describeDb('integration: purchase order → goods receipt → GL', () => {
       })
     ).id;
 
+    // A cash purchase pays out of a till, so PurchaseOrdersService.receive
+    // requires an OPEN register session (`Select an open cashier register for
+    // this cash purchase`). The suite never opened one, so the cash-purchase
+    // case could not run — it was previously masked by a module-compile error.
+    cashRegisterId = (
+      await prisma.cashRegister.create({
+        data: { organizationId, code: 'PROC-TILL', name: 'Procurement Till', defaultAccountId: acct.cash },
+      })
+    ).id;
+    cashSessionId = (
+      await prisma.cashSession.create({
+        data: { organizationId, cashRegisterId, userId: 'proc-test-user', status: 'open', openingFloat: 100000 },
+      })
+    ).id;
+
     moduleRef = await Test.createTestingModule({
-      imports: [KernelModule, ProcurementModule],
+      imports: [KernelModule, DocumentsModule, ProcurementModule],
     }).compile();
     await moduleRef.init();
     pos = moduleRef.get(PurchaseOrdersService);
@@ -127,6 +145,9 @@ describeDb('integration: purchase order → goods receipt → GL', () => {
 
   afterAll(async () => {
     if (organizationId) {
+      await prisma.cashMovement.deleteMany({ where: { organizationId } });
+      await prisma.cashSession.deleteMany({ where: { organizationId } });
+      await prisma.cashRegister.deleteMany({ where: { organizationId } });
       await prisma.goodsReceiptLine.deleteMany({ where: { organizationId } });
       await prisma.goodsReceiptNote.deleteMany({ where: { organizationId } });
       await prisma.purchasePayment.deleteMany({ where: { organizationId } });

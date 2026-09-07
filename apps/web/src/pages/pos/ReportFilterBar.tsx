@@ -71,6 +71,7 @@ export function scopedFilters(state: ReportFilterState, fields: readonly ReportF
     status: has('orderStatus') || has('sessionStatus') ? state.status : undefined,
     search: has('search') ? state.search : undefined,
     itemSearch: has('itemSearch') ? state.itemSearch : undefined,
+    itemKey: has('item') ? state.itemKey : undefined,
     registerId: has('register') ? state.registerId : undefined,
   };
 }
@@ -80,13 +81,15 @@ interface Props {
   onChange: (next: ReportFilterState) => void;
   fields: readonly ReportFilterField[];
   options?: ReportFilterOptions;
+  /** Item options come from the item-sales report response, not filter-options. */
+  itemOptions?: Array<{ key: string; name: string }>;
   onRefresh?: () => void;
   isFetching?: boolean;
   /** Rows currently rendered — shown so an empty table reads as data, not error. */
   resultCount?: number;
 }
 
-const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, onRefresh, isFetching, resultCount }) => {
+const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, itemOptions, onRefresh, isFetching, resultCount }) => {
   const has = (f: ReportFilterField) => fields.includes(f);
   const set = (patch: Partial<ReportFilterState>) => onChange({ ...state, ...patch });
 
@@ -216,6 +219,18 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, on
               <option value="">All registers</option>
               {(options?.registers ?? []).map((r) => (
                 <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {has('item') && (
+          <div className="min-w-[190px]">
+            <Label>Menu item</Label>
+            <select className={SELECT_CLASS} value={state.itemKey ?? ''} onChange={(e) => set({ itemKey: e.target.value || undefined })}>
+              <option value="">All items</option>
+              {(itemOptions ?? []).map((i) => (
+                <option key={i.key} value={i.key}>{i.name}</option>
               ))}
             </select>
           </div>

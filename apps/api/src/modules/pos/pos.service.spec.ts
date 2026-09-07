@@ -8,7 +8,9 @@ describe('PosService', () => {
   let svc: PosService;
 
   beforeEach(() => {
-    prisma = { client: { $transaction: jest.fn((cb: any) => cb({})), order: { create: jest.fn(), update: jest.fn() }, partner: { findFirst: jest.fn(), upsert: jest.fn() }, product: { findFirst: jest.fn(), findMany: jest.fn() } } } as any;
+    prisma = { client: { $transaction: jest.fn((cb: any) => cb({})), order: { create: jest.fn(), update: jest.fn() }, partner: { findFirst: jest.fn(), upsert: jest.fn() }, product: { findFirst: jest.fn(), findMany: jest.fn() } },
+      // getPosSettings reads the org row for the discount threshold (F-03).
+      raw: { organization: { findUnique: jest.fn().mockResolvedValue({ settings: {} }) } } } as any;
     tenant = { organizationId: orgId, userId: 'test-user' };
     svc = new PosService(
       prisma as any,

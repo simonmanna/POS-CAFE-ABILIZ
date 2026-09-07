@@ -58,8 +58,8 @@ type TabId =
  */
 const TAB_FIELDS: Record<TabId, readonly ReportFilterField[]> = {
   sales: ['waiter', 'payment', 'orderType', 'search'],
-  items: ['category', 'waiter', 'payment', 'orderType', 'search', 'itemSearch'],
-  'item-sales': ['category', 'waiter', 'payment', 'orderType', 'item', 'itemSearch'],
+  items: ['category', 'waiter', 'orderType', 'search', 'itemSearch'],
+  'item-sales': ['category', 'waiter', 'orderType', 'item', 'itemSearch'],
   'items-by-group': ['category', 'waiter', 'payment', 'orderType'],
   orders: ['waiter', 'orderType', 'orderStatus', 'search', 'includeCancelled'],
   cashier: ['cashier', 'payment', 'orderType', 'search'],
@@ -182,6 +182,7 @@ const ReportsPage: React.FC = () => {
                 onChange={setFilters}
                 fields={fields}
                 options={options as ReportFilterOptions | undefined}
+                itemOptions={(itemSales.data as ItemSalesReport | undefined)?.filters?.items}
                 onRefresh={() => current.refetch()}
                 isFetching={current?.isFetching}
                 resultCount={rowCount}
@@ -220,13 +221,7 @@ const ReportsPage: React.FC = () => {
           ) : tab === 'orders' ? (
             <OrderReportView rows={(orders.data as OrderReportRow[]) ?? []} loading={orders.isLoading} range={filters} />
           ) : tab === 'item-sales' ? (
-            <ItemSalesView
-              report={itemSales.data as ItemSalesReport | undefined}
-              loading={itemSales.isLoading}
-              range={filters}
-              itemKey={filters.itemKey}
-              setItemKey={(v) => setFilters((f) => ({ ...f, itemKey: v }))}
-            />
+            <ItemSalesView report={itemSales.data as ItemSalesReport | undefined} loading={itemSales.isLoading} range={filters} />
           ) : tab === 'items' ? (
             <ItemsReportView items={(items.data as SoldItem[]) ?? []} loading={items.isLoading} range={filters} />
           ) : (
@@ -644,14 +639,8 @@ const CashierShiftSummaryView: React.FC<{ rows: CashierShiftSummaryRow[]; loadin
 /* ============== Waiter Report ============== */
 
 const WaiterReportView: React.FC<{ rows: WaiterReportRow[]; loading: boolean; range: Range }> = ({ rows, loading, range }) => {
-  const total = sumMoney(rows, (r) => r.total);
-  const waiters = new Set(rows.map((r) => r.waiterName ?? '—')).size;
   return (
     <div className="space-y-4">
-      <div className="pos-report-grid">
-        <ReportCard title="Line revenue" value={fmt(total)} sub={`${rows.length} line${rows.length === 1 ? '' : 's'} · ${waiters} waiter${waiters === 1 ? '' : 's'}`} accent />
-        <ReportCard title="Avg line value" value={fmt(rows.length ? total / rows.length : 0)} />
-      </div>
       <ReportTable<WaiterReportRow>
         title={heading('Waiter Report', range)}
         note="One row per sold line, attributed to the waiter on the invoice. Totals include tax and any line discount."
@@ -685,37 +674,12 @@ const WaiterReportView: React.FC<{ rows: WaiterReportRow[]; loading: boolean; ra
 
 const ItemSalesView: React.FC<{
   report: ItemSalesReport | undefined; loading: boolean; range: Range;
-  itemKey: string | undefined; setItemKey: (v: string | undefined) => void;
-}> = ({ report, loading, range, itemKey, setItemKey }) => {
+}> = ({ report, loading, range }) => {
   const rows = report?.rows ?? [];
-  const itemOptions = report?.filters?.items ?? [];
   const totalAmt = sumMoney(rows, (r) => r.totalAmount);
-  const totalQty = sumMoney(rows, (r) => r.quantity);
 
   return (
     <div className="space-y-4">
-      <div className="pos-report-grid">
-        <ReportCard title="Item revenue" value={fmt(totalAmt)} sub={`${rows.length} distinct item${rows.length === 1 ? '' : 's'}`} accent />
-        <ReportCard title="Units sold" value={totalQty.toFixed(2)} />
-        <ReportCard title="Avg unit price" value={fmt(totalQty > 0 ? totalAmt / totalQty : 0)} sub="effective, after discounts" />
-      </div>
-
-      <div className="flex flex-wrap items-end gap-2 no-print">
-        <div className="min-w-[240px]">
-          <Label>Menu item</Label>
-          <select
-            className="flex h-9 w-full rounded-md border border-slate-200 bg-white px-3 py-1 text-sm shadow-sm"
-            value={itemKey ?? ''}
-            onChange={(e) => setItemKey(e.target.value || undefined)}
-          >
-            <option value="">All items</option>
-            {itemOptions.map((i) => (
-              <option key={i.key} value={i.key}>{i.name}</option>
-            ))}
-          </select>
-        </div>
-      </div>
-
       <ReportTable<ItemSalesReport['rows'][number]>
         title={heading('Item Sales', range)}
         note="One row per item across the whole range. Unit price is the effective average (total ÷ qty), so the three money columns always reconcile."
@@ -854,13 +818,8 @@ const OrderReportView: React.FC<{ rows: OrderReportRow[]; loading: boolean; rang
 /* ============== Items Report ============== */
 
 const ItemsReportView: React.FC<{ items: SoldItem[]; loading: boolean; range: Range }> = ({ items, loading, range }) => {
-  const grandTotal = sumMoney(items, (i) => i.totalAmount);
   return (
     <div className="space-y-4">
-      <div className="pos-report-grid">
-        <ReportCard title="Line revenue" value={fmt(grandTotal)} sub={`${items.length} line${items.length === 1 ? '' : 's'}`} accent />
-        <ReportCard title="Units sold" value={sumMoney(items, (i) => i.quantity).toFixed(2)} />
-      </div>
       <ReportTable<SoldItem>
         title={heading('Items Report', range)}
         note="Every sold line in the range. Total amount includes tax and the line discount."
@@ -942,7 +901,6 @@ const SalesSummaryView: React.FC<{
         <ReportCard title="Gross sales" value={fmt(t.grossSales)} sub="incl. tax" />
         <ReportCard title="Avg order value" value={fmt(t.avgOrderValue)} />
         <ReportCard title="Discounts" value={fmt(t.discounts)} />
-        <ReportCard title="Taxes" value={fmt(t.taxes)} />
         <ReportCard title="Refunds" value={fmt(t.refunds)} sub={`net sales ${fmt(t.netSales)}`} />
       </div>
 

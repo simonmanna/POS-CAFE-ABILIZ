@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { describeDb } from './_setup';
 import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
+import { DocumentsModule } from '../../src/modules/documents/documents.module';
 import { CoreModule } from '../../src/modules/core/core.module';
 import { InventoryModule } from '../../src/modules/inventory/inventory.module';
 import { ManufacturingModule } from '../../src/modules/manufacturing/manufacturing.module';
@@ -135,7 +136,7 @@ describeDb('integration: manufacturing flow', () => {
     ).id;
 
     moduleRef = await Test.createTestingModule({
-      imports: [KernelModule, CoreModule, InventoryModule, ManufacturingModule],
+      imports: [KernelModule, DocumentsModule, CoreModule, InventoryModule, ManufacturingModule],
     }).compile();
     await moduleRef.init();
     stock = moduleRef.get(StockService);

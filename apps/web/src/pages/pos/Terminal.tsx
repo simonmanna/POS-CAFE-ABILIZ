@@ -88,6 +88,7 @@ import {
   useSettleOrder,
   useSaveOrderItems,
   useCancelOrder,
+  useVoidOrderItem,
   type OrderLineBody,
 } from './api';
 import { OrdersListPanel } from './OrdersListPanel';
@@ -272,6 +273,11 @@ const TerminalPage: React.FC = () => {
   /* pos:discount gates the numpad % mode + Disc/Discount buttons, and is reused
    * as the price-override right (no dedicated pos:price_override permission). */
   const canDiscount = usePosAuthStore((s) => s.user?.permissions?.includes('pos:discount') ?? false);
+  /* F-03 — the ONE discount-approval threshold, served by GET /pos/settings.
+   * The terminal used to hardcode 10% / 50,000 here, which disagreed with the
+   * org's configured value and pushed the rejection to the payment screen. */
+  const { data: posSettings } = usePosSettings();
+  const discountTier1 = Number(posSettings?.discountApproval?.tier1 ?? 10);
   const [showReprint, setShowReprint] = useState<{ invoiceId: string; title: string } | null>(null);
 
   /* ============== Order type (Dine In / Takeaway / Delivery) ============== */
@@ -465,6 +471,7 @@ const TerminalPage: React.FC = () => {
   const settleOrderMut = useSettleOrder();
   const saveOrderItems = useSaveOrderItems();
   const cancelOrderMut = useCancelOrder();
+  const voidItemMut = useVoidOrderItem();
   const { data: ordersFeed } = useOrdersList({}, !!session);
   const ordersCount = ordersFeed?.count ?? 0;
   /* When a split is active on this table, the tab's lines are pinned server-side
@@ -482,6 +489,18 @@ const TerminalPage: React.FC = () => {
   const pendingOrderCreate = useRef(false);
   const orderSaveSig = useRef('');
 
+  /* A-016 — remember which server OrderItem each cart line is, so Void can
+   * address it. Server lines come back in the order they were sent, which is
+   * the same contract doMoveItems already relies on. Stored outside `lines` so
+   * adopting ids never disturbs React keys, the numpad selection, or the cart
+   * signature. */
+  const adoptServerLines = useCallback((serverLines: any[], cartLines?: CartLine[]) => {
+    const local = cartLines ?? useCartStore.getState().lines;
+    const map: Record<string, string> = {};
+    local.forEach((l, i) => { const id = serverLines?.[i]?.id; if (id) map[l.lineId] = String(id); });
+    useCartStore.getState().setServerLineIds(map);
+  }, []);
+
   /* Flush the current order (table OR tableless) before switching away. */
   const flushCurrentOrder = useCallback(async () => {
     if (useCartStore.getState().operationPending) throw new Error('Resolve the pending payment before changing orders');
@@ -492,10 +511,19 @@ const TerminalPage: React.FC = () => {
     const sig = orderSig(st.lines);
     if (st.tableId && sig !== tabSyncSig.current) {
       const saved: any = await saveTab.mutateAsync({ tableId: st.tableId, lines: st.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: st.tabVersion });
-      if (useCartStore.getState().tableId === st.tableId) { useCartStore.getState().setTabVersion(saved.version); tabSyncSig.current = sig; }
+      if (useCartStore.getState().tableId === st.tableId) {
+        useCartStore.getState().setTabVersion(saved.version);
+        useCartStore.getState().setOrderId(saved.id);
+        adoptServerLines(saved.lines ?? [], st.lines);
+        tabSyncSig.current = sig;
+      }
     } else if (st.orderId && sig !== orderSaveSig.current) {
       const saved: any = await saveOrderItems.mutateAsync({ orderId: st.orderId, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion });
-      if (useCartStore.getState().orderId === st.orderId) { useCartStore.getState().setTabVersion(saved.version); orderSaveSig.current = sig; }
+      if (useCartStore.getState().orderId === st.orderId) {
+        useCartStore.getState().setTabVersion(saved.version);
+        adoptServerLines(saved.items ?? saved.lines ?? [], st.lines);
+        orderSaveSig.current = sig;
+      }
     }
     if (orderSig(useCartStore.getState().lines) !== sig) throw new Error('The cart changed during save. Save the latest changes before continuing.');
   }, [saveTab, saveOrderItems, customer?.id]);
@@ -511,6 +539,9 @@ const TerminalPage: React.FC = () => {
         useCartStore.getState().load(serverLines, draftRestore(doc));
         // H2 — remember the server version so saves carry the optimistic-lock token.
         useCartStore.getState().setTabVersion(doc?.version);
+        // A-016 — the tab view carries its Order id and real line ids.
+        useCartStore.getState().setOrderId(doc?.id);
+        adoptServerLines(doc?.lines ?? [], serverLines);
         tabSyncSig.current = orderSig(serverLines);
       }
     } catch (e: any) {
@@ -532,6 +563,8 @@ const TerminalPage: React.FC = () => {
       if (orderSig(useCartStore.getState().lines) !== switchingSignature) throw new Error('The cart changed while switching tables. Save it and try again.');
       const next = (doc?.lines ?? []).map(serverLineToCart);
       previous.clear(); previous.setTable(t.id, t.number, t.name); previous.load(next, draftRestore(doc)); previous.setTabVersion(doc?.version);
+      previous.setOrderId(doc?.id);
+      adoptServerLines(doc?.lines ?? [], next);
       tabSyncSig.current = orderSig(next);
       setSelectedTableId(t.id); setTableView('ordering'); enterFullscreen();
     } catch (e: any) { toast.error(e?.response?.data?.message || e?.message || 'Could not switch tables; current cart preserved'); }
@@ -587,8 +620,13 @@ const TerminalPage: React.FC = () => {
       if (saveTab.isPending || useCartStore.getState().operationPending) return;
       const version = useCartStore.getState().tabVersion;
       try {
-        await saveTab.mutateAsync({ tableId, lines: payloadLines, partnerId: customer?.id, expectedVersion: version });
-        if (useCartStore.getState().tableId === tableId) tabSyncSig.current = currentSig;
+        const saved: any = await saveTab.mutateAsync({ tableId, lines: payloadLines, partnerId: customer?.id, expectedVersion: version });
+        if (useCartStore.getState().tableId === tableId) {
+          useCartStore.getState().setTabVersion(saved?.version);
+          useCartStore.getState().setOrderId(saved?.id);
+          adoptServerLines(saved?.lines ?? []);
+          tabSyncSig.current = currentSig;
+        }
       } catch (e: any) {
         toast.error(e?.response?.status === 409
           ? 'This order changed elsewhere. Your local changes are preserved. Resolve the difference before charging.'
@@ -623,6 +661,7 @@ const TerminalPage: React.FC = () => {
       if (!st.orderId && !st.tableId && st.lines.length > 0) {
         st.setOrderId((order as any).id);
         st.setTabVersion((order as any).version);
+        adoptServerLines((order as any)?.items ?? [], st.lines);
         orderSaveSig.current = creatingSignature;
       }
     }).catch(() => { /* offline / failed — keep local cart, settle via checkout */ })
@@ -645,8 +684,9 @@ const TerminalPage: React.FC = () => {
       }
       try {
         const saved = await saveOrderItems.mutateAsync({ orderId, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion });
-        if (useCartStore.getState().orderId === orderId && typeof (saved as any)?.version === 'number') {
-          useCartStore.getState().setTabVersion((saved as any).version);
+        if (useCartStore.getState().orderId === orderId) {
+          if (typeof (saved as any)?.version === 'number') useCartStore.getState().setTabVersion((saved as any).version);
+          adoptServerLines((saved as any)?.items ?? (saved as any)?.lines ?? [], st.lines);
         }
         orderSaveSig.current = sig;
       } catch (e: any) {
@@ -689,6 +729,7 @@ const TerminalPage: React.FC = () => {
       useCartStore.getState().load(cartLines, draftRestore(view));
       setOrderId(id);
       useCartStore.getState().setTabVersion(view.version);
+      adoptServerLines(view.lines ?? [], cartLines);
       orderSaveSig.current = orderSig(cartLines);
       setSelectedTableId(null);
       setTableView('ordering');
@@ -780,30 +821,43 @@ const TerminalPage: React.FC = () => {
     try { localStorage.setItem('pos-display-cart', JSON.stringify(snap)); } catch { /* noop */ }
   }, [lines, transactionDiscountPercent, total]);
 
-  /* Legacy auto-add on exact SKU match (kept for backwards compat; the
-     debouncer below also fires so the two paths are belt-and-suspenders). */
-  useEffect(() => {
-    const q = search.trim();
-    if (!q || locked) return;
-    const match = (products as any[]).find(
-      (p) => p.sku && p.sku.toLowerCase() === q.toLowerCase(),
-    );
-    if (match) {
-      onPickProduct(match);
-      setSearch('');
-    }
-  }, [search, products, onPickProduct, locked]);
-
-  /* P6: HID scanner debouncing — the topbar search calls onScan only when
-     the input looks like a scan (rapid keystrokes). Slow typing still works. */
-  const onScan = useCallback((code: string) => {
-    // Menu-based POS: resolve a scanned code against the loaded MenuItems (by
-    // their code/sku), not the raw products catalogue.
-    const match = (products as any[]).find(
+  /* F-07 — ONE scan pipeline, mirroring RetailTerminal.
+   *
+   * There used to be two: an undebounced effect that matched on every keystroke,
+   * plus this debounced one, both racing the same input. Neither asked the
+   * server, so anything outside the loaded menu page could not be scanned at
+   * all — and an unrecognised code did nothing whatsoever, which reads to a
+   * cashier as a broken scanner. The loaded menu is now only a fast path;
+   * `/pos/lookup` is the authority, and a miss says so out loud.
+   *
+   * `scanSeq` drops a stale lookup if a newer scan started while it was in
+   * flight. */
+  const scanSeq = useRef(0);
+  const onScan = useCallback(async (code: string) => {
+    if (locked) return;
+    const seq = ++scanSeq.current;
+    const local = (products as any[]).find(
       (p) => p.sku && p.sku.toLowerCase() === code.toLowerCase(),
     );
-    if (match) { onPickProduct(match); setSearch(''); }
-  }, [products, onPickProduct]);
+    if (local) { onPickProduct(local); setSearch(''); return; }
+    try {
+      const res: any = await api.get('/pos/lookup', { params: { sku: code } });
+      if (seq !== scanSeq.current) return; // superseded by a newer scan
+      const rows = Array.isArray(res.data) ? res.data : [res.data];
+      const hit = rows.find((r: any) => r && r.id);
+      if (!hit) { toast.error(`No item matches "${code.slice(0, 24)}"`); setSearch(''); return; }
+      onPickProduct({
+        id: hit.id,
+        name: hit.name,
+        sku: hit.sku ?? null,
+        salesPrice: Number(hit.salesPrice ?? 0),
+        taxInclusive: hit.taxInclusive,
+      });
+      setSearch('');
+    } catch {
+      if (seq === scanSeq.current) toast.error('Could not look that code up — check the connection and try again');
+    }
+  }, [products, onPickProduct, locked]);
   useScannerDebounce(search, onScan);
 
   const onInc = (line: CartLine) => setQuantity(line.lineId, line.quantity + 1);
@@ -850,7 +904,13 @@ const TerminalPage: React.FC = () => {
     onApplyOrderDiscountEx(percent, 'percentage');
   };
   const onApplyOrderDiscountEx = (amount: number, type: DiscountType) => {
-    const needsOverride = type === 'percentage' ? amount >= 10 : amount >= 50000;
+    // F-03 — a fixed amount is judged the way the server judges it: as a
+    // percentage of what the cart is actually worth, against the org's own
+    // threshold. The old rule compared UGX 50,000 to a currency-blind constant.
+    const sub = selectSubtotal(useCartStore.getState());
+    const asPercent = type === 'fixed_amount' ? (sub > 0 ? (amount / sub) * 100 : 0) : amount;
+    const needsOverride = amount > 0 && (!canDiscount || asPercent > discountTier1);
+    const label = type === 'fixed_amount' ? `${fmt(amount)} discount` : `${amount}% discount`;
     if (needsOverride) {
       requestOverride('discount').then((result) => {
         if (!result) {
@@ -860,12 +920,12 @@ const TerminalPage: React.FC = () => {
         setTransactionDiscount(amount, type);
         useCartStore.setState({ overrideById: result.managerId, overridePin: result.pin });
         if (amount > 0) setShowDiscountReason(true);
-        toast.success(type === 'fixed_amount' ? `${fmt(amount)} discount applied with override` : `${amount}% discount applied with override`);
+        toast.success(`${label} applied with override`);
       });
     } else {
       setTransactionDiscount(amount, type);
       if (amount > 0) setShowDiscountReason(true);
-      toast.success(type === 'fixed_amount' ? `${fmt(amount)} discount applied` : `${amount}% discount applied`);
+      toast.success(`${label} applied`);
     }
   };
 
@@ -907,9 +967,11 @@ const TerminalPage: React.FC = () => {
     setTransferBusy(true);
     try {
       const currentLines = useCartStore.getState().lines;
-      const saved = await saveTab.mutateAsync({ tableId, lines: currentLines.map(cartLineToPayload), partnerId: customer?.id });
+      const saved = await saveTab.mutateAsync({ tableId, lines: currentLines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: useCartStore.getState().tabVersion });
       tabSyncSig.current = orderSig(currentLines);
       const serverLines: any[] = (saved as any)?.lines ?? [];
+      useCartStore.getState().setTabVersion((saved as any)?.version);
+      adoptServerLines(serverLines, currentLines);
       const items = selection
         .map((s) => {
           const idx = currentLines.findIndex((l) => l.lineId === s.lineId);
@@ -945,6 +1007,64 @@ const TerminalPage: React.FC = () => {
     if (lines.length === 0) { toast.error('Cart is empty'); return; }
     await onSettle({ tenders: [], transactionDiscountPercent: 0, settleMode: 'credit' });
   };
+
+  /* A promise-shaped discount-reason prompt, mirroring requestOverride, so the
+   * settle path can ask for the one thing the server is missing and retry —
+   * instead of dead-ending at the payment screen (F-02). */
+  const [reasonResolver, setReasonResolver] = useState<((r: string | null) => void) | null>(null);
+  const requestDiscountReason = useCallback((): Promise<string | null> => {
+    return new Promise<string | null>((resolve) => {
+      setReasonResolver(() => resolve);
+      setShowDiscountReason(true);
+    });
+  }, []);
+  const settleDiscountReason = useCallback((reason: string | null) => {
+    if (reasonResolver) reasonResolver(reason);
+    setReasonResolver(null);
+    setShowDiscountReason(false);
+  }, [reasonResolver]);
+
+  /* F-05 — a settle that never reached the server is QUEUED, not failed.
+   * "Settle failed" for a dropped connection is the one message a cashier must
+   * never be given: the write-ahead queue is about to post the sale, so they
+   * either release the customer unpaid or take the money a second time. */
+  const notifySettleFailure = useCallback((e: any) => {
+    if (!e?.response) {
+      toast.warning('Saved — this sale posts as soon as the connection returns. Do not ring it again.');
+      return;
+    }
+    const status = Number(e.response.status);
+    if (status >= 500 || status === 408) {
+      toast.warning('Payment not confirmed. Recover the original attempt before starting another sale.');
+      return;
+    }
+    // A genuine 4xx: nothing committed and the cart is intact, so the message
+    // the server sent is the whole story — the caller surfaces it.
+  }, []);
+
+  /* F-02/F-03 — the server rejects a discount for exactly two fixable reasons:
+   * it wants a reason, or it wants a manager. Offer the fix and retry rather
+   * than leaving the cashier stuck at Charge. Returns true when it retried. */
+  const recoverFromPricingRejection = useCallback(async (
+    msg: string,
+    input: any,
+    retry: (i: any) => Promise<void>,
+  ): Promise<boolean> => {
+    if (/discount reason is required/i.test(msg)) {
+      const reason = await requestDiscountReason();
+      if (!reason) { toast.error('A discount reason is required to complete this sale'); return false; }
+      useCartStore.setState({ transactionDiscountReason: reason });
+      await retry(input);
+      return true;
+    }
+    if (/manager (override|approval)/i.test(msg) && !input.overrideById) {
+      const result = await requestOverride('discount');
+      if (!result) return false;
+      await retry({ ...input, overrideById: result.managerId, overridePin: result.pin });
+      return true;
+    }
+    return false;
+  }, [requestDiscountReason, requestOverride]);
 
   const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; amountTendered?: number; overrideById?: string; overridePin?: string; settleMode?: SettleMode }) => {
     if (!saleQuote.data || saleQuote.isError || saleQuote.isFetching) throw new Error('A current server price quote is required before payment');
@@ -1012,8 +1132,10 @@ const TerminalPage: React.FC = () => {
         });
         finishSettle();
       } catch (e: any) {
-        toast.warning('Payment not confirmed. The original attempt and cart are preserved for recovery.');
-        toast.error(e?.response?.data?.message || 'Settle failed');
+        const msg = e?.response?.data?.message || e?.message || 'Settle failed';
+        if (await recoverFromPricingRejection(msg, input, onSettle)) return;
+        notifySettleFailure(e);
+        if (e?.response && Number(e.response.status) < 500) toast.error(msg);
         throw e;
       }
       return;
@@ -1060,11 +1182,9 @@ const TerminalPage: React.FC = () => {
         refetchSession();
       } catch (e: any) {
         const msg = e?.response?.data?.message || e?.message || 'Settle failed';
-        if (/manager override/i.test(msg) && !input.overrideById) {
-          const result = await requestOverride('discount');
-          if (result) { await onSettle({ ...input, overrideById: result.managerId, overridePin: result.pin }); return; }
-        }
-        toast.error(msg);
+        if (await recoverFromPricingRejection(msg, input, onSettle)) return;
+        notifySettleFailure(e);
+        if (e?.response && Number(e.response.status) < 500) toast.error(msg);
         throw e;
       }
       return;
@@ -1137,17 +1257,10 @@ const TerminalPage: React.FC = () => {
       setShowPayment(false);
       refetchSession();
     } catch (e: any) {
-          const msg = e?.response?.data?.message || e?.message || 'Checkout failed';
-          toast.warning('Payment not confirmed. The original attempt and cart are preserved.');
-      // If the backend says manager override is required, prompt and retry.
-      if (/manager override/i.test(msg) && !input.overrideById) {
-        const result = await requestOverride('discount');
-        if (result) {
-          await onSettle({ ...input, overrideById: result.managerId, overridePin: result.pin });
-          return;
-        }
-      }
-      toast.error(msg);
+      const msg = e?.response?.data?.message || e?.message || 'Checkout failed';
+      if (await recoverFromPricingRejection(msg, input, onSettle)) return;
+      notifySettleFailure(e);
+      if (e?.response && Number(e.response.status) < 500) toast.error(msg);
       throw e;
     }
   };
@@ -1616,10 +1729,10 @@ const TerminalPage: React.FC = () => {
       ) : null}
       <DiscountReasonDialog
         open={showDiscountReason}
-        onClose={() => setShowDiscountReason(false)}
+        onClose={() => settleDiscountReason(null)}
         onSelect={(reason) => {
           useCartStore.setState({ transactionDiscountReason: reason });
-          setShowDiscountReason(false);
+          settleDiscountReason(reason);
         }}
       />
       <PaymentDialog
@@ -1654,13 +1767,53 @@ const TerminalPage: React.FC = () => {
       <VoidItemDialog
         open={!!voidLine}
         line={voidLine}
+        sentToKitchen={Number(voidLine?.kitchenPrintedQty ?? 0) > 0}
         onClose={() => setVoidLine(null)}
-        onConfirm={(lineId) => {
-          // A-016: the line is removed from the active cart. The reason is
-          // PIN-verified in the dialog; server-side per-line void reasons land
-          // with the A-016 batch (order-item voidReason column).
-          removeLine(lineId);
-          toast.success('Item voided');
+        onConfirm={async (lineId, reason) => {
+          // A-016 — a line the server knows about is voided THROUGH the server,
+          // so the order keeps a permanent record of what was ordered, who took
+          // it off and why, and the kitchen board loses the ticket. A line that
+          // has never been saved has no such history to keep: it is dropped
+          // locally, exactly as it was typed.
+          const st = useCartStore.getState();
+          const serverItemId = st.serverLineIds[lineId];
+          const targetOrderId = st.orderId;
+          if (!serverItemId || !targetOrderId) {
+            removeLine(lineId);
+            toast.success('Item removed');
+            return;
+          }
+          const send = async (override?: { managerId: string; pin: string }) =>
+            voidItemMut.mutateAsync({
+              orderId: targetOrderId, itemId: serverItemId, reason,
+              overrideById: override?.managerId, overridePin: override?.pin,
+            });
+          try {
+            let view: any;
+            try {
+              view = await send();
+            } catch (e: any) {
+              // The server refuses an unapproved void of food the kitchen has
+              // already been told to cook. Collect the manager PIN and retry.
+              const msg = e?.response?.data?.message || '';
+              if (e?.response?.status !== 403 || !/manager approval/i.test(msg)) throw e;
+              const approval = await requestOverride('void');
+              if (!approval) { toast.error('Manager approval cancelled — the item is still on the order'); return; }
+              view = await send(approval);
+            }
+            // Re-read from the void response so the cart matches the order the
+            // server now holds (quantities, totals and remaining line ids).
+            const serverLines = (view?.items ?? view?.lines ?? []).map(serverLineToCart);
+            useCartStore.getState().load(serverLines, draftRestore(view));
+            useCartStore.getState().setTabVersion(view?.version);
+            useCartStore.getState().setOrderId(targetOrderId);
+            adoptServerLines(view?.items ?? view?.lines ?? [], serverLines);
+            if (tableId) tabSyncSig.current = orderSig(serverLines);
+            else orderSaveSig.current = orderSig(serverLines);
+            toast.success('Item voided');
+          } catch (e: any) {
+            toast.error(e?.response?.data?.message || e?.message || 'Could not void the item');
+          }
         }}
       />
 

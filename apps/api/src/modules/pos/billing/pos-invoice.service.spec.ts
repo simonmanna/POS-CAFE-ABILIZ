@@ -71,6 +71,7 @@ describe('PosInvoiceService', () => {
       mockWorkflows as any,
       // settings resolver — default posting policy is at_invoice.
       { resolveEnum: jest.fn().mockResolvedValue('at_invoice') } as any,
+      { send: jest.fn().mockResolvedValue(undefined) } as any, // notifications (F-08)
     );
   });
 

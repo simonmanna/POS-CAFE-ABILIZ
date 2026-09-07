@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseInterceptors } from '@nestjs/common';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsArray, IsIn, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
@@ -9,7 +9,7 @@ import { PosOrdersService } from './pos-orders.service';
 import { PosInvoiceService } from '../billing/pos-invoice.service';
 import {
   AddOrderItemsDto, CancelOrderDto, CreateOrderDto, GenerateInvoiceDto, MergeOrderDto, QuoteOrderDto,
-  MoveTableDto, ReceivePaymentDto, SaveOrderItemsDto, SettleCreditDto, WriteOffDto,
+  MoveTableDto, ReceivePaymentDto, SaveOrderItemsDto, SettleCreditDto, VoidOrderItemDto, WriteOffDto,
 } from './dto/order.dto';
 
 class RefundLineDto {
@@ -113,6 +113,17 @@ export class PosOrdersController {
     return this.orders.addItems(id, dto);
   }
 
+  /**
+   * A-016 — void a single line. The ONLY way an already-fired item may leave an
+   * order: `saveItems` rejects that removal, so this audited, manager-approved
+   * path cannot be sidestepped by a plain auto-save.
+   */
+  @Delete(':id/items/:itemId')
+  @RequirePermissions('pos:void')
+  voidItem(@Param('id') id: string, @Param('itemId') itemId: string, @Body() dto: VoidOrderItemDto) {
+    return this.orders.voidItem(id, itemId, dto);
+  }
+
   @Post(':id/fire-kitchen')
   @RequirePermissions('pos:checkout')
   fireKitchen(@Param('id') id: string, @Body() body: FireKitchenDto) {
@@ -147,7 +158,7 @@ export class PosOrdersController {
   @Post(':id/invoice')
   @RequirePermissions('pos:checkout')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   generateInvoice(@Param('id') id: string, @Body() dto: GenerateInvoiceDto) {
     return this.billing.generateInvoice(id, dto);
   }
@@ -163,7 +174,7 @@ export class PosBillingController {
   @Post(':id/payments')
   @RequirePermissions('pos:checkout')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   receivePayment(@Param('id') id: string, @Body() dto: ReceivePaymentDto) {
     return this.billing.receivePayment(id, dto);
   }
@@ -172,7 +183,7 @@ export class PosBillingController {
   @Post(':id/credit')
   @RequirePermissions('pos:checkout')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   settleCredit(@Param('id') id: string, @Body() dto: SettleCreditDto) {
     return this.billing.settleCredit(id, dto);
   }
@@ -185,7 +196,7 @@ export class PosBillingController {
   @Post(':id/refund')
   @RequirePermissions('pos:refund')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   refund(@Param('id') id: string, @Body() dto: RefundInvoiceDto) {
     return this.billing.refund(id, dto.reason, {
       overrideById: dto.overrideById,
@@ -201,7 +212,7 @@ export class PosBillingController {
   @Post(':id/write-off')
   @RequirePermissions('pos:write_off')
   @UseInterceptors(IdempotencyInterceptor)
-  @Idempotent()
+  @Idempotent({ required: true })
   writeOff(@Param('id') id: string, @Body() dto: WriteOffDto) {
     return this.billing.writeOff(id, dto);
   }

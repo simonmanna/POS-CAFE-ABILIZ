@@ -25,6 +25,7 @@ import { PosOverridesService } from '../pos-overrides.service';
 import { recomputeTableStatus } from '../table-status.util';
 import { WorkflowService } from '../../../kernel/workflow/workflow.service';
 import { SettingResolverService } from '../../../kernel/settings/setting-resolver.service';
+import { NotificationsService } from '../../../kernel/notifications/notifications.service';
 import type { StockPostingTiming } from '../inventory-posting.types';
 import { resolveCreditStatus } from './credit-status';
 import type { GenerateInvoiceDto, ReceivePaymentDto, SettleCreditDto, WriteOffDto, TenderDto } from '../order/dto/order.dto';
@@ -90,6 +91,7 @@ export class PosInvoiceService {
     private readonly approvals: ApprovalsService,
     private readonly workflows: WorkflowService,
     private readonly settings: SettingResolverService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Reject known tender/configuration problems before creating financial work.
@@ -908,6 +910,11 @@ export class PosInvoiceService {
         { timeout: 30_000 },
       );
       if (outcome === null) return; // a concurrent worker already completed this job
+      // The sale is final either way, but an un-deducted line is real stock
+      // drift — surface it while the shift can still act on it (F-08).
+      if (outcome.failures > 0) {
+        await this.alertStockPostingFailure(ctx, `${outcome.failures} line(s) could not be deducted`, outcome.failures);
+      }
       // The hold has served its purpose — the quantities are now decremented for
       // real, so leaving the reservation active would double-count against ATP.
       // Best-effort and idempotent, so kept OUT of the money transaction above: a
@@ -939,6 +946,10 @@ export class PosInvoiceService {
           kind: 'whole_invoice', productId: null, menuItemId: null, description: 'whole-invoice stock deduction',
           quantity: 0, locationId: null, reason: msg, stackTrace: e?.stack ?? null, payload: null,
         });
+        // Audit F-08 — an exhausted job used to produce a log line and a row on
+        // a page nobody has open. On-hand then drifts from reality for the rest
+        // of the shift with nothing to say so. Put it in front of a human.
+        await this.alertStockPostingFailure(ctx, msg);
       } else {
         // Exponential-ish backoff, capped at 15 min.
         const backoffMs = Math.min(60_000 * attempts, 15 * 60_000);
@@ -1007,6 +1018,36 @@ export class PosInvoiceService {
       }
     }
     return failures;
+  }
+
+  /**
+   * F-08 — tell somebody that stock posting is behind reality.
+   *
+   * Rate-limited to one notification per organization per hour so a systemic
+   * fault (a missing warehouse, say) raises one alert rather than one per sale.
+   * Never throws: an alerting hiccup must not fail an already-final sale.
+   */
+  private async alertStockPostingFailure(ctx: StockPostingCtx, reason: string, lines = 0): Promise<void> {
+    const orgId = this.tenant.organizationId;
+    try {
+      const hourAgo = new Date(Date.now() - 60 * 60_000);
+      const recent = await this.prisma.raw.notification.findFirst({
+        where: { organizationId: orgId, category: 'inventory', createdAt: { gte: hourAgo }, title: { startsWith: 'Stock posting' } },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (recent) return;
+      const open = await this.prisma.client.inventoryException.count({ where: { organizationId: orgId, status: 'open' } });
+      await this.notifications.send({
+        organizationId: orgId,
+        channel: 'in_app',
+        category: 'inventory',
+        title: 'Stock posting needs review',
+        body: `${reason}${ctx.invoiceNumber ? ` on ${ctx.invoiceNumber}` : ''}. On-hand is behind actual sales until this is resolved — ${open} open exception(s) in the Posting Monitor.`,
+        payload: { kind: 'stock_posting_failed', invoiceId: ctx.invoiceId, invoiceNumber: ctx.invoiceNumber, orderId: ctx.orderId, lines, openExceptions: open },
+      });
+    } catch (err) {
+      this.logger.error(`[stock] failed to raise a posting-failure alert: ${String(err)}`);
+    }
   }
 
   /**
@@ -1113,7 +1154,19 @@ export class PosInvoiceService {
       const qty = Number(ing.quantity) * effectiveLineQty;
       if (!(qty > 0)) continue;
       try {
-        await this.stock.issue({ productId: ing.productId, locationId: warehouseId, quantity: qty, uomId: ing.uomId ?? undefined, reference: ref } as any, tx);
+        // A-024: stamp the recipe issue with the owning menu item + invoice so
+        // the ledger row is traceable (referenceType/referenceId), and keep the
+        // human-readable `reference` for the notes/reference column.
+        await this.stock.issue({
+          productId: ing.productId,
+          locationId: warehouseId,
+          quantity: qty,
+          uomId: ing.uomId ?? undefined,
+          reference: ref,
+          sourceType: 'menu_recipe',
+          sourceId: ctx.invoiceId,
+          notes: `${menuItem.name ?? 'menu item'} → ${ref}`,
+        } as any, tx);
       } catch (e: any) {
         failures++;
         this.logger.error(`[stock] recipe issue failed (menuItem ${menuItemId}, product ${ing.productId}) on ${reference} (sale kept): ${e?.message ?? e}`);
@@ -1194,15 +1247,18 @@ export class PosInvoiceService {
         data: { closedAt: new Date() },
       });
     }
-    await this.freeTableIfEmpty(db, order.tableId);
+    // Settlement is the one release that leaves a table needing a wipe-down.
+    await this.freeTableIfEmpty(db, order.tableId, { dirtyOnRelease: true });
     return { orderId: order.id, tableId: order.tableId };
   }
 
-  private async freeTableIfEmpty(db: any, tableId?: string | null): Promise<void> {
+  private async freeTableIfEmpty(
+    db: any, tableId?: string | null, opts: { dirtyOnRelease?: boolean } = {},
+  ): Promise<void> {
     // Derived from the active-item count: a table with a billed-but-unpaid
     // order (status 'completed', items intact) stays occupied; it frees only
     // once the settled order goes 'closed' and no active items remain.
-    await recomputeTableStatus(db, tableId);
+    await recomputeTableStatus(db, tableId, opts);
   }
 
   private async storeCreditAccountId(): Promise<string> {

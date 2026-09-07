@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   CallHandler,
   ExecutionContext,
   Injectable,
@@ -9,7 +10,7 @@ import { Reflector } from '@nestjs/core';
 import { Observable, from, switchMap } from 'rxjs';
 import type { Request } from 'express';
 import { IdempotencyService } from './idempotency.service';
-import { IDEMPOTENT_KEY } from './idempotent.decorator';
+import { IDEMPOTENT_KEY, IDEMPOTENT_REQUIRED_KEY } from './idempotent.decorator';
 
 /**
  * Interceptor that protects a route with Idempotency-Key handling (D1-2).
@@ -32,6 +33,23 @@ export class IdempotencyInterceptor implements NestInterceptor {
     if (!isIdempotent) return next.handle();
 
     const req = context.switchToHttp().getRequest<Request & { rawBody?: Buffer }>();
+
+    // F-04 — on a route that moves money, a missing key is a client bug, not a
+    // licence to run the handler unprotected. Refuse it loudly so the mistake
+    // surfaces in development rather than as a duplicate sale on a busy shift.
+    const requiresKey = this.reflector.getAllAndOverride<boolean>(IDEMPOTENT_REQUIRED_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (requiresKey) {
+      const raw = req.headers['idempotency-key'];
+      const key = Array.isArray(raw) ? raw[0] : raw;
+      if (!key || !String(key).trim()) {
+        throw new BadRequestException(
+          'An Idempotency-Key header is required for this operation so a retry can never charge twice.',
+        );
+      }
+    }
     const rawBody = req.rawBody ? req.rawBody.toString('utf8') : JSON.stringify(req.body ?? {});
 
     return from(

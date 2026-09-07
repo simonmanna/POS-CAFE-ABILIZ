@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { describeDb } from './_setup';
 import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
+import { DocumentsModule } from '../../src/modules/documents/documents.module';
 import { CoreModule } from '../../src/modules/core/core.module';
 import { InventoryModule } from '../../src/modules/inventory/inventory.module';
 import { StockService } from '../../src/modules/inventory/stock.service';
@@ -126,7 +127,7 @@ describeDb('integration: inventory engine', () => {
     // CoreModule must be present: InventoryModule declares 'core' as a
     // dependency and ModuleRegistry validates that at bootstrap.
     moduleRef = await Test.createTestingModule({
-      imports: [KernelModule, CoreModule, InventoryModule],
+      imports: [KernelModule, DocumentsModule, CoreModule, InventoryModule],
     }).compile();
     await moduleRef.init();
     stock = moduleRef.get(StockService);
