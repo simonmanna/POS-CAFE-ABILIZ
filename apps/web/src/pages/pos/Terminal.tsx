@@ -867,14 +867,79 @@ const TerminalPage: React.FC = () => {
 
   const onInc = (line: CartLine) => setQuantity(line.lineId, line.quantity + 1);
   const onDec = (line: CartLine) => setQuantity(line.lineId, line.quantity - 1);
+  /* ============== Manager override helper ============== */
+  const requestOverride = useCallback((kind: 'discount' | 'void' | 'manual_refund'): Promise<{managerId: string; pin: string} | null> => {
+    return new Promise<{managerId: string; pin: string} | null>((resolve) => {
+      setOverrideKind(kind);
+      setOverrideResolver(() => resolve);
+    });
+  }, []);
+
+  const onOverrideVerified = (result: {managerId: string; pin: string} | null) => {
+    if (overrideResolver) overrideResolver(result);
+    setOverrideKind(null);
+    setOverrideResolver(null);
+  };
+
+  /* ============== Taking a line off the order ==============
+   * Delete and Void are the same act with different words on the button, so
+   * they run the same way: a reason and the operator's own PIN are collected
+   * up front, then the line is voided THROUGH the server whenever the server
+   * already knows about it, so the order keeps a permanent record of what was
+   * ordered, who took it off and why, and the kitchen board loses the ticket.
+   * A line that has never been saved has no such history to keep: it is
+   * dropped locally, exactly as it was typed. */
+  const voidLineOnServer = useCallback(async (lineId: string, reason: string) => {
+    const st = useCartStore.getState();
+    const serverItemId = st.serverLineIds[lineId];
+    const targetOrderId = st.orderId;
+    if (!serverItemId || !targetOrderId) {
+      removeLine(lineId);
+      toast.success('Item removed');
+      return;
+    }
+    const send = async (override?: { managerId: string; pin: string }) =>
+      voidItemMut.mutateAsync({
+        orderId: targetOrderId, itemId: serverItemId, reason,
+        overrideById: override?.managerId, overridePin: override?.pin,
+      });
+    try {
+      let view: any;
+      try {
+        view = await send();
+      } catch (e: any) {
+        // The server refuses an unapproved void of food the kitchen has
+        // already been told to cook. Collect the manager PIN and retry.
+        const msg = e?.response?.data?.message || '';
+        if (e?.response?.status !== 403 || !/manager approval/i.test(msg)) throw e;
+        const approval = await requestOverride('void');
+        if (!approval) { toast.error('Manager approval cancelled — the item is still on the order'); return; }
+        view = await send(approval);
+      }
+      // Re-read from the void response so the cart matches the order the
+      // server now holds (quantities, totals and remaining line ids).
+      const serverLines = (view?.items ?? view?.lines ?? []).map(serverLineToCart);
+      useCartStore.getState().load(serverLines, draftRestore(view));
+      useCartStore.getState().setTabVersion(view?.version);
+      useCartStore.getState().setOrderId(targetOrderId);
+      adoptServerLines(view?.items ?? view?.lines ?? [], serverLines);
+      if (tableId) tabSyncSig.current = orderSig(serverLines);
+      else orderSaveSig.current = orderSig(serverLines);
+      toast.success('Item voided');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || 'Could not void the item');
+    }
+  }, [removeLine, voidItemMut, requestOverride, adoptServerLines, tableId]);
+
   const onRemove = (line: CartLine) => {
     setPendingRemoveLine(line);
     setShowPinConfirm(true);
   };
-  const onPinVerified = () => {
-    if (pendingRemoveLine) removeLine(pendingRemoveLine.lineId);
+  const onPinVerified = async (reason: string) => {
+    const line = pendingRemoveLine;
     setShowPinConfirm(false);
     setPendingRemoveLine(null);
+    if (line) await voidLineOnServer(line.lineId, reason);
   };
   const onLineDiscount = (line: CartLine) => setLineForDiscount(line);
   const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType, reason?: string) => {
@@ -888,20 +953,6 @@ const TerminalPage: React.FC = () => {
   const onLineNote = (line: CartLine) => {
     const next = window.prompt(`Note for "${line.name}"`, line.note ?? '');
     if (next !== null) setNote(line.lineId, next);
-  };
-
-  /* ============== Manager override helper ============== */
-  const requestOverride = useCallback((kind: 'discount' | 'void' | 'manual_refund'): Promise<{managerId: string; pin: string} | null> => {
-    return new Promise<{managerId: string; pin: string} | null>((resolve) => {
-      setOverrideKind(kind);
-      setOverrideResolver(() => resolve);
-    });
-  }, []);
-
-  const onOverrideVerified = (result: {managerId: string; pin: string} | null) => {
-    if (overrideResolver) overrideResolver(result);
-    setOverrideKind(null);
-    setOverrideResolver(null);
   };
 
   /* ============== Order-level discount ============== */
@@ -1771,8 +1822,11 @@ const TerminalPage: React.FC = () => {
       />
       <PinConfirmDialog
         open={showPinConfirm}
-        title="Confirm to delete item"
-        description="Enter your PIN to remove this item from the order."
+        title="Delete item"
+        description={pendingRemoveLine
+          ? `Give a reason and your PIN to take "${pendingRemoveLine.name}" off this order.`
+          : 'Give a reason and your PIN to take this item off the order.'}
+        reasonLabel="Reason for deleting"
         onClose={() => { setShowPinConfirm(false); setPendingRemoveLine(null); }}
         onVerified={onPinVerified}
       />
@@ -1783,52 +1837,7 @@ const TerminalPage: React.FC = () => {
         line={voidLine}
         sentToKitchen={Number(voidLine?.kitchenPrintedQty ?? 0) > 0}
         onClose={() => setVoidLine(null)}
-        onConfirm={async (lineId, reason) => {
-          // A-016 — a line the server knows about is voided THROUGH the server,
-          // so the order keeps a permanent record of what was ordered, who took
-          // it off and why, and the kitchen board loses the ticket. A line that
-          // has never been saved has no such history to keep: it is dropped
-          // locally, exactly as it was typed.
-          const st = useCartStore.getState();
-          const serverItemId = st.serverLineIds[lineId];
-          const targetOrderId = st.orderId;
-          if (!serverItemId || !targetOrderId) {
-            removeLine(lineId);
-            toast.success('Item removed');
-            return;
-          }
-          const send = async (override?: { managerId: string; pin: string }) =>
-            voidItemMut.mutateAsync({
-              orderId: targetOrderId, itemId: serverItemId, reason,
-              overrideById: override?.managerId, overridePin: override?.pin,
-            });
-          try {
-            let view: any;
-            try {
-              view = await send();
-            } catch (e: any) {
-              // The server refuses an unapproved void of food the kitchen has
-              // already been told to cook. Collect the manager PIN and retry.
-              const msg = e?.response?.data?.message || '';
-              if (e?.response?.status !== 403 || !/manager approval/i.test(msg)) throw e;
-              const approval = await requestOverride('void');
-              if (!approval) { toast.error('Manager approval cancelled — the item is still on the order'); return; }
-              view = await send(approval);
-            }
-            // Re-read from the void response so the cart matches the order the
-            // server now holds (quantities, totals and remaining line ids).
-            const serverLines = (view?.items ?? view?.lines ?? []).map(serverLineToCart);
-            useCartStore.getState().load(serverLines, draftRestore(view));
-            useCartStore.getState().setTabVersion(view?.version);
-            useCartStore.getState().setOrderId(targetOrderId);
-            adoptServerLines(view?.items ?? view?.lines ?? [], serverLines);
-            if (tableId) tabSyncSig.current = orderSig(serverLines);
-            else orderSaveSig.current = orderSig(serverLines);
-            toast.success('Item voided');
-          } catch (e: any) {
-            toast.error(e?.response?.data?.message || e?.message || 'Could not void the item');
-          }
-        }}
+        onConfirm={(lineId, reason) => voidLineOnServer(lineId, reason)}
       />
 
       {/* Move Items — 2-step wizard */}

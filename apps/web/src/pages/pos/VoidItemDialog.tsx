@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertTriangle, ChefHat } from 'lucide-react';
+import { AlertTriangle, ChefHat, KeyRound } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -9,7 +9,10 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { CartLine } from '@/features/pos/types';
+import { useVerifyPin } from './api';
 
 interface Props {
   open: boolean;
@@ -30,16 +33,20 @@ interface Props {
  * `DELETE /pos/orders/:id/items/:itemId`, which records who, why and how much,
  * pulls the line off the kitchen board, and refuses outright unless a manager
  * approves a line the kitchen has already been told to cook. This dialog
- * therefore collects the one thing the server cannot infer — the reason — and
- * the manager PIN is prompted afterwards, only when it is genuinely required.
+ * therefore collects the one thing the server cannot infer — the reason — plus
+ * the PIN of the person doing it, which is verified before anything leaves the
+ * dialog. A manager PIN is prompted afterwards on top of this, only when the
+ * server genuinely requires one (a line the kitchen has already been sent).
  */
 export const VoidItemDialog: React.FC<Props> = ({ open, line, sentToKitchen, onClose, onConfirm }) => {
   const [reason, setReason] = useState('');
+  const [pin, setPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const verify = useVerifyPin();
 
   React.useEffect(() => {
-    if (!open) { setReason(''); setErr(null); setBusy(false); }
+    if (!open) { setReason(''); setPin(''); setErr(null); setBusy(false); }
   }, [open]);
 
   if (!line) return null;
@@ -47,8 +54,10 @@ export const VoidItemDialog: React.FC<Props> = ({ open, line, sentToKitchen, onC
   const submit = async () => {
     setErr(null);
     if (!reason.trim()) { setErr('A reason is required'); return; }
+    if (!pin) { setErr('PIN is required'); return; }
     try {
       setBusy(true);
+      await verify.mutateAsync(pin);
       await onConfirm(line.lineId, reason.trim());
       onClose();
     } catch (e: any) {
@@ -86,6 +95,20 @@ export const VoidItemDialog: React.FC<Props> = ({ open, line, sentToKitchen, onC
             className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm resize-none h-20"
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
           />
+          <div className="space-y-1">
+            <Label className="flex items-center gap-1">
+              <KeyRound className="h-3 w-3" /> Your PIN (4–8 digits)
+            </Label>
+            <Input
+              type="password"
+              inputMode="numeric"
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+              placeholder="••••"
+              maxLength={8}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+            />
+          </div>
           {err ? <p className="text-sm text-rose-600">{err}</p> : null}
         </div>
 
@@ -93,10 +116,10 @@ export const VoidItemDialog: React.FC<Props> = ({ open, line, sentToKitchen, onC
           <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button
             variant="destructive"
-            disabled={!reason.trim() || busy}
+            disabled={!reason.trim() || !pin || busy || verify.isPending}
             onClick={submit}
           >
-            <AlertTriangle className="w-4 h-4 mr-1" /> {busy ? 'Voiding…' : 'Void Item'}
+            <AlertTriangle className="w-4 h-4 mr-1" /> {busy || verify.isPending ? 'Voiding…' : 'Void Item'}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -424,10 +424,16 @@ const RetailTerminal: React.FC = () => {
     setPendingRemoveLine(line);
     setShowPinConfirm(true);
   };
-  const onPinVerified = () => {
-    if (pendingRemoveLine) removeLine(pendingRemoveLine.lineId);
+  const onPinVerified = (reason: string) => {
+    const line = pendingRemoveLine;
     setShowPinConfirm(false);
     setPendingRemoveLine(null);
+    if (!line) return;
+    // Retail lines are not tracked individually on the server, so the line is
+    // dropped from the cart. The reason is still demanded and shown back, so
+    // the cashier states it before the line goes.
+    removeLine(line.lineId);
+    toast.success(`Item deleted — ${reason}`);
   };
   const onLineDiscount = (line: CartLine) => setLineForDiscount(line);
   const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType, reason?: string) => {
@@ -790,10 +796,17 @@ const RetailTerminal: React.FC = () => {
         onPickCustomer={() => setShowCustomer(true)} />
       <OverrideDialog open={!!overrideKind} kind={overrideKind ?? 'discount'} onClose={() => onOverrideVerified(null)}
         onVerified={onOverrideVerified} />
-      <PinConfirmDialog open={showPinConfirm} title="Confirm to delete item" description="Enter your PIN to remove this item from the order."
+      <PinConfirmDialog open={showPinConfirm} title="Delete item"
+        description={pendingRemoveLine
+          ? `Give a reason and your PIN to take "${pendingRemoveLine.name}" off this order.`
+          : 'Give a reason and your PIN to take this item off the order.'}
+        reasonLabel="Reason for deleting"
         onClose={() => { setShowPinConfirm(false); setPendingRemoveLine(null); }} onVerified={onPinVerified} />
       <VoidItemDialog open={!!voidLine} line={voidLine} onClose={() => setVoidLine(null)}
-        onConfirm={(lineId) => { removeLine(lineId); toast.success('Item voided'); }} />
+        onConfirm={(lineId, reason) => {
+          removeLine(lineId);
+          toast.success(`Item voided — ${reason}`);
+        }} />
       <CancelOrderDialog open={showCancelOrder} invoiceId={cancelInvoice?.id ?? null} invoiceNumber={cancelInvoice?.number ?? null}
         onClose={() => { setShowCancelOrder(false); setCancelInvoice(null); }} onDone={() => { clearCart(); setCustomer(null); }} />
 
