@@ -306,6 +306,24 @@ const ORG_SCOPED = new Set<string>([
   'MessageTemplate',
   'CommunicationRule',
   'CommunicationDispatch',
+  // Fixed Assets (FAM) — every asset table carries a non-null organizationId.
+  // Omitting any of these is a cross-tenant data leak, not a bug; creates also
+  // fail outright because organizationId has no default in the schema.
+  'AssetCategory',
+  'Asset',
+  'AssetAcquisition',
+  'AssetAssignment',
+  'AssetTransfer',
+  'AssetDepreciation',
+  'AssetMaintenance',
+  'AssetRepair',
+  'AssetWarranty',
+  'AssetInsurance',
+  'AssetInspection',
+  'AssetDisposal',
+  'AssetRevaluation',
+  'AssetCheckInOut',
+  'AssetDocument',
 ]);
 
 /** Models with a `deletedAt` column → soft-delete filtering on reads/writes. */
@@ -429,6 +447,9 @@ const SOFT_DELETE = new Set<string>([
   // use status columns / hard cascade, not soft delete.
   'Conversation',
   'Message',
+  // Fixed Assets — only these two carry deletedAt; the rest are hard records.
+  'AssetCategory',
+  'Asset',
 ]);
 
 const WHERE_OPS = new Set<string>([
