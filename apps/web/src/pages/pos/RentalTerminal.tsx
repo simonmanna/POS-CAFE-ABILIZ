@@ -212,7 +212,7 @@ const RentalTerminal: React.FC = () => {
   };
 
   if (showPosLogin && !posUser) {
-    return <PosLoginScreen onLoggedIn={() => setShowPosLogin(false)} />;
+    return <PosLoginScreen onLoggedIn={() => setShowPosLogin(false)} onExit={() => navigate('/')} />;
   }
 
   return (

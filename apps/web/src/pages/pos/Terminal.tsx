@@ -493,6 +493,19 @@ const TerminalPage: React.FC = () => {
   const [showOrders, setShowOrders] = useState(false);
   const pendingOrderCreate = useRef(false);
   const orderSaveSig = useRef('');
+  /* Auto-save concurrency. `saveTab.isPending` is read out of a render closure
+   * and can be stale by the time a debounced timer fires: two auto-saves then
+   * went out carrying the SAME optimistic-lock token and the second one was
+   * rejected 409 by a server that had already applied the first — a conflict
+   * the terminal invented against itself. A ref is read at fire time. */
+  const saveInFlight = useRef(false);
+  /* Anything typed while a save was in flight has to be pushed once it lands;
+   * bumping this re-runs the auto-save effect. */
+  const [saveTick, setSaveTick] = useState(0);
+  /* Consecutive 409s. One is resolved silently; a stream of them means another
+   * device really is editing this order, and auto-merging in a loop would fight
+   * it, so we stop and tell the cashier. */
+  const conflictStreak = useRef(0);
 
   /* A-016 — remember which server OrderItem each cart line is, so Void can
    * address it. Server lines come back in the order they were sent, which is
@@ -506,16 +519,95 @@ const TerminalPage: React.FC = () => {
     useCartStore.getState().setServerLineIds(map);
   }, []);
 
+  /* ── Conflict recovery (409 on save) ──────────────────────────────────────
+   * A save is refused when the version token the terminal holds is not the one
+   * the server holds: another device edited this order first, or our token went
+   * missing (a browser reload, an earlier save that failed). The terminal used
+   * to toast "resolve the difference before charging" and KEEP the stale token,
+   * so every later auto-save hit the identical 409 — the table was wedged until
+   * the cashier navigated away and back, with nothing on screen saying so, and
+   * no way to "resolve" anything.
+   *
+   * So resolve it instead of announcing it. Re-read the order the server really
+   * holds, keep the lines this terminal typed but never managed to save (those
+   * are exactly the ones with no server id), and re-arm the sync so the merged
+   * set is pushed with a fresh token. Nothing is lost in either direction and
+   * the cashier can charge.
+   */
+  const reconcileOrderConflict = useCallback(async (scope: { tableId?: string | null; orderId?: string | null }) => {
+    const before = useCartStore.getState();
+    const localOnly = before.lines.filter((l) => !before.serverLineIds[l.lineId]);
+    let view: any = null;
+    try {
+      view = scope.tableId
+        ? (await api.get(`/pos/tabs/${scope.tableId}`)).data
+        : scope.orderId
+          ? (await api.get(`/pos/orders/${scope.orderId}/resume`)).data
+          : null;
+    } catch {
+      toast.error('Could not re-read this order. Your cart is preserved — try again.');
+      return false;
+    }
+    // A table/order switch while we were fetching makes this answer stale.
+    const st = useCartStore.getState();
+    if (scope.tableId ? st.tableId !== scope.tableId : st.orderId !== scope.orderId) return false;
+
+    // `completed` means billed, and a billed / closed / cancelled order refuses
+    // every edit with the same 409 an optimistic-lock miss raises. A table read
+    // simply answers null once its order is billed; the by-id resume does not,
+    // so the status is what tells them apart.
+    const editable = view?.id && !['completed', 'closed', 'cancelled'].includes(String(view.status ?? ''));
+    if (!editable) {
+      // Settled, cancelled or billed elsewhere. Unbind so the next save opens a
+      // fresh order rather than retrying against one that no longer accepts
+      // edits — a sale is never blocked.
+      st.setOrderId(undefined);
+      st.setTabVersion(undefined);
+      st.setServerLineIds({});
+      tabSyncSig.current = '__unsaved_draft__';
+      orderSaveSig.current = '';
+      toast.warning('That order was closed elsewhere. Your items are kept and will start a new order.');
+      return true;
+    }
+
+    const serverLines = ((view.lines ?? []) as any[]).map(serverLineToCart);
+    const merged = [...serverLines, ...localOnly];
+    st.load(merged, draftRestore(view));
+    st.setTabVersion(view.version);
+    st.setOrderId(view.id);
+    // Index-aligned: the server lines lead the merged set, so the unsaved local
+    // tail simply has no id yet (it gets one on the next successful save).
+    adoptServerLines(view.lines ?? [], merged);
+    // Baseline is the SERVER's set, so the auto-save sees the local tail as
+    // still-unsaved work and pushes it with the token we just adopted.
+    const serverSig = orderSig(serverLines);
+    if (scope.tableId) tabSyncSig.current = serverSig; else orderSaveSig.current = serverSig;
+    toast.info(localOnly.length
+      ? 'This order changed elsewhere — both versions were merged. Check it before charging.'
+      : 'This order changed elsewhere — reloaded the current version.');
+    return true;
+  }, [adoptServerLines]);
+
   /* Flush the current order (table OR tableless) before switching away. */
   const flushCurrentOrder = useCallback(async () => {
     if (useCartStore.getState().operationPending) throw new Error('Resolve the pending payment before changing orders');
-    if (saveTab.isPending || saveOrderItems.isPending) throw new Error('Wait for the current order save to finish');
+    if (saveInFlight.current || saveTab.isPending || saveOrderItems.isPending) throw new Error('Wait for the current order save to finish');
     if (pendingOrderCreate.current) throw new Error('Wait for the new order to finish saving');
     const st = useCartStore.getState();
     if (st.lines.length && !st.orderId && !st.tableId) throw new Error('This cart has not been saved. Keep it open until the server is available.');
     const sig = orderSig(st.lines);
+    // A conflict here is resolved the same way the auto-save resolves it — merge
+    // the two versions — but the caller is still stopped, because whatever it was
+    // about to do (switch tables, open another order, charge) must be re-decided
+    // against the merged order rather than the one the cashier was looking at.
+    const onConflict = async (e: any, scope: { tableId?: string | null; orderId?: string | null }) => {
+      if (e?.response?.status !== 409) throw e;
+      await reconcileOrderConflict(scope);
+      throw new Error('This order changed elsewhere and has been merged. Review it, then try again.');
+    };
     if (st.tableId && sig !== tabSyncSig.current) {
-      const saved: any = await saveTab.mutateAsync({ tableId: st.tableId, lines: st.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: st.tabVersion });
+      const saved: any = await saveTab.mutateAsync({ tableId: st.tableId, lines: st.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: st.tabVersion })
+        .catch((e: any) => onConflict(e, { tableId: st.tableId }));
       if (useCartStore.getState().tableId === st.tableId) {
         useCartStore.getState().setTabVersion(saved.version);
         useCartStore.getState().setOrderId(saved.id);
@@ -523,7 +615,8 @@ const TerminalPage: React.FC = () => {
         tabSyncSig.current = sig;
       }
     } else if (st.orderId && sig !== orderSaveSig.current) {
-      const saved: any = await saveOrderItems.mutateAsync({ orderId: st.orderId, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion });
+      const saved: any = await saveOrderItems.mutateAsync({ orderId: st.orderId, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion })
+        .catch((e: any) => onConflict(e, { orderId: st.orderId }));
       if (useCartStore.getState().orderId === st.orderId) {
         useCartStore.getState().setTabVersion(saved.version);
         adoptServerLines(saved.items ?? saved.lines ?? [], st.lines);
@@ -531,7 +624,7 @@ const TerminalPage: React.FC = () => {
       }
     }
     if (orderSig(useCartStore.getState().lines) !== sig) throw new Error('The cart changed during save. Save the latest changes before continuing.');
-  }, [saveTab, saveOrderItems, customer?.id]);
+  }, [saveTab, saveOrderItems, customer?.id, reconcileOrderConflict]);
 
   /* Imperatively fetch THIS table's open order fresh from the server and load it
    * into the cart. Deterministic — no react-query cache races on switch/return. */
@@ -622,9 +715,23 @@ const TerminalPage: React.FC = () => {
     const payloadLines = lines.map(cartLineToPayload);
 
     const h = setTimeout(async () => {
-      if (saveTab.isPending || useCartStore.getState().operationPending) return;
-      const version = useCartStore.getState().tabVersion;
+      if (useCartStore.getState().operationPending) return;
+      // One save at a time, decided at fire time — see `saveInFlight`.
+      if (saveInFlight.current) { setSaveTick((n) => n + 1); return; }
+      saveInFlight.current = true;
+      // Only a save that got somewhere re-arms the loop. A save that failed for
+      // any other reason (API down, offline) waits for the next cart change, or
+      // an unreachable server would be retried — and toasted — every 700ms.
+      let rearm = false;
       try {
+        const version = useCartStore.getState().tabVersion;
+        // A saved order with no token in hand: the server refuses to replace the
+        // items of an order it can't version-check (409, worded as a conflict).
+        // Fetch the token instead of walking into that.
+        if (version == null && useCartStore.getState().orderId) {
+          rearm = await reconcileOrderConflict({ tableId });
+          return;
+        }
         const saved: any = await saveTab.mutateAsync({ tableId, lines: payloadLines, partnerId: customer?.id, expectedVersion: version });
         if (useCartStore.getState().tableId === tableId) {
           useCartStore.getState().setTabVersion(saved?.version);
@@ -632,15 +739,25 @@ const TerminalPage: React.FC = () => {
           adoptServerLines(saved?.lines ?? []);
           tabSyncSig.current = currentSig;
         }
+        conflictStreak.current = 0;
+        rearm = true;
       } catch (e: any) {
-        toast.error(e?.response?.status === 409
-          ? 'This order changed elsewhere. Your local changes are preserved. Resolve the difference before charging.'
-          : e?.response?.data?.message || 'Order save failed; your cart is preserved');
+        if (e?.response?.status !== 409) {
+          toast.error(e?.response?.data?.message || 'Order save failed; your cart is preserved');
+        } else if ((conflictStreak.current += 1) > 3) {
+          toast.error('This order keeps changing on another device. Reopen the table before charging.');
+        } else {
+          rearm = await reconcileOrderConflict({ tableId });
+        }
+      } finally {
+        saveInFlight.current = false;
+        // Whatever was typed while that save was in flight still needs pushing.
+        if (rearm && orderSig(useCartStore.getState().lines) !== tabSyncSig.current) setSaveTick((n) => n + 1);
       }
     }, 700);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines, tableId, pendingTableLoad, customer?.id, splitActive, transactionDiscountPercent, transactionDiscountType, transactionDiscountAmount, transactionDiscountReason, customer?.id]);
+  }, [lines, tableId, pendingTableLoad, customer?.id, splitActive, transactionDiscountPercent, transactionDiscountType, transactionDiscountAmount, transactionDiscountReason, saveTick]);
 
   const locked = !sessionLoading && !session && !sessionFetching;
   const orderTypeFromStore = useCartStore((s) => s.orderType);
@@ -680,27 +797,49 @@ const TerminalPage: React.FC = () => {
     if (sig === orderSaveSig.current) return;
     const t = setTimeout(async () => {
       const st = useCartStore.getState();
-      if (st.orderId !== orderId || st.tableId || st.operationPending || saveOrderItems.isPending) return;
+      if (st.orderId !== orderId || st.tableId || st.operationPending) return;
+      if (saveInFlight.current) { setSaveTick((n) => n + 1); return; }
       if (st.lines.length === 0) {
         try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { toast.error('Could not save the empty order'); return; }
         if (useCartStore.getState().orderId === orderId) { setOrderId(undefined); useCartStore.getState().setTabVersion(undefined); }
         orderSaveSig.current = '';
         return;
       }
+      saveInFlight.current = true;
+      let rearm = false;
       try {
+        // Same rule as the tab auto-save: replacing a saved order's items needs
+        // a version token, and asking without one is refused as a conflict.
+        if (st.tabVersion == null) {
+          rearm = await reconcileOrderConflict({ orderId });
+          return;
+        }
         const saved = await saveOrderItems.mutateAsync({ orderId, lines: st.lines.map(cartLineToPayload) as OrderLineBody[], expectedVersion: st.tabVersion });
         if (useCartStore.getState().orderId === orderId) {
           if (typeof (saved as any)?.version === 'number') useCartStore.getState().setTabVersion((saved as any).version);
           adoptServerLines((saved as any)?.items ?? (saved as any)?.lines ?? [], st.lines);
         }
         orderSaveSig.current = sig;
+        conflictStreak.current = 0;
+        rearm = true;
       } catch (e: any) {
-        if (e?.response?.status === 409) toast.error('Order changed on another terminal. Your cart is preserved; resolve the difference before charging.');
+        if (e?.response?.status !== 409) {
+          // This used to be swallowed: the order silently stopped saving and the
+          // cashier found out at the till.
+          toast.error(e?.response?.data?.message || 'Order save failed; your cart is preserved');
+        } else if ((conflictStreak.current += 1) > 3) {
+          toast.error('This order keeps changing on another device. Reopen it from the Orders panel before charging.');
+        } else {
+          rearm = await reconcileOrderConflict({ orderId });
+        }
+      } finally {
+        saveInFlight.current = false;
+        if (rearm && orderSig(useCartStore.getState().lines) !== orderSaveSig.current) setSaveTick((n) => n + 1);
       }
     }, 700);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines, orderId, tableId, transactionDiscountPercent, transactionDiscountType, transactionDiscountAmount, transactionDiscountReason, customer?.id]);
+  }, [lines, orderId, tableId, transactionDiscountPercent, transactionDiscountType, transactionDiscountAmount, transactionDiscountReason, customer?.id, saveTick]);
 
   /* New tableless order — the current one stays open in the Orders panel. */
   const newTablelessOrder = useCallback(async () => {
@@ -916,13 +1055,28 @@ const TerminalPage: React.FC = () => {
         if (!approval) { toast.error('Manager approval cancelled — the item is still on the order'); return; }
         view = await send(approval);
       }
-      // Re-read from the void response so the cart matches the order the
-      // server now holds (quantities, totals and remaining line ids).
-      const serverLines = (view?.items ?? view?.lines ?? []).map(serverLineToCart);
-      useCartStore.getState().load(serverLines, draftRestore(view));
-      useCartStore.getState().setTabVersion(view?.version);
-      useCartStore.getState().setOrderId(targetOrderId);
-      adoptServerLines(view?.items ?? view?.lines ?? [], serverLines);
+      // Re-read so the cart matches the order the server now holds (quantities,
+      // totals, remaining line ids and the fresh version token).
+      //
+      // Not from the void response: that is the RAW order, whose unit prices
+      // still have the variant / accompaniment / modifier charge folded in and
+      // whose note is the folded KOT form. Rebuilding the cart from that shape
+      // dropped `accompanimentPriceImpact` to 0, so the next auto-save sent a
+      // unit price that still contained the accompaniment charge and the server
+      // added it a second time — the line silently got dearer after a void. The
+      // terminal's own tab view un-folds all of it.
+      let fresh: any = null;
+      try {
+        fresh = tableId
+          ? (await api.get(`/pos/tabs/${tableId}`)).data
+          : (await api.get(`/pos/orders/${targetOrderId}/resume`)).data;
+      } catch { /* the void itself committed; fall back to its answer */ }
+      const source: any[] = (fresh?.lines ?? view?.items ?? view?.lines ?? []) as any[];
+      const serverLines = source.map(serverLineToCart);
+      useCartStore.getState().load(serverLines, draftRestore(fresh ?? view));
+      useCartStore.getState().setTabVersion(fresh?.version ?? view?.version);
+      useCartStore.getState().setOrderId(fresh?.id ?? targetOrderId);
+      adoptServerLines(source, serverLines);
       if (tableId) tabSyncSig.current = orderSig(serverLines);
       else orderSaveSig.current = orderSig(serverLines);
       toast.success('Item voided');
@@ -1482,7 +1636,16 @@ const TerminalPage: React.FC = () => {
       <PendingSaleRecovery />
       {/* POS PIN Login screen — shown until a cashier authenticates */}
       {showPosLogin && !posUser ? (
-        <PosLoginScreen onLoggedIn={() => { setShowPosLogin(false); refetchSession(); }} onBeforeSubmit={enterFullscreen} />
+        <PosLoginScreen
+          onLoggedIn={() => { setShowPosLogin(false); refetchSession(); }}
+          onBeforeSubmit={enterFullscreen}
+          onExit={() => {
+            setFullscreen(false);
+            document.body.classList.remove('pos-terminal-fullscreen');
+            document.exitFullscreen?.().catch(() => {});
+            navigate('/');
+          }}
+        />
       ) : null}
 
       <Topbar

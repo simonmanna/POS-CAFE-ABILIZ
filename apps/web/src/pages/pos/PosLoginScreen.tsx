@@ -13,9 +13,11 @@ import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 interface Props {
   onLoggedIn: () => void;
   onBeforeSubmit?: () => void;
+  /** When provided, shows a "Back to Home" button that leaves the terminal. */
+  onExit?: () => void;
 }
 
-const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit }) => {
+const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit, onExit }) => {
   const login = usePosAuthStore((s) => s.login);
   const loading = usePosAuthStore((s) => s.loading);
   const error = usePosAuthStore((s) => s.error);
@@ -120,6 +122,15 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit }) => {
   if (step === 'select') {
     return (
       <div className="fixed inset-0 z-[100] bg-gradient-to-b from-slate-900 to-slate-800 flex flex-col items-center justify-center">
+        {onExit && (
+          <button
+            onClick={onExit}
+            className="absolute top-6 left-6 text-slate-400 hover:text-white text-sm flex items-center gap-1"
+          >
+            ← Back
+          </button>
+        )}
+
         <div className="mb-8 text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 mb-4">
             <Coffee className="h-8 w-8 text-white" />

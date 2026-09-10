@@ -675,7 +675,16 @@ const RetailTerminal: React.FC = () => {
     <div className={'pos-shell-pro' + (fullscreen ? ' dark-mode' : '')}>
       <PendingSaleRecovery />
       {showPosLogin && !posUser ? (
-        <PosLoginScreen onLoggedIn={() => { setShowPosLogin(false); refetchSession(); }} onBeforeSubmit={enterFullscreen} />
+        <PosLoginScreen
+          onLoggedIn={() => { setShowPosLogin(false); refetchSession(); }}
+          onBeforeSubmit={enterFullscreen}
+          onExit={() => {
+            setFullscreen(false);
+            document.body.classList.remove('pos-terminal-fullscreen');
+            document.exitFullscreen?.().catch(() => {});
+            navigate('/');
+          }}
+        />
       ) : null}
 
       <Topbar
