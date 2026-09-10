@@ -37,6 +37,17 @@ export class CreateVendorBillDto {
   @IsString()
   branchId?: string;
 
+  /**
+   * PO(s) this bill settles. Writing the link is what makes three-way matching
+   * real: without it `VendorBillLink` had no writer anywhere, so the match gate
+   * in `post()` was wrapped in a condition that was never true and every bill
+   * posted unmatched.
+   */
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  purchaseOrderIds?: string[];
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })

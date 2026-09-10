@@ -125,35 +125,14 @@ export class ThreeWayMatchService {
       results.push(row);
     }
 
-    // Update PO status from match states (received / partially_received).
     const blocked = results.filter((r) => r.status === 'blocked').length;
     const matched = results.filter((r) => r.status === 'matched').length;
-    // Sum across all posted GRNs for this PO via two-step aggregate.
-    const grns = await this.prisma.raw.goodsReceiptNote.findMany({
-      where: { organizationId: orgId, purchaseOrderId, status: 'posted' },
-      select: { id: true },
-    });
-    const grnIds = grns.map((g: any) => g.id);
-    const receivedAgg = grnIds.length
-      ? await this.prisma.raw.goodsReceiptLine.aggregate({
-          where: { organizationId: orgId, goodsReceiptId: { in: grnIds } },
-          _sum: { quantity: true },
-        })
-      : { _sum: { quantity: 0 } };
-    const totalReceived = Number(receivedAgg._sum?.quantity ?? 0);
-    const totalOrdered = lines.reduce((s, l: any) => s + Number(l.quantity), 0);
-    let nextPoStatus: 'sent' | 'partially_received' | 'received' | null = null;
-    if (totalReceived >= totalOrdered && totalOrdered > 0) nextPoStatus = 'received';
-    else if (totalReceived > 0) nextPoStatus = 'partially_received';
-    if (nextPoStatus && ['sent', 'acknowledged', 'partially_received'].includes('')) {
-      // (no-op — kept simple here)
-    }
-    if (nextPoStatus) {
-      await this.prisma.raw.purchaseOrder.update({
-        where: { id: purchaseOrderId },
-        data: { status: nextPoStatus },
-      });
-    }
+    // NOTE: this used to force-write PurchaseOrder.status from the receipt
+    // totals with a bare update — no status guard, no optimistic `version`
+    // check — so a recompute could drag a cancelled or draft PO into
+    // `received` behind the receiving service's back. PurchaseOrdersService
+    // .applyReceiptToPO is the single writer of PO status; recomputing a match
+    // is a read-model operation and must not mutate the order.
 
     this.events.publish('three_way_match.computed' as any, {
       organizationId: orgId,

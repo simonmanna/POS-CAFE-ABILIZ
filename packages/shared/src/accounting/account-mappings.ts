@@ -320,6 +320,17 @@ export const ACCOUNT_MAPPING_REGISTRY: readonly AccountMappingDef[] = [
     required: true,
   },
   {
+    key: 'purchase_price_variance',
+    label: 'Purchase Price Variance',
+    group: 'inventory',
+    expectedCategories: ['operating_expense', 'cost_of_goods_sold', 'other_expense'],
+    // Not required: an organisation upgraded from before this key existed has
+    // no such account, and bill posting falls back to Stock Adjustment Expense
+    // rather than refusing to post. Map it explicitly to separate PPV from
+    // count/shrinkage adjustments in the P&L.
+    required: false,
+  },
+  {
     key: 'wip',
     label: 'Work In Progress',
     group: 'inventory',

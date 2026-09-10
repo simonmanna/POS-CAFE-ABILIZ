@@ -145,13 +145,38 @@ export class PaymentService {
       for (const a of dto.allocations ?? []) if (!!a.invoiceId === !!a.documentId) throw new BadRequestException('Each allocation must identify exactly one invoice or document');
       const counterType = opts.counterAccount ?? (direction === 'inbound' ? 'receivable' : 'payable');
 
+      // Withholding tax is deducted when the supplier is PAID, not when the bill
+      // is booked: the payable is relieved in full, the supplier receives the
+      // net, and the withheld portion becomes our liability to the revenue
+      // authority. Before this the engine computed `withholdingTotal` and threw
+      // it away — it never reached a journal line anywhere.
+      const withholding = round(dec(dto.withholdingAmount ?? 0), 6);
+      if (withholding.greaterThan(0)) {
+        if (direction !== 'outbound' || counterType !== 'payable') {
+          throw new BadRequestException('Withholding tax applies to supplier payments only');
+        }
+        if (method === 'store_credit') {
+          throw new BadRequestException('Withholding tax cannot be deducted from a store-credit payment');
+        }
+        if (withholding.greaterThanOrEqualTo(amount)) {
+          throw new BadRequestException('Withholding tax must be less than the payment amount');
+        }
+      }
+      // What actually leaves the bank/drawer.
+      const netCash = amount.minus(withholding);
+
       // Supplier-overpayment guard: only when settling a payable (a vendor bill).
       // A customer refund is also `outbound` but settles a receivable, so it must
       // NOT run the vendor_bill aggregate — doing so both crashed the refund and
       // was semantically wrong (checked a supplier balance for a customer refund).
       if (direction === 'outbound' && counterType === 'payable') {
         const outstanding = await tx.document.aggregate({
-          where: { organizationId, partnerId: dto.partnerId, documentType: 'vendor_bill', status: { in: ['posted', 'partial'] } },
+          // `partial` is not a DocumentStatus value — this filter threw
+          // "Invalid value for argument `in`. Expected DocumentStatus" on every
+          // supplier payment, so the whole AP payment path was dead at runtime.
+          // Part-payment lives on `paymentStatus`, not `status`; a settled bill
+          // carries a zero residual and contributes nothing to the sum anyway.
+          where: { organizationId, partnerId: dto.partnerId, documentType: 'vendor_bill', status: { in: ['posted', 'paid'] } },
           _sum: { amountResidual: true },
         });
         const currentOutstanding = new Prisma.Decimal(outstanding._sum.amountResidual ?? 0);
@@ -168,7 +193,8 @@ export class PaymentService {
       if (resolved.session && resolved.session.userId !== userId && !opts.allowSessionOwnerMismatch) {
         throw new BadRequestException('Cash session belongs to a different cashier');
       }
-      if (method === 'cash' && direction === 'outbound' && resolved.session && amount.gt(await (this.cashSessions as any).computeExpected(tx, resolved.session))) throw new BadRequestException('The drawer does not contain enough cash for this payment');
+      // The drawer only has to cover the net handed over, not the gross payable.
+      if (method === 'cash' && direction === 'outbound' && resolved.session && netCash.gt(await (this.cashSessions as any).computeExpected(tx, resolved.session))) throw new BadRequestException('The drawer does not contain enough cash for this payment');
       let counterAccount =
         counterType === 'receivable'
           ? await this.determination.receivableAccount(partner, tx)
@@ -217,6 +243,7 @@ export class PaymentService {
           cashSessionId: dto.cashSessionId ?? null,
           refundOfId: (dto as any).refundOfId ?? null,
           amount,
+          withholdingAmount: withholding,
           allocatedAmount: ZERO,
           unallocatedAmount: amount,
           reference: dto.reference ?? null,
@@ -250,7 +277,15 @@ export class PaymentService {
               ]
             : [
                 { accountId: counterAccount, debit: amount.toString(), partnerId: dto.partnerId },
-                { accountId: cashAccount, credit: amount.toString() },
+                { accountId: cashAccount, credit: netCash.toString() },
+                ...(withholding.greaterThan(0)
+                  ? [{
+                      accountId: await this.determination.mapped('withholding_payable', tx),
+                      credit: withholding.toString(),
+                      partnerId: dto.partnerId,
+                      description: 'Withholding tax deducted',
+                    }]
+                  : []),
               ];
 
         const verb = direction === 'inbound' ? 'Receipt' : 'Payment';
@@ -368,7 +403,10 @@ export class PaymentService {
           dto.cashSessionId,
           payment.id,
           direction === 'inbound' ? 'sale' : 'refund',
-          amount,
+          // The drawer moves by what was physically handed over. Withheld tax
+          // never leaves the till, so booking the gross here would make every
+          // Z-report short by the withholding.
+          netCash,
         );
       }
 

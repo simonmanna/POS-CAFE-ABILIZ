@@ -68,8 +68,15 @@ export class GoodsReceiptsController {
     return this.svc.createDraft(body);
   }
 
+  /**
+   * Posting is the irreversible step: it moves stock, capitalises inventory
+   * and (for a PO-linked receipt) vouchers the payable. It used to reuse
+   * `goods_receipt:create`, so whoever could key in a delivery note could also
+   * commit it — no segregation of duties on the only money-moving transition
+   * in the module.
+   */
   @Patch(':id/post')
-  @RequirePermissions('goods_receipt:create')
+  @RequirePermissions('goods_receipt:post')
   @UseInterceptors(IdempotencyInterceptor)
   @Idempotent({ required: true })
   post(@Param('id') id: string) {

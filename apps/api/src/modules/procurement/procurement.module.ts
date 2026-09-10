@@ -1,4 +1,5 @@
 import { Module, OnModuleInit } from '@nestjs/common';
+import { PERMISSIONS } from '@erp/shared';
 import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 import { CoreModule } from '../core/core.module';
 import { AccountingModule } from '../accounting/accounting.module';
@@ -13,6 +14,8 @@ import { GoodsReceiptsService } from './goods-receipts.service';
 import { GoodsReceiptsController } from './goods-receipts.controller';
 import { DebitNotesService } from './debit-notes.service';
 import { DebitNotesController } from './debit-notes.controller';
+import { GrniReconciliationService } from './grni-reconciliation.service';
+import { GrniReconciliationController } from './grni-reconciliation.controller';
 
 /**
  * Procurement module (Phase F.6).
@@ -32,18 +35,21 @@ import { DebitNotesController } from './debit-notes.controller';
     PurchaseOrdersController,
     GoodsReceiptsController,
     DebitNotesController,
+    GrniReconciliationController,
   ],
   providers: [
     PurchaseRequestsService,
     PurchaseOrdersService,
     GoodsReceiptsService,
     DebitNotesService,
+    GrniReconciliationService,
   ],
   exports: [
     PurchaseOrdersService,
     PurchaseRequestsService,
     GoodsReceiptsService,
     DebitNotesService,
+    GrniReconciliationService,
   ],
 })
 export class ProcurementModule implements OnModuleInit {
@@ -54,26 +60,16 @@ export class ProcurementModule implements OnModuleInit {
       name: 'procurement',
       version: '1.0.0',
       dependencies: ['core', 'accounting', 'inventory', 'invoicing'],
+      // Driven from the shared catalog. Hand-listing drifted: the activate
+      // route enforces `purchase_order:approve` but it was never registered, so
+      // it could not be granted from the roles UI at all, and
+      // `goods_receipt:post`/`cancel` were missing entirely.
       permissions: [
-        'purchase_request:create',
-        'purchase_request:read',
-        'purchase_request:update',
-        'purchase_request:delete',
-        'purchase_request:approve',
-        'purchase_request:submit',
-        'purchase_order:create',
-        'purchase_order:read',
-        'purchase_order:update',
-        'purchase_order:delete',
-        'purchase_order:cancel',
-        'purchase_order:receive',
-        'purchase_order:pay',
-        'goods_receipt:create',
-        'goods_receipt:read',
-        'debit_note:create',
-        'debit_note:read',
-        'debit_note:post',
-        'debit_note:cancel',
+        ...Object.values(PERMISSIONS.procurement.purchaseRequest),
+        ...Object.values(PERMISSIONS.procurement.purchaseOrder),
+        ...Object.values(PERMISSIONS.procurement.goodsReceipt),
+        ...Object.values(PERMISSIONS.procurement.threeWayMatch),
+        ...Object.values(PERMISSIONS.debitNote),
       ],
     });
   }

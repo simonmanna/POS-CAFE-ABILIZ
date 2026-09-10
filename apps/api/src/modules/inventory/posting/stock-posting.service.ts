@@ -247,6 +247,13 @@ export class StockPostingService {
     sourceType: string;
     sourceId: string;
     description?: string;
+    /**
+     * Idempotency key. A retried receive would otherwise raise the payable a
+     * second time; with a key the posting service replays the entry it already
+     * wrote. One voucher per receipt document, so `<sourceType>:<sourceId>` is
+     * naturally unique.
+     */
+    postingKey?: string;
     tx: any;
   }): Promise<void> {
     const net = dec(params.netTotal);
@@ -280,6 +287,7 @@ export class StockPostingService {
         description: params.description ?? 'Goods received',
         sourceType: params.sourceType,
         sourceId: params.sourceId,
+        postingKey: params.postingKey ?? `receipt_voucher:${params.sourceType}:${params.sourceId}`,
         lines,
       } as any,
       params.tx,
@@ -299,6 +307,12 @@ export class StockPostingService {
     sourceType: string;
     sourceId: string;
     description?: string;
+    /**
+     * Idempotency key. A PO can be paid many times, so the caller must supply
+     * something unique to the payment (its PurchasePayment id, or the receipt
+     * that auto-settled it) — `sourceId` alone is the order, not the payment.
+     */
+    postingKey?: string;
     tx: any;
   }): Promise<any> {
     const amount = dec(params.amount);
@@ -315,6 +329,7 @@ export class StockPostingService {
         description: params.description ?? 'Purchase payment',
         sourceType: params.sourceType,
         sourceId: params.sourceId,
+        postingKey: params.postingKey,
         lines: [
           { accountId: apAccount, debit: amount.toString(), partnerId: params.partnerId, description: params.description ?? 'Purchase payment' },
           { accountId: fundsAccount, credit: amount.toString(), description: params.description ?? 'Purchase payment' },

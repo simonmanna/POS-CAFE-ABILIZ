@@ -108,6 +108,14 @@ export class ReceiveFromBillDto {
   @IsNotEmpty()
   billId!: string;
 
+  /**
+   * Unit the `quantity`/`unitCost` are expressed in (normally the product's
+   * purchase UoM). Omitting it made a bill for 10 cases land as 10 base units.
+   */
+  @IsOptional()
+  @IsString()
+  uomId?: string;
+
   @IsDateString()
   billDate!: string;
 

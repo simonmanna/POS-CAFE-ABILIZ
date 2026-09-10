@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { RefreshCw } from 'lucide-react';
+import { Eye, RefreshCw } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/select';
 import { api } from '@/lib/api';
 import { formatMoney, dateTime } from '@/lib/format';
+import { referenceLabel } from '@/lib/ledger-links';
+import { DirectStockActions } from './DirectStockActions';
 
 interface LedgerEntry {
   id: string;
@@ -93,9 +95,12 @@ export function StockLedgerPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Stock Ledger</h1>
-        <Button variant="outline" size="sm" onClick={() => ledger.refetch()}>
-          <RefreshCw className="mr-2 h-3 w-3" />Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <DirectStockActions />
+          <Button variant="outline" size="sm" onClick={() => ledger.refetch()}>
+            <RefreshCw className="mr-2 h-3 w-3" />Refresh
+          </Button>
+        </div>
       </div>
 
       <Card className="p-3">
@@ -172,11 +177,12 @@ export function StockLedgerPage() {
                   <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Total Value</th>
                   <th className="px-3 py-2 text-left font-medium">Reference</th>
                   <th className="px-3 py-2 text-left font-medium">Notes</th>
+                  <th className="px-3 py-2 text-center font-medium">View</th>
                 </tr>
               </thead>
               <tbody>
                 {ledger.data.data.length === 0 && (
-                  <tr><td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">No ledger entries found</td></tr>
+                  <tr><td colSpan={13} className="px-3 py-8 text-center text-muted-foreground">No ledger entries found</td></tr>
                 )}
                 {ledger.data.data.map((entry) => (
                   <tr key={entry.id} className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => navigate(`/inventory/items/${entry.productId}`)}>
@@ -197,10 +203,20 @@ export function StockLedgerPage() {
                     <td className="px-3 py-2 text-right font-mono tabular-nums">{formatMoney(entry.totalValue)}</td>
                     <td className="px-3 py-2 text-xs text-muted-foreground">
                       {entry.referenceType && entry.referenceId
-                        ? <span className="font-mono">{entry.referenceType.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}<br/>{entry.referenceId}</span>
+                        ? <span>{referenceLabel(entry.referenceType)}<br/><span className="font-mono">{entry.referenceId}</span></span>
                         : '—'}
                     </td>
                     <td className="px-3 py-2 text-xs text-muted-foreground max-w-[120px] truncate">{entry.notes ?? '—'}</td>
+                    <td className="px-3 py-2 text-center">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => { e.stopPropagation(); navigate(`/inventory/ledger/${entry.id}`); }}
+                        title="Open the transaction this movement came from"
+                      >
+                        <Eye className="mr-1 h-3 w-3" />View
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

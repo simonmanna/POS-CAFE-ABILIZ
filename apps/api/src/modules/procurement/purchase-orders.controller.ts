@@ -1,4 +1,6 @@
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { Idempotent } from '../../kernel/idempotency/idempotent.decorator';
+import { IdempotencyInterceptor } from '../../kernel/idempotency/idempotency.interceptor';
 import {
   Body,
   Controller,
@@ -10,6 +12,7 @@ import {
   Patch,
   Post,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { PurchaseOrdersService } from './purchase-orders.service';
@@ -61,9 +64,18 @@ export class PurchaseOrdersController {
     return this.svc.update(id, dto);
   }
 
-  /** Step 2: Receive products against an active PO */
+  /**
+   * Step 2: Receive products against an active PO.
+   *
+   * Idempotent like the goods-receipt post route: a retry on a flaky
+   * connection would otherwise move stock, capitalise inventory and voucher AP
+   * a second time. The over-receipt ceiling in applyReceiptToPO caps the
+   * damage but does not prevent it on a partially received order.
+   */
   @Post(':id/receive')
   @RequirePermissions('purchase_order:receive')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent({ required: true })
   receive(@Param('id') id: string, @Body() dto: ReceivePODto) {
     return this.svc.receive(id, dto);
   }
@@ -71,6 +83,8 @@ export class PurchaseOrdersController {
   /** Step 3: Register payment (credit purchases only) */
   @Post(':id/pay')
   @RequirePermissions('purchase_order:pay')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent({ required: true })
   pay(@Param('id') id: string, @Body() dto: PayPODto) {
     return this.svc.pay(id, dto);
   }

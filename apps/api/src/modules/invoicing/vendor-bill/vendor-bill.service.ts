@@ -81,6 +81,7 @@ export class VendorBillService {
   async create(dto: CreateVendorBillDto) {
     this.validateDates(dto.issueDate, dto.dueDate);
     const doc = await this.builder.createDocument(this.prisma.client, 'vendor_bill', dto, dto.lines);
+    await this.syncPoLinks(this.prisma.client, doc.id, dto.purchaseOrderIds, Number(doc.totalAmount));
     const amount = Number(doc.totalAmount);
     const request = await this.approvals.requestApproval({
       entityType: 'vendor_bill',
@@ -150,8 +151,36 @@ export class VendorBillService {
           },
         });
       }
+      await this.syncPoLinks(tx, id, dto.purchaseOrderIds, Number(totals.total));
       return tx.document.findFirst({ where: { id }, include: { lines: true, partner: true } });
     });
+  }
+
+  /**
+   * Replace this bill's PO links. The amount is split evenly across the linked
+   * POs — a consolidated bill spanning several orders has no per-line
+   * allocation to go on, and the three-way match uses the amount only as a
+   * fair-share estimator.
+   */
+  private async syncPoLinks(client: any, vendorBillId: string, purchaseOrderIds: string[] | undefined, total: number) {
+    if (!purchaseOrderIds) return;
+    const orgId = this.tenant.organizationId;
+    await client.vendorBillLink.deleteMany({ where: { organizationId: orgId, vendorBillId } });
+    const ids = [...new Set(purchaseOrderIds.filter(Boolean))];
+    if (ids.length === 0) return;
+    const orders = await client.purchaseOrder.findMany({
+      where: { id: { in: ids }, organizationId: orgId },
+      select: { id: true },
+    });
+    if (orders.length !== ids.length) {
+      throw new BadRequestException('One or more purchase orders do not exist in this organization');
+    }
+    const share = total / ids.length;
+    for (const purchaseOrderId of ids) {
+      await client.vendorBillLink.create({
+        data: { organizationId: orgId, vendorBillId, purchaseOrderId, amount: share },
+      });
+    }
   }
 
   /**

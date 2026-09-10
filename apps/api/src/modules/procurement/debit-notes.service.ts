@@ -221,24 +221,34 @@ export class DebitNotesService {
       postingLines.push({ accountId: o.accountId, credit: o.amount });
     }
 
-    await this.posting.post({
-      journalCode,
-      date: note.issueDate,
-      description: `${note.direction === 'outbound' ? 'Debit note to customer' : 'Debit note from supplier'} ${note.noteNumber}`,
-      sourceType: 'debit_note',
-      sourceId: note.id,
-      lines: postingLines,
-    });
-
-    const updated = await this.prisma.client.debitNote.update({
-      where: { id },
-      data: { status: 'posted', postedAt: new Date(), postedById: this.tenant.userId ?? null },
-    });
-    await this.audit.record({
-      entity: 'DebitNote',
-      entityId: id,
-      action: 'update',
-      newValues: { status: 'posted' },
+    // The journal and the status flip must land together. Posting outside a
+    // transaction and updating afterwards meant a crash between the two left a
+    // posted journal entry attached to a note still showing as `draft` — which
+    // then posts again on the next attempt.
+    const updated = await this.prisma.client.$transaction(async (tx: any) => {
+      await this.posting.post(
+        {
+          journalCode,
+          date: note.issueDate,
+          description: `${note.direction === 'outbound' ? 'Debit note to customer' : 'Debit note from supplier'} ${note.noteNumber}`,
+          sourceType: 'debit_note',
+          sourceId: note.id,
+          postingKey: `debit_note:${note.id}`,
+          lines: postingLines,
+        } as any,
+        tx,
+      );
+      const row = await tx.debitNote.update({
+        where: { id },
+        data: { status: 'posted', postedAt: new Date(), postedById: this.tenant.userId ?? null },
+      });
+      await this.audit.recordInTx(tx, {
+        entity: 'DebitNote',
+        entityId: id,
+        action: 'update',
+        newValues: { status: 'posted' },
+      });
+      return row;
     });
     this.events.publish('debit_note.posted' as any, {
       organizationId: orgId,
@@ -322,6 +332,7 @@ export class DebitNotesService {
           description: `Return to vendor ${note.noteNumber}`,
           sourceType: 'debit_note',
           sourceId: note.id,
+          postingKey: `debit_note_rtv:${note.id}`,
           lines: postingLines,
         } as any,
         tx,

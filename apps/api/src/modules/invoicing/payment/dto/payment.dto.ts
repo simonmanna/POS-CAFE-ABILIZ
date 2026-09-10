@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import { PAYMENT_METHODS, type PaymentMethod } from '@erp/shared';
@@ -74,4 +75,15 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsBoolean()
   allowOverpayment?: boolean;
+
+  /**
+   * Withholding tax to deduct from this supplier payment. `amount` stays the
+   * payable being settled; the supplier is paid `amount - withholdingAmount`
+   * and the difference is credited to Withholding Tax Payable for onward
+   * remittance. Supplier payments only.
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  withholdingAmount?: number;
 }

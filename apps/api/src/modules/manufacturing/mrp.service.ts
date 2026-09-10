@@ -168,7 +168,10 @@ export class MrpService {
       const lines = await this.prisma.client.purchaseOrderLine.findMany({
         where: {
           productId: { in: productIds },
-          order: { status: { in: ['draft', 'approved', 'sent', 'partially_received'] as any } },
+          // `active` is PurchaseOrder.status's default, so omitting it made every
+          // ordinary open PO invisible to netting and MRP re-ordered goods that
+          // were already on order.
+          order: { status: { in: ['draft', 'approved', 'active', 'sent', 'partially_received'] as any } },
         },
         select: { productId: true, quantity: true },
       });

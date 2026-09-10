@@ -19,6 +19,7 @@ import { LocationService } from './location.service';
 import { StockService } from './stock.service';
 import { StockDocService } from './stock-doc.service';
 import { InventoryQueryService } from './inventory-query.service';
+import { LedgerDetailService } from './ledger-detail.service';
 import { InventoryQueryDto } from './dto/inventory-query.dto';
 import { DirectStockService } from './direct-stock.service';
 import { DirectStockInDto, DirectStockOutDto, StockLedgerQueryDto } from './dto/direct-stock.dto';
@@ -40,6 +41,7 @@ export class InventoryController {
     private readonly stockDocs: StockDocService,
     private readonly queries: InventoryQueryService,
     private readonly directStock: DirectStockService,
+    private readonly ledgerDetail: LedgerDetailService,
   ) {}
 
   // ---- Locations ----
@@ -151,6 +153,13 @@ export class InventoryController {
   @RequirePermissions(PERMISSIONS.inventory.read)
   ledger(@Query() query: StockLedgerQueryDto) {
     return this.queries.getLedger(query);
+  }
+
+  /** One ledger line plus its source transaction — powers the ledger "View" drill-down. */
+  @Get('ledger/:id')
+  @RequirePermissions(PERMISSIONS.inventory.read)
+  ledgerEntry(@Param('id') id: string) {
+    return this.ledgerDetail.getEntry(id);
   }
 
   // ---- F.8 Reports ----

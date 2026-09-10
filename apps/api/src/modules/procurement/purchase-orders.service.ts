@@ -524,6 +524,7 @@ export class PurchaseOrdersService {
         sourceType: 'goods_receipt',
         sourceId: grn.id,
         description: `Goods received ${receiptNumber} · PO ${po.orderNumber}`,
+        postingKey: `receipt_voucher:goods_receipt:${grn.id}`,
         tx,
       });
 
@@ -565,6 +566,9 @@ export class PurchaseOrdersService {
             sourceType: 'purchase_order',
             sourceId: id,
             description: `Cash purchase ${po.orderNumber} · GRN ${receiptNumber}`,
+            // One auto-settlement per receipt — the PO id alone would collide
+            // across partial receipts.
+            postingKey: `purchase_payment:goods_receipt:${grn.id}`,
             tx,
           });
           // Drawer artifact (best-effort): record the pay-out on an open session
@@ -670,6 +674,7 @@ export class PurchaseOrdersService {
         sourceType: 'purchase_order',
         sourceId: id,
         description: `Payment PO ${po.orderNumber}${dto.reference ? ` · ${dto.reference}` : ''}`,
+        postingKey: `purchase_payment:${payment.id}`,
         tx,
       });
       // Cash method: also record the drawer pay-out (best-effort, no GL — the
@@ -735,6 +740,23 @@ export class PurchaseOrdersService {
           'Purchase order was modified by another user. Please refresh and try again.',
         );
       }
+      await this.audit.recordInTx(tx, {
+        entity: 'PurchaseOrder',
+        entityId: id,
+        action: 'update',
+        oldValues: {
+          description: po.description,
+          expectedDeliveryDate: po.expectedDeliveryDate,
+          notes: po.notes,
+          terms: po.terms,
+        },
+        newValues: {
+          description: dto.description,
+          expectedDeliveryDate: dto.expectedDeliveryDate ?? null,
+          notes: dto.notes,
+          terms: dto.terms,
+        },
+      });
       return tx.purchaseOrder.findFirst({ where: { id } });
     });
   }
@@ -762,6 +784,15 @@ export class PurchaseOrdersService {
         );
       }
       const cancelled = await tx.purchaseOrder.findFirst({ where: { id } });
+      // Cancelling an order left no trail at all before this — the status just
+      // changed and nothing recorded who did it or why.
+      await this.audit.recordInTx(tx, {
+        entity: 'PurchaseOrder',
+        entityId: id,
+        action: 'cancel',
+        oldValues: { status: po.status },
+        newValues: { status: 'cancelled', reason: reason ?? null, orderNumber: po.orderNumber },
+      });
       this.events.publish('purchase_order.cancelled' as any, {
         organizationId: this.tenant.organizationId,
         orderId: id,
@@ -780,7 +811,18 @@ export class PurchaseOrdersService {
         'Cannot delete a received or cancelled PO',
       );
     }
-    await this.prisma.client.purchaseOrder.delete({ where: { id } });
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.purchaseOrder.delete({ where: { id } });
+      // Deleting an order left no trail either. Record inside the tx so an
+      // audit failure rolls the delete back rather than losing the order
+      // silently.
+      await this.audit.recordInTx(tx, {
+        entity: 'PurchaseOrder',
+        entityId: id,
+        action: 'delete',
+        oldValues: { orderNumber: po.orderNumber, status: po.status, totalAmount: po.totalAmount },
+      });
+    });
     return { ok: true };
   }
 

@@ -124,7 +124,7 @@ export class StockService {
    */
   async receiveFromBill(dto: ReceiveFromBillDto, externalTx?: any) {
     return this.receiveCore(
-      { productId: dto.productId, locationId: dto.locationId, quantity: dto.quantity, unitCost: dto.unitCost, batchNumber: dto.batchNumber, expiryDate: dto.expiryDate, notes: dto.notes, serialNumbers: dto.serialNumbers },
+      { productId: dto.productId, locationId: dto.locationId, quantity: dto.quantity, unitCost: dto.unitCost, uomId: dto.uomId, batchNumber: dto.batchNumber, expiryDate: dto.expiryDate, notes: dto.notes, serialNumbers: dto.serialNumbers },
       { sourceType: 'vendor_bill', sourceId: dto.billId, date: new Date(dto.billDate) },
       externalTx,
     );

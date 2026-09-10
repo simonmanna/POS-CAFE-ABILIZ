@@ -32,17 +32,22 @@ export async function createAuditOrg(prisma: PrismaClient, tag: string): Promise
   const grni = await mk(organizationId, `${tag}-2150`, 'GRNI', 'current_liability');
   const adjExpense = await mk(organizationId, `${tag}-5900`, 'Stock Adj Expense', 'operating_expense');
   const adjIncome = await mk(organizationId, `${tag}-4900`, 'Stock Adj Income', 'other_income');
+  const ppv = await mk(organizationId, `${tag}-5320`, 'Purchase Price Variance', 'operating_expense');
+  const wht = await mk(organizationId, `${tag}-2160`, 'Withholding Tax Payable', 'current_liability');
   const payable = await mk(organizationId, `${tag}-2100`, 'Accounts Payable', 'payable');
   const receivable = await mk(organizationId, `${tag}-1200`, 'Accounts Receivable', 'receivable');
   const revenue = await mk(organizationId, `${tag}-4000`, 'Sales Revenue', 'revenue');
   const taxAcct = await mk(organizationId, `${tag}-2200`, 'Tax Payable', 'tax');
   const cash = await mk(organizationId, `${tag}-1000`, 'Cash', 'cash');
+  const bank = await mk(organizationId, `${tag}-1200B`, 'Bank', 'bank');
 
   for (const [code, name] of [
     ['INV', 'Inventory'],
     ['ADJ', 'Adjustments'],
     ['SALES', 'Sales'],
     ['PURCH', 'Purchases'],
+    ['BANK', 'Bank'],
+    ['CASH', 'Cash'],
     ['GEN', 'General'],
   ] as const) {
     await prisma.journal.create({ data: { organizationId, code, name, journalType: 'general' } });
@@ -54,12 +59,17 @@ export async function createAuditOrg(prisma: PrismaClient, tag: string): Promise
     grni_accrued: grni.id,
     stock_adjustment_expense: adjExpense.id,
     stock_adjustment_income: adjIncome.id,
+    purchase_price_variance: ppv.id,
+    withholding_payable: wht.id,
     default_expense: adjExpense.id,
     accounts_payable: payable.id,
     accounts_receivable: receivable.id,
     sales_revenue: revenue.id,
     tax_payable: taxAcct.id,
     cash: cash.id,
+    default_cash: cash.id,
+    bank: bank.id,
+    default_bank: bank.id,
   };
   for (const [key, accountId] of Object.entries(accounts)) {
     await prisma.accountMapping.create({ data: { organizationId, key, accountId } });
@@ -116,8 +126,10 @@ export async function dropAuditOrg(prisma: PrismaClient, organizationId?: string
     'document',
     'purchaseOrderLine',
     'purchaseOrder',
+    'vendorBillReceiptMatch',
     'goodsReceiptLine',
-    'goodsReceipt',
+    'goodsReceiptNote',
+    'vendorBillLink',
     'menuProduct',
     'menuItem',
     'journalLine',

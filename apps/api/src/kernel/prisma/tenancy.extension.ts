@@ -119,7 +119,9 @@ const ORG_SCOPED = new Set<string>([
   'PurchaseOrderLine',
   'GoodsReceiptNote',
   'GoodsReceiptLine',
+  'PurchasePayment',
   'VendorBillLink',
+  'VendorBillReceiptMatch',
   'ThreeWayMatch',
   // F.6 — Debit notes
   'DebitNote',

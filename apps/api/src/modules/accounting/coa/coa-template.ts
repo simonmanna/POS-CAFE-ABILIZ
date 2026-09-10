@@ -108,6 +108,7 @@ export const COA_TEMPLATE: readonly CoaAccountDef[] = [
   // Contra to actual overhead expenses — credited as overhead is absorbed into
   // WIP on a production order. Net of this and the real overhead accounts is the
   // period's over/under-absorption.
+  { code: '5320', name: 'Purchase Price Variance', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5320 },
   { code: '5350', name: 'Manufacturing Overhead Absorbed', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5350 },
   // Cash drawer over/short at shift close (also used for manual adjustments).
   { code: '5400', name: 'Cash Short & Over', categoryKey: 'operating_expense', parentCode: '5000', sortOrder: 5400 },
@@ -180,6 +181,7 @@ export const COA_MAPPINGS: Record<string, string> = {
   grni_accrued: '2150',
   stock_adjustment_income: '4200',
   stock_adjustment_expense: '5300',
+  purchase_price_variance: '5320',
   wip: '1420',
   overhead_absorbed: '5350',
 

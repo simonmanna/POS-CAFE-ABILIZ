@@ -12,6 +12,7 @@ import { InvoiceController } from './invoice/invoice.controller';
 import { CreditNoteService } from './credit-note/credit-note.service';
 import { CreditNoteController } from './credit-note/credit-note.controller';
 import { VendorBillService } from './vendor-bill/vendor-bill.service';
+import { BillReceiptMatcherService } from './vendor-bill/bill-receipt-matcher.service';
 import { VendorBillController } from './vendor-bill/vendor-bill.controller';
 import { PaymentService } from './payment/payment.service';
 import { PaymentController } from './payment/payment.controller';
@@ -40,6 +41,7 @@ import { InvoicingWorkflowsInitializer } from './workflows/invoicing-workflows.i
     InvoiceService,
     CreditNoteService,
     VendorBillService,
+    BillReceiptMatcherService,
     PaymentService,
     ArReportingService,
     ApAgingService,
@@ -51,6 +53,7 @@ import { InvoicingWorkflowsInitializer } from './workflows/invoicing-workflows.i
     InvoiceService,
     CreditNoteService,
     VendorBillService,
+    BillReceiptMatcherService,
     PaymentService,
     ArReportingService,
     ApAgingService,
