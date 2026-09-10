@@ -23,6 +23,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Link } from 'react-router-dom';
 import { DataTable, type Column } from '@/components/data-table';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useAuthStore } from '@/stores/auth.store';
@@ -130,6 +131,28 @@ export function StaffPage() {
           ))}
         </div>
       ),
+    },
+    {
+      key: 'employee',
+      header: 'Employee',
+      // The Staff screen and the HR employee list used to be two unrelated
+      // lists of the same people. This column is the join made visible: it says
+      // which workforce record a login belongs to, or that it belongs to none.
+      render: (u) =>
+        u.employee ? (
+          <Link
+            to={`/hr/employees/${u.employee.id}`}
+            className="space-y-0.5 hover:underline"
+            title="Open the Employee 360 record"
+          >
+            <div className="text-sm">
+              {u.employee.firstName} {u.employee.lastName ?? ''}
+            </div>
+            <div className="text-xs text-muted-foreground">{u.employee.employeeCode}</div>
+          </Link>
+        ) : (
+          <span className="text-xs text-muted-foreground">Not linked</span>
+        ),
     },
     {
       key: 'status',

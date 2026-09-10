@@ -95,12 +95,13 @@ export function localIso(d: Date): string {
 /**
  * Invoice statuses that represent a POS sale that actually happened.
  *
- * `refunded` belongs here: a fully-refunded sale WAS rung up, and the refund is
- * reported as its own event. Leaving it out (as several reports used to) made
- * the Sales / Items / Cashier tabs disagree with the Daily-Sales totals, which
- * always included it — the same shift reconciling two different ways.
+ * Moved to `@erp/shared` so HR's per-employee sales analytics can use the
+ * identical list — `hr` and `pos` are both verticals and may not import each
+ * other. Re-exported here so every existing import site keeps working.
  */
-export const POS_SALE_STATUSES = ['posted', 'paid', 'refunded'] as const;
+import { POS_SALE_STATUSES } from '@erp/shared';
+
+export { POS_SALE_STATUSES };
 
 /** Order statuses a report may be narrowed to (anything else is rejected). */
 const ORDER_TYPES = new Set(['dine_in', 'takeaway', 'delivery']);

@@ -2,6 +2,7 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable, Logger }
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
+import { TenantContextService } from '../../tenancy/tenant-context.service';
 import { PERMISSIONS_KEY } from '../decorators/require-permissions.decorator';
 import type { AuthUser } from '../jwt-token.service';
 
@@ -27,6 +28,7 @@ export class PermissionsGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly prisma: PrismaService,
+    private readonly tenant: TenantContextService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -44,6 +46,10 @@ export class PermissionsGuard implements CanActivate {
     let granted: string[];
     if (this.dbMode) {
       granted = await this.lookupPermissions(request.auth.sub);
+      // The JWT's copy can be stale by up to JWT_ACCESS_TTL, and a POS token
+      // lives 12h. Publish the authoritative set so field-level checks
+      // (TenantContextService.has) cannot be answered from a stale token.
+      this.tenant.setPermissions(granted);
     } else {
       granted = request.auth.permissions ?? [];
     }
@@ -55,10 +61,18 @@ export class PermissionsGuard implements CanActivate {
     return true;
   }
 
-  /** Re-read the user's role permissions from Postgres. */
+  /**
+   * Re-read the user's role permissions from Postgres.
+   *
+   * Filters on `isActive` so deactivation revokes immediately, which is what
+   * this guard's DB mode exists to promise. Without it a suspended or
+   * terminated employee kept full authority until their token expired — up to
+   * 12h for a POS token. A soft-deleted user is already excluded by the
+   * tenancy extension, which injects `deletedAt: null`.
+   */
   private async lookupPermissions(userId: string): Promise<string[]> {
     const user = await this.prisma.client.user.findFirst({
-      where: { id: userId },
+      where: { id: userId, isActive: true },
       include: { roles: true },
     });
     if (!user) return [];

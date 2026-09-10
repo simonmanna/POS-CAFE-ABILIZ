@@ -26,6 +26,14 @@ export interface UserSummary {
   createdAt: string;
   updatedAt: string;
   roles: { id: string; name: string }[];
+  /** Workforce record this login belongs to. `null` = not linked to HR yet. */
+  employee: {
+    id: string;
+    employeeCode: string;
+    firstName: string;
+    lastName: string | null;
+    employmentStatus: string;
+  } | null;
 }
 
 export interface UserList {

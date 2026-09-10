@@ -97,6 +97,10 @@ export const EVENTS = {
   PosOverrideApproved: 'pos.override.approved',
   PosVoidCompleted: 'pos.void.completed',
   PosReportGenerated: 'pos.report.generated',
+  /// A cashier signed in at a terminal with their PIN. HR listens for this to
+  /// raise an attendance clock-in; POS itself neither knows nor cares that HR
+  /// exists. See DomainEventMap for why this goes over the bus.
+  PosPinLogin: 'pos.pin.login',
   // POS Order → Invoice → Receipt domain (DDD split)
   PosOrderCreated: 'pos.order.created',
   PosOrderUpdated: 'pos.order.updated',
@@ -248,6 +252,22 @@ export interface StockEventPayload {
 }
 
 /** Maps every event name to its payload type. */
+/**
+ * Emitted when a cashier PIN-logs in at a terminal.
+ *
+ * This exists so HR can turn a POS sign-in into an attendance clock-in without
+ * the two modules importing each other: `pos` and `hr` are both verticals and
+ * the architecture rules forbid a direct dependency in either direction. It is
+ * also why the coupling is safe — POS publishes and moves on, so HR being slow,
+ * broken or switched off can never delay or fail a cashier's login.
+ */
+export interface PosPinLoginPayload {
+  userId: string;
+  organizationId: string;
+  at: string;
+  deviceId?: string | null;
+}
+
 export interface DomainEventMap {
   'partner.created': EntityEventPayload;
   'partner.updated': EntityEventPayload;
@@ -257,6 +277,7 @@ export interface DomainEventMap {
   'product.deleted': EntityEventPayload;
   'user.registered': EntityEventPayload;
   'user.logged_in': UserLoggedInPayload;
+  'pos.pin.login': PosPinLoginPayload;
   'journal.posted': JournalPostedPayload;
   'journal.reversed': JournalReversedPayload;
   'cash.received': TreasuryPayload;

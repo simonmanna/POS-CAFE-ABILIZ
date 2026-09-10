@@ -32,11 +32,17 @@ class AuthRepository @Inject constructor(
     var current: LoggedIn? = null
         private set
 
-    suspend fun staffList(): List<StaffEntity> = staffDao.all().filter { it.pinHash != null }
+    suspend fun staffList(): List<StaffEntity> = staffDao.all().filter { it.isActive && it.pinHash != null }
 
     suspend fun loginWithPin(userId: String, pin: String): Result<LoggedIn> = runCatching {
         val user = staffDao.byId(userId)
             ?: return@runCatching Result.failure(IllegalArgumentException("Unknown user"))
+        // Revocation, checked explicitly rather than relying on the server
+        // having nulled the hash. A suspended or terminated employee must not
+        // be able to open a shift on a terminal that is still offline.
+        if (!user.isActive) {
+            return@runCatching Result.failure(IllegalStateException("This account has been deactivated"))
+        }
         val hash = user.pinHash
             ?: return@runCatching Result.failure(IllegalStateException("No PIN set for this user"))
 

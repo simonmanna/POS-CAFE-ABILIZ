@@ -440,8 +440,15 @@ model User {
   tasksAssigned   Task[]         @relation("TaskAssignee")
   tasksSupervised Task[]         @relation("TaskSupervisor")
   tasksVerified   Task[]         @relation("TaskVerifier")
+  /// HR identity spine: the workforce record for this login, if one has been
+  /// linked. Optional on purpose — a POS user with no employee keeps working.
+  employee        HrEmployee?    @relation("UserEmployee")
 
   @@unique([organizationId, email])
+  /// Target of HrEmployee's composite FK. Referencing (organizationId, id)
+  /// rather than id alone makes a cross-tenant employee->user link impossible
+  /// at the database, not merely validated in a service.
+  @@unique([organizationId, id])
   @@index([organizationId])
 }
 
@@ -1187,6 +1194,7 @@ model Branch {
   purchaseRequests PurchaseRequest[]  @relation("PurchaseRequest_branch")
   goodsReceipts    GoodsReceiptNote[] @relation("GoodsReceipt_branch")
   tasks            Task[]
+  hrEmployees      HrEmployee[]       @relation("HrEmployeeBranch")
 
   @@unique([organizationId, code])
   @@index([organizationId])
@@ -8701,6 +8709,37 @@ enum RepairScheduleStatus {
 // Workforce Management vertical (HR) — attendance, timesheets, leave, payroll
 // ═══════════════════════════════════════════════════════════════════════════
 
+/// Where a person sits in the employee lifecycle. Distinct from `isActive`,
+/// which stays as the coarse "counts as staff" flag every existing HR query
+/// already filters on, and is kept in step with this on every transition.
+enum HrEmploymentStatus {
+  ACTIVE
+  PROBATION
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+  RESIGNED
+}
+
+enum HrDocumentType {
+  CONTRACT
+  OFFER_LETTER
+  ID_DOCUMENT
+  CERTIFICATE
+  WORK_PERMIT
+  TRAINING_CERTIFICATE
+  DISCIPLINARY
+  OTHER
+}
+
+enum HrTrainingStatus {
+  ENROLLED
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
 enum HrEmploymentType {
   FULL_TIME
   PART_TIME
@@ -8906,20 +8945,38 @@ model HrEmployee {
   employeeCode         String
   userId               String?          @unique
   firstName            String
+  middleName           String?
   lastName             String?
+  preferredName        String?
+  nationality          String?
   email                String?
   phone                String?
   photoUrl             String?
+  emergencyContactName     String?
+  emergencyContactPhone    String?
+  emergencyContactRelation String?
   gender               String?
   dateOfBirth          DateTime?
   address              String?
   employmentType       HrEmploymentType @default(FULL_TIME)
+  /// Lifecycle state. `isActive` is derived from this on every transition so
+  /// that every pre-existing query keeps working unchanged.
+  employmentStatus     HrEmploymentStatus @default(ACTIVE)
   hireDate             DateTime?
   contractEndDate      DateTime?
   probationEndDate     DateTime?
+  /// Set when probation is passed.
+  confirmedAt          DateTime?
+  terminationDate      DateTime?
+  terminationReason    String?
+  suspendedAt          DateTime?
+  suspensionReason     String?
   departmentId         String?
   positionId           String?
   supervisorId         String?
+  /// Where this person works now. Historical transactions keep their own
+  /// branch — moving an employee never rewrites the past.
+  branchId             String?
   baseSalary           Decimal?         @db.Decimal(20, 6)
   payFrequency         HrPayFrequency   @default(MONTHLY)
   hourlyRate           Decimal?         @db.Decimal(20, 6)
@@ -8939,6 +8996,13 @@ model HrEmployee {
   updatedBy            String?
   deletedAt            DateTime?
 
+  /// HR identity spine. `userId` alone is @unique (1:1), while the FK is
+  /// composite so the linked User must belong to the same organization.
+  /// Postgres MATCH SIMPLE skips the check when userId is NULL, so an
+  /// unlinked employee is still valid. onDelete defaults to Restrict: Users
+  /// are only ever soft-deleted, and a hard delete of a linked User should
+  /// fail loudly rather than orphan the employee record.
+  user               User?                 @relation("UserEmployee", fields: [organizationId, userId], references: [organizationId, id])
   department         HrDepartment?         @relation(fields: [departmentId], references: [id])
   position           HrPosition?           @relation(fields: [positionId], references: [id])
   supervisor         HrEmployee?           @relation("HrSupervisor", fields: [supervisorId], references: [id])
@@ -8955,8 +9019,18 @@ model HrEmployee {
   payrollItems       HrPayrollItem[]
   bankPaymentLines   HrBankPaymentLine[]
   performanceReviews HrPerformanceReview[]
+  branch             Branch?                   @relation("HrEmployeeBranch", fields: [branchId], references: [id])
+  statusHistory      HrEmployeeStatusHistory[]
+  transfers          HrEmployeeTransfer[]      @relation("HrTransferEmployee")
+  documents          HrEmployeeDocument[]
+  trainings          HrEmployeeTraining[]
 
+  @@index([organizationId, branchId])
+  @@index([organizationId, employmentStatus])
   @@unique([organizationId, employeeCode])
+  /// Required by Prisma for the composite 1:1 above. `userId` also carries a
+  /// standalone @unique, so a User can back exactly one employee globally.
+  @@unique([organizationId, userId])
   @@index([organizationId, deletedAt])
   @@index([organizationId, departmentId])
 }
@@ -9563,6 +9637,124 @@ model HrPerformanceReview {
 /// A configured provider account for an org — e.g. "WhatsApp Support",
 /// "Telegram Sales", or the singleton internal channel. Several per provider per
 /// org are supported. Also carries the Baileys single-writer lease + pacing gate.
+/// Append-only ledger of employment-status changes. Never updated, never
+/// soft-deleted: the point of a status history is that it cannot be rewritten
+/// after the fact.
+model HrEmployeeStatusHistory {
+  id              String              @id @default(uuid())
+  organizationId  String
+  employeeId      String
+  fromStatus      HrEmploymentStatus?
+  toStatus        HrEmploymentStatus
+  effectiveDate   DateTime            @default(now())
+  reason          String?
+  /// Whether the linked login was disabled as part of this transition.
+  accountDisabled Boolean             @default(false)
+  actorUserId     String?
+  createdAt       DateTime            @default(now())
+
+  employee HrEmployee @relation(fields: [employeeId], references: [id])
+
+  @@index([organizationId, employeeId, createdAt])
+}
+
+/// A branch / department / position move. Historical POS, accounting and audit
+/// records keep their original context — a transfer is forward-looking only.
+model HrEmployeeTransfer {
+  id               String   @id @default(uuid())
+  organizationId   String
+  employeeId       String
+  fromBranchId     String?
+  toBranchId       String?
+  fromDepartmentId String?
+  toDepartmentId   String?
+  fromPositionId   String?
+  toPositionId     String?
+  effectiveDate    DateTime @default(now())
+  reason           String?
+  actorUserId      String?
+  createdAt        DateTime @default(now())
+
+  employee HrEmployee @relation("HrTransferEmployee", fields: [employeeId], references: [id])
+
+  @@index([organizationId, employeeId, effectiveDate])
+}
+
+/// HR paperwork. The bytes live in `File` (ownerType "HrEmployee", ownerId the
+/// employee id); this row carries the HR metadata — type, issue/expiry, number.
+model HrEmployeeDocument {
+  id             String         @id @default(uuid())
+  organizationId String
+  employeeId     String
+  documentType   HrDocumentType @default(OTHER)
+  title          String
+  /// Loose ref to File.id, matching the convention used elsewhere.
+  fileId         String?
+  documentNumber String?
+  issuedAt       DateTime?
+  expiresAt      DateTime?
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
+
+  employee HrEmployee @relation(fields: [employeeId], references: [id])
+
+  @@index([organizationId, employeeId, deletedAt])
+  @@index([organizationId, expiresAt])
+}
+
+model HrTrainingProgram {
+  id             String    @id @default(uuid())
+  organizationId String
+  code           String
+  name           String
+  description    String?
+  provider       String?
+  /// Nominal duration, for planning only.
+  durationHours  Decimal?  @db.Decimal(10, 2)
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  deletedAt      DateTime?
+
+  enrolments HrEmployeeTraining[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, deletedAt])
+}
+
+model HrEmployeeTraining {
+  id                String           @id @default(uuid())
+  organizationId    String
+  employeeId        String
+  programId         String
+  status            HrTrainingStatus @default(ENROLLED)
+  enrolledAt        DateTime         @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  score             Decimal?         @db.Decimal(10, 2)
+  /// Loose ref to File.id for the certificate.
+  certificateFileId String?
+  trainer           String?
+  notes             String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  createdBy         String?
+  updatedBy         String?
+  deletedAt         DateTime?
+
+  employee HrEmployee        @relation(fields: [employeeId], references: [id])
+  program  HrTrainingProgram @relation(fields: [programId], references: [id])
+
+  @@index([organizationId, employeeId, deletedAt])
+  @@index([organizationId, programId, status])
+}
+
 model CommunicationChannel {
   id                  String    @id @default(uuid())
   organizationId      String

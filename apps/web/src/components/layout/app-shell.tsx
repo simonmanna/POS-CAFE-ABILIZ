@@ -11,6 +11,9 @@ import {
   FileMinus,
   HandCoins,
   FileText,
+  GraduationCap,
+  UserCircle,
+  Users2,
   Banknote,
   Clock,
   Scale,
@@ -300,7 +303,14 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/hr/payslips', label: 'Payslips', icon: FileText, permission: PERMISSIONS.hr.payslip },
       { to: '/hr/advances-loans', label: 'Advances & Loans', icon: HandCoins, permission: PERMISSIONS.hr.payroll },
       { to: '/hr/payroll/settings', label: 'Payroll Settings', icon: SettingsIcon, permission: PERMISSIONS.hr.payroll },
+      { to: '/hr/documents', label: 'Documents', icon: FileText, permission: PERMISSIONS.hr.document },
+      { to: '/hr/training', label: 'Training', icon: GraduationCap, permission: PERMISSIONS.hr.training },
       { to: '/hr/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.hr.report },
+      // No permission: both are scoped server-side to the caller's own record
+      // (or their own reports), so gating them would mean handing every cashier
+      // the staff directory just to let them see their own payslip.
+      { to: '/hr/me', label: 'My HR', icon: UserCircle },
+      { to: '/hr/team', label: 'My Team', icon: Users2 },
     ],
   },
   {

@@ -1,6 +1,20 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { HrOrgService } from './hr-org.service';
+import { HrAccessService } from './hr-access.service';
+import { HrLifecycleService } from './hr-lifecycle.service';
+import { HrSelfService } from './hr-self.service';
+import { HrDocumentsService } from './hr-documents.service';
+import { HrAnalyticsService } from './hr-analytics.service';
+import { LinkUserDto, ProvisionUserDto } from './dto/hr-access.dto';
+import {
+  ConfirmEmployeeDto,
+  ReactivateEmployeeDto,
+  SuspendEmployeeDto,
+  TerminateEmployeeDto,
+  TransferEmployeeDto,
+  UpdateAccessDto,
+} from './dto/hr-lifecycle.dto';
 import { HrAttendanceService } from './hr-attendance.service';
 import { HrTimesheetService } from './hr-timesheet.service';
 import { HrLeaveService } from './hr-leave.service';
@@ -26,7 +40,95 @@ export class HrController {
     private readonly leave: HrLeaveService,
     private readonly payroll: HrPayrollService,
     private readonly reports: HrReportsService,
+    private readonly access: HrAccessService,
+    private readonly lifecycle: HrLifecycleService,
+    private readonly self: HrSelfService,
+    private readonly documents: HrDocumentsService,
+    private readonly analytics: HrAnalyticsService,
   ) {}
+
+  // ── Self-service ─────────────────────────────────────────────────────────
+  //
+  // No `hr:*` permission on any of these. Each one resolves the caller's own
+  // employee record from the session, so the only record reachable is their own
+  // (or, for /team, one of their own reports). Requiring `hr:read` here would
+  // hand every cashier the whole staff directory just so they could see their
+  // own payslip — strictly worse for confidentiality.
+  //
+  // Declared before the `employees/:id` routes so no static segment below can
+  // ever be swallowed by a param route.
+
+  @Get('me')
+  me() {
+    return this.self.me();
+  }
+
+  @Get('me/attendance')
+  myAttendance(@Query() query: any) {
+    return this.self.myAttendance(query);
+  }
+
+  @Post('me/clock')
+  clockSelf(@Body() dto: any) {
+    return this.self.clock(dto);
+  }
+
+  @Get('me/leave')
+  myLeave(@Query() query: any) {
+    return this.self.myLeave(query);
+  }
+
+  @Get('me/leave/balances')
+  myLeaveBalances(@Query() query: any) {
+    return this.self.myLeaveBalances(query);
+  }
+
+  @Post('me/leave')
+  requestOwnLeave(@Body() dto: any) {
+    return this.self.requestLeave(dto);
+  }
+
+  @Post('me/leave/:id/cancel')
+  cancelOwnLeave(@Param('id') id: string) {
+    return this.self.cancelMyLeave(id);
+  }
+
+  @Get('me/payslips')
+  myPayslips(@Query() query: any) {
+    return this.self.myPayslips(query);
+  }
+
+  @Get('me/trainings')
+  myTrainings() {
+    return this.self.myTrainings();
+  }
+
+  // ── Manager self-service ─────────────────────────────────────────────────
+
+  @Get('team')
+  team() {
+    return this.self.team();
+  }
+
+  @Get('team/today')
+  teamToday() {
+    return this.self.teamToday();
+  }
+
+  @Get('team/leave')
+  teamLeave(@Query() query: any) {
+    return this.self.teamLeave(query);
+  }
+
+  @Post('team/leave/:id/approve')
+  approveTeamLeave(@Param('id') id: string, @Body() dto: any) {
+    return this.self.approveTeamLeave(id, dto);
+  }
+
+  @Post('team/leave/:id/reject')
+  rejectTeamLeave(@Param('id') id: string, @Body() dto: any) {
+    return this.self.rejectTeamLeave(id, dto);
+  }
 
   // ── Dashboard / reports ──────────────────────────────────────────────────
 
@@ -34,6 +136,18 @@ export class HrController {
   @RequirePermissions('hr:read')
   dashboard() {
     return this.reports.dashboard();
+  }
+
+  @Get('reports/workforce-sales')
+  @RequirePermissions('hr:report')
+  workforceSales(@Query() query: any) {
+    return this.analytics.workforceSales(query);
+  }
+
+  @Get('reports/workforce-access')
+  @RequirePermissions('hr:read')
+  workforceAccess() {
+    return this.analytics.workforceAccess();
   }
 
   @Get('reports/headcount-trend')
@@ -148,6 +262,188 @@ export class HrController {
   @RequirePermissions('hr:employee')
   deleteEmployee(@Param('id') id: string) {
     return this.org.deleteEmployee(id);
+  }
+
+  // ── Identity spine: employee <-> user account ────────────────────────────
+  //
+  // Gated on `hr:access` rather than `hr:employee`: editing someone's phone
+  // number and granting them a login are different powers. Reading the panel
+  // is gated too — it exposes role grants and POS access.
+
+  /** Accounts with no employee yet — the "Link employee" picker source. */
+  @Get('access/linkable-users')
+  @RequirePermissions('hr:access')
+  linkableUsers(@Query() query: any) {
+    return this.access.listLinkableUsers(query);
+  }
+
+  @Get('employees/:id/access')
+  @RequirePermissions('hr:access')
+  getAccess(@Param('id') id: string) {
+    return this.access.getAccess(id);
+  }
+
+  @Post('employees/:id/link-user')
+  @RequirePermissions('hr:access')
+  linkUser(@Param('id') id: string, @Body() dto: LinkUserDto) {
+    return this.access.linkUser(id, dto);
+  }
+
+  @Delete('employees/:id/link-user')
+  @RequirePermissions('hr:access')
+  unlinkUser(@Param('id') id: string) {
+    return this.access.unlinkUser(id);
+  }
+
+  /** Create a login for an employee who has none, then link it. */
+  @Post('employees/:id/provision-user')
+  @RequirePermissions('hr:access', 'user:create')
+  provisionUser(@Param('id') id: string, @Body() dto: ProvisionUserDto) {
+    return this.access.provisionUser(id, dto);
+  }
+
+  /** Change roles / enabled state on the linked account. */
+  @Patch('employees/:id/access')
+  @RequirePermissions('hr:access', 'role:update')
+  updateAccess(@Param('id') id: string, @Body() dto: UpdateAccessDto) {
+    return this.access.updateAccess(id, dto);
+  }
+
+  // ── Employment lifecycle ─────────────────────────────────────────────────
+  //
+  // Gated on `hr:access` rather than `hr:employee`: correcting a phone number
+  // and ending someone's employment are not the same power.
+
+  @Post('employees/:id/terminate')
+  @RequirePermissions('hr:access')
+  terminate(@Param('id') id: string, @Body() dto: TerminateEmployeeDto) {
+    return this.lifecycle.terminate(id, dto);
+  }
+
+  @Post('employees/:id/suspend')
+  @RequirePermissions('hr:access')
+  suspend(@Param('id') id: string, @Body() dto: SuspendEmployeeDto) {
+    return this.lifecycle.suspend(id, dto);
+  }
+
+  @Post('employees/:id/reactivate')
+  @RequirePermissions('hr:access')
+  reactivate(@Param('id') id: string, @Body() dto: ReactivateEmployeeDto) {
+    return this.lifecycle.reactivate(id, dto);
+  }
+
+  @Post('employees/:id/confirm')
+  @RequirePermissions('hr:access')
+  confirmEmployee(@Param('id') id: string, @Body() dto: ConfirmEmployeeDto) {
+    return this.lifecycle.confirm(id, dto);
+  }
+
+  @Post('employees/:id/transfer')
+  @RequirePermissions('hr:access')
+  transfer(@Param('id') id: string, @Body() dto: TransferEmployeeDto) {
+    return this.lifecycle.transfer(id, dto);
+  }
+
+  @Get('employees/:id/status-history')
+  @RequirePermissions('hr:read')
+  statusHistory(@Param('id') id: string) {
+    return this.lifecycle.statusHistory(id);
+  }
+
+  @Get('employees/:id/transfers')
+  @RequirePermissions('hr:read')
+  transferHistory(@Param('id') id: string) {
+    return this.lifecycle.transferHistory(id);
+  }
+
+  // ── POS x HR analytics (read-only) ───────────────────────────────────────
+
+  @Get('employees/:id/pos-activity')
+  @RequirePermissions('hr:report')
+  posActivity(@Param('id') id: string, @Query() query: any) {
+    return this.analytics.posActivity(id, query);
+  }
+
+  // ── Employee documents ───────────────────────────────────────────────────
+
+  @Get('documents/expiring')
+  @RequirePermissions('hr:document')
+  expiringDocuments(@Query('days') days?: string) {
+    return this.documents.expiring(days ? Number(days) : 60);
+  }
+
+  @Get('documents')
+  @RequirePermissions('hr:document')
+  listDocuments(@Query() query: any) {
+    return this.documents.list(query);
+  }
+
+  @Post('documents')
+  @RequirePermissions('hr:document')
+  createDocument(@Body() dto: any) {
+    return this.documents.create(dto);
+  }
+
+  @Patch('documents/:id')
+  @RequirePermissions('hr:document')
+  updateDocument(@Param('id') id: string, @Body() dto: any) {
+    return this.documents.update(id, dto);
+  }
+
+  @Delete('documents/:id')
+  @RequirePermissions('hr:document')
+  deleteDocument(@Param('id') id: string) {
+    return this.documents.remove(id);
+  }
+
+  // ── Training ─────────────────────────────────────────────────────────────
+
+  @Get('training/programs')
+  @RequirePermissions('hr:training')
+  listPrograms(@Query() query: any) {
+    return this.documents.listPrograms(query);
+  }
+
+  @Post('training/programs')
+  @RequirePermissions('hr:training')
+  createProgram(@Body() dto: any) {
+    return this.documents.createProgram(dto);
+  }
+
+  @Patch('training/programs/:id')
+  @RequirePermissions('hr:training')
+  updateProgram(@Param('id') id: string, @Body() dto: any) {
+    return this.documents.updateProgram(id, dto);
+  }
+
+  @Delete('training/programs/:id')
+  @RequirePermissions('hr:training')
+  deleteProgram(@Param('id') id: string) {
+    return this.documents.removeProgram(id);
+  }
+
+  @Get('training/enrolments')
+  @RequirePermissions('hr:training')
+  listEnrolments(@Query() query: any) {
+    return this.documents.listEnrolments(query);
+  }
+
+  @Post('training/enrolments')
+  @RequirePermissions('hr:training')
+  enrol(@Body() dto: any) {
+    return this.documents.enrol(dto);
+  }
+
+  @Patch('training/enrolments/:id')
+  @RequirePermissions('hr:training')
+  updateEnrolment(@Param('id') id: string, @Body() dto: any) {
+    return this.documents.updateEnrolment(id, dto);
+  }
+
+  @Delete('training/enrolments/:id')
+  @RequirePermissions('hr:training')
+  deleteEnrolment(@Param('id') id: string) {
+    return this.documents.removeEnrolment(id);
   }
 
   // ── Shifts + assignments ─────────────────────────────────────────────────

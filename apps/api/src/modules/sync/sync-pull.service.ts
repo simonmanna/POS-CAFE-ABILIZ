@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
+import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SYNC_PULL_SCOPES, type SyncPullScope } from './dto/sync.dto';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -18,7 +19,10 @@ import { SYNC_PULL_SCOPES, type SyncPullScope } from './dto/sync.dto';
  */
 @Injectable()
 export class SyncPullService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenant: TenantContextService,
+  ) {}
 
   private static readonly OVERLAP_MS = 5_000;
   /** Messages page size (append-only, high-volume — must be bounded). */
@@ -188,21 +192,41 @@ export class SyncPullService {
         // Offline PIN login: the device verifies bcrypt locally against
         // pinHash. Deliberately narrow projection — no password hashes, no
         // emails beyond what receipts/attribution need.
-        return c.user.findMany({
-          where: { ...changed, isActive: true },
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            email: true,
-            pinHash: true,
-            isActive: true,
-            deletedAt: true,
-            updatedAt: true,
-            roles: { select: { name: true, permissions: true } },
-          },
-          orderBy: { updatedAt: 'asc' },
-        });
+        //
+        // Reads through `prisma.raw`, NOT `prisma.client`, and does not filter
+        // on isActive. Both of those were revocation holes: the tenancy
+        // extension force-injects `deletedAt: null` for User, and the old
+        // `isActive: true` filter excluded deactivated accounts — so a
+        // suspended or terminated cashier could never appear in a delta. The
+        // device kept their bcrypt PIN hash and full permission set forever,
+        // and could still take payments offline. Tombstones are the entire
+        // point of this scope (see the class doc), so the org is scoped by
+        // hand here and revoked rows are allowed through.
+        return this.prisma.raw.user
+          .findMany({
+            where: { organizationId: this.tenant.organizationId, ...changed },
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              email: true,
+              pinHash: true,
+              isActive: true,
+              deletedAt: true,
+              updatedAt: true,
+              roles: { select: { name: true, permissions: true } },
+            },
+            orderBy: { updatedAt: 'asc' },
+          })
+          .then((rows) =>
+            rows.map((u) => ({
+              ...u,
+              // Never ship a usable credential for an account that can no
+              // longer log in. A device that has not yet applied the tombstone
+              // still cannot authenticate the revoked PIN.
+              pinHash: u.isActive && !u.deletedAt ? u.pinHash : null,
+            })),
+          );
       case 'products':
         return c.product.findMany({
           where: { ...changed },

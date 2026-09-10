@@ -2,8 +2,15 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
 import { ModuleRegistry } from '../../kernel/module-loader/module-registry.service';
 import { AccountingModule } from '../accounting/accounting.module';
+import { StaffModule } from '../../kernel/auth/staff/staff.module';
 import { HrController } from './hr.controller';
 import { HrOrgService } from './hr-org.service';
+import { HrAccessService } from './hr-access.service';
+import { HrLifecycleService } from './hr-lifecycle.service';
+import { HrSelfService } from './hr-self.service';
+import { HrDocumentsService } from './hr-documents.service';
+import { HrAnalyticsService } from './hr-analytics.service';
+import { HrPosAttendanceSubscriber } from './hr-pos-attendance.subscriber';
 import { HrAttendanceService } from './hr-attendance.service';
 import { HrTimesheetService } from './hr-timesheet.service';
 import { HrLeaveService } from './hr-leave.service';
@@ -23,10 +30,20 @@ import { HrReportsService } from './hr-reports.service';
  * PAYE, pension, SSF, insurance, loan/advance receivables).
  */
 @Module({
-  imports: [AccountingModule],
+  // StaffModule brings UsersService so provisioning reuses the one existing
+  // user-creation path instead of introducing a second one.
+  imports: [AccountingModule, StaffModule],
   controllers: [HrController],
   providers: [
     HrOrgService,
+    HrAccessService,
+    HrLifecycleService,
+    HrSelfService,
+    HrDocumentsService,
+    HrAnalyticsService,
+    // Listens for pos.pin.login on the kernel bus. HR never imports POS and
+    // POS never imports HR — the event is the only seam between them.
+    HrPosAttendanceSubscriber,
     HrAttendanceService,
     HrTimesheetService,
     HrLeaveService,

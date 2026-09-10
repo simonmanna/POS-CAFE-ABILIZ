@@ -541,8 +541,18 @@ export const PERMISSIONS = {
   // ---- Workforce Management (HR) — employees, attendance, timesheets,
   //      leave, payroll, payslips, advances, loans, tax tables, reviews ----
   hr: {
+    /// Employee directory + HR dashboard. Deliberately does NOT carry pay,
+    /// bank or national-ID data — that needs `hr:compensation`.
     read: 'hr:read',
     employee: 'hr:employee',
+    /// Read AND write of compensation-grade fields: baseSalary, hourlyRate,
+    /// bank*, mobileMoney*, taxNumber, pensionNumber, socialSecurityNumber,
+    /// dateOfBirth. Separated from `hr:read` so an HR directory user cannot
+    /// see everyone's salary and bank account.
+    compensation: 'hr:compensation',
+    /// Control of the Employee<->User identity spine: link, unlink, provision
+    /// an account, change roles/status, terminate, suspend, transfer.
+    access: 'hr:access',
     attendance: 'hr:attendance',
     shift: 'hr:shift',
     timesheet: 'hr:timesheet',
@@ -554,6 +564,10 @@ export const PERMISSIONS = {
     loan: 'hr:loan',
     taxTable: 'hr:tax_table',
     performance: 'hr:performance',
+    /// Employee paperwork — contracts, IDs, permits. Separate from `hr:read`
+    /// because a directory user has no business reading someone's contract.
+    document: 'hr:document',
+    training: 'hr:training',
     report: 'hr:report',
   },
   // ---- Communication platform — messaging + channels ----

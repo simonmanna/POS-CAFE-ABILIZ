@@ -7,6 +7,7 @@ import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { writeAudited } from './hr-audit.util';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -118,10 +119,21 @@ export class HrTimesheetService {
       throw new BadRequestException('Only DRAFT/REJECTED timesheets can be submitted');
     if (row._count.entries === 0)
       throw new BadRequestException('Add at least one entry before submitting');
-    return this.prisma.client.hrTimesheet.update({
-      where: { id },
-      data: { status: 'SUBMITTED', submittedAt: new Date(), updatedBy: userId },
-    });
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrTimesheet.update({
+        where: { id },
+        data: { status: 'SUBMITTED', submittedAt: new Date(), updatedBy: userId },
+      }),
+      () => ({
+        entity: 'HrTimesheet',
+        entityId: id,
+        action: 'update',
+        oldValues: { status: row.status },
+        newValues: { status: 'SUBMITTED', submittedBy: userId, entries: row._count.entries },
+      }),
+    );
   }
 
   async approve(id: string) {
@@ -131,10 +143,26 @@ export class HrTimesheetService {
     if (!row) throw new NotFoundException('Timesheet not found');
     if (row.status !== 'SUBMITTED')
       throw new BadRequestException('Only SUBMITTED timesheets can be approved');
-    return this.prisma.client.hrTimesheet.update({
-      where: { id },
-      data: { status: 'APPROVED', approvedById: userId, approvedAt: new Date(), updatedBy: userId },
-    });
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrTimesheet.update({
+        where: { id },
+        data: { status: 'APPROVED', approvedById: userId, approvedAt: new Date(), updatedBy: userId },
+      }),
+      (updated) => ({
+        entity: 'HrTimesheet',
+        entityId: id,
+        action: 'approve',
+        oldValues: { status: row.status },
+        newValues: {
+          status: 'APPROVED',
+          approvedById: userId,
+          employeeId: row.employeeId,
+          totalHours: updated.totalHours,
+        },
+      }),
+    );
   }
 
   async reject(id: string, dto: any = {}) {
@@ -144,14 +172,25 @@ export class HrTimesheetService {
     if (!row) throw new NotFoundException('Timesheet not found');
     if (row.status !== 'SUBMITTED')
       throw new BadRequestException('Only SUBMITTED timesheets can be rejected');
-    return this.prisma.client.hrTimesheet.update({
-      where: { id },
-      data: {
-        status: 'REJECTED',
-        notes: dto.reason ? `${row.notes ?? ''}\nRejected: ${dto.reason}`.trim() : row.notes,
-        updatedBy: userId,
-      },
-    });
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrTimesheet.update({
+        where: { id },
+        data: {
+          status: 'REJECTED',
+          notes: dto.reason ? `${row.notes ?? ''}\nRejected: ${dto.reason}`.trim() : row.notes,
+          updatedBy: userId,
+        },
+      }),
+      () => ({
+        entity: 'HrTimesheet',
+        entityId: id,
+        action: 'reject',
+        oldValues: { status: row.status },
+        newValues: { status: 'REJECTED', rejectedBy: userId, reason: dto.reason ?? null },
+      }),
+    );
   }
 
   async delete(id: string) {

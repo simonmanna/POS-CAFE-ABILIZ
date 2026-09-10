@@ -9,6 +9,7 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { BadRequestException, Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { EVENTS } from '@erp/shared';
 import { EventBus } from '../../kernel/events/event-bus';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
@@ -109,6 +110,20 @@ export class PosAuthService {
       entityId: user.id,
       action: 'login' as any,
       newValues: { posLogin: true },
+    });
+
+    // Announce the sign-in. HR turns this into an attendance clock-in when the
+    // cashier is linked to an employee; nothing else in POS depends on it.
+    //
+    // Fire-and-forget through the outbox, deliberately: a cashier's login must
+    // never be delayed or failed by workforce bookkeeping, and `pos` is not
+    // allowed to import `hr` anyway. If HR is disabled, nobody is listening and
+    // this costs one outbox row.
+    this.events.publish(EVENTS.PosPinLogin, {
+      userId: user.id,
+      organizationId: user.organizationId,
+      at: new Date().toISOString(),
+      deviceId: null,
     });
 
     return {

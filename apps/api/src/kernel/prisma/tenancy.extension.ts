@@ -290,6 +290,12 @@ const ORG_SCOPED = new Set<string>([
   'HrBankPayment',
   'HrBankPaymentLine',
   'HrPerformanceReview',
+  // Phase 2-6 HR: lifecycle ledger, transfers, documents and training.
+  'HrEmployeeStatusHistory',
+  'HrEmployeeTransfer',
+  'HrEmployeeDocument',
+  'HrTrainingProgram',
+  'HrEmployeeTraining',
   // Communication platform — every model carries a non-null organizationId.
   // Omitting any one is a cross-tenant leak (someone reads another org's
   // messages by id), not a bug. The Baileys session manager + dispatch worker
@@ -427,6 +433,9 @@ const SOFT_DELETE = new Set<string>([
   'HrEmployee',
   'HrShift',
   'HrShiftAssignment',
+  'HrEmployeeDocument',
+  'HrTrainingProgram',
+  'HrEmployeeTraining',
   'HrAttendance',
   'HrTimesheet',
   'HrTimesheetEntry',

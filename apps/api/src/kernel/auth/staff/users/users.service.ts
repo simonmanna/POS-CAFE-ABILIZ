@@ -29,6 +29,21 @@ export interface SafeUser {
   createdAt: Date;
   updatedAt: Date;
   roles: { id: string; name: string }[];
+  /**
+   * The workforce record this login belongs to, when HR has linked one.
+   *
+   * `null` is a normal, supported state — a POS user who predates HR, or one
+   * nobody has adopted yet — and the Staff screen surfaces it as "not linked"
+   * rather than an error. Reading it needs no HR module import: the relation
+   * lives on User in the schema.
+   */
+  employee: {
+    id: string;
+    employeeCode: string;
+    firstName: string;
+    lastName: string | null;
+    employmentStatus: string;
+  } | null;
 }
 
 /** Strip server-only fields from a User row. */
@@ -46,6 +61,15 @@ function toSafe(u: any): SafeUser {
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
     roles: (u.roles ?? []).map((r: Role) => ({ id: r.id, name: r.name })),
+    employee: u.employee
+      ? {
+          id: u.employee.id,
+          employeeCode: u.employee.employeeCode,
+          firstName: u.employee.firstName,
+          lastName: u.employee.lastName ?? null,
+          employmentStatus: u.employee.employmentStatus,
+        }
+      : null,
   };
 }
 
@@ -73,7 +97,18 @@ export class UsersService {
     const [data, total] = await Promise.all([
       this.prisma.client.user.findMany({
         where,
-        include: { roles: { select: { id: true, name: true } } },
+      include: {
+        roles: { select: { id: true, name: true } },
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            firstName: true,
+            lastName: true,
+            employmentStatus: true,
+          },
+        },
+      },
         orderBy: [{ isActive: 'desc' }, { firstName: 'asc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
@@ -89,7 +124,18 @@ export class UsersService {
   async findOne(id: string): Promise<SafeUser> {
     const user = await this.prisma.client.user.findFirst({
       where: { id },
-      include: { roles: { select: { id: true, name: true } } },
+      include: {
+        roles: { select: { id: true, name: true } },
+        employee: {
+          select: {
+            id: true,
+            employeeCode: true,
+            firstName: true,
+            lastName: true,
+            employmentStatus: true,
+          },
+        },
+      },
     });
     if (!user) throw new NotFoundException(`User ${id} not found`);
     return toSafe(user);
@@ -118,7 +164,20 @@ export class UsersService {
           isActive: dto.isActive ?? true,
           roles: { connect: roles.map((r) => ({ id: r.id })) },
         },
-        include: { roles: { select: { id: true, name: true } } },
+        include: {
+          roles: { select: { id: true, name: true } },
+          // Keep the response shape identical to list/findOne, so a
+          // successful edit cannot blank the employee link in the UI cache.
+          employee: {
+            select: {
+              id: true,
+              employeeCode: true,
+              firstName: true,
+              lastName: true,
+              employmentStatus: true,
+            },
+          },
+        },
       });
       await this.audit.recordInTx(tx, {
         entity: 'User',
@@ -186,7 +245,20 @@ export class UsersService {
       }
       const after = await tx.user.findFirst({
         where: { id },
-        include: { roles: { select: { id: true, name: true } } },
+        include: {
+          roles: { select: { id: true, name: true } },
+          // Keep the response shape identical to list/findOne, so a
+          // successful edit cannot blank the employee link in the UI cache.
+          employee: {
+            select: {
+              id: true,
+              employeeCode: true,
+              firstName: true,
+              lastName: true,
+              employmentStatus: true,
+            },
+          },
+        },
       });
       await this.audit.recordInTx(tx, {
         entity: 'User',

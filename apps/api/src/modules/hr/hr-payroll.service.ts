@@ -847,6 +847,22 @@ export class HrPayrollService {
           updatedBy: userId,
         },
       });
+      // Approving a run posts real money to the GL and pays real people, so
+      // this is `recordInTx`: if the audit write fails the whole approval and
+      // its journal roll back together.
+      await this.audit.recordInTx(tx, {
+        entity: 'HrPayrollRun',
+        entityId: id,
+        action: 'post',
+        oldValues: { status: run.status, glPosted: false },
+        newValues: {
+          status: 'APPROVED',
+          journalEntryId: journal.id,
+          periodId: run.periodId,
+          approvedBy: userId,
+          employeeCount: run.items?.length ?? 0,
+        },
+      });
       // Re-read through the SAME transaction so the response carries the new
       // status, journal id and generated payslips.
       const itemsFull = await tx.hrPayrollItem.findMany({
@@ -899,7 +915,7 @@ export class HrPayrollService {
           tx,
         );
       }
-      return tx.hrPayrollRun.update({
+      const reversed = await tx.hrPayrollRun.update({
         where: { id },
         data: {
           status: 'REVERSED',
@@ -908,6 +924,19 @@ export class HrPayrollService {
           updatedBy: userId,
         },
       });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrPayrollRun',
+        entityId: id,
+        action: 'cancel',
+        oldValues: { status: run.status, journalEntryId: run.journalEntryId, glPosted: true },
+        newValues: {
+          status: 'REVERSED',
+          glPosted: false,
+          reason: dto.reason ?? null,
+          reversedBy: userId,
+        },
+      });
+      return reversed;
     });
   }
 
@@ -1156,9 +1185,24 @@ export class HrPayrollService {
     if (!row) throw new NotFoundException('Advance not found');
     if (row.status !== 'PENDING')
       throw new BadRequestException('Only PENDING advances can be approved');
-    return this.prisma.client.hrSalaryAdvance.update({
-      where: { id },
-      data: { status: 'APPROVED', approvedById: userId, approvedAt: new Date(), updatedBy: userId },
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const updated = await tx.hrSalaryAdvance.update({
+        where: { id },
+        data: { status: 'APPROVED', approvedById: userId, approvedAt: new Date(), updatedBy: userId },
+      });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrSalaryAdvance',
+        entityId: id,
+        action: 'approve',
+        oldValues: { status: row.status },
+        newValues: {
+          status: 'APPROVED',
+          approvedById: userId,
+          employeeId: row.employeeId,
+          amount: row.amount,
+        },
+      });
+      return updated;
     });
   }
 
@@ -1171,9 +1215,24 @@ export class HrPayrollService {
     if (!row) throw new NotFoundException('Advance not found');
     if (row.status !== 'APPROVED')
       throw new BadRequestException('Only APPROVED advances can be marked paid');
-    return this.prisma.client.hrSalaryAdvance.update({
-      where: { id },
-      data: { status: 'PAID', paidAt: new Date(), updatedBy: userId },
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const updated = await tx.hrSalaryAdvance.update({
+        where: { id },
+        data: { status: 'PAID', paidAt: new Date(), updatedBy: userId },
+      });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrSalaryAdvance',
+        entityId: id,
+        action: 'update',
+        oldValues: { status: row.status },
+        newValues: {
+          status: 'PAID',
+          paidBy: userId,
+          employeeId: row.employeeId,
+          amount: row.amount,
+        },
+      });
+      return updated;
     });
   }
 
@@ -1186,13 +1245,23 @@ export class HrPayrollService {
     if (!row) throw new NotFoundException('Advance not found');
     if (row.status !== 'PENDING')
       throw new BadRequestException('Only PENDING advances can be rejected');
-    return this.prisma.client.hrSalaryAdvance.update({
-      where: { id },
-      data: {
-        status: 'REJECTED',
-        notes: dto.reason ? `${row.notes ?? ''}\nRejected: ${dto.reason}`.trim() : row.notes,
-        updatedBy: userId,
-      },
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const updated = await tx.hrSalaryAdvance.update({
+        where: { id },
+        data: {
+          status: 'REJECTED',
+          notes: dto.reason ? `${row.notes ?? ''}\nRejected: ${dto.reason}`.trim() : row.notes,
+          updatedBy: userId,
+        },
+      });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrSalaryAdvance',
+        entityId: id,
+        action: 'reject',
+        oldValues: { status: row.status },
+        newValues: { status: 'REJECTED', rejectedBy: userId, reason: dto.reason ?? null },
+      });
+      return updated;
     });
   }
 

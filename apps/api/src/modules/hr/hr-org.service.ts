@@ -1,12 +1,20 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { PERMISSIONS } from '@erp/shared';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { AuditService } from '../../kernel/audit/audit.service';
+import {
+  HR_COMPENSATION_FIELDS,
+  redactEmployee,
+  redactEmployees,
+} from './hr-employee-projection';
+import { writeAudited } from './hr-audit.util';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -69,7 +77,10 @@ export class HrOrgService {
       where: { organizationId_code: { organizationId: orgId, code: dto.code } },
     });
     if (existing) throw new BadRequestException(`Department code "${dto.code}" already exists`);
-    return this.prisma.client.hrDepartment.create({
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrDepartment.create({
       data: {
         organizationId: orgId,
         code: String(dto.code).toUpperCase(),
@@ -79,7 +90,14 @@ export class HrOrgService {
         isActive: dto.isActive ?? true,
         createdBy: userId,
       },
-    });
+      }),
+      (row) => ({
+        entity: 'HrDepartment',
+        entityId: row.id,
+        action: 'create',
+        newValues: { code: row.code, name: row.name, managerId: row.managerId },
+      }),
+    );
   }
 
   async updateDepartment(id: string, dto: any) {
@@ -87,16 +105,27 @@ export class HrOrgService {
     const userId = this.tenant.userId;
     const row = await this.prisma.client.hrDepartment.findFirst({ where: { id, organizationId: orgId } });
     if (!row) throw new NotFoundException('Department not found');
-    return this.prisma.client.hrDepartment.update({
-      where: { id },
-      data: {
-        name: dto.name ?? row.name,
-        description: dto.description !== undefined ? dto.description : row.description,
-        managerId: dto.managerId !== undefined ? dto.managerId : row.managerId,
-        isActive: dto.isActive ?? row.isActive,
-        updatedBy: userId,
-      },
-    });
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrDepartment.update({
+        where: { id },
+        data: {
+          name: dto.name ?? row.name,
+          description: dto.description !== undefined ? dto.description : row.description,
+          managerId: dto.managerId !== undefined ? dto.managerId : row.managerId,
+          isActive: dto.isActive ?? row.isActive,
+          updatedBy: userId,
+        },
+      }),
+      (updated) => ({
+        entity: 'HrDepartment',
+        entityId: id,
+        action: 'update',
+        oldValues: { name: row.name, managerId: row.managerId, isActive: row.isActive },
+        newValues: { name: updated.name, managerId: updated.managerId, isActive: updated.isActive },
+      }),
+    );
   }
 
   async deleteDepartment(id: string) {
@@ -109,10 +138,20 @@ export class HrOrgService {
     });
     if (employeeCount > 0)
       throw new BadRequestException('Department still has employees — reassign them first');
-    return this.prisma.client.hrDepartment.update({
-      where: { id },
-      data: { deletedAt: new Date(), updatedBy: userId },
-    });
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrDepartment.update({
+        where: { id },
+        data: { deletedAt: new Date(), updatedBy: userId },
+      }),
+      () => ({
+        entity: 'HrDepartment',
+        entityId: id,
+        action: 'delete',
+        oldValues: { code: row.code, name: row.name },
+      }),
+    );
   }
 
   // ── Positions ────────────────────────────────────────────────────────────
@@ -148,7 +187,10 @@ export class HrOrgService {
       where: { organizationId_code: { organizationId: orgId, code: dto.code } },
     });
     if (existing) throw new BadRequestException(`Position code "${dto.code}" already exists`);
-    return this.prisma.client.hrPosition.create({
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrPosition.create({
       data: {
         organizationId: orgId,
         code: String(dto.code).toUpperCase(),
@@ -158,7 +200,14 @@ export class HrOrgService {
         isActive: dto.isActive ?? true,
         createdBy: userId,
       },
-    });
+      }),
+      (row) => ({
+        entity: 'HrPosition',
+        entityId: row.id,
+        action: 'create',
+        newValues: { code: row.code, name: row.name, departmentId: row.departmentId },
+      }),
+    );
   }
 
   async updatePosition(id: string, dto: any) {
@@ -166,16 +215,32 @@ export class HrOrgService {
     const userId = this.tenant.userId;
     const row = await this.prisma.client.hrPosition.findFirst({ where: { id, organizationId: orgId } });
     if (!row) throw new NotFoundException('Position not found');
-    return this.prisma.client.hrPosition.update({
-      where: { id },
-      data: {
-        name: dto.name ?? row.name,
-        departmentId: dto.departmentId !== undefined ? dto.departmentId : row.departmentId,
-        defaultSalary: dto.defaultSalary !== undefined ? dto.defaultSalary : row.defaultSalary,
-        isActive: dto.isActive ?? row.isActive,
-        updatedBy: userId,
-      },
-    });
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrPosition.update({
+        where: { id },
+        data: {
+          name: dto.name ?? row.name,
+          departmentId: dto.departmentId !== undefined ? dto.departmentId : row.departmentId,
+          defaultSalary: dto.defaultSalary !== undefined ? dto.defaultSalary : row.defaultSalary,
+          isActive: dto.isActive ?? row.isActive,
+          updatedBy: userId,
+        },
+      }),
+      (updated) => ({
+        entity: 'HrPosition',
+        entityId: id,
+        action: 'update',
+        // defaultSalary is a pay band, so a change to it belongs in the trail.
+        oldValues: { name: row.name, defaultSalary: row.defaultSalary, isActive: row.isActive },
+        newValues: {
+          name: updated.name,
+          defaultSalary: updated.defaultSalary,
+          isActive: updated.isActive,
+        },
+      }),
+    );
   }
 
   async deletePosition(id: string) {
@@ -188,10 +253,20 @@ export class HrOrgService {
     });
     if (employeeCount > 0)
       throw new BadRequestException('Position still has employees — reassign them first');
-    return this.prisma.client.hrPosition.update({
-      where: { id },
-      data: { deletedAt: new Date(), updatedBy: userId },
-    });
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrPosition.update({
+        where: { id },
+        data: { deletedAt: new Date(), updatedBy: userId },
+      }),
+      () => ({
+        entity: 'HrPosition',
+        entityId: id,
+        action: 'delete',
+        oldValues: { code: row.code, name: row.name },
+      }),
+    );
   }
 
   // ── Employees ────────────────────────────────────────────────────────────
@@ -227,7 +302,7 @@ export class HrOrgService {
       }),
       this.prisma.client.hrEmployee.count({ where }),
     ]);
-    return { rows, total };
+    return { rows: redactEmployees(rows as any[], this.canSeeCompensation()), total };
   }
 
   async getEmployee(id: string) {
@@ -242,10 +317,38 @@ export class HrOrgService {
         loans: { where: { deletedAt: null } },
         salaryAdvances: { where: { deletedAt: null } },
         shiftAssignments: { include: { shift: true } },
+        // The linked account is deliberately NOT expanded here. This route is
+        // gated on `hr:read` — the directory permission — and the account
+        // carries role and permission grants, which is access-control data, not
+        // directory data. The Employee 360 "System Access" panel reads it from
+        // GET /hr/employees/:id/access instead, behind `hr:access`. The bare
+        // `userId` column still rides along on the row, which only reveals that
+        // the person has an account.
       },
     });
     if (!row) throw new NotFoundException('Employee not found');
-    return row;
+    return redactEmployee(row as any, this.canSeeCompensation());
+  }
+
+  /** True when the caller may read or write compensation-grade fields. */
+  private canSeeCompensation(): boolean {
+    return this.tenant.has(PERMISSIONS.hr.compensation);
+  }
+
+  /**
+   * Reject an attempt to set pay/bank/ID fields without `hr:compensation`.
+   *
+   * Refuses loudly rather than silently dropping the fields — an HR officer who
+   * types a salary and gets a 200 back would reasonably believe it saved.
+   */
+  private assertMayWriteCompensation(dto: Record<string, any>): void {
+    if (this.canSeeCompensation()) return;
+    const attempted = HR_COMPENSATION_FIELDS.filter((f) => dto[f] !== undefined);
+    if (attempted.length > 0) {
+      throw new ForbiddenException(
+        `Setting ${attempted.join(', ')} requires the ${PERMISSIONS.hr.compensation} permission.`,
+      );
+    }
   }
 
   async createEmployee(dto: any) {
@@ -262,11 +365,16 @@ export class HrOrgService {
       throw new BadRequestException(`Invalid employmentType: ${dto.employmentType}`);
     if (dto.payFrequency && !PAY_FREQUENCIES.includes(dto.payFrequency))
       throw new BadRequestException(`Invalid payFrequency: ${dto.payFrequency}`);
-    return this.prisma.client.hrEmployee.create({
+    this.assertMayWriteCompensation(dto);
+    // `userId` is deliberately NOT accepted here. Linking an employee to a
+    // login is an identity-control action gated on `hr:access` and recorded in
+    // the audit trail — see HrAccessService.linkUser. Accepting it as a plain
+    // create field is how an unvalidated cross-tenant link became possible.
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const created = await tx.hrEmployee.create({
       data: {
         organizationId: orgId,
         employeeCode,
-        userId: dto.userId ?? null,
         firstName: dto.firstName,
         lastName: dto.lastName ?? null,
         email: dto.email ?? null,
@@ -297,6 +405,20 @@ export class HrOrgService {
         notes: dto.notes ?? null,
         createdBy: userId,
       },
+      });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrEmployee',
+        entityId: created.id,
+        action: 'create',
+        newValues: {
+          employeeCode: created.employeeCode,
+          firstName: created.firstName,
+          lastName: created.lastName,
+          departmentId: created.departmentId,
+          positionId: created.positionId,
+        },
+      });
+      return redactEmployee(created as any, this.canSeeCompensation());
     });
   }
 
@@ -309,13 +431,18 @@ export class HrOrgService {
       throw new BadRequestException(`Invalid employmentType: ${dto.employmentType}`);
     if (dto.payFrequency && !PAY_FREQUENCIES.includes(dto.payFrequency))
       throw new BadRequestException(`Invalid payFrequency: ${dto.payFrequency}`);
+    this.assertMayWriteCompensation(dto);
     const data: any = {};
+    // `userId` is NOT in this list. It used to be, with no existence, tenancy
+    // or duplicate check, which let any `hr:employee` holder point an employee
+    // at an arbitrary user id — including one in another organization. Linking
+    // now goes through HrAccessService, gated on `hr:access` and audited.
     const fields = [
       'firstName', 'lastName', 'email', 'phone', 'photoUrl', 'gender', 'address',
       'employmentType', 'departmentId', 'positionId', 'supervisorId', 'baseSalary',
       'payFrequency', 'hourlyRate', 'bankName', 'bankAccountName', 'bankAccountNumber',
       'mobileMoneyProvider', 'mobileMoneyNumber', 'taxNumber', 'pensionNumber',
-      'socialSecurityNumber', 'isActive', 'notes', 'userId',
+      'socialSecurityNumber', 'isActive', 'notes',
     ];
     for (const f of fields) {
       if (dto[f] !== undefined) data[f] = dto[f];
@@ -324,7 +451,25 @@ export class HrOrgService {
       if (dto[f] !== undefined) data[f] = dto[f] ? new Date(dto[f]) : null;
     }
     data.updatedBy = userId;
-    return this.prisma.client.hrEmployee.update({ where: { id }, data });
+
+    // Capture only the fields actually changing, so the audit entry is a real
+    // before/after rather than a dump of the whole row.
+    const oldValues: Record<string, unknown> = {};
+    for (const f of Object.keys(data)) {
+      if (f !== 'updatedBy') oldValues[f] = (row as any)[f];
+    }
+
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const updated = await tx.hrEmployee.update({ where: { id }, data });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrEmployee',
+        entityId: id,
+        action: 'update',
+        oldValues,
+        newValues: data,
+      });
+      return redactEmployee(updated as any, this.canSeeCompensation());
+    });
   }
 
   async deleteEmployee(id: string) {
@@ -332,9 +477,18 @@ export class HrOrgService {
     const userId = this.tenant.userId;
     const row = await this.prisma.client.hrEmployee.findFirst({ where: { id, organizationId: orgId } });
     if (!row) throw new NotFoundException('Employee not found');
-    return this.prisma.client.hrEmployee.update({
-      where: { id },
-      data: { deletedAt: new Date(), isActive: false, updatedBy: userId },
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const deleted = await tx.hrEmployee.update({
+        where: { id },
+        data: { deletedAt: new Date(), isActive: false, updatedBy: userId },
+      });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrEmployee',
+        entityId: id,
+        action: 'delete',
+        oldValues: { employeeCode: row.employeeCode, isActive: row.isActive },
+      });
+      return deleted;
     });
   }
 

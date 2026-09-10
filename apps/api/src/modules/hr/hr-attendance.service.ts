@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../kernel/audit/audit.service';
+import { writeAudited } from './hr-audit.util';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -372,30 +373,71 @@ export class HrAttendanceService {
         },
       },
     });
+    // A hand-edited attendance day changes overtime, lateness and therefore
+    // pay, and it overwrites what the clock recorded — so the before/after is
+    // worth keeping even though the clock's own event log is append-only.
     if (existing) {
-      return this.prisma.client.hrAttendance.update({
-        where: { id: existing.id },
-        data: {
-          checkInAt: dto.checkInAt ? new Date(dto.checkInAt) : existing.checkInAt,
-          checkOutAt: dto.checkOutAt ? new Date(dto.checkOutAt) : existing.checkOutAt,
-          status: dto.status ?? existing.status,
-          notes: dto.notes ?? existing.notes,
-          updatedBy: userId,
-        },
-      });
+      return writeAudited(
+        this.prisma,
+        this.audit,
+        (tx) => tx.hrAttendance.update({
+          where: { id: existing.id },
+          data: {
+            checkInAt: dto.checkInAt ? new Date(dto.checkInAt) : existing.checkInAt,
+            checkOutAt: dto.checkOutAt ? new Date(dto.checkOutAt) : existing.checkOutAt,
+            status: dto.status ?? existing.status,
+            notes: dto.notes ?? existing.notes,
+            updatedBy: userId,
+          },
+        }),
+        (updated) => ({
+          entity: 'HrAttendance',
+          entityId: existing.id,
+          action: 'adjust',
+          oldValues: {
+            checkInAt: existing.checkInAt,
+            checkOutAt: existing.checkOutAt,
+            status: existing.status,
+          },
+          newValues: {
+            checkInAt: updated.checkInAt,
+            checkOutAt: updated.checkOutAt,
+            status: updated.status,
+            employeeId: dto.employeeId,
+            date,
+          },
+        }),
+      );
     }
-    return this.prisma.client.hrAttendance.create({
-      data: {
-        organizationId: orgId,
-        employeeId: dto.employeeId,
-        date,
-        checkInAt: dto.checkInAt ? new Date(dto.checkInAt) : null,
-        checkOutAt: dto.checkOutAt ? new Date(dto.checkOutAt) : null,
-        status: dto.status ?? 'PRESENT',
-        source: dto.source ?? 'MANUAL',
-        notes: dto.notes ?? null,
-        createdBy: userId,
-      },
-    });
+    return writeAudited(
+      this.prisma,
+      this.audit,
+      (tx) => tx.hrAttendance.create({
+        data: {
+          organizationId: orgId,
+          employeeId: dto.employeeId,
+          date,
+          checkInAt: dto.checkInAt ? new Date(dto.checkInAt) : null,
+          checkOutAt: dto.checkOutAt ? new Date(dto.checkOutAt) : null,
+          status: dto.status ?? 'PRESENT',
+          source: dto.source ?? 'MANUAL',
+          notes: dto.notes ?? null,
+          createdBy: userId,
+        },
+      }),
+      (row) => ({
+        entity: 'HrAttendance',
+        entityId: row.id,
+        action: 'create',
+        newValues: {
+          employeeId: dto.employeeId,
+          date,
+          status: row.status,
+          source: row.source,
+          checkInAt: row.checkInAt,
+          checkOutAt: row.checkOutAt,
+        },
+      }),
+    );
   }
 }

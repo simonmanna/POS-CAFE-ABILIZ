@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -161,13 +162,28 @@ export class HrLeaveService {
     return this.prisma.client.$transaction(async (tx: any) => {
       const balance = await this.ensureBalance(tx, dto.employeeId, dto.leaveTypeId, year);
       const adjustedDays = dto.adjustedDays ?? 0;
-      return tx.hrLeaveBalance.update({
+      const updated = await tx.hrLeaveBalance.update({
         where: { id: balance.id },
         data: {
           adjustedDays: balance.adjustedDays + adjustedDays,
           createdBy: userId,
         },
       });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrLeaveBalance',
+        entityId: balance.id,
+        action: 'adjust',
+        oldValues: { adjustedDays: balance.adjustedDays },
+        newValues: {
+          adjustedDays: updated.adjustedDays,
+          delta: adjustedDays,
+          employeeId: dto.employeeId,
+          leaveTypeId: dto.leaveTypeId,
+          year,
+          reason: dto.reason ?? null,
+        },
+      });
+      return updated;
     });
   }
 
@@ -207,14 +223,44 @@ export class HrLeaveService {
     const days = Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
     const requestCode = await this.seq.next('hr_leave_request', { prefix: 'LV-', padding: 6 });
     return this.prisma.client.$transaction(async (tx: any) => {
+      // Overlap guard. Two live requests covering the same day would each
+      // deduct the balance on approval and each stamp the attendance day, so
+      // the same absence would be paid for twice. Ranges touch when one starts
+      // on or before the other ends and vice versa.
+      const clash = await tx.hrLeaveRequest.findFirst({
+        where: {
+          employeeId: dto.employeeId,
+          status: { in: ['PENDING', 'APPROVED'] },
+          startDate: { lte: endDate },
+          endDate: { gte: startDate },
+        },
+        select: { id: true, requestCode: true, startDate: true, endDate: true, status: true },
+      });
+      if (clash) {
+        throw new BadRequestException(
+          `Overlaps leave request ${clash.requestCode} (${clash.status.toLowerCase()}), which already covers part of those dates`,
+        );
+      }
+
       const balance = await this.ensureBalance(tx, dto.employeeId, dto.leaveTypeId, startDate.getFullYear());
       const available = Number(balance.accruedDays) + Number(balance.adjustedDays) - Number(balance.usedDays);
-      if (dto.checkBalance !== false && available < days) {
+      // The balance guard used to be disabled by `checkBalance: false` in the
+      // request body. Because this endpoint takes an untyped `any`, the global
+      // whitelist pipe never stripped it, so any caller could opt out of the
+      // check entirely. Overriding is now explicit, needs a stated reason, and
+      // leaves an audit trail.
+      const override = dto.overrideBalance === true;
+      if (override && !dto.reason) {
+        throw new BadRequestException(
+          'overrideBalance requires a reason explaining why the balance is being exceeded',
+        );
+      }
+      if (!override && available < days) {
         throw new BadRequestException(
           `Insufficient leave balance: ${available} day(s) available, ${days} requested`,
         );
       }
-      return tx.hrLeaveRequest.create({
+      const created = await tx.hrLeaveRequest.create({
         data: {
           organizationId: orgId,
           requestCode,
@@ -228,6 +274,20 @@ export class HrLeaveService {
           createdBy: userId,
         },
       });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrLeaveRequest',
+        entityId: created.id,
+        action: 'create',
+        newValues: {
+          requestCode,
+          employeeId: dto.employeeId,
+          leaveTypeId: dto.leaveTypeId,
+          days,
+          balanceOverridden: override,
+          overrideReason: override ? dto.reason : undefined,
+        },
+      });
+      return created;
     });
   }
 
@@ -240,6 +300,21 @@ export class HrLeaveService {
     if (!row) throw new NotFoundException('Leave request not found');
     if (row.status !== 'PENDING')
       throw new BadRequestException('Only PENDING requests can be approved');
+
+    // Separation of duties: you cannot approve your own leave. This is only
+    // answerable because of the Employee <-> User spine — before it existed the
+    // server had no way to tell that the approver and the requester were the
+    // same person. Mirrors the rule the generic approval engine already applies.
+    if (userId) {
+      const approver = await this.prisma.client.hrEmployee.findFirst({
+        where: { userId },
+        select: { id: true },
+      });
+      if (approver && approver.id === row.employeeId) {
+        throw new ForbiddenException('You cannot approve your own leave request');
+      }
+    }
+
     return this.prisma.client.$transaction(async (tx: any) => {
       const balance = await this.ensureBalance(tx, row.employeeId, row.leaveTypeId, row.startDate.getFullYear());
       const available = Number(balance.accruedDays) + Number(balance.adjustedDays) - Number(balance.usedDays);
@@ -262,6 +337,18 @@ export class HrLeaveService {
         where: { id: balance.id },
         data: { usedDays: Number(balance.usedDays) + Number(row.days) },
       });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrLeaveRequest',
+        entityId: id,
+        action: 'approve',
+        oldValues: { status: row.status },
+        newValues: {
+          status: 'APPROVED',
+          approverId: userId,
+          days: row.days,
+          balanceAfter: Number(balance.usedDays) + Number(row.days),
+        },
+      });
       // Stamp each covered day as ON_LEAVE in attendance.
       let cursor = new Date(row.startDate);
       const end = new Date(row.endDate);
@@ -282,13 +369,23 @@ export class HrLeaveService {
     if (!row) throw new NotFoundException('Leave request not found');
     if (row.status !== 'PENDING')
       throw new BadRequestException('Only PENDING requests can be rejected');
-    return this.prisma.client.hrLeaveRequest.update({
-      where: { id },
-      data: {
-        status: 'REJECTED',
-        notes: dto.reason ? `${row.notes ?? ''}\nRejected: ${dto.reason}`.trim() : row.notes,
-        updatedBy: userId,
-      },
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const updated = await tx.hrLeaveRequest.update({
+        where: { id },
+        data: {
+          status: 'REJECTED',
+          notes: dto.reason ? `${row.notes ?? ''}\nRejected: ${dto.reason}`.trim() : row.notes,
+          updatedBy: userId,
+        },
+      });
+      await this.audit.recordInTx(tx, {
+        entity: 'HrLeaveRequest',
+        entityId: id,
+        action: 'reject',
+        oldValues: { status: row.status },
+        newValues: { status: 'REJECTED', rejectedBy: userId, reason: dto.reason ?? null },
+      });
+      return updated;
     });
   }
 
@@ -313,6 +410,13 @@ export class HrLeaveService {
           data: { usedDays: Math.max(0, Number(balance.usedDays) - Number(row.days)) },
         });
       }
+      await this.audit.recordInTx(tx, {
+        entity: 'HrLeaveRequest',
+        entityId: id,
+        action: 'cancel',
+        oldValues: { status: row.status },
+        newValues: { status: 'CANCELLED', daysReturned: row.status === 'APPROVED' ? row.days : 0 },
+      });
       return updated;
     });
   }

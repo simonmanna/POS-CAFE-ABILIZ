@@ -152,6 +152,10 @@ import { HrPayrollSettingsPage } from '@/pages/hr/HrPayrollSettingsPage';
 import { HrPayslipsPage } from '@/pages/hr/HrPayslipsPage';
 import { HrAdvancesLoansPage } from '@/pages/hr/HrAdvancesLoansPage';
 import { HrReportsPage } from '@/pages/hr/HrReportsPage';
+import { HrTeamPage } from '@/pages/hr/HrTeamPage';
+import { HrDocumentsPage } from '@/pages/hr/HrDocumentsPage';
+import { HrTrainingPage } from '@/pages/hr/HrTrainingPage';
+import { HrSelfServicePage } from '@/pages/hr/HrSelfServicePage';
 import { StockLedgerPage } from '@/pages/inventory/StockLedgerPage';
 import { StockMovementDetailPage } from '@/pages/inventory/StockMovementDetailPage';
 import LocationsPage from '@/pages/inventory/LocationsPage';
@@ -339,6 +343,12 @@ export function App() {
 
           {/* Workforce Management (HR) — static segments before /hr/employees/:id */}
           <Route path="/hr" element={<HrDashboardPage />} />
+          {/* Self-service and team live under /hr but must precede the
+              `employees/:id` param route so neither can be swallowed by it. */}
+          <Route path="/hr/me" element={<HrSelfServicePage />} />
+          <Route path="/hr/team" element={<HrTeamPage />} />
+          <Route path="/hr/documents" element={<HrDocumentsPage />} />
+          <Route path="/hr/training" element={<HrTrainingPage />} />
           <Route path="/hr/employees" element={<HrEmployeesPage />} />
           <Route path="/hr/employees/:id" element={<HrEmployeeDetailPage />} />
           <Route path="/hr/departments" element={<HrDepartmentsPage />} />

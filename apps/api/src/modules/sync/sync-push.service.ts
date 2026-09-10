@@ -51,10 +51,12 @@ export class SyncPushService {
     const clientIdMap = new Map<string, string>();
     /** clientIds owned by ops that failed — dependents must fail too. */
     const failedClientIds = new Set<string>();
+    /** actorUserId → may act for this device's org. One lookup per actor. */
+    const actorOk = new Map<string, boolean>();
     let lastAppliedSeq = 0;
 
     for (const op of ops) {
-      const result = await this.applyOp(device, op, clientIdMap, failedClientIds);
+      const result = await this.applyOp(device, op, clientIdMap, failedClientIds, actorOk);
       results.push(result);
       if (result.status !== 'failed') lastAppliedSeq = op.deviceSeq;
     }
@@ -70,12 +72,58 @@ export class SyncPushService {
     return { results, lastPushSeq: lastAppliedSeq, serverTime: new Date().toISOString() };
   }
 
+  /**
+   * Is this actor a real, active, non-deleted user of the device's org?
+   *
+   * Reads through `prisma.raw` with an explicit organizationId: this runs
+   * before `tenant.run`, and using the scoped client here would be circular —
+   * we are validating the very identity the scope would be built from.
+   *
+   * Memoized per push batch, so a 500-op batch from one cashier costs one
+   * indexed lookup rather than 500.
+   */
+  private async actorMayAct(
+    device: RequestDevice,
+    actorUserId: string,
+    cache: Map<string, boolean>,
+  ): Promise<boolean> {
+    if (!actorUserId) return false;
+    const cached = cache.get(actorUserId);
+    if (cached !== undefined) return cached;
+
+    const user = await this.prisma.raw.user.findFirst({
+      where: {
+        id: actorUserId,
+        organizationId: device.organizationId,
+        isActive: true,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    const ok = !!user;
+    cache.set(actorUserId, ok);
+    return ok;
+  }
+
   private async applyOp(
     device: RequestDevice,
     op: SyncOpDto,
     clientIdMap: Map<string, string>,
     failedClientIds: Set<string>,
+    actorOk: Map<string, boolean>,
   ): Promise<SyncOpResult> {
+    // The device asserts who did the work; the server has to verify it. Without
+    // this, `actorUserId` was taken on trust and every write below — invoices,
+    // GL postings, drawer movements, audit rows — was attributed to and
+    // executed as an id nobody had checked for existence, organization or
+    // active status. A terminated cashier's queued ops would still apply.
+    if (!(await this.actorMayAct(device, op.actorUserId, actorOk))) {
+      const why = `Unknown or inactive actorUserId ${op.actorUserId} for this device's organization`;
+      await this.deadLetter(device, op, why, 403);
+      if (op.payload?.clientId) failedClientIds.add(String(op.payload.clientId));
+      return { opId: op.opId, status: 'failed', httpStatus: 403, error: why };
+    }
+
     // Dependency check: an op whose payload references a clientId owned by a
     // FAILED op cannot be applied meaningfully (e.g. a sale against a cash
     // session whose open op was rejected).

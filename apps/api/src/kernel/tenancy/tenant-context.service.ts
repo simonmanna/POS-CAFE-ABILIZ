@@ -44,4 +44,27 @@ export class TenantContextService {
   get permissions(): string[] {
     return this.als.getStore()?.permissions ?? [];
   }
+
+  /**
+   * Replace the request's permission set with the authoritative one.
+   *
+   * The set placed here by the main.ts middleware comes from the JWT and can be
+   * up to JWT_ACCESS_TTL stale. PermissionsGuard re-reads the real set from
+   * Postgres on every guarded request, so it calls this to overwrite the cached
+   * copy — that way field-level checks (`has()`) and the JWT agree, and a
+   * revoked role cannot leak a sensitive field for the life of a token.
+   */
+  setPermissions(permissions: string[]): void {
+    const store = this.als.getStore();
+    if (store) store.permissions = permissions;
+  }
+
+  /**
+   * Field-level authorization helper. Route-level access is already settled by
+   * PermissionsGuard; this is for narrowing a *response* — e.g. returning
+   * salary only to `hr:compensation` holders.
+   */
+  has(permission: string): boolean {
+    return this.permissions.includes(permission);
+  }
 }
