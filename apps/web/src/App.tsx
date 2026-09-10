@@ -46,6 +46,7 @@ import { ManufacturingResourcesPage } from '@/pages/manufacturing/ManufacturingR
 import { ChartOfAccountsPage } from '@/pages/accounting/chart-of-accounts';
 import { AccountDetailPage } from '@/pages/accounting/AccountDetailPage';
 import { CashAccountsPage } from '@/pages/accounting/cash-accounts';
+import { CashFlowReportPage } from '@/pages/accounting/cash-flow-report';
 import { CashAccountDetailPage } from '@/pages/accounting/cash-account-detail';
 import { CashFlowTransactionsPage } from '@/pages/accounting/cash-flow-transactions';
 import { CashRegistersCrudPage } from '@/pages/accounting/cash-registers';
@@ -248,6 +249,7 @@ export function App() {
           <Route path="/accounts/:id" element={<AccountDetailPage />} />
           <Route path="/accounts/cash-accounts" element={<CashAccountsPage />} />
           <Route path="/accounts/cash-accounts/transactions" element={<CashFlowTransactionsPage />} />
+          <Route path="/cash-flow/report" element={<CashFlowReportPage />} />
           <Route path="/accounts/cash-accounts/:id" element={<CashAccountDetailPage />} />
           <Route path="/accounts/cash-registers" element={<CashRegistersCrudPage />} />
           <Route path="/accounts/mappings" element={<AccountMappingsPage />} />

@@ -226,6 +226,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/ar-aging', label: 'Accounts Receivable', icon: Clock },
       { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote },
       { to: '/accounts/cash-accounts', label: 'Accounts', icon: Wallet },
+      { to: '/cash-flow/report', label: 'Cash Flow Reports', icon: BarChart3, permission: PERMISSIONS.account.read },
     ],
   },
   {

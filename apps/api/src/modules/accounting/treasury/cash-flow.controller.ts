@@ -10,10 +10,30 @@ import {
   Query,
 } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
-import { IsBoolean, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsIn,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { CashFlowService } from './cash-flow.service';
+import {
+  CashMovementReportService,
+  type CashMovementGrouping,
+} from './cash-movement-report.service';
+
+/** `?accountIds=a,b` and `?accountIds=a&accountIds=b` both arrive as a string[]. */
+const toList = ({ value }: { value: unknown }): string[] =>
+  (Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [])
+    .map((v) => String(v).trim())
+    .filter(Boolean);
 
 class CreateCashAccountDto {
   @IsString() @IsNotEmpty() code!: string;
@@ -44,9 +64,26 @@ class TransactionsQueryDto {
   @IsOptional() @Type(() => Number) pageSize: number = 25;
 }
 
+class CashFlowReportQueryDto {
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @Transform(toList) @IsArray() @IsString({ each: true }) accountIds?: string[];
+  @IsOptional() @Transform(toList) @IsArray() @IsString({ each: true }) accountTypes?: string[];
+  @IsOptional() @Transform(toList) @IsArray() @IsString({ each: true }) categories?: string[];
+  @IsOptional() @IsIn(['in', 'out', 'all']) direction?: 'in' | 'out' | 'all';
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() @Min(0) minAmount?: number;
+  @IsOptional() @IsIn(['day', 'week', 'month']) groupBy?: CashMovementGrouping;
+  @IsOptional() @Type(() => Number) page: number = 1;
+  @IsOptional() @Type(() => Number) pageSize: number = 50;
+}
+
 @Controller('accounts/cash-flow')
 export class CashFlowController {
-  constructor(private readonly cashFlow: CashFlowService) {}
+  constructor(
+    private readonly cashFlow: CashFlowService,
+    private readonly movementReport: CashMovementReportService,
+  ) {}
 
   @Get()
   @RequirePermissions(PERMISSIONS.account.read)
@@ -71,6 +108,17 @@ export class CashFlowController {
   @RequirePermissions(PERMISSIONS.account.delete)
   remove(@Param('id') id: string) {
     return this.cashFlow.remove(id);
+  }
+
+  /**
+   * Cash Flow Report — every cash movement (in / out / transfer) across the
+   * payment accounts, with summary, per-account and per-category rollups and a
+   * trend series all derived from the same filtered set.
+   */
+  @Get('report')
+  @RequirePermissions(PERMISSIONS.account.read)
+  report(@Query() query: CashFlowReportQueryDto) {
+    return this.movementReport.report(query);
   }
 
   @Get('transactions')

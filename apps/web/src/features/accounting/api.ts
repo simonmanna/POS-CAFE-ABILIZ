@@ -1068,6 +1068,124 @@ export function useCashFlowTransactions(params: { page?: number; pageSize?: numb
   });
 }
 
+// ─────────────────────── Cash Flow Report (movements) ───────────────────────
+
+export type CashMovementDirection = 'in' | 'out';
+export type CashMovementGrouping = 'day' | 'week' | 'month';
+
+export interface CashMovementRow {
+  id: string;
+  journalEntryId: string;
+  entryNumber: string;
+  date: string;
+  description: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  category: string;
+  categoryLabel: string;
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  accountType: string | null;
+  branchName: string | null;
+  costCenterName: string | null;
+  direction: CashMovementDirection;
+  inflow: string;
+  outflow: string;
+  amount: string;
+  signedAmount: string;
+  counterparties: { code: string; name: string }[];
+}
+
+export interface CashFlowReportFilters {
+  from?: string;
+  to?: string;
+  accountIds?: string[];
+  accountTypes?: string[];
+  categories?: string[];
+  direction?: 'in' | 'out' | 'all';
+  search?: string;
+  minAmount?: number;
+  groupBy?: CashMovementGrouping;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface CashFlowReportResult {
+  filters: Required<Omit<CashFlowReportFilters, 'page' | 'pageSize'>>;
+  summary: {
+    openingBalance: string;
+    cashIn: string;
+    cashOut: string;
+    netChange: string;
+    closingBalance: string;
+    movementCount: number;
+    inflowCount: number;
+    outflowCount: number;
+    largestInflow: string;
+    largestOutflow: string;
+  };
+  data: CashMovementRow[];
+  byAccount: {
+    accountId: string;
+    code: string;
+    name: string;
+    accountType: string | null;
+    cashIn: string;
+    cashOut: string;
+    net: string;
+    movementCount: number;
+  }[];
+  byCategory: {
+    category: string;
+    label: string;
+    cashIn: string;
+    cashOut: string;
+    net: string;
+    movementCount: number;
+  }[];
+  series: {
+    period: string;
+    cashIn: string;
+    cashOut: string;
+    net: string;
+    runningBalance: string;
+    movementCount: number;
+  }[];
+  accountOptions: { id: string; code: string; name: string; accountType: string | null }[];
+  categoryOptions: { key: string; label: string }[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+/**
+ * Every filter the screen renders is sent to the server, so the summary cards,
+ * the rollups and the row list are always computed over the same movement set.
+ */
+export function useCashFlowReport(filters: CashFlowReportFilters) {
+  const params: Record<string, string | number> = {};
+  if (filters.from) params.from = filters.from;
+  if (filters.to) params.to = filters.to;
+  if (filters.accountIds?.length) params.accountIds = filters.accountIds.join(',');
+  if (filters.accountTypes?.length) params.accountTypes = filters.accountTypes.join(',');
+  if (filters.categories?.length) params.categories = filters.categories.join(',');
+  if (filters.direction && filters.direction !== 'all') params.direction = filters.direction;
+  if (filters.search?.trim()) params.search = filters.search.trim();
+  if (filters.minAmount) params.minAmount = filters.minAmount;
+  if (filters.groupBy) params.groupBy = filters.groupBy;
+  params.page = filters.page ?? 1;
+  params.pageSize = filters.pageSize ?? 50;
+
+  return useQuery({
+    queryKey: ['cash-flow-report', params],
+    queryFn: async () =>
+      (await api.get<CashFlowReportResult>('/accounts/cash-flow/report', { params })).data,
+    placeholderData: (prev) => prev,
+  });
+}
+
 export function useCashFlowDeposit() {
   const qc = useQueryClient();
   return useMutation({
