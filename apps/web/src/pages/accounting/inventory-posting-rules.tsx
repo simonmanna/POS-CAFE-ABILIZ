@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Pencil, Trash2, Ban, CheckCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Ban, CheckCircle, RotateCcw } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import type { InventoryMovementType } from '@erp/shared';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { DataTable, type Column } from '@/components/data-table';
-import { notify } from '@/lib/notify';
+import { notify, apiMessage } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
 import { api } from '@/lib/api';
 
@@ -53,6 +53,12 @@ interface MovementTypeEntry {
   label: string;
 }
 
+/**
+ * Radix throws when a <SelectItem/> carries an empty-string value, so the
+ * "all movement types" choice needs a sentinel rather than ''.
+ */
+const ALL_MOVEMENT_TYPES = '__all__';
+
 const ACCOUNT_SOURCES = [
   { value: 'account_mapping', label: 'Account Mapping key (org default)' },
   { value: 'literal', label: 'Direct account selection' },
@@ -77,7 +83,8 @@ export function InventoryPostingRulesPage() {
   const [movementTypes, setMovementTypes] = useState<MovementTypeEntry[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterMt, setFilterMt] = useState('');
+  const [filterMt, setFilterMt] = useState(ALL_MOVEMENT_TYPES);
+  const [restoring, setRestoring] = useState(false);
 
   // Edit state
   const [editRule, setEditRule] = useState<PostingRule | null>(null);
@@ -104,20 +111,50 @@ export function InventoryPostingRulesPage() {
   const canCreate = hasPerm(PERMISSIONS.inventoryPostingRule.create);
   const canDelete = hasPerm(PERMISSIONS.inventoryPostingRule.delete);
 
+  /**
+   * Load the three feeds independently. `Promise.all` used to reject the whole
+   * page when any one call failed — a single bad request left the rules table
+   * permanently empty even though `/inventory/posting-rules` had answered 200.
+   */
   const fetchData = async () => {
+    const [rulesRes, mtRes, acctsRes] = await Promise.allSettled([
+      api.get('/inventory/posting-rules', {
+        params: filterMt === ALL_MOVEMENT_TYPES ? {} : { movementType: filterMt },
+      }),
+      api.get('/inventory/posting-rules/movement-types'),
+      // The accounts list is paginated with `pageSize`; `limit` is not a
+      // whitelisted query param and the API rejects it with 400.
+      api.get('/accounts', { params: { pageSize: 200 } }),
+    ]);
+
+    if (rulesRes.status === 'fulfilled') setRules(rulesRes.value.data ?? []);
+    else notify.error(apiMessage(rulesRes.reason, 'Failed to load posting rules'));
+
+    if (mtRes.status === 'fulfilled') setMovementTypes(mtRes.value.data ?? []);
+    else notify.error(apiMessage(mtRes.reason, 'Failed to load movement types'));
+
+    if (acctsRes.status === 'fulfilled')
+      setAccounts(acctsRes.value.data?.data ?? acctsRes.value.data ?? []);
+    else notify.error(apiMessage(acctsRes.reason, 'Failed to load accounts'));
+
+    setLoading(false);
+  };
+
+  const restoreDefaults = async () => {
+    setRestoring(true);
     try {
-      const [rulesRes, mtRes, acctsRes] = await Promise.all([
-        api.get('/inventory/posting-rules', { params: filterMt ? { movementType: filterMt } : {} }),
-        api.get('/inventory/posting-rules/movement-types'),
-        api.get('/accounts', { params: { limit: 200 } }),
-      ]);
-      setRules(rulesRes.data ?? []);
-      setMovementTypes(mtRes.data ?? []);
-      setAccounts(acctsRes.data?.data ?? acctsRes.data ?? []);
-    } catch (err: any) {
-      notify.error(err?.response?.data?.message ?? 'Failed to load posting rules');
+      const res = await api.post('/inventory/posting-rules/restore-defaults');
+      const created = res.data?.created ?? 0;
+      notify.success(
+        created > 0
+          ? `Restored ${created} default rule${created === 1 ? '' : 's'}`
+          : 'All default rules are already configured',
+      );
+      await fetchData();
+    } catch (err) {
+      notify.error(apiMessage(err, 'Restore failed'));
     } finally {
-      setLoading(false);
+      setRestoring(false);
     }
   };
 
@@ -145,7 +182,7 @@ export function InventoryPostingRulesPage() {
       setEditOpen(false);
       fetchData();
     } catch (err: any) {
-      notify.error(err?.response?.data?.message ?? 'Update failed');
+      notify.error(apiMessage(err, 'Update failed'));
     }
   };
 
@@ -164,7 +201,7 @@ export function InventoryPostingRulesPage() {
       setCreateMt('');
       fetchData();
     } catch (err: any) {
-      notify.error(err?.response?.data?.message ?? 'Create failed');
+      notify.error(apiMessage(err, 'Create failed'));
     }
   };
 
@@ -176,7 +213,7 @@ export function InventoryPostingRulesPage() {
       setDeleting(null);
       fetchData();
     } catch (err: any) {
-      notify.error(err?.response?.data?.message ?? 'Delete failed');
+      notify.error(apiMessage(err, 'Delete failed'));
     }
   };
 
@@ -279,11 +316,19 @@ export function InventoryPostingRulesPage() {
             Configure which accounts are debited/credited per inventory movement type.
           </p>
         </div>
-        {canCreate && (
-          <Button onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" /> Add Rule
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {canCreate && (
+            <Button variant="outline" onClick={restoreDefaults} disabled={restoring}>
+              <RotateCcw className="h-4 w-4 mr-1" />
+              {restoring ? 'Restoring...' : 'Restore Defaults'}
+            </Button>
+          )}
+          {canCreate && (
+            <Button onClick={() => setCreateOpen(true)}>
+              <Plus className="h-4 w-4 mr-1" /> Add Rule
+            </Button>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -292,7 +337,7 @@ export function InventoryPostingRulesPage() {
             <SelectValue placeholder="All movement types" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All movement types</SelectItem>
+            <SelectItem value={ALL_MOVEMENT_TYPES}>All movement types</SelectItem>
             {movementTypes.map((mt) => (
               <SelectItem key={mt.code} value={mt.code}>{mt.label}</SelectItem>
             ))}

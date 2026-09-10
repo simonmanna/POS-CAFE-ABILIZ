@@ -1529,3 +1529,90 @@ export function useDeletePosPaymentMethod() {
     onSuccess: () => invalidatePosMethods(qc),
   });
 }
+
+/* ── Detailed Accounting Report ─────────────────────────────────── */
+
+export interface DetailedReportLine {
+  id: string;
+  date: string;
+  entryId: string;
+  entryNumber: string;
+  entryStatus: string;
+  journalCode: string | null;
+  journalName: string | null;
+  sourceType: string | null;
+  sourceId: string | null;
+  partnerName: string | null;
+  branchName: string | null;
+  costCenterName: string | null;
+  description: string | null;
+  debit: string;
+  credit: string;
+  balance: string;
+}
+
+export interface DetailedReportAccount {
+  accountId: string;
+  code: string;
+  name: string;
+  classification: string | null;
+  categoryKey: string | null;
+  normalBalance: 'debit' | 'credit';
+  opening: string;
+  debit: string;
+  credit: string;
+  movement: string;
+  closing: string;
+  lineCount: number;
+  lines: DetailedReportLine[];
+}
+
+export interface DetailedReportResult {
+  period: { from: string | null; to: string | null };
+  accounts: DetailedReportAccount[];
+  totals: {
+    opening: string;
+    debit: string;
+    credit: string;
+    movement: string;
+    closing: string;
+    lineCount: number;
+  };
+  balanced: boolean;
+  filtered: boolean;
+  truncated: boolean;
+  maxLines: number;
+}
+
+export interface DetailedReportParams {
+  from?: string;
+  to?: string;
+  accountIds?: string;
+  classification?: string;
+  branchId?: string;
+  costCenterId?: string;
+  journalId?: string;
+  partnerId?: string;
+  includeZero?: boolean;
+  summaryOnly?: boolean;
+  maxLines?: number;
+}
+
+export function useDetailedAccountingReport(params: DetailedReportParams, enabled = true) {
+  return useQuery({
+    queryKey: ['accounting-detailed-report', params],
+    enabled,
+    queryFn: async () =>
+      (
+        await api.get<DetailedReportResult>('/reports/accounting/detailed', {
+          // Booleans travel as the literal strings the controller compares against;
+          // dropping the falsy ones keeps the query key and the URL stable.
+          params: {
+            ...params,
+            includeZero: params.includeZero ? 'true' : undefined,
+            summaryOnly: params.summaryOnly ? 'true' : undefined,
+          },
+        })
+      ).data,
+  });
+}

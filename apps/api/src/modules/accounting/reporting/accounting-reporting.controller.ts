@@ -9,6 +9,7 @@ import { CashFlowReportService } from './cash-flow-report.service';
 import { TieOutService } from './tieout.service';
 import { SnapshotRebuildService } from './snapshots/snapshot-rebuild.service';
 import { PosGlReconciliationService } from './pos-gl-reconciliation.service';
+import { DetailedAccountingReportService } from './detailed-report.service';
 
 @Controller('reports/accounting')
 @RequirePermissions(PERMISSIONS.report.accounting)
@@ -21,8 +22,44 @@ export class AccountingReportingController {
     private readonly tieOut: TieOutService,
     private readonly snapshots: SnapshotRebuildService,
     private readonly posGlRecon: PosGlReconciliationService,
+    private readonly detailed: DetailedAccountingReportService,
     private readonly tenant: TenantContextService,
   ) {}
+
+  /**
+   * Detailed Accounting Report — per-account opening balance, every posted
+   * line in the period with a running balance, and the closing balance.
+   * Filterable by account, classification, branch, cost centre, journal and
+   * partner. `summaryOnly=true` drops the line detail for a fast overview.
+   */
+  @Get('detailed')
+  detailedReport(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('accountIds') accountIds?: string,
+    @Query('classification') classification?: string,
+    @Query('branchId') branchId?: string,
+    @Query('costCenterId') costCenterId?: string,
+    @Query('journalId') journalId?: string,
+    @Query('partnerId') partnerId?: string,
+    @Query('includeZero') includeZero?: string,
+    @Query('summaryOnly') summaryOnly?: string,
+    @Query('maxLines') maxLines?: string,
+  ) {
+    return this.detailed.detailed({
+      from,
+      to,
+      accountIds,
+      classification,
+      branchId,
+      costCenterId,
+      journalId,
+      partnerId,
+      includeZero: includeZero === 'true',
+      summaryOnly: summaryOnly === 'true',
+      maxLines: maxLines ? Number(maxLines) : undefined,
+    });
+  }
 
   @Get('trial-balance')
   trialBalance(@Query('from') from?: string, @Query('to') to?: string) {

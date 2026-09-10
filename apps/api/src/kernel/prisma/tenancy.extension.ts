@@ -50,6 +50,9 @@ const ORG_SCOPED = new Set<string>([
   // extension, so scoping the typed client here does not affect it.
   'StockPostingJob',
   'InventoryException',
+  // Configurable inventory→GL posting rules. Org bootstrap seeds these through
+  // prisma.raw (no tenant context yet), which bypasses this extension.
+  'InventoryPostingRule',
   // F.8 — inventory masters + stock document wrappers
   'Brand',
   'ProductVariant',

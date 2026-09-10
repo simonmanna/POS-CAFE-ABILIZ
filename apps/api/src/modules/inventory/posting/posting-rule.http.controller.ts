@@ -53,6 +53,17 @@ export class PostingRuleController {
     return this.svc.resolvePreview(productId, movementType);
   }
 
+  /**
+   * Idempotent repair: (re)create the canonical movement-type defaults for orgs
+   * that predate the rule engine. Declared above `@Post()` so Nest cannot read
+   * it as anything else, and gated on `create` since that is what it does.
+   */
+  @Post('restore-defaults')
+  @RequirePermissions(PERMISSIONS.inventoryPostingRule.create)
+  restoreDefaults() {
+    return this.svc.restoreDefaults();
+  }
+
   @Post()
   @RequirePermissions(PERMISSIONS.inventoryPostingRule.create)
   create(

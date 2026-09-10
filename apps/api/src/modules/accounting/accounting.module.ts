@@ -43,6 +43,7 @@ import { BalanceSheetReportService } from './reporting/balance-sheet-report.serv
 import { CashFlowReportService } from './reporting/cash-flow-report.service';
 import { TieOutService } from './reporting/tieout.service';
 import { PosGlReconciliationService } from './reporting/pos-gl-reconciliation.service';
+import { DetailedAccountingReportService } from './reporting/detailed-report.service';
 import { SnapshotRebuildService } from './reporting/snapshots/snapshot-rebuild.service';
 import { SnapshotCronWorker } from './reporting/snapshot-cron.worker';
 import { CurrencyService } from './currency/currency.service';
@@ -112,6 +113,7 @@ import { InventoryValuationController } from './reporting/inventory-valuation.co
     SnapshotRebuildService,
     SnapshotCronWorker,
     PosGlReconciliationService,
+    DetailedAccountingReportService,
     AccountingWorkflowsInitializer,
   ],
   exports: [

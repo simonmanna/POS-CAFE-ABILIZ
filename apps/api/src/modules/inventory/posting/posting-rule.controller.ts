@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { InventoryMovementType } from '@erp/shared';
+import { DEFAULT_INVENTORY_POSTING_RULES } from '@erp/shared';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { PostingService } from '../../accounting/posting/posting.service';
@@ -50,6 +51,44 @@ export class InventoryPostingRuleControllerService {
       grouped[r.movementType].push(r);
     }
     return grouped;
+  }
+
+  // ─── Restore defaults ────────────────────────────────────────────────────
+
+  /**
+   * Idempotently (re)create the canonical movement-type default rules.
+   *
+   * Orgs created before the rule engine landed have an EMPTY rule table, so
+   * every valued inventory movement throws "No posting rule configured" at
+   * post time. This is the operator-facing repair for that: existing rules are
+   * left untouched (including user edits and product/category overrides), only
+   * the missing movement-type defaults are inserted.
+   */
+  async restoreDefaults() {
+    const organizationId = this.tenant.organizationId;
+    const existing = await this.prisma.client.inventoryPostingRule.findMany({
+      where: { organizationId, productId: null, categoryId: null },
+      select: { movementType: true, lineIndex: true },
+    });
+    const seen = new Set(existing.map((r: any) => `${r.movementType}#${r.lineIndex}`));
+
+    const missing = DEFAULT_INVENTORY_POSTING_RULES.filter(
+      (r) => !seen.has(`${r.movementType}#${r.lineIndex}`),
+    );
+    if (missing.length === 0) return { created: 0, skipped: existing.length };
+
+    await this.prisma.client.inventoryPostingRule.createMany({
+      data: missing.map((r) => ({
+        organizationId,
+        movementType: r.movementType as any,
+        lineIndex: r.lineIndex,
+        debitOrCredit: r.debitOrCredit,
+        accountSource: r.accountSource,
+        accountMappingKey: r.accountMappingKey,
+      })),
+      skipDuplicates: true,
+    });
+    return { created: missing.length, skipped: existing.length };
   }
 
   // ─── Create ──────────────────────────────────────────────────────────────

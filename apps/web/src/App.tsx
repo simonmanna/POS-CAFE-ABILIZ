@@ -69,6 +69,7 @@ import { CurrencyPage } from '@/pages/accounting/currency';
 import { InventoryValuationPage } from '@/pages/accounting/inventory-valuation';
 import { YearEndClosePage } from '@/pages/accounting/year-end-close';
 import { TrialBalancePage } from '@/pages/accounting/trial-balance';
+import { DetailedAccountingReportPage } from '@/pages/accounting/detailed-report';
 import { BalanceSheetPage } from '@/pages/accounting/balance-sheet';
 import { InvoicesPage } from '@/pages/invoicing/invoices';
 import { InvoiceCreatePage } from '@/pages/invoicing/invoice-create';
@@ -268,6 +269,7 @@ export function App() {
           <Route path="/journal-entries/:id" element={<JournalEntryDetailPage />} />
           <Route path="/trial-balance" element={<TrialBalancePage />} />
           <Route path="/general-ledger" element={<GeneralLedgerPage />} />
+          <Route path="/accounting-detailed-report" element={<DetailedAccountingReportPage />} />
           <Route path="/profit-and-loss" element={<ProfitAndLossPage />} />
           <Route path="/cash-flow" element={<CashFlowPage />} />
           <Route path="/accounts/ledger/:id" element={<AccountLedgerPage />} />
