@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { InventoryCountService } from './inventory-count.service';
-import { SaveCountDraftDto, StartCountDto, SubmitCountDto } from './dto/inventory-count.dto';
+import { PreviewCountQueryDto, SaveCountDraftDto, StartCountDto, SubmitCountDto } from './dto/inventory-count.dto';
 
 @Controller('inventory/counts')
 export class InventoryCountController {
@@ -12,6 +12,17 @@ export class InventoryCountController {
   @RequirePermissions(PERMISSIONS.inventoryCount.read)
   list() {
     return this.counts.list();
+  }
+
+  /**
+   * The count sheet for a location as it stands right now — the open draft if
+   * there is one, otherwise a non-persisted preview. Declared BEFORE `:id` so
+   * the param route does not swallow it.
+   */
+  @Get('preview')
+  @RequirePermissions(PERMISSIONS.inventoryCount.read)
+  preview(@Query() query: PreviewCountQueryDto) {
+    return this.counts.preview(query.locationId, query.countType ?? 'opening');
   }
 
   @Get(':id')

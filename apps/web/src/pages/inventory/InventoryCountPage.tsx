@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Fragment } from 'react';
 import { ClipboardList, History, Play, Save, CheckCircle2, XCircle, Search, Eye, ChevronRight } from 'lucide-react';
@@ -38,7 +38,8 @@ interface CountSession {
   name?: string | null;
   locationId: string;
   countType: 'opening' | 'closing';
-  status: 'draft' | 'submitted' | 'cancelled';
+  /** `preview` is a sheet the server built but did NOT persist — see GET /inventory/counts/preview. */
+  status: 'draft' | 'submitted' | 'cancelled' | 'preview';
   notes?: string | null;
   startedAt: string;
   submittedAt?: string | null;
@@ -91,6 +92,17 @@ export function InventoryCountPage() {
     queryFn: async () => (await api.get<{ data: Location[] }>('/inventory/locations')).data.data ?? [],
   });
 
+  // Pick a location as soon as we know one. The page used to open with no
+  // location selected, which left "Start Count" disabled and the sheet empty —
+  // a supervisor arriving for the morning count saw a blank screen and a dead
+  // button, with nothing saying a dropdown had to be touched first.
+  useEffect(() => {
+    if (locationId) return;
+    const first = locations.data?.[0];
+    if (first) setLocationId(first.id);
+  }, [locations.data, locationId]);
+
+
   // Product → category name, used only for the category filter dropdown.
   const products = useQuery<ProductLite[]>({
     queryKey: ['products-lite'],
@@ -123,11 +135,56 @@ export function InventoryCountPage() {
     setDraftNotes(s.notes ?? '');
   };
 
+  /**
+   * Pick an unfinished draft up from the History tab. A partial unique index
+   * allows only ONE draft per (org, location, countType), so pointing the
+   * location + type selectors at the draft is enough — the sheet query below
+   * resolves to that very session and the Count tab becomes editable again,
+   * with Save Draft and Submit Count both available.
+   */
+  const resumeDraft = (s: CountSession) => {
+    setLocationId(s.locationId);
+    setCountType(s.countType);
+    setTab('count');
+    setSearch('');
+    setCategory('all');
+    setOnlyVariance(false);
+    // Drop whatever sheet was loaded so the adopt-effect takes the draft.
+    if (session?.id !== s.id) {
+      setSession(null);
+      setEdits({});
+    }
+  };
+
+  /**
+   * The sheet for the chosen location + type, WITHOUT creating anything: the
+   * open draft if one exists (real line ids — the count resumes itself), else a
+   * server-built preview of exactly what Start would create. This is what makes
+   * the product list visible before a session exists.
+   */
+  const sheet = useQuery<CountSession>({
+    queryKey: ['inventory-count-sheet', locationId, countType],
+    queryFn: async () =>
+      (await api.get<CountSession>('/inventory/counts/preview', { params: { locationId, countType } })).data,
+    enabled: !!locationId,
+  });
+
+  // Adopt whatever the sheet says, unless the user is mid-count on that exact
+  // session (their unsaved keystrokes must survive a background refetch).
+  useEffect(() => {
+    const s = sheet.data;
+    if (!s) return;
+    if (session && session.id === s.id && session.status === s.status) return;
+    loadSession(s);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheet.data]);
+
   const start = useMutation({
     mutationFn: async () =>
       (await api.post<CountSession>('/inventory/counts/start', { locationId, countType })).data,
     onSuccess: (s) => {
       loadSession(s);
+      qc.invalidateQueries({ queryKey: ['inventory-count-sheet'] });
       notify.success(`Count ${s.countCode} ready — ${s.lines.length} items`);
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Could not start count'),
@@ -168,6 +225,8 @@ export function InventoryCountPage() {
       setSession(null);
       setEdits({});
       qc.invalidateQueries({ queryKey: ['inventory-counts'] });
+      // Drop back to a fresh preview of the (now adjusted) stock.
+      qc.invalidateQueries({ queryKey: ['inventory-count-sheet'] });
       qc.invalidateQueries({ queryKey: ['inventory-items'] });
       qc.invalidateQueries({ queryKey: ['inventory-ledger'] });
     },
@@ -179,7 +238,12 @@ export function InventoryCountPage() {
       if (!session) throw new Error('No session');
       return (await api.post(`/inventory/counts/${session.id}/cancel`)).data;
     },
-    onSuccess: () => { setSession(null); setEdits({}); notify.success('Count cancelled'); },
+    onSuccess: () => {
+      setSession(null);
+      setEdits({});
+      qc.invalidateQueries({ queryKey: ['inventory-count-sheet'] });
+      notify.success('Count cancelled');
+    },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Cancel failed'),
   });
 
@@ -210,6 +274,11 @@ export function InventoryCountPage() {
       return true;
     });
   }, [rows, search, category, onlyVariance, categoryOf]);
+
+  // A preview sheet is real data (system on-hand right now) but nothing is
+  // persisted yet, so it is read-only until the count is actually started.
+  const isDraft = session?.status === 'draft';
+  const isPreview = session?.status === 'preview';
 
   const countedTotal = rows.filter((r) => r.counted !== null).length;
   const varianceCount = rows.filter((r) => r.variance !== null && r.variance !== 0).length;
@@ -282,7 +351,7 @@ export function InventoryCountPage() {
         </Button>
       </div>
 
-      {tab === 'count' && !session && (
+      {tab === 'count' && (
         <Card>
           <CardContent className="p-6 space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -308,15 +377,51 @@ export function InventoryCountPage() {
                 </Select>
               </div>
               <div className="flex items-end">
-                <Button className="w-full" disabled={!locationId || start.isPending || locations.isLoading} onClick={() => start.mutate()}>
-                  <Play className="mr-2 h-4 w-4" />
-                  {start.isPending ? 'Starting…' : locations.isLoading ? 'Loading locations…' : 'Start / Resume Count'}
-                </Button>
+                {isDraft ? (
+                  <div className="w-full rounded-md border border-emerald-600/30 bg-emerald-600/10 px-3 py-2 text-sm">
+                    Counting <span className="font-medium">{session?.countCode}</span> — enter actual quantities below.
+                  </div>
+                ) : (
+                  <Button className="w-full" disabled={!locationId || start.isPending || locations.isLoading} onClick={() => start.mutate()}>
+                    <Play className="mr-2 h-4 w-4" />
+                    {start.isPending ? 'Starting…' : locations.isLoading ? 'Loading locations…' : 'Start Count'}
+                  </Button>
+                )}
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              An unfinished draft for the same location + type is resumed automatically.
-            </p>
+            {locations.isError ? (
+              <div className="flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
+                <span>Could not load stock locations, so no count can be started.</span>
+                <Button size="sm" variant="outline" onClick={() => locations.refetch()}>Retry</Button>
+              </div>
+            ) : !locations.isLoading && (locations.data?.length ?? 0) === 0 ? (
+              <p className="text-xs text-destructive">
+                No stock locations exist yet. Create one under Inventory → Locations before counting.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {isDraft
+                  ? 'An unfinished draft for this location and type was resumed. Save it and come back any time before submitting.'
+                  : 'The sheet below is what will be counted. Start the count to enter actual quantities.'}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {tab === 'count' && sheet.isLoading && (
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-full" />
+          <Skeleton className="h-8 w-full" />
+        </div>
+      )}
+
+      {tab === 'count' && sheet.isError && (
+        <Card>
+          <CardContent className="flex items-center gap-3 p-6 text-sm">
+            <span>{(sheet.error as any)?.response?.data?.message ?? 'Could not load the count sheet.'}</span>
+            <Button size="sm" variant="outline" onClick={() => sheet.refetch()}>Retry</Button>
           </CardContent>
         </Card>
       )}
@@ -327,15 +432,19 @@ export function InventoryCountPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border bg-muted/30 p-3">
             <div className="flex items-center gap-3 min-w-0">
               <span className="text-sm font-medium truncate max-w-[280px]" title={session.name ?? ''}>{session.name ?? session.countCode}</span>
-              <Badge variant="outline" className="shrink-0">{session.countCode}</Badge>
+              <Badge variant={isPreview ? 'secondary' : 'outline'} className="shrink-0">
+                {isPreview ? 'Not started' : session.countCode}
+              </Badge>
               <span className="text-sm text-muted-foreground hidden sm:inline">
                 {session.location?.code ?? ''} · {session.countType === 'opening' ? 'Morning' : 'Evening'}
               </span>
               <span className="text-sm text-muted-foreground">
-                {countedTotal} of {rows.length} · {varianceCount} variance
+                {isPreview
+                  ? `${rows.length} items to count`
+                  : `${countedTotal} of ${rows.length} · ${varianceCount} variance`}
               </span>
             </div>
-            <div className="flex gap-2">
+            <div className={`flex gap-2 ${isDraft ? '' : 'hidden'}`}>
               <Button size="sm" variant="ghost" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
                 <XCircle className="mr-1 h-4 w-4" /> Cancel
               </Button>
@@ -400,14 +509,14 @@ export function InventoryCountPage() {
                         </td>
                         <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(ln.systemQty)}</td>
                         <td className="px-3 py-1.5">
-                          <Input type="number" inputMode="decimal" className="h-8 text-right" placeholder="—" value={ed.countedQty} onChange={(e) => setEdit(ln.id, { countedQty: e.target.value })} />
+                          <Input type="number" inputMode="decimal" className="h-8 text-right" placeholder={isDraft ? '—' : 'Start count'} disabled={!isDraft} value={ed.countedQty} onChange={(e) => setEdit(ln.id, { countedQty: e.target.value })} />
                         </td>
                         <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${variance === null ? 'text-muted-foreground' : variance === 0 ? 'text-muted-foreground' : variance > 0 ? 'text-emerald-600' : 'text-destructive'}`}>
                           {variance === null ? '—' : `${variance > 0 ? '+' : ''}${variance}`}
                         </td>
                         <td className="px-3 py-1.5">
                           {hasVar ? (
-                            <Input className={`h-8 ${needReason ? 'border-destructive focus-visible:ring-destructive' : ''}`} placeholder="Reason required…" value={ed.reason} onChange={(e) => setEdit(ln.id, { reason: e.target.value })} />
+                            <Input className={`h-8 ${needReason ? 'border-destructive focus-visible:ring-destructive' : ''}`} placeholder="Reason required…" disabled={!isDraft} value={ed.reason} onChange={(e) => setEdit(ln.id, { reason: e.target.value })} />
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
@@ -442,14 +551,14 @@ export function InventoryCountPage() {
                             </td>
                             <td className="px-3 py-1.5 text-right font-mono tabular-nums">{num(ln.systemQty)}</td>
                             <td className="px-3 py-1.5">
-                              <Input type="number" inputMode="decimal" className="h-8 text-right" placeholder="—" value={ed.countedQty} onChange={(e) => setEdit(ln.id, { countedQty: e.target.value })} />
+                              <Input type="number" inputMode="decimal" className="h-8 text-right" placeholder={isDraft ? '—' : 'Start count'} disabled={!isDraft} value={ed.countedQty} onChange={(e) => setEdit(ln.id, { countedQty: e.target.value })} />
                             </td>
                             <td className={`px-3 py-1.5 text-right font-mono tabular-nums ${variance === null ? 'text-muted-foreground' : variance === 0 ? 'text-muted-foreground' : variance > 0 ? 'text-emerald-600' : 'text-destructive'}`}>
                               {variance === null ? '—' : `${variance > 0 ? '+' : ''}${variance}`}
                             </td>
                             <td className="px-3 py-1.5">
                               {hasVar ? (
-                                <Input className={`h-8 ${needReason ? 'border-destructive focus-visible:ring-destructive' : ''}`} placeholder="Reason required…" value={ed.reason} onChange={(e) => setEdit(ln.id, { reason: e.target.value })} />
+                                <Input className={`h-8 ${needReason ? 'border-destructive focus-visible:ring-destructive' : ''}`} placeholder="Reason required…" disabled={!isDraft} value={ed.reason} onChange={(e) => setEdit(ln.id, { reason: e.target.value })} />
                               ) : (
                                 <span className="text-xs text-muted-foreground">—</span>
                               )}
@@ -493,7 +602,7 @@ export function InventoryCountPage() {
                     <th className="px-3 py-2 text-right">Items</th>
                     <th className="px-3 py-2 text-left">Started</th>
                     <th className="px-3 py-2 text-left">Submitted</th>
-                    <th className="px-3 py-2 text-center w-20">Actions</th>
+                    <th className="px-3 py-2 text-center w-40">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -510,10 +619,17 @@ export function InventoryCountPage() {
                       <td className="px-3 py-2 text-right">{s._count?.lines ?? '—'}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{dateTime(s.startedAt)}</td>
                       <td className="px-3 py-2 whitespace-nowrap">{s.submittedAt ? dateTime(s.submittedAt) : '—'}</td>
-                      <td className="px-3 py-2 text-center">
-                        <Button size="sm" variant="ghost" onClick={() => setViewSessionId(s.id)}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center justify-center gap-1">
+                          {s.status === 'draft' && (
+                            <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => resumeDraft(s)}>
+                              <Play className="h-3 w-3" /> Continue
+                            </Button>
+                          )}
+                          <Button size="sm" variant="ghost" onClick={() => setViewSessionId(s.id)} title="View count">
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -591,6 +707,22 @@ export function InventoryCountPage() {
                     </>
                   )}
                 </div>
+                {viewSession.data.status === 'draft' && (
+                  <div className="mt-3">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="gap-1"
+                      onClick={() => {
+                        const d = viewSession.data!;
+                        setViewSessionId(null);
+                        resumeDraft(d);
+                      }}
+                    >
+                      <Play className="h-3.5 w-3.5" /> Continue counting
+                    </Button>
+                  </div>
+                )}
               </div>
               <div className="p-4">
                 <div className="rounded-md border">

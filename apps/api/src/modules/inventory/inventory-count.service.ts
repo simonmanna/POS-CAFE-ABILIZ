@@ -82,6 +82,106 @@ export class InventoryCountService {
       data: { status: 'cancelled', updatedBy: this.tenant.userId ?? null },
     });
 
+    const lines = await this.buildLines(dto.locationId);
+
+    const countCode = await this.seq.next('inv_count', { prefix: 'CNT-', padding: 5 });
+    const autoName = this.autoName(countType);
+    try {
+      const session = await this.prisma.client.inventoryCountSession.create({
+        data: {
+          organizationId: this.org,
+          countCode,
+          name: autoName,
+          locationId: dto.locationId,
+          countType,
+          status: 'draft',
+          notes: dto.notes ?? null,
+          startedById: this.tenant.userId ?? null,
+          createdBy: this.tenant.userId ?? null,
+          lines: { create: lines as any },
+        },
+      });
+      return this.get(session.id);
+    } catch (err: any) {
+      // P2002 = unique constraint violation (concurrent draft creation).
+      // Fall back to returning the existing draft.
+      if (err?.code === 'P2002') {
+        const existing = await this.prisma.client.inventoryCountSession.findFirst({
+          where: { locationId: dto.locationId, countType, status: 'draft' },
+        });
+        if (existing) return this.get(existing.id);
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * What a count of this location would look like RIGHT NOW, without writing
+   * anything.
+   *
+   * The count sheet used to exist only once a session had been created, so the
+   * page was empty until someone pressed Start — and Start was the one button
+   * that also cancels a colleague's draft. Supervisors could not see what they
+   * were about to count, and an unfinished draft was invisible unless you knew
+   * to look in History.
+   *
+   * So this answers with whichever is true:
+   *   - the OPEN DRAFT for this location + type, if one exists (real line ids,
+   *     immediately editable — the sheet resumes itself), or
+   *   - a preview session (`status: 'preview'`, `id: ''`, synthetic line ids)
+   *     built by the very same line builder `start` uses, so what is previewed
+   *     is exactly what gets created.
+   *
+   * Read-only: needs no count permission, writes no row.
+   */
+  async preview(locationId: string, countType: 'opening' | 'closing' = 'opening') {
+    const location = await this.location(locationId);
+
+    const draft = await this.prisma.client.inventoryCountSession.findFirst({
+      where: { locationId, countType, status: 'draft' },
+    });
+    if (draft) return this.get(draft.id);
+
+    const lines = await this.buildLines(locationId);
+    return {
+      id: '',
+      countCode: 'PREVIEW',
+      name: this.autoName(countType),
+      locationId,
+      countType,
+      status: 'preview' as const,
+      notes: null,
+      startedAt: new Date(),
+      submittedAt: null,
+      adjustmentId: null,
+      location,
+      // Synthetic, stable ids so the sheet can key rows and the client can tell
+      // a preview row from a persisted one at a glance.
+      lines: lines.map((ln) => ({
+        ...ln,
+        id: `preview:${ln.productId}:${ln.variantId ?? ''}`,
+        sessionId: '',
+        countedById: null,
+        countedAt: null,
+        reason: null,
+      })),
+      _count: { lines: lines.length },
+    };
+  }
+
+  private autoName(countType: 'opening' | 'closing'): string {
+    const now = new Date();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const dateStr = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2,'0')}, ${now.getFullYear()}`;
+    return `${countType === 'opening' ? 'Opening' : 'Closing'} Count – ${dateStr}`;
+  }
+
+  /**
+   * The count sheet for a location: one row per countable thing, each carrying
+   * the system on-hand at this instant. Shared by `start` (which persists them)
+   * and `preview` (which does not) so the two can never disagree.
+   */
+  private async buildLines(locationId: string) {
     // Only countable goods belong on a count sheet. Services and non-tracked
     // items have no on-hand to count — including them produced sheets hundreds
     // of rows long where every row was a guaranteed zero-variance no-op, and
@@ -161,7 +261,7 @@ export class InventoryCountService {
     const variantIds = variants.map((v) => v.id);
     const stockItems = await this.prisma.client.stockItem.findMany({
       where: {
-        locationId: dto.locationId,
+        locationId,
         productId: { in: products.map((p) => p.id) },
         variantKey: { in: ['', ...variantIds] },
       },
@@ -175,38 +275,7 @@ export class InventoryCountService {
       ln.systemQty = onHand.get(`${ln.productId}::${ln.variantId ?? ''}`) ?? dec(0);
     }
 
-    const countCode = await this.seq.next('inv_count', { prefix: 'CNT-', padding: 5 });
-    const now = new Date();
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    const dateStr = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2,'0')}, ${now.getFullYear()}`;
-    const autoName = `${countType === 'opening' ? 'Opening' : 'Closing'} Count – ${dateStr}`;
-    try {
-      const session = await this.prisma.client.inventoryCountSession.create({
-        data: {
-          organizationId: this.org,
-          countCode,
-          name: autoName,
-          locationId: dto.locationId,
-          countType,
-          status: 'draft',
-          notes: dto.notes ?? null,
-          startedById: this.tenant.userId ?? null,
-          createdBy: this.tenant.userId ?? null,
-          lines: { create: lines as any },
-        },
-      });
-      return this.get(session.id);
-    } catch (err: any) {
-      // P2002 = unique constraint violation (concurrent draft creation).
-      // Fall back to returning the existing draft.
-      if (err?.code === 'P2002') {
-        const existing = await this.prisma.client.inventoryCountSession.findFirst({
-          where: { locationId: dto.locationId, countType, status: 'draft' },
-        });
-        if (existing) return this.get(existing.id);
-      }
-      throw err;
-    }
+    return lines;
   }
 
   private async assertDraft(id: string) {

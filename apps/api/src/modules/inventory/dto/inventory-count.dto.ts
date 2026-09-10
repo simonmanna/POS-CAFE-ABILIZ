@@ -29,6 +29,17 @@ export class StartCountDto {
   notes?: string;
 }
 
+/** Read-only look at the sheet a count of this location would produce. */
+export class PreviewCountQueryDto {
+  @IsString()
+  @IsNotEmpty()
+  locationId!: string;
+
+  @IsOptional()
+  @IsIn([...INVENTORY_COUNT_TYPES])
+  countType?: InventoryCountTypeDto;
+}
+
 /** One counted row in a draft save. `countedQty` null = not yet counted. */
 export class SaveCountLineDto {
   @IsString()

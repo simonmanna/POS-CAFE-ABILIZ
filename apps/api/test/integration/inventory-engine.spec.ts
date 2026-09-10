@@ -539,6 +539,53 @@ describeDb('integration: inventory engine', () => {
       return session;
     };
 
+    /**
+     * The count sheet has to be visible BEFORE anyone commits to a count —
+     * the page used to be blank until Start was pressed, and Start is the one
+     * action that also cancels a colleague's draft.
+     */
+    it('previews the sheet with live on-hand and writes nothing', async () => {
+      const product = await makeProduct('CNT-PREVIEW');
+      await asOrg(() =>
+        stock.receiveForDocument(
+          { productId: product.id, locationId: mainLocationId, quantity: 7, unitCost: 3 } as any,
+          { sourceType: 'test_receipt', sourceId: 'p1', date: new Date() },
+        ),
+      );
+
+      const before = await prisma.inventoryCountSession.count({ where: { organizationId } });
+      const preview: any = await asOrg(() => counts.preview(mainLocationId, 'opening'));
+
+      expect(preview.status).toBe('preview');
+      expect(preview.id).toBe('');
+      const line = preview.lines.find((l: any) => l.productId === product.id);
+      expect(line).toBeDefined();
+      expect(Number(line.systemQty)).toBe(7);
+      expect(Number(line.countedQty ?? 0)).toBe(0);
+      // Nothing persisted.
+      expect(await prisma.inventoryCountSession.count({ where: { organizationId } })).toBe(before);
+    }, 90_000);
+
+    it('returns the open draft instead of a preview, so a count resumes itself', async () => {
+      const product = await makeProduct('CNT-RESUME');
+      await asOrg(() =>
+        stock.receiveForDocument(
+          { productId: product.id, locationId: mainLocationId, quantity: 5, unitCost: 2 } as any,
+          { sourceType: 'test_receipt', sourceId: 'r1', date: new Date() },
+        ),
+      );
+
+      await asOrg(async () => {
+        const started: any = await counts.start({ locationId: mainLocationId, countType: 'closing' } as any);
+        const resumed: any = await counts.preview(mainLocationId, 'closing');
+        expect(resumed.status).toBe('draft');
+        expect(resumed.id).toBe(started.id);
+        // Real line ids — the sheet is immediately editable.
+        expect(resumed.lines.every((l: any) => !String(l.id).startsWith('preview:'))).toBe(true);
+        await counts.cancel(started.id);
+      });
+    }, 90_000);
+
     it('posts the variance as an adjustment when nothing moved after counting', async () => {
       const product = await makeProduct('CNT-CLEAN');
       await asOrg(() =>
