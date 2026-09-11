@@ -47,12 +47,16 @@ export interface PosTableOrder {
   openedAt: string;
   closedAt: string | null;
   notes: string | null;
+  /** Waiter who owns this order — resolved server-side for the floor map. */
+  waiterId?: string | null;
+  waiterName?: string | null;
   order?: {
     id: string;
     orderNumber: string;
     totalAmount: string;
     status: string;
     createdAt: string;
+    waiterId?: string | null;
     billPrintCount: number;
     billLastPrintedAt: string | null;
   };

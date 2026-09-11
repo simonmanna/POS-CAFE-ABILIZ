@@ -59,6 +59,8 @@ interface ResolvedLine {
 @Injectable()
 export class PosOrdersService {
   private readonly logger = new Logger('PosOrdersService');
+  /** Per-process cache of userId → display name (see `actorStamp`). */
+  private readonly actorNameCache = new Map<string, string>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -159,6 +161,13 @@ export class PosOrdersService {
         organizationId: orgId,
         status: { in: TABLE_HELD_ORDER_STATUSES as any },
         invoiceId: null,
+        // An order with no live item is not an order anyone can serve. The floor
+        // map has always derived occupancy this way (recomputeTableStatus counts
+        // active items), so listing every empty shell here made the Orders panel
+        // disagree with the tables view: rows for tables that read "available",
+        // and rows for abandoned tableless carts nobody could see anywhere else.
+        // Same rule, one place — see table-status.util.recomputeTableStatus.
+        items: { some: { cancelled: false } },
         ...(filter.orderType ? { orderType: filter.orderType as any } : {}),
         ...(filter.cashSessionId ? { cashSessionId: filter.cashSessionId } : {}),
         ...(filter.branchId ? { branchId: filter.branchId } : {}),
@@ -188,6 +197,7 @@ export class PosOrdersService {
       openedAt: o.openedAt ?? o.createdAt,
       tableId: o.tableId ?? null,
       tableName: o.tableId ? (tableMap.get(o.tableId) ?? null) : null,
+      waiterId: o.waiterId ?? null,
       waiterName: o.waiterId ? (waiterMap.get(o.waiterId) ?? null) : null,
       partnerId: o.partnerId ?? null,
       customerName: o.partnerId ? (partnerMap.get(o.partnerId) ?? null) : null,
@@ -775,6 +785,31 @@ export class PosOrdersService {
   // ─── Internals ───────────────────────────────────────────────────────────────
 
   /** ORD-YYYYMMDD-NNNNNN. Date-keyed sequence so each day restarts at 1. */
+  /**
+   * Identity to stamp on a newly punched line. The POS attributes writes to the
+   * PIN-authenticated cashier (X-Pos-User), so `tenant.userId` is already the
+   * person standing at the terminal — not the back-office account that opened
+   * the browser. The name is denormalised onto the row, so it is resolved here
+   * and cached: a user's display name changes rarely, and a rename must not
+   * rewrite history that already printed.
+   */
+  private async actorStamp(): Promise<{ punchedById: string | null; punchedByName: string | null }> {
+    const userId = this.tenant.userId ?? null;
+    if (!userId) return { punchedById: null, punchedByName: null };
+    const cached = this.actorNameCache.get(userId);
+    if (cached !== undefined) return { punchedById: userId, punchedByName: cached };
+    let name: string | null = null;
+    try {
+      const u = await this.prisma.client.user.findFirst({ where: { id: userId }, select: { firstName: true, lastName: true } });
+      name = u ? `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}`.trim() || null : null;
+    } catch {
+      // Attribution is never worth failing a sale over — the id is still stamped.
+      name = null;
+    }
+    if (name) this.actorNameCache.set(userId, name);
+    return { punchedById: userId, punchedByName: name };
+  }
+
   private async nextOrderNumber(tx: any): Promise<string> {
     const d = new Date();
     const ymd = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
@@ -1197,6 +1232,11 @@ export class PosOrdersService {
     // Price through the tax engine for authoritative subtotal/tax/total.
     const totals = await this.builder.prepareLines(tx, all.map((l) => this.toPreparedInput(l)));
 
+    // Who is punching this save. Resolved once per save (not per line) and
+    // applied to NEW rows only — see OrderItem.punchedById: the first person to
+    // ring an item owns it, even when a colleague later re-quantifies the line.
+    const stamp = await this.actorStamp();
+
     const pairs = all.map((src, i) => ({
       src,
       prepared: totals.prepared[i] as any,
@@ -1254,6 +1294,7 @@ export class PosOrdersService {
         const item = await tx.orderItem.create({
           data: {
             organizationId: orgId, orderId, ...data,
+            punchedById: stamp.punchedById, punchedByName: stamp.punchedByName,
             kitchenStatus: 'pending', kitchenPrintCount: 0, kitchenLastPrintedAt: null,
             kitchenPrintedQty: null, cancelPrintCount: 0, cancelLastPrintedAt: null,
             lastKitchenPrintedById: null,

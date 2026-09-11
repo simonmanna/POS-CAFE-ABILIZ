@@ -29,5 +29,9 @@ export function serverLineToCart(l: any): CartLine {
     variantId: l.variantId ?? undefined, variantName: l.variantName ?? undefined, variantPrice: l.variantPrice == null ? undefined : Number(l.variantPrice),
     accompanimentOptionIds: l.accompanimentOptionIds ?? [], accompanimentNames: l.accompanimentNames ?? [], accompanimentPriceImpact: Number(l.accompanimentPriceImpact ?? 0), course: l.course ?? undefined,
     kitchenPrintedQty: Number(l.kitchenPrintedQty ?? 0),
+    // Server-owned: who punched this line (never sent back on save — the API
+    // rejects body fields it does not whitelist, and the first puncher wins).
+    punchedById: l.punchedById ?? undefined,
+    punchedByName: l.punchedByName ?? undefined,
   };
 }

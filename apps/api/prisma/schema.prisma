@@ -5584,6 +5584,13 @@ model OrderItem {
   /// original ordered quantity stays reconstructable from `quantity + voidedQty`.
   voidedQty              Decimal?               @db.Decimal(20, 6)
   lineNumber             Int                    @default(0)
+  /// Who PUNCHED this line into the terminal. Set once, when the row is first
+  /// created, and never rewritten by a later save — an order can be taken by
+  /// several waiters in turn, and "who sold this item" must survive the next
+  /// person editing the same order. `punchedByName` is a denormalised snapshot
+  /// so a renamed or deactivated user still prints correctly on the item.
+  punchedById            String?
+  punchedByName          String?
   /// Free-text snapshot of selected accompaniments (display + KOT).
   accompanimentNames     String[]               @default([])
   /// Rental marker: when set, this line is a rental-fee line of the referenced
@@ -5621,6 +5628,7 @@ model OrderItem {
   @@index([orderId, cancelled])
   @@index([menuItemId])
   @@index([productId])
+  @@index([organizationId, punchedById])
 }
 
 /// Structured per-item modifier selection (queryable for reporting), in
@@ -5918,6 +5926,12 @@ model InvoiceItem {
   /// Cumulative quantity refunded across partial refunds (per-line over-refund guard).
   refundedQty            Decimal        @default(0) @db.Decimal(20, 6)
   lineNumber             Int            @default(0)
+  /// Copied from the source OrderItem at bill time so per-item waiter
+  /// attribution survives into the financial record (the Invoice's own
+  /// `waiterId` is the order owner, which is not necessarily who punched
+  /// this line).
+  punchedById            String?
+  punchedByName          String?
   createdAt              DateTime       @default(now())
 
   invoice     Invoice                       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
@@ -5928,6 +5942,7 @@ model InvoiceItem {
   @@index([invoiceId])
   @@index([menuItemId])
   @@index([productId])
+  @@index([organizationId, punchedById])
 }
 
 /// Structured per-item modifier selection on an invoice line (reporting parity).

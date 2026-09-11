@@ -293,6 +293,7 @@ export class PosTablesService {
                 orderNumber: true,
                 totalAmount: true,
                 status: true,
+                waiterId: true,
                 billPrintCount: true,
                 billLastPrintedAt: true,
               },
@@ -305,11 +306,32 @@ export class PosTablesService {
         },
       },
     });
+    const waiterName = await this.waiterNames(
+      (tables as any[]).flatMap((t) => (t.orders ?? []).map((o: any) => o.order?.waiterId)),
+    );
     return tables.map((t: any) => ({
       ...t,
       zoneName: zoneMap.get(t.zone)?.name ?? t.zone,
       zoneColor: zoneMap.get(t.zone)?.color ?? null,
+      orders: (t.orders ?? []).map((o: any) => ({
+        ...o,
+        // The floor map answers "who is serving this table?" without a second
+        // round trip — the name is what the host reads, not the uuid.
+        waiterId: o.order?.waiterId ?? null,
+        waiterName: o.order?.waiterId ? (waiterName.get(o.order.waiterId) ?? null) : null,
+      })),
     }));
+  }
+
+  /** userId → display name, for the ids actually present (empty map when none). */
+  private async waiterNames(ids: Array<string | null | undefined>): Promise<Map<string, string>> {
+    const unique = Array.from(new Set(ids.filter(Boolean))) as string[];
+    if (!unique.length) return new Map();
+    const users = await this.prisma.client.user.findMany({
+      where: { id: { in: unique } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    return new Map((users as any[]).map((u) => [u.id, `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}`.trim()]));
   }
 
   async get(id: string) {
@@ -328,6 +350,7 @@ export class PosTablesService {
                 totalAmount: true,
                 status: true,
                 createdAt: true,
+                waiterId: true,
                 billPrintCount: true,
                 billLastPrintedAt: true,
               },
@@ -343,10 +366,16 @@ export class PosTablesService {
     });
     if (!table) throw new NotFoundException('Table not found');
     const zoneMap = await this.zones.mapForOrganization(organizationId);
+    const waiterName = await this.waiterNames((table as any).orders?.map((o: any) => o.order?.waiterId) ?? []);
     return {
       ...table,
       zoneName: zoneMap.get(table.zone)?.name ?? table.zone,
       zoneColor: zoneMap.get(table.zone)?.color ?? null,
+      orders: ((table as any).orders ?? []).map((o: any) => ({
+        ...o,
+        waiterId: o.order?.waiterId ?? null,
+        waiterName: o.order?.waiterId ? (waiterName.get(o.order.waiterId) ?? null) : null,
+      })),
     };
   }
 

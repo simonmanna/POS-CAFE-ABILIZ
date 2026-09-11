@@ -822,6 +822,63 @@ describe('PosReportsService (financial accuracy)', () => {
     });
   });
 
+  describe('itemsByServer (per-item attribution)', () => {
+    /** Two lines on ONE order, punched by two different waiters. */
+    const twoServerInvoice = [
+      {
+        id: 'inv-1', invoiceNumber: 'INV-1', issueDate: new Date('2026-06-01T10:00:00Z'),
+        createdAt: new Date('2026-06-01T10:00:00Z'), waiterId: 'u1', cashSessionId: 's1',
+        order: { orderType: 'dine_in' },
+        items: [
+          { description: 'Latte', productId: 'p1', quantity: '2', unitPrice: '10', discountPercent: '0', discountType: 'percentage', discountAmount: '0', total: '20', punchedById: 'u1', punchedByName: 'Al Ice' },
+          { description: 'Cake', productId: 'p1', quantity: '1', unitPrice: '30', discountPercent: '10', discountType: 'percentage', discountAmount: '0', total: '27', punchedById: 'u2', punchedByName: 'Bo Bell' },
+        ],
+      },
+    ];
+
+    it('attributes each line to the waiter who punched it, not the order owner', async () => {
+      prisma.client.invoice.findMany.mockResolvedValue(twoServerInvoice);
+      const r = await svc.itemsByServer('2026-06-01', '2026-06-01', 'day');
+      expect(r.rows.map((x: any) => [x.serverName, x.item])).toEqual(
+        expect.arrayContaining([['Al Ice', 'Latte'], ['Bo Bell', 'Cake']]),
+      );
+      // The order-level waiter (u1) must not swallow Bo Bell's line.
+      const bo = r.servers.find((sv: any) => sv.serverId === 'u2');
+      expect(bo).toMatchObject({ serverName: 'Bo Bell', totalAmount: '27.00' });
+      const al = r.servers.find((sv: any) => sv.serverId === 'u1');
+      expect(al).toMatchObject({ totalAmount: '20.00' });
+    });
+
+    it('falls back to the order waiter for lines billed before per-item stamping', async () => {
+      prisma.client.invoice.findMany.mockResolvedValue([
+        {
+          id: 'inv-old', invoiceNumber: 'INV-0', issueDate: new Date('2026-06-01T10:00:00Z'),
+          createdAt: new Date('2026-06-01T10:00:00Z'), waiterId: 'u1', cashSessionId: null,
+          order: { orderType: 'dine_in' },
+          items: [{ description: 'Tea', productId: 'p1', quantity: '1', unitPrice: '5', discountPercent: '0', discountType: 'percentage', discountAmount: '0', total: '5', punchedById: null, punchedByName: null }],
+        },
+      ]);
+      prisma.client.user.findMany.mockResolvedValue([{ id: 'u1', firstName: 'Al', lastName: 'Ice' }]);
+      const r = await svc.itemsByServer('2026-06-01', '2026-06-01', 'day');
+      expect(r.rows).toHaveLength(1);
+      expect(r.rows[0]).toMatchObject({ serverId: 'u1', serverName: 'Al Ice', totalAmount: '5.00' });
+    });
+
+    it('buckets by cash session when grouped by shift', async () => {
+      prisma.client.invoice.findMany.mockResolvedValue(twoServerInvoice);
+      prisma.client.cashSession.findMany.mockResolvedValue([
+        { id: 's1', openedAt: new Date('2026-06-01T08:00:00Z'), closedAt: new Date('2026-06-01T16:00:00Z'), cashRegisterId: 'r1' },
+      ]);
+      const r = await svc.itemsByServer('2026-06-01', '2026-06-01', 'shift');
+      expect(r.groupBy).toBe('shift');
+      expect(new Set(r.rows.map((x: any) => x.periodKey))).toEqual(new Set(['s1']));
+    });
+
+    it('rejects an unknown grouping rather than silently defaulting', async () => {
+      await expect(svc.itemsByServer('2026-06-01', '2026-06-01', 'hour' as any)).rejects.toThrow(/Unknown groupBy/);
+    });
+  });
+
   describe('filterOptions', () => {
     it('offers only the staff and categories that appear in the range', async () => {
       prisma.client.invoice.findMany.mockResolvedValue([

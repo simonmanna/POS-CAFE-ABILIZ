@@ -4,7 +4,7 @@ const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR'
 // terminal. Rows show time / ref / customer / type + table badges / amount /
 // status, with search, type filters, pagination and a delete (cancel) action.
 import React, { useMemo, useState } from 'react';
-import { Search, Trash2, Plus, ChevronLeft, ChevronRight, ClipboardList, X, Loader2 } from 'lucide-react';
+import { Search, Trash2, Plus, ChevronLeft, ChevronRight, ClipboardList, X, Loader2, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { useOrdersList, useCancelOrder, type OpenOrderRow } from './api';
 
@@ -184,6 +184,11 @@ export const OrdersListPanel: React.FC<Props> = ({ open, activeOrderId, onOpenOr
                 </div>
                 <div className="flex-1 min-w-0">
                   {row.customerName ? <div className="text-sm font-semibold text-slate-800 truncate">{row.customerName}</div> : null}
+                  {row.waiterName ? (
+                    <div className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 truncate">
+                      <User className="h-3 w-3 shrink-0" /> {row.waiterName}
+                    </div>
+                  ) : null}
                   <div className="flex items-center gap-1.5 mt-0.5">
                     {row.orderType ? (
                       <span className={'text-[11px] font-bold px-2 py-0.5 rounded ' + (TYPE_STYLE[row.orderType] ?? 'bg-slate-100 text-slate-600')}>

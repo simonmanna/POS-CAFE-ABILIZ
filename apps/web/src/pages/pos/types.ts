@@ -260,8 +260,40 @@ export interface SoldItem {
   quantity: string;
   totalAmount: string;
   waiterName: string | null;
+  /** Who punched THIS line (the order's waiter is only the fallback). */
+  servedBy?: string | null;
   categoryName: string | null;
   orderType?: string | null;
+}
+
+/** One (period × server × item) row of the Item Sales by Server report. */
+export interface ItemsByServerRow {
+  periodKey: string;
+  periodLabel: string;
+  serverId: string | null;
+  serverName: string;
+  item: string;
+  categoryName: string | null;
+  quantity: string;
+  grossAmount: string;
+  discountAmount: string;
+  totalAmount: string;
+  orderCount: number;
+}
+
+export interface ItemsByServerSummary {
+  serverId: string | null;
+  serverName: string;
+  quantity: string;
+  totalAmount: string;
+  distinctItems: number;
+  orderCount: number;
+}
+
+export interface ItemsByServerReport {
+  groupBy: 'day' | 'shift' | 'none';
+  rows: ItemsByServerRow[];
+  servers: ItemsByServerSummary[];
 }
 
 export interface SalesReportRow {

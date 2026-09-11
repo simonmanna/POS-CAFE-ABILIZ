@@ -476,6 +476,7 @@ export interface OpenOrderRow {
   openedAt: string;
   tableId: string | null;
   tableName: string | null;
+  waiterId: string | null;
   waiterName: string | null;
   partnerId: string | null;
   customerName: string | null;
@@ -852,6 +853,26 @@ export function useItemSales(fromDate: string, toDate: string, itemKey: string |
     queryKey: ['pos-reports', 'item-sales', fromDate, toDate, itemKey ?? 'all', filterKey(filters)],
     queryFn: async () =>
       (await api.get('/pos/reports/item-sales', { params: { fromDate, toDate, itemKey: itemKey || undefined, ...clean(filters) } })).data,
+    enabled: !!fromDate && !!toDate && enabled,
+  });
+}
+
+/**
+ * Per-ITEM server attribution, grouped by day or shift. Answers "who sold this
+ * item", which the order-level waiter reports cannot: one order is frequently
+ * rung up by more than one waiter.
+ */
+export function useItemsByServer(
+  fromDate: string,
+  toDate: string,
+  groupBy: 'day' | 'shift' | 'none',
+  filters: ReportFilters = {},
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ['pos-reports', 'items-by-server', fromDate, toDate, groupBy, filterKey(filters)],
+    queryFn: async () =>
+      (await api.get('/pos/reports/items-by-server', { params: { fromDate, toDate, groupBy, ...clean(filters) } })).data,
     enabled: !!fromDate && !!toDate && enabled,
   });
 }

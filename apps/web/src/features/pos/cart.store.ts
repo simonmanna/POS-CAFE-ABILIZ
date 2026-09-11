@@ -56,7 +56,18 @@ interface CartState {
   idempotencyKey: string;
   /** Add a product line, merging by (productId or sku) + taxInclusive flag. */
   addLine: (line: Omit<CartLine, 'lineId' | 'discountPercent'> & { discountPercent?: number }) => void;
-  setQuantity: (lineId: string, qty: number) => void;
+  /**
+   * Set a line's quantity.
+   *
+   * By default a quantity of 0 drops the line — that is what the +/- steppers
+   * mean by stepping past 1. The numpad means something different: clearing the
+   * digits leaves a line the cashier is still editing, sitting at 0, which must
+   * stay visible and must block Bill/KOT/Pay until it is given a real quantity.
+   * That caller passes `allowZero`.
+   */
+  setQuantity: (lineId: string, qty: number, opts?: { allowZero?: boolean }) => void;
+  /** Stamp server-resolved per-line attribution without disturbing the cart. */
+  stampPunchedBy: (byLineId: Record<string, { punchedById?: string; punchedByName?: string }>) => void;
   /** Set line discount. amount is percent or fixed amount based on type. */
   setDiscount: (lineId: string, amount: number, type?: DiscountType, reason?: string) => void;
   /** Odoo-numpad "Price" mode — override a line's unit price directly. */
@@ -169,6 +180,11 @@ export const useCartStore = create<CartState>()(
               ),
             };
           }
+          // Optimistic per-line attribution: stamp the cashier who is signed
+          // into THIS terminal, so the order panel names a server the moment the
+          // item lands rather than one auto-save later. The server re-stamps
+          // authoritatively on create and wins on the next load.
+          const actor = usePosAuthStore.getState().user;
           return {
             lines: [
               ...state.lines,
@@ -176,16 +192,31 @@ export const useCartStore = create<CartState>()(
                 ...line,
                 lineId: newLineId(),
                 discountPercent: line.discountPercent ?? 0,
+                punchedById: line.punchedById ?? actor?.userId,
+                punchedByName: line.punchedByName
+                  ?? (actor ? `${actor.firstName}${actor.lastName ? ' ' + actor.lastName : ''}`.trim() : undefined),
               },
             ],
           };
         });
       },
-      setQuantity: (lineId, qty) =>
+      setQuantity: (lineId, qty, opts) =>
+        set((state) => {
+          const lines = state.lines.map((l) =>
+            l.lineId === lineId ? { ...l, quantity: Math.max(0, qty) } : l,
+          );
+          return { lines: opts?.allowZero ? lines : lines.filter((l) => l.quantity > 0) };
+        }),
+      stampPunchedBy: (byLineId) =>
         set((state) => ({
-          lines: state.lines
-            .map((l) => (l.lineId === lineId ? { ...l, quantity: Math.max(0, qty) } : l))
-            .filter((l) => l.quantity > 0),
+          lines: state.lines.map((l) => {
+            const stamp = byLineId[l.lineId];
+            if (!stamp) return l;
+            // The server owns this value: the first puncher keeps the line even
+            // when someone else edits it later, so never let the local optimistic
+            // guess win over what came back.
+            return { ...l, punchedById: stamp.punchedById ?? l.punchedById, punchedByName: stamp.punchedByName ?? l.punchedByName };
+          }),
         })),
       setDiscount: (lineId, amount, type, reason) =>
         set((state) => ({

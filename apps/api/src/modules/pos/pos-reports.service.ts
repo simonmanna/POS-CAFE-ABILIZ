@@ -1256,6 +1256,8 @@ export class PosReportsService {
     const waiterIds = new Set<string>();
     for (const inv of invoices as any[]) {
       if (inv.waiterId) waiterIds.add(inv.waiterId);
+      // Per-item punchers too — a line's server need not be the order's waiter.
+      for (const it of inv.items ?? []) if (it.punchedById) waiterIds.add(it.punchedById);
     }
 
     const waiters = waiterIds.size
@@ -1285,6 +1287,7 @@ export class PosReportsService {
       quantity: string;
       totalAmount: string;
       waiterName: string | null;
+      servedBy: string | null;
       categoryName: string | null;
       orderType: string | null;
     }> = [];
@@ -1324,12 +1327,177 @@ export class PosReportsService {
           quantity: dec(it.quantity).toFixed(2),
           totalAmount: dec(it.total).toFixed(2),
           waiterName: inv.waiterId ? (waiterMap.get(inv.waiterId) ?? null) : null,
+          // Who punched THIS line. An order can be taken by several waiters in
+          // turn, so the order-level waiter is the wrong answer per item; it is
+          // only the fallback for lines billed before per-item stamping existed.
+          servedBy: it.punchedByName
+            ?? (it.punchedById ? (waiterMap.get(it.punchedById) ?? null) : null)
+            ?? (inv.waiterId ? (waiterMap.get(inv.waiterId) ?? null) : null),
           categoryName,
         });
       }
     }
 
     return rows;
+  }
+
+  /**
+   * Who sold what, per ITEM — the report the order-level waiter reports could
+   * never answer.
+   *
+   * `Invoice.waiterId` names the person who OWNS the order; on a busy floor a
+   * table is rung up by whoever is nearest, so the order owner is not reliably
+   * the person who punched any given line. This report reads
+   * `InvoiceItem.punchedById` — stamped when the line was first created and
+   * never rewritten by a later editor — and groups it by day or by shift (the
+   * cash session), which is how a supervisor actually reconciles a service.
+   *
+   * Lines billed before per-item stamping existed fall back to the order's
+   * waiter, so a range that spans the change still totals to the same money.
+   *
+   * @param groupBy 'day' (business date) | 'shift' (cash session) | 'none'
+   */
+  async itemsByServer(
+    fromDate: string,
+    toDate: string,
+    groupBy: 'day' | 'shift' | 'none' = 'day',
+    filters: PosSaleFilters & { categoryId?: string; itemSearch?: string } = {},
+  ) {
+    const organizationId = this.tenant.organizationId;
+    const [start, end] = parseReportRange(fromDate, toDate);
+    if (!['day', 'shift', 'none'].includes(groupBy)) {
+      throw new BadRequestException(`Unknown groupBy "${groupBy}"`);
+    }
+
+    const { categoryId, itemSearch, ...saleFilters } = filters;
+    const invoices = await this.prisma.client.invoice.findMany({
+      where: posSaleWhere(organizationId, start, end, saleFilters),
+      include: { items: true, order: { select: { orderType: true } } },
+      orderBy: { issueDate: 'asc' },
+    });
+
+    // Names + shift labels for everything the rows will reference.
+    const staffIds = new Set<string>();
+    const sessionIds = new Set<string>();
+    for (const inv of invoices as any[]) {
+      if (inv.waiterId) staffIds.add(inv.waiterId);
+      if (inv.cashSessionId) sessionIds.add(inv.cashSessionId);
+      for (const it of inv.items ?? []) if (it.punchedById) staffIds.add(it.punchedById);
+    }
+    const [staff, sessions] = await Promise.all([
+      staffIds.size
+        ? this.prisma.client.user.findMany({ where: { id: { in: Array.from(staffIds) } }, select: { id: true, firstName: true, lastName: true } })
+        : Promise.resolve([]),
+      groupBy === 'shift' && sessionIds.size
+        ? this.prisma.client.cashSession.findMany({ where: { id: { in: Array.from(sessionIds) } }, select: { id: true, openedAt: true, closedAt: true, cashRegisterId: true } })
+        : Promise.resolve([]),
+    ]);
+    const staffName = new Map((staff as any[]).map((u) => [u.id, `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}`.trim()]));
+    const sessionLabel = new Map(
+      (sessions as any[]).map((c) => [
+        c.id,
+        `${localIso(new Date(c.openedAt))} ${new Date(c.openedAt).toLocaleTimeString()}${c.closedAt ? '' : ' (open)'}`,
+      ]),
+    );
+
+    const cat = await this.saleCategoryResolver(
+      (invoices as any[]).flatMap((inv) => (inv.items ?? []) as SaleCategoryLine[]),
+    );
+    const needle = itemSearch?.trim().toLowerCase() || null;
+
+    type Row = {
+      periodKey: string; periodLabel: string;
+      serverId: string | null; serverName: string;
+      item: string; categoryName: string | null;
+      quantity: Money; gross: Money; discount: Money; net: Money;
+      orderIds: Set<string>;
+    };
+    const rows = new Map<string, Row>();
+    // Per-server roll-up so the caller can render a summary strip without
+    // re-aggregating the (much longer) item rows client-side and drifting.
+    const servers = new Map<string, { serverId: string | null; serverName: string; quantity: Money; gross: Money; items: Set<string>; orderIds: Set<string> }>();
+
+    for (const inv of invoices as any[]) {
+      const when = new Date(inv.issueDate ?? inv.createdAt);
+      const periodKey = groupBy === 'none' ? 'all' : groupBy === 'day' ? localIso(when) : (inv.cashSessionId ?? 'no-shift');
+      const periodLabel = groupBy === 'none'
+        ? 'All'
+        : groupBy === 'day'
+          ? localIso(when)
+          : (inv.cashSessionId ? (sessionLabel.get(inv.cashSessionId) ?? inv.cashSessionId) : 'No shift');
+
+      for (const it of inv.items ?? []) {
+        const c = cat.resolve(it);
+        if (categoryId && !this.matchesCategory(c, categoryId)) continue;
+        if (needle && !String(it.description ?? '').toLowerCase().includes(needle)) continue;
+
+        const serverId: string | null = it.punchedById ?? inv.waiterId ?? null;
+        const serverName = it.punchedByName
+          ?? (serverId ? (staffName.get(serverId) ?? null) : null)
+          ?? 'Unattributed';
+
+        const gross = dec(it.unitPrice).times(dec(it.quantity));
+        const discount = it.discountType === 'fixed_amount'
+          ? dec(it.discountAmount ?? 0)
+          : gross.times(dec(it.discountPercent ?? 0)).div(100);
+
+        const key = `${periodKey}|${serverId ?? '-'}|${it.description}`;
+        const cur = rows.get(key) ?? {
+          periodKey, periodLabel, serverId, serverName,
+          item: it.description, categoryName: c.name,
+          quantity: dec(0), gross: dec(0), discount: dec(0), net: dec(0),
+          orderIds: new Set<string>(),
+        };
+        cur.quantity = cur.quantity.plus(dec(it.quantity));
+        cur.gross = cur.gross.plus(gross);
+        cur.discount = cur.discount.plus(discount);
+        cur.net = cur.net.plus(dec(it.total));
+        cur.orderIds.add(inv.id);
+        rows.set(key, cur);
+
+        const sKey = serverId ?? '-';
+        const sCur = servers.get(sKey) ?? { serverId, serverName, quantity: dec(0), gross: dec(0), items: new Set<string>(), orderIds: new Set<string>() };
+        sCur.quantity = sCur.quantity.plus(dec(it.quantity));
+        sCur.gross = sCur.gross.plus(dec(it.total));
+        sCur.items.add(it.description);
+        sCur.orderIds.add(inv.id);
+        servers.set(sKey, sCur);
+      }
+    }
+
+    const out = Array.from(rows.values())
+      .sort((a, b) =>
+        a.periodKey.localeCompare(b.periodKey) ||
+        a.serverName.localeCompare(b.serverName) ||
+        Number(b.net.minus(a.net)))
+      .map((r) => ({
+        periodKey: r.periodKey,
+        periodLabel: r.periodLabel,
+        serverId: r.serverId,
+        serverName: r.serverName,
+        item: r.item,
+        categoryName: r.categoryName,
+        quantity: r.quantity.toFixed(2),
+        grossAmount: r.gross.toFixed(2),
+        discountAmount: r.discount.toFixed(2),
+        totalAmount: r.net.toFixed(2),
+        orderCount: r.orderIds.size,
+      }));
+
+    return {
+      groupBy,
+      rows: out,
+      servers: Array.from(servers.values())
+        .sort((a, b) => Number(b.gross.minus(a.gross)))
+        .map((v) => ({
+          serverId: v.serverId,
+          serverName: v.serverName,
+          quantity: v.quantity.toFixed(2),
+          totalAmount: v.gross.toFixed(2),
+          distinctItems: v.items.size,
+          orderCount: v.orderIds.size,
+        })),
+    };
   }
 
   /** Retrieve a frozen Z-report snapshot for reprint. */

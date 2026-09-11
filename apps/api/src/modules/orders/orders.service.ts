@@ -34,6 +34,9 @@ interface ResolvedLine {
   discountReason?: string | null;
   note: string | null;
   taxInclusive: boolean | undefined;
+  /** Carried across an append rebuild so an existing line keeps its puncher. */
+  punchedById?: string | null;
+  punchedByName?: string | null;
 }
 
 /**
@@ -411,6 +414,19 @@ export class OrdersService {
    * Both line sources (productId for retail, menuItemId for menus) pass through
    * the same DocumentBuilder tax-engine pricing.
    */
+  /**
+   * Identity to stamp on a line this call creates. Denormalising the name keeps
+   * the record readable after a rename or a deactivation, and matches what the
+   * POS terminal writes (see PosOrdersService.actorStamp).
+   */
+  private async actorStamp(): Promise<{ punchedById: string | null; punchedByName: string | null }> {
+    const userId = this.tenant.userId ?? null;
+    if (!userId) return { punchedById: null, punchedByName: null };
+    const u = await this.prisma.client.user.findFirst({ where: { id: userId }, select: { firstName: true, lastName: true } }).catch(() => null);
+    const name = u ? `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}`.trim() || null : null;
+    return { punchedById: userId, punchedByName: name };
+  }
+
   private async writeItems(
     tx: any,
     orderId: string,
@@ -427,6 +443,10 @@ export class OrdersService {
         discountPercent: Number(it.discountPercent), discountType: it.discountType,
         discountAmount: Number(it.discountAmount), discountReason: it.discountReason,
         note: it.note, taxInclusive: it.taxInclusive,
+        // This path rebuilds the whole item set, so attribution has to travel
+        // with the baseline or an append would silently re-credit every earlier
+        // line to whoever added the new one.
+        punchedById: it.punchedById, punchedByName: it.punchedByName,
       }));
     }
     const all = [...baseline, ...resolved];
@@ -454,6 +474,10 @@ export class OrdersService {
       await tx.orderItem.deleteMany({ where: { orderId } });
     }
 
+    // Who is writing these lines. Applied only where the baseline did not
+    // already carry an answer (see ResolvedLine.punchedById).
+    const stamp = await this.actorStamp();
+
     for (let i = 0; i < totals.prepared.length; i++) {
       const p = totals.prepared[i];
       const src = all[i];
@@ -474,6 +498,8 @@ export class OrdersService {
           taxInclusive: p.taxInclusive,
           note: src?.note ?? null,
           lineNumber: p.lineNumber,
+          punchedById: src?.punchedById ?? stamp.punchedById,
+          punchedByName: src?.punchedByName ?? stamp.punchedByName,
         },
       });
     }

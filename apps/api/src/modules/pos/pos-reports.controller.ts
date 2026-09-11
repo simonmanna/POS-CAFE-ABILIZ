@@ -219,6 +219,35 @@ export class PosReportsController {
     );
   }
 
+  /**
+   * Per-ITEM server attribution (who punched what), grouped by day or shift.
+   * Distinct from `waiter-report`, which groups whole orders by their owner.
+   */
+  @Get('items-by-server')
+  @RequirePermissions('pos:reports')
+  itemsByServer(
+    @Query('fromDate') fromDate: string,
+    @Query('toDate') toDate: string,
+    @Query('groupBy') groupBy?: string,
+    @Query('waiterId') waiterId?: string,
+    @Query('orderType') orderType?: string,
+    @Query('paymentMethod') paymentMethod?: string,
+    @Query('cashSessionId') cashSessionId?: string,
+    @Query('categoryId') categoryId?: string,
+    @Query('itemSearch') itemSearch?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.svc.itemsByServer(fromDate, toDate, (opt(groupBy) as any) ?? 'day', {
+      waiterId: opt(waiterId),
+      orderType: opt(orderType),
+      paymentMethod: opt(paymentMethod),
+      cashSessionId: opt(cashSessionId),
+      search: opt(search),
+      categoryId: opt(categoryId),
+      itemSearch: opt(itemSearch),
+    });
+  }
+
   @Get('items-by-group')
   @RequirePermissions('pos:reports')
   itemsByGroup(

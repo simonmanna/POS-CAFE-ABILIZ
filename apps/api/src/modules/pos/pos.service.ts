@@ -488,6 +488,19 @@ export class PosService {
     const variantPriceById = new Map((variants as any[]).map((v) => [v.id, Number(v.price)]));
     const optionImpactById = new Map((options as any[]).map((op) => [op.id, Number(op.priceImpact)]));
 
+    // Names for every identity this view attributes work to: the order's waiter
+    // plus each line's puncher. One query, and only for the ids whose name is
+    // not already denormalised on the row.
+    const staffIds = new Set<string>();
+    if (o.waiterId) staffIds.add(o.waiterId);
+    for (const it of items) {
+      if (it.punchedById && !it.punchedByName) staffIds.add(it.punchedById);
+    }
+    const staff = staffIds.size
+      ? await this.prisma.client.user.findMany({ where: { id: { in: Array.from(staffIds) } }, select: { id: true, firstName: true, lastName: true } })
+      : [];
+    const staffName = new Map((staff as any[]).map((u) => [u.id, `${u.firstName}${u.lastName ? ' ' + u.lastName : ''}`.trim()]));
+
     return {
       id: o.id,
       orderNumber: o.orderNumber,
@@ -508,6 +521,9 @@ export class PosService {
       // own type; a dine-in one restores its table). Additive — tab reads ignore them.
       tableId: o.tableId ?? null,
       orderType: o.orderType ?? null,
+      /// Who owns this order (opened it). Per-line attribution lives on each line.
+      waiterId: o.waiterId ?? null,
+      waiterName: o.waiterId ? (staffName.get(o.waiterId) ?? null) : null,
       transactionDiscountPercent: Number(o.transactionDiscountPercent ?? 0), transactionDiscountType: o.transactionDiscountType, transactionDiscountAmount: Number(o.transactionDiscountAmount ?? 0), discountReason: o.discountReason,
       cashSessionId: o.cashSessionId,
       lines: items.map((it: any) => {
@@ -540,6 +556,13 @@ export class PosService {
           // — that line may only leave through the audited void route.
           kitchenPrintedQty: Number(it.kitchenPrintedQty ?? 0),
           kitchenStatus: it.kitchenStatus ?? 'pending',
+          // Per-item attribution: who punched THIS line (may differ from the
+          // order's waiter when a colleague took a later round). Falls back to
+          // the order owner for rows created before per-item stamping existed.
+          punchedById: it.punchedById ?? o.waiterId ?? null,
+          punchedByName: it.punchedByName
+            ?? (it.punchedById ? staffName.get(it.punchedById) ?? null : null)
+            ?? (o.waiterId ? staffName.get(o.waiterId) ?? null : null),
           note: userNote || null,
           variantId: it.variantId ?? null,
           variantName: it.variantName ?? null,

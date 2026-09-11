@@ -16,6 +16,7 @@ import { DocumentsModule } from '../../src/modules/documents/documents.module';
 import { PosModule } from '../../src/modules/pos/pos.module';
 import { OrdersModule } from '../../src/modules/orders/orders.module';
 import { OrdersService } from '../../src/modules/orders/orders.service';
+import { PosOrdersService } from '../../src/modules/pos/order/pos-orders.service';
 import { TenantContextService } from '../../src/kernel/tenancy/tenant-context.service';
 
 /**
@@ -30,6 +31,7 @@ describeDb('integration: back-office Orders CRUD (menu + product sources, billin
   const prisma = new PrismaClient();
   let moduleRef: TestingModule;
   let orders: OrdersService;
+  let posOrders: PosOrdersService;
   let tenant: TenantContextService;
   let organizationId: string;
   let customerId: string;
@@ -37,6 +39,8 @@ describeDb('integration: back-office Orders CRUD (menu + product sources, billin
   let productId: string;
   let cashRegisterId: string;
   let cashSessionId: string;
+  let waiterA: string;
+  let waiterB: string;
 
   beforeAll(async () => {
     await prisma.$connect();
@@ -52,6 +56,12 @@ describeDb('integration: back-office Orders CRUD (menu + product sources, billin
     })).id;
     productId = (await prisma.product.create({
       data: { organizationId, code: 'ORD-SVC', name: 'Order Service', productType: 'service', salesPrice: 100, costPrice: 0 },
+    })).id;
+    waiterA = (await prisma.user.create({
+      data: { organizationId, email: `ord-a-${Date.now()}@test.local`, firstName: 'Ada', lastName: 'Serve', passwordHash: 'x' },
+    })).id;
+    waiterB = (await prisma.user.create({
+      data: { organizationId, email: `ord-b-${Date.now()}@test.local`, firstName: 'Bo', lastName: 'Serve', passwordHash: 'x' },
     })).id;
 
     const mk = makeAccountFactory(prisma, await ensureAccountCategories(prisma));
@@ -78,6 +88,7 @@ describeDb('integration: back-office Orders CRUD (menu + product sources, billin
     await moduleRef.init();
     orders = moduleRef.get(OrdersService);
     tenant = moduleRef.get(TenantContextService);
+    posOrders = moduleRef.get(PosOrdersService);
   });
 
   afterAll(async () => {
@@ -106,6 +117,7 @@ describeDb('integration: back-office Orders CRUD (menu + product sources, billin
       await prisma.menuItem.deleteMany({ where: { organizationId } });
       await prisma.product.deleteMany({ where: { organizationId } });
       await prisma.partner.deleteMany({ where: { organizationId } });
+      await prisma.user.deleteMany({ where: { organizationId } });
       await prisma.journal.deleteMany({ where: { organizationId } });
       await prisma.organization.delete({ where: { id: organizationId } });
     }
@@ -164,6 +176,39 @@ describeDb('integration: back-office Orders CRUD (menu + product sources, billin
 
     expect(updated.items.length).toBe(2);
     expect(Number(updated.totalAmount)).toBe(10100); // 2×5000 menu + 1×100 product
+  });
+
+  it('stamps each POS line with the waiter who punched it, and keeps it when someone else edits', async () => {
+    // Ada opens the order on the terminal and rings the first round.
+    const created: any = await tenant.run({ organizationId, userId: waiterA }, () =>
+      posOrders.createOrder({ orderType: 'takeaway', partnerId: customerId, lines: [{ menuItemId, quantity: 1 }] } as any),
+    );
+    expect(created.items).toHaveLength(1);
+    expect(created.items[0]).toMatchObject({ punchedById: waiterA, punchedByName: 'Ada Serve' });
+
+    // Bo adds a second round to the SAME order. `writeItems` keeps the existing
+    // rows and appends, so the lines stay in ring order: Ada's, then Bo's.
+    const appended: any = await tenant.run({ organizationId, userId: waiterB }, () =>
+      posOrders.addItems(created.id, { lines: [{ productId, quantity: 1 }] } as any),
+    );
+    expect(appended.items).toHaveLength(2);
+    // Ada's line keeps Ada — a later editor must not repaint the whole order.
+    expect(appended.items[0]).toMatchObject({ punchedById: waiterA, punchedByName: 'Ada Serve' });
+    expect(appended.items[1]).toMatchObject({ punchedById: waiterB, punchedByName: 'Bo Serve' });
+
+    // The terminal auto-saves by re-sending the WHOLE cart. A full replace that
+    // only changes a quantity is an edit, not a re-attribution.
+    const resaved: any = await tenant.run({ organizationId, userId: waiterB }, () =>
+      posOrders.saveItems(created.id, {
+        expectedVersion: appended.version,
+        lines: [{ menuItemId, quantity: 2 }, { productId, quantity: 1 }],
+      } as any),
+    );
+    expect(resaved.items).toHaveLength(2);
+    const menuLine = resaved.items.find((i: any) => i.menuItemId === menuItemId);
+    expect(Number(menuLine.quantity)).toBe(2);
+    expect(menuLine).toMatchObject({ punchedById: waiterA });
+    expect(resaved.items.find((i: any) => i.productId === productId)).toMatchObject({ punchedById: waiterB });
   });
 
   it('lists orders with pagination and filters', async () => {

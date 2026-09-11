@@ -41,6 +41,7 @@ import { useCombos } from './pos-features-api';
 import { usePosSettings } from '@/features/pos/api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
+import { cartReadyToCommit } from '@/features/pos/cart-guard';
 import type { Customer, SettleMode } from './types';
 
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
@@ -493,7 +494,7 @@ const RetailTerminal: React.FC = () => {
     if (useCartStore.getState().operationPending) throw new Error('Resolve the pending payment before switching orders');
     if (saveOrderItems.isPending) throw new Error('Wait for the order save to finish');
     if (pendingOrderCreate.current) { toast.info('Saving the new order; try again shortly'); return; }
-    if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    if (!cartReadyToCommit(lines)) return;
     setShowPayment(true);
   };
 
@@ -502,7 +503,7 @@ const RetailTerminal: React.FC = () => {
    * instead of creating a second Order of its own. */
   const onCreditSale = async () => {
     if (!customer?.id) { toast.error('Select a customer to charge on account'); return; }
-    if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    if (!cartReadyToCommit(lines)) return;
     await onSettle({ tenders: [], transactionDiscountPercent: 0, settleMode: 'credit' });
   };
 

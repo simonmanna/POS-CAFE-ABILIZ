@@ -44,6 +44,14 @@ export interface CartLine {
   taxInclusive?: boolean;
   /** P5 course grouping for fire/hold (1=starter, 2=main, 3=dessert, …). */
   course?: number;
+  /**
+   * Who punched this line into the terminal. Stamped optimistically from the
+   * signed-in POS cashier when the line is added, then replaced by the server's
+   * authoritative value on the next load — an order can pass through several
+   * waiters, and the order-level waiter is not the answer for a single item.
+   */
+  punchedById?: string;
+  punchedByName?: string;
 }
 
 export type PaymentMethod = 'cash' | 'bank' | 'card' | 'mobile_money' | 'store_credit';

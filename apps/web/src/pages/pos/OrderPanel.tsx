@@ -10,8 +10,10 @@
 //
 // The numpad is the Odoo interaction model: pick a line, choose a mode
 // (Qty / % / Price), then type digits — they live-apply to the selected line.
-// Removal is NOT done from the numpad (it clamps qty to a positive value) so the
-// PIN-gated Void / Delete controls stay the only way to drop a line.
+// Removal is NOT done from the numpad, so the PIN-gated Void / Delete controls
+// stay the only way to drop a line. Backspacing a quantity away leaves the line
+// sitting at 0 — visible, still selected, and blocking Bill / KOT / Pay until it
+// is given a real quantity — rather than silently deleting it.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ShoppingCart,
@@ -146,6 +148,15 @@ export const OrderPanel: React.FC<Props> = ({
   const setDiscount = useCartStore((s) => s.setDiscount);
   const setUnitPrice = useCartStore((s) => s.setUnitPrice);
   const empty = lines.length === 0;
+  /* A line the cashier has emptied with the numpad. It is still on the order —
+   * it just has no quantity yet — so every money/kitchen action is blocked until
+   * it is given one or explicitly voided. */
+  const zeroQtyLines = lines.filter((l) => !(l.quantity > 0));
+  const hasZeroQty = zeroQtyLines.length > 0;
+  const blockedReason = hasZeroQty
+    ? `Set a quantity for ${zeroQtyLines.map((l) => l.name).join(', ')} first`
+    : undefined;
+  const cannotTransact = empty || hasZeroQty;
 
   /* ============== Odoo numpad state ============== */
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
@@ -209,9 +220,11 @@ export const OrderPanel: React.FC<Props> = ({
     const raw = bufferRef.current;
     const num = raw === '' || raw === '-' || raw === '.' || raw === '-.' ? NaN : parseFloat(raw);
     if (mode === 'qty') {
-      // Numpad never removes a line (that's PIN-gated Void/Delete) — clamp > 0.
-      if (Number.isNaN(num) || num <= 0) return;
-      setQuantity(line.lineId, num);
+      // An empty/partial buffer means "the cashier cleared this line's quantity".
+      // Park it at 0 (allowZero keeps the row — the numpad never deletes) so the
+      // zero is visible and the order cannot be billed until it is resolved.
+      const next = Number.isNaN(num) || num < 0 ? 0 : num;
+      setQuantity(line.lineId, next, { allowZero: true });
     } else if (mode === 'disc') {
       // Unreachable: pickMode routes 'disc' to the reason dialog (F-02). Kept as
       // a guard so a stale mode can never apply an unreasoned discount.
@@ -241,8 +254,12 @@ export const OrderPanel: React.FC<Props> = ({
     if (editing && bufferRef.current.length > 0) {
       bufferRef.current = bufferRef.current.slice(0, -1);
     } else {
+      // Not mid-edit (or nothing left to delete): backspace still means "clear
+      // this value". Entering edit mode with an empty buffer is what makes a
+      // single-digit quantity such as 5 fall to 0 on one press instead of
+      // stubbornly staying at 5.
       bufferRef.current = '';
-      setEditing(false);
+      setEditing(true);
     }
     applyBuffer();
   }, [applyBuffer, editing, selectedLineId]);
@@ -346,8 +363,16 @@ export const OrderPanel: React.FC<Props> = ({
                     </div>
                   ) : null}
                   {it.note ? <div className="pos-oline-note truncate">! {it.note}</div> : null}
+                  {/* Who punched this line. Shown per line, not per order: on a
+                      busy floor one table is rung up by whoever is nearest. */}
+                  {it.punchedByName ? (
+                    <div className="pos-oline-meta truncate">
+                      <User className="h-3 w-3 inline-block mr-1 -mt-0.5" />
+                      {it.punchedByName}
+                    </div>
+                  ) : null}
                 </div>
-                <div className="pos-oline-qty">{it.quantity}</div>
+                <div className={"pos-oline-qty" + (it.quantity > 0 ? "" : " text-rose-500")}>{it.quantity}</div>
                 <div className="pos-oline-price">{fmt(lineSub, false)}</div>
               </div>
             );
@@ -486,10 +511,20 @@ export const OrderPanel: React.FC<Props> = ({
         </div>
       </div>
 
+      {hasZeroQty ? (
+        <div className="flex items-center gap-2 px-3 py-2 text-[11px] font-semibold text-rose-700 bg-rose-50 border-t border-rose-200">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">
+            {zeroQtyLines.length === 1 ? '1 line has' : `${zeroQtyLines.length} lines have`} no quantity.
+            Set a quantity or void {zeroQtyLines.length === 1 ? 'it' : 'them'} to continue.
+          </span>
+        </div>
+      ) : null}
+
       {/* Primary actions — print + pay */}
       <div className="pos-order-actions">
         {!hideCafeFeatures && (
-          <button type="button" className="pos-action-btn-pro bg-sky-600" onClick={onPrintKot} disabled={empty}>
+          <button type="button" className="pos-action-btn-pro bg-sky-600" onClick={onPrintKot} disabled={cannotTransact} title={blockedReason}>
             <Printer className="pos-action-icon" /> KOT
           </button>
         )}
@@ -498,8 +533,8 @@ export const OrderPanel: React.FC<Props> = ({
           type="button"
           className="pos-action-btn-pro bg-purple"
           onClick={billAlreadyPrinted ? onPrintAdditionalBill : onPrintBill}
-          disabled={empty}
-          title={billAlreadyPrinted ? 'Print additional bill for new items' : 'Print bill (F8)'}
+          disabled={cannotTransact}
+          title={blockedReason ?? (billAlreadyPrinted ? 'Print additional bill for new items' : 'Print bill (F8)')}
         >
           <Receipt className="pos-action-icon" /> {billAlreadyPrinted ? 'Add Bill' : 'Bill'}{' '}
           {!billAlreadyPrinted && <span className="pos-kbd">F8</span>}
@@ -507,11 +542,11 @@ export const OrderPanel: React.FC<Props> = ({
 
 
         {tableId && onSettleTab ? (
-          <button type="button" className="pos-action-btn-pro bg-emerald pos-pay" onClick={onSettleTab} disabled={empty} title="Settle (pay) this table's order">
+          <button type="button" className="pos-action-btn-pro bg-emerald pos-pay" onClick={onSettleTab} disabled={cannotTransact} title={blockedReason ?? "Settle (pay) this table's order"}>
             <CreditCard className="pos-action-icon" /> Settle Bill
           </button>
         ) : (
-          <button type="button" className="pos-action-btn-pro bg-emerald pos-pay" onClick={onCharge} disabled={empty}>
+          <button type="button" className="pos-action-btn-pro bg-emerald pos-pay" onClick={onCharge} disabled={cannotTransact} title={blockedReason}>
             <CreditCard className="pos-action-icon" /> Pay <span className="pos-kbd">F2</span>
           </button>
         )}

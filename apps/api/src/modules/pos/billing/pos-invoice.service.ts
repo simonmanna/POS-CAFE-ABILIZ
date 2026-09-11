@@ -191,6 +191,17 @@ export class PosInvoiceService {
       where: { orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
     });
     if (!items.length) throw new BadRequestException('Order has no items to bill');
+    // The terminal parks a numpad-cleared line at quantity 0 so the cashier can
+    // see what they emptied instead of it vanishing. That is an unfinished edit,
+    // not a sale: billing one would print a free line and issue stock for
+    // nothing. The UI blocks it; this is the backstop for every other caller
+    // (offline replay, Android, split bill, rental/repair checkout).
+    const unquantified = (items as any[]).filter((it) => Number(it.quantity) <= 0);
+    if (unquantified.length) {
+      throw new BadRequestException(
+        `Set a quantity before billing: ${unquantified.map((it) => it.description).join(', ')}`,
+      );
+    }
 
     // Stock-deduction timing policy (resolved outside the tx — settings aren't
     // transactional). `at_invoice` (default) enqueues here; other policies defer
@@ -356,6 +367,12 @@ export class PosInvoiceService {
             taxAmount: p.taxAmount,
             total: p.total,
             lineNumber: p.lineNumber,
+            // Carry per-item waiter attribution into the financial record. The
+            // invoice's own waiterId is the ORDER owner; this is who actually
+            // punched the line. Legacy order rows have no stamp — fall back to
+            // the order owner so the reports still have an answer.
+            punchedById: src?.punchedById ?? order.waiterId ?? null,
+            punchedByName: src?.punchedByName ?? null,
           },
         });
         const mods = src?.modifiers ?? [];

@@ -29,7 +29,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Coffee, LayoutGrid, ArrowLeft, Printer, Clock } from 'lucide-react';
+import { Coffee, LayoutGrid, ArrowLeft, Printer, Clock, User } from 'lucide-react';
 import { Lock as LockIcon } from 'lucide-react';
 
 import { Topbar } from './Topbar';
@@ -97,6 +97,7 @@ import { useMenuItemBundle, useCombos } from './pos-features-api';
 import { api, resolveAssetUrl } from '@/lib/api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
+import { cartReadyToCommit } from '@/features/pos/cart-guard';
 import type { Customer, SettleMode } from './types';
 
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
@@ -515,8 +516,19 @@ const TerminalPage: React.FC = () => {
   const adoptServerLines = useCallback((serverLines: any[], cartLines?: CartLine[]) => {
     const local = cartLines ?? useCartStore.getState().lines;
     const map: Record<string, string> = {};
-    local.forEach((l, i) => { const id = serverLines?.[i]?.id; if (id) map[l.lineId] = String(id); });
+    // Same index alignment carries the server's per-line attribution back onto
+    // the cart, so a line rung by a colleague on another device shows THEIR
+    // name here instead of this terminal's optimistic guess.
+    const punched: Record<string, { punchedById?: string; punchedByName?: string }> = {};
+    local.forEach((l, i) => {
+      const srv = serverLines?.[i];
+      if (srv?.id) map[l.lineId] = String(srv.id);
+      if (srv?.punchedById || srv?.punchedByName) {
+        punched[l.lineId] = { punchedById: srv.punchedById ?? undefined, punchedByName: srv.punchedByName ?? undefined };
+      }
+    });
     useCartStore.getState().setServerLineIds(map);
+    if (Object.keys(punched).length) useCartStore.getState().stampPunchedBy(punched);
   }, []);
 
   /* ── Conflict recovery (409 on save) ──────────────────────────────────────
@@ -1148,16 +1160,14 @@ const TerminalPage: React.FC = () => {
   const onCharge = () => {
     if (!saleQuote.data || saleQuote.isFetching || saleQuote.isError) { toast.error('Wait for the server price quote before charging'); return; }
     if (pendingOrderCreate.current) { toast.info('Saving the new order; try again shortly'); return; }
-    if (lines.length === 0) {
-      toast.error('Cart is empty');
-      return;
-    }
+    if (!cartReadyToCommit(lines)) return;
     setShowPayment(true);
   };
 
   /* Settle (pay) the table's order. Flush any pending edit, then open payment. */
   const handleSettleTab = async () => {
-    if (!tableId || lines.length === 0) { toast.error('Nothing to settle'); return; }
+    if (!tableId) { toast.error('Nothing to settle'); return; }
+    if (!cartReadyToCommit(lines)) return;
     try {
       if (splitActive) {
         if (orderSig(useCartStore.getState().lines) !== tabSyncSig.current) throw new Error('Unsaved changes must be resolved before reopening the split.');
@@ -1219,7 +1229,7 @@ const TerminalPage: React.FC = () => {
    * original one open, kept the table busy and skipped the idempotency key. */
   const onCreditSale = async () => {
     if (!customer?.id) { toast.error('Select a customer to charge on account'); return; }
-    if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    if (!cartReadyToCommit(lines)) return;
     await onSettle({ tenders: [], transactionDiscountPercent: 0, settleMode: 'credit' });
   };
 
@@ -1499,7 +1509,7 @@ const TerminalPage: React.FC = () => {
   };
 
   const onPrintBill = async () => {
-    if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    if (!cartReadyToCommit(lines)) return;
     try {
       await flushCurrentOrder();
       const saved = (await api.get(`/pos/tabs/${selectedTableId!}`)).data as any;
@@ -1515,7 +1525,7 @@ const TerminalPage: React.FC = () => {
 
   /* Print only items added since the last bill print. */
   const onPrintAdditionalBill = async () => {
-    if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    if (!cartReadyToCommit(lines)) return;
     const openOrder = await resolveOpenOrder();
     if (!openOrder) { toast.error('No open order on this table'); return; }
     if (openOrder.billPrintCount === 0) {
@@ -1568,7 +1578,7 @@ const TerminalPage: React.FC = () => {
       setShowPayment(true);
       return;
     }
-    if (lines.length === 0) { toast.error('Cart is empty'); return; }
+    if (!cartReadyToCommit(lines)) return;
     try {
       const st = (await api.get(`/pos/tabs/${tableId}/split`)).data as any;
       if (st?.splitActive) {
@@ -1806,8 +1816,26 @@ const TerminalPage: React.FC = () => {
                             </div>
 
                             {/* Table number below name */}
-                            <div className="text-sm font-medium text-slate-400 mb-auto">
+                            <div className="text-sm font-medium text-slate-400">
                               T{t.number} · {t.seats} seats
+                            </div>
+
+                            {/* Who is serving this table. Distinct names, because
+                                a table can hold more than one open order and they
+                                need not belong to the same waiter. */}
+                            <div className="mb-auto mt-1 min-h-[16px]">
+                              {(() => {
+                                const servers = Array.from(new Set(
+                                  openOrders.map((o) => o.waiterName).filter(Boolean) as string[],
+                                ));
+                                if (!servers.length) return null;
+                                return (
+                                  <div className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 truncate">
+                                    <User className="w-3 h-3 shrink-0" />
+                                    <span className="truncate">{servers.join(', ')}</span>
+                                  </div>
+                                );
+                              })()}
                             </div>
 
                             {/* Status only (zone is the group header) */}
@@ -1893,7 +1921,7 @@ const TerminalPage: React.FC = () => {
             onAddCustomer={() => setShowCustomer(true)}
             onAddDiscount={() => setShowDiscount(true)}
             onPrintKot={async () => {
-              if (lines.length === 0) { toast.error('Cart is empty'); return; }
+              if (!cartReadyToCommit(lines)) return;
               let printedLineIds = new Set<string>();
               if (tableId) {
                 try {
@@ -2304,6 +2332,11 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
                       {o.openedAt ? `${Math.max(1, Math.floor((Date.now() - new Date(o.openedAt).getTime()) / 60000))}m ago` : 'New'}
                     </span>
                   </div>
+                  {o.waiterName && (
+                    <div className="flex items-center gap-1 text-xs font-semibold text-indigo-600 truncate">
+                      <User className="w-3 h-3 shrink-0" /> {o.waiterName}
+                    </div>
+                  )}
                   {o.customerName && (
                     <div className="text-xs text-slate-600 font-medium truncate">{o.customerName}</div>
                   )}

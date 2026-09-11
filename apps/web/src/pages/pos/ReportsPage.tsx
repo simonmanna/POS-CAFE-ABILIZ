@@ -23,12 +23,12 @@ import { useAuthStore } from '@/stores/auth.store';
 import {
   useXReport, useZReport, useSalesByHour, useTopItems, useOpenSession, useSalesSummary,
   useSoldItems, useSalesReport, useOrderReport, useCashierReport, useCashierShiftSummary,
-  useWaiterReport, useItemsByGroup, useItemSales, useReportFilterOptions,
+  useWaiterReport, useItemsByGroup, useItemsByServer, useItemSales, useReportFilterOptions,
 } from './api';
 import type {
   XReport as XReportType, SalesSummaryReport, SoldItem, SalesReportRow, OrderReportRow,
   CashierReportRow, CashierShiftSummaryRow, WaiterReportRow, ItemsByGroupRow, ItemSalesReport,
-  ReportFilterOptions,
+  ItemsByServerReport, ItemsByServerRow, ReportFilterOptions,
 } from './types';
 import ReportFilterBar, { emptyFilters, scopedFilters } from './ReportFilterBar';
 import type { ReportFilterField, ReportFilterState } from './ReportFilterBar';
@@ -47,7 +47,7 @@ const fmt = (n: number | string | null | undefined) =>
 const num = (n: number | string | null | undefined) => Number(n || 0).toFixed(2);
 
 type TabId =
-  | 'sales' | 'items' | 'item-sales' | 'items-by-group' | 'orders' | 'cashier'
+  | 'sales' | 'items' | 'item-sales' | 'items-by-group' | 'items-by-server' | 'orders' | 'cashier'
   | 'cashier-summary' | 'waiter' | 'daily' | 'weekly' | 'monthly' | 'hourly'
   | 'top' | 'x' | 'z';
 
@@ -61,6 +61,7 @@ const TAB_FIELDS: Record<TabId, readonly ReportFilterField[]> = {
   items: ['category', 'waiter', 'orderType', 'search', 'itemSearch'],
   'item-sales': ['category', 'waiter', 'orderType', 'item', 'itemSearch'],
   'items-by-group': ['category', 'waiter', 'payment', 'orderType'],
+  'items-by-server': ['category', 'waiter', 'payment', 'orderType', 'itemSearch'],
   orders: ['waiter', 'orderType', 'orderStatus', 'search', 'includeCancelled'],
   cashier: ['cashier', 'payment', 'orderType', 'search'],
   'cashier-summary': ['cashier', 'register', 'sessionStatus'],
@@ -79,6 +80,7 @@ const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'items', label: 'Items Report' },
   { id: 'item-sales', label: 'Item Sales' },
   { id: 'items-by-group', label: 'Items by Group' },
+  { id: 'items-by-server', label: 'Item Sales by Server' },
   { id: 'orders', label: 'Order Reports' },
   { id: 'cashier', label: 'Cashier Reports' },
   { id: 'cashier-summary', label: 'Cashier Shift Summary' },
@@ -97,6 +99,9 @@ const ReportsPage: React.FC = () => {
   const [tab, setTab] = useState<TabId>('sales');
   const [filters, setFilters] = useState<ReportFilterState>(emptyFilters());
   const [hourFilter, setHourFilter] = useState<string | undefined>();
+  /* Item Sales by Server: daily is the shift-lead's view, shift (cash session)
+   * is the supervisor's. Local to the tab — it is a grouping, not a filter. */
+  const [serverGroupBy, setServerGroupBy] = useState<'day' | 'shift' | 'none'>('day');
   const { data: openSession } = useOpenSession();
 
   const { fromDate, toDate } = filters;
@@ -115,6 +120,7 @@ const ReportsPage: React.FC = () => {
   const items = useSoldItems(fromDate, toDate, scoped, tab === 'items');
   const itemSales = useItemSales(fromDate, toDate, filters.itemKey, scoped, tab === 'item-sales');
   const itemsByGroup = useItemsByGroup(fromDate, toDate, scoped, tab === 'items-by-group');
+  const itemsByServer = useItemsByServer(fromDate, toDate, serverGroupBy, scoped, tab === 'items-by-server');
   const orders = useOrderReport(fromDate, toDate, scoped, Boolean(filters.includeCancelled), tab === 'orders');
   const cashier = useCashierReport(fromDate, toDate, scoped, tab === 'cashier');
   const shifts = useCashierShiftSummary(fromDate, toDate, scoped, tab === 'cashier-summary');
@@ -125,6 +131,7 @@ const ReportsPage: React.FC = () => {
 
   const active: Record<TabId, { data?: any; isLoading: boolean; isFetching: boolean; refetch: () => void; error?: unknown }> = {
     x, z, hourly, top, sales, items, 'item-sales': itemSales, 'items-by-group': itemsByGroup,
+    'items-by-server': itemsByServer,
     orders, cashier, 'cashier-summary': shifts, waiter, daily, weekly, monthly,
   } as any;
   const current = active[tab];
@@ -222,6 +229,14 @@ const ReportsPage: React.FC = () => {
             <OrderReportView rows={(orders.data as OrderReportRow[]) ?? []} loading={orders.isLoading} range={filters} />
           ) : tab === 'item-sales' ? (
             <ItemSalesView report={itemSales.data as ItemSalesReport | undefined} loading={itemSales.isLoading} range={filters} />
+          ) : tab === 'items-by-server' ? (
+            <ItemsByServerView
+              report={itemsByServer.data as ItemsByServerReport | undefined}
+              loading={itemsByServer.isLoading}
+              range={filters}
+              groupBy={serverGroupBy}
+              onGroupBy={setServerGroupBy}
+            />
           ) : tab === 'items' ? (
             <ItemsReportView items={(items.data as SoldItem[]) ?? []} loading={items.isLoading} range={filters} />
           ) : (
@@ -822,7 +837,7 @@ const ItemsReportView: React.FC<{ items: SoldItem[]; loading: boolean; range: Ra
     <div className="space-y-4">
       <ReportTable<SoldItem>
         title={heading('Items Report', range)}
-        note="Every sold line in the range. Total amount includes tax and the line discount."
+        note="Every sold line in the range. Total amount includes tax and the line discount. Served By is who punched the line; Order Waiter is who owns the order — on a busy floor they differ."
         rows={items} loading={loading}
         exportName={`items-report-${suffix(range)}`}
         emptyMessage="No sales in this date range."
@@ -843,7 +858,103 @@ const ItemsReportView: React.FC<{ items: SoldItem[]; loading: boolean; range: Ra
             footer: (rs) => <span className="font-mono">{sumMoney(rs, (i) => i.quantity).toFixed(2)}</span>,
           },
           { key: 'total', header: 'Total Amount', align: 'right', sort: (i) => Number(i.totalAmount), cell: (i) => moneyBold(i.totalAmount), text: (i) => num(i.totalAmount), pdf: (i) => fmt(i.totalAmount), footer: totalOf((i: SoldItem) => i.totalAmount) },
-          { key: 'waiter', header: 'Waiter', sort: (i) => i.waiterName ?? '', cell: (i) => <span className="text-sm">{i.waiterName ?? '—'}</span>, text: (i) => i.waiterName ?? '—' },
+          { key: 'servedBy', header: 'Served By', sort: (i) => i.servedBy ?? '', cell: (i) => <span className="text-sm font-semibold">{i.servedBy ?? '—'}</span>, text: (i) => i.servedBy ?? '—' },
+          { key: 'waiter', header: 'Order Waiter', sort: (i) => i.waiterName ?? '', cell: (i) => <span className="text-sm text-slate-500">{i.waiterName ?? '—'}</span>, text: (i) => i.waiterName ?? '—' },
+        ]}
+      />
+    </div>
+  );
+};
+
+/* ============== Item Sales by Server ============== */
+
+/**
+ * Who sold what, per ITEM.
+ *
+ * The Waiter Report groups whole ORDERS by the waiter who owns them; on a busy
+ * floor a table is rung up by whoever is nearest, so that answer is wrong at the
+ * item level. This reads the per-line stamp taken when the item was punched.
+ * Lines billed before per-item stamping existed fall back to the order's waiter,
+ * so a range spanning that change still totals to the same money.
+ */
+const ItemsByServerView: React.FC<{
+  report?: ItemsByServerReport;
+  loading: boolean;
+  range: Range;
+  groupBy: 'day' | 'shift' | 'none';
+  onGroupBy: (g: 'day' | 'shift' | 'none') => void;
+}> = ({ report, loading, range, groupBy, onGroupBy }) => {
+  const rows = report?.rows ?? [];
+  const servers = report?.servers ?? [];
+  const GROUPS: Array<{ key: 'day' | 'shift' | 'none'; label: string }> = [
+    { key: 'day', label: 'By day' },
+    { key: 'shift', label: 'By shift' },
+    { key: 'none', label: 'Whole range' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 no-print">
+        <Label className="text-xs font-semibold text-slate-500">Group by</Label>
+        {GROUPS.map((g) => (
+          <button
+            key={g.key}
+            type="button"
+            onClick={() => onGroupBy(g.key)}
+            className={
+              'h-8 px-3 rounded-lg text-xs font-semibold border transition-colors ' +
+              (groupBy === g.key
+                ? 'bg-slate-800 text-white border-slate-800'
+                : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400')
+            }
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+
+      {servers.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {servers.slice(0, 4).map((sv) => (
+            <ReportCard
+              key={sv.serverId ?? sv.serverName}
+              title={sv.serverName}
+              value={fmt(sv.totalAmount)}
+              sub={`${Number(sv.quantity).toFixed(2)} items · ${sv.distinctItems} products · ${sv.orderCount} orders`}
+            />
+          ))}
+        </div>
+      )}
+
+      <ReportTable<ItemsByServerRow>
+        title={heading('Item Sales by Server', range)}
+        note="Who punched each item, not who owns the order. Total includes tax and the line discount."
+        rows={rows}
+        loading={loading}
+        exportName={`item-sales-by-server-${groupBy}-${suffix(range)}`}
+        emptyMessage="No sales in this date range."
+        initialSortKey="period"
+        rowKey={(r, i) => `${r.periodKey}-${r.serverId ?? 'x'}-${r.item}-${i}`}
+        columns={[
+          {
+            key: 'period',
+            header: groupBy === 'shift' ? 'Shift' : groupBy === 'day' ? 'Day' : 'Range',
+            sort: (r) => r.periodKey,
+            cell: (r) => <span className="text-sm">{r.periodLabel}</span>,
+            text: (r) => r.periodLabel,
+            footer: () => `Total (${rows.length})`,
+          },
+          { key: 'server', header: 'Served By', sort: (r) => r.serverName, cell: (r) => <span className="font-semibold">{r.serverName}</span>, text: (r) => r.serverName },
+          { key: 'item', header: 'Item', sort: (r) => r.item, cell: (r) => <span className="text-sm">{r.item}</span>, text: (r) => r.item },
+          { key: 'category', header: 'Category', sort: (r) => r.categoryName ?? '', cell: (r) => <span className="text-sm text-slate-500">{r.categoryName ?? '—'}</span>, text: (r) => r.categoryName ?? '—' },
+          {
+            key: 'qty', header: 'Qty', align: 'right', sort: (r) => Number(r.quantity),
+            cell: (r) => <span className="font-mono">{Number(r.quantity).toFixed(2)}</span>, text: (r) => num(r.quantity),
+            footer: (rs) => <span className="font-mono">{sumMoney(rs, (r) => r.quantity).toFixed(2)}</span>,
+          },
+          { key: 'discount', header: 'Discount', align: 'right', sort: (r) => Number(r.discountAmount), cell: (r) => money(r.discountAmount), text: (r) => num(r.discountAmount), pdf: (r) => fmt(r.discountAmount), footer: totalOf((r: ItemsByServerRow) => r.discountAmount) },
+          { key: 'total', header: 'Total', align: 'right', sort: (r) => Number(r.totalAmount), cell: (r) => moneyBold(r.totalAmount), text: (r) => num(r.totalAmount), pdf: (r) => fmt(r.totalAmount), footer: totalOf((r: ItemsByServerRow) => r.totalAmount) },
+          { key: 'orders', header: 'Orders', align: 'right', sort: (r) => r.orderCount, cell: (r) => <span className="font-mono">{r.orderCount}</span>, text: (r) => String(r.orderCount) },
         ]}
       />
     </div>
