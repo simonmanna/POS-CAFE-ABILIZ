@@ -51,7 +51,11 @@ describeDb('Row-Level Security (RLS) — D2-1', () => {
     }
 
     await prismaSuper.currency.upsert({ where: { code: 'USD' }, update: {}, create: { code: 'USD', name: 'US Dollar', symbol: '$' } });
-    if (/^\/pos_stage1_\d+$/.test(new URL(dbUrl).pathname)) await prismaSuper.$executeRawUnsafe('GRANT SELECT ON TABLE "Partner" TO app');
+    // The app role is cluster-wide, table grants are per database. The migration
+    // user owns the tables and may grant the read this spec needs on any
+    // database it runs against (dev, CI, release candidate, isolated).
+    await prismaSuper.$executeRawUnsafe('GRANT USAGE ON SCHEMA public TO app');
+    await prismaSuper.$executeRawUnsafe('GRANT SELECT ON TABLE "Partner" TO app');
     orgA = randomUUID();
     orgB = randomUUID();
 

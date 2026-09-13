@@ -41,7 +41,8 @@ function run(name, cmd, args, opts = {}) {
 function jest(name, pattern, databaseUrl, allowedSkips) {
   const out = path.join(os.tmpdir(), `release-gate-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
   const args = ['jest', '--ci', '--forceExit', '--json', `--outputFile=${out}`, isWin ? '--maxWorkers=2' : '--maxWorkers=50%'];
-  if (pattern) args.push(`--testPathPattern=${pattern}`);
+  // Quoted: with shell=true on Windows an unquoted `|` would pipe the command.
+  if (pattern) args.push(isWin ? `"--testPathPattern=${pattern}"` : `--testPathPattern=${pattern}`);
   const started = Date.now();
   spawnSync('npx', args, { cwd: API, stdio: 'inherit', shell: isWin, env: { ...process.env, DATABASE_URL: databaseUrl, REQUIRE_DB_TESTS: '1', NODE_ENV: 'test', NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --max-old-space-size=4096`.trim() } });
   let report;

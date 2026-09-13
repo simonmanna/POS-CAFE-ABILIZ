@@ -2,6 +2,7 @@
  * Cash-flow / POS release preflight. Read-only: it never repairs anything.
  *
  *   node scripts/pos-release-preflight.cjs --organization <id>
+ *   node scripts/pos-release-preflight.cjs --code <organization code>
  *   node scripts/pos-release-preflight.cjs --all
  *
  * Exit codes: 0 = no blockers, 2 = blockers found (do not deploy / do not open
@@ -157,8 +158,10 @@ async function checkOrganization(db, organizationId) {
 async function main() {
   const all = process.argv.includes('--all');
   const idx = process.argv.indexOf('--organization');
+  const codeIdx = process.argv.indexOf('--code');
   const organizationId = idx >= 0 ? process.argv[idx + 1] : undefined;
-  if (!all && !/^[\w-]+$/.test(organizationId || '')) throw new Error('Usage: node scripts/pos-release-preflight.cjs --organization <id> | --all');
+  const organizationCode = codeIdx >= 0 ? process.argv[codeIdx + 1] : undefined;
+  if (!all && !/^[\w-]+$/.test(organizationId || '') && !/^[\w-]+$/.test(organizationCode || '')) throw new Error('Usage: node scripts/pos-release-preflight.cjs --organization <id> | --code <organization code> | --all');
   const envPath = path.join(__dirname, '..', 'apps', 'api', '.env');
   const config = fs.existsSync(envPath) ? dotenv.parse(fs.readFileSync(envPath)) : {};
   const connectionString = process.env.DATABASE_URL || config.DATABASE_URL;
@@ -169,7 +172,12 @@ async function main() {
     await db.query('BEGIN READ ONLY');
     await db.query("SELECT set_config('statement_timeout', '60000', true)");
     const database = await checkDatabase(db);
-    const ids = all ? (await db.query('SELECT id FROM "Organization" ORDER BY "createdAt"')).rows.map((r) => r.id) : [organizationId];
+    const ids = all
+      ? (await db.query('SELECT id FROM "Organization" ORDER BY "createdAt"')).rows.map((r) => r.id)
+      : organizationCode
+        ? (await db.query('SELECT id FROM "Organization" WHERE code = $1', [organizationCode])).rows.map((r) => r.id)
+        : [organizationId];
+    if (!ids.length) throw new Error(`Organization ${organizationCode ?? organizationId} not found`);
     const organizations = [];
     for (const id of ids) {
       await db.query("SELECT set_config('app.org_id', $1, true)", [id]);

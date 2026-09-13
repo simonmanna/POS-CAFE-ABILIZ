@@ -1,3 +1,4 @@
+import { idempotentPost } from '@/lib/idempotent-request';
 import { submitSaleOperation } from '@/features/pos/offline-queue';
 /**
  * POS API hooks + mutations.
@@ -26,14 +27,6 @@ import type {
   TopItemRow,
   XReport,
 } from './types';
-
-/** A tiny UUID generator for the Idempotency-Key header. */
-function uuid(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return (crypto as any).randomUUID();
-  }
-  return Math.random().toString(36).slice(2) + Date.now().toString(36);
-}
 
 export interface PosProductsParams {
   search?: string;
@@ -101,10 +94,7 @@ export function useCheckout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: CheckoutBody) => {
-      const res = await api.post<CheckoutResult>('/pos/checkout', body, {
-        headers: { 'Idempotency-Key': uuid() },
-      });
-      return res.data;
+      return idempotentPost<CheckoutResult>('/pos/checkout', body);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-holds'] });

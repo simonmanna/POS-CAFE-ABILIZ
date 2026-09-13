@@ -1,3 +1,4 @@
+import { idempotentPost } from '@/lib/idempotent-request';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type {
@@ -134,7 +135,7 @@ export function useBillOrder() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, input }: { id: string; input?: BillOrderInput }) =>
-      (await api.post<OrderDetail>(`/orders/${id}/invoice`, input ?? {}, { headers: { 'Idempotency-Key': uuid() } })).data,
+      idempotentPost<OrderDetail>(`/orders/${id}/invoice`, input ?? {}),
     onSuccess: (_d, { id }) => {
       qc.invalidateQueries({ queryKey: ORDER_PREFIX });
       qc.invalidateQueries({ queryKey: [...ORDER_PREFIX, id] });

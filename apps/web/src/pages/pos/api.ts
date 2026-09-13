@@ -1093,7 +1093,7 @@ export function useGenerateInvoice() {
       transactionDiscountAmount?: number;
       discountReason?: string;
       branchId?: string;
-    }) => (await api.post<InvoiceResult>(`/pos/orders/${orderId}/invoice`, body, { headers: { 'Idempotency-Key': uuid() } })).data,
+    }) => idempotentPost<InvoiceResult>(`/pos/orders/${orderId}/invoice`, body),
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
