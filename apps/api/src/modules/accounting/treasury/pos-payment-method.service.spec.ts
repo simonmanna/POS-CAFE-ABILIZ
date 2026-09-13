@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { PosPaymentMethodService } from './pos-payment-method.service';
+import { PosPaymentMethodService, terminalPaymentMethods } from './pos-payment-method.service';
 import { ALLOWED_CATEGORIES_BY_METHOD } from './tender-account';
 
 /**
@@ -85,5 +85,27 @@ describe('PosPaymentMethodService account binding', () => {
     for (const kind of ['cash', 'mobile_money', 'card', 'bank', 'store_credit']) {
       expect(ALLOWED_CATEGORIES_BY_METHOD[kind]?.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('terminalPaymentMethods (shared by terminal and shift close)', () => {
+  it('synthesizes tracked wallet accounts for an org with no stored methods', async () => {
+    // Shift close validates uncounted accounts against this list; when it read
+    // stored rows only, an unconfigured org could never close with a wallet
+    // marked "not counted" although the dialog demanded exactly that.
+    const client: any = {
+      posPaymentMethod: { findMany: jest.fn(async () => []) },
+      accountMapping: { findFirst: jest.fn(async () => null) },
+      account: {
+        findMany: jest.fn(async () => [
+          { id: 'acct-bank', name: 'Bank', code: '1200', category: { key: 'bank' } },
+          { id: 'acct-wallet', name: 'MTN', code: 'MOMO', category: { key: 'mobile_money' } },
+        ]),
+      },
+    };
+    const methods = await terminalPaymentMethods(client, 'org-1');
+    const tracked = new Set(methods.filter((m) => m.trackInShift && m.accountId).map((m) => m.accountId));
+    expect(tracked).toEqual(new Set(['acct-bank', 'acct-wallet']));
+    expect(methods.find((m) => m.kind === 'cash')?.trackInShift).toBe(false);
   });
 });

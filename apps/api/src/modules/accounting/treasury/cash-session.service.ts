@@ -1,5 +1,6 @@
 import { accountLedgerBalance, accountObservations, reconcileSession, settleTender } from './session-reconciliation';
 import { assertNotDrawerAccount, lockAccounts, operationId, requireAccount } from './treasury-guards';
+import { terminalPaymentMethods } from './pos-payment-method.service';
 import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import {
   BadRequestException,
@@ -461,13 +462,18 @@ export class CashSessionService {
     // approver, whether or not anything below needs approving.
     if ('verifiedManagerId' in input.approval) await approve('this shift close');
     const reason = input.varianceReason?.trim() || null;
+    // Stored configuration decides which balances are required. The close
+    // dialog lists the terminal's accounts (stored or synthesized for an
+    // unconfigured org), so any of those may be marked not counted.
     const tracked = await tx.posPaymentMethod.findMany({
       where: { organizationId, isActive: true, deletedAt: null, trackInShift: true, accountId: { not: null } },
       select: { accountId: true, label: true },
     });
     const observed = input.closingAccounts ?? {};
     const uncounted = input.uncountedAccounts ?? {};
-    const trackedIds = new Set<string>(tracked.map((m: any) => m.accountId));
+    const trackedIds = new Set<string>(
+      (await terminalPaymentMethods(tx, organizationId)).filter((m) => m.trackInShift && m.accountId).map((m) => m.accountId as string),
+    );
     for (const id of Object.keys(uncounted)) {
       if (!trackedIds.has(id)) throw new BadRequestException('Only tracked tender accounts can be marked as not counted');
       if (id in observed) throw new BadRequestException('An account cannot be both counted and not counted');

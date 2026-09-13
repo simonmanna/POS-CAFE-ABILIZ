@@ -80,12 +80,7 @@ export class PosPaymentMethodService {
    * has always exposed, just already bound to a mode.
    */
   async listForTerminal(): Promise<PosPaymentMethodView[]> {
-    const rows = await this.prisma.client.posPaymentMethod.findMany({
-      where: { organizationId: this.tenant.organizationId, deletedAt: null, isActive: true },
-      include: { account: { select: { id: true, code: true, name: true } } },
-    });
-    if (rows.length) return this.sort(rows.map((r: any) => this.toView(r)));
-    return this.synthesize();
+    return terminalPaymentMethods(this.prisma.client, this.tenant.organizationId);
   }
 
   async create(dto: UpsertPosPaymentMethodDto): Promise<PosPaymentMethodView> {
@@ -205,73 +200,95 @@ export class PosPaymentMethodService {
     if (!others) throw new BadRequestException('The last cash payment method cannot be removed — the terminal must always be able to take cash');
   }
 
-  /**
-   * Legacy shape for an org that has not configured anything: one cash tile,
-   * one tile per mobile-money / bank account, and the mapped card-clearing
-   * account. Ids are prefixed so they cannot be mistaken for stored rows.
-   */
-  private async synthesize(): Promise<PosPaymentMethodView[]> {
-    const orgId = this.tenant.organizationId;
-    const accounts = await this.prisma.client.account.findMany({
-      where: {
-        organizationId: orgId, isActive: true, deletedAt: null,
-        category: { key: { in: ['bank', 'mobile_money', 'current_asset'] } },
-      },
-      include: { category: true },
-      orderBy: { code: 'asc' },
-    });
-    const clearing = await this.prisma.client.accountMapping.findFirst({ where: { organizationId: orgId, key: 'card_clearing' } });
-    const out: PosPaymentMethodView[] = [{
-      id: 'synthetic:cash', code: 'cash', label: 'Cash', kind: 'cash', provider: null,
-      accountId: null, accountName: null, accountCode: null, icon: KIND_ICON.cash,
-      sortOrder: 0, requiresReference: false, trackInShift: false, isActive: true, synthetic: true,
-    }];
-    for (const account of accounts as any[]) {
-      const key = account.category?.key;
-      // A current asset is only ever the card clearing account, never a tile of its own.
-      const kind = key === 'current_asset' ? 'card' : key;
-      if (key === 'current_asset' && account.id !== clearing?.accountId) continue;
-      out.push({
-        id: `synthetic:${account.id}`, code: `${kind}_${account.code}`,
-        label: key === 'current_asset' ? 'Card' : account.name,
-        kind, provider: key === 'mobile_money' || key === 'bank' ? account.name : null,
-        accountId: account.id, accountName: account.name, accountCode: account.code,
-        icon: KIND_ICON[kind] ?? 'Wallet', sortOrder: 0,
-        requiresReference: kind === 'mobile_money' || kind === 'bank',
-        trackInShift: true, isActive: true, synthetic: true,
-      });
-    }
-    // A bank account also backs card payments when no clearing account is mapped.
-    if (!clearing?.accountId) {
-      const bank = (accounts as any[]).find((a) => a.category?.key === 'bank');
-      if (bank) {
-        out.push({
-          id: `synthetic:card:${bank.id}`, code: `card_${bank.code}`, label: 'Card',
-          kind: 'card', provider: null, accountId: bank.id, accountName: bank.name, accountCode: bank.code,
-          icon: KIND_ICON.card, sortOrder: 0, requiresReference: false, trackInShift: true, isActive: true, synthetic: true,
-        });
-      }
-    }
-    return this.sort(out);
-  }
-
   private sort(rows: PosPaymentMethodView[]) {
-    const rank = (kind: string) => { const i = KIND_ORDER.indexOf(kind); return i === -1 ? KIND_ORDER.length : i; };
-    return rows.sort((a, b) =>
-      rank(a.kind) - rank(b.kind) || a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
+    return sortMethods(rows);
   }
 
   private toView(row: any): PosPaymentMethodView {
-    return {
-      id: row.id, code: row.code, label: row.label, kind: row.kind, provider: row.provider ?? null,
-      accountId: row.accountId ?? null,
-      accountName: row.account?.name ?? null,
-      accountCode: row.account?.code ?? null,
-      icon: row.icon || KIND_ICON[row.kind] || 'Wallet',
-      sortOrder: row.sortOrder ?? 0,
-      requiresReference: !!row.requiresReference,
-      trackInShift: !!row.trackInShift,
-      isActive: !!row.isActive,
-    };
+    return toView(row);
   }
+}
+
+/**
+ * The payment methods the terminal offers: stored configuration when the org
+ * has any, otherwise the legacy shape synthesized from accounts. Shift close
+ * uses the same list, so the accounts a cashier is asked to count are exactly
+ * the accounts the server requires.
+ */
+export async function terminalPaymentMethods(client: any, orgId: string): Promise<PosPaymentMethodView[]> {
+  const rows = await client.posPaymentMethod.findMany({
+    where: { organizationId: orgId, deletedAt: null, isActive: true },
+    include: { account: { select: { id: true, code: true, name: true } } },
+  });
+  if (rows.length) return sortMethods(rows.map((r: any) => toView(r)));
+  return synthesize(client, orgId);
+}
+
+/**
+ * Legacy shape for an org that has not configured anything: one cash tile,
+ * one tile per mobile-money / bank account, and the mapped card-clearing
+ * account. Ids are prefixed so they cannot be mistaken for stored rows.
+ */
+async function synthesize(client: any, orgId: string): Promise<PosPaymentMethodView[]> {
+  const accounts = await client.account.findMany({
+    where: {
+      organizationId: orgId, isActive: true, deletedAt: null,
+      category: { key: { in: ['bank', 'mobile_money', 'current_asset'] } },
+    },
+    include: { category: true },
+    orderBy: { code: 'asc' },
+  });
+  const clearing = await client.accountMapping.findFirst({ where: { organizationId: orgId, key: 'card_clearing' } });
+  const out: PosPaymentMethodView[] = [{
+    id: 'synthetic:cash', code: 'cash', label: 'Cash', kind: 'cash', provider: null,
+    accountId: null, accountName: null, accountCode: null, icon: KIND_ICON.cash,
+    sortOrder: 0, requiresReference: false, trackInShift: false, isActive: true, synthetic: true,
+  }];
+  for (const account of accounts as any[]) {
+    const key = account.category?.key;
+    // A current asset is only ever the card clearing account, never a tile of its own.
+    const kind = key === 'current_asset' ? 'card' : key;
+    if (key === 'current_asset' && account.id !== clearing?.accountId) continue;
+    out.push({
+      id: `synthetic:${account.id}`, code: `${kind}_${account.code}`,
+      label: key === 'current_asset' ? 'Card' : account.name,
+      kind, provider: key === 'mobile_money' || key === 'bank' ? account.name : null,
+      accountId: account.id, accountName: account.name, accountCode: account.code,
+      icon: KIND_ICON[kind] ?? 'Wallet', sortOrder: 0,
+      requiresReference: kind === 'mobile_money' || kind === 'bank',
+      trackInShift: true, isActive: true, synthetic: true,
+    });
+  }
+  // A bank account also backs card payments when no clearing account is mapped.
+  if (!clearing?.accountId) {
+    const bank = (accounts as any[]).find((a) => a.category?.key === 'bank');
+    if (bank) {
+      out.push({
+        id: `synthetic:card:${bank.id}`, code: `card_${bank.code}`, label: 'Card',
+        kind: 'card', provider: null, accountId: bank.id, accountName: bank.name, accountCode: bank.code,
+        icon: KIND_ICON.card, sortOrder: 0, requiresReference: false, trackInShift: true, isActive: true, synthetic: true,
+      });
+    }
+  }
+  return sortMethods(out);
+}
+
+function sortMethods(rows: PosPaymentMethodView[]) {
+  const rank = (kind: string) => { const i = KIND_ORDER.indexOf(kind); return i === -1 ? KIND_ORDER.length : i; };
+  return rows.sort((a, b) =>
+    rank(a.kind) - rank(b.kind) || a.sortOrder - b.sortOrder || a.label.localeCompare(b.label));
+}
+
+function toView(row: any): PosPaymentMethodView {
+  return {
+    id: row.id, code: row.code, label: row.label, kind: row.kind, provider: row.provider ?? null,
+    accountId: row.accountId ?? null,
+    accountName: row.account?.name ?? null,
+    accountCode: row.account?.code ?? null,
+    icon: row.icon || KIND_ICON[row.kind] || 'Wallet',
+    sortOrder: row.sortOrder ?? 0,
+    requiresReference: !!row.requiresReference,
+    trackInShift: !!row.trackInShift,
+    isActive: !!row.isActive,
+  };
 }
