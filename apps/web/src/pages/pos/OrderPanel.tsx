@@ -22,7 +22,6 @@ import {
   Tag,
   CreditCard,
   Receipt,
-  User,
   AlertTriangle,
   Printer,
   Pause,
@@ -31,6 +30,7 @@ import {
   Percent,
   Delete as BackspaceIcon,
   MoreHorizontal,
+  User,
 } from "lucide-react";
 import {
   selectItemCount,
@@ -363,14 +363,6 @@ export const OrderPanel: React.FC<Props> = ({
                     </div>
                   ) : null}
                   {it.note ? <div className="pos-oline-note truncate">! {it.note}</div> : null}
-                  {/* Who punched this line. Shown per line, not per order: on a
-                      busy floor one table is rung up by whoever is nearest. */}
-                  {it.punchedByName ? (
-                    <div className="pos-oline-meta truncate">
-                      <User className="h-3 w-3 inline-block mr-1 -mt-0.5" />
-                      {it.punchedByName}
-                    </div>
-                  ) : null}
                 </div>
                 <div className={"pos-oline-qty" + (it.quantity > 0 ? "" : " text-rose-500")}>{it.quantity}</div>
                 <div className="pos-oline-price">{fmt(lineSub, false)}</div>

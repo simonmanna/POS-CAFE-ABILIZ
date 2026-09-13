@@ -389,113 +389,111 @@ export function InvoiceDetailPage() {
         </div>
 
         {/* INVOICE LINES tab */}
-        {activeTab === 'lines' && (
-          <div>
-            <div className="flex flex-col lg:flex-row">
-              <div className="flex-1 overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="bg-sky-50 hover:bg-sky-50">
-                      <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Product</TableHead>
-                      <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Account</TableHead>
-                      <TableHead className="w-20 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Qty</TableHead>
-                      <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Unit Price</TableHead>
-                      <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Tax</TableHead>
-                      <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Discount</TableHead>
-                      <TableHead className="w-32 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Amount</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {inv.lines.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={7} className="py-10 text-center text-sky-400">
-                          No line items found.
-                        </TableCell>
-                      </TableRow>
-                    ) : inv.lines.map((l) => {
-                      const isSection = (l.lineType ?? 'product') === 'section';
-                      const isNote = (l.lineType ?? 'product') === 'note';
-                      if (isSection || isNote) {
-                        return (
-                          <TableRow key={l.id} className={isSection ? 'bg-sky-50/60' : 'bg-transparent'}>
-                            <TableCell
-                              colSpan={7}
-                              className={`${isSection ? 'py-1.5 text-[13px] font-bold uppercase tracking-wide text-sky-900 border-b border-sky-100' : 'py-1 text-[13px] italic text-slate-500'}`}
-                            >
-                              {isSection ? '▬ ' : ''}{l.description || (isSection ? 'Section' : 'Note')}
-                            </TableCell>
+                {activeTab === 'lines' && (
+                  <div>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-sky-50 hover:bg-sky-50">
+                            <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Product</TableHead>
+                            <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Account</TableHead>
+                            <TableHead className="w-20 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Qty</TableHead>
+                            <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Unit Price</TableHead>
+                            <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Tax</TableHead>
+                            <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Discount</TableHead>
+                            <TableHead className="w-32 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Amount</TableHead>
                           </TableRow>
-                        );
-                      }
-                      const hasDiscount = Number(l.discountAmount || l.discountPercent) > 0;
-                      const discountLabel = l.discountType === 'fixed_amount'
-                        ? `-${money(l.discountAmount)}`
-                        : l.discountPercent && Number(l.discountPercent) > 0
-                          ? `${Number(l.discountPercent).toFixed(1)}%`
-                          : '-';
-                      return (
-                        <TableRow key={l.id} className="hover:bg-sky-50/40">
-                          <TableCell className="font-semibold text-sm text-sky-900">
-                            {l.description}
-                            {l.discountReason ? <div className="text-[10px] text-slate-500 mt-0.5">({l.discountReason})</div> : null}
-                          </TableCell>
-                          <TableCell className="text-sm text-sky-700">
-                            {l.account ? (
-                              <span className="inline-flex items-center gap-1.5">
-                                <code className="text-[11px] bg-sky-50 border border-sky-100 px-1.5 py-0.5 rounded font-mono text-sky-700 font-semibold">{l.account.code}</code>
-                                <span className="text-xs text-sky-600">{l.account.name}</span>
-                              </span>
-                            ) : '-'}
-                          </TableCell>
-                          <TableCell className="text-right text-sm text-sky-800">{money(l.quantity)}</TableCell>
-                          <TableCell className="text-right text-sm text-sky-800">{money(l.unitPrice)}</TableCell>
-                          <TableCell className="text-right text-sm text-sky-700">
-                            {l.tax && Number(l.taxAmount) > 0 ? `${l.tax.name} ${rateLabel(l.tax.rate)}`.trim() : '-'}
-                          </TableCell>
-                          <TableCell className={`text-right text-sm font-medium ${hasDiscount ? 'text-amber-700' : 'text-sky-400'}`}>{discountLabel}</TableCell>
-                          <TableCell className="text-right text-sm font-bold text-sky-900">{money(l.total)}</TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
+                        </TableHeader>
+                        <TableBody>
+                          {inv.lines.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={7} className="py-10 text-center text-sky-400">
+                                No line items found.
+                              </TableCell>
+                            </TableRow>
+                          ) : inv.lines.map((l) => {
+                            const isSection = (l.lineType ?? 'product') === 'section';
+                            const isNote = (l.lineType ?? 'product') === 'note';
+                            if (isSection || isNote) {
+                              return (
+                                <TableRow key={l.id} className={isSection ? 'bg-sky-50/60' : 'bg-transparent'}>
+                                  <TableCell
+                                    colSpan={7}
+                                    className={`${isSection ? 'py-1.5 text-[13px] font-bold uppercase tracking-wide text-sky-900 border-b border-sky-100' : 'py-1 text-[13px] italic text-slate-500'}`}
+                                  >
+                                    {isSection ? '▬ ' : ''}{l.description || (isSection ? 'Section' : 'Note')}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            }
+                            const hasDiscount = Number(l.discountAmount || l.discountPercent) > 0;
+                            const discountLabel = l.discountType === 'fixed_amount'
+                              ? `-${money(l.discountAmount)}`
+                              : l.discountPercent && Number(l.discountPercent) > 0
+                                ? `${Number(l.discountPercent).toFixed(1)}%`
+                                : '-';
+                            return (
+                              <TableRow key={l.id} className="hover:bg-sky-50/40">
+                                <TableCell className="font-semibold text-sm text-sky-900">
+                                  {l.description}
+                                  {l.discountReason ? <div className="text-[10px] text-slate-500 mt-0.5">({l.discountReason})</div> : null}
+                                </TableCell>
+                                <TableCell className="text-sm text-sky-700">
+                                  {l.account ? (
+                                    <span className="inline-flex items-center gap-1.5">
+                                      <code className="text-[11px] bg-sky-50 border border-sky-100 px-1.5 py-0.5 rounded font-mono text-sky-700 font-semibold">{l.account.code}</code>
+                                      <span className="text-xs text-sky-600">{l.account.name}</span>
+                                    </span>
+                                  ) : '-'}
+                                </TableCell>
+                                <TableCell className="text-right text-sm text-sky-800">{money(l.quantity)}</TableCell>
+                                <TableCell className="text-right text-sm text-sky-800">{money(l.unitPrice)}</TableCell>
+                                <TableCell className="text-right text-sm text-sky-700">
+                                  {l.tax && Number(l.taxAmount) > 0 ? `${l.tax.name} ${rateLabel(l.tax.rate)}`.trim() : '-'}
+                                </TableCell>
+                                <TableCell className={`text-right text-sm font-medium ${hasDiscount ? 'text-amber-700' : 'text-sky-400'}`}>{discountLabel}</TableCell>
+                                <TableCell className="text-right text-sm font-bold text-sky-900">{money(l.total)}</TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
 
-              {/* Odoo right totals panel */}
-              <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-sky-100 bg-gradient-to-b from-sky-50/60 to-sky-100/30 p-4 shrink-0">
-                <div className="space-y-2">
-                  <SummaryRow label="Untaxed Amount" value={money(inv.subtotal)} />
-                  {taxGroups.size > 0 ? (
-                    [...taxGroups.values()].map(g => (
-                      <SummaryRow key={g.label} label={g.label} value={money(g.amount)} />
-                    ))
-                  ) : (
-                    inv.taxAmount && Number(inv.taxAmount) > 0 ? (
-                      <SummaryRow label="Taxes" value={money(inv.taxAmount)} />
-                    ) : null
-                  )}
-                  {inv.discountTotal && Number(inv.discountTotal) > 0 && (
-                    <SummaryRow
-                      label={`Discount ${inv.discountType === 'fixed_amount' ? '(fixed)' : inv.discountType === 'percentage' ? `(${inv.discountValue ? Number(inv.discountValue).toFixed(1) : 'pct'}%)` : ''}`}
-                      value={`-${money(inv.discountTotal)}`}
-                    />
-                  )}
-                  <div className="border-t-2 border-sky-200 pt-2">
-                    <SummaryRow label="TOTAL" value={money(inv.totalAmount)} bold />
+                    {/* Summary below the items list */}
+                                        <div className="border-t border-sky-100 bg-gradient-to-b from-sky-50/60 to-sky-100/30 p-4 mt-4">
+                                          <div className="max-w-[400px] ml-auto space-y-2">
+                        <SummaryRow label="Untaxed Amount" value={money(inv.subtotal)} />
+                        {taxGroups.size > 0 ? (
+                          [...taxGroups.values()].map(g => (
+                            <SummaryRow key={g.label} label={g.label} value={money(g.amount)} />
+                          ))
+                        ) : (
+                          inv.taxAmount && Number(inv.taxAmount) > 0 ? (
+                            <SummaryRow label="Taxes" value={money(inv.taxAmount)} />
+                          ) : null
+                        )}
+                        {inv.discountTotal && Number(inv.discountTotal) > 0 && (
+                          <SummaryRow
+                            label={`Discount ${inv.discountType === 'fixed_amount' ? '(fixed)' : inv.discountType === 'percentage' ? `(${inv.discountValue ? Number(inv.discountValue).toFixed(1) : 'pct'}%)` : ''}`}
+                            value={`-${money(inv.discountTotal)}`}
+                          />
+                        )}
+                        <div className="border-t-2 border-sky-200 pt-2">
+                          <SummaryRow label="TOTAL" value={money(inv.totalAmount)} bold />
+                        </div>
+                        <SummaryRow label="Total Paid" value={money(inv.amountPaid)} />
+                        <SummaryRow label="Amount Due" value={money(inv.amountResidual)} bold accent={residual > 0.005} />
+                      </div>
+                      {inv.notes ? (
+                        <div className="mt-4 rounded border border-sky-100 bg-white/70 p-3">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-sky-600 mb-1">Terms & Conditions</p>
+                          <p className="text-xs text-sky-800/80 whitespace-pre-wrap">{inv.notes}</p>
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                  <SummaryRow label="Total Paid" value={money(inv.amountPaid)} />
-                  <SummaryRow label="Amount Due" value={money(inv.amountResidual)} bold accent={residual > 0.005} />
-                </div>
-                {inv.notes ? (
-                  <div className="mt-4 rounded border border-sky-100 bg-white/70 p-3">
-                    <p className="text-[11px] font-bold uppercase tracking-wider text-sky-600 mb-1">Terms &amp; Conditions</p>
-                    <p className="text-xs text-sky-800/80 whitespace-pre-wrap">{inv.notes}</p>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-          </div>
-        )}
+                )}
 
         {/* JOURNAL ITEMS tab */}
         {activeTab === 'journal' && (

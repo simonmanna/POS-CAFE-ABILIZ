@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, Plus, Search, X } from 'lucide-react';
+import { Eye, Plus, Search, X, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,21 @@ import { money, dateTime, useOrgCurrency, statusLabel } from '@/lib/format';
 import { useOrders } from '@/features/orders/api';
 import type { Order } from '@/features/orders/types';
 import { ORDER_TYPE_LABELS } from './line-source';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   confirmed: 'default',
@@ -57,149 +72,193 @@ export function OrdersPage() {
   };
 
   const columns: Column<Order>[] = [
-    {
-      key: 'orderNumber',
-      header: 'Order #',
-      render: (o) => (
-        <Link to={`/orders/${o.id}`} className="font-medium text-primary hover:underline">
-          {o.orderNumber}
-        </Link>
-      ),
-    },
-    { key: 'partnerName', header: 'Customer', render: (o) => o.partnerName ?? '-' },
-    {
-      key: 'orderType',
-      header: 'Type',
-      render: (o) => <span className="text-sm">{ORDER_TYPE_LABELS[o.orderType] ?? o.orderType}</span>,
-    },
-    { key: 'openedAt', header: 'Date', render: (o) => dateTime(o.openedAt) },
-    { key: 'totalAmount', header: 'Total', className: 'text-right', render: (o) => money(o.totalAmount, currency) },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (o) => (
-        <Badge variant={statusVariant[o.status] ?? 'secondary'}>{statusLabel(o.status)}</Badge>
-      ),
-    },
-    {
-      key: 'invoiceId',
-      header: 'Billed',
-      render: (o) =>
-        o.invoiceId ? <Badge variant="outline">Invoiced</Badge> : <span className="text-sm text-muted-foreground">—</span>,
-    },
-    {
-      key: 'actions',
-      header: '',
-      render: (o) => (
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/orders/${o.id}`)}>
-          <Eye className="mr-1 h-3.5 w-3.5" /> View
-        </Button>
-      ),
-    },
-  ];
+      {
+        key: 'orderNumber',
+        header: 'Order #',
+        render: (o) => (
+          <Link to={`/orders/${o.id}`} className="font-medium text-primary hover:underline">
+            {o.orderNumber}
+          </Link>
+        ),
+      },
+      { key: 'partnerName', header: 'Customer', render: (o) => o.partnerName ?? '-' },
+      {
+        key: 'orderType',
+        header: 'Type',
+        render: (o) => <span className="text-sm">{ORDER_TYPE_LABELS[o.orderType] ?? o.orderType}</span>,
+      },
+      { key: 'openedAt', header: 'Date', render: (o) => dateTime(o.openedAt) },
+      { key: 'totalAmount', header: 'Total', className: 'text-right', render: (o) => money(o.totalAmount, currency) },
+      {
+        key: 'status',
+        header: 'Status',
+        render: (o) => (
+          <Badge variant={statusVariant[o.status] ?? 'secondary'}>
+            {statusLabel(o.status)}
+          </Badge>
+        ),
+      },
+      {
+        key: 'invoiceId',
+        header: 'Billed',
+        render: (o) =>
+          o.invoiceId ? <Badge variant="outline">Invoiced</Badge> : <span className="text-sm text-muted-foreground">—</span>,
+      },
+      {
+        key: 'actions',
+        header: '',
+        className: 'w-24 text-center',
+        render: (o) => (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <span className="sr-only">Actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel className="font-semibold">Actions</DropdownMenuLabel>
+              <DropdownMenuItem onClick={() => navigate(`/orders/${o.id}`)}>
+                <Eye className="mr-2 h-3.5 w-3.5" /> View Details
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate(`/invoices/${o.invoiceId}`)} disabled={!o.invoiceId}>
+                <span className="mr-2 h-3.5 w-3.5" /> View Invoice
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ),
+      },
+    ];
 
-  const meta = data?.meta;
+    const meta = data?.meta;
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Orders</h1>
-          <p className="text-sm text-muted-foreground">
-            Operational orders — café, retail, rental and repair share one document.
-          </p>
-        </div>
-        <Button onClick={() => navigate('/orders/new')}>
-          <Plus className="mr-1 h-4 w-4" /> New Order
-        </Button>
-      </div>
+    const handleExport = () => {
+      if (!data?.rows?.length) return;
+      const headers = ['Order #', 'Customer', 'Type', 'Date', 'Total', 'Status', 'Billed'];
+      const rows = data.rows.map((o) => [
+        o.orderNumber,
+        o.partnerName ?? '',
+        ORDER_TYPE_LABELS[o.orderType] ?? o.orderType,
+        dateTime(o.openedAt),
+        money(o.totalAmount, currency),
+        statusLabel(o.status),
+        o.invoiceId ? 'Invoiced' : '—',
+      ]);
+      const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `orders-${new Date().toISOString().split('T')[0]}.csv`;
+      link.click();
+    };
 
-      {/* Filter bar — mirrors the invoices list pattern */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search order # or customer…"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="h-9 w-72 pl-8"
-          />
-        </div>
-        <select
-          className={selectClass}
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-        >
-          <option value="">All statuses</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="in_progress">In progress</option>
-          <option value="ready">Ready</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="closed">Closed</option>
-        </select>
-        <select
-          className={selectClass}
-          value={filterOrderType}
-          onChange={(e) => setFilterOrderType(e.target.value)}
-        >
-          <option value="">All types</option>
-          {orderTypes.map(([value, label]) => (
-            <option key={value} value={value}>{label}</option>
-          ))}
-        </select>
-        <Input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          className="h-9 w-40"
-          title="Opened from"
-        />
-        <Input
-          type="date"
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          className="h-9 w-40"
-          title="Opened to"
-        />
-        {hasActiveFilters && (
-          <Button variant="ghost" size="sm" onClick={clearFilters}>
-            <X className="mr-1 h-3.5 w-3.5" /> Clear
-          </Button>
-        )}
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={data?.rows ?? []}
-        loading={isLoading}
-        getRowId={(o) => o.id}
-        cellClassName="py-1.5 px-3"
-        headerRowClassName="h-10"
-        emptyMessage="No orders found. Create one with “New Order”."
-      />
-
-      {meta && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} order(s)</span>
+    return (
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Orders</h1>
+            <p className="text-sm text-muted-foreground">
+              Operational orders — café, retail, rental and repair share one document.
+            </p>
+          </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+            <Button variant="outline" size="sm" onClick={handleExport} disabled={!data?.rows?.length}>
+              <Download className="mr-1.5 h-4 w-4" /> Export CSV
             </Button>
-            <span>
-              Page {meta.page} of {meta.totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= meta.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
+            <Button onClick={() => navigate('/orders/new')}>
+              <Plus className="mr-1 h-4 w-4" /> New Order
             </Button>
           </div>
         </div>
-      )}
-    </div>
-  );
-}
+
+        {/* Filter bar — enhanced with Select components */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search order # or customer…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="h-9 w-72 pl-8"
+            />
+          </div>
+        
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className={selectClass + ' w-[150px]'}><SelectValue placeholder="All statuses" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All statuses</SelectItem>
+              <SelectItem value="confirmed">Confirmed</SelectItem>
+              <SelectItem value="in_progress">In progress</SelectItem>
+              <SelectItem value="ready">Ready</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="cancelled">Cancelled</SelectItem>
+              <SelectItem value="closed">Closed</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={filterOrderType} onValueChange={setFilterOrderType}>
+            <SelectTrigger className={selectClass + ' w-[150px]'}><SelectValue placeholder="All types" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All types</SelectItem>
+              {orderTypes.map(([value, label]) => (
+                <SelectItem key={value} value={value}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="h-9 w-40"
+            title="Opened from"
+          />
+          <span className="text-xs text-muted-foreground">—</span>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="h-9 w-40"
+            title="Opened to"
+          />
+          {hasActiveFilters && (
+            <Button variant="ghost" size="sm" onClick={clearFilters}>
+              <X className="mr-1 h-3.5 w-3.5" /> Clear
+            </Button>
+          )}
+        </div>
+
+        <div className="rounded-md border">
+          <DataTable
+            columns={columns}
+            data={data?.rows ?? []}
+            loading={isLoading}
+            getRowId={(o) => o.id}
+            cellClassName="py-2 px-3"
+            headerRowClassName="h-10 bg-muted/50"
+            emptyMessage="No orders found. Create one with “New Order”."
+          />
+        </div>
+
+        {meta && (
+          <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-muted-foreground">
+            <span>{meta.total} order(s)</span>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                <ChevronLeft className="mr-1 h-3.5 w-3.5" /> Previous
+              </Button>
+              <span className="px-2">Page {meta.page} of {meta.totalPages}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={page >= meta.totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Next <ChevronRight className="ml-1 h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }

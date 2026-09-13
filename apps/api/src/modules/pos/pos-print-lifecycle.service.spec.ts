@@ -71,6 +71,30 @@ describe('PosPrintLifecycleService', () => {
     });
   });
 
+  describe('markLinesBilled', () => {
+    it('checkpoints each active order-item quantity', async () => {
+      const tx = mockTx();
+      tx.invoice.findFirst.mockResolvedValue(null);
+      tx.order.findFirst.mockResolvedValue({ id: 'ord-1' });
+      tx.orderItem.findMany.mockResolvedValue([
+        { id: 'line-1', quantity: 2 },
+        { id: 'line-2', quantity: 1 },
+      ]);
+
+      await svc.markLinesBilled(tx, 'ord-1', userId);
+
+      expect(tx.orderItem.update).toHaveBeenCalledTimes(2);
+      expect(tx.orderItem.update).toHaveBeenNthCalledWith(1, {
+        where: { id: 'line-1' },
+        data: expect.objectContaining({ billPrintedQty: 2, lastBillPrintedById: userId }),
+      });
+      expect(tx.orderItem.update).toHaveBeenNthCalledWith(2, {
+        where: { id: 'line-2' },
+        data: expect.objectContaining({ billPrintedQty: 1, lastBillPrintedById: userId }),
+      });
+    });
+  });
+
   describe('markReceiptPrinted', () => {
     it('increments receiptPrintCount on Invoice', async () => {
       const tx = mockTx();
@@ -141,6 +165,25 @@ describe('PosPrintLifecycleService', () => {
       tx.invoice.findUnique.mockResolvedValue({ kotPrintCount: 2 });
       const copy = await svc.getKotCopyNumber(tx, 'inv-1');
       expect(copy).toBe(3);
+    });
+  });
+
+  describe('getKitchenDeltas', () => {
+    it('excludes previously printed quantities and returns only additions', async () => {
+      const tx = mockTx();
+      tx.orderItem.findMany.mockResolvedValue([
+        { id: 'same', quantity: 2, kitchenPrintedQty: 2, kitchenLastPrintedAt: new Date(), modifiers: [] },
+        { id: 'increased', quantity: 3, kitchenPrintedQty: 1, kitchenLastPrintedAt: new Date(), modifiers: [] },
+        { id: 'new', quantity: 1, kitchenPrintedQty: null, kitchenLastPrintedAt: null, modifiers: [] },
+      ]);
+
+      const delta = await svc.getKitchenDeltas(tx, 'ord-1');
+
+      expect(delta.addLines.map(({ line, delta: qty }) => ({ id: line.id, qty }))).toEqual([
+        { id: 'increased', qty: 2 },
+        { id: 'new', qty: 1 },
+      ]);
+      expect(delta.unchangedLines.map(({ line }) => line.id)).toEqual(['same']);
     });
   });
 });

@@ -78,4 +78,67 @@ describe('PosReceiptsService', () => {
       await expect(svc.resolveInvoice('missing')).rejects.toThrow();
     });
   });
+
+  describe('discounted receipt totals', () => {
+    const discountedInvoice = {
+      id: 'inv-discounted',
+      invoiceNumber: 'INV-2026-000112',
+      partnerId: 'p-1',
+      issueDate: new Date('2026-09-12T18:59:00.000Z'),
+      paymentMode: 'cash',
+      subtotal: '38700',
+      discountTotal: '4300',
+      taxAmount: '0',
+      totalAmount: '38700',
+      amountPaid: '38700',
+      items: [
+        { id: 'li-1', description: 'Vanilla', quantity: '2', unitPrice: '9000', discountPercent: '10', total: '16200', lineNumber: 1, modifiers: [] },
+        { id: 'li-2', description: 'Boxenia', quantity: '2', unitPrice: '5000', discountPercent: '10', total: '9000', lineNumber: 2, modifiers: [] },
+        { id: 'li-3', description: 'Mini-Boxenia', quantity: '5', unitPrice: '3000', discountPercent: '10', total: '13500', lineNumber: 3, modifiers: [] },
+      ],
+    };
+
+    beforeEach(() => {
+      prisma.client.invoice.findFirst.mockResolvedValue(discountedInvoice);
+      prisma.client.partner.findFirst.mockResolvedValue({ id: 'p-1', name: 'Acme Retail Ltd' });
+      prisma.client.product.findMany.mockResolvedValue([]);
+      prisma.client.user = { findFirst: jest.fn().mockResolvedValue({ firstName: 'Admin', lastName: 'User' }) };
+      (svc as any).settings = {
+        get: jest.fn().mockResolvedValue({ value: {} }),
+      };
+      prisma.raw = {
+        organization: { findUnique: jest.fn().mockResolvedValue({ name: 'Abiliz Cafe and Patisserie' }) },
+      };
+    });
+
+    it('prints the pre-discount subtotal and the reduced payable total', async () => {
+      const receipt = await svc.buildTextReceipt(discountedInvoice.id);
+
+      expect(receipt).toMatch(/Subtotal:\s+UGX 43,000/);
+      expect(receipt).toMatch(/Discount:\s+-UGX 4,300/);
+      expect(receipt).toMatch(/TOTAL:\s+UGX 38,700/);
+      expect(receipt).toMatch(/Paid:\s+UGX 38,700/);
+    });
+  });
+
+  describe('additional bill deltas', () => {
+    it('returns only quantity added after earlier bill prints', async () => {
+      prisma.client.document.findFirst.mockResolvedValue(null);
+      prisma.client.order.findFirst.mockResolvedValue({
+        id: 'ord-1',
+        items: [
+          { id: 'old', description: 'Coffee', quantity: 2, billPrintedQty: 2, lineNumber: 1 },
+          { id: 'increased', description: 'Cake', quantity: 3, billPrintedQty: 1, lineNumber: 2 },
+          { id: 'new', description: 'Water', quantity: 1, billPrintedQty: 0, lineNumber: 3 },
+        ],
+      });
+
+      const lines = await (svc as any).getUnbilledLines('ord-1');
+
+      expect(lines.map((line: any) => ({ id: line.id, quantity: line.quantity }))).toEqual([
+        { id: 'increased', quantity: 2 },
+        { id: 'new', quantity: 1 },
+      ]);
+    });
+  });
 });

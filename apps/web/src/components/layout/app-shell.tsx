@@ -383,7 +383,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/fixed-assets', label: 'Dashboard', icon: LayoutDashboard, permission: PERMISSIONS.fixedAsset.read },
       { to: '/fixed-assets/register', label: 'Asset Register', icon: Building2, permission: PERMISSIONS.fixedAsset.read },
-      { to: '/fixed-assets/categories', label: 'Categories', icon: Tag, permission: PERMISSIONS.assetCategory.read },
+      { to: '/fixed-assets/categories', label: 'Asset Categories', icon: Tag, permission: PERMISSIONS.assetCategory.read },
     ],
   },
   {

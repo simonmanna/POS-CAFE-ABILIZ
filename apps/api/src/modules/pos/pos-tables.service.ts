@@ -179,6 +179,7 @@ export class PosTablesService {
       where: { orderId },
       select: {
         productId: true, kitchenPrintCount: true, kitchenLastPrintedAt: true, kitchenPrintedQty: true,
+        billPrintedQty: true, billLastPrintedAt: true, lastBillPrintedById: true,
         cancelPrintCount: true, cancelLastPrintedAt: true, lastKitchenPrintedById: true, kitchenStatus: true,
       },
     });
@@ -209,6 +210,9 @@ export class PosTablesService {
           kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
           kitchenLastPrintedAt: lc?.kitchenLastPrintedAt ?? null,
           kitchenPrintedQty: lc?.kitchenPrintedQty ?? null,
+          billPrintedQty: lc?.billPrintedQty ?? 0,
+          billLastPrintedAt: lc?.billLastPrintedAt ?? null,
+          lastBillPrintedById: lc?.lastBillPrintedById ?? null,
           cancelPrintCount: lc?.cancelPrintCount ?? 0,
           cancelLastPrintedAt: lc?.cancelLastPrintedAt ?? null,
           lastKitchenPrintedById: lc?.lastKitchenPrintedById ?? null,

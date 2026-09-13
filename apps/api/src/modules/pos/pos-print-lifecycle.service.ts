@@ -73,12 +73,30 @@ export class PosPrintLifecycleService {
 
   async markLinesBilled(tx: any, recordId: string, _userId?: string): Promise<void> {
     const target = await this.resolvePrintTarget(tx, recordId);
-    // Invoice / Order items have no bill-printed-at field; only legacy Document tracks it.
-    if (target !== 'document') return;
-    await tx.documentLine.updateMany({
-      where: { documentId: recordId, billPrintedAt: null },
-      data: { billPrintedAt: new Date() },
+    if (target === 'document') {
+      await tx.documentLine.updateMany({
+        where: { documentId: recordId, billPrintedAt: null },
+        data: { billPrintedAt: new Date() },
+      });
+      return;
+    }
+    if (target !== 'order') return;
+
+    const now = new Date();
+    const items = await tx.orderItem.findMany({
+      where: { orderId: recordId, cancelled: false },
+      select: { id: true, quantity: true },
     });
+    for (const item of items) {
+      await tx.orderItem.update({
+        where: { id: item.id },
+        data: {
+          billPrintedQty: item.quantity,
+          billLastPrintedAt: now,
+          lastBillPrintedById: _userId ?? null,
+        },
+      });
+    }
   }
 
   async getBillCopyNumber(tx: any, recordId: string): Promise<number> {

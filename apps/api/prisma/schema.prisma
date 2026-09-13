@@ -5614,6 +5614,12 @@ model OrderItem {
   kitchenPrintCount      Int                    @default(0)
   kitchenLastPrintedAt   DateTime?
   kitchenPrintedQty      Decimal?               @db.Decimal(20, 6)
+  /// Quantity already included on customer bill print(s). Additional bills
+  /// print only quantity - billPrintedQty, so increasing an existing line by
+  /// one cannot reprint the quantities shown on the first bill.
+  billPrintedQty         Decimal                @default(0) @db.Decimal(20, 6)
+  billLastPrintedAt      DateTime?
+  lastBillPrintedById    String?
   cancelPrintCount       Int                    @default(0)
   cancelLastPrintedAt    DateTime?
   lastKitchenPrintedById String?

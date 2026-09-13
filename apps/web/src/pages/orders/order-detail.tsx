@@ -75,83 +75,80 @@ function TabOverview({ data }: { data: OrderDetail }) {
         </div>
       </div>
 
-      {/* Totals card */}
-      <div className="rounded-lg border bg-card shadow-sm">
-        <div className="rounded-t-lg bg-muted/30 border-b px-5 py-3">
-          <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Totals</h2>
-        </div>
-        <div className="px-5 py-3 space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Items</span>
-            <span className="font-semibold tabular-nums">{totalQty}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Subtotal</span>
-            <span className="tabular-nums">{money(data.subtotal, currency)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Discount</span>
-            <span className="tabular-nums text-amber-700">-{money(data.discountTotal, currency)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Tax</span>
-            <span className="tabular-nums">{money(data.taxAmount, currency)}</span>
-          </div>
-          <Separator />
-          <div className="flex justify-between text-base font-bold">
-            <span>Total</span>
-            <span className="tabular-nums">{money(data.totalAmount, currency)}</span>
-          </div>
-        </div>
-      </div>
-
       {/* Lines card */}
-      <div className="lg:col-span-3 rounded-lg border bg-card shadow-sm">
-        <div className="rounded-t-lg bg-muted/30 border-b px-5 py-3 flex items-center justify-between">
-          <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-            Order Lines ({data.items.length})
-          </h2>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b bg-muted/20 text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="px-5 py-2.5 text-left font-semibold">#</th>
-                <th className="px-3 py-2.5 text-left font-semibold">Item</th>
-                <th className="px-3 py-2.5 text-right font-semibold">Qty</th>
-                <th className="px-3 py-2.5 text-right font-semibold">Unit Price</th>
-                <th className="px-3 py-2.5 text-right font-semibold">Discount</th>
-                <th className="px-5 py-2.5 text-right font-semibold">Line Total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {data.items.map((l) => {
-                const q = qty(l);
-                const lineTotal = Number(l.unitPrice) * q - Number(l.discountAmount ?? 0);
-                const disc = Number(l.discountAmount ?? 0) > 0
-                  ? <span className="text-amber-700">-{money(l.discountAmount, currency)}</span>
-                  : <span className="text-slate-300">—</span>;
-                return (
-                  <tr key={l.id} className="hover:bg-muted/40">
-                    <td className="px-5 py-2.5 text-muted-foreground">{String(l.lineNumber).padStart(2, '0')}</td>
-                    <td className="px-3 py-2.5">
-                      <span className="font-medium">{l.description}</span>
-                      {l.note && <span className="block text-xs text-muted-foreground">{l.note}</span>}
-                    </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{q}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{money(l.unitPrice, currency)}</td>
-                    <td className="px-3 py-2.5 text-right">{disc}</td>
-                    <td className="px-5 py-2.5 text-right font-semibold tabular-nums">{money(lineTotal, currency)}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
+            <div className="lg:col-span-3 rounded-lg border bg-card shadow-sm">
+              <div className="rounded-t-lg bg-muted/30 border-b px-5 py-3 flex items-center justify-between">
+                <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  Order Lines ({data.items.length})
+                </h2>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/20 text-xs uppercase tracking-wider text-muted-foreground">
+                      <th className="px-5 py-2.5 text-left font-semibold">#</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">Item</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">Qty</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">Unit Price</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">Discount</th>
+                      <th className="px-5 py-2.5 text-right font-semibold">Line Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {data.items.map((l) => {
+                      const q = qty(l);
+                      const lineTotal = Number(l.unitPrice) * q - Number(l.discountAmount ?? 0);
+                      const disc = Number(l.discountAmount ?? 0) > 0
+                        ? <span className="text-amber-700">-{money(l.discountAmount, currency)}</span>
+                        : <span className="text-slate-300">—</span>;
+                      return (
+                        <tr key={l.id} className="hover:bg-muted/40">
+                          <td className="px-5 py-2.5 text-muted-foreground">{String(l.lineNumber).padStart(2, '0')}</td>
+                          <td className="px-3 py-2.5">
+                            <span className="font-medium">{l.description}</span>
+                            {l.note && <span className="block text-xs text-muted-foreground">{l.note}</span>}
+                          </td>
+                          <td className="px-3 py-2.5 text-right tabular-nums">{q}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums">{money(l.unitPrice, currency)}</td>
+                          <td className="px-3 py-2.5 text-right">{disc}</td>
+                          <td className="px-5 py-2.5 text-right font-semibold tabular-nums">{money(lineTotal, currency)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Totals Summary - Below the items list */}
+              <div className="border-t bg-muted/30 px-5 py-4">
+                <div className="max-w-md mx-auto space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Items</span>
+                    <span className="font-semibold tabular-nums">{totalQty}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="tabular-nums">{money(data.subtotal, currency)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Discount</span>
+                    <span className="tabular-nums text-amber-700">-{money(data.discountTotal, currency)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Tax</span>
+                    <span className="tabular-nums">{money(data.taxAmount, currency)}</span>
+                  </div>
+                  <Separator />
+                  <div className="flex justify-between text-base font-bold">
+                    <span>Total</span>
+                    <span className="tabular-nums">{money(data.totalAmount, currency)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      }
 
 function TabBilling({ data }: { data: OrderDetail }) {
   const navigate = useNavigate();

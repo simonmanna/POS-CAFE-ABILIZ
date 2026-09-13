@@ -38,6 +38,8 @@ export interface CartLine {
    * route, and that route needs a manager PIN. Set from the server on load/save.
    */
   kitchenPrintedQty?: number;
+  /** Quantity already included on initial/additional customer bills. */
+  billPrintedQty?: number;
   /** P4: if set, this line is a combo. Backend expands it on checkout. */
   comboId?: string;
   /** P10: when true, the line's price is VAT-inclusive. */

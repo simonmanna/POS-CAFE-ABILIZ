@@ -44,6 +44,18 @@ import { Prisma } from '@prisma/client';
 const fmt = (n: number | string | Prisma.Decimal | null | undefined) =>
   `UGX ${Number(n || 0).toLocaleString()}`;
 
+/**
+ * Invoice.subtotal is the amount AFTER discounts (before separately-added tax),
+ * while discountTotal is retained for reporting.  Printing subtotal directly
+ * beside a negative discount therefore made a correctly discounted sale look
+ * as though the discount had not reduced the amount due.  Reconstruct the
+ * pre-discount subtotal so the receipt arithmetic reads:
+ *
+ *   subtotal - discount + tax = total
+ */
+const receiptSubtotal = (inv: any) =>
+  Number(inv?.subtotal ?? 0) + Number(inv?.discountTotal ?? 0);
+
 /** ESC/POS printers speak CP437, not UTF-8 — map common Unicode to ASCII so
  *  multi-byte characters never turn into stray glyphs mid-ticket. */
 const toPrinterAscii = (s: string) =>
@@ -272,7 +284,7 @@ export class PosReceiptsService {
     lines.push('');
     lines.push('');
     lines.push('-'.repeat(R));
-    lines.push(`Subtotal:`.padEnd(R - 10) + fmt(inv.subtotal).padStart(10));
+    lines.push(`Subtotal:`.padEnd(R - 10) + fmt(receiptSubtotal(inv)).padStart(10));
     if (Number(inv.discountTotal) > 0) lines.push(`Discount:`.padEnd(R - 10) + `-${fmt(inv.discountTotal)}`.padStart(10));
     if (Number(inv.taxAmount) > 0) lines.push(`Tax:`.padEnd(R - 10) + fmt(inv.taxAmount).padStart(10));
     lines.push(`TOTAL:`.padEnd(R - 10) + fmt(inv.totalAmount).padStart(10));
@@ -377,7 +389,7 @@ export class PosReceiptsService {
     }
 
     lines.push('-'.repeat(W));
-    lines.push(two('Subtotal:', fmt(inv.subtotal)));
+    lines.push(two('Subtotal:', fmt(receiptSubtotal(inv))));
     if (Number(inv.discountTotal) > 0) {
       const typeTag = (inv as any).discountType === 'fixed_amount'
         ? ' (fixed)'
@@ -532,7 +544,7 @@ export class PosReceiptsService {
         doc.font('Courier').fontSize(8);
         doc.text('-'.repeat(42), 8, doc.y, { width: 210 });
         doc.moveDown(0.12);
-        doc.text(`Subtotal:`.padEnd(33) + fmt(inv.subtotal).padStart(9), 8, doc.y, { width: 210 });
+        doc.text(`Subtotal:`.padEnd(33) + fmt(receiptSubtotal(inv)).padStart(9), 8, doc.y, { width: 210 });
         doc.moveDown(0.12);
         if (Number((inv as any).discountTotal) > 0) {
           const typeTag = (inv as any).discountType === 'fixed_amount'
@@ -720,7 +732,7 @@ export class PosReceiptsService {
     lines.push('');
     lines.push('');
     lines.push('-'.repeat(R));
-    lines.push(this.ticketTotal('Subtotal:', fmt(inv.subtotal)));
+    lines.push(this.ticketTotal('Subtotal:', fmt(receiptSubtotal(inv))));
     if (Number(inv.discountTotal) > 0) lines.push(this.ticketTotal('Discount:', `-${fmt(inv.discountTotal)}`));
     if ((inv as any).discountReason) lines.push(this.ticketTotal('Why:', (inv as any).discountReason));
     if (Number(inv.taxAmount) > 0) lines.push(this.ticketTotal('Tax:', fmt(inv.taxAmount)));
@@ -1046,23 +1058,26 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
     }
   }
 
-  /** Fetch only the lines that have NOT yet appeared on a printed bill. Only the
-   *  legacy Document tracks per-line bill state; for an open tab Order we return
-   *  all current items (the full bill is printed each time). */
-  private async getUnbilledLines(recordId: string): Promise<any[]> {
+  /** Fetch only quantities that have not appeared on a previous bill. */
+  private async getUnbilledLines(recordId: string, db: any = this.prisma.client): Promise<any[]> {
     const orgId = this.tenant.organizationId;
-    const doc = await this.prisma.client.document.findFirst({ where: { id: recordId, organizationId: orgId }, select: { id: true } });
+    const doc = await db.document.findFirst({ where: { id: recordId, organizationId: orgId }, select: { id: true } });
     if (doc) {
-      return this.prisma.client.documentLine.findMany({
+      return db.documentLine.findMany({
         where: { documentId: recordId, organizationId: orgId, billPrintedAt: null },
         orderBy: { lineNumber: 'asc' },
       });
     }
-    const order = await this.prisma.client.order.findFirst({
+    const order = await db.order.findFirst({
       where: { id: recordId, organizationId: orgId },
       include: { items: { where: { cancelled: false }, orderBy: { lineNumber: 'asc' } } },
     });
-    return (order?.items as any[]) ?? [];
+    return ((order?.items as any[]) ?? [])
+      .map((line: any) => ({
+        ...line,
+        quantity: Math.max(0, Number(line.quantity) - Number(line.billPrintedQty ?? 0)),
+      }))
+      .filter((line: any) => Number(line.quantity) > 0.000001);
   }
 
   // ... (KOT, additional bill, printReceipt methods remain exactly as original) ...
@@ -1170,10 +1185,10 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
    * Build text for an additional bill — only items that have not yet appeared
    * on a previously-printed bill.
    */
-  async buildTextAdditionalBill(invoiceId: string, copyNumber = 1): Promise<{ text: string; grandTotal: number; additionalSubtotal: number; previousSubtotal: number }> {
+  async buildTextAdditionalBill(invoiceId: string, copyNumber = 1, claimedLines?: any[]): Promise<{ text: string; grandTotal: number; additionalSubtotal: number; previousSubtotal: number }> {
     const inv = await this.resolveInvoice(invoiceId);
     const org = await this.resolveOrg();
-    const unbilled = await this.getUnbilledLines(invoiceId);
+    const unbilled = claimedLines ?? await this.getUnbilledLines(invoiceId);
 
     const header = (org as any).receiptHeader as Record<string, string> | null;
     const R = PosReceiptsService.TICKET_W;
@@ -1235,16 +1250,23 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
     const billPrintCount = invPrint?.billPrintCount ?? docPrint?.billPrintCount ?? 0;
     const copyNumber = billPrintCount + 1;
 
-    const unbilled = await this.getUnbilledLines(invoiceId);
-    if (unbilled.length === 0) {
-      throw new BadRequestException('No additional items to bill. All items have already appeared on a previous bill.');
-    }
+    // Claim the delta under an order-row lock. Two terminals pressing Additional
+    // Bill together serialize; the second sees no unbilled quantity and cannot
+    // produce a duplicate ticket.
+    const unbilled = await this.prisma.client.$transaction(async (tx: any) => {
+      const order = await tx.order.findFirst({ where: { id: invoiceId, organizationId: orgId }, select: { id: true } });
+      if (order) await tx.$queryRawUnsafe('SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', invoiceId, orgId);
+      const delta = await this.getUnbilledLines(invoiceId, tx);
+      if (delta.length === 0) {
+        throw new BadRequestException('No additional items to bill. All items have already appeared on a previous bill.');
+      }
+      await this.printLifecycle.markBillPrinted(tx, invoiceId, userId);
+      await this.printLifecycle.markLinesBilled(tx, invoiceId, userId);
+      return delta;
+    });
 
     const { text: additionalBillText, grandTotal, additionalSubtotal, previousSubtotal } =
-      await this.buildTextAdditionalBill(invoiceId, copyNumber);
-
-    await this.printLifecycle.markBillPrinted(this.prisma.client, invoiceId, userId);
-    await this.printLifecycle.markLinesBilled(this.prisma.client, invoiceId, userId);
+      await this.buildTextAdditionalBill(invoiceId, copyNumber, unbilled);
 
     const target = await this.resolvePrintTarget();
 
@@ -1543,26 +1565,32 @@ export class PosReceiptsController {
     if (!orderId) {
       return { ok: false, backend: 'none', message: 'Invoice has no linked order' };
     }
-    // Fetch all active order items — the KOT is a full snapshot, not a delta.
-    // fireKitchen (KDS push) marks kitchenPrintedQty, which would make
-    // getKitchenDeltas return empty; we bypass that and read items directly.
-    const allItems = await this.svc.prismaSvc().client.orderItem.findMany({
-      where: { orderId, cancelled: false },
-      orderBy: { lineNumber: 'asc' },
-      include: { modifiers: true },
-    });
-
     // A line is kitchen-eligible if it maps to a stock product OR a menu item.
     const kotEligible = (l: any) => !!l.productId || !!l.menuItemId;
-    const eligibleItems = allItems.filter(kotEligible);
+    // Claim only new quantities while holding the order lock. This endpoint is
+    // server-authoritative: callers cannot force an ordinary KOT to repeat an
+    // already printed item by supplying their own line list.
+    const { addLines, removeLines } = await this.svc.prismaSvc().client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', orderId, orgId);
+      const delta = await this.svc.lifecycle().getKitchenDeltas(tx, orderId!);
+      const adds = delta.addLines.filter(({ line }: any) => kotEligible(line));
+      const removes = delta.removeLines.filter(({ line }: any) => kotEligible(line));
+      if (adds.length === 0 && removes.length === 0) return { addLines: adds, removeLines: removes };
+      const changed = [...adds, ...removes];
+      await this.svc.lifecycle().markKitchenPrinted(
+        tx,
+        changed.map(({ line }: any) => line.id),
+        new Map<string, number>(changed.map(({ line }: any) => [line.id, Number(line.quantity)])),
+        userId,
+      );
+      return { addLines: adds, removeLines: removes };
+    });
 
-    if (eligibleItems.length === 0) {
-      return { ok: true, backend: 'none', message: 'No kitchen-eligible items on this order', kotNumber } as any;
+    if (addLines.length === 0 && removeLines.length === 0) {
+      return { ok: true, backend: 'none', message: 'No new kitchen items to print', kotNumber } as any;
     }
 
-    // Build the KOT showing ALL current items (not just newly-printed ones).
-    const addLines = eligibleItems.map((ln: any) => ({ line: ln, delta: Number(ln.quantity) }));
-    const text = await this.svc.buildTextKot(id, kotNumber, addLines, []);
+    const text = await this.svc.buildTextKot(id, kotNumber, addLines, removeLines);
 
     await this.svc.lifecycle().markKotPrinted(this.svc.prismaSvc().client, id, userId);
 
