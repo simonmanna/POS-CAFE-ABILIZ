@@ -258,6 +258,7 @@ const TerminalPage: React.FC = () => {
   const [showBillPreview, setShowBillPreview] = useState(false);
   const [showKotPreview, setShowKotPreview] = useState(false);
   const [kotLines, setKotLines] = useState<CartLine[]>([]);
+  const [kotCopy, setKotCopy] = useState(1);
   const [showAdditionalBillPreview, setShowAdditionalBillPreview] = useState(false);
   const [additionalBillLines, setAdditionalBillLines] = useState<CartLine[]>([]);
   const [additionalBillCopy, setAdditionalBillCopy] = useState(1);
@@ -1536,20 +1537,13 @@ const TerminalPage: React.FC = () => {
       await flushCurrentOrder();
       const refreshed = (await api.get(`/pos/tabs/${selectedTableId!}`)).data as any;
       const serverLines = (refreshed?.lines ?? []) as any[];
-      const unbilledIds = new Set(
-        serverLines
-          .filter((l: any) => l.billPrintedAt == null)
-          .map((l: any) => l.id),
-      );
-      const srvLines = refreshed?.lines ?? [];
-      const matched = lines
-        .map((cartLine) => {
-          const idx = srvLines.findIndex((sl: any) => sl.description === cartLine.name && Number(sl.quantity) === cartLine.quantity);
-          const srvId = idx >= 0 ? srvLines[idx]?.id : undefined;
-          return { cartLine, srvId };
-        })
-        .filter((x) => x.srvId && unbilledIds.has(x.srvId))
-        .map((x) => x.cartLine);
+      const matched = serverLines
+        .map((line: any) => ({
+          ...line,
+          quantity: Math.max(0, Number(line.quantity) - Number(line.billPrintedQty ?? 0)),
+        }))
+        .filter((line: any) => line.quantity > 0.000001)
+        .map(serverLineToCart);
       if (matched.length === 0) {
         toast.info('No new items to bill since the last print.');
         return;
@@ -1922,19 +1916,29 @@ const TerminalPage: React.FC = () => {
             onAddDiscount={() => setShowDiscount(true)}
             onPrintKot={async () => {
               if (!cartReadyToCommit(lines)) return;
-              let printedLineIds = new Set<string>();
-              if (tableId) {
-                try {
-                  await fireKitchen.mutateAsync({ tableId });
-                  const refreshed = await api.get(`/pos/tabs/${tableId}`).then((r: any) => r.data);
-                  const srvLines = (refreshed?.lines ?? []) as any[];
-                  printedLineIds = new Set(srvLines.filter((l: any) => l.kitchenLastPrintedAt != null).map((l: any) => l.id));
-                } catch { /* KDS/KOT non-fatal */ }
+              if (!tableId) { toast.error('Select a table before printing a KOT'); return; }
+              try {
+                // Match Bill: save first, then let the server snapshot decide
+                // exactly which quantities have not appeared on an earlier KOT.
+                await flushCurrentOrder();
+                const saved = await api.get(`/pos/tabs/${tableId}`).then((r: any) => r.data);
+                const unprinted = ((saved?.lines ?? []) as any[])
+                  .filter((line: any) => !!line.productId || !!line.menuItemId)
+                  .map((line: any) => ({
+                    ...line,
+                    quantity: Math.max(0, Number(line.quantity) - Number(line.kitchenPrintedQty ?? 0)),
+                  }))
+                  .filter((line: any) => line.quantity > 0.000001)
+                  .map(serverLineToCart);
+                if (unprinted.length === 0) { toast.info('No new items to print on the KOT'); return; }
+
+                const printed: any = await fireKitchen.mutateAsync({ tableId });
+                setKotLines(unprinted);
+                setKotCopy(Number(printed?.kotNumber ?? (Number(saved?.kotPrintCount ?? 0) + 1)) || 1);
+                setShowKotPreview(true);
+              } catch (e: any) {
+                toast.error(e?.response?.data?.message || e?.message || 'Failed to prepare KOT');
               }
-              const unprinted = lines.filter((l) => !printedLineIds.has(l.lineId));
-              if (unprinted.length === 0) { toast.info('All items already sent to kitchen'); return; }
-              setKotLines(unprinted);
-              setShowKotPreview(true);
             }}
             onVoidItem={canVoidItem ? (line) => setVoidLine(line) : undefined}
             onMoveItems={() => setShowMoveItems(true)}
@@ -2095,7 +2099,8 @@ const TerminalPage: React.FC = () => {
         open={showKotPreview}
         onClose={() => setShowKotPreview(false)}
         type="kot"
-        title="Kitchen Order Ticket"
+        title={kotCopy > 1 ? `Additional KOT #${kotCopy}` : 'Kitchen Order Ticket'}
+        subtitle={kotCopy > 1 ? 'ADDITIONAL KOT — NEW ITEMS ONLY' : 'KITCHEN ORDER TICKET'}
         lines={cartToReceiptLines(kotLines)}
         total={kotLines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0)}
         orderTypeLabel={orderTypeLabel ?? undefined}

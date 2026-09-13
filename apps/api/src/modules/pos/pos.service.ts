@@ -526,6 +526,8 @@ export class PosService {
       waiterName: o.waiterId ? (staffName.get(o.waiterId) ?? null) : null,
       transactionDiscountPercent: Number(o.transactionDiscountPercent ?? 0), transactionDiscountType: o.transactionDiscountType, transactionDiscountAmount: Number(o.transactionDiscountAmount ?? 0), discountReason: o.discountReason,
       cashSessionId: o.cashSessionId,
+      billPrintCount: Number(o.billPrintCount ?? 0),
+      kotPrintCount: Number(o.kotPrintCount ?? 0),
       lines: items.map((it: any) => {
         const qty = Number(it.quantity);
         const unit = Number(it.unitPrice);
@@ -555,6 +557,7 @@ export class PosService {
           // A-016: the terminal needs to know a line is already with the kitchen
           // — that line may only leave through the audited void route.
           kitchenPrintedQty: Number(it.kitchenPrintedQty ?? 0),
+          billPrintedQty: Number(it.billPrintedQty ?? 0),
           kitchenStatus: it.kitchenStatus ?? 'pending',
           // Per-item attribution: who punched THIS line (may differ from the
           // order's waiter when a colleague took a later round). Falls back to
