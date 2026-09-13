@@ -380,6 +380,7 @@ const movementIcon = (type: string) => {
   switch (type) {
     case 'sale': return <CircleDollarSign className="h-3.5 w-3.5 text-emerald-600" />;
     case 'refund': return <ArrowRight className="h-3.5 w-3.5 text-rose-500" />;
+    case 'supplier_payment': return <Minus className="h-3.5 w-3.5 text-rose-500" />;
     case 'pay_in': return <Plus className="h-3.5 w-3.5 text-emerald-600" />;
     case 'pay_out': return <Minus className="h-3.5 w-3.5 text-amber-600" />;
     case 'adjustment': return <Coins className="h-3.5 w-3.5 text-blue-600" />;
@@ -391,6 +392,7 @@ const typeLabel = (type: string) => {
   switch (type) {
     case 'sale': return 'Sale';
     case 'refund': return 'Refund';
+    case 'supplier_payment': return 'Supplier payment';
     case 'pay_in': return 'Cash In';
     case 'pay_out': return 'Cash Out';
     case 'adjustment': return 'Adjustment';
@@ -459,7 +461,7 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
               <td className="py-1.5 pr-2 text-slate-400">—</td>
             </tr>
             {movements.map((m: CashMovementItem) => {
-              const isNegative = m.movementType === 'refund' || m.movementType === 'pay_out';
+              const isNegative = m.movementType === 'refund' || m.movementType === 'pay_out' || m.movementType === 'supplier_payment';
               return (
                 <tr key={m.id} className="border-b border-slate-100">
                   <td className="py-1.5 pr-2 font-mono text-slate-500">{new Date(m.createdAt).toLocaleTimeString()}</td>
@@ -869,7 +871,7 @@ const MovementsDialog: React.FC<{
       runningTotal: m.runningTotal,
       reason: m.reason ?? '',
       isOpening: false,
-      isNegative: m.movementType === 'refund' || m.movementType === 'pay_out',
+      isNegative: m.movementType === 'refund' || m.movementType === 'pay_out' || m.movementType === 'supplier_payment',
     })),
   ];
 

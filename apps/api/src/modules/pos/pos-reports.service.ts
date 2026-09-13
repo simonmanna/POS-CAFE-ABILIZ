@@ -1003,7 +1003,7 @@ export class PosReportsService {
         if (m.movementType === 'sale') cashCollected = cashCollected.plus(amt);
         else if (m.movementType === 'refund') cashRefunds = cashRefunds.plus(amt);
         else if (m.movementType === 'pay_in') payIns = payIns.plus(amt);
-        else if (m.movementType === 'pay_out') payOuts = payOuts.plus(amt);
+        else if (m.movementType === 'pay_out' || m.movementType === 'supplier_payment') payOuts = payOuts.plus(amt);
         // A-006: adjustments are part of the drawer. computeExpected and the
         // close-time reconciliation both include them — omitting them here made
         // this report disagree with the frozen Z on any shift that had one.

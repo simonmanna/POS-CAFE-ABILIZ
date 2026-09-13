@@ -3829,6 +3829,8 @@ enum CashSessionStatus {
 enum CashMovementType {
   sale
   refund
+  /// Cash paid to a supplier from a till (never a customer refund).
+  supplier_payment
   pay_in
   pay_out
   adjustment

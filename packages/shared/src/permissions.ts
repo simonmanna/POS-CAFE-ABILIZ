@@ -600,3 +600,21 @@ function flattenPermissions(input: unknown): string[] {
   return [];
 }
 export const ALL_PERMISSIONS: string[] = flattenPermissions(PERMISSIONS);
+
+/**
+ * Operational manager role for cash management. Kept in one place so the seed
+ * and the migration that provisions existing organizations stay identical.
+ * Deliberately excludes system administration (users, roles, settings, COA).
+ */
+export const MANAGER_PERMISSIONS: readonly string[] = [
+  'pos:read', 'pos:checkout', 'pos:hold', 'pos:discount', 'pos:void', 'pos:refund', 'pos:override',
+  'pos:reports', 'pos:open_session', 'pos:close_session', 'pos:credit', 'pos:kds',
+  'cash_session:open', 'cash_session:read', 'cash_session:close', 'cash_session:reconcile',
+  'cash_session:cash_out', 'cash_session:approve_variance', 'cash_session:force_close', 'cash_session:correct',
+  'cash_register:read',
+  'treasury:read', 'treasury:transfer', 'account:read', 'bank_account:read',
+  'payment:read', 'payment:create', 'payment:allocate', 'payment:void',
+  'expense:read', 'expense:create', 'expense:update', 'expense:post', 'expense:cancel', 'expense:approve',
+  'partner:read', 'partners.view', 'products.view', 'menu.view',
+  'tables:view', 'tables:transfer', 'tables:merge', 'tables:split', 'tables:edit',
+];

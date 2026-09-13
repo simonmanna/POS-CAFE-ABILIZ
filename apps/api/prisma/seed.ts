@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import { ALL_PERMISSIONS, type ProductType } from '@erp/shared';
+import { ALL_PERMISSIONS, MANAGER_PERMISSIONS, type ProductType } from '@erp/shared';
 import { seedUomCategories } from '../src/modules/core/product/uom-seed';
 import { seedAccountingCore } from '../src/modules/accounting/coa/coa-seeder';
 import { seedDmsRegistry, wireDmsRoleKeys } from '../src/modules/documents/dms.seed-registry';
@@ -757,6 +757,21 @@ async function main(): Promise<void> {
       },
     });
 
+    // Manager — approves cash exceptions and runs treasury/expenses. Never the
+    // same person as the cashier whose exception is approved (enforced in code).
+    const managerPerms = [...MANAGER_PERMISSIONS];
+    await prisma.role.upsert({
+      where: { organizationId_name: { organizationId: orgId, name: 'Manager' } },
+      update: { permissions: managerPerms },
+      create: {
+        organizationId: orgId,
+        name: 'Manager',
+        description: 'Approves shift variances, force-closes and corrects shifts, runs treasury and expenses',
+        isSystem: true,
+        permissions: managerPerms,
+      },
+    });
+
     // Kitchen / Chef — sees the Kitchen Display board and advances tickets, but
     // never prices, payments or reports. pos:read lets it load the station list.
     const kitchenPerms = ['pos:read', 'pos:kds'];
@@ -805,6 +820,7 @@ async function main(): Promise<void> {
       { email: 'john@demo.test', firstName: 'John', lastName: 'Waiter', roleName: 'Waiter', password: 'Demo@123', pin: '2222' },
       { email: 'mary@demo.test', firstName: 'Mary', lastName: 'Supervisor', roleName: 'Supervisor', password: 'Demo@123', pin: '3333' },
       { email: 'chef@demo.test', firstName: 'Chef', lastName: 'Kitchen', roleName: 'Kitchen', password: 'Demo@123', pin: '4444' },
+      { email: 'manager@demo.test', firstName: 'Mike', lastName: 'Manager', roleName: 'Manager', password: 'Demo@123', pin: '5555' },
     ];
 
     for (const s of staffDefs) {

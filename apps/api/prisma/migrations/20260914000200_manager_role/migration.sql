@@ -1,0 +1,11 @@
+-- Every organization gets the operational Manager role (same list as
+-- MANAGER_PERMISSIONS in @erp/shared). Existing Manager roles are extended,
+-- never reduced: permissions a tenant granted stay granted.
+INSERT INTO "Role" (id, "organizationId", name, description, "isSystem", permissions, "createdAt", "updatedAt")
+SELECT gen_random_uuid(), o.id, 'Manager', 'Approves shift variances, force-closes and corrects shifts, runs treasury and expenses', true,
+  ARRAY['pos:read', 'pos:checkout', 'pos:hold', 'pos:discount', 'pos:void', 'pos:refund', 'pos:override', 'pos:reports', 'pos:open_session', 'pos:close_session', 'pos:credit', 'pos:kds', 'cash_session:open', 'cash_session:read', 'cash_session:close', 'cash_session:reconcile', 'cash_session:cash_out', 'cash_session:approve_variance', 'cash_session:force_close', 'cash_session:correct', 'cash_register:read', 'treasury:read', 'treasury:transfer', 'account:read', 'bank_account:read', 'payment:read', 'payment:create', 'payment:allocate', 'payment:void', 'expense:read', 'expense:create', 'expense:update', 'expense:post', 'expense:cancel', 'expense:approve', 'partner:read', 'partners.view', 'products.view', 'menu.view', 'tables:view', 'tables:transfer', 'tables:merge', 'tables:split', 'tables:edit']::text[], now(), now()
+FROM "Organization" o
+WHERE NOT EXISTS (SELECT 1 FROM "Role" r WHERE r."organizationId" = o.id AND r.name = 'Manager');
+
+UPDATE "Role" SET permissions = (SELECT array_agg(DISTINCT p ORDER BY p) FROM unnest(permissions || ARRAY['pos:read', 'pos:checkout', 'pos:hold', 'pos:discount', 'pos:void', 'pos:refund', 'pos:override', 'pos:reports', 'pos:open_session', 'pos:close_session', 'pos:credit', 'pos:kds', 'cash_session:open', 'cash_session:read', 'cash_session:close', 'cash_session:reconcile', 'cash_session:cash_out', 'cash_session:approve_variance', 'cash_session:force_close', 'cash_session:correct', 'cash_register:read', 'treasury:read', 'treasury:transfer', 'account:read', 'bank_account:read', 'payment:read', 'payment:create', 'payment:allocate', 'payment:void', 'expense:read', 'expense:create', 'expense:update', 'expense:post', 'expense:cancel', 'expense:approve', 'partner:read', 'partners.view', 'products.view', 'menu.view', 'tables:view', 'tables:transfer', 'tables:merge', 'tables:split', 'tables:edit']::text[]) AS p), "updatedAt" = now()
+WHERE name = 'Manager';

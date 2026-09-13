@@ -66,7 +66,7 @@ export async function reconcileSession(tx: any, organizationId: string, session:
     }
     const cashMoves = movements.filter((m: any) => m.paymentId === p.id);
     if (p.paymentMethod === 'cash') {
-      if (p.accountId !== drawerAccountId || cashMoves.length !== 1 || !dec(cashMoves[0].amount).eq(settled) || cashMoves[0].movementType !== (sign === 1 ? 'sale' : 'refund')) issues.push(`Payment ${p.paymentNumber} differs from the physical drawer movement`);
+      if (p.accountId !== drawerAccountId || cashMoves.length !== 1 || !dec(cashMoves[0].amount).eq(settled) || !(sign === 1 ? ['sale'] : p.refundOfId ? ['refund'] : ['supplier_payment', 'refund']).includes(cashMoves[0].movementType)) issues.push(`Payment ${p.paymentNumber} differs from the physical drawer movement`);
     } else if (cashMoves.length) issues.push(`Electronic payment ${p.paymentNumber} incorrectly moved drawer cash`);
   }
   for (const m of movements.filter((m: any) => !m.paymentId)) {
@@ -87,8 +87,10 @@ export async function reconcileSession(tx: any, organizationId: string, session:
   // A drawer `refund` movement is either a customer refund or a supplier
   // payout paid from the till; report them separately.
   const supplierPaymentIds = new Set(payments.filter((p: any) => p.direction === 'outbound' && !p.refundOfId).map((p: any) => p.id));
-  const supplierPayouts = movements.filter((m: any) => m.movementType === 'refund' && supplierPaymentIds.has(m.paymentId)).reduce((s: any, m: any) => s.plus(m.amount), dec(0));
-  const expectedCash = dec(session.openingFloat).plus(movementTotal('sale')).plus(movementTotal('pay_in')).plus(movementTotal('adjustment')).minus(movementTotal('pay_out')).minus(movementTotal('refund'));
+  // Legacy supplier payouts (before the dedicated type) were stored as `refund`.
+  const legacySupplierPayouts = movements.filter((m: any) => m.movementType === 'refund' && supplierPaymentIds.has(m.paymentId)).reduce((s: any, m: any) => s.plus(m.amount), dec(0));
+  const supplierPayouts = movementTotal('supplier_payment').plus(legacySupplierPayouts);
+  const expectedCash = dec(session.openingFloat).plus(movementTotal('sale')).plus(movementTotal('pay_in')).plus(movementTotal('adjustment')).minus(movementTotal('pay_out')).minus(movementTotal('refund')).minus(movementTotal('supplier_payment'));
   const sumInvoices = (field: string) => invoices.reduce((n: any, i: any) => n.plus(i[field] ?? 0), dec(0)).toString();
   const ledgerCash = drawerAccountId ? await accountLedgerBalance(tx, organizationId, drawerAccountId) : dec(0);
   const expectedLedger = session.status === 'open' ? expectedCash : dec(session.closingCounted ?? expectedCash);
@@ -110,7 +112,7 @@ export async function reconcileSession(tx: any, organizationId: string, session:
   const cashier = await tx.user.findFirst({ where: { id: session.userId, organizationId }, select: { firstName: true, lastName: true } });
   return { ledgerCash: ledgerCash.toString(), unsettledOrders, pendingPayments, pendingPostings: postingJobs, issues, accounts: Object.values(byAccount), settlements, byMethod: Object.values(byMethod),
     report: { asOf: new Date().toISOString(), cashSession: { registerName: register.name, cashierName: cashier ? `${cashier.firstName} ${cashier.lastName ?? ''}`.trim() : session.userId, id: session.id, cashRegisterId: session.cashRegisterId, userId: session.userId, openedAt: session.openedAt, openingFloat: String(session.openingFloat) },
-      totals: { grossSales: sumInvoices('totalAmount'), netRevenue: sumInvoices('subtotal'), taxTotal: sumInvoices('taxAmount'), discountTotal: sumInvoices('discountTotal'), overridesTotal: approvedDiscounts.toString(), refundedTotal: refundEvents.reduce((n: any, r: any) => n.plus(r.amount), dec(0)).toString(), saleCount: invoices.length, salesTotal: invoices.reduce((s: any, i: any) => s.plus(i.totalAmount), dec(0)).toString(), cashCollected: movementTotal('sale').toString(), cashRefunds: movementTotal('refund').minus(supplierPayouts).toString(), supplierPayouts: supplierPayouts.toString(), payInsTotal: movementTotal('pay_in').toString(), payOutsTotal: movementTotal('pay_out').toString(), adjustments: movementTotal('adjustment').toString(), expectedCash: expectedCash.toString() }, byMethod: Object.values(byMethod), byCategory: Object.values(categories), refunds: refundEvents } };
+      totals: { grossSales: sumInvoices('totalAmount'), netRevenue: sumInvoices('subtotal'), taxTotal: sumInvoices('taxAmount'), discountTotal: sumInvoices('discountTotal'), overridesTotal: approvedDiscounts.toString(), refundedTotal: refundEvents.reduce((n: any, r: any) => n.plus(r.amount), dec(0)).toString(), saleCount: invoices.length, salesTotal: invoices.reduce((s: any, i: any) => s.plus(i.totalAmount), dec(0)).toString(), cashCollected: movementTotal('sale').toString(), cashRefunds: movementTotal('refund').minus(legacySupplierPayouts).toString(), supplierPayouts: supplierPayouts.toString(), payInsTotal: movementTotal('pay_in').toString(), payOutsTotal: movementTotal('pay_out').toString(), adjustments: movementTotal('adjustment').toString(), expectedCash: expectedCash.toString() }, byMethod: Object.values(byMethod), byCategory: Object.values(categories), refunds: refundEvents } };
 }
 
 export async function settleTender(ctx: any, input: any) {

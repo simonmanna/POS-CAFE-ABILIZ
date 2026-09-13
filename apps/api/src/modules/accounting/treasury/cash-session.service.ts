@@ -670,7 +670,7 @@ export class CashSessionService {
     tx: any,
     sessionId: string,
     paymentId: string,
-    movementType: 'sale' | 'refund',
+    movementType: 'sale' | 'refund' | 'supplier_payment',
     amount: Prisma.Decimal,
   ) {
     await this.lockOpenSession(tx, sessionId);
@@ -1013,6 +1013,7 @@ export class CashSessionService {
           else payOuts = payOuts.plus(amt);
         }
         else if (m.movementType === 'refund') refunds = refunds.plus(amt);
+        else if (m.movementType === 'supplier_payment') payOuts = payOuts.plus(amt);
         else if (m.movementType === 'adjustment') adjustments = adjustments.plus(amt);
       }
 
@@ -1282,6 +1283,7 @@ export class CashSessionService {
           total = total.plus(amt);
           break;
         case 'refund':
+        case 'supplier_payment':
         case 'pay_out':
           total = total.minus(amt);
           break;

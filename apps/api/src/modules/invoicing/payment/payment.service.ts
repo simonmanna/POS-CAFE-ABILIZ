@@ -403,7 +403,7 @@ export class PaymentService {
           tx,
           dto.cashSessionId,
           payment.id,
-          direction === 'inbound' ? 'sale' : 'refund',
+          direction === 'inbound' ? 'sale' : (dto as any).refundOfId ? 'refund' : 'supplier_payment',
           // The drawer moves by what was physically handed over. Withheld tax
           // never leaves the till, so booking the gross here would make every
           // Z-report short by the withholding.

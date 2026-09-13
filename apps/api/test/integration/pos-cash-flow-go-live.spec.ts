@@ -193,7 +193,7 @@ const isolated = !!process.env.DATABASE_URL && /^\/pos_stage1_\d+$/.test(new URL
       expect(check.report.totals.expectedCash).toBe('106');
       expect(check.report.totals.supplierPayouts).toBe('94');
       expect(await bal(ids.wht)).toBe('-6');
-      const movement = await db.cashMovement.findFirstOrThrow({ where: { cashSessionId: session.id, movementType: 'refund' } });
+      const movement = await db.cashMovement.findFirstOrThrow({ where: { cashSessionId: session.id, movementType: 'supplier_payment' } });
       expect(await sqlError('UPDATE "CashMovement" SET amount = 1 WHERE id = $1', movement.id)).toMatch(/posted drawer evidence/);
       expect(await sqlError('DELETE FROM "CashMovement" WHERE id = $1', movement.id)).toMatch(/posted drawer evidence/);
       expect(await sqlError('UPDATE "Payment" SET amount = 1 WHERE id = $1', movement.paymentId)).toMatch(/immutable/);
