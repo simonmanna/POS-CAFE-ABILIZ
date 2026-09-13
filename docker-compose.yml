@@ -7,6 +7,11 @@ services:
       POSTGRES_USER: cafe-pos
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: cafe-pos
+    # pg_dump takes one lock per table/index/sequence in a single transaction.
+    # The per-tenant document sequences grow with tenants x document types x
+    # years, so the default lock table (64 x max_connections) is raised to keep
+    # nightly backups working. The release preflight checks this headroom.
+    command: ["postgres", "-c", "max_locks_per_transaction=1024"]
     # F20 — bound to loopback so Postgres is not reachable from the network.
     # The API reaches it over the internal compose network, not this port.
     ports:

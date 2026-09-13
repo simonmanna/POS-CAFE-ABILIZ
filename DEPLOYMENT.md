@@ -98,3 +98,22 @@ Set `OUTBOX_POLL_MS=2000` and run at least 2 replicas.
 A nightly `pg_dump` is the minimum. Enable point-in-time recovery (PITR) on
 the Postgres cluster for safety against accidental writes. Test the restore
 process quarterly.
+
+**Lock capacity.** `pg_dump` takes one lock per table, index and sequence in a
+single transaction. Document numbering creates one sequence per tenant and
+document type, so set `max_locks_per_transaction = 1024` (the bundled
+`docker-compose.yml` does) and keep `node scripts/pos-release-preflight.cjs --all`
+green: its `backup_lock_capacity` check fails before backups would.
+
+**Restore drill (required before real-money go-live and quarterly):**
+
+```bash
+pg_dump --format=custom --no-owner --file=cafe.dump "$DATABASE_URL"
+createdb cafe_restore_check
+pg_restore --no-owner --exit-on-error -d cafe_restore_check cafe.dump
+DATABASE_URL=".../cafe_restore_check" pnpm --filter @erp/api exec prisma migrate status   # up to date
+DATABASE_URL=".../cafe_restore_check" node scripts/pos-release-preflight.cjs --all          # same result as source
+```
+
+Compare account balances, open/closed shift counts and on-hand stock between
+the source and the restored database before signing the drill off.

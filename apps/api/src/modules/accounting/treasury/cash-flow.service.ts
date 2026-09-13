@@ -325,7 +325,8 @@ export class CashFlowService {
             },
           },
         },
-        orderBy: { createdAt: 'desc' },
+        // Deterministic order (ties broken by id) so pages never overlap or skip.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
@@ -333,7 +334,23 @@ export class CashFlowService {
 
     const aggregate = await this.prisma.client.journalLine.aggregate({ where: where as any, _sum: { baseDebit: true, baseCredit: true } });
     const currentBalance = dec(aggregate._sum.baseDebit ?? 0).minus(aggregate._sum.baseCredit ?? 0);
+    // Running balances are authoritative on every page: start from the current
+    // balance less everything newer than this page (all earlier pages).
+    const offset = (page - 1) * pageSize;
     let newerDelta = ZERO;
+    if (offset > 0) {
+      const [row] = await this.prisma.client.$queryRawUnsafe<Array<{ delta: string | null }>>(
+        `SELECT COALESCE(SUM(x."baseDebit" - x."baseCredit"), 0)::text AS delta FROM (
+           SELECT l."baseDebit", l."baseCredit" FROM "JournalLine" l
+           JOIN "JournalEntry" e ON e.id = l."journalEntryId"
+           WHERE l."organizationId" = $1 AND l."accountId" = $2 AND e.status IN ('posted', 'reversed')
+           ORDER BY l."createdAt" DESC, l.id DESC
+           LIMIT $3
+         ) x`,
+        orgId, accountId, offset,
+      );
+      newerDelta = dec(row?.delta ?? 0);
+    }
     const rows = lines.map((l) => {
       const runningBalance = currentBalance.minus(newerDelta);
       newerDelta = newerDelta.plus(dec(l.baseDebit).minus(l.baseCredit));

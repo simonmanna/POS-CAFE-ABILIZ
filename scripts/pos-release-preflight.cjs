@@ -33,11 +33,21 @@ async function checkDatabase(db) {
   const warnings = [];
   const role = (await db.query('SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user')).rows[0];
   if (role?.rolsuper || role?.rolbypassrls) warnings.push({ check: 'database_role', detail: `${role.rolname} bypasses RLS; tenant isolation relies on the application tenancy layer` });
-  const forced = (await db.query(`SELECT c.relname FROM pg_class c WHERE c.relkind = 'r' AND c.relforcerowsecurity AND pg_get_userbyid(c.relowner) = current_user AND c.relname IN ('PosRefund','PosApprovalGrant','TenderSettlement','PosPaymentMethod','Payment','CashSession','CashMovement','Invoice')`)).rows;
-  if (forced.length) blockers.push({ check: 'rls_force_on_app_owned_pos_tables', detail: 'FORCE RLS makes non-transactional app reads/writes fail', tables: forced.map((r) => r.relname) });
+  const forced = (await db.query(`SELECT c.relname FROM pg_class c WHERE c.relkind = 'r' AND c.relnamespace = 'public'::regnamespace AND c.relforcerowsecurity`)).rows;
+  if (forced.length) blockers.push({ check: 'rls_force_on_app_owned_tables', detail: 'FORCE RLS breaks non-transactional app reads/writes for the owner role and makes pg_dump refuse to back the table up', tables: forced.map((r) => r.relname) });
   const triggers = new Set((await db.query(`SELECT event_object_table || '.' || trigger_name AS t FROM information_schema.triggers`)).rows.map((r) => r.t));
   const missing = EVIDENCE_TRIGGERS.filter(([table, name]) => !triggers.has(`${table}.${name}`)).map(([table, name]) => `${table}.${name}`);
   if (missing.length) blockers.push({ check: 'evidence_immutability_triggers', detail: 'Financial evidence is not append-only; run prisma migrate deploy', missing });
+  // Backup capacity: pg_dump locks every relation in one transaction; if the
+  // lock table cannot hold them the nightly backup fails.
+  const capacity = (await db.query(`SELECT
+      (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','S','i','p','v','m'))::int AS relations,
+      current_setting('max_locks_per_transaction')::int * (current_setting('max_connections')::int + current_setting('max_prepared_transactions')::int) AS lock_slots`)).rows[0];
+  if (capacity.relations > capacity.lock_slots * 0.8) {
+    blockers.push({ check: 'backup_lock_capacity', detail: `pg_dump needs ~${capacity.relations} relation locks but the lock table holds ${capacity.lock_slots}; raise max_locks_per_transaction (see docker-compose.yml) or backups fail`, ...capacity });
+  } else if (capacity.relations > capacity.lock_slots * 0.5) {
+    warnings.push({ check: 'backup_lock_capacity', detail: 'Over half of the lock table is needed by pg_dump', ...capacity });
+  }
   const pending = (await db.query(`SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL`)).rows;
   if (pending.length) blockers.push({ check: 'unfinished_migrations', migrations: pending.map((r) => r.migration_name) });
   return { role, blockers, warnings };
@@ -84,7 +94,25 @@ async function checkOrganization(db, organizationId) {
 
   add(warnings, 'closed_sessions_pending_variance_review', await q(`SELECT id, "closingDifference", "varianceStatus", "closedAt" FROM "CashSession" WHERE "organizationId" = $1 AND status = 'closed' AND COALESCE("closingDifference", 0) <> 0 AND COALESCE("varianceStatus", '') <> 'approved'`), 'Variance awaiting manager review');
 
-  add(warnings, 'unreconciled_closed_sessions', await q(`SELECT id, "closedAt" FROM "CashSession" WHERE "organizationId" = $1 AND status = 'closed' AND "closedAt" < now() - interval '3 days'`), 'Closed more than 3 days ago and not reconciled');
+  add(warnings, 'unreconciled_closed_sessions', await q(`SELECT id, "closedAt" FROM "CashSession" WHERE "organizationId" = $1 AND status = 'closed' AND "closedAt" < now() - interval '3 days' AND "closedAt" >= now() - interval '7 days'`), 'Closed 3-7 days ago and not reconciled');
+
+  add(blockers, 'stale_unreconciled_sessions', await q(`SELECT id, "closedAt", "closingDifference" FROM "CashSession" WHERE "organizationId" = $1 AND status = 'closed' AND "closedAt" < now() - interval '7 days'`), 'Closed shifts older than 7 days must be reviewed and reconciled');
+
+  add(blockers, 'invalid_register_bindings', await q(`
+    SELECT r.id, r.code, a.code AS "drawerAccount", c.key AS category, a."isActive", a."deletedAt"
+    FROM "CashRegister" r LEFT JOIN "Account" a ON a.id = r."defaultAccountId" LEFT JOIN "AccountCategory" c ON c.id = a."categoryId"
+    WHERE r."organizationId" = $1 AND r."isActive" AND r."deletedAt" IS NULL
+      AND (a.id IS NULL OR a."organizationId" <> r."organizationId" OR NOT a."isActive" OR a."deletedAt" IS NOT NULL OR c.key NOT IN ('cash', 'petty_cash'))`), 'Every active register needs its own active cash drawer account');
+
+  add(blockers, 'drawer_movements_mismatching_payment', await q(`
+    SELECT m.id, m."movementType", p."paymentNumber", p."paymentMethod"
+    FROM "CashMovement" m JOIN "Payment" p ON p.id = m."paymentId"
+    WHERE m."organizationId" = $1 AND (p."organizationId" <> m."organizationId" OR p."paymentMethod" <> 'cash' OR p."cashSessionId" IS DISTINCT FROM m."cashSessionId")`), 'A drawer movement is attached to a payment of another tender, shift or organization');
+
+  add(blockers, 'inconsistent_closed_session_totals', await q(`
+    SELECT s.id, s."closingCounted", s."closingExpected", s."closingDifference"
+    FROM "CashSession" s WHERE s."organizationId" = $1 AND s.status <> 'open'
+      AND (s."closingCounted" IS NULL OR s."closingExpected" IS NULL OR s."closingDifference" IS DISTINCT FROM (s."closingCounted" - s."closingExpected"))`), 'A closed shift must carry a consistent count, expectation and variance');
 
   add(blockers, 'sessions_without_drawer_snapshot', await q(`SELECT id, status FROM "CashSession" WHERE "organizationId" = $1 AND status = 'open' AND "drawerAccountId" IS NULL`), 'Open shifts must carry their drawer account snapshot');
 

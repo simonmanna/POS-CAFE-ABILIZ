@@ -11,6 +11,6 @@ if (!url || !/^\/pos_stage1_\d+$/.test(new URL(url).pathname)) {
 const config = fs.existsSync('apps/api/.env') ? dotenv.parse(fs.readFileSync('apps/api/.env')) : {};
 const result = spawnSync(process.execPath, [
   'node_modules/jest/bin/jest.js', '--runInBand', '--forceExit',
-  '--testPathPattern=src.*[.]spec|pos-money-foundations|pos-sale-pipeline|pos-store-credit-issuance|pos-cash-flow-go-live',
+  '--testPathPattern=src.*[.]spec|pos-money-foundations|pos-sale-pipeline|pos-store-credit-issuance|pos-cash-flow-go-live|pos-cash-flow-day|pos-cash-flow-adversarial',
 ], { cwd: 'apps/api', env: { ...config, ...process.env, DATABASE_URL: url, NODE_ENV: 'test' }, stdio: 'inherit', windowsHide: true });
 process.exit(result.status ?? 1);
