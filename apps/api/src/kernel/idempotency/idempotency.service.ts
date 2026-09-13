@@ -12,6 +12,16 @@ import { TenantContextService } from '../tenancy/tenant-context.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/**
+ * Routes whose handlers save their business outcome in the SAME transaction as
+ * the money write (`recordBusinessOutcome`). For these an idempotency record
+ * that is still `pending` with no saved outcome provably committed nothing, so
+ * a retry after a crash or timeout may safely run again.
+ */
+const OUTCOME_ROUTES = /\/(pos\/(checkout|tabs\/[^/]+\/settle|orders\/[^/]+\/settle|split-bills\/[^/]+\/settle|invoices\/[^/]+\/(payments|refund)|sales\/[^/]+\/void|shift\/handover)|cash-sessions\/(open|close|movement|tender-settlements|[^/]+\/(banking|force-close|reconcile))|accounts\/cash-flow\/(deposit|withdraw)|treasury\/transfer|expenses(\/[^/]+\/(pay|void))?|payments(\/[^/]+\/void)?|supplier-payments)$/;
+/** A pending record older than this with no outcome is an abandoned attempt. */
+const ABANDONED_AFTER_MS = 2 * 60_000;
+
 export interface IdempotencyResult {
   /** True when we returned a cached response and did not run the handler. */
   replayed: boolean;
@@ -111,8 +121,17 @@ export class IdempotencyService {
         );
       }
       if (existing.status === 'pending' || existing.status === 'indeterminate') {
+        const noOutcome = Object.keys((existing.responseJson ?? {}) as object).length === 0;
+        const abandoned = OUTCOME_ROUTES.test(path.split('?')[0]) && noOutcome && Date.now() - new Date(existing.createdAt).getTime() > ABANDONED_AFTER_MS;
         if (recoverableSale) recovery = existing.responseJson;
-        else throw new ConflictException({ code: 'OPERATION_PENDING', message: 'This operation needs recovery; do not submit it with a new key.', operationKey: key, recovery: existing.responseJson });
+        else if (abandoned) {
+          // Nothing committed under this key (the outcome is written in the same
+          // transaction as the money). Release the lock and run the request again.
+          await this.prisma.client.idempotencyRecord.deleteMany({ where: { organizationId, key, status: existing.status, responseJson: { equals: {} } } });
+          this.logger.warn(`Operation ${key} on ${path} was abandoned without an outcome; re-running`);
+          return this.executeWithKey(params);
+        }
+        else throw new ConflictException({ code: 'OPERATION_PENDING', message: 'This operation needs recovery; do not submit it with a new key. Retry with the same key.', operationKey: key, recovery: existing.responseJson });
       } else {
         return { replayed: true, statusCode: existing.statusCode, body: existing.responseJson };
       }
@@ -174,8 +193,10 @@ export class IdempotencyService {
       // the final response-cache write failed.
       const saved = await this.prisma.client.idempotencyRecord.findUnique({ where: { organizationId_key: { organizationId, key } } }).catch(() => null);
       if (saved?.status === 'business_completed' || saved?.status === 'completed') return { replayed: true, statusCode: saved.statusCode, body: saved.responseJson };
-      const protectedSale = /\/pos\/(checkout|tabs\/[^/]+\/settle|orders\/[^/]+\/settle|split-bills\/[^/]+\/settle|invoices\/[^/]+\/(payments|refund))$/.test(path);
-      if ((protectedSale || /\/cash-sessions\/(open|close|movement|tender-settlements|[^/]+\/banking)$|\/pos\/shift\/handover$/.test(path)) && err instanceof HttpException && err.getStatus() < 500 && saved && Object.keys((saved.responseJson ?? {}) as object).length === 0) {
+      // A definitive client error with no committed outcome: the request did
+      // nothing. Cache the answer so a replay gets the same error, and tell the
+      // client the operation is safe to retry with corrected input (new key).
+      if (OUTCOME_ROUTES.test(path.split('?')[0]) && err instanceof HttpException && err.getStatus() < 500 && saved && Object.keys((saved.responseJson ?? {}) as object).length === 0) {
         const response = err.getResponse();
         const body = { ...(typeof response === 'object' ? response : { message: response }), safeToRetry: true };
         await this.prisma.client.idempotencyRecord.update({ where: { organizationId_key: { organizationId, key } }, data: { status: 'completed', statusCode: err.getStatus(), responseJson: body, completedAt: new Date() } });

@@ -9,6 +9,7 @@ jest.mock('otplib', () => ({
 
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
+import { purge } from './_purge';
 import { describeDb } from './_setup';
 import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
@@ -95,18 +96,18 @@ describeDb('integration: back-office Orders CRUD (menu + product sources, billin
     if (organizationId) {
       await prisma.receiptItem.deleteMany({ where: { organizationId } });
       await prisma.receipt.deleteMany({ where: { organizationId } });
-      await prisma.paymentAllocation.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.paymentAllocation.deleteMany({ where: { organizationId } }));
       await prisma.invoiceItemModifier.deleteMany({ where: { organizationId } });
       await prisma.invoiceItem.deleteMany({ where: { organizationId } });
       await prisma.orderItemModifier.deleteMany({ where: { organizationId } });
       await prisma.orderItem.deleteMany({ where: { organizationId } });
       await prisma.order.deleteMany({ where: { organizationId } });
       await prisma.invoice.deleteMany({ where: { organizationId } });
-      await prisma.cashSession.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.cashSession.deleteMany({ where: { organizationId } }));
       await prisma.cashRegister.deleteMany({ where: { organizationId } });
-      await prisma.payment.deleteMany({ where: { organizationId } });
-      await prisma.journalLine.deleteMany({ where: { organizationId } });
-      await prisma.journalEntry.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.payment.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.journalLine.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.journalEntry.deleteMany({ where: { organizationId } }));
       await prisma.auditLog.deleteMany({ where: { organizationId } });
       await prisma.eventOutbox.deleteMany({ where: { organizationId } });
       await prisma.document.deleteMany({ where: { organizationId } });

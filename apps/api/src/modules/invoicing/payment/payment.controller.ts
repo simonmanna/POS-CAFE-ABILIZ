@@ -1,3 +1,4 @@
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Post, Query, UseInterceptors } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
@@ -5,6 +6,12 @@ import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
 import { PaymentService } from './payment.service';
 import { CreatePaymentDto } from './dto/payment.dto';
+
+class VoidPaymentDto {
+  @IsString() @IsNotEmpty() reason!: string;
+  /** Required when the cash was taken in a shift that is already closed. */
+  @IsOptional() @IsString() correctionSessionId?: string;
+}
 
 @Controller()
 @UseInterceptors(IdempotencyInterceptor)
@@ -32,17 +39,17 @@ export class PaymentController {
   }
 
   @Post('payments')
-  @Idempotent()
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.payment.create)
   createReceipt(@Body() dto: CreatePaymentDto) {
     return this.payments.createReceipt(dto);
   }
 
   @Post('payments/:id/void')
-  @Idempotent()
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.payment.void)
-  voidPayment(@Param('id') id: string) {
-    return this.payments.void(id);
+  voidPayment(@Param('id') id: string, @Body() dto: VoidPaymentDto) {
+    return this.payments.void(id, dto);
   }
 
   // ---- Supplier payments (outbound) ----
@@ -60,7 +67,7 @@ export class PaymentController {
   }
 
   @Post('supplier-payments')
-  @Idempotent()
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.payment.create)
   createSupplierPayment(@Body() dto: CreatePaymentDto) {
     return this.payments.createSupplierPayment(dto);

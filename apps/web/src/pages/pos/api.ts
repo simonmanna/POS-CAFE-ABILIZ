@@ -1,3 +1,4 @@
+import { idempotentPost } from '@/lib/idempotent-request';
 import { draftPricing } from '@/features/pos/cart-payload';
 import { submitCashOperation } from '@/features/pos/cash-operation';
 import { useAuthStore } from '@/stores/auth.store';
@@ -133,6 +134,17 @@ export function useOpenSession() {
   });
 }
 
+/** The open shift on a register, whichever cashier runs it (null when closed). */
+export function useRegisterOpenSession(registerId?: string) {
+  const org = useAuthStore((s) => s.organization?.id);
+  return useQuery({
+    queryKey: ['cash-session', 'register-open', org, registerId],
+    queryFn: async () => (await api.get<CashSession | null>('/cash-sessions/open', { params: { registerId } })).data ?? null,
+    enabled: !!registerId,
+    staleTime: 30_000,
+  });
+}
+
 export function useOpenShift() {
   const qc = useQueryClient();
   return useMutation({
@@ -148,6 +160,8 @@ export function useCloseShift() {
     mutationFn: async (body: {
       closingCounted: number;
       closingAccounts?: Record<string, number>;
+      /** Tracked tender accounts deliberately not counted: accountId → reason (manager approval). */
+      uncountedAccounts?: Record<string, string>;
       notes?: string;
       varianceReason?: string;
       varianceStatus?: string;
@@ -167,12 +181,22 @@ export function useCloseShift() {
   });
 }
 
-/** Reopen a closed (not-yet-reconciled) session — manager-only, reason required. */
-export function useReopenSession() {
+/**
+ * Manager force-close of another cashier's abandoned shift (blind count +
+ * reason). Closed shifts are never reopened; corrections go into a current shift.
+ */
+export function useForceCloseShift() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { sessionId: string; reason: string }) =>
-      (await api.post(`/cash-sessions/${body.sessionId}/reopen`, { reason: body.reason })).data,
+    mutationFn: async ({ sessionId, ...body }: {
+      sessionId: string;
+      closingCounted: number;
+      notes: string;
+      varianceReason?: string;
+      closingAccounts?: Record<string, number>;
+      uncountedAccounts?: Record<string, string>;
+      closingDenomination?: Record<string, number>;
+    }) => idempotentPost(`/cash-sessions/${sessionId}/force-close`, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-session'] });
       qc.invalidateQueries({ queryKey: ['cash-session', 'history'] });
@@ -199,6 +223,8 @@ export function useShiftHandover() {
       varianceReason?: string;
       openingFloat?: number;
       notes?: string;
+      closingDenomination?: Record<string, number>;
+      uncountedAccounts?: Record<string, string>;
     }) => submitCashOperation('/pos/shift/handover', body),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['cash-session'] }),
   });
@@ -216,7 +242,7 @@ export function useExpectedCash(sessionId?: string) {
 export function useRecordMovement() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { sessionId?: string; movementType: 'pay_in' | 'pay_out' | 'adjustment'; amount: number; reason?: string; counterpartAccountId?: string; approverEmail?: string; managerPin?: string }) =>
+    mutationFn: async (body: { sessionId?: string; movementType: 'pay_in' | 'pay_out' | 'adjustment'; amount: number; reason?: string; counterpartAccountId?: string; correctionOfSessionId?: string; approverEmail?: string; managerPin?: string }) =>
       submitCashOperation('/cash-sessions/movement', body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-session'] });

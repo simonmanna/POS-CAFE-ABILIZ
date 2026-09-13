@@ -6,7 +6,37 @@ import { PostingService } from '../posting/posting.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 import { dec, ZERO } from '../../../kernel/common/money';
 import { AccountResolverService } from '../posting/account-resolver.service';
-import { randomUUID } from 'crypto';
+import { AuditService } from '../../../kernel/audit/audit.service';
+import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
+import { assertNotDrawerAccount, assertSufficientFunds, lockAccounts, operationId, requireAccount } from './treasury-guards';
+
+export interface CashFlowOperationInput {
+  accountId: string;
+  counterpartAccountId: string;
+  operationType: string;
+  amount: number | string;
+  description: string;
+  date?: string;
+}
+
+interface TreasuryOperation { key: string; label: string; classifications: string[] }
+
+/** Money coming into a payment account from outside the payment accounts. */
+export const DEPOSIT_OPERATIONS: TreasuryOperation[] = [
+  { key: 'owner_contribution', label: 'Owner contribution', classifications: ['equity'] },
+  { key: 'loan_received', label: 'Loan received', classifications: ['liability'] },
+  { key: 'other_income', label: 'Other income (non-sales)', classifications: ['revenue'] },
+  { key: 'refund_received', label: 'Refund received from supplier', classifications: ['expense'] },
+];
+
+/** Money leaving a payment account to somewhere other than another payment account. */
+export const WITHDRAWAL_OPERATIONS: TreasuryOperation[] = [
+  { key: 'owner_drawing', label: 'Owner drawing', classifications: ['equity'] },
+  { key: 'bank_charge', label: 'Bank / provider charge', classifications: ['expense'] },
+  { key: 'expense', label: 'Direct expense', classifications: ['expense'] },
+  { key: 'loan_repayment', label: 'Loan repayment', classifications: ['liability'] },
+  { key: 'tax_payment', label: 'Tax payment', classifications: ['liability'] },
+];
 
 /**
  * Legacy account types accepted by `createCashAccount`, mapped to the category
@@ -28,6 +58,7 @@ export class CashFlowService {
     private readonly tenant: TenantContextService,
     private readonly posting: PostingService,
     private readonly accounts: AccountResolverService,
+    private readonly audit: AuditService,
   ) {}
 
   async getCashAccounts() {
@@ -183,69 +214,82 @@ export class CashFlowService {
     });
   }
 
-  async deposit(accountId: string, counterpartAccountId: string, amount: number, description?: string) {
-    if (amount <= 0) throw new BadRequestException('Amount must be positive');
+  /** Operation catalogue + the accounts each operation may use as its counterpart. */
+  async operationTypes() {
     const orgId = this.tenant.organizationId;
-    const account = await this.prisma.client.account.findFirst({
-      where: { id: accountId, organizationId: orgId },
-      include: { category: { select: { key: true } } },
+    const accounts = await this.prisma.client.account.findMany({
+      where: { organizationId: orgId, isActive: true, deletedAt: null, isPostable: true },
+      include: { category: { select: { key: true, classification: true, isCashEquivalent: true } } },
+      orderBy: [{ code: 'asc' }],
     });
-    if (!account) throw new BadRequestException('Account not found');
-    const cashIds = await this.accounts.cashEquivalentIds();
-    if (!cashIds.includes(account.id)) {
-      throw new BadRequestException('Account is not a payment account');
-    }
-    if (counterpartAccountId === accountId) throw new BadRequestException('Counterpart account must differ from the receiving account');
-    const counterpart = await this.prisma.client.account.findFirst({ where: { id: counterpartAccountId, organizationId: orgId, isActive: true, deletedAt: null } });
-    if (!counterpart) throw new BadRequestException('Counterpart account not found');
-    const operationId = randomUUID();
-    return this.posting.post({
-      journalCode: 'CASH',
-      date: new Date(),
-      description: description ?? 'Cash deposit',
-      sourceType: 'cash_flow_deposit',
-      sourceId: operationId,
-      postingKey: `cash-flow:deposit:${operationId}`,
-      lines: [
-        { accountId, debit: amount },
-        { accountId: counterpartAccountId, credit: amount },
-      ],
-    });
+    const eligible = (op: TreasuryOperation) => accounts
+      .filter((a: any) => !a.category?.isCashEquivalent && op.classifications.includes(a.category?.classification))
+      .map((a: any) => ({ id: a.id, code: a.code, name: a.name, classification: a.category.classification }));
+    return {
+      deposit: DEPOSIT_OPERATIONS.map((op) => ({ key: op.key, label: op.label, accounts: eligible(op) })),
+      withdrawal: WITHDRAWAL_OPERATIONS.map((op) => ({ key: op.key, label: op.label, accounts: eligible(op) })),
+    };
   }
 
-  async withdraw(accountId: string, counterpartAccountId: string, amount: number, description?: string) {
-    if (amount <= 0) throw new BadRequestException('Amount must be positive');
+  deposit(dto: CashFlowOperationInput) {
+    return this.postOperation('deposit', dto);
+  }
+
+  withdraw(dto: CashFlowOperationInput) {
+    return this.postOperation('withdrawal', dto);
+  }
+
+  /**
+   * One explicit treasury operation → one balanced journal. The counterpart is
+   * constrained by the operation type (an owner drawing must hit equity, a bank
+   * charge an expense, ...), register drawers are refused (they move only
+   * through their shift), both accounts are row-locked before the balance
+   * check, and the posting key is derived from the Idempotency-Key so a retried
+   * request cannot post twice.
+   */
+  private async postOperation(direction: 'deposit' | 'withdrawal', dto: CashFlowOperationInput) {
+    const amount = dec(dto.amount);
+    if (!amount.isFinite() || !amount.gt(0)) throw new BadRequestException('Amount must be positive');
+    const catalogue = direction === 'deposit' ? DEPOSIT_OPERATIONS : WITHDRAWAL_OPERATIONS;
+    const op = catalogue.find((o) => o.key === dto.operationType);
+    if (!op) throw new BadRequestException(`Choose a ${direction} type: ${catalogue.map((o) => o.key).join(', ')}`);
+    if (!dto.description?.trim()) throw new BadRequestException('A description is required for every treasury operation');
+    if (dto.counterpartAccountId === dto.accountId) throw new BadRequestException('Counterpart account must differ from the payment account');
     const orgId = this.tenant.organizationId;
-    const account = await this.prisma.client.account.findFirst({
-      where: { id: accountId, organizationId: orgId },
-    });
-    if (!account) throw new BadRequestException('Account not found');
-    const cashIds = await this.accounts.cashEquivalentIds();
-    if (!cashIds.includes(account.id)) {
-      throw new BadRequestException('Account is not a payment account');
-    }
-    if (counterpartAccountId === accountId) throw new BadRequestException('Counterpart account must differ from the paying account');
-    const counterpart = await this.prisma.client.account.findFirst({ where: { id: counterpartAccountId, organizationId: orgId, isActive: true, deletedAt: null } });
-    if (!counterpart) throw new BadRequestException('Counterpart account not found');
-    const balance = await this.prisma.client.journalLine.aggregate({
-      where: { organizationId: orgId, accountId, entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] } } },
-      _sum: { baseDebit: true, baseCredit: true },
-    });
-    if (dec(balance._sum.baseDebit ?? 0).minus(balance._sum.baseCredit ?? 0).lt(amount)) {
-      throw new BadRequestException('Account has insufficient available funds');
-    }
-    const operationId = randomUUID();
-    return this.posting.post({
-      journalCode: 'CASH',
-      date: new Date(),
-      description: description ?? 'Cash withdrawal',
-      sourceType: 'cash_flow_withdrawal',
-      sourceId: operationId,
-      postingKey: `cash-flow:withdrawal:${operationId}`,
-      lines: [
-        { accountId: counterpartAccountId, debit: amount },
-        { accountId, credit: amount },
-      ],
+
+    return this.prisma.client.$transaction(async (tx: any) => {
+      await lockAccounts(tx, orgId, [dto.accountId, dto.counterpartAccountId]);
+      const account = await requireAccount(tx, orgId, dto.accountId, 'Payment account');
+      if (!account.category?.isCashEquivalent) throw new BadRequestException('Account is not a cash, bank or mobile-money account');
+      await assertNotDrawerAccount(tx, orgId, account.id, direction === 'deposit' ? 'A deposit' : 'A withdrawal');
+      const counterpart = await requireAccount(tx, orgId, dto.counterpartAccountId, 'Counterpart account');
+      if (counterpart.category?.isCashEquivalent) throw new BadRequestException('Moving money between payment accounts is a transfer, not a deposit or withdrawal');
+      if (!op.classifications.includes(counterpart.category?.classification)) {
+        throw new BadRequestException(`${op.label} must use a ${op.classifications.join(' or ')} account; ${counterpart.code} is ${counterpart.category?.classification}`);
+      }
+      if (direction === 'withdrawal') await assertSufficientFunds(tx, orgId, account.id, amount, account.name);
+
+      const id = operationId();
+      const description = `${op.label}: ${dto.description.trim()}`;
+      const lines = direction === 'deposit'
+        ? [{ accountId: account.id, debit: amount.toString() }, { accountId: counterpart.id, credit: amount.toString() }]
+        : [{ accountId: counterpart.id, debit: amount.toString() }, { accountId: account.id, credit: amount.toString() }];
+      const entry = await this.posting.post({
+        journalCode: account.category?.key === 'cash' || account.category?.key === 'petty_cash' ? 'CASH' : 'BANK',
+        date: dto.date ? new Date(dto.date) : new Date(),
+        description,
+        sourceType: direction === 'deposit' ? 'cash_flow_deposit' : 'cash_flow_withdrawal',
+        sourceId: id,
+        postingKey: `cash-flow:${direction}:${id}`,
+        dimensions: { treasuryOperation: op.key },
+        lines,
+      } as any, tx);
+      await this.audit.recordInTx(tx, {
+        entity: 'TreasuryOperation', entityId: id, action: 'create',
+        newValues: { direction, operationType: op.key, accountId: account.id, counterpartAccountId: counterpart.id, amount: amount.toString(), journalEntryId: entry.id, description },
+      });
+      await recordBusinessOutcome(tx, entry, true);
+      return entry;
     });
   }
 
@@ -253,7 +297,7 @@ export class CashFlowService {
     const orgId = this.tenant.organizationId;
     const account = await this.prisma.client.account.findFirst({
       where: { id: accountId, organizationId: orgId },
-      include: { category: { select: { key: true } } },
+      include: { category: { select: { key: true } }, cashRegisters: { where: { deletedAt: null }, select: { id: true, code: true, name: true } } },
     });
     if (!account) throw new BadRequestException('Account not found');
 
@@ -322,6 +366,7 @@ export class CashFlowService {
         accountNumber: account.accountNumber,
         currencyId: account.currencyId,
         currentBalance: currentBalance.toString(),
+        cashRegister: (account as any).cashRegisters?.[0] ?? null,
       },
     };
   }

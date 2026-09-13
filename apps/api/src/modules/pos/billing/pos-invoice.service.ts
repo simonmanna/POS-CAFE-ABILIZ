@@ -728,8 +728,8 @@ export class PosInvoiceService {
    * `dir` = 'issue' on sale, 'receive' on refund. Best-effort per unit: a missing
    * link or stock error is logged, never thrown (mirrors "never block sales").
    */
-  private async issueLineExtras(db: any, item: any, lineQty: number, warehouseId: string, reference: string, ctx?: StockPostingCtx, tx?: any): Promise<LineExtraFailure[]> {
-    return this.moveLineExtras(db, 'issue', item, lineQty, warehouseId, reference, ctx, tx);
+  private async issueLineExtras(db: any, item: any, lineQty: number, warehouseId: string, reference: string, ctx?: StockPostingCtx, tx?: any, invoiceItemId?: string, posted?: Set<string>): Promise<LineExtraFailure[]> {
+    return this.moveLineExtras(db, 'issue', item, lineQty, warehouseId, reference, ctx, tx, invoiceItemId, posted);
   }
 
   /**
@@ -740,7 +740,7 @@ export class PosInvoiceService {
    */
   private async moveLineExtras(
     db: any, dir: 'issue' | 'receive', item: any, lineQty: number, warehouseId: string, reference: string,
-    ctx?: StockPostingCtx, tx?: any,
+    ctx?: StockPostingCtx, tx?: any, invoiceItemId?: string, posted?: Set<string>,
   ): Promise<LineExtraFailure[]> {
     const failures: LineExtraFailure[] = [];
     const orgId = this.tenant.organizationId;
@@ -750,6 +750,12 @@ export class PosInvoiceService {
     // the line quantity. "Extra milk" can now mean 30 ml × N drinks, not N whole
     // units. consumptionQty defaults to 1, so unconfigured options are unchanged.
     const move = async (productId: string, componentId: string, consumptionQty: number, uomId?: string | null, componentType?: string) => {
+      const componentKey = `${item.id}:${componentId}`;
+      if (dir === 'issue' && posted?.has(componentKey)) return;
+      await this.inSavepoint(tx, () => moveOnce(productId, componentId, consumptionQty, uomId, componentType));
+      if (dir === 'issue') posted?.add(componentKey);
+    };
+    const moveOnce = async (productId: string, componentId: string, consumptionQty: number, uomId?: string | null, componentType?: string) => {
       const qty = lineQty * (Number.isFinite(consumptionQty) && consumptionQty > 0 ? consumptionQty : 1);
       // Deterministic per-component movement id: a retry of the same job cannot
       // book the same extra twice, and the ledger row traces back to the option.
@@ -762,11 +768,12 @@ export class PosInvoiceService {
         // Capture modifier/accompaniment snapshot
         const cost = result?.unitCost ? Number(result.unitCost) : 0;
         const value = result?.totalValue ? Number(result.totalValue) : 0;
-        if (ctx && tx && value > 0) {
+        // The snapshot belongs to the InvoiceItem, never the OrderItem (F-01).
+        if (ctx && tx && invoiceItemId && value > 0) {
           await tx.invoiceItemRecipeIngredient.create({
             data: {
               organizationId: orgId,
-              invoiceItemId: item.id,
+              invoiceItemId,
               invoiceId: ctx.invoiceId,
               productId,
               quantity: qty,
@@ -945,9 +952,10 @@ export class PosInvoiceService {
    * Phase 1 — process one durable StockPostingJob. Runs inside the worker's
    * tenant scope. A whole-run failure (e.g. no active warehouse — nothing was
    * deducted) is retried with backoff and, once exhausted, becomes a `failed`
-   * job + a whole_invoice InventoryException that an admin can retry after
-   * fixing config. Per-line failures are recorded as InventoryException rows and
-   * do NOT fail the job (re-issuing a partially-deducted recipe would double-count).
+   * job + one whole_invoice InventoryException that an admin can retry after
+   * fixing config. Per-line failures roll back to their own SAVEPOINT, are
+   * recorded once as InventoryException rows in the same transaction, and do NOT
+   * fail the job — every other line still relieves stock and posts COGS.
    */
   async processStockPostingJob(jobId: string): Promise<void> {
     const job = await this.prisma.client.stockPostingJob.findFirst({ where: { id: jobId } });
@@ -968,14 +976,15 @@ export class PosInvoiceService {
           const locked = await tx.$queryRaw<{ status: string }[]>`
             SELECT "status" FROM "StockPostingJob" WHERE "id" = ${job.id} FOR UPDATE`;
           if (!locked.length || locked[0].status === 'done') return null; // finished by a racing worker
+          const current = await tx.stockPostingJob.findFirst({ where: { id: job.id } });
           const items = job.orderId
             ? await tx.orderItem.findMany({
                 where: { orderId: job.orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
               })
             : [];
-          const failures = await this.issueStockForItems(items, ctx, tx);
-          await this.completeStockPostingJob(tx, job.id, failures);
-          return { failures };
+          const result = await this.issueStockForItems(items, ctx, tx, new Set<string>(current?.postedLineKeys ?? []));
+          await this.completeStockPostingJob(tx, job.id, result.failures, { postedLineKeys: result.postedLineKeys, attempts: current?.attempts ?? job.attempts, maxAttempts: current?.maxAttempts ?? job.maxAttempts, lastError: result.lastError });
+          return { failures: result.failures };
         },
         { timeout: 30_000 },
       );
@@ -990,7 +999,7 @@ export class PosInvoiceService {
       // Best-effort and idempotent, so kept OUT of the money transaction above: a
       // reservation hiccup must not roll back posted COGS. Reservations are keyed
       // on the invoice, so a pre-invoice trigger (no invoiceId) has none to clear.
-      if (job.invoiceId) {
+      if (job.invoiceId && outcome.failures === 0) {
         await this.reservations
           .consume('invoice', job.invoiceId)
           .catch((e: any) => this.logger.warn(`reservation consume failed for ${job.invoiceNumber}: ${e?.message ?? e}`));
@@ -1028,26 +1037,38 @@ export class PosInvoiceService {
           data: { status: 'pending', attempts, lastError: msg, claimToken: null, claimedAt: null, nextRetryAt: new Date(Date.now() + backoffMs) },
         });
       }
-      for (const failure of (e?.stockFailures ?? []) as StockLineFailure[]) {
-        await this.recordInventoryException(ctx, failure);
-      }
-      if (attempts < job.maxAttempts && !(e?.stockFailures?.length)) {
-        await this.recordInventoryException(ctx, {
-          kind: 'whole_invoice', productId: null, menuItemId: null, description: 'whole-invoice stock deduction',
-          quantity: 0, locationId: null, reason: msg, stackTrace: e?.stack ?? null, payload: { jobId: job.id },
-        });
-      }
     }
   }
 
   /** Completion must share the stock/COGS transaction so a late crash rolls
    * the physical and financial changes back together. */
-  private async completeStockPostingJob(tx: any, jobId: string, failures: number) {
+  private async completeStockPostingJob(
+    tx: any, jobId: string, failures: number,
+    progress: { postedLineKeys: string[]; attempts: number; maxAttempts: number; lastError?: string | null } = { postedLineKeys: [], attempts: 0, maxAttempts: 5 },
+  ) {
+    if (failures === 0) {
+      await tx.stockPostingJob.update({
+        where: { id: jobId },
+        data: { status: 'done', processedAt: new Date(), claimToken: null, claimedAt: null, lastError: null, postedLineKeys: progress.postedLineKeys },
+      });
+      return;
+    }
+    // Some lines could not be relieved. The lines that did post are committed and
+    // remembered; the job is NOT done — it retries with backoff (a fixed recipe
+    // or UoM then relieves only the missing lines) and becomes `failed` for the
+    // Posting Monitor once attempts are exhausted.
+    const attempts = progress.attempts + 1;
+    const exhausted = attempts >= progress.maxAttempts;
     await tx.stockPostingJob.update({
       where: { id: jobId },
       data: {
-        status: 'done', processedAt: new Date(), claimToken: null, claimedAt: null,
-        lastError: failures > 0 ? `${failures} line(s) need review` : null,
+        status: exhausted ? 'failed' : 'pending',
+        attempts,
+        postedLineKeys: progress.postedLineKeys,
+        lastError: `${failures} line(s) could not be deducted and need review${progress.lastError ? `: ${progress.lastError}` : ''}`.slice(0, 500),
+        claimToken: null, claimedAt: null,
+        nextRetryAt: new Date(Date.now() + Math.min(60_000 * attempts, 15 * 60_000)),
+        ...(exhausted ? { processedAt: new Date() } : {}),
       },
     });
   }
@@ -1057,7 +1078,7 @@ export class PosInvoiceService {
   // line is isolated: a per-line failure is recorded as an InventoryException and
   // counted, never thrown, so one un-stocked ingredient can't stop the rest and
   // the sale (already final) is never affected. Returns the number of line failures.
-  private async issueStockForItems(items: any[], ctx: StockPostingCtx, tx: any): Promise<number> {
+  private async issueStockForItems(items: any[], ctx: StockPostingCtx, tx: any, alreadyPosted = new Set<string>()): Promise<{ failures: number; postedLineKeys: string[]; lastError: string | null }> {
     const orgId = this.tenant.organizationId;
     const db = tx ?? this.prisma.client;
     const invoice = ctx.invoiceId ? await db.invoice.findFirst({ where: { id: ctx.invoiceId, organizationId: orgId }, select: { cashSessionId: true } }) : null;
@@ -1071,7 +1092,19 @@ export class PosInvoiceService {
     const reference = ctx.invoiceNumber;
     const ref = `POS bill ${reference}`;
     let failures = 0;
-    const failureDetails: StockLineFailure[] = [];
+    let lastError: string | null = null;
+    const posted = new Set<string>(alreadyPosted);
+    const record = async (f: StockLineFailure, lineKey: string) => {
+      failures++;
+      lastError = f.reason ?? lastError;
+      // One open exception per failing line, however many retries it takes.
+      const existing = await db.inventoryException.findFirst({
+        where: { organizationId: orgId, invoiceId: ctx.invoiceId ?? null, status: 'open', kind: f.kind, payload: { path: ['lineKey'], equals: lineKey } },
+        select: { id: true },
+      });
+      if (existing) return;
+      await this.inSavepoint(tx, () => this.recordInventoryException(ctx, { ...f, payload: { ...(f.payload ?? {}), lineKey } }, tx));
+    };
     for (const it of items) {
       // Rental lines never enqueue a stock issue: checkout moved the unit via
       // the rental posting service's internal transfer (RENT-STOCK →
@@ -1080,70 +1113,81 @@ export class PosInvoiceService {
       // invoice must not issue it a second time. Without this filter the worker
       // would issue the product again, booking double COGS + double relief.
       if (it.rentalAgreementLineId || it.repairOrderLineId) continue;
-      try {
-        if (it.menuItemId) {
-          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx, it.variantId ?? null, invoiceItemByLine.get(it.lineNumber));
-        } else if (it.productId) {
-          const product = await db.product.findFirst({ where: { id: it.productId } });
-          if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
-            // Sell-in-sales-unit: line qty is in the product's sales unit → convert to base.
-            const issueResult = await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref, sourceType: 'pos_invoice', sourceId: ctx.invoiceId } as any, tx);
-            // Capture recipe snapshot for product-direct issues
-            const cost = issueResult?.unitCost ? Number(issueResult.unitCost) : 0;
-            const value = issueResult?.totalValue ? Number(issueResult.totalValue) : 0;
-            const invoiceItemId = invoiceItemByLine.get(it.lineNumber);
-            if (invoiceItemId && value > 0) {
-              await tx.invoiceItemRecipeIngredient.create({
-                data: {
-                  organizationId: orgId,
-                  invoiceItemId,
-                  invoiceId: ctx.invoiceId,
-                  productId: it.productId,
-                  quantity: Number(it.quantity),
-                  unitCost: cost,
-                  totalValue: value,
-                  variantMultiplier: 1,
-                  componentType: null,
-                  componentId: null,
-                },
-              });
+      const invoiceItemId = invoiceItemByLine.get(it.lineNumber);
+      const lineKey = String(it.id);
+      // Each line is a SAVEPOINT: a failing line (no recipe, unknown UoM, ...)
+      // rolls back only its own partial issue, so a recipe is never half-deducted
+      // and every other line still relieves stock and posts COGS in this job.
+      if (!posted.has(lineKey)) try {
+        await this.inSavepoint(tx, async () => {
+          if (it.menuItemId) {
+            await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx, it.variantId ?? null, invoiceItemId);
+          } else if (it.productId) {
+            const product = await db.product.findFirst({ where: { id: it.productId } });
+            if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
+              // Sell-in-sales-unit: line qty is in the product's sales unit → convert to base.
+              const issueResult = await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref, sourceType: 'pos_invoice', sourceId: ctx.invoiceId } as any, tx);
+              const cost = issueResult?.unitCost ? Number(issueResult.unitCost) : 0;
+              const value = issueResult?.totalValue ? Number(issueResult.totalValue) : 0;
+              if (invoiceItemId && value > 0) {
+                await tx.invoiceItemRecipeIngredient.create({
+                  data: {
+                    organizationId: orgId,
+                    invoiceItemId,
+                    invoiceId: ctx.invoiceId,
+                    productId: it.productId,
+                    quantity: Number(it.quantity),
+                    unitCost: cost,
+                    totalValue: value,
+                    variantMultiplier: 1,
+                    componentType: null,
+                    componentId: null,
+                  },
+                });
+              }
             }
           }
-        }
+        });
+        posted.add(lineKey);
       } catch (e: any) {
-        failures++;
         this.logger.error(`[stock] issue failed for "${it.description ?? it.productId ?? it.menuItemId}" on ${reference} (sale kept): ${e?.message ?? e}`);
-        failureDetails.push({
+        await record({
           kind: it.menuItemId ? 'menu_recipe' : 'product',
           productId: it.productId ?? null, menuItemId: it.menuItemId ?? null, description: it.description ?? null,
           quantity: Number(it.quantity), locationId: warehouse.id, reason: e?.message ?? String(e), stackTrace: e?.stack ?? null,
-          payload: { orderItemId: it.id, reference },
-        });
+          payload: { orderItemId: it.id, invoiceItemId: invoiceItemId ?? null, reference },
+        }, lineKey);
       }
-      // H3: deplete paid modifiers + accompaniments. A failure here never blocks
-      // the (already final) sale, but it IS counted and recorded like any other
-      // un-deducted line so the back office sees the drift.
-      for (const f of await this.issueLineExtras(db, it, Number(it.quantity), warehouse.id, ref, ctx, tx)) {
-        failures++;
-        failureDetails.push({
+      // H3: deplete paid modifiers + accompaniments (each component in its own
+      // savepoint). A failure never blocks the sale; it is recorded once.
+      for (const f of await this.issueLineExtras(db, it, Number(it.quantity), warehouse.id, ref, ctx, tx, invoiceItemId, posted)) {
+        await record({
           kind: 'line_extras',
           productId: f.productId, menuItemId: it.menuItemId ?? null,
           description: `${f.componentType} on ${it.description ?? it.productId ?? it.menuItemId}`,
           quantity: Number(it.quantity), locationId: warehouse.id,
           reason: f.error?.message ?? String(f.error), stackTrace: f.error?.stack ?? null,
-          payload: { orderItemId: it.id, reference, componentId: f.componentId, componentType: f.componentType },
-        });
+          payload: { orderItemId: it.id, invoiceItemId: invoiceItemId ?? null, reference, componentId: f.componentId, componentType: f.componentType },
+        }, `${lineKey}:${f.componentId}`);
       }
     }
-    if (failureDetails.length || failures > 0) {
-      const error: any = new Error(`${Math.max(failures, failureDetails.length)} stock line(s) could not be deducted`);
-      error.stockFailures = failureDetails.length ? failureDetails : [{
-        kind: 'whole_invoice', productId: null, menuItemId: null, description: 'stock deduction', quantity: 0,
-        locationId: warehouse.id, reason: error.message, stackTrace: null, payload: { orderId: ctx.orderId },
-      }];
-      throw error;
+    return { failures, postedLineKeys: [...posted], lastError };
+  }
+
+  /** Run `fn` inside a SAVEPOINT when a transaction is supplied, so a failure
+   *  rolls back only its own statements and leaves the outer transaction usable. */
+  private async inSavepoint<T>(tx: any, fn: () => Promise<T>): Promise<T> {
+    if (!tx?.$executeRawUnsafe) return fn();
+    const name = `sp_${Math.random().toString(36).slice(2, 12)}`;
+    await tx.$executeRawUnsafe(`SAVEPOINT ${name}`);
+    try {
+      const result = await fn();
+      await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${name}`);
+      return result;
+    } catch (e) {
+      await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+      throw e;
     }
-    return failures;
   }
 
   /**
@@ -1233,9 +1277,8 @@ export class PosInvoiceService {
     this.logger.warn(`[fiscal] provider '${provider}' set but no adapter wired — invoice ${invoice.invoiceNumber} not fiscally signed`);
   }
 
-  /** Issue a menu item's recipe BOM. Returns the count of ingredients that failed
-   *  (each recorded as an InventoryException). Never throws — a bad ingredient
-   *  can't stop the rest, and the sale is already final.
+  /** Issue a menu item's recipe BOM, all ingredients or none: any failure throws
+   *  and the caller rolls the line back to its savepoint and records it.
    *  @param invoiceItemId - the InvoiceItem id for recipe snapshot capture */
   private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx, tx: any, variantId?: string | null, invoiceItemId?: string): Promise<number> {
     const db = tx ?? this.prisma.client;

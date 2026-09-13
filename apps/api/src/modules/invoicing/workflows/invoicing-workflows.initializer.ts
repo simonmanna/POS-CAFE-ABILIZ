@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
+import { BadRequestException, ForbiddenException, Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import type { WorkflowDefinition } from '@erp/shared';
 import { WorkflowRegistry } from '../../../kernel/workflow/workflow.registry';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
@@ -426,33 +427,80 @@ export class InvoicingWorkflowsInitializer implements OnModuleInit {
           from: 'posted', to: 'cancelled', action: 'void',
           permission: 'payment:void',
           sideEffect: async (ctx, tx) => {
-            const payment = ctx.entity as any;
+            const payload = (ctx.payload ?? {}) as { reason?: string; correctionSessionId?: string };
+            const reason = String(payload.reason ?? '').trim();
+            if (!reason) throw new BadRequestException('A reason is required to void a payment');
+            await tx.$queryRawUnsafe('SELECT id FROM "Payment" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', ctx.entityId, ctx.organizationId);
+            const payment = await tx.payment.findFirst({ where: { id: ctx.entityId, organizationId: ctx.organizationId }, include: { allocations: true } });
+            if (!payment || payment.status !== 'posted') throw new BadRequestException('Only a posted payment can be voided');
             const drawerMovements = await tx.cashMovement.findMany({
-              where: { paymentId: payment.id },
-              include: { cashSession: { select: { status: true } } },
+              where: { paymentId: payment.id, organizationId: ctx.organizationId },
             });
-            if (drawerMovements.some((m: any) => m.cashSession.status !== 'open')) {
-              throw new BadRequestException('Cash payments from a closed or reconciled shift cannot be voided; post an approved correction in a current shift');
+
+            // Resolve where the drawer reversal lands BEFORE touching the ledger.
+            // Same shift while it is open; otherwise a linked correction in the
+            // caller's current shift on the same drawer. The closed shift and its
+            // Z report are never modified.
+            const targets: Array<{ movement: any; sessionId: string; correctionOf: string | null }> = [];
+            for (const movement of drawerMovements) {
+              await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', movement.cashSessionId, ctx.organizationId);
+              const original = await tx.cashSession.findFirst({ where: { id: movement.cashSessionId, organizationId: ctx.organizationId } });
+              if (original?.status === 'open') {
+                targets.push({ movement, sessionId: original.id, correctionOf: null });
+                continue;
+              }
+              if (!payload.correctionSessionId) {
+                throw new BadRequestException('This cash payment belongs to a closed shift. Choose your current open shift on the same register to post the correction.');
+              }
+              if (!ctx.permissions.includes('cash_session:correct')) throw new ForbiddenException('Correcting a closed shift requires cash_session:correct');
+              await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', payload.correctionSessionId, ctx.organizationId);
+              const current = await tx.cashSession.findFirst({ where: { id: payload.correctionSessionId, organizationId: ctx.organizationId } });
+              if (!current || current.status !== 'open') throw new BadRequestException('The correction shift must be open');
+              if (current.userId !== ctx.userId) throw new ForbiddenException('Post corrections only into your own open shift');
+              if ((current.drawerAccountId ?? null) !== (original?.drawerAccountId ?? payment.accountId)) {
+                throw new BadRequestException('The correction must be posted on the same register drawer that took the payment');
+              }
+              targets.push({ movement, sessionId: current.id, correctionOf: movement.cashSessionId });
             }
+            for (const t of targets) {
+              if (t.movement.movementType !== 'sale') continue; // voiding a refund puts cash back
+              const moves = await tx.cashMovement.findMany({ where: { cashSessionId: t.sessionId } });
+              const session = await tx.cashSession.findFirst({ where: { id: t.sessionId } });
+              const expected = moves.reduce((sum: any, m: any) => ['sale', 'pay_in', 'adjustment'].includes(m.movementType) ? sum.plus(m.amount) : sum.minus(m.amount), session.openingFloat);
+              if (expected.lt(t.movement.amount)) throw new BadRequestException('The drawer does not contain enough cash to return this payment');
+            }
+
             let reversal: any = null;
             if (payment.journalEntryId) {
-              reversal = await this.posting.reverse(payment.journalEntryId, { description: `Void of ${payment.paymentNumber}` }, tx);
+              reversal = await this.posting.reverse(payment.journalEntryId, { description: `Void of ${payment.paymentNumber}: ${reason}` }, tx);
             }
-            // Financial evidence is append-only. Keep the original sale/refund
-            // and append the opposite drawer effect linked to it.
-            for (const movement of drawerMovements) {
+            // Financial evidence is append-only: keep the original sale/refund
+            // and append the opposite drawer effect, linked to it.
+            for (const t of targets) {
               await tx.cashMovement.create({ data: {
                 organizationId: ctx.organizationId,
-                cashSessionId: movement.cashSessionId,
+                cashSessionId: t.sessionId,
                 movementType: 'adjustment',
-                amount: movement.movementType === 'sale' ? movement.amount.negated() : movement.amount,
-                reason: `Void of ${payment.paymentNumber}`,
-                counterpartAccountId: movement.counterpartAccountId,
+                amount: t.movement.movementType === 'sale' ? t.movement.amount.negated() : t.movement.amount,
+                reason: `Void of ${payment.paymentNumber}: ${reason}`,
+                counterpartAccountId: t.movement.counterpartAccountId,
                 journalEntryId: reversal?.id ?? null,
-                reversalOfMovementId: movement.id,
-                performedBy: payment.updatedBy ?? payment.createdBy ?? null,
+                reversalOfMovementId: t.movement.id,
+                correctionOfSessionId: t.correctionOf,
+                performedBy: ctx.userId,
               } });
             }
+            // Snapshot the settlement before releasing it; the trigger refuses
+            // an allocation delete without this evidence on the payment.
+            await tx.payment.updateMany({
+              where: { id: payment.id },
+              data: {
+                voidedAt: new Date(),
+                voidedById: ctx.userId,
+                voidReason: reason,
+                voidedAllocations: JSON.parse(JSON.stringify(payment.allocations ?? [])),
+              },
+            });
             for (const alloc of payment.allocations ?? []) {
               // R2: allocation may target a POS Invoice (separate from Document).
               if (alloc.invoiceId) {
@@ -484,6 +532,7 @@ export class InvoicingWorkflowsInitializer implements OnModuleInit {
               where: { id: payment.id },
               data: { allocatedAmount: 0, unallocatedAmount: 0 },
             });
+            await recordBusinessOutcome(tx, { id: payment.id, voided: true }, true);
           },
         },
       ],

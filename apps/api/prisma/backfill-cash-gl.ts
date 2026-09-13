@@ -21,7 +21,7 @@ const ACCOUNTS: { code: string; name: string; categoryKey: string; mappingKey: s
 
 // New cash-session permissions. Granted to any role that can already reconcile
 // (i.e. manager-level) — NOT to plain cashiers, preserving segregation of duties.
-const NEW_MANAGER_PERMS = ['cash_session:cash_out', 'cash_session:approve_variance', 'cash_session:reopen'];
+const NEW_MANAGER_PERMS = ['cash_session:cash_out', 'cash_session:approve_variance', 'cash_session:force_close', 'cash_session:correct'];
 
 async function backfillRolePermissions() {
   const roles = await prisma.role.findMany({ select: { id: true, name: true, permissions: true } });

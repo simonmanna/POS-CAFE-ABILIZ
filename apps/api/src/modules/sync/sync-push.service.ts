@@ -239,6 +239,9 @@ export class SyncPushService {
       case 'cash_session.close': {
         const closed = await this.cashSessions.close({
           closingCounted: payload.closingCounted,
+          closingAccounts: payload.closingAccounts,
+          uncountedAccounts: payload.uncountedAccounts,
+          sessionId: payload.sessionId,
           notes: payload.notes,
           varianceReason: payload.varianceReason,
           varianceStatus: payload.varianceStatus,
@@ -253,6 +256,7 @@ export class SyncPushService {
       case 'cash_session.movement': {
         const movement = await this.cashSessions.recordMovement(payload.sessionId, {
           movementType: payload.movementType,
+          counterpartAccountId: payload.counterpartAccountId,
           amount: payload.amount,
           reason: payload.reason,
           approvedById: payload.approvedById,

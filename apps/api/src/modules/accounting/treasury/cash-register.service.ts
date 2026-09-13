@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { CashRegister } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
@@ -66,32 +66,47 @@ export class CashRegisterService extends BaseCrudService<CashRegister> {
     return result;
   }
 
+  /**
+   * Custody changes (drawer account, location, branch, deactivation) are only
+   * allowed while no shift is open. The register row is locked for the check
+   * and the write, the same lock `open()` takes, so a shift cannot open between
+   * the check and the change.
+   */
   async update(id: string, data: any): Promise<CashRegister> {
     const orgId = this.tenant.organizationId;
-    const current = await this.prisma.client.cashRegister.findFirst({ where: { id, organizationId: orgId, deletedAt: null } });
-    if (!current) throw new NotFoundException('CashRegister not found');
-    const changesCustody = (data.defaultAccountId && data.defaultAccountId !== current.defaultAccountId)
-      || (data.locationId !== undefined && data.locationId !== current.locationId)
-      || (data.branchId !== undefined && data.branchId !== (current as any).branchId)
-      || data.isActive === false;
-    if (changesCustody) {
-      const open = await this.prisma.client.cashSession.count({ where: { organizationId: orgId, cashRegisterId: id, status: 'open' } });
-      if (open) throw new BadRequestException('Close or hand over the active shift before changing its account, location or status');
-    }
     if (data.defaultAccountId) await this.assertAvailableDrawerAccount(data.defaultAccountId, id);
     if (data.locationId) {
       const location = await this.prisma.client.inventoryLocation.findFirst({ where: { id: data.locationId, organizationId: orgId, isActive: true, deletedAt: null } });
       if (!location) throw new BadRequestException('Select an active inventory location in this organization');
     }
     if (data.branchId) await this.assertBranch(data.branchId);
-    return super.update(id, data);
+    await this.prisma.client.$transaction(async (tx: any) => {
+      const locked = await tx.$queryRawUnsafe('SELECT id FROM "CashRegister" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', id, orgId);
+      if (!locked.length) throw new NotFoundException('CashRegister not found');
+      const current = await tx.cashRegister.findFirst({ where: { id, organizationId: orgId, deletedAt: null } });
+      if (!current) throw new NotFoundException('CashRegister not found');
+      const changesCustody = (data.defaultAccountId && data.defaultAccountId !== current.defaultAccountId)
+        || (data.locationId !== undefined && data.locationId !== current.locationId)
+        || (data.branchId !== undefined && data.branchId !== current.branchId)
+        || data.isActive === false;
+      if (changesCustody) {
+        const open = await tx.cashSession.count({ where: { organizationId: orgId, cashRegisterId: id, status: 'open' } });
+        if (open) throw new ConflictException('Close or hand over the active shift before changing its account, location, branch or status');
+      }
+      await tx.cashRegister.updateMany({ where: { id, organizationId: orgId }, data });
+    });
+    return this.findOne(id);
   }
 
   async remove(id: string): Promise<void> {
-    const open = await this.prisma.client.cashSession.count({ where: { organizationId: this.tenant.organizationId, cashRegisterId: id, status: 'open' } });
-    if (open) throw new BadRequestException('An open register cannot be deleted');
-    const updated = await this.prisma.client.cashRegister.updateMany({ where: { id, organizationId: this.tenant.organizationId }, data: { deletedAt: new Date(), isActive: false } });
-    if (!updated.count) throw new NotFoundException('CashRegister not found');
+    const orgId = this.tenant.organizationId;
+    await this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "CashRegister" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', id, orgId);
+      const open = await tx.cashSession.count({ where: { organizationId: orgId, cashRegisterId: id, status: 'open' } });
+      if (open) throw new ConflictException('An open register cannot be deleted');
+      const updated = await tx.cashRegister.updateMany({ where: { id, organizationId: orgId }, data: { deletedAt: new Date(), isActive: false } });
+      if (!updated.count) throw new NotFoundException('CashRegister not found');
+    });
   }
 
   private async assertAvailableDrawerAccount(accountId: string, registerId: string) {

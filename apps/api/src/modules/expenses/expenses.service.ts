@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { recordBusinessOutcome } from '../../kernel/idempotency/business-outcome';
+import { dec } from '../../kernel/common/money';
+import { assertNotDrawerAccount, assertSufficientFunds, lockAccounts } from '../accounting/treasury/treasury-guards';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { EventBus } from '../../kernel/events/event-bus';
@@ -53,9 +57,10 @@ function journalForMethod(method?: string): string {
  *             PARTIALLY_PAID|PAID and POSTED
  *   void     → reverses every posted payment JE, marks VOID
  *
- * GL posting is best-effort: if no postable expense/cash account can be
- * resolved (un-configured COA), the payment is still recorded with a null
- * journalEntryId so the feature works on a fresh install.
+ * Every payment posts Dr expense / Cr cash-bank in the same transaction as the
+ * payment row. A missing expense account or an invalid payment account fails
+ * the request, so money never leaves the books silently. Identity (raiser,
+ * approver, payer) always comes from the authenticated user, never the body.
  */
 @Injectable()
 export class ExpensesService {
@@ -236,12 +241,16 @@ export class ExpensesService {
 
   /** Postable cash / bank / other-asset accounts with a GL-derived balance. */
   async paymentAccounts() {
+    // Register drawers move only through their own shift.
+    const drawers = await this.prisma.client.cashRegister.findMany({ where: { deletedAt: null }, select: { defaultAccountId: true } });
     const accounts = await this.prisma.client.account.findMany({
       where: {
         category: { isCashEquivalent: true },
         isPostable: true,
         isActive: true,
+        deletedAt: null,
         deprecatedAt: null,
+        id: { notIn: drawers.map((d) => d.defaultAccountId) },
       },
       orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
       select: { id: true, name: true, currencyId: true },
@@ -255,7 +264,7 @@ export class ExpensesService {
     const balances = ids.length
       ? await this.prisma.client.journalLine.groupBy({
           by: ['accountId'],
-          where: { accountId: { in: ids } },
+          where: { accountId: { in: ids }, entry: { status: { in: ['posted', 'reversed'] } } },
           _sum: { baseDebit: true, baseCredit: true },
         })
       : [];
@@ -283,7 +292,7 @@ export class ExpensesService {
   // ─── Writes ─────────────────────────────────────────────────────────────────
 
   async create(dto: CreateExpenseDto) {
-    if (!dto.createdBy) throw new BadRequestException('createdBy is required');
+    const actorId = this.requireActor();
     const isCash = dto.paymentType === 'CASH';
     if (isCash && (!dto.paymentMethod || !dto.accountId)) {
       throw new BadRequestException('Cash expenses require paymentMethod and accountId');
@@ -304,6 +313,7 @@ export class ExpensesService {
 
       const expense = await tx.expense.create({
         data: {
+          organizationId: this.tenant.organizationId,
           expenseCode,
           title: dto.title.trim(),
           description: dto.description ?? null,
@@ -318,9 +328,10 @@ export class ExpensesService {
           categoryId: category?.id ?? null,
           categoryName: category?.name ?? null,
           supplierId: dto.supplierId || null,
-          createdById: dto.createdBy ?? null,
-          // A cash expense is created already approved by its raiser.
-          approvedById: isCash ? (dto.createdBy ?? null) : null,
+          createdById: actorId,
+          // A cash expense is paid on the spot by its raiser, who must hold
+          // expense:post (checked below); the payment itself is the approval.
+          approvedById: isCash ? actorId : null,
         },
       });
 
@@ -332,11 +343,14 @@ export class ExpensesService {
       });
 
       if (isCash) {
+        if (!this.tenant.has('expense:post')) {
+          throw new ForbiddenException('Paying an expense on creation requires expense:post; save it as a credit expense instead');
+        }
         await this.recordPayment(
           tx,
           expense,
           {
-            paidBy: dto.createdBy!,
+            paidBy: actorId,
             paymentMethod: dto.paymentMethod!,
             accountId: dto.accountId!,
             reference: dto.paymentReference,
@@ -350,6 +364,7 @@ export class ExpensesService {
         expenseId: expense.id,
         expenseCode,
       } as any);
+      await recordBusinessOutcome(tx, { id: expense.id, expenseCode }, isCash);
       return expense;
     });
 
@@ -366,7 +381,7 @@ export class ExpensesService {
       if (!gate?.needsApproval) {
         await this.prisma.client.expense.updateMany({
           where: { id: created.id },
-          data: { status: 'APPROVED', approvedById: created.createdById ?? dto.createdBy ?? null },
+          data: { status: 'APPROVED', approvedById: null },
         });
       }
     }
@@ -407,6 +422,10 @@ export class ExpensesService {
     const exp = await this.prisma.client.expense.findFirst({ where: { id, deletedAt: null } });
     if (!exp) throw new NotFoundException('Expense not found');
     if (exp.status !== 'DRAFT') throw new BadRequestException('Only draft expenses can be approved');
+    const approverId = this.requireActor();
+    if (exp.createdById && exp.createdById === approverId) {
+      throw new ForbiddenException('The person who raised an expense cannot approve it');
+    }
 
     // When the approval engine created a pending request, decide it there — this
     // honors multi-step chains, per-step permissions and SoD. The expense flips to
@@ -422,7 +441,7 @@ export class ExpensesService {
           where: { id },
           data: {
             status: 'APPROVED',
-            approvedById: this.tenant.userId ?? dto.approvedBy,
+            approvedById: approverId,
             approvalNotes: dto.approvalNotes ?? null,
           },
         });
@@ -434,13 +453,13 @@ export class ExpensesService {
     return this.prisma.client.$transaction(async (tx: any) => {
       await tx.expense.updateMany({
         where: { id },
-        data: { status: 'APPROVED', approvedById: dto.approvedBy, approvalNotes: dto.approvalNotes ?? null },
+        data: { status: 'APPROVED', approvedById: approverId, approvalNotes: dto.approvalNotes ?? null },
       });
       await this.audit.recordInTx(tx, {
         entity: 'Expense',
         entityId: id,
         action: 'approve',
-        newValues: { approvedBy: dto.approvedBy, reason: dto.approvalNotes },
+        newValues: { approvedBy: approverId, reason: dto.approvalNotes },
       });
       return this.loadDecorated(tx, id);
     });
@@ -498,10 +517,13 @@ export class ExpensesService {
       );
     }
 
+    const payerId = this.requireActor();
     return this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "Expense" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', id, this.tenant.organizationId);
       const exp = await tx.expense.findFirst({ where: { id, deletedAt: null } });
       if (!exp) throw new NotFoundException('Expense not found');
-      if (!['APPROVED', 'POSTED', 'DRAFT'].includes(exp.status)) {
+      if (exp.status === 'DRAFT') throw new BadRequestException('Approve this expense before paying it');
+      if (!['APPROVED', 'POSTED'].includes(exp.status)) {
         throw new BadRequestException(`Cannot pay an expense in status ${exp.status}`);
       }
       if (exp.paymentStatus === PaymentStatus.PAID) {
@@ -514,7 +536,7 @@ export class ExpensesService {
         tx,
         exp,
         {
-          paidBy: dto.paidBy,
+          paidBy: payerId,
           paymentMethod: dto.paymentMethod,
           accountId: dto.accountId,
           reference: dto.reference,
@@ -526,12 +548,17 @@ export class ExpensesService {
         organizationId: this.tenant.organizationId,
         expenseId: id,
       } as any);
-      return this.loadDecorated(tx, id);
+      const result = await this.loadDecorated(tx, id);
+      await recordBusinessOutcome(tx, { id, paid: true }, true);
+      return result;
     });
   }
 
   async void(id: string, dto: VoidExpenseDto) {
+    if (!dto.voidReason?.trim()) throw new BadRequestException('A void reason is required');
+    const actorId = this.requireActor();
     return this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "Expense" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', id, this.tenant.organizationId);
       const exp = await tx.expense.findFirst({ where: { id, deletedAt: null } });
       if (!exp) throw new NotFoundException('Expense not found');
       if (['VOID', 'CANCELLED'].includes(exp.status)) {
@@ -559,8 +586,9 @@ export class ExpensesService {
         entity: 'Expense',
         entityId: id,
         action: 'cancel',
-        newValues: { reason: dto.voidReason, reversedPayments: payments.length },
+        newValues: { reason: dto.voidReason, reversedPayments: payments.length, voidedBy: actorId },
       });
+      await recordBusinessOutcome(tx, { id, voided: true }, true);
       this.events.publish('expense.voided' as any, {
         organizationId: this.tenant.organizationId,
         expenseId: id,
@@ -594,37 +622,47 @@ export class ExpensesService {
     input: { paidBy: string; paymentMethod: string; accountId: string; reference?: string; paymentNotes?: string },
     category: any | null,
   ) {
-    const residual = Number(expense.amount) - Number(expense.amountPaid ?? 0);
-    if (residual <= 0) throw new BadRequestException('Nothing left to pay');
+    const residual = dec(expense.amount).minus(expense.amountPaid ?? 0);
+    if (!residual.gt(0)) throw new BadRequestException('Nothing left to pay');
+    const orgId = this.tenant.organizationId;
 
     const debitAccountId = await this.resolveExpenseAccountId(tx, category);
+    if (!debitAccountId) throw new BadRequestException('Configure an expense account (category ledger or default_expense mapping) before paying expenses');
+    await lockAccounts(tx, orgId, [input.accountId]);
     const creditAccount = await tx.account.findFirst({
-      where: { id: input.accountId, isPostable: true, isActive: true },
+      where: { id: input.accountId, organizationId: orgId, isPostable: true, isActive: true, deletedAt: null },
+      include: { category: true },
     });
-
-    let journalEntryId: string | null = null;
-    if (debitAccountId && creditAccount) {
-      const entry = await this.posting.post(
-        {
-          journalCode: journalForMethod(input.paymentMethod),
-          date: new Date(),
-          description: `Expense ${expense.expenseCode} — ${expense.title}`,
-          sourceType: 'expense_payment',
-          sourceId: expense.id,
-          lines: [
-            { accountId: debitAccountId, debit: residual, description: expense.title },
-            { accountId: creditAccount.id, credit: residual, description: `Paid: ${expense.title}` },
-          ],
-        },
-        tx,
-      );
-      journalEntryId = entry.id;
+    if (!creditAccount || !creditAccount.category?.isCashEquivalent) {
+      throw new BadRequestException('Pay expenses from an active cash, bank or mobile-money account');
     }
+    await assertNotDrawerAccount(tx, orgId, creditAccount.id, 'An expense payment');
+    await assertSufficientFunds(tx, orgId, creditAccount.id, residual, creditAccount.name);
+
+    const paymentId = randomUUID();
+    const entry = await this.posting.post(
+      {
+        journalCode: journalForMethod(input.paymentMethod),
+        date: new Date(),
+        description: `Expense ${expense.expenseCode} - ${expense.title}`,
+        sourceType: 'expense_payment',
+        sourceId: expense.id,
+        postingKey: `expense_payment:${paymentId}`,
+        lines: [
+          { accountId: debitAccountId, debit: residual.toString(), description: expense.title },
+          { accountId: creditAccount.id, credit: residual.toString(), description: `Paid: ${expense.title}` },
+        ],
+      },
+      tx,
+    );
+    const journalEntryId: string = entry.id;
 
     const payment = await tx.expensePayment.create({
       data: {
+        id: paymentId,
+        organizationId: orgId,
         expenseId: expense.id,
-        amount: residual,
+        amount: residual.toString(),
         paymentMethod: input.paymentMethod,
         reference: input.reference ?? null,
         paymentNotes: input.paymentNotes ?? null,
@@ -635,12 +673,12 @@ export class ExpensesService {
       },
     });
 
-    const newPaid = Number(expense.amountPaid ?? 0) + residual;
+    const newPaid = dec(expense.amountPaid ?? 0).plus(residual);
     await tx.expense.updateMany({
       where: { id: expense.id },
       data: {
-        amountPaid: newPaid,
-        paymentStatus: newPaid >= Number(expense.amount) ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID,
+        amountPaid: newPaid.toString(),
+        paymentStatus: newPaid.gte(dec(expense.amount)) ? PaymentStatus.PAID : PaymentStatus.PARTIALLY_PAID,
         paidAt: new Date(),
         status: expense.status === 'APPROVED' || expense.status === 'DRAFT' ? 'POSTED' : expense.status,
       },
@@ -652,10 +690,10 @@ export class ExpensesService {
       action: 'post',
       newValues: {
         paymentId: payment.id,
-        amount: residual,
+        amount: residual.toString(),
         method: input.paymentMethod,
         reason: input.paymentNotes,
-        glPosted: Boolean(journalEntryId),
+        journalEntryId,
       },
     });
     return payment;
@@ -665,7 +703,7 @@ export class ExpensesService {
   private async resolveExpenseAccountId(tx: any, category: any | null): Promise<string | null> {
     if (category?.ledgerAccountId) {
       const acc = await tx.account.findFirst({
-        where: { id: category.ledgerAccountId, isPostable: true, isActive: true },
+        where: { id: category.ledgerAccountId, isPostable: true, isActive: true, category: { classification: 'expense' } },
       });
       if (acc) return acc.id;
     }
@@ -683,6 +721,12 @@ export class ExpensesService {
       orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
     });
     return fallback?.id ?? null;
+  }
+
+  private requireActor(): string {
+    const userId = this.tenant.userId;
+    if (!userId) throw new ForbiddenException('An authenticated user is required');
+    return userId;
   }
 
   private async loadDecorated(tx: any, id: string) {

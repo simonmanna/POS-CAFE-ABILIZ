@@ -20,6 +20,9 @@ export interface PosHandoverDto {
   varianceReason?: string;
   openingFloat?: number;
   notes?: string;
+  closingDenomination?: Record<string, number>;
+  closingAccounts?: Record<string, number>;
+  uncountedAccounts?: Record<string, string>;
 }
 
 @Injectable()
@@ -46,6 +49,9 @@ export class PosShiftService {
       openingFloat: dto.openingFloat,
       notes: dto.notes,
       approvedById: dto.approvedById,
+      closingDenomination: dto.closingDenomination,
+      closingAccounts: dto.closingAccounts,
+      uncountedAccounts: dto.uncountedAccounts,
     });
   }
 }

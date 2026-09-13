@@ -30,6 +30,8 @@ class OpenSessionDto {
 
 class CloseSessionDto {
   @IsOptional() @IsObject() closingAccounts?: Record<string, number>;
+  /** Tracked tender accounts not counted: accountId → reason (manager approval required). */
+  @IsOptional() @IsObject() uncountedAccounts?: Record<string, string>;
   @IsOptional() @IsNumber() @Min(0) pendingSyncCount?: number;
   @IsNumber() @Min(0) closingCounted!: number;
   @IsOptional() @IsString() notes?: string;
@@ -48,6 +50,8 @@ class CloseSessionDto {
 
 class RecordMovementDto {
   @IsString() counterpartAccountId!: string;
+  /** Adjustment correcting an earlier closed shift (requires cash_session:correct). */
+  @IsOptional() @IsString() correctionOfSessionId?: string;
   @IsOptional() @IsString() sessionId?: string;
   @IsIn(['pay_in', 'pay_out', 'adjustment']) movementType!: 'pay_in' | 'pay_out' | 'adjustment';
   @IsNumber() amount!: number;
@@ -60,8 +64,14 @@ class RecordMovementDto {
   @IsOptional() @IsISO8601() occurredAt?: string;
 }
 
-class ReopenSessionDto {
-  @IsString() reason!: string;
+class ForceCloseSessionDto {
+  @IsNumber() @Min(0) closingCounted!: number;
+  /** Why the manager is closing someone else's shift. */
+  @IsString() notes!: string;
+  @IsOptional() @IsString() varianceReason?: string;
+  @IsOptional() @IsObject() closingAccounts?: Record<string, number>;
+  @IsOptional() @IsObject() uncountedAccounts?: Record<string, string>;
+  @IsOptional() @IsObject() closingDenomination?: Record<string, number>;
 }
 
 class BankDepositDto {
@@ -137,7 +147,7 @@ export class CashSessionController {
   reconciliation(@Param('id') id: string) { return this.sessions.reconciliation(id); }
 
   @Post('tender-settlements')
-  @Idempotent()
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.cashSession.reconcile)
   settleTender(@Body() dto: TenderSettlementDto) { return this.sessions.settleTender(dto); }
 
@@ -161,19 +171,20 @@ export class CashSessionController {
   }
 
   @Post('open')
-  @Idempotent()
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.cashSession.open)
   open(@Body() dto: OpenSessionDto) {
     return this.sessions.open(dto);
   }
 
   @Post('close')
-    @Idempotent()
+    @Idempotent({ required: true })
     @RequirePermissions(PERMISSIONS.cashSession.close)
     close(@Body() dto: CloseSessionDto) {
       return this.sessions.close({
         closingCounted: dto.closingCounted,
         closingAccounts: dto.closingAccounts,
+        uncountedAccounts: dto.uncountedAccounts,
         pendingSyncCount: dto.pendingSyncCount,
         notes: dto.notes,
         varianceReason: dto.varianceReason,
@@ -188,12 +199,13 @@ export class CashSessionController {
     }
 
   @Post('movement')
-  @Idempotent()
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.cashSession.open)
   recordMovement(@Body() dto: RecordMovementDto) {
     return this.sessions.recordMovement(dto.sessionId, {
       movementType: dto.movementType,
       counterpartAccountId: dto.counterpartAccountId,
+      correctionOfSessionId: dto.correctionOfSessionId,
       amount: dto.amount,
       reason: dto.reason,
       approvedById: dto.approvedById,
@@ -203,22 +215,23 @@ export class CashSessionController {
     });
   }
 
-  @Post(':id/reopen')
-  @Idempotent()
-  @RequirePermissions(PERMISSIONS.cashSession.reopen)
-  reopen(@Param('id') id: string, @Body() dto: ReopenSessionDto) {
-    return this.sessions.reopen(id, dto.reason);
+  /** Manager closes another cashier's abandoned shift with a blind count. */
+  @Post(':id/force-close')
+  @Idempotent({ required: true })
+  @RequirePermissions(PERMISSIONS.cashSession.forceClose)
+  forceClose(@Param('id') id: string, @Body() dto: ForceCloseSessionDto) {
+    return this.sessions.close({ ...dto, sessionId: id }, { force: true });
   }
 
   @Post(':id/banking')
-  @Idempotent()
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.cashSession.close)
   banking(@Param('id') id: string, @Body() dto: BankDepositDto) {
     return this.sessions.recordBankDeposit(id, dto);
   }
 
   @Patch(':id/variance')
-  @RequirePermissions(PERMISSIONS.cashSession.close)
+  @RequirePermissions(PERMISSIONS.cashSession.approveVariance)
   updateVariance(@Param('id') id: string, @Body() dto: VarianceUpdateDto) {
     return this.sessions.updateVariance(id, {
       reason: dto.reason,

@@ -2,7 +2,14 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowDownToLine, ArrowUpFromLine, Building2, Banknote, Smartphone, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAccounts, useCashAccountTransactions, useCashFlowDeposit, useCashFlowWithdraw } from '@/features/accounting/api';
+import {
+  useCashAccountTransactions,
+  useCashFlowDeposit,
+  useCashFlowOperationTypes,
+  useCashFlowWithdraw,
+  type TreasuryOperationType,
+} from '@/features/accounting/api';
+import { apiErrorMessage } from '@/lib/api-error';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -18,6 +25,10 @@ const TYPE_CONFIG: Record<string, { icon: typeof Banknote; label: string; color:
   petty_cash: { icon: Banknote, label: 'Petty Cash', color: 'text-purple-600', bg: 'bg-purple-500' },
 };
 
+const money = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2 });
+
+type Direction = 'deposit' | 'withdrawal';
+
 export function CashAccountDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -25,16 +36,15 @@ export function CashAccountDetailPage() {
   const pageSize = 25;
 
   const { data, isLoading } = useCashAccountTransactions(id, { page, pageSize });
-  const { data: accountPage } = useAccounts();
+  const { data: operationTypes } = useCashFlowOperationTypes();
   const deposit = useCashFlowDeposit();
   const withdraw = useCashFlowWithdraw();
 
-  const [showDeposit, setShowDeposit] = useState(false);
-  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [dialog, setDialog] = useState<Direction | null>(null);
   const [formAmount, setFormAmount] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [counterpartAccountId, setCounterpartAccountId] = useState('');
-  const [formLoading, setFormLoading] = useState(false);
+  const [operationType, setOperationType] = useState('');
 
   if (isLoading || !data) {
     return (
@@ -44,46 +54,43 @@ export function CashAccountDetailPage() {
     );
   }
 
-  const acct = data.account;
+  const acct = data.account as typeof data.account & { cashRegister?: unknown };
   const cfg = TYPE_CONFIG[acct.accountType] ?? { icon: Banknote, label: acct.accountType, color: '', bg: 'bg-slate-500' };
+  const currentBalance = Number(acct.currentBalance);
+  const types: TreasuryOperationType[] = dialog === 'deposit' ? operationTypes?.deposit ?? [] : operationTypes?.withdrawal ?? [];
+  const counterparts = types.find((t) => t.key === operationType)?.accounts ?? [];
+  const pending = deposit.isPending || withdraw.isPending;
 
-  const handleDeposit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const amount = Number(formAmount);
-    if (!amount || amount <= 0 || !counterpartAccountId) return;
-    setFormLoading(true);
-    try {
-      await deposit.mutateAsync({ accountId: id!, counterpartAccountId, amount, description: formDesc });
-      toast.success('Deposit recorded');
-      setShowDeposit(false);
-      setFormAmount('');
-      setFormDesc(''); setCounterpartAccountId('');
-    } catch {
-      toast.error('Deposit failed');
-    } finally {
-      setFormLoading(false);
-    }
+  const open = (direction: Direction) => {
+    setFormAmount('');
+    setFormDesc('');
+    setCounterpartAccountId('');
+    setOperationType('');
+    setDialog(direction);
   };
 
-  const handleWithdraw = async (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!dialog) return;
     const amount = Number(formAmount);
-    if (!amount || amount <= 0 || !counterpartAccountId) return;
-    setFormLoading(true);
+    if (!(amount > 0) || !counterpartAccountId || !operationType || !formDesc.trim()) {
+      toast.error('Enter the amount, type, counterpart account and a description');
+      return;
+    }
+    if (dialog === 'withdrawal' && amount > currentBalance) {
+      toast.error(`Insufficient funds: available ${money(currentBalance)}`);
+      return;
+    }
+    const input = { accountId: id!, counterpartAccountId, operationType, amount, description: formDesc.trim() };
     try {
-      await withdraw.mutateAsync({ accountId: id!, counterpartAccountId, amount, description: formDesc });
-      toast.success('Withdrawal recorded');
-      setShowWithdraw(false);
-      setFormAmount('');
-      setFormDesc(''); setCounterpartAccountId('');
-    } catch {
-      toast.error('Withdrawal failed');
-    } finally {
-      setFormLoading(false);
+      if (dialog === 'deposit') await deposit.mutateAsync(input);
+      else await withdraw.mutateAsync(input);
+      toast.success(dialog === 'deposit' ? 'Deposit recorded' : 'Withdrawal recorded');
+      setDialog(null);
+    } catch (err) {
+      toast.error(apiErrorMessage(err, dialog === 'deposit' ? 'Deposit failed' : 'Withdrawal failed'));
     }
   };
-
-  const lastTransactionBalance = Number(acct.currentBalance);
 
   return (
     <div className="space-y-6 p-6">
@@ -103,18 +110,24 @@ export function CashAccountDetailPage() {
         </div>
         <div className="text-right">
           <p className="text-sm text-muted-foreground">Current Balance</p>
-          <p className={`text-2xl font-bold ${lastTransactionBalance < 0 ? 'text-red-600' : lastTransactionBalance > 0 ? 'text-green-600' : ''}`}>
-            {Math.abs(lastTransactionBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+          <p className={`text-2xl font-bold ${currentBalance < 0 ? 'text-red-600' : currentBalance > 0 ? 'text-green-600' : ''}`}>
+            {currentBalance < 0 ? '-' : ''}{money(Math.abs(currentBalance))}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowDeposit(true)}>
-            <ArrowDownToLine className="h-4 w-4 mr-2" /> Deposit
-          </Button>
-          <Button variant="outline" onClick={() => setShowWithdraw(true)}>
-            <ArrowUpFromLine className="h-4 w-4 mr-2" /> Withdraw
-          </Button>
-        </div>
+        {acct.cashRegister ? (
+          <p className="max-w-[240px] text-xs text-muted-foreground">
+            Register drawer account: cash moves only through its shift (sales, pay-ins, pay-outs, banking).
+          </p>
+        ) : (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => open('deposit')}>
+              <ArrowDownToLine className="h-4 w-4 mr-2" /> Deposit
+            </Button>
+            <Button variant="outline" onClick={() => open('withdrawal')}>
+              <ArrowUpFromLine className="h-4 w-4 mr-2" /> Withdraw
+            </Button>
+          </div>
+        )}
       </div>
 
       <Card>
@@ -149,14 +162,14 @@ export function CashAccountDetailPage() {
                     <TableCell className="font-mono text-xs">{t.entryNumber}</TableCell>
                     <TableCell className="max-w-[250px] truncate">{t.description}</TableCell>
                     <TableCell className="text-right font-mono">
-                      {Number(t.baseDebit) > 0 ? Number(t.baseDebit).toLocaleString('en-US', { minimumFractionDigits: 2 }) : ''}
+                      {Number(t.baseDebit) > 0 ? money(Number(t.baseDebit)) : ''}
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {Number(t.baseCredit) > 0 ? Number(t.baseCredit).toLocaleString('en-US', { minimumFractionDigits: 2 }) : ''}
+                      {Number(t.baseCredit) > 0 ? money(Number(t.baseCredit)) : ''}
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       <span className={Number(t.runningBalance) < 0 ? 'text-red-600' : Number(t.runningBalance) > 0 ? 'text-green-600' : ''}>
-                        {Number(t.runningBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        {money(Number(t.runningBalance))}
                       </span>
                     </TableCell>
                   </TableRow>
@@ -183,63 +196,63 @@ export function CashAccountDetailPage() {
         </div>
       )}
 
-      <Dialog open={showDeposit} onOpenChange={setShowDeposit}>
+      <Dialog open={dialog !== null} onOpenChange={(o) => { if (!o && !pending) setDialog(null); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ArrowDownToLine className="h-5 w-5" /> Deposit to {acct.name}
+              {dialog === 'deposit'
+                ? <><ArrowDownToLine className="h-5 w-5" /> Deposit to {acct.name}</>
+                : <><ArrowUpFromLine className="h-5 w-5" /> Withdraw from {acct.name}</>}
             </DialogTitle>
           </DialogHeader>
-          <form onSubmit={handleDeposit} className="space-y-4">
+          <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
               <Label>Amount</Label>
               <Input type="number" step="0.01" min="0.01" placeholder="0.00" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required />
+              {dialog === 'withdrawal' && (
+                <p className="text-xs text-muted-foreground">Available: {money(currentBalance)}</p>
+              )}
             </div>
             <div className="space-y-2">
-              <Label>Source / counterpart account</Label>
-              <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={counterpartAccountId} onChange={(e) => setCounterpartAccountId(e.target.value)} required>
-                <option value="">Choose the source of funds</option>
-                {(accountPage?.data ?? []).filter((a) => a.id !== id && a.isActive && !a.isGroup).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
+              <Label>{dialog === 'deposit' ? 'Deposit type' : 'Withdrawal type'}</Label>
+              <select
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={operationType}
+                onChange={(e) => { setOperationType(e.target.value); setCounterpartAccountId(''); }}
+                required
+              >
+                <option value="">{dialog === 'deposit' ? 'Where does this money come from?' : 'What is this money for?'}</option>
+                {types.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Moving money between your own cash, bank and wallet accounts is a transfer, not a {dialog === 'deposit' ? 'deposit' : 'withdrawal'}.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label>Counterpart account</Label>
+              <select
+                className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                value={counterpartAccountId}
+                onChange={(e) => setCounterpartAccountId(e.target.value)}
+                required
+                disabled={!operationType}
+              >
+                <option value="">{operationType ? (counterparts.length ? 'Choose the account' : 'No eligible account — add one to the chart of accounts') : 'Choose a type first'}</option>
+                {counterparts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
               </select>
             </div>
             <div className="space-y-2">
               <Label>Description</Label>
-              <Input placeholder="Source of funds" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} />
+              <Input
+                placeholder={dialog === 'deposit' ? 'e.g. Capital injection from owner' : 'e.g. Monthly bank charges'}
+                value={formDesc}
+                onChange={(e) => setFormDesc(e.target.value)}
+                required
+              />
             </div>
-            <Button type="submit" className="w-full" disabled={formLoading}>
-              {formLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Record Deposit
-            </Button>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showWithdraw} onOpenChange={setShowWithdraw}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ArrowUpFromLine className="h-5 w-5" /> Withdraw from {acct.name}
-            </DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleWithdraw} className="space-y-4">
-            <div className="space-y-2">
-              <Label>Amount</Label>
-              <Input type="number" step="0.01" min="0.01" placeholder="0.00" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required />
-            </div>
-            <div className="space-y-2">
-              <Label>Expense / counterpart account</Label>
-              <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={counterpartAccountId} onChange={(e) => setCounterpartAccountId(e.target.value)} required>
-                <option value="">Choose where the money was spent</option>
-                {(accountPage?.data ?? []).filter((a) => a.id !== id && a.isActive && !a.isGroup).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Input placeholder="Purpose of withdrawal" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} />
-            </div>
-            <Button type="submit" className="w-full" disabled={formLoading}>
-              {formLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Record Withdrawal
+            <Button type="submit" className="w-full" disabled={pending}>
+              {pending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {dialog === 'deposit' ? 'Record Deposit' : 'Record Withdrawal'}
             </Button>
           </form>
         </DialogContent>

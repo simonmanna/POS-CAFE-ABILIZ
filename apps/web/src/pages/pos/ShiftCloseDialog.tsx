@@ -178,6 +178,8 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
   const [varianceReason, setVarianceReason] = useState('');
   /** Provider balances the cashier chose to confirm, accountId → amount. */
   const [accountCounts, setAccountCounts] = useState<Record<string, number>>({});
+  /** Tracked accounts the cashier could not check, accountId → reason (needs a manager). */
+  const [uncounted, setUncounted] = useState<Record<string, string>>({});
   const [byDenom, setByDenom] = useState(false);
   const [denom, setDenom] = useState<Record<number, string>>({});
   const [showManager, setShowManager] = useState(false);
@@ -201,6 +203,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       setStep('check');
       setCounted(''); setNotes(''); setVarianceReason('');
       setAccountCounts({});
+      setUncounted({});
       setByDenom(false); setDenom({});
       setShowManager(false); setApproverEmail(''); setManagerPin('');
       setProblem(null); setResult(null);
@@ -254,6 +257,32 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       setStep('count');
       return;
     }
+    // Every tracked wallet/bank account needs a closing observation, or an
+    // explicit "not counted" with a reason — the server refuses silence.
+    const unchecked = accountRows.filter((row) => !(row.accountId in accountCounts) && !(uncounted[row.accountId] ?? '').trim());
+    if (unchecked.length) {
+      setProblem({
+        tone: 'error',
+        title: 'Check every wallet and bank account',
+        detail: `Enter what the provider shows for ${unchecked.map((r) => r.label).join(', ')}, or mark it "not counted" and say why.`,
+        goTo: 'confirm',
+      });
+      setStep('confirm');
+      return;
+    }
+    const uncountedAccounts = Object.fromEntries(Object.entries(uncounted).map(([k, v]) => [k, v.trim()]).filter(([, v]) => v));
+    const needsManager = showManager || Object.keys(uncountedAccounts).length > 0;
+    if (Object.keys(uncountedAccounts).length > 0 && (!approverEmail.trim() || !managerPin.trim())) {
+      setShowManager(true);
+      setProblem({
+        tone: 'error',
+        title: 'A manager must approve uncounted accounts',
+        detail: 'Ask a manager to enter their email and PIN below.',
+        goTo: 'confirm',
+      });
+      setStep('confirm');
+      return;
+    }
     const closingDenomination = byDenom
       ? Object.fromEntries(
           DENOMS.map((f) => [String(f), parseInt(denom[f] || '0', 10) || 0]).filter(([, c]) => (c as number) > 0),
@@ -264,12 +293,13 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
         closingCounted: countedNum,
         notes: notes.trim() || undefined,
         varianceReason: varianceReason.trim() || undefined,
-        approverEmail: showManager ? approverEmail.trim() || undefined : undefined,
-        managerPin: showManager ? managerPin.trim() || undefined : undefined,
+        approverEmail: needsManager ? approverEmail.trim() || undefined : undefined,
+        managerPin: needsManager ? managerPin.trim() || undefined : undefined,
         closingDenomination,
         // Only accounts the cashier actually confirmed; the server treats an
         // absent account as unchecked rather than as a zero balance.
         closingAccounts: Object.keys(accountCounts).length ? accountCounts : undefined,
+        uncountedAccounts: Object.keys(uncountedAccounts).length ? uncountedAccounts : undefined,
         sessionId: session.id,
       });
       setResult(res as CashSession);
@@ -538,21 +568,53 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                           <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-500">{plain(row.refunds)}</td>
                           <td className="px-2 py-1.5 text-right font-mono tabular-nums font-bold text-slate-900">{plain(row.expected)}</td>
                           <td className="px-2 py-1.5 text-right">
-                            <input
-                              aria-label={`Closing balance ${row.label}`}
-                              type="number"
-                              min="0"
-                              step="any"
-                              placeholder="—"
-                              className="w-28 rounded border border-slate-200 p-1 text-right font-mono text-xs"
-                              value={accountCounts[row.accountId] ?? ''}
-                              onChange={(e) => {
-                                const next = { ...accountCounts };
-                                if (e.target.value === '') delete next[row.accountId];
-                                else next[row.accountId] = Number(e.target.value);
-                                setAccountCounts(next);
-                              }}
-                            />
+                            {row.accountId in uncounted ? (
+                              <div className="flex flex-col items-end gap-1">
+                                <input
+                                  aria-label={`Why ${row.label} was not counted`}
+                                  className="w-36 rounded border border-amber-300 bg-amber-50 p-1 text-xs"
+                                  placeholder="Why not counted?"
+                                  value={uncounted[row.accountId]}
+                                  onChange={(e) => setUncounted((u) => ({ ...u, [row.accountId]: e.target.value }))}
+                                />
+                                <button
+                                  type="button"
+                                  className="text-[10px] font-semibold text-slate-500 hover:text-slate-900"
+                                  onClick={() => setUncounted((u) => { const next = { ...u }; delete next[row.accountId]; return next; })}
+                                >
+                                  Enter balance instead
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col items-end gap-1">
+                                <input
+                                  aria-label={`Closing balance ${row.label}`}
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  placeholder="—"
+                                  className="w-28 rounded border border-slate-200 p-1 text-right font-mono text-xs"
+                                  value={accountCounts[row.accountId] ?? ''}
+                                  onChange={(e) => {
+                                    const next = { ...accountCounts };
+                                    if (e.target.value === '') delete next[row.accountId];
+                                    else next[row.accountId] = Number(e.target.value);
+                                    setAccountCounts(next);
+                                  }}
+                                />
+                                <button
+                                  type="button"
+                                  className="text-[10px] font-semibold text-slate-500 hover:text-slate-900"
+                                  onClick={() => {
+                                    setAccountCounts((c) => { const next = { ...c }; delete next[row.accountId]; return next; });
+                                    setUncounted((u) => ({ ...u, [row.accountId]: '' }));
+                                    setShowManager(true);
+                                  }}
+                                >
+                                  Could not check
+                                </button>
+                              </div>
+                            )}
                           </td>
                           <td className="px-3 py-1.5 text-right font-mono tabular-nums font-bold">
                             {row.variance == null ? (
@@ -568,8 +630,9 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                     </tbody>
                   </table>
                   <p className="px-3 py-1.5 text-[11px] text-slate-500">
-                    Leave "provider shows" blank for any account you did not check. Money still sitting
-                    with a provider is swept to the bank separately, on the Financial Accounts page.
+                    Enter what each provider shows. If you cannot check an account, choose "Could not check",
+                    give the reason and get a manager to approve. Money still sitting with a provider is swept
+                    to the bank separately, on the Financial Accounts page.
                   </p>
                 </div>
               ) : null}
@@ -610,13 +673,14 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   <ShieldCheck className="h-4 w-4 text-slate-400" />
                   Manager sign-off
                   <span className="ml-auto text-xs font-normal text-slate-400">
-                    {showManager ? 'Hide' : 'Only for a big difference'}
+                    {showManager ? 'Hide' : 'For a big difference or an unchecked account'}
                   </span>
                 </button>
                 {showManager ? (
                   <div className="mt-2 space-y-2">
                     <p className="text-xs text-slate-500">
-                      A manager enters their own login below. We ask only when the difference is large.
+                      A manager (not you) enters their own login below. We ask when the cash difference is large,
+                      when a wallet/bank balance differs, or when an account could not be checked.
                     </p>
                     <div className="grid grid-cols-2 gap-2">
                       <Input

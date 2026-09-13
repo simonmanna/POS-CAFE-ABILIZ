@@ -17,6 +17,7 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
+import { purge } from './_purge';
 import { describeDb } from './_setup';
 import { ensureAccountCategories, makeAccountFactory, type TestAccountCategory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
@@ -114,8 +115,8 @@ describeDb('integration: cash reconciliation (F-CASH-1 / F-CASH-2)', () => {
 
   afterAll(async () => {
     if (organizationId) {
-      await prisma.journalLine.deleteMany({ where: { organizationId } });
-      await prisma.journalEntry.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.journalLine.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.journalEntry.deleteMany({ where: { organizationId } }));
       await prisma.account.deleteMany({ where: { organizationId } });
       await prisma.journal.deleteMany({ where: { organizationId } });
       await prisma.organization.delete({ where: { id: organizationId } });

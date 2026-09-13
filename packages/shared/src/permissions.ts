@@ -327,8 +327,11 @@ export const PERMISSIONS = {
     cashOut: 'cash_session:cash_out',
     // C3: approving a shift variance (segregation of duties — not the cashier).
     approveVariance: 'cash_session:approve_variance',
-    // Medium: reopening a closed (not-yet-reconciled) session.
-    reopen: 'cash_session:reopen',
+    // Closed shifts are never reopened. A manager (not the cashier) may close an
+    // abandoned shift with a blind count, and post linked corrections to a
+    // closed shift from a current one.
+    forceClose: 'cash_session:force_close',
+    correct: 'cash_session:correct',
   },
   // ---- Phase F: Branch permissions (also includes the F.5 vertical module perms)
   branch: {

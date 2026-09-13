@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PaginatedResult } from '@erp/shared';
+import { idempotentPost } from '@/lib/idempotent-request';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 
@@ -1187,11 +1188,35 @@ export function useCashFlowReport(filters: CashFlowReportFilters) {
   });
 }
 
+export interface CashFlowOperationInput {
+  accountId: string;
+  counterpartAccountId: string;
+  operationType: string;
+  amount: number;
+  description: string;
+  date?: string;
+}
+
+export interface TreasuryOperationType {
+  key: string;
+  label: string;
+  accounts: Array<{ id: string; code: string; name: string; classification: string }>;
+}
+
+/** Deposit / withdrawal types and the counterpart accounts each one may use. */
+export function useCashFlowOperationTypes(enabled = true) {
+  return useQuery({
+    queryKey: ['cash-flow-operation-types'],
+    queryFn: async () =>
+      (await api.get<{ deposit: TreasuryOperationType[]; withdrawal: TreasuryOperationType[] }>('/accounts/cash-flow/operation-types')).data,
+    enabled,
+  });
+}
+
 export function useCashFlowDeposit() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { accountId: string; counterpartAccountId: string; amount: number; description?: string }) =>
-      (await api.post('/accounts/cash-flow/deposit', input, { headers: { 'Idempotency-Key': crypto.randomUUID() } })).data,
+    mutationFn: (input: CashFlowOperationInput) => idempotentPost('/accounts/cash-flow/deposit', input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-accounts'] });
       qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });
@@ -1203,8 +1228,7 @@ export function useCashFlowDeposit() {
 export function useCashFlowWithdraw() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { accountId: string; counterpartAccountId: string; amount: number; description?: string }) =>
-      (await api.post('/accounts/cash-flow/withdraw', input, { headers: { 'Idempotency-Key': crypto.randomUUID() } })).data,
+    mutationFn: (input: CashFlowOperationInput) => idempotentPost('/accounts/cash-flow/withdraw', input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-accounts'] });
       qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });
@@ -1216,8 +1240,8 @@ export function useCashFlowWithdraw() {
 export function useTreasuryTransfer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { fromAccountId: string; toAccountId: string; amount: number; date: string; reference?: string }) =>
-      (await api.post('/treasury/transfer', input, { headers: { 'Idempotency-Key': crypto.randomUUID() } })).data,
+    mutationFn: (input: { fromAccountId: string; toAccountId: string; amount: number; date: string; reference?: string }) =>
+      idempotentPost('/treasury/transfer', input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['cash-accounts'] });
       qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });

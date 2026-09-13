@@ -1,3 +1,4 @@
+import { purge } from './_purge';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
 import { describeDb } from './_setup';
@@ -145,8 +146,8 @@ describeDb('integration: purchase order → goods receipt → GL', () => {
 
   afterAll(async () => {
     if (organizationId) {
-      await prisma.cashMovement.deleteMany({ where: { organizationId } });
-      await prisma.cashSession.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.cashMovement.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.cashSession.deleteMany({ where: { organizationId } }));
       await prisma.cashRegister.deleteMany({ where: { organizationId } });
       await prisma.goodsReceiptLine.deleteMany({ where: { organizationId } });
       await prisma.goodsReceiptNote.deleteMany({ where: { organizationId } });
@@ -155,8 +156,8 @@ describeDb('integration: purchase order → goods receipt → GL', () => {
       await prisma.purchaseOrder.deleteMany({ where: { organizationId } });
       await prisma.inventoryLedger.deleteMany({ where: { organizationId } });
       await prisma.stockItem.deleteMany({ where: { organizationId } });
-      await prisma.journalLine.deleteMany({ where: { organizationId } });
-      await prisma.journalEntry.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.journalLine.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.journalEntry.deleteMany({ where: { organizationId } }));
       await prisma.auditLog.deleteMany({ where: { organizationId } });
       await prisma.accountMapping.deleteMany({ where: { organizationId } });
       await prisma.account.deleteMany({ where: { organizationId } });

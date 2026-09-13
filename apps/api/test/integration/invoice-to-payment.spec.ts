@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { purge } from './_purge';
 import { describeDb } from './_setup';
 import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 
@@ -71,12 +72,12 @@ describeDb('integration: invoice → payment → AR aging', () => {
       // Payments (and their allocations / cash movements) reference Partner via a
       // RESTRICT FK, so they must be removed before documents/partners — otherwise
       // partner.deleteMany throws and pollutes the DB for the next run.
-      await prisma.paymentAllocation.deleteMany({ where: { organizationId } });
-      await prisma.cashMovement.deleteMany({ where: { organizationId } });
-      await prisma.payment.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.paymentAllocation.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.cashMovement.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.payment.deleteMany({ where: { organizationId } }));
       await prisma.document.deleteMany({ where: { organizationId } });
-      await prisma.journalLine.deleteMany({ where: { organizationId } });
-      await prisma.journalEntry.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.journalLine.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.journalEntry.deleteMany({ where: { organizationId } }));
       await prisma.auditLog.deleteMany({ where: { organizationId } });
       await prisma.eventOutbox.deleteMany({ where: { organizationId } });
       await prisma.idempotencyRecord.deleteMany({ where: { organizationId } });

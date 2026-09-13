@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
+import { purge } from './_purge';
 import { describeDb } from './_setup';
 import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
@@ -164,8 +165,8 @@ describeDb('integration: manufacturing flow', () => {
       await prisma.stockItem.deleteMany({ where: { organizationId } });
       await prisma.stockReservation.deleteMany({ where: { organizationId } });
       await prisma.inventoryPostingRule.deleteMany({ where: { organizationId } });
-      await prisma.journalLine.deleteMany({ where: { organizationId } });
-      await prisma.journalEntry.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.journalLine.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.journalEntry.deleteMany({ where: { organizationId } }));
       await prisma.auditLog.deleteMany({ where: { organizationId } });
       await prisma.accountMapping.deleteMany({ where: { organizationId } });
       await prisma.account.deleteMany({ where: { organizationId } });

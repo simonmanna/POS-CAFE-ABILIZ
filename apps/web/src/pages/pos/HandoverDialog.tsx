@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useShiftHandover, useExpectedCash } from './api';
 import { useUsers } from '@/features/staff/api';
+import { shiftTrackedAccounts, usePosPaymentMethods } from '@/features/pos/payment-accounts';
+import { apiErrorMessage } from '@/lib/api-error';
 import type { CashSession } from './types';
 import { toast } from 'sonner';
 
@@ -33,12 +35,15 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
   const [approvedById, setApprovedById] = useState('');
   const [managerPin, setManagerPin] = useState('');
   const [varianceReason, setVarianceReason] = useState('');
-  const [openingFloat, setOpeningFloat] = useState('');
+  const [accountCounts, setAccountCounts] = useState<Record<string, string>>({});
+  const [uncounted, setUncounted] = useState<Record<string, string>>({});
   const [err, setErr] = useState<string | null>(null);
 
   const handover = useShiftHandover();
   const { data: expected } = useExpectedCash(open && session ? session.id : undefined);
   const { data: users } = useUsers({ page: 1, pageSize: 100 });
+  const { data: paymentMethods = [] } = usePosPaymentMethods();
+  const trackedAccounts = useMemo(() => shiftTrackedAccounts(paymentMethods), [paymentMethods]);
 
   useEffect(() => {
     if (open) {
@@ -48,7 +53,8 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
       setApprovedById('');
       setManagerPin('');
       setVarianceReason('');
-      setOpeningFloat('');
+      setAccountCounts({});
+      setUncounted({});
       setErr(null);
     }
   }, [open]);
@@ -71,7 +77,20 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
     if (!incomingPin) { setErr("Enter the incoming cashier's PIN"); return; }
     if (!approvedById) { setErr('Select the approving manager'); return; }
     if (!managerPin) { setErr("Enter the manager's PIN"); return; }
+    if (approvedById === session.userId || approvedById === incomingUserId) { setErr('The approving manager must be neither the outgoing nor the incoming cashier'); return; }
     if (needsReason && !varianceReason.trim()) { setErr('A variance reason is required when the drawer is off'); return; }
+    const closingAccounts: Record<string, number> = {};
+    const uncountedAccounts: Record<string, string> = {};
+    for (const a of trackedAccounts) {
+      if (a.accountId in uncounted) {
+        if (!uncounted[a.accountId].trim()) { setErr(`Say why ${a.label} was not checked`); return; }
+        uncountedAccounts[a.accountId] = uncounted[a.accountId].trim();
+      } else {
+        const v = accountCounts[a.accountId];
+        if (v == null || v.trim() === '' || !(Number(v) >= 0)) { setErr(`Enter what the provider shows for ${a.label}, or mark it not checked`); return; }
+        closingAccounts[a.accountId] = Number(v);
+      }
+    }
     try {
       await handover.mutateAsync({
         cashRegisterId: session.cashRegisterId,
@@ -81,13 +100,14 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
         approvedById,
         managerPin,
         varianceReason: varianceReason.trim() || undefined,
-        openingFloat: openingFloat.trim() !== '' ? Number(openingFloat) : undefined,
+        closingAccounts: Object.keys(closingAccounts).length ? closingAccounts : undefined,
+        uncountedAccounts: Object.keys(uncountedAccounts).length ? uncountedAccounts : undefined,
       });
       toast.success('Register handed over to the incoming cashier');
       onDone();
       onClose();
     } catch (e: any) {
-      setErr(e?.response?.data?.message || 'Handover failed');
+      setErr(apiErrorMessage(e, 'Handover failed'));
     }
   };
 
@@ -187,10 +207,42 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
           </div>
         </div>
 
-        <div>
-          <Label>Opening float for next cashier (optional — defaults to counted cash)</Label>
-          <Input type="number" value={openingFloat} onChange={(e) => setOpeningFloat(e.target.value)} placeholder={counted || '0'} />
-        </div>
+        {trackedAccounts.length ? (
+          <div className="space-y-2 rounded-lg border border-slate-200 p-3">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Wallet and bank balances</p>
+            {trackedAccounts.map((a) => (
+              <div key={a.accountId} className="flex items-center gap-2">
+                <span className="flex-1 text-sm text-slate-700">{a.label}</span>
+                {a.accountId in uncounted ? (
+                  <>
+                    <Input
+                      className="h-8 w-40 text-xs"
+                      placeholder="Why not checked?"
+                      value={uncounted[a.accountId]}
+                      onChange={(e) => setUncounted((u) => ({ ...u, [a.accountId]: e.target.value }))}
+                    />
+                    <button type="button" className="text-[11px] font-semibold text-slate-500" onClick={() => setUncounted((u) => { const n = { ...u }; delete n[a.accountId]; return n; })}>Count</button>
+                  </>
+                ) : (
+                  <>
+                    <Input
+                      type="number"
+                      min={0}
+                      className="h-8 w-32 text-right font-mono text-xs"
+                      placeholder="Provider shows"
+                      value={accountCounts[a.accountId] ?? ''}
+                      onChange={(e) => setAccountCounts((c) => ({ ...c, [a.accountId]: e.target.value }))}
+                    />
+                    <button type="button" className="text-[11px] font-semibold text-slate-500" onClick={() => setUncounted((u) => ({ ...u, [a.accountId]: '' }))}>Not checked</button>
+                  </>
+                )}
+              </div>
+            ))}
+            <p className="text-[11px] text-slate-500">The counted cash carries over as the next cashier's opening float.</p>
+          </div>
+        ) : (
+          <p className="text-xs text-slate-500">The counted cash carries over as the next cashier's opening float.</p>
+        )}
 
         {err ? <p className="text-sm text-rose-600">{err}</p> : null}
 

@@ -35,7 +35,8 @@ export async function resolveTenderAccount(
   }
   let accountId = input.accountId;
   if (method === 'cash' && session) {
-    const drawer = session.cashRegister.defaultAccountId;
+    // The drawer captured when the shift opened; register edits never redirect a live shift.
+    const drawer = session.drawerAccountId ?? session.cashRegister.defaultAccountId;
     if (accountId && accountId !== drawer) throw new BadRequestException('Cash must use the selected register’s drawer account');
     accountId = drawer;
   }

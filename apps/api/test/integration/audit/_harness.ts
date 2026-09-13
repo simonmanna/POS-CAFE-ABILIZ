@@ -1,3 +1,4 @@
+import { purge } from '../_purge';
 /**
  * Shared bootstrap for the inventory audit specs.
  *
@@ -155,7 +156,7 @@ export async function dropAuditOrg(prisma: PrismaClient, organizationId?: string
   ];
   for (const t of tables) {
     try {
-      if (p[t]?.deleteMany) await p[t].deleteMany({ where: { organizationId } });
+      if (p[t]?.deleteMany) await purge(p, (tx) => tx[t].deleteMany({ where: { organizationId } }));
     } catch {
       /* table not org-scoped or already empty — audit teardown is best-effort */
     }

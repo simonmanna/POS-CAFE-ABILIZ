@@ -1,3 +1,4 @@
+import { idempotentPost } from '@/lib/idempotent-request';
 import { api } from '@/lib/api';
 import type { Expense, ExpenseStats, AuditLogRow, PaginatedResponse } from '@/types/expenses';
 
@@ -20,7 +21,7 @@ export const expensesApi = {
     return api.get('/expenses/stats', { params: { dateFrom, dateTo } }).then((r) => r.data);
   },
   create(body: any): Promise<Expense> {
-    return api.post('/expenses', body).then((r) => r.data);
+    return idempotentPost('/expenses', body);
   },
   update(id: string, body: any): Promise<Expense> {
     return api.patch(`/expenses/${id}`, body).then((r) => r.data);
@@ -28,17 +29,17 @@ export const expensesApi = {
   delete(id: string): Promise<void> {
     return api.delete(`/expenses/${id}`).then((r) => r.data);
   },
-  approve(id: string, body: { approvedBy: string; approvalNotes?: string }): Promise<Expense> {
-    return api.post(`/expenses/${id}/approve`, body).then((r) => r.data);
+  approve(id: string, body: { approvedBy?: string; approvalNotes?: string }): Promise<Expense> {
+    return idempotentPost(`/expenses/${id}/approve`, body);
   },
   reject(id: string, reason?: string): Promise<Expense> {
     return api.post(`/expenses/${id}/reject`, { reason }).then((r) => r.data);
   },
-  pay(id: string, body: { paidBy: string; paymentMethod: string; reference?: string; paymentNotes?: string; accountId: string }): Promise<Expense> {
-    return api.post(`/expenses/${id}/pay`, body).then((r) => r.data);
+  pay(id: string, body: { paidBy?: string; paymentMethod: string; reference?: string; paymentNotes?: string; accountId: string }): Promise<Expense> {
+    return idempotentPost(`/expenses/${id}/pay`, body);
   },
   void(id: string, body: { voidReason: string }): Promise<Expense> {
-    return api.post(`/expenses/${id}/void`, body).then((r) => r.data);
+    return idempotentPost(`/expenses/${id}/void`, body);
   },
   getAudit(id: string): Promise<AuditLogRow[]> {
     return api.get(`/expenses/${id}/audit`).then((r) => r.data);

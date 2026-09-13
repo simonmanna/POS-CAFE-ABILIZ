@@ -98,7 +98,10 @@ export async function refundInvoice(ctx: any, invoiceId: string, reason: string 
         });
         if (ingredients.length > 0) {
           // Restock from the snapshot: the exact ingredients that were consumed
-          const posLoc = await resolvePosStockLocation(ctx.prisma, orgId, tx);
+          // Return the goods to the store the sale relieved: the selling shift's
+          // register location when there is one.
+          const saleSession = inv.cashSessionId ? await tx.cashSession.findFirst({ where: { id: inv.cashSessionId, organizationId: orgId }, select: { registerLocationId: true, cashRegister: { select: { locationId: true } } } }) : null;
+          const posLoc = await resolvePosStockLocation(ctx.prisma, orgId, tx, saleSession?.registerLocationId ?? saleSession?.cashRegister?.locationId);
           const locId = posLoc?.id;
           if (!locId) throw new BadRequestException('No active warehouse configured — cannot restock inventory');
           for (const ing of ingredients) {

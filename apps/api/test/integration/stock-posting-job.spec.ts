@@ -1,3 +1,4 @@
+import { purge } from './_purge';
 // otplib pulls in @scure/base (ESM) which jest's CommonJS transform can't parse.
 // Nothing here uses MFA, so a stub is safe (same as pos-sale-pipeline).
 jest.mock('otplib', () => ({
@@ -95,18 +96,24 @@ describeDb('integration: stock posting jobs', () => {
       await prisma.stockItem.deleteMany({ where: { organizationId } });
       await prisma.inventoryException.deleteMany({ where: { organizationId } });
       await prisma.stockPostingJob.deleteMany({ where: { organizationId } });
+      await prisma.invoiceItemRecipeIngredient.deleteMany({ where: { organizationId } });
+      await prisma.invoiceItem.deleteMany({ where: { organizationId } });
+      await prisma.invoice.deleteMany({ where: { organizationId } });
+      await prisma.partner.deleteMany({ where: { organizationId } });
       await prisma.orderItem.deleteMany({ where: { organizationId } });
       await prisma.order.deleteMany({ where: { organizationId } });
       await prisma.fiscalPeriod.deleteMany({ where: { organizationId } });
       await prisma.menuItem.deleteMany({ where: { organizationId } });
-      await prisma.journalLine.deleteMany({ where: { organizationId } });
-      await prisma.journalEntry.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.journalLine.deleteMany({ where: { organizationId } }));
+      await purge(prisma, (tx) => tx.journalEntry.deleteMany({ where: { organizationId } }));
       await prisma.auditLog.deleteMany({ where: { organizationId } });
       await prisma.eventOutbox.deleteMany({ where: { organizationId } });
       await prisma.accountMapping.deleteMany({ where: { organizationId } });
       await prisma.account.deleteMany({ where: { organizationId } });
       await prisma.journal.deleteMany({ where: { organizationId } });
       await prisma.product.deleteMany({ where: { organizationId } });
+      await prisma.stockAdjustment.deleteMany({ where: { organizationId } });
+      await prisma.stockOut.deleteMany({ where: { organizationId } });
       await prisma.inventoryLocation.deleteMany({ where: { organizationId } });
       await prisma.organization.delete({ where: { id: organizationId } });
     }
@@ -171,10 +178,15 @@ describeDb('integration: stock posting jobs', () => {
     const ex = await prisma.inventoryException.findFirst({ where: { organizationId, menuItemId: menuItem.id } });
     expect(ex).toBeTruthy();
     expect(ex!.reason).toMatch(/no recipe/i);
-    // The job still completes (the sale is never blocked) but flags review.
+    // The sale is never blocked, but a job that could not relieve every line is
+    // not reported as done: it stays retryable so fixing the recipe recovers it.
     const done = await prisma.stockPostingJob.findUnique({ where: { id: job.id } });
-    expect(done!.status).toBe('done');
+    expect(done!.status).toBe('pending');
     expect(done!.lastError).toMatch(/need review/i);
+
+    // A second pass before the fix does not raise a duplicate exception.
+    await asOrg(() => billing.processStockPostingJob(job.id));
+    expect(await prisma.inventoryException.count({ where: { organizationId, menuItemId: menuItem.id } })).toBe(1);
   }, 60_000);
 
   it('issues stock exactly once when two workers process the same job at once (reclaim race)', async () => {
@@ -223,6 +235,15 @@ describeDb('integration: stock posting jobs', () => {
       data: { organizationId, menuItemId: menuItem.id, productId: ingredient.id, quantity: 10 } as any,
     });
     const { order, job } = await makeJob({ menuItemId: menuItem.id, quantity: 2 });
+    // A real bill: the snapshot must hang off the InvoiceItem, never the OrderItem (F-01).
+    const partner = await prisma.partner.create({ data: { organizationId, code: `SPJ-C-${Date.now()}`, name: 'Walk-in SPJ', isCustomer: true } as any });
+    const invoice = await prisma.invoice.create({
+      data: { organizationId, invoiceNumber: `INV-SPJ-${Date.now()}`, partnerId: partner.id, status: 'posted' } as any,
+    });
+    const invoiceItem = await prisma.invoiceItem.create({
+      data: { organizationId, invoiceId: invoice.id, menuItemId: menuItem.id, description: 'line', quantity: 2, lineNumber: 1 } as any,
+    });
+    await prisma.stockPostingJob.update({ where: { id: job.id }, data: { invoiceId: invoice.id } });
 
     await asOrg(() => billing.processStockPostingJob(job.id));
 
@@ -231,9 +252,10 @@ describeDb('integration: stock posting jobs', () => {
 
     // A snapshot row now records the ingredients actually consumed.
     const snap = await prisma.invoiceItemRecipeIngredient.findFirst({
-      where: { organizationId, productId: ingredient.id, invoiceId: job.invoiceId },
+      where: { organizationId, productId: ingredient.id, invoiceId: invoice.id },
     });
     expect(snap).toBeTruthy();
+    expect(snap!.invoiceItemId).toBe(invoiceItem.id);
     expect(Number(snap!.quantity)).toBe(20);
     expect(Number(snap!.unitCost)).toBe(10);
     expect(Number(snap!.totalValue)).toBe(200);
@@ -241,12 +263,18 @@ describeDb('integration: stock posting jobs', () => {
     // Re-running the job (idempotent) must NOT duplicate the snapshot.
     await asOrg(() => billing.processStockPostingJob(job.id));
     const snapCount = await prisma.invoiceItemRecipeIngredient.count({
-      where: { organizationId, productId: ingredient.id, invoiceId: job.invoiceId },
+      where: { organizationId, productId: ingredient.id, invoiceId: invoice.id },
     });
-    expect(snapCount).toBe(0); // no duplicate snapshot; the issue side is already idempotent
+    expect(snapCount).toBe(1); // exactly one snapshot; the re-run was a no-op
+    expect(await onHand(ingredient.id)).toBe(80);
+    void order;
   }, 60_000);
 
   it('refuses period close when synchronous inventory mutations are pending (FIND-INV-005)', async () => {
+    // Isolate this guard from the queue guard: earlier tests in this org leave
+    // deliberately-unposted jobs (e.g. the recipe-less line) that would trip the
+    // stock-posting check first.
+    await prisma.stockPostingJob.deleteMany({ where: { organizationId, status: { not: 'done' } } });
     const period = await prisma.fiscalPeriod.create({
       data: {
         organizationId, name: 'FY-SYNC', status: 'open',

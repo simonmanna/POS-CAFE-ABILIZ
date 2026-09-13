@@ -1,4 +1,5 @@
 import { accountLedgerBalance, accountObservations, reconcileSession, settleTender } from './session-reconciliation';
+import { assertNotDrawerAccount, lockAccounts, operationId, requireAccount } from './treasury-guards';
 import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import {
   BadRequestException,
@@ -34,6 +35,8 @@ export interface OpenSessionDto {
 
 export interface CloseSessionDto {
   closingAccounts?: Record<string, number>;
+  /** Tracked tender accounts deliberately not counted: accountId → reason. Needs manager approval. */
+  uncountedAccounts?: Record<string, string>;
   pendingSyncCount?: number;
   closingCounted: number | string;
   notes?: string;
@@ -52,6 +55,8 @@ export interface CloseSessionDto {
 
 export interface RecordMovementDto {
   counterpartAccountId?: string;
+  /** Adjustment that corrects an earlier, already-closed shift. */
+  correctionOfSessionId?: string;
   movementType: 'pay_in' | 'pay_out' | 'adjustment';
   amount: number | string;
   reason?: string;
@@ -225,7 +230,7 @@ export class CashSessionService {
         },
       });
 
-      if (funding.gt(0)) await this.posting.post({ journalCode: 'CASH', date: (occurredAt ?? new Date()).toISOString(), description: `Opening float: ${dto.notes}`, sourceType: 'cash_session_opening', sourceId: session.id, lines: [{ accountId: register.defaultAccountId, debit: funding.toString() }, { accountId: dto.openingSourceAccountId!, credit: funding.toString() }] }, tx);
+      if (funding.gt(0)) await this.posting.post({ journalCode: 'CASH', date: (occurredAt ?? new Date()).toISOString(), description: `Opening float: ${dto.notes}`, sourceType: 'cash_session_opening', sourceId: session.id, postingKey: `cash_session_opening:${session.id}`, lines: [{ accountId: drawer.id, debit: funding.toString() }, { accountId: dto.openingSourceAccountId!, credit: funding.toString() }] }, tx);
       await this.audit.recordInTx(tx, {
         entity: 'CashSession',
         entityId: session.id,
@@ -244,135 +249,67 @@ export class CashSessionService {
     });
   }
 
-  /** Close the current open session. Computes expected vs counted. */
-    async close(dto: CloseSessionDto) {
-      const organizationId = this.tenant.organizationId;
-      const counted = dec(dto.closingCounted);
-      if (!counted.isFinite() || counted.isNegative()) throw new BadRequestException('Counted cash cannot be negative');
-      this.assertDenominationTotal(dto.closingDenomination, counted, 'closing count');
+  /**
+   * Close the caller's own shift. A manager may force-close another cashier's
+   * abandoned shift (`force`), with a blind count and a reason; the manager is
+   * then the approver. Both paths run the exact same closing validation as a
+   * handover, so no door into a closed shift is weaker than another.
+   */
+  async close(dto: CloseSessionDto, opts: { force?: boolean } = {}) {
+    const organizationId = this.tenant.organizationId;
+    const actorId = this.tenant.userId;
+    if (!actorId) throw new BadRequestException('No user in tenant context');
+    const counted = dec(dto.closingCounted);
+    if (!counted.isFinite() || counted.isNegative()) throw new BadRequestException('Counted cash cannot be negative');
+    this.assertDenominationTotal(dto.closingDenomination, counted, 'closing count');
+    if (opts.force) {
+      if (!dto.sessionId) throw new BadRequestException('Choose the shift to force-close');
+      if (!dto.notes?.trim()) throw new BadRequestException('A reason is required to force-close a shift');
+    }
 
-      return this.prisma.client.$transaction(async (tx: any) => {
-        // If sessionId is provided, close that specific session (shared terminal - any cashier can close)
-        // Otherwise, close the caller's own open session (existing behavior)
-        const session = dto.sessionId
-          ? await tx.cashSession.findFirst({ where: { id: dto.sessionId, organizationId } })
-          : await this.requireOpenSession(tx);
-        if (!session) throw new NotFoundException('No open cash session');
-        if (session.userId !== this.tenant.userId) {
-          throw new ForbiddenException('Only the session cashier can close this shift; use manager handover or force-close workflow');
-        }
-        await this.lockOpenSession(tx, session.id);
-        if (session.status !== 'open') throw new BadRequestException('Session is not open');
+    return this.prisma.client.$transaction(async (tx: any) => {
+      const found = dto.sessionId
+        ? await tx.cashSession.findFirst({ where: { id: dto.sessionId, organizationId } })
+        : await this.requireOpenSession(tx);
+      if (!found) throw new NotFoundException('No open cash session');
+      if (opts.force) {
+        if (found.userId === actorId) throw new ForbiddenException('Close your own shift normally; force-close is for another cashier\'s shift');
+      } else if (found.userId !== actorId) {
+        throw new ForbiddenException('Only the session cashier can close this shift; a manager can force-close it');
+      }
+      const session = await this.lockOpenSession(tx, found.id);
 
-      // A-012: the client-asserted pendingSyncCount stays, but the SERVER now
-      // also counts unresolved offline ops (open dead letters in this org) —
-      // a cashier can no longer close over a device queue the server can see.
+      // A-012: the client-asserted pendingSyncCount stays, but the SERVER also
+      // counts unresolved offline ops in this org.
       if ((dto.pendingSyncCount ?? 0) > 0) throw new BadRequestException('Sync or resolve pending device operations before closing');
       const openDeadLetters = await tx.syncOpDeadLetter.count({ where: { organizationId, status: 'open' } });
       if (openDeadLetters > 0) {
         throw new BadRequestException(`${openDeadLetters} unresolved offline operation(s) must be synced or resolved before closing this shift`);
       }
-      const reconciliation = await reconcileSession(tx, organizationId, session);
-      if (reconciliation.unsettledOrders || reconciliation.pendingPayments || reconciliation.pendingPostings || reconciliation.issues.length) {
-        throw new BadRequestException({ message: 'Resolve unsettled orders, payments and posting differences before closing', reconciliation });
-      }
-      const tracked = await tx.posPaymentMethod.findMany({
-        where: { organizationId, isActive: true, trackInShift: true, accountId: { not: null } },
-        select: { accountId: true, label: true },
+
+      const closing = await this.validateClosing(tx, session, {
+        counted,
+        closingAccounts: dto.closingAccounts,
+        uncountedAccounts: dto.uncountedAccounts,
+        varianceReason: dto.varianceReason,
+        approval: opts.force
+          ? { verifiedManagerId: actorId }
+          : { approverId: dto.approvedById, approverEmail: dto.approverEmail, managerPin: dto.managerPin },
       });
-      const observedIds = new Set(Object.keys(dto.closingAccounts ?? {}));
-      const missing = tracked.filter((m: any) => m.accountId && !observedIds.has(m.accountId));
-      if (missing.length) throw new BadRequestException(`Enter closing balances for: ${missing.map((m: any) => m.label).join(', ')}`);
-      const closingAccounts = await accountObservations(tx, organizationId, dto.closingAccounts);
-      const providerDifferences = Object.values(closingAccounts).filter((row: any) => !dec(row.difference).isZero()) as any[];
-      if (providerDifferences.length) {
-        if (!dto.varianceReason?.trim()) throw new BadRequestException('Explain card, bank or mobile-money balance differences before closing');
-        await this.assertManagerApproval(tx, {
-          approverId: dto.approvedById,
-          approverEmail: dto.approverEmail,
-          managerPin: dto.managerPin,
-          cashierUserId: session.userId,
-          permission: 'cash_session:approve_variance',
-          actionLabel: 'electronic tender balance differences',
-        });
-      }
-      const expected = await this.computeExpected(tx, session);
-      const closingDifference = counted.minus(expected);
-      const reason = dto.varianceReason ? dto.varianceReason.trim() : null;
 
-      // C2 — a non-zero variance must be explained.
-      let varianceStatus: string | null = null;
-      let approvedById: string | null = null;
-      if (!closingDifference.isZero()) {
-        if (!reason) {
-          throw new BadRequestException('A variance reason is required when counted cash differs from expected');
-        }
-        // Large variance ⇒ manager must approve it right now.
-        if (closingDifference.abs().greaterThanOrEqualTo(this.largeVarianceThreshold)) {
-          const manager = await this.assertManagerApproval(tx, {
-            approverId: dto.approvedById,
-            approverEmail: dto.approverEmail,
-            managerPin: dto.managerPin,
-            cashierUserId: session.userId,
-            permission: 'cash_session:approve_variance',
-            actionLabel: 'a large cash variance',
-          });
-          varianceStatus = 'approved';
-          approvedById = manager.id;
-        } else {
-          varianceStatus = 'pending_review';
-        }
-      }
-
-      const closingByMethod = await this.computeByMethod(tx, organizationId, session.id);
-
-      const updated = await tx.cashSession.updateMany({
-        where: { id: session.id },
-        data: {
-          status: 'closed',
-          closedAt: resolveOccurredAt(dto.occurredAt) ?? new Date(),
-          closingCounted: counted,
-          closingExpected: expected,
-          closingDifference,
-          closingDenomination: this.sanitizeDenomination(dto.closingDenomination),
-          closingByMethod,
-          closingAccounts,
-          varianceReason: reason,
-          varianceStatus,
-          approvedById,
-          notes: dto.notes ?? session.notes,
-        },
-      });
-      if (updated.count === 0) throw new Error('Failed to close session');
-      const reportData = JSON.parse(JSON.stringify({ ...reconciliation.report, accounts: reconciliation.accounts, openingAccounts: session.openingAccounts, closingAccounts, closingCounted: counted.toString(), closingExpected: expected.toString(), closingDifference: closingDifference.toString(), varianceReason: reason, varianceStatus, approvedById }));
-      await tx.posReportSnapshot.create({ data: { organizationId, cashSessionId: session.id, reportData, kind: 'z' } });
-
-
-      // C1 — book the drawer over/short to the ledger.
-      if (!closingDifference.isZero()) {
-        await this.postVarianceGl(tx, session, closingDifference);
-      }
-
-      await this.audit.recordInTx(tx, {
-        entity: 'CashSession',
-        entityId: session.id,
-        action: 'update',
-        oldValues: { status: 'open' },
-        newValues: {
-          status: 'closed',
-          closingDifference: closingDifference.toString(),
-          varianceReason: reason,
-          varianceStatus,
-          approvedById,
-        },
+      const closedAt = resolveOccurredAt(dto.occurredAt) ?? new Date();
+      const notes = opts.force ? `${session.notes ? session.notes + ' | ' : ''}Force-closed by manager: ${dto.notes!.trim()}` : (dto.notes ?? session.notes);
+      await this.finishClosing(tx, session, closing, {
+        counted, closedAt, notes, closingDenomination: dto.closingDenomination,
+        audit: { kind: opts.force ? 'force_close' : 'close', actorId },
       });
 
       this.events.publish('cash.session.closed', {
         organizationId,
         sessionId: session.id,
-        expected: expected.toString(),
+        expected: closing.expected.toString(),
         counted: counted.toString(),
-        variance: closingDifference.toString(),
+        variance: closing.difference.toString(),
       });
 
       const result = await tx.cashSession.findFirst({ where: { id: session.id } });
@@ -383,10 +320,10 @@ export class CashSessionService {
 
   /**
    * Shift handover — atomically close the open session on a register (with the
-   * outgoing cashier's blind count + variance) and open a fresh session on the
-   * same register for the incoming cashier, carrying the counted cash forward as
-   * the opening float. The incoming user and the manager approval are validated
-   * by the POS layer (PosShiftService) before this runs.
+   * outgoing cashier's blind count, tracked-tender observations and variance)
+   * and open a fresh session for the incoming cashier, carrying the counted cash
+   * forward as the opening float. PINs are verified by PosShiftService; this
+   * enforces segregation of duties and the same closing rules as `close()`.
    */
   async handover(dto: {
     cashRegisterId: string;
@@ -396,49 +333,44 @@ export class CashSessionService {
     openingFloat?: number | string;
     notes?: string;
     approvedById?: string;
+    closingDenomination?: Record<string, number>;
+    closingAccounts?: Record<string, number>;
+    uncountedAccounts?: Record<string, string>;
   }) {
     const organizationId = this.tenant.organizationId;
     const counted = dec(dto.closingCounted);
+    if (!counted.isFinite() || counted.lt(0)) throw new BadRequestException('Counted cash cannot be negative');
+    this.assertDenominationTotal(dto.closingDenomination, counted, 'closing count');
+    const opening = dto.openingFloat != null ? dec(dto.openingFloat) : counted;
+    if (!opening.eq(counted)) throw new BadRequestException('Handover must carry the counted physical cash; record float changes as a separate movement');
+    if (!dto.approvedById) throw new BadRequestException('A manager must approve the handover');
 
     return this.prisma.client.$transaction(async (tx: any) => {
-      const outgoing = await tx.cashSession.findFirst({
+      await tx.$queryRawUnsafe('SELECT id FROM "CashRegister" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', dto.cashRegisterId, organizationId);
+      const found = await tx.cashSession.findFirst({
         where: { organizationId, cashRegisterId: dto.cashRegisterId, status: 'open' },
       });
-      if (!outgoing) throw new NotFoundException('No open session on this register');
-      await this.lockOpenSession(tx, outgoing.id);
-      const check = await reconcileSession(tx, organizationId, outgoing);
-      if (check.unsettledOrders || check.pendingPayments || check.pendingPostings || check.issues.length) throw new BadRequestException('Resolve pending work before handover');
-
-      const expected = await this.computeExpected(tx, outgoing);
-      const variance = counted.minus(expected);
-      if (!variance.isZero() && !dto.varianceReason?.trim()) {
-        throw new BadRequestException('A variance reason is required when the counted cash differs from expected');
+      if (!found) throw new NotFoundException('No open session on this register');
+      const outgoing = await this.lockOpenSession(tx, found.id);
+      if (dto.incomingUserId === outgoing.userId) throw new BadRequestException('The incoming cashier must be a different person');
+      if (dto.approvedById === outgoing.userId || dto.approvedById === dto.incomingUserId) {
+        throw new ForbiddenException('The approving manager must be neither the outgoing nor the incoming cashier');
       }
+      const incomingUser = await tx.user.findFirst({ where: { id: dto.incomingUserId, organizationId, isActive: true } });
+      if (!incomingUser) throw new BadRequestException('Incoming cashier not found');
 
-      const now = new Date();
-      await tx.cashSession.updateMany({
-        where: { id: outgoing.id },
-        data: {
-          status: 'closed',
-          closedAt: now,
-          closingCounted: counted,
-          closingExpected: expected,
-          closingDifference: variance,
-          varianceReason: dto.varianceReason ?? null,
-          varianceStatus: variance.isZero() ? null : 'approved',
-          approvedById: dto.approvedById ?? null,
-          closingByMethod: await this.computeByMethod(tx, organizationId, outgoing.id),
-        },
+      const closing = await this.validateClosing(tx, outgoing, {
+        counted,
+        closingAccounts: dto.closingAccounts,
+        uncountedAccounts: dto.uncountedAccounts,
+        varianceReason: dto.varianceReason,
+        approval: { verifiedManagerId: dto.approvedById! },
+      });
+      await this.finishClosing(tx, outgoing, closing, {
+        counted, closedAt: new Date(), notes: outgoing.notes, closingDenomination: dto.closingDenomination,
+        audit: { kind: 'handover_out', actorId: this.tenant.userId ?? null, incomingUserId: dto.incomingUserId },
       });
 
-      // Book the outgoing shift's over/short to the ledger.
-      if (!variance.isZero()) {
-        await this.postVarianceGl(tx, outgoing, variance);
-      }
-
-      const opening = dto.openingFloat != null ? dec(dto.openingFloat) : counted;
-      if (!counted.isFinite() || counted.lt(0) || !opening.eq(counted)) throw new BadRequestException('Handover must carry the counted physical cash; record float changes as a separate movement');
-      await tx.posReportSnapshot.create({ data: { organizationId, cashSessionId: outgoing.id, reportData: JSON.parse(JSON.stringify({ ...check.report, closingCounted: counted.toString(), closingDifference: variance.toString(), accounts: check.accounts })), kind: 'z' } });
       const incoming = await tx.cashSession.create({
         data: {
           organizationId,
@@ -449,27 +381,11 @@ export class CashSessionService {
           userId: dto.incomingUserId,
           status: 'open',
           openingFloat: opening,
+          openingDenomination: this.sanitizeDenomination(dto.closingDenomination),
           notes: dto.notes ?? `Opened by handover from session ${outgoing.id}`,
         },
       });
 
-      await this.audit.recordInTx(tx, {
-        entity: 'CashSession',
-        entityId: outgoing.id,
-        action: 'update',
-        oldValues: { status: 'open' },
-        newValues: {
-          status: 'closed',
-          kind: 'handover_out',
-          handoverToSessionId: incoming.id,
-          incomingUserId: dto.incomingUserId,
-          counted: counted.toString(),
-          expected: expected.toString(),
-          variance: variance.toString(),
-          varianceReason: dto.varianceReason ?? null,
-          approvedById: dto.approvedById ?? null,
-        },
-      });
       await this.audit.recordInTx(tx, {
         entity: 'CashSession',
         entityId: incoming.id,
@@ -479,6 +395,7 @@ export class CashSessionService {
           handoverFromSessionId: outgoing.id,
           userId: dto.incomingUserId,
           openingFloat: opening.toString(),
+          approvedById: dto.approvedById,
         },
       });
 
@@ -488,18 +405,163 @@ export class CashSessionService {
         incomingSessionId: incoming.id,
         cashRegisterId: outgoing.cashRegisterId,
         incomingUserId: dto.incomingUserId,
-        variance: variance.toString(),
+        variance: closing.difference.toString(),
       });
 
       const result = {
         outgoingSessionId: outgoing.id,
         incomingSessionId: incoming.id,
-        expected: expected.toString(),
+        expected: closing.expected.toString(),
         counted: counted.toString(),
-        variance: variance.toString(),
+        variance: closing.difference.toString(),
       };
       await recordBusinessOutcome(tx, result, true);
       return result;
+    });
+  }
+
+  /**
+   * The single closing rule set (close, force-close, handover):
+   *  - every order settled, every payment/journal consistent with the drawer;
+   *  - every tracked tender either observed, or explicitly not counted with a
+   *    reason and manager approval;
+   *  - electronic balance differences explained and manager-approved;
+   *  - a cash variance explained; at/over the threshold approved by a manager
+   *    who is not the cashier.
+   */
+  private async validateClosing(tx: any, session: any, input: {
+    counted: Prisma.Decimal;
+    closingAccounts?: Record<string, number>;
+    uncountedAccounts?: Record<string, string>;
+    varianceReason?: string;
+    approval: { verifiedManagerId: string } | { approverId?: string; approverEmail?: string; managerPin?: string };
+  }) {
+    const organizationId = this.tenant.organizationId;
+    const reconciliation = await reconcileSession(tx, organizationId, session);
+    if (reconciliation.unsettledOrders || reconciliation.pendingPayments || reconciliation.pendingPostings || reconciliation.issues.length) {
+      throw new BadRequestException({ message: 'Resolve unsettled orders, payments and posting differences before closing', reconciliation });
+    }
+    let manager: any = null;
+    const approve = async (actionLabel: string) => {
+      if (manager) return manager;
+      if ('verifiedManagerId' in input.approval) {
+        const m = await tx.user.findFirst({ where: { id: input.approval.verifiedManagerId, organizationId, isActive: true }, include: { roles: true } });
+        if (!m) throw new NotFoundException('Approving manager not found');
+        if (m.id === session.userId) throw new ForbiddenException(`The session cashier cannot approve ${actionLabel}`);
+        const perms = new Set(m.roles.flatMap((r: any) => r.permissions ?? []));
+        if (!perms.has('cash_session:approve_variance')) throw new ForbiddenException('Approver does not hold cash_session:approve_variance');
+        manager = m;
+      } else {
+        manager = await this.assertManagerApproval(tx, { ...input.approval, cashierUserId: session.userId, permission: 'cash_session:approve_variance', actionLabel });
+      }
+      return manager;
+    };
+
+    // A manager acting in person (force-close, handover) must actually be an
+    // approver, whether or not anything below needs approving.
+    if ('verifiedManagerId' in input.approval) await approve('this shift close');
+    const reason = input.varianceReason?.trim() || null;
+    const tracked = await tx.posPaymentMethod.findMany({
+      where: { organizationId, isActive: true, deletedAt: null, trackInShift: true, accountId: { not: null } },
+      select: { accountId: true, label: true },
+    });
+    const observed = input.closingAccounts ?? {};
+    const uncounted = input.uncountedAccounts ?? {};
+    const trackedIds = new Set<string>(tracked.map((m: any) => m.accountId));
+    for (const id of Object.keys(uncounted)) {
+      if (!trackedIds.has(id)) throw new BadRequestException('Only tracked tender accounts can be marked as not counted');
+      if (id in observed) throw new BadRequestException('An account cannot be both counted and not counted');
+      if (!String(uncounted[id] ?? '').trim()) throw new BadRequestException('Give a reason for every tender account that was not counted');
+    }
+    const missing = tracked.filter((m: any) => !(m.accountId in observed) && !(m.accountId in uncounted));
+    if (missing.length) throw new BadRequestException(`Enter closing balances for: ${missing.map((m: any) => m.label).join(', ')} (or mark them not counted with a reason)`);
+    const closingAccounts: Record<string, any> = await accountObservations(tx, organizationId, observed);
+    if (Object.keys(uncounted).length) {
+      const m = await approve('uncounted tender balances');
+      for (const [id, why] of Object.entries(uncounted)) {
+        const account = await tx.account.findFirst({ where: { id, organizationId }, select: { code: true, name: true } });
+        closingAccounts[id] = { accountId: id, code: account?.code, name: account?.name, notCounted: true, reason: String(why).trim(), approvedById: m.id };
+      }
+    }
+    const providerDifferences = Object.values(closingAccounts).filter((row: any) => !row.notCounted && !dec(row.difference).isZero());
+    if (providerDifferences.length) {
+      if (!reason) throw new BadRequestException('Explain card, bank or mobile-money balance differences before closing');
+      await approve('electronic tender balance differences');
+    }
+
+    const expected = await this.computeExpected(tx, session);
+    const difference = input.counted.minus(expected);
+    let varianceStatus: string | null = null;
+    let approvedById: string | null = manager?.id ?? null;
+    if (!difference.isZero()) {
+      if (!reason) throw new BadRequestException('A variance reason is required when counted cash differs from expected');
+      const managerPresent = 'verifiedManagerId' in input.approval;
+      if (managerPresent || difference.abs().greaterThanOrEqualTo(this.largeVarianceThreshold)) {
+        approvedById = (await approve(managerPresent ? 'the shift variance' : 'a large cash variance')).id;
+        varianceStatus = 'approved';
+      } else {
+        varianceStatus = 'pending_review';
+      }
+    }
+    return { reconciliation, closingAccounts, expected, difference, reason, varianceStatus, approvedById };
+  }
+
+  /** Freeze the count, the Z snapshot and the over/short journal. */
+  private async finishClosing(tx: any, session: any, closing: any, input: {
+    counted: Prisma.Decimal; closedAt: Date; notes: string | null; closingDenomination?: Record<string, number>;
+    audit: Record<string, any>;
+  }) {
+    const organizationId = this.tenant.organizationId;
+    const closingByMethod = await this.computeByMethod(tx, organizationId, session.id);
+    const updated = await tx.cashSession.updateMany({
+      where: { id: session.id, status: 'open' },
+      data: {
+        status: 'closed',
+        closedAt: input.closedAt,
+        closingCounted: input.counted,
+        closingExpected: closing.expected,
+        closingDifference: closing.difference,
+        closingDenomination: this.sanitizeDenomination(input.closingDenomination),
+        closingByMethod,
+        closingAccounts: closing.closingAccounts,
+        varianceReason: closing.reason,
+        varianceStatus: closing.varianceStatus,
+        approvedById: closing.approvedById,
+        notes: input.notes,
+      },
+    });
+    if (updated.count === 0) throw new BadRequestException('The register session is no longer open');
+    const reportData = JSON.parse(JSON.stringify({
+      ...closing.reconciliation.report,
+      accounts: closing.reconciliation.accounts,
+      openingAccounts: session.openingAccounts,
+      closingAccounts: closing.closingAccounts,
+      closingDenomination: input.closingDenomination ?? null,
+      closingCounted: input.counted.toString(),
+      closingExpected: closing.expected.toString(),
+      closingDifference: closing.difference.toString(),
+      varianceReason: closing.reason,
+      varianceStatus: closing.varianceStatus,
+      approvedById: closing.approvedById,
+      closeKind: input.audit.kind,
+    }));
+    await tx.posReportSnapshot.create({ data: { organizationId, cashSessionId: session.id, reportData, kind: 'z' } });
+    if (!closing.difference.isZero()) await this.postVarianceGl(tx, session, closing.difference);
+    await this.audit.recordInTx(tx, {
+      entity: 'CashSession',
+      entityId: session.id,
+      action: 'update',
+      oldValues: { status: 'open' },
+      newValues: {
+        status: 'closed',
+        ...input.audit,
+        counted: input.counted.toString(),
+        expected: closing.expected.toString(),
+        closingDifference: closing.difference.toString(),
+        varianceReason: closing.reason,
+        varianceStatus: closing.varianceStatus,
+        approvedById: closing.approvedById,
+      },
     });
   }
 
@@ -523,6 +585,7 @@ export class CashSessionService {
 
     if (!dto.reason?.trim()) throw new BadRequestException('A reason is required for a cash movement');
     if (!dto.counterpartAccountId) throw new BadRequestException('Select the expense, safe or transfer account for this movement');
+    if (dto.correctionOfSessionId && dto.movementType !== 'adjustment') throw new BadRequestException('Corrections to a closed shift are recorded as adjustments');
     return this.prisma.client.$transaction(async (tx: any) => {
       // H2 — resolve to the CALLER's own open session, never an arbitrary one.
       const session = sessionId
@@ -538,10 +601,13 @@ export class CashSessionService {
       if ((dto.movementType === 'pay_out' || amount.isNegative()) && amount.abs().gt(await this.computeExpected(tx, session))) {
         throw new BadRequestException('The drawer does not contain enough cash for this movement');
       }
-      const register = await tx.cashRegister.findFirst({ where: { id: session.cashRegisterId, organizationId } });
-      if (register?.defaultAccountId === dto.counterpartAccountId) throw new BadRequestException('The counterpart must differ from the drawer account');
-      const otherDrawer = await tx.cashRegister.findFirst({ where: { organizationId, defaultAccountId: dto.counterpartAccountId, sessions: { some: { status: 'open' } } } });
-      if (otherDrawer) throw new BadRequestException('Transfer through the safe; a one-sided movement cannot alter another open drawer');
+      await this.assertMovementCounterpart(tx, session, dto.movementType, dto.counterpartAccountId!);
+      if (dto.correctionOfSessionId) {
+        const corrected = await tx.cashSession.findFirst({ where: { id: dto.correctionOfSessionId, organizationId } });
+        if (!corrected || corrected.status === 'open') throw new BadRequestException('Corrections must reference a closed shift');
+        if (corrected.id === session.id) throw new BadRequestException('A shift cannot correct itself');
+        if (!this.tenant.has('cash_session:correct')) throw new ForbiddenException('Posting a correction to a closed shift requires cash_session:correct');
+      }
 
       // H3 — cash LEAVING the drawer needs manager sign-off.
       if (dto.movementType === 'pay_out' || dto.movementType === 'adjustment') {
@@ -564,6 +630,7 @@ export class CashSessionService {
           amount,
           reason: dto.reason ?? null,
           counterpartAccountId: dto.counterpartAccountId,
+          correctionOfSessionId: dto.correctionOfSessionId ?? null,
           performedBy: this.tenant.userId ?? null,
           ...(occurredAt ? { createdAt: occurredAt } : {}),
         },
@@ -581,6 +648,7 @@ export class CashSessionService {
           movementType: dto.movementType,
           amount: amount.toString(),
           approvedById: dto.approvedById ?? null,
+          correctionOfSessionId: dto.correctionOfSessionId ?? null,
         },
       });
 
@@ -772,84 +840,79 @@ export class CashSessionService {
     };
   }
 
-  /** Record a bank deposit against a session. Bounded by cash on hand (H5). */
+  /**
+   * Bank the drawer's cash.
+   *  - Open shift: a `pay_out` drawer movement + Dr bank / Cr drawer, bounded by
+   *    the running expected cash.
+   *  - Closed shift: the count is frozen, so nothing is added to that shift.
+   *    The cash still sits on the drawer ledger until it is banked, so the
+   *    deposit is a journal from the drawer account (no open shift may exist on
+   *    the register, bounded by the drawer ledger balance).
+   */
   async recordBankDeposit(sessionId: string, dto: BankDepositDto) {
     const organizationId = this.tenant.organizationId;
     const userId = this.tenant.userId;
+    const amt = dec(dto.amount);
+    if (!amt.isFinite() || amt.lessThanOrEqualTo(0)) throw new BadRequestException('Deposit amount must be positive');
+    if (!dto.destinationAccountId) throw new BadRequestException('Select the destination bank account');
 
     return this.prisma.client.$transaction(async (tx: any) => {
-      const session = await tx.cashSession.findFirst({
-        where: { id: sessionId, organizationId },
-      });
-      if (!session) throw new NotFoundException('Cash session not found');
-      // Banking usually happens on the open drawer, but the cash is often only
-      // carried to the bank after the Z-read. A closed session must still be
-      // bankable — otherwise its counted cash stays on the drawer ledger for
-      // ever and the next open fails with "Opening count is below the drawer
-      // ledger". A reconciled session is final.
       await tx.$queryRawUnsafe('SELECT id FROM "CashSession" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', sessionId, organizationId);
-      if (session.status === 'reconciled') throw new BadRequestException('This session is reconciled; record the movement in treasury instead');
-      if (!dto.destinationAccountId) throw new BadRequestException('Select the destination bank account');
+      const session = await tx.cashSession.findFirst({ where: { id: sessionId, organizationId } });
+      if (!session) throw new NotFoundException('Cash session not found');
+      if (session.status === 'reconciled') throw new BadRequestException('This session is reconciled; bank its cash from the register once no shift is open');
+      if (session.status === 'open' && session.userId !== userId) throw new ForbiddenException('Only the session cashier can bank from an open shift');
+      if (session.status === 'closed' && !this.tenant.has('cash_session:reconcile')) throw new ForbiddenException('Banking a closed shift requires cash_session:reconcile');
 
-      const amt = dec(dto.amount);
-      if (amt.lessThanOrEqualTo(0)) throw new BadRequestException('Deposit amount must be positive');
+      const drawer = await this.registerCashAccount(tx, session);
+      const destinationId = dto.destinationAccountId!;
+      await lockAccounts(tx, organizationId, [drawer, destinationId]);
+      const destination = await requireAccount(tx, organizationId, destinationId, 'Destination account');
+      if (destination.category?.key !== 'bank') throw new BadRequestException('Select a bank account for the deposit');
+      const reason = `Bank deposit: ${dto.bankName}${dto.reference ? ` ref:${dto.reference}` : ''}${dto.notes ? ` - ${dto.notes}` : ''}`;
 
-      // H5 — cannot bank more than is actually in the drawer. An open drawer is
-      // bounded by its running expected cash; a closed one by what was counted
-      // at close, less anything already taken out of it since.
-      const previousBanked = session.bankedAmount ? dec(session.bankedAmount) : ZERO;
-      let onHand = await this.computeExpected(tx, session);
-      if (session.status === 'closed' && session.closingCounted != null) {
-        const takenSinceClose = (await tx.cashMovement.findMany({
-          where: { organizationId, cashSessionId: session.id, movementType: 'pay_out' as any, createdAt: { gt: session.closedAt ?? new Date(0) } },
-        })).reduce((sum: any, m: any) => sum.plus(dec(m.amount)), ZERO);
-        onHand = dec(session.closingCounted).minus(takenSinceClose);
+      if (session.status === 'open') {
+        const onHand = await this.computeExpected(tx, session);
+        if (amt.greaterThan(onHand)) throw new BadRequestException(`Deposit ${amt.toString()} exceeds cash on hand ${onHand.toString()}`);
+        const movement = await tx.cashMovement.create({
+          data: { organizationId, cashSessionId: session.id, movementType: 'pay_out' as any, amount: amt, reason, counterpartAccountId: destination.id, performedBy: userId ?? null },
+        });
+        await this.postBankDepositGl(tx, session, amt, movement.id, dto.bankName, destination.id);
+        await tx.cashSession.update({ where: { id: session.id }, data: { bankedAmount: dec(session.bankedAmount ?? 0).plus(amt), bankName: dto.bankName } });
+        await this.audit.recordInTx(tx, {
+          entity: 'CashMovement', entityId: movement.id, action: 'create',
+          newValues: { cashSessionId: session.id, movementType: 'pay_out', amount: amt.toString(), reason: 'bank_deposit' },
+        });
+        this.events.publish('cash.banking.recorded', { organizationId, sessionId: session.id, amount: amt.toString(), bankName: dto.bankName });
+        const outcome = { movement, sessionId: session.id };
+        await recordBusinessOutcome(tx, outcome, true);
+        return outcome;
       }
-      if (amt.greaterThan(onHand)) {
-        throw new BadRequestException(
-          `Deposit ${amt.toString()} exceeds cash on hand ${onHand.toString()}`,
-        );
-      }
 
-      // Record as a pay_out movement.
-      const movement = await tx.cashMovement.create({
-        data: {
-          organizationId,
-          cashSessionId: session.id,
-          movementType: 'pay_out' as any,
-          amount: amt,
-          reason: `Bank deposit: ${dto.bankName}${dto.reference ? ` ref:${dto.reference}` : ''}${dto.notes ? ` — ${dto.notes}` : ''}`,
-          performedBy: userId ?? null,
-        },
-      });
-
-      // C1 — Dr Bank / Cr register cash.
-      await this.postBankDepositGl(tx, session, amt, movement.id, dto.bankName, dto.destinationAccountId);
-
+      const openShift = await tx.cashSession.findFirst({ where: { organizationId, cashRegisterId: session.cashRegisterId, status: 'open' } });
+      if (openShift) throw new BadRequestException('A shift is open on this register; bank the cash from that shift');
+      const drawerBalance = await accountLedgerBalance(tx, organizationId, drawer);
+      if (amt.greaterThan(drawerBalance)) throw new BadRequestException(`Deposit ${amt.toString()} exceeds the drawer balance ${drawerBalance.toString()}`);
+      const id = operationId();
+      const entry = await this.posting.post({
+        date: new Date(),
+        journalCode: 'BANK',
+        description: `${reason} (after close of shift ${session.id})`,
+        sourceType: 'cash_session_banking',
+        sourceId: session.id,
+        postingKey: `cash_session_banking:${id}`,
+        branchId: session.branchId ?? undefined,
+        lines: [
+          { accountId: destination.id, debit: amt.toString() },
+          { accountId: drawer, credit: amt.toString() },
+        ],
+      }, tx);
       await this.audit.recordInTx(tx, {
-        entity: 'CashMovement',
-        entityId: movement.id,
-        action: 'create',
-        newValues: { cashSessionId: session.id, movementType: 'pay_out', amount: amt.toString(), reason: 'bank_deposit' },
+        entity: 'CashSession', entityId: session.id, action: 'update',
+        newValues: { kind: 'banking_after_close', amount: amt.toString(), journalEntryId: entry.id, destinationAccountId: destination.id, reason },
       });
-
-      // Accumulate banked amount on the session
-      await tx.cashSession.update({
-        where: { id: session.id },
-        data: {
-          bankedAmount: previousBanked.plus(amt),
-          bankName: dto.bankName,
-        },
-      });
-
-      this.events.publish('cash.banking.recorded', {
-        organizationId,
-        sessionId: session.id,
-        amount: amt.toString(),
-        bankName: dto.bankName,
-      });
-
-      const outcome = { movement, sessionId: session.id };
+      this.events.publish('cash.banking.recorded', { organizationId, sessionId: session.id, amount: amt.toString(), bankName: dto.bankName });
+      const outcome = { journalEntryId: entry.id, sessionId: session.id };
       await recordBusinessOutcome(tx, outcome, true);
       return outcome;
     });
@@ -866,20 +929,21 @@ export class CashSessionService {
       if (!session) throw new NotFoundException('Cash session not found');
       if (session.status !== 'closed') throw new BadRequestException('Only a closed, unreconciled session may have its variance reviewed');
       if (!dto.reason?.trim()) throw new BadRequestException('A variance review reason is required');
+      if (dec(session.closingDifference ?? 0).isZero()) throw new BadRequestException('This shift has no variance to review');
 
-      const updateData: any = { varianceReason: dto.reason };
+      // C3 — the review is a manager decision: never the session cashier, and
+      // the cashier's original explanation is kept alongside the review note.
+      const manager = await this.assertManagerApproval(tx, {
+        approverId: this.tenant.userId ?? undefined,
+        cashierUserId: session.userId,
+        permission: 'cash_session:approve_variance',
+        actionLabel: 'a cash variance review',
+      });
+      const updateData: any = {
+        varianceReason: `${session.varianceReason ?? ''}${session.varianceReason ? ' | ' : ''}Review (${new Date().toISOString().slice(0, 10)}): ${dto.reason.trim()}`,
+        approvedById: manager.id,
+      };
       if (dto.status) updateData.varianceStatus = dto.status;
-
-      // C3 — only a manager who is NOT the session cashier may approve a variance.
-      if (dto.status === 'approved') {
-        const manager = await this.assertManagerApproval(tx, {
-          approverId: dto.approvedById ?? this.tenant.userId ?? undefined,
-          cashierUserId: session.userId,
-          permission: 'cash_session:approve_variance',
-          actionLabel: 'a cash variance',
-        });
-        updateData.approvedById = manager.id;
-      }
 
       await tx.cashSession.update({ where: { id: session.id }, data: updateData });
 
@@ -1023,76 +1087,6 @@ export class CashSessionService {
       closingExpected: session.closingExpected ? dec(session.closingExpected).toString() : null,
       closingDifference: session.closingDifference ? dec(session.closingDifference).toString() : null,
     };
-  }
-
-  /**
-   * Reopen a CLOSED (not-yet-reconciled) session. Manager-only, segregated from
-   * the cashier, reason required, fully audited. Any variance journal posted at
-   * close is reversed so a subsequent close doesn't double-book. Reconciled
-   * sessions are immutable and cannot be reopened.
-   */
-  async reopen(sessionId: string, reason: string) {
-    const organizationId = this.tenant.organizationId;
-    const actorId = this.tenant.userId;
-    if (!reason || !reason.trim()) throw new BadRequestException('A reason is required to reopen a session');
-
-    return this.prisma.client.$transaction(async (tx: any) => {
-      const session = await tx.cashSession.findFirst({ where: { id: sessionId, organizationId } });
-      if (!session) throw new NotFoundException('Cash session not found');
-      if (session.status === 'open') throw new BadRequestException('Session is already open');
-      if (session.status === 'reconciled') {
-        throw new BadRequestException('A reconciled session is final and cannot be reopened');
-      }
-      if (await tx.posReportSnapshot.findUnique({ where: { cashSessionId: sessionId } })) throw new BadRequestException('This shift has a frozen Z-report. Record corrections in a new shift.');
-      // C3 — the cashier who ran the shift cannot reopen their own session.
-      if (actorId && actorId === session.userId) {
-        throw new ForbiddenException('The session cashier cannot reopen their own session');
-      }
-
-      // Reverse the close-variance GL entry, if one was posted.
-      const varianceEntry = await tx.journalEntry.findFirst({
-        where: { organizationId, sourceType: 'cash_session_variance', sourceId: session.id, status: 'posted' },
-      });
-      if (varianceEntry) {
-        try {
-          await this.posting.reverse(varianceEntry.id, { description: `Reopen session ${session.id}` }, tx);
-        } catch (e) {
-          this.logger.warn(`Could not reverse variance entry on reopen: ${String(e)}`);
-        }
-      }
-
-      await tx.cashSession.updateMany({
-        where: { id: session.id },
-        data: {
-          status: 'open',
-          closedAt: null,
-          closingCounted: null,
-          closingExpected: null,
-          closingDifference: null,
-          closingByMethod: Prisma.DbNull,
-          varianceStatus: null,
-          approvedById: null,
-          reopenedAt: new Date(),
-          reopenedById: actorId ?? null,
-          notes: `${session.notes ? session.notes + ' | ' : ''}Reopened: ${reason.trim()}`,
-        },
-      });
-
-      // Drop the frozen Z snapshot — a reopened shift's numbers will change.
-      await tx.posReportSnapshot.deleteMany({ where: { cashSessionId: session.id } });
-
-      await this.audit.recordInTx(tx, {
-        entity: 'CashSession',
-        entityId: session.id,
-        action: 'update',
-        oldValues: { status: session.status },
-        newValues: { status: 'open', kind: 'reopen', reopenedById: actorId ?? null, reason: reason.trim() },
-      });
-
-      const result = await tx.cashSession.findFirst({ where: { id: session.id } });
-      await recordBusinessOutcome(tx, result, true);
-      return result;
-    });
   }
 
   /**
@@ -1408,6 +1402,30 @@ export class CashSessionService {
 
   // ─── GL posting (best-effort; a config gap is logged, never trapping the till) ──
 
+  /**
+   * What a drawer movement may be booked against. Revenue and receivables are
+   * never valid (sales only come from Payments), another register's drawer is
+   * never valid (move cash through the safe), and adjustments are always the
+   * short/over account (checked when posting).
+   */
+  private async assertMovementCounterpart(tx: any, session: any, movementType: string, counterpartAccountId: string) {
+    const organizationId = this.tenant.organizationId;
+    const drawer = await this.registerCashAccount(tx, session);
+    if (counterpartAccountId === drawer) throw new BadRequestException('The counterpart must differ from the drawer account');
+    const account = await requireAccount(tx, organizationId, counterpartAccountId, 'Counterpart account');
+    await assertNotDrawerAccount(tx, organizationId, account.id, 'A drawer movement');
+    if (movementType === 'adjustment') return;
+    const classification = account.category?.classification;
+    const allowed = movementType === 'pay_in'
+      ? account.category?.isCashEquivalent || ['equity', 'liability'].includes(classification)
+      : account.category?.isCashEquivalent || ['expense', 'liability', 'equity'].includes(classification);
+    if (!allowed) {
+      throw new BadRequestException(movementType === 'pay_in'
+        ? 'A pay-in must come from a safe/bank account, owner equity or a liability - sales are recorded only through payments'
+        : 'A pay-out must go to an expense, a safe/bank account, owner equity or a liability');
+    }
+  }
+
   private async registerCashAccount(tx: any, session: any): Promise<string> {
     if (session.drawerAccountId) return session.drawerAccountId;
     const register = await tx.cashRegister.findFirst({ where: { id: session.cashRegisterId } });
@@ -1428,7 +1446,7 @@ export class CashSessionService {
     try {
       const cash = await this.registerCashAccount(tx, session);
       const date = new Date();
-      const base = { date, sourceType: 'cash_movement', sourceId: movementId, branchId: session.branchId ?? undefined } as const;
+      const base = { date, sourceType: 'cash_movement', sourceId: movementId, postingKey: `cash_movement:${movementId}`, branchId: session.branchId ?? undefined } as const;
 
       const amt = amount.toString();
       if (movementType === 'pay_in') {
@@ -1488,6 +1506,7 @@ export class CashSessionService {
         description: `Bank deposit: ${bankName}`,
         sourceType: 'cash_movement',
         sourceId: movementId,
+        postingKey: `cash_movement:${movementId}`,
         branchId: session.branchId ?? undefined,
         lines: [
           { accountId: bank, debit: amt },
@@ -1516,6 +1535,7 @@ export class CashSessionService {
         description: `Cash over/short — session ${session.id}`,
         sourceType: 'cash_session_variance',
         sourceId: session.id,
+        postingKey: `cash_session_variance:${session.id}`,
         branchId: session.branchId ?? undefined,
         lines,
       }, tx);

@@ -1,11 +1,12 @@
+import { apiErrorMessage } from '@/lib/api-error';
 import { TenderSettlementPanel } from './TenderSettlementPanel';
 import { PosPaymentMethodsPanel } from './PosPaymentMethodsPanel';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Wallet, ArrowRightLeft, ArrowDownToLine, ArrowUpFromLine, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
-  useAccounts, useCashAccounts, useCashFlowDeposit, useCashFlowWithdraw,
-  useTreasuryTransfer, useCreateCashAccount, useUpdateCashAccount,
+  useCashAccounts, useCashFlowDeposit, useCashFlowWithdraw,
+  useTreasuryTransfer, useCashFlowOperationTypes, useCreateCashAccount, useUpdateCashAccount,
 } from '@/features/accounting/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -63,7 +64,7 @@ function CurrencyDisplay({ value }: { value: string }) {
 
 export function CashAccountsPage() {
   const { data: accounts = [], isLoading } = useCashAccounts();
-  const { data: ledgerAccounts } = useAccounts();
+  const { data: operationTypes } = useCashFlowOperationTypes();
   const create = useCreateCashAccount();
   const update = useUpdateCashAccount();
   const deposit = useCashFlowDeposit();
@@ -82,6 +83,7 @@ export function CashAccountsPage() {
   const [cfToAcct, setCfToAcct] = useState('');
   const [cfAmount, setCfAmount] = useState('');
   const [cfDesc, setCfDesc] = useState('');
+  const [cfType, setCfType] = useState('');
   const [cfLoading, setCfLoading] = useState(false);
 
   const [search, setSearch] = useState('');
@@ -90,6 +92,10 @@ export function CashAccountsPage() {
   const pageSize = 12;
 
   const allAccounts = (accounts ?? []) as any[];
+  // Register drawers move only through their own shift; treasury never touches them.
+  const treasuryAccounts = allAccounts.filter((a: any) => !a.cashRegister);
+  const cfTypes = cfModal === 'deposit' ? operationTypes?.deposit ?? [] : cfModal === 'withdraw' ? operationTypes?.withdrawal ?? [] : [];
+  const cfCounterparts = cfTypes.find((t) => t.key === cfType)?.accounts ?? [];
 
   const filtered = useMemo(() => {
     let list = allAccounts;
@@ -172,25 +178,31 @@ export function CashAccountsPage() {
   const doCashFlow = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = Number(cfAmount);
-    if (!amount || amount <= 0 || !cfAcct || !cfToAcct) return;
+    if (!(amount > 0) || !cfAcct || !cfToAcct) return;
+    if (cfModal !== 'transfer' && (!cfType || !cfDesc.trim())) { toast.error('Choose the type and describe the transaction'); return; }
+    const source = allAccounts.find((a: any) => a.id === cfAcct);
+    if (cfModal !== 'deposit' && source && amount > Number(source.balance)) {
+      toast.error(`Insufficient funds in ${source.name}: available ${Number(source.balance).toLocaleString()}`);
+      return;
+    }
     setCfLoading(true);
     try {
       if (cfModal === 'deposit') {
-        await deposit.mutateAsync({ accountId: cfAcct, counterpartAccountId: cfToAcct, amount, description: cfDesc });
+        await deposit.mutateAsync({ accountId: cfAcct, counterpartAccountId: cfToAcct, operationType: cfType, amount, description: cfDesc.trim() });
         toast.success('Deposit recorded');
       } else if (cfModal === 'withdraw') {
-        await withdraw.mutateAsync({ accountId: cfAcct, counterpartAccountId: cfToAcct, amount, description: cfDesc });
+        await withdraw.mutateAsync({ accountId: cfAcct, counterpartAccountId: cfToAcct, operationType: cfType, amount, description: cfDesc.trim() });
         toast.success('Withdrawal recorded');
       } else if (cfModal === 'transfer') {
         await transfer.mutateAsync({
           fromAccountId: cfAcct, toAccountId: cfToAcct, amount,
-          date: new Date().toISOString().split('T')[0], reference: cfDesc || undefined,
+          date: new Date().toISOString().split('T')[0], reference: cfDesc.trim() || undefined,
         });
         toast.success('Transfer completed');
       }
       setCfModal(null);
-      setCfAcct(''); setCfToAcct(''); setCfAmount(''); setCfDesc('');
-    } catch { toast.error('Transaction failed'); }
+      setCfAcct(''); setCfToAcct(''); setCfAmount(''); setCfDesc(''); setCfType('');
+    } catch (err) { toast.error(apiErrorMessage(err, 'Transaction failed')); }
     finally { setCfLoading(false); }
   };
 
@@ -472,7 +484,7 @@ export function CashAccountsPage() {
               <Select value={cfAcct} onValueChange={setCfAcct} required>
                 <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
                 <SelectContent>
-                  {allAccounts.map((a: any) => (
+                  {treasuryAccounts.map((a: any) => (
                     <SelectItem key={a.id} value={a.id}>
                       {a.name} ({a.accountType}) — Bal: {Number(a.balance).toLocaleString()}
                     </SelectItem>
@@ -480,13 +492,24 @@ export function CashAccountsPage() {
                 </SelectContent>
               </Select>
             </div>
+            {cfModal && cfModal !== 'transfer' && (
+              <div className="space-y-2">
+                <Label>{cfModal === 'deposit' ? 'Deposit type' : 'Withdrawal type'}</Label>
+                <Select value={cfType} onValueChange={(v) => { setCfType(v); setCfToAcct(''); }} required>
+                  <SelectTrigger><SelectValue placeholder={cfModal === 'deposit' ? 'Where does this money come from?' : 'What is this money for?'} /></SelectTrigger>
+                  <SelectContent>
+                    {cfTypes.map((t) => <SelectItem key={t.key} value={t.key}>{t.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             {cfModal && (
               <div className="space-y-2">
-                <Label>{cfModal === 'transfer' ? 'To Account' : cfModal === 'deposit' ? 'Source / counterpart account' : 'Expense / counterpart account'}</Label>
-                <Select value={cfToAcct} onValueChange={setCfToAcct} required>
-                  <SelectTrigger><SelectValue placeholder="Select counterpart account" /></SelectTrigger>
+                <Label>{cfModal === 'transfer' ? 'To Account' : 'Counterpart account'}</Label>
+                <Select value={cfToAcct} onValueChange={setCfToAcct} required disabled={cfModal !== 'transfer' && !cfType}>
+                  <SelectTrigger><SelectValue placeholder={cfModal === 'transfer' || cfType ? 'Select account' : 'Choose a type first'} /></SelectTrigger>
                   <SelectContent>
-                    {(cfModal === 'transfer' ? allAccounts : (ledgerAccounts?.data ?? [])).filter((a: any) => a.id !== cfAcct && a.isActive && !a.isGroup).map((a: any) => (
+                    {(cfModal === 'transfer' ? treasuryAccounts.filter((a: any) => a.id !== cfAcct) : cfCounterparts).map((a: any) => (
                       <SelectItem key={a.id} value={a.id}>
                         {a.code} · {a.name}{a.balance != null ? ` — Bal: ${Number(a.balance).toLocaleString()}` : ''}
                       </SelectItem>
@@ -500,8 +523,8 @@ export function CashAccountsPage() {
               <Input type="number" step="0.01" min="0.01" placeholder="0.00" value={cfAmount} onChange={(e) => setCfAmount(e.target.value)} required />
             </div>
             <div className="space-y-2">
-              <Label>Description (optional)</Label>
-              <Input placeholder="Reason for transaction" value={cfDesc} onChange={(e) => setCfDesc(e.target.value)} />
+              <Label>{cfModal === 'transfer' ? 'Reference (optional)' : 'Description'}</Label>
+              <Input placeholder="Reason for transaction" value={cfDesc} onChange={(e) => setCfDesc(e.target.value)} required={cfModal !== 'transfer'} />
             </div>
             <Button type="submit" className="w-full" disabled={cfLoading}>
               {cfLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

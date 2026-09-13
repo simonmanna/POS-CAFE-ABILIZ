@@ -1,3 +1,4 @@
+import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { resolveTenderAccount } from '../../accounting/treasury/tender-account';
@@ -427,16 +428,20 @@ export class PaymentService {
         paymentId: payment.id,
         amount: amount.toString(),
       });
-      return tx.payment.findFirst({
+      const result = await tx.payment.findFirst({
         where: { id: payment.id },
         include: { partner: true, allocations: { include: { document: true } } },
       });
+      // Nested callers (POS settle/refund) own the operation outcome themselves.
+      if (!externalTx) await recordBusinessOutcome(tx, { id: payment.id, paymentNumber: payment.paymentNumber }, true);
+      return result;
     };
     return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
   }
 
   /** Void a posted payment: reverse its journal entry and restore every residual. */
-  async void(id: string) {
+  async void(id: string, input: { reason?: string; correctionSessionId?: string } = {}) {
+    if (!input.reason?.trim()) throw new BadRequestException('A reason is required to void a payment');
     const payment = await this.prisma.client.payment.findFirst({
       where: { id },
       include: { allocations: true },
@@ -450,6 +455,7 @@ export class PaymentService {
       entityId: id,
       action: 'void',
       entity: payment,
+      payload: { reason: input.reason.trim(), correctionSessionId: input.correctionSessionId },
     });
 
     this.events.publish('payment.voided', {

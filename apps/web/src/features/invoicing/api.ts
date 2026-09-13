@@ -1,3 +1,4 @@
+import { idempotentPost } from '@/lib/idempotent-request';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { PaginatedResult } from '@erp/shared';
 import { api } from '@/lib/api';
@@ -233,7 +234,7 @@ export interface CreatePaymentInput {
 export function useCreatePayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: CreatePaymentInput) => (await api.post('/payments', input)).data,
+    mutationFn: (input: CreatePaymentInput) => idempotentPost('/payments', input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['invoices'] });
       qc.invalidateQueries({ queryKey: ['invoice'] });
@@ -376,8 +377,9 @@ export function usePayment(id: string | undefined) {
 export function useVoidPayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => (await api.post(`/payments/${id}/void`)).data,
-    onSuccess: (_d, id) => {
+    mutationFn: ({ id, reason, correctionSessionId }: { id: string; reason: string; correctionSessionId?: string }) =>
+      idempotentPost(`/payments/${id}/void`, { reason, ...(correctionSessionId ? { correctionSessionId } : {}) }),
+    onSuccess: (_d, { id }) => {
       qc.invalidateQueries({ queryKey: ['payments'] });
       qc.invalidateQueries({ queryKey: ['supplier-payments'] });
       qc.invalidateQueries({ queryKey: ['payment', id] });
@@ -457,7 +459,7 @@ export function useSupplierPayments(params: { page?: number; pageSize?: number; 
 export function useCreateSupplierPayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: CreatePaymentInput) => (await api.post('/supplier-payments', input)).data,
+    mutationFn: (input: CreatePaymentInput) => idempotentPost('/supplier-payments', input),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['supplier-payments'] });
       qc.invalidateQueries({ queryKey: ['expenses'] });

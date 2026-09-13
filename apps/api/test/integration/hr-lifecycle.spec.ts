@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaClient } from '@prisma/client';
+import { purge } from './_purge';
 import { describeDb } from './_setup';
 import { ensureAccountCategories, makeAccountFactory } from './_accounts';
 import { KernelModule } from '../../src/kernel/kernel.module';
@@ -117,7 +118,7 @@ describeDb('integration: HR employment lifecycle', () => {
       await prisma.hrEmployeeStatusHistory.deleteMany({ where: { organizationId } });
       await prisma.hrEmployeeTransfer.deleteMany({ where: { organizationId } });
       await prisma.hrEmployee.deleteMany({ where: { organizationId } });
-      await prisma.cashSession.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.cashSession.deleteMany({ where: { organizationId } }));
       await prisma.cashRegister.deleteMany({ where: { organizationId } });
       await prisma.account.deleteMany({ where: { organizationId } });
       await prisma.refreshToken.deleteMany({ where: { organizationId } });

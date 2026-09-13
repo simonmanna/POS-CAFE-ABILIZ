@@ -80,6 +80,7 @@ const ORG_SCOPED = new Set<string>([
   'PosRefund',
   'PosApprovalGrant',
   'TenderSettlement',
+  'PosReportSnapshot',
   'CashMovement',
   // POS payment modes: config rows binding a tender kind to its finance account
   'PosPaymentMethod',

@@ -1,3 +1,4 @@
+import { purge } from './_purge';
 ﻿/**
  * A-001 / A-100 regression (POS-CAFE-PHASE14 Wave 0).
  *
@@ -104,8 +105,8 @@ describeDb('A-001: store-credit issuance is gated, capped, funded and audited', 
     // the settings-resolver cache so each case sees its own cap row.
     await scoped.storeCreditLedger.deleteMany({ where: { organizationId } });
     await scoped.storeCredit.deleteMany({ where: { organizationId } });
-    await scoped.journalLine.deleteMany({ where: { organizationId } });
-    await scoped.journalEntry.deleteMany({ where: { organizationId } });
+    await purge(scoped, (tx) => tx.journalLine.deleteMany({ where: { organizationId } }));
+    await purge(scoped, (tx) => tx.journalEntry.deleteMany({ where: { organizationId } }));
     await scoped.auditLog.deleteMany({ where: { organizationId } });
     await scoped.setting.deleteMany({ where: { organizationId, key: 'pos.storeCreditIssueLimit' } });
     moduleRef.get(SettingResolverService).invalidate(organizationId);

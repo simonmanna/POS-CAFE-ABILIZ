@@ -44,7 +44,7 @@ export class CreateExpenseDto {
   @IsIn(['CASH', 'CREDIT'])
   paymentType!: 'CASH' | 'CREDIT';
 
-  /** Required on create — the staff member raising the expense. */
+  /** Ignored: the raiser is always the authenticated user. Accepted for older clients. */
   @IsOptional()
   @IsString()
   createdBy?: string;
@@ -99,8 +99,10 @@ export class UpdateExpenseDto {
 }
 
 export class PayExpenseDto {
+  /** Ignored: the payer is always the authenticated user. Accepted for older clients. */
+  @IsOptional()
   @IsString()
-  paidBy!: string;
+  paidBy?: string;
 
   @IsString()
   paymentMethod!: string;
@@ -118,8 +120,10 @@ export class PayExpenseDto {
 }
 
 export class ApproveExpenseDto {
+  /** Ignored: the approver is always the authenticated user. Accepted for older clients. */
+  @IsOptional()
   @IsString()
-  approvedBy!: string;
+  approvedBy?: string;
 
   @IsOptional()
   @IsString()

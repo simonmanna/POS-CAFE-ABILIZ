@@ -59,8 +59,10 @@ class UpdateCashAccountDto {
 export class CashFlowDto {
   @IsString() @IsNotEmpty() accountId!: string;
   @IsString() @IsNotEmpty() counterpartAccountId!: string;
+  @IsString() @IsNotEmpty() operationType!: string;
   @IsNumber() @Min(0.01) amount!: number;
-  @IsOptional() @IsString() description?: string;
+  @IsString() @IsNotEmpty() description!: string;
+  @IsOptional() @IsDateString() date?: string;
 }
 
 class TransactionsQueryDto {
@@ -128,6 +130,12 @@ export class CashFlowController {
     return this.movementReport.report(query);
   }
 
+  @Get('operation-types')
+  @RequirePermissions(PERMISSIONS.treasury.transfer)
+  operationTypes() {
+    return this.cashFlow.operationTypes();
+  }
+
   @Get('transactions')
   @RequirePermissions(PERMISSIONS.account.read)
   allTransactions(@Query() query: TransactionsQueryDto) {
@@ -144,13 +152,13 @@ export class CashFlowController {
   @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.treasury.transfer)
   deposit(@Body() dto: CashFlowDto) {
-    return this.cashFlow.deposit(dto.accountId, dto.counterpartAccountId, dto.amount, dto.description);
+    return this.cashFlow.deposit(dto);
   }
 
   @Post('withdraw')
   @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.treasury.transfer)
   withdraw(@Body() dto: CashFlowDto) {
-    return this.cashFlow.withdraw(dto.accountId, dto.counterpartAccountId, dto.amount, dto.description);
+    return this.cashFlow.withdraw(dto);
   }
 }

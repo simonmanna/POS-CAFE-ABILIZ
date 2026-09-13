@@ -46,6 +46,26 @@ export class StockService {
   ) {}
 
   /**
+   * A locked period protects physical stock as well as the GL (H9). Every stock
+   * movement — valued or not, with or without a GL context — is refused when
+   * the books are locked through its date or its fiscal period is closed.
+   */
+  private async assertStockPeriodOpen(date: Date, client?: any): Promise<void> {
+    const db = client ?? this.prisma.client;
+    const org = await db.organization.findUnique({ where: { id: this.tenant.organizationId }, select: { booksLockDate: true } });
+    if (org?.booksLockDate && date.getTime() <= new Date(org.booksLockDate).getTime()) {
+      throw new BadRequestException(
+        `Books are locked through ${new Date(org.booksLockDate).toISOString().slice(0, 10)}; stock cannot move on ${date.toISOString().slice(0, 10)}`,
+      );
+    }
+    const period = await db.fiscalPeriod.findFirst({
+      where: { organizationId: this.tenant.organizationId, startDate: { lte: date }, endDate: { gte: date }, status: { in: ['closed', 'locked'] } },
+      select: { name: true, status: true },
+    });
+    if (period) throw new BadRequestException(`Fiscal period '${period.name}' is ${period.status} (locked); stock cannot move in it`);
+  }
+
+  /**
    * Convert an incoming (quantity, unitCost) pair expressed in `sourceUomId` into
    * the product's base unit. Total value is preserved: unitCost is divided by the
    * same factor the quantity is multiplied by. No-op when sourceUomId is absent or
@@ -162,6 +182,7 @@ export class StockService {
     },
     externalTx?: any,
   ) {
+    await this.assertStockPeriodOpen(dto.date ?? new Date(), externalTx);
     const run = async (tx: any) => {
       // Convert the return quantity to the product's base unit (cost stays per base).
       const product = await tx.product.findFirst({ where: { id: dto.productId } });
@@ -263,6 +284,7 @@ export class StockService {
     externalTx?: any,
   ) {
     const organizationId = this.tenant.organizationId;
+    await this.assertStockPeriodOpen(glCtx?.date ?? new Date(), externalTx);
     const product = await this.prisma.client.product.findFirst({ where: { id: dto.productId } });
     if (!product) throw new NotFoundException('Product not found');
 
@@ -500,6 +522,7 @@ export class StockService {
 
   async issue(dto: IssueStockDto, externalTx?: any) {
     const organizationId = this.tenant.organizationId;
+    await this.assertStockPeriodOpen(dto.date ? new Date(dto.date) : new Date(), externalTx);
     const product = await this.prisma.client.product.findFirst({ where: { id: dto.productId } });
     if (!product) throw new NotFoundException('Product not found');
 
@@ -966,6 +989,7 @@ export class StockService {
 
   async adjust(dto: AdjustStockDto, externalTx?: any) {
     const organizationId = this.tenant.organizationId;
+    await this.assertStockPeriodOpen(new Date(), externalTx);
     const product = await this.prisma.client.product.findFirst({ where: { id: dto.productId } });
     if (!product) throw new NotFoundException('Product not found');
 
@@ -1075,6 +1099,7 @@ export class StockService {
 
   async transfer(dto: TransferStockDto, externalTx?: any) {
     const organizationId = this.tenant.organizationId;
+    await this.assertStockPeriodOpen(new Date(), externalTx);
     if (dto.fromLocationId === dto.toLocationId) {
       throw new BadRequestException('Source and destination locations must be different');
     }

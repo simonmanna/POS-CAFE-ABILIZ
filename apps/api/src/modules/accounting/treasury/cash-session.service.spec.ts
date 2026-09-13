@@ -84,7 +84,7 @@ describe('CashSessionService input guards', () => {
   describe('recordBankDeposit — H5 positive amount is enforced (guard path)', () => {
     it('reaches the transaction for a normal deposit (bound check happens inside)', async () => {
       await expect(
-        svc.recordBankDeposit('sess-1', { amount: 100, bankName: 'Stanbic' }),
+        svc.recordBankDeposit('sess-1', { amount: 100, bankName: 'Stanbic', destinationAccountId: 'bank-1' }),
       ).rejects.toThrow('REACHED_TRANSACTION');
     });
   });

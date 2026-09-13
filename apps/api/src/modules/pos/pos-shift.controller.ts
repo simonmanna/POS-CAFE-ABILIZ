@@ -7,7 +7,7 @@ import { Body, Controller, Post, UseInterceptors } from '@nestjs/common';
 import { Idempotent } from '../../kernel/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../kernel/idempotency/idempotency.interceptor';
 import { ApiBearerAuth, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
 import { PosShiftService } from './pos-shift.service';
 
@@ -27,6 +27,12 @@ class HandoverBody {
   @ApiProperty({ required: false, description: 'Incoming opening float. Defaults to the counted cash carried over.' })
   @IsOptional() @IsNumber() @Min(0) openingFloat?: number;
   @ApiProperty({ required: false }) @IsOptional() @IsString() notes?: string;
+  @ApiProperty({ required: false, description: 'Denomination breakdown; must total closingCounted.' })
+  @IsOptional() @IsObject() closingDenomination?: Record<string, number>;
+  @ApiProperty({ required: false, description: 'Observed balances for tracked tender accounts.' })
+  @IsOptional() @IsObject() closingAccounts?: Record<string, number>;
+  @ApiProperty({ required: false, description: 'Tracked tender accounts not counted: accountId → reason.' })
+  @IsOptional() @IsObject() uncountedAccounts?: Record<string, string>;
 }
 
 @ApiTags('pos/shift')

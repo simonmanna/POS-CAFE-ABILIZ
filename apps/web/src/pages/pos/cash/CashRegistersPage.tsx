@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '@/lib/api-error';
 import { useAccounts } from '@/features/accounting/api';
 import { ShiftOpenDialog as OpenShiftDialog } from '../ShiftOpenDialog';
 import { ShiftCloseDialog as CloseShiftDialog } from '../ShiftCloseDialog';
@@ -30,9 +31,10 @@ import { toast } from 'sonner';
 import {
   useCashRegisters, useDailyReconciliation,
   useOpenSession, useRecordMovement,
-  useSessionHistory, useSessionMovements, useUpdateVariance,
+  useRegisterOpenSession, useSessionHistory, useSessionMovements, useUpdateVariance,
 } from '../api';
 import { HandoverDialog } from '../HandoverDialog';
+import { BankClosedShiftCard, ForceCloseCard } from './ShiftCustodyPanels';
 import { PaymentAccountsPanel } from './PaymentAccountsPanel';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import type {
@@ -167,15 +169,19 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
   // The drawer's cash is usually carried to the bank after the Z-read, so the
   // last closed session still owns it. Until it is banked, its counted cash sits
   // on the drawer ledger and the next open is refused for being below it.
-  const { data: recent } = useSessionHistory(1, 1, registerId);
+  const { data: recent, refetch: refetchRecent } = useSessionHistory(1, 1, registerId);
   const lastClosed = (recent?.data ?? []).find((s: SessionHistoryItem) => s.status === 'closed') ?? null;
-  const unbanked = lastClosed ? Number(lastClosed.closingCounted ?? 0) - Number(lastClosed.bankedAmount ?? 0) : 0;
+  // Any open shift on this register, whoever runs it.
+  const { data: registerSession, refetch: refetchRegisterSession } = useRegisterOpenSession(registerId);
+  const someoneElsesShift = !thisSession && registerSession && registerSession.cashRegisterId === registerId ? registerSession : null;
 
   // Refresh when dialogs close
   const handleSessionChange = () => {
     setShowOpenShift(false);
     setShowCloseShift(false);
     setShowHandover(false);
+    refetchRecent();
+    refetchRegisterSession();
     onSessionChange();
   };
 
@@ -212,6 +218,11 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
           {/* Drawer audit trail */}
           <CashDrawerAudit sessionId={thisSession.id} />
         </>
+      ) : someoneElsesShift ? (
+        <>
+          <ForceCloseCard session={someoneElsesShift} onDone={handleSessionChange} />
+          <CashDrawerAudit sessionId={someoneElsesShift.id} />
+        </>
       ) : (
         <>
           {/* No open session */}
@@ -224,14 +235,7 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
             </Button>
           </div>
 
-          {unbanked > 0 && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 flex items-center justify-between gap-3">
-              <div className="text-sm text-amber-900">
-                <p className="font-semibold">{fmt(unbanked)} from the last session is still in the drawer</p>
-                <p className="text-amber-800">Bank it (or record the removal) before opening with a smaller float — the opening count cannot be below the drawer ledger.</p>
-              </div>
-            </div>
-          )}
+          <BankClosedShiftCard registerId={registerId} lastClosed={lastClosed} onDone={handleSessionChange} />
 
           {/* Money buckets are worth seeing even with the register closed */}
           <PaymentAccountsPanel session={null} registerId={registerId} />
@@ -315,7 +319,7 @@ const CashInOutButton: React.FC<{
       close();
       onDone();
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to record movement');
+      toast.error(apiErrorMessage(e, 'Failed to record movement'));
     }
   };
 
@@ -499,19 +503,23 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
 
   const handleApprove = async (sessionId: string, reason: string) => {
     try {
-      await updateVariance.mutateAsync({ sessionId, reason: reason || 'Approved by manager', status: 'approved' });
+      const note = window.prompt('Review note (why the variance is accepted)', reason ? `Accepted: ${reason}` : '');
+      if (note == null || !note.trim()) return;
+      await updateVariance.mutateAsync({ sessionId, reason: note.trim(), status: 'approved' });
       toast.success('Variance approved');
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to update variance');
+      toast.error(apiErrorMessage(e, 'Failed to update variance'));
     }
   };
 
-  const handleReject = async (sessionId: string, reason: string) => {
+  const handleReject = async (sessionId: string, _reason: string) => {
     try {
-      await updateVariance.mutateAsync({ sessionId, reason: reason || 'Rejected by manager', status: 'rejected' });
+      const note = window.prompt('Review note (why the variance is rejected and what happens next)', '');
+      if (note == null || !note.trim()) return;
+      await updateVariance.mutateAsync({ sessionId, reason: note.trim(), status: 'rejected' });
       toast.success('Variance rejected');
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to update variance');
+      toast.error(apiErrorMessage(e, 'Failed to update variance'));
     }
   };
 
@@ -615,19 +623,23 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
 
   const handleApprove = async (sessionId: string, reason: string) => {
     try {
-      await updateVariance.mutateAsync({ sessionId, reason: reason || 'Approved by manager', status: 'approved' });
+      const note = window.prompt('Review note (why the variance is accepted)', reason ? `Accepted: ${reason}` : '');
+      if (note == null || !note.trim()) return;
+      await updateVariance.mutateAsync({ sessionId, reason: note.trim(), status: 'approved' });
       toast.success('Variance approved');
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to update variance');
+      toast.error(apiErrorMessage(e, 'Failed to update variance'));
     }
   };
 
-  const handleReject = async (sessionId: string, reason: string) => {
+  const handleReject = async (sessionId: string, _reason: string) => {
     try {
-      await updateVariance.mutateAsync({ sessionId, reason: reason || 'Rejected by manager', status: 'rejected' });
+      const note = window.prompt('Review note (why the variance is rejected and what happens next)', '');
+      if (note == null || !note.trim()) return;
+      await updateVariance.mutateAsync({ sessionId, reason: note.trim(), status: 'rejected' });
       toast.success('Variance rejected');
     } catch (e: any) {
-      toast.error(e?.response?.data?.message || 'Failed to update variance');
+      toast.error(apiErrorMessage(e, 'Failed to update variance'));
     }
   };
 

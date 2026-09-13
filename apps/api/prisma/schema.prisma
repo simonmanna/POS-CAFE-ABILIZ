@@ -3008,6 +3008,12 @@ model Payment {
   /// Phase F: branch this payment was made at.
   branchId          String?
   journalEntryId    String?
+  /// Void evidence. The allocation rows a void releases are snapshotted here
+  /// before they are removed, so the settlement history is never lost.
+  voidedAt          DateTime?
+  voidedById        String?
+  voidReason        String?
+  voidedAllocations Json?
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   createdBy         String?
@@ -3868,7 +3874,7 @@ model CashSession {
   /// configuration changes must never redirect postings within a shift.
   drawerAccountId     String?
   /// Immutable inventory location captured when the shift opens.
-  registerLocationId String?
+  registerLocationId  String?
   /// Phase F: redundant cache of the register's branch, for branch-scoped
   /// reports without joining back to the register.
   branchId            String?
@@ -3911,6 +3917,7 @@ model CashSession {
 
   cashRegister CashRegister   @relation(fields: [cashRegisterId], references: [id])
   movements    CashMovement[]
+  corrections  CashMovement[] @relation("CashMovementCorrection")
 
   @@index([organizationId])
   @@index([cashRegisterId])
@@ -3924,27 +3931,33 @@ model CashSession {
 /// `Payment` is linked via `paymentId` so the cash session reconciles with the
 /// ledger.
 model CashMovement {
-  id                   String           @id @default(uuid())
-  organizationId       String
-  cashSessionId        String
-  movementType         CashMovementType
-  amount               Decimal          @db.Decimal(20, 6)
-  paymentId            String?
-  reason               String?
-  counterpartAccountId String?
-  journalEntryId       String?
+  id                    String           @id @default(uuid())
+  organizationId        String
+  cashSessionId         String
+  movementType          CashMovementType
+  amount                Decimal          @db.Decimal(20, 6)
+  paymentId             String?
+  reason                String?
+  counterpartAccountId  String?
+  journalEntryId        String?
   /// Append-only link used when a posted drawer movement is corrected.
-  reversalOfMovementId String?
-  performedBy          String?
-  createdAt            DateTime         @default(now())
+  reversalOfMovementId  String?
+  /// Set when this movement corrects an earlier, already-closed shift.
+  correctionOfSessionId String?
+  performedBy           String?
+  createdAt             DateTime         @default(now())
 
-  cashSession CashSession @relation(fields: [cashSessionId], references: [id], onDelete: Cascade)
-  payment     Payment?    @relation(fields: [paymentId], references: [id])
+  cashSession  CashSession    @relation(fields: [cashSessionId], references: [id], onDelete: Restrict)
+  correctionOf CashSession?   @relation("CashMovementCorrection", fields: [correctionOfSessionId], references: [id], onDelete: Restrict)
+  payment      Payment?       @relation(fields: [paymentId], references: [id])
+  reversalOf   CashMovement?  @relation("CashMovementReversal", fields: [reversalOfMovementId], references: [id], onDelete: Restrict)
+  reversals    CashMovement[] @relation("CashMovementReversal")
 
   @@index([organizationId])
   @@index([cashSessionId])
   @@index([paymentId])
   @@index([reversalOfMovementId])
+  @@index([correctionOfSessionId])
 }
 
 /// A payment mode the cashier can pick in the Charge dialog, bound to the finance
@@ -6258,6 +6271,9 @@ model StockPostingJob {
   attempts       Int       @default(0)
   maxAttempts    Int       @default(5)
   lastError      String?
+  /// Keys of the lines (orderItemId, or orderItemId:componentId for extras)
+  /// already relieved. A retry skips them, so recovery never double-issues.
+  postedLineKeys String[]  @default([])
   /// Multi-instance claim token (same pattern as EventOutbox). Cleared on release.
   claimToken     String?
   claimedAt      DateTime?
