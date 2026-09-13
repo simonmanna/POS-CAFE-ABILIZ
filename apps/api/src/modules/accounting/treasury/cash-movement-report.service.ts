@@ -402,7 +402,7 @@ export class CashMovementReportService {
       LEFT JOIN "AccountCategory" ac ON ac.id = a."categoryId"
       LEFT JOIN "Branch" br ON br.id = COALESCE(jl."branchId", je."branchId")
       LEFT JOIN "CostCenter" cc ON cc.id = COALESCE(jl."costCenterId", je."costCenterId")
-      WHERE ${where}
+      WHERE jl."organizationId" = ${this.tenant.organizationId} AND ${where}
       ORDER BY je."postingDate" DESC, je."entryNumber" DESC, jl."lineNumber" ASC
       LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
     `);
@@ -527,7 +527,7 @@ export class CashMovementReportService {
         jl."baseCredit"::text AS "baseCredit"
       FROM "JournalLine" jl
       JOIN "Account" a ON a.id = jl."accountId"
-      WHERE jl."journalEntryId" IN (${Prisma.join(entryIds)})
+      WHERE jl."organizationId" = ${this.tenant.organizationId} AND jl."journalEntryId" IN (${Prisma.join(entryIds)})
     `);
 
     const byEntry = new Map<string, typeof legs>();

@@ -26,7 +26,8 @@
     "verify": "pnpm lint:arch && pnpm shared:build && pnpm typecheck && pnpm --filter @erp/api test",
     "test:pos:stage1": "node scripts/test-pos-stage1.cjs",
     "test:pos:recovery": "vitest run --config vitest.pos.config.ts",
-    "audit:pos:preflight": "node scripts/pos-release-preflight.cjs"
+    "audit:pos:preflight": "node scripts/pos-release-preflight.cjs",
+    "release:gate": "node scripts/release-gate.cjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

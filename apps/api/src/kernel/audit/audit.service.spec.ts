@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
  * Skipped automatically when no DATABASE_URL is configured.
  */
 const HAS_DB = !!process.env.DATABASE_URL;
+if (!HAS_DB && (process.env.REQUIRE_DB_TESTS === '1' || process.env.CI === 'true')) throw new Error('DATABASE_URL is required in release/CI runs');
 const describeDb = HAS_DB ? describe : describe.skip;
 
 describeDb('AuditService.recordInTx (rolls back on audit failure)', () => {

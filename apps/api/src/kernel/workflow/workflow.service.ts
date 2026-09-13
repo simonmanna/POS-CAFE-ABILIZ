@@ -5,6 +5,17 @@ import { TenantContextService } from '../tenancy/tenant-context.service';
 import { AuditService } from '../audit/audit.service';
 import { EventOutboxService } from '../events/event-outbox.service';
 import { WorkflowRegistry } from './workflow.registry';
+import { Prisma } from '@prisma/client';
+
+const FIELD_CACHE = new Map<string, Set<string> | null>();
+/** Scalar field names of a Prisma model (by delegate name), or null if unknown. */
+function modelFields(delegate: string): Set<string> | null {
+  if (!FIELD_CACHE.has(delegate)) {
+    const model = Prisma.dmmf.datamodel.models.find((m) => m.name.charAt(0).toLowerCase() + m.name.slice(1) === delegate);
+    FIELD_CACHE.set(delegate, model ? new Set(model.fields.map((f) => f.name)) : null);
+  }
+  return FIELD_CACHE.get(delegate)!;
+}
 
 /**
  * Generic state-machine executor (ADR-007).
@@ -196,13 +207,15 @@ export class WorkflowService {
 
   /** Extra fields to set on status transitions (e.g. `postedAt`, `postedBy`). */
   private statusExtraFields(entityType: string, toState: WorkflowState): Record<string, unknown> {
-    if (toState === 'posted') {
-      return { postedAt: new Date(), postedBy: this.tenant.userId ?? null };
-    }
-    if (toState === 'cancelled') {
-      return { cancelledAt: new Date(), cancelledBy: this.tenant.userId ?? null };
-    }
-    return {};
+    const extra: Record<string, unknown> =
+      toState === 'posted' ? { postedAt: new Date(), postedBy: this.tenant.userId ?? null }
+        : toState === 'cancelled' ? { cancelledAt: new Date(), cancelledBy: this.tenant.userId ?? null }
+          : {};
+    // Only stamp columns the model actually has. Payment, for one, records its
+    // void on voidedAt/voidedById; writing cancelledAt made every payment void
+    // fail with a Prisma validation error.
+    const fields = modelFields(this.modelName(entityType));
+    return Object.fromEntries(Object.entries(extra).filter(([k]) => !fields || fields.has(k)));
   }
 
   private auditActionFor(action: string): 'create' | 'update' | 'delete' | 'login' | 'logout' | 'approve' | 'reject' | 'post' | 'cancel' | 'receive' | 'issue' | 'adjust' | 'transfer' {

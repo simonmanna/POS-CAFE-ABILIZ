@@ -1,6 +1,15 @@
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
+// RETIRED (2026-09-14): this script rewrites or deletes posted financial
+// history, which the evidence-integrity triggers now forbid by design. Use an
+// approved correction instead: src/scripts/reverse-journal-entry.ts (reversal
+// through PostingService), a linked drawer correction in a current shift, or a
+// payment void with a reason.
+console.error('Retired: this script mutates posted financial history. See the header for the approved correction workflow.');
+process.exit(1);
+
+
 
 /**
  * Give a cash register its own drawer account and clear the historical drift
