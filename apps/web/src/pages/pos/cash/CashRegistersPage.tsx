@@ -48,7 +48,7 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 
 type Tab = 'register' | 'history' | 'reconciliation';
 
-const SHOW_CASH_MOVEMENTS = false;
+const SHOW_CASH_MOVEMENTS = true;
 
 /* ==========================================================================
    Main Page

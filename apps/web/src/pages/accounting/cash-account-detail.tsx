@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowDownToLine, ArrowUpFromLine, Building2, Banknote, Smartphone, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useCashAccountTransactions, useCashFlowDeposit, useCashFlowWithdraw } from '@/features/accounting/api';
+import { useAccounts, useCashAccountTransactions, useCashFlowDeposit, useCashFlowWithdraw } from '@/features/accounting/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -25,6 +25,7 @@ export function CashAccountDetailPage() {
   const pageSize = 25;
 
   const { data, isLoading } = useCashAccountTransactions(id, { page, pageSize });
+  const { data: accountPage } = useAccounts();
   const deposit = useCashFlowDeposit();
   const withdraw = useCashFlowWithdraw();
 
@@ -32,6 +33,7 @@ export function CashAccountDetailPage() {
   const [showWithdraw, setShowWithdraw] = useState(false);
   const [formAmount, setFormAmount] = useState('');
   const [formDesc, setFormDesc] = useState('');
+  const [counterpartAccountId, setCounterpartAccountId] = useState('');
   const [formLoading, setFormLoading] = useState(false);
 
   if (isLoading || !data) {
@@ -45,21 +47,17 @@ export function CashAccountDetailPage() {
   const acct = data.account;
   const cfg = TYPE_CONFIG[acct.accountType] ?? { icon: Banknote, label: acct.accountType, color: '', bg: 'bg-slate-500' };
 
-  const running = (idx: number) => {
-    return data.data.slice(0, idx + 1).reduce((s, t) => s + Number(t.baseDebit) - Number(t.baseCredit), 0);
-  };
-
   const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = Number(formAmount);
-    if (!amount || amount <= 0) return;
+    if (!amount || amount <= 0 || !counterpartAccountId) return;
     setFormLoading(true);
     try {
-      await deposit.mutateAsync({ accountId: id!, amount, description: formDesc });
+      await deposit.mutateAsync({ accountId: id!, counterpartAccountId, amount, description: formDesc });
       toast.success('Deposit recorded');
       setShowDeposit(false);
       setFormAmount('');
-      setFormDesc('');
+      setFormDesc(''); setCounterpartAccountId('');
     } catch {
       toast.error('Deposit failed');
     } finally {
@@ -70,14 +68,14 @@ export function CashAccountDetailPage() {
   const handleWithdraw = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = Number(formAmount);
-    if (!amount || amount <= 0) return;
+    if (!amount || amount <= 0 || !counterpartAccountId) return;
     setFormLoading(true);
     try {
-      await withdraw.mutateAsync({ accountId: id!, amount, description: formDesc });
+      await withdraw.mutateAsync({ accountId: id!, counterpartAccountId, amount, description: formDesc });
       toast.success('Withdrawal recorded');
       setShowWithdraw(false);
       setFormAmount('');
-      setFormDesc('');
+      setFormDesc(''); setCounterpartAccountId('');
     } catch {
       toast.error('Withdrawal failed');
     } finally {
@@ -85,9 +83,7 @@ export function CashAccountDetailPage() {
     }
   };
 
-  const lastTransactionBalance = data.data.length > 0
-    ? data.data.reduce((s, t) => s + Number(t.baseDebit) - Number(t.baseCredit), 0)
-    : 0;
+  const lastTransactionBalance = Number(acct.currentBalance);
 
   return (
     <div className="space-y-6 p-6">
@@ -145,7 +141,7 @@ export function CashAccountDetailPage() {
                   </TableCell>
                 </TableRow>
               ) : (
-                data.data.map((t, idx) => (
+                data.data.map((t) => (
                   <TableRow key={t.id}>
                     <TableCell className="whitespace-nowrap">
                       {new Date(t.postingDate).toLocaleDateString()}
@@ -159,8 +155,8 @@ export function CashAccountDetailPage() {
                       {Number(t.baseCredit) > 0 ? Number(t.baseCredit).toLocaleString('en-US', { minimumFractionDigits: 2 }) : ''}
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      <span className={running(idx) < 0 ? 'text-red-600' : running(idx) > 0 ? 'text-green-600' : ''}>
-                        {running(idx).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      <span className={Number(t.runningBalance) < 0 ? 'text-red-600' : Number(t.runningBalance) > 0 ? 'text-green-600' : ''}>
+                        {Number(t.runningBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </span>
                     </TableCell>
                   </TableRow>
@@ -200,6 +196,13 @@ export function CashAccountDetailPage() {
               <Input type="number" step="0.01" min="0.01" placeholder="0.00" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required />
             </div>
             <div className="space-y-2">
+              <Label>Source / counterpart account</Label>
+              <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={counterpartAccountId} onChange={(e) => setCounterpartAccountId(e.target.value)} required>
+                <option value="">Choose the source of funds</option>
+                {(accountPage?.data ?? []).filter((a) => a.id !== id && a.isActive && !a.isGroup).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
+              </select>
+            </div>
+            <div className="space-y-2">
               <Label>Description</Label>
               <Input placeholder="Source of funds" value={formDesc} onChange={(e) => setFormDesc(e.target.value)} />
             </div>
@@ -222,6 +225,13 @@ export function CashAccountDetailPage() {
             <div className="space-y-2">
               <Label>Amount</Label>
               <Input type="number" step="0.01" min="0.01" placeholder="0.00" value={formAmount} onChange={(e) => setFormAmount(e.target.value)} required />
+            </div>
+            <div className="space-y-2">
+              <Label>Expense / counterpart account</Label>
+              <select className="w-full rounded-md border bg-background px-3 py-2 text-sm" value={counterpartAccountId} onChange={(e) => setCounterpartAccountId(e.target.value)} required>
+                <option value="">Choose where the money was spent</option>
+                {(accountPage?.data ?? []).filter((a) => a.id !== id && a.isActive && !a.isGroup).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
+              </select>
             </div>
             <div className="space-y-2">
               <Label>Description</Label>

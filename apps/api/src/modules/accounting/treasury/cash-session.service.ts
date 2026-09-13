@@ -169,6 +169,7 @@ export class CashSessionService {
     const organizationId = this.tenant.organizationId;
     const userId = this.tenant.userId;
     if (!userId) throw new BadRequestException('No user in tenant context');
+    this.assertDenominationTotal(dto.openingDenomination, dto.openingFloat ?? 0, 'opening float');
 
     return this.prisma.client.$transaction(async (tx: any) => {
       const register = await tx.cashRegister.findFirst({ where: { id: dto.cashRegisterId, organizationId } });
@@ -211,6 +212,9 @@ export class CashSessionService {
         data: {
           organizationId,
           cashRegisterId: dto.cashRegisterId,
+          branchId: register.branchId ?? null,
+          drawerAccountId: drawer.id,
+          registerLocationId: register.locationId ?? null,
           userId,
           status: 'open',
           openingFloat: dec(dto.openingFloat ?? 0),
@@ -245,6 +249,7 @@ export class CashSessionService {
       const organizationId = this.tenant.organizationId;
       const counted = dec(dto.closingCounted);
       if (!counted.isFinite() || counted.isNegative()) throw new BadRequestException('Counted cash cannot be negative');
+      this.assertDenominationTotal(dto.closingDenomination, counted, 'closing count');
 
       return this.prisma.client.$transaction(async (tx: any) => {
         // If sessionId is provided, close that specific session (shared terminal - any cashier can close)
@@ -253,6 +258,9 @@ export class CashSessionService {
           ? await tx.cashSession.findFirst({ where: { id: dto.sessionId, organizationId } })
           : await this.requireOpenSession(tx);
         if (!session) throw new NotFoundException('No open cash session');
+        if (session.userId !== this.tenant.userId) {
+          throw new ForbiddenException('Only the session cashier can close this shift; use manager handover or force-close workflow');
+        }
         await this.lockOpenSession(tx, session.id);
         if (session.status !== 'open') throw new BadRequestException('Session is not open');
 
@@ -268,7 +276,26 @@ export class CashSessionService {
       if (reconciliation.unsettledOrders || reconciliation.pendingPayments || reconciliation.pendingPostings || reconciliation.issues.length) {
         throw new BadRequestException({ message: 'Resolve unsettled orders, payments and posting differences before closing', reconciliation });
       }
+      const tracked = await tx.posPaymentMethod.findMany({
+        where: { organizationId, isActive: true, trackInShift: true, accountId: { not: null } },
+        select: { accountId: true, label: true },
+      });
+      const observedIds = new Set(Object.keys(dto.closingAccounts ?? {}));
+      const missing = tracked.filter((m: any) => m.accountId && !observedIds.has(m.accountId));
+      if (missing.length) throw new BadRequestException(`Enter closing balances for: ${missing.map((m: any) => m.label).join(', ')}`);
       const closingAccounts = await accountObservations(tx, organizationId, dto.closingAccounts);
+      const providerDifferences = Object.values(closingAccounts).filter((row: any) => !dec(row.difference).isZero()) as any[];
+      if (providerDifferences.length) {
+        if (!dto.varianceReason?.trim()) throw new BadRequestException('Explain card, bank or mobile-money balance differences before closing');
+        await this.assertManagerApproval(tx, {
+          approverId: dto.approvedById,
+          approverEmail: dto.approverEmail,
+          managerPin: dto.managerPin,
+          cashierUserId: session.userId,
+          permission: 'cash_session:approve_variance',
+          actionLabel: 'electronic tender balance differences',
+        });
+      }
       const expected = await this.computeExpected(tx, session);
       const closingDifference = counted.minus(expected);
       const reason = dto.varianceReason ? dto.varianceReason.trim() : null;
@@ -416,6 +443,8 @@ export class CashSessionService {
         data: {
           organizationId,
           cashRegisterId: outgoing.cashRegisterId,
+          drawerAccountId: outgoing.drawerAccountId ?? null,
+          registerLocationId: outgoing.registerLocationId ?? null,
           branchId: outgoing.branchId ?? null,
           userId: dto.incomingUserId,
           status: 'open',
@@ -478,6 +507,12 @@ export class CashSessionService {
   async recordMovement(sessionId: string | undefined, dto: RecordMovementDto) {
     const organizationId = this.tenant.organizationId;
     const amount = dec(dto.amount);
+
+    // Runtime callers (offline sync, tests and internal services) do not pass
+    // through class-validator. Keep the financial invariant in the domain too.
+    if (!['pay_in', 'pay_out', 'adjustment'].includes(dto.movementType as string)) {
+      throw new BadRequestException('Movement type must be pay_in, pay_out or adjustment');
+    }
 
     // H4 — sign rules. pay_in / pay_out must be strictly positive (the type
     // carries the direction). adjustment may be signed but never zero.
@@ -871,7 +906,6 @@ export class CashSessionService {
       where: {
         organizationId,
         openedAt: { gte: start, lt: end },
-        status: { not: 'reconciled' },
       },
       include: {
         cashRegister: { select: { id: true, code: true, name: true } },
@@ -896,6 +930,7 @@ export class CashSessionService {
     let grandPayOuts = ZERO;
     let grandRefunds = ZERO;
     let grandBanked = ZERO;
+    let grandAdjustments = ZERO;
 
     for (const s of sessions) {
       let sales = ZERO;
@@ -918,7 +953,9 @@ export class CashSessionService {
       }
 
       const opening = dec(s.openingFloat);
-      const expected = opening.plus(sales).plus(payIns).plus(adjustments).minus(payOuts).minus(refunds).minus(banked);
+      // Banking happens after the immutable close count. It is a custody
+      // transfer and must not retroactively create a drawer variance.
+      const expected = opening.plus(sales).plus(payIns).plus(adjustments).minus(payOuts).minus(refunds);
       const actual = s.closingCounted ? dec(s.closingCounted) : null;
       const variance = actual ? actual.minus(expected) : null;
 
@@ -928,6 +965,7 @@ export class CashSessionService {
       grandPayOuts = grandPayOuts.plus(payOuts);
       grandRefunds = grandRefunds.plus(refunds);
       grandBanked = grandBanked.plus(banked);
+      grandAdjustments = grandAdjustments.plus(adjustments);
 
       rows.push({
         sessionId: s.id,
@@ -948,7 +986,7 @@ export class CashSessionService {
       });
     }
 
-    const grandExpected = grandOpening.plus(grandSales).plus(grandPayIns).minus(grandPayOuts).minus(grandRefunds).minus(grandBanked);
+    const grandExpected = grandOpening.plus(grandSales).plus(grandPayIns).plus(grandAdjustments).minus(grandPayOuts).minus(grandRefunds);
 
     return {
       date: dateStr.trim().slice(0, 10),
@@ -961,6 +999,7 @@ export class CashSessionService {
         payOutsTotal: grandPayOuts.toString(),
         refundsTotal: grandRefunds.toString(),
         bankedAmount: grandBanked.toString(),
+        adjustmentsTotal: grandAdjustments.toString(),
         expectedCash: grandExpected.toString(),
       },
     };
@@ -1300,9 +1339,25 @@ export class CashSessionService {
     for (const [face, count] of Object.entries(input)) {
       const f = Number(face);
       const c = Number(count);
-      if (Number.isFinite(f) && f > 0 && Number.isFinite(c) && c >= 0) out[String(f)] = Math.floor(c);
+      if (!Number.isFinite(f) || f <= 0 || !Number.isFinite(c) || c < 0 || !Number.isInteger(c)) {
+        throw new BadRequestException('Denominations require positive face values and whole, non-negative counts');
+      }
+      out[String(f)] = c;
     }
     return Object.keys(out).length ? out : Prisma.DbNull;
+  }
+
+  private assertDenominationTotal(input: Record<string, number> | undefined, total: number | string | Prisma.Decimal, label: string) {
+    if (!input) return;
+    let denominationTotal = ZERO;
+    for (const [face, count] of Object.entries(input)) {
+      const f = Number(face), c = Number(count);
+      if (!Number.isFinite(f) || f <= 0 || !Number.isFinite(c) || c < 0 || !Number.isInteger(c)) {
+        throw new BadRequestException('Denominations require positive face values and whole, non-negative counts');
+      }
+      denominationTotal = denominationTotal.plus(dec(f).times(c));
+    }
+    if (!denominationTotal.eq(dec(total))) throw new BadRequestException(`Denomination total must equal the ${label}`);
   }
 
   /**
@@ -1354,6 +1409,7 @@ export class CashSessionService {
   // ─── GL posting (best-effort; a config gap is logged, never trapping the till) ──
 
   private async registerCashAccount(tx: any, session: any): Promise<string> {
+    if (session.drawerAccountId) return session.drawerAccountId;
     const register = await tx.cashRegister.findFirst({ where: { id: session.cashRegisterId } });
     if (register?.defaultAccountId) return register.defaultAccountId;
     // Fall back to the org default cash account.

@@ -57,6 +57,8 @@ export class StockPostingService {
     date: Date;
     sourceType: string;
     sourceId: string;
+    /** Exact physical movement key. Defaults to a deterministic source/product key. */
+    postingKey?: string;
     description?: string;
     /** Movement type for GL resolution. Defaults to 'STOCK_OUT'. */
     movementType?: InventoryMovementType;
@@ -132,6 +134,7 @@ export class StockPostingService {
           description: params.description ?? `Stock issue ${product.name}`,
           sourceType: params.sourceType,
           sourceId: params.sourceId,
+          postingKey: params.postingKey ?? `inventory:issue:${params.sourceType}:${params.sourceId}:${params.productId}:${params.variantId ?? ''}:${params.locationId}:${params.movementType ?? 'STOCK_OUT'}`,
           lines,
         },
         params.tx,

@@ -86,6 +86,12 @@ export async function createAuditOrg(prisma: PrismaClient, tag: string): Promise
     })
   ).id;
 
+  // Production policy requires an explicit POS stock location when an
+  // organization has more than one warehouse.
+  await prisma.setting.create({
+    data: { organizationId, scopeType: 'organization', scopeId: '', key: 'pos.stockLocationId', value: mainLocationId as any },
+  });
+
   return { organizationId, mainLocationId, altLocationId, accounts };
 }
 
@@ -139,6 +145,7 @@ export async function dropAuditOrg(prisma: PrismaClient, organizationId?: string
     'eventOutbox',
     'approvalRequest',
     'accountMapping',
+    'setting',
     'account',
     'journal',
     'productVariant',

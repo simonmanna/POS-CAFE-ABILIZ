@@ -3,10 +3,10 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { PostingService } from '../posting/posting.service';
-import { AccountDeterminationService } from '../posting/account-determination.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 import { dec, ZERO } from '../../../kernel/common/money';
 import { AccountResolverService } from '../posting/account-resolver.service';
+import { randomUUID } from 'crypto';
 
 /**
  * Legacy account types accepted by `createCashAccount`, mapped to the category
@@ -27,7 +27,6 @@ export class CashFlowService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly posting: PostingService,
-    private readonly determination: AccountDeterminationService,
     private readonly accounts: AccountResolverService,
   ) {}
 
@@ -114,15 +113,15 @@ export class CashFlowService {
     });
     if (existing) throw new BadRequestException('Account code already exists');
 
-    if (dto.isDefault) {
-      await this.prisma.client.account.updateMany({
-        where: { organizationId: orgId, categoryId: category.id, isDefault: true },
-        data: { isDefault: false },
-      });
-    }
-
-    return this.prisma.client.account.create({
-      data: {
+    return this.prisma.client.$transaction(async (tx: any) => {
+      if (dto.isDefault) {
+        await tx.$queryRawUnsafe('SELECT id FROM "AccountCategory" WHERE id = $1 FOR UPDATE', category.id);
+        await tx.account.updateMany({
+          where: { organizationId: orgId, categoryId: category.id, isDefault: true },
+          data: { isDefault: false },
+        });
+      }
+      return tx.account.create({ data: {
         organizationId: orgId,
         code: dto.code,
         name: dto.name,
@@ -133,7 +132,7 @@ export class CashFlowService {
         accountNumber: dto.accountNumber ?? null,
         isDefault: dto.isDefault ?? false,
         cashFlowCategory: 'operating',
-      },
+      } });
     });
   }
 
@@ -148,22 +147,21 @@ export class CashFlowService {
     const account = await this.prisma.client.account.findFirst({ where: { id, organizationId: orgId } });
     if (!account) throw new NotFoundException('Account not found');
 
-    if (dto.isDefault) {
-      await this.prisma.client.account.updateMany({
-        where: { organizationId: orgId, categoryId: account.categoryId, isDefault: true, id: { not: id } },
-        data: { isDefault: false },
-      });
-    }
-
-    return this.prisma.client.account.update({
-      where: { id },
-      data: {
+    return this.prisma.client.$transaction(async (tx: any) => {
+      if (dto.isDefault) {
+        await tx.$queryRawUnsafe('SELECT id FROM "AccountCategory" WHERE id = $1 FOR UPDATE', account.categoryId);
+        await tx.account.updateMany({
+          where: { organizationId: orgId, categoryId: account.categoryId, isDefault: true, id: { not: id } },
+          data: { isDefault: false },
+        });
+      }
+      return tx.account.update({ where: { id }, data: {
         name: dto.name,
         currencyId: dto.currencyId,
         bankName: dto.bankName,
         accountNumber: dto.accountNumber,
         isDefault: dto.isDefault,
-      },
+      } });
     });
   }
 
@@ -171,38 +169,51 @@ export class CashFlowService {
     const orgId = this.tenant.organizationId;
     const account = await this.prisma.client.account.findFirst({ where: { id, organizationId: orgId } });
     if (!account) throw new NotFoundException('Account not found');
+    const [registers, methods, openSessions] = await Promise.all([
+      this.prisma.client.cashRegister.count({ where: { organizationId: orgId, defaultAccountId: id, isActive: true } }),
+      this.prisma.client.posPaymentMethod.count({ where: { organizationId: orgId, accountId: id, isActive: true } }),
+      this.prisma.client.cashSession.count({ where: { organizationId: orgId, status: 'open', cashRegister: { defaultAccountId: id } } }),
+    ]);
+    if (registers || methods || openSessions) {
+      throw new BadRequestException('Account is in active use by a register, payment method or open shift');
+    }
     return this.prisma.client.account.update({
       where: { id },
       data: { deletedAt: new Date(), isActive: false },
     });
   }
 
-  async deposit(accountId: string, amount: number, description?: string) {
+  async deposit(accountId: string, counterpartAccountId: string, amount: number, description?: string) {
     if (amount <= 0) throw new BadRequestException('Amount must be positive');
     const orgId = this.tenant.organizationId;
     const account = await this.prisma.client.account.findFirst({
       where: { id: accountId, organizationId: orgId },
+      include: { category: { select: { key: true } } },
     });
     if (!account) throw new BadRequestException('Account not found');
     const cashIds = await this.accounts.cashEquivalentIds();
     if (!cashIds.includes(account.id)) {
       throw new BadRequestException('Account is not a payment account');
     }
-    const suspenseId = await this.determination.mapped('cash_suspense');
+    if (counterpartAccountId === accountId) throw new BadRequestException('Counterpart account must differ from the receiving account');
+    const counterpart = await this.prisma.client.account.findFirst({ where: { id: counterpartAccountId, organizationId: orgId, isActive: true, deletedAt: null } });
+    if (!counterpart) throw new BadRequestException('Counterpart account not found');
+    const operationId = randomUUID();
     return this.posting.post({
       journalCode: 'CASH',
       date: new Date(),
       description: description ?? 'Cash deposit',
       sourceType: 'cash_flow_deposit',
-      sourceId: accountId,
+      sourceId: operationId,
+      postingKey: `cash-flow:deposit:${operationId}`,
       lines: [
         { accountId, debit: amount },
-        { accountId: suspenseId, credit: amount },
+        { accountId: counterpartAccountId, credit: amount },
       ],
     });
   }
 
-  async withdraw(accountId: string, amount: number, description?: string) {
+  async withdraw(accountId: string, counterpartAccountId: string, amount: number, description?: string) {
     if (amount <= 0) throw new BadRequestException('Amount must be positive');
     const orgId = this.tenant.organizationId;
     const account = await this.prisma.client.account.findFirst({
@@ -213,15 +224,26 @@ export class CashFlowService {
     if (!cashIds.includes(account.id)) {
       throw new BadRequestException('Account is not a payment account');
     }
-    const suspenseId = await this.determination.mapped('cash_suspense');
+    if (counterpartAccountId === accountId) throw new BadRequestException('Counterpart account must differ from the paying account');
+    const counterpart = await this.prisma.client.account.findFirst({ where: { id: counterpartAccountId, organizationId: orgId, isActive: true, deletedAt: null } });
+    if (!counterpart) throw new BadRequestException('Counterpart account not found');
+    const balance = await this.prisma.client.journalLine.aggregate({
+      where: { organizationId: orgId, accountId, entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] } } },
+      _sum: { baseDebit: true, baseCredit: true },
+    });
+    if (dec(balance._sum.baseDebit ?? 0).minus(balance._sum.baseCredit ?? 0).lt(amount)) {
+      throw new BadRequestException('Account has insufficient available funds');
+    }
+    const operationId = randomUUID();
     return this.posting.post({
       journalCode: 'CASH',
       date: new Date(),
       description: description ?? 'Cash withdrawal',
       sourceType: 'cash_flow_withdrawal',
-      sourceId: accountId,
+      sourceId: operationId,
+      postingKey: `cash-flow:withdrawal:${operationId}`,
       lines: [
-        { accountId: suspenseId, debit: amount },
+        { accountId: counterpartAccountId, debit: amount },
         { accountId, credit: amount },
       ],
     });
@@ -231,6 +253,7 @@ export class CashFlowService {
     const orgId = this.tenant.organizationId;
     const account = await this.prisma.client.account.findFirst({
       where: { id: accountId, organizationId: orgId },
+      include: { category: { select: { key: true } } },
     });
     if (!account) throw new BadRequestException('Account not found');
 
@@ -264,7 +287,13 @@ export class CashFlowService {
       }),
     ]);
 
-    const rows = lines.map((l) => ({
+    const aggregate = await this.prisma.client.journalLine.aggregate({ where: where as any, _sum: { baseDebit: true, baseCredit: true } });
+    const currentBalance = dec(aggregate._sum.baseDebit ?? 0).minus(aggregate._sum.baseCredit ?? 0);
+    let newerDelta = ZERO;
+    const rows = lines.map((l) => {
+      const runningBalance = currentBalance.minus(newerDelta);
+      newerDelta = newerDelta.plus(dec(l.baseDebit).minus(l.baseCredit));
+      return ({
       id: l.id,
       journalEntryId: l.journalEntryId,
       entryNumber: (l as any).entry.entryNumber,
@@ -275,7 +304,8 @@ export class CashFlowService {
       credit: l.credit.toString(),
       baseDebit: l.baseDebit.toString(),
       baseCredit: l.baseCredit.toString(),
-    }));
+      runningBalance: runningBalance.toString(),
+    }); });
 
     return {
       data: rows,
@@ -287,10 +317,11 @@ export class CashFlowService {
         id: account.id,
         code: account.code,
         name: account.name,
-        categoryId: account.categoryId,
+        accountType: (account as any).category?.key ?? null,
         bankName: account.bankName,
         accountNumber: account.accountNumber,
         currencyId: account.currencyId,
+        currentBalance: currentBalance.toString(),
       },
     };
   }
@@ -301,88 +332,71 @@ export class CashFlowService {
    * journal entry `sourceType`. For transfers the counterparty account (the other
    * leg of the same entry) is resolved so the UI can show "Cash → Bank".
    */
-  async getAllTransactions(page: number, pageSize: number) {
+  async getAllTransactions(page: number, pageSize: number, type?: 'deposit' | 'withdrawal' | 'transfer', search?: string) {
     const orgId = this.tenant.organizationId;
     const cashIds = new Set(await this.accounts.cashEquivalentIds());
-
-    const where = {
+    const typeSource = type === 'deposit' ? 'cash_flow_deposit'
+      : type === 'withdrawal' ? 'cash_flow_withdrawal'
+        : type === 'transfer' ? 'treasury_transfer' : undefined;
+    const q = search?.trim();
+    const where: any = {
       organizationId: orgId,
-      accountId: { in: [...cashIds] },
-      entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] } },
-    } as const;
+      status: { in: [...BALANCE_AFFECTING_STATUSES] },
+      lines: { some: { accountId: { in: [...cashIds] } } },
+      ...(typeSource ? { sourceType: typeSource } : {}),
+      ...(q ? { OR: [
+        { entryNumber: { contains: q, mode: 'insensitive' } },
+        { description: { contains: q, mode: 'insensitive' } },
+        { lines: { some: { account: { OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { code: { contains: q, mode: 'insensitive' } },
+        ] } } } },
+      ] } : {}),
+    };
 
-    const [total, lines] = await Promise.all([
-      this.prisma.client.journalLine.count({ where: where as any }),
-      this.prisma.client.journalLine.findMany({
-        where: where as any,
-        include: {
-          entry: {
-            select: {
-              id: true,
-              entryNumber: true,
-              postingDate: true,
-              description: true,
-              sourceType: true,
-              sourceId: true,
-            },
-          },
-          account: { select: { id: true, code: true, name: true } },
-        },
-        orderBy: { createdAt: 'desc' },
+    const [total, entries] = await Promise.all([
+      this.prisma.client.journalEntry.count({ where }),
+      this.prisma.client.journalEntry.findMany({
+        where,
+        include: { lines: { include: { account: { select: { id: true, code: true, name: true } } } } },
+        orderBy: [{ postingDate: 'desc' }, { createdAt: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
     ]);
 
-    // Group lines by journal entry so transfer legs can be paired.
-    const byEntry = new Map<string, any[]>();
-    for (const l of lines as any[]) {
-      const arr = byEntry.get(l.journalEntryId) ?? [];
-      arr.push(l);
-      byEntry.set(l.journalEntryId, arr);
-    }
-
-    const accountName = (l: any) => (l as any).account?.name ?? (l as any).account?.code ?? '—';
-
-    const rows = lines.map((l: any) => {
-      const sourceType: string = l.entry.sourceType;
-      const amount = Math.max(Number(l.baseDebit), Number(l.baseCredit));
+    const accountName = (l: any) => l?.account?.name ?? l?.account?.code ?? '—';
+    const rows = (entries as any[]).map((entry: any) => {
+      const cashLines = entry.lines.filter((l: any) => cashIds.has(l.accountId));
+      const sourceType: string = entry.sourceType;
       let type: 'deposit' | 'withdrawal' | 'transfer' = 'deposit';
       let fromName: string | null = null;
       let toName: string | null = null;
-
       if (sourceType === 'treasury_transfer') {
         type = 'transfer';
-        // The other leg of this entry is the counterparty account.
-        const siblings = byEntry.get(l.journalEntryId) ?? [];
-        const other = siblings.find((s: any) => s.id !== l.id);
-        const acctName = (other ?? l).account?.name ?? (other ?? l).account?.code ?? '—';
-        // `l` is the source leg (credit on the from-account) → show from → to.
-        if (l.baseCredit > 0) {
-          fromName = accountName(l);
-          toName = other ? accountName(other) : null;
-        } else {
-          fromName = other ? accountName(other) : null;
-          toName = accountName(l);
-        }
+        fromName = accountName(cashLines.find((l: any) => dec(l.baseCredit).gt(0)));
+        toName = accountName(cashLines.find((l: any) => dec(l.baseDebit).gt(0)));
       } else if (sourceType === 'cash_flow_withdrawal') {
         type = 'withdrawal';
-      } else {
-        type = 'deposit';
       }
-
+      const primary = type === 'withdrawal'
+        ? cashLines.find((l: any) => dec(l.baseCredit).gt(0))
+        : cashLines.find((l: any) => dec(l.baseDebit).gt(0)) ?? cashLines[0];
+      const amount = type === 'transfer'
+        ? dec(cashLines.find((l: any) => dec(l.baseCredit).gt(0))?.baseCredit ?? 0)
+        : dec(primary?.baseDebit ?? 0).plus(primary?.baseCredit ?? 0);
       return {
-        id: l.id,
-        journalEntryId: l.journalEntryId,
-        entryNumber: l.entry.entryNumber,
-        date: l.entry.postingDate,
-        description: l.entry.description ?? l.description,
+        id: entry.id,
+        journalEntryId: entry.id,
+        entryNumber: entry.entryNumber,
+        date: entry.postingDate,
+        description: entry.description ?? primary?.description,
         sourceType,
         type,
         amount: amount.toString(),
-        direction: l.baseDebit > 0 ? 'in' : 'out',
-        accountId: l.accountId,
-        accountName: accountName(l),
+        direction: type === 'withdrawal' || type === 'transfer' ? 'out' : 'in',
+        accountId: primary?.accountId ?? cashLines[0]?.accountId,
+        accountName: accountName(primary ?? cashLines[0]),
         fromName,
         toName,
       };

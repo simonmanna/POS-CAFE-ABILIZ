@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Wallet, ArrowRightLeft, ArrowDownToLine, ArrowUpFromLine, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
-  useCashAccounts, useCashFlowDeposit, useCashFlowWithdraw,
+  useAccounts, useCashAccounts, useCashFlowDeposit, useCashFlowWithdraw,
   useTreasuryTransfer, useCreateCashAccount, useUpdateCashAccount,
 } from '@/features/accounting/api';
 import { Button } from '@/components/ui/button';
@@ -63,6 +63,7 @@ function CurrencyDisplay({ value }: { value: string }) {
 
 export function CashAccountsPage() {
   const { data: accounts = [], isLoading } = useCashAccounts();
+  const { data: ledgerAccounts } = useAccounts();
   const create = useCreateCashAccount();
   const update = useUpdateCashAccount();
   const deposit = useCashFlowDeposit();
@@ -171,14 +172,14 @@ export function CashAccountsPage() {
   const doCashFlow = async (e: React.FormEvent) => {
     e.preventDefault();
     const amount = Number(cfAmount);
-    if (!amount || amount <= 0) return;
+    if (!amount || amount <= 0 || !cfAcct || !cfToAcct) return;
     setCfLoading(true);
     try {
       if (cfModal === 'deposit') {
-        await deposit.mutateAsync({ accountId: cfAcct, amount, description: cfDesc });
+        await deposit.mutateAsync({ accountId: cfAcct, counterpartAccountId: cfToAcct, amount, description: cfDesc });
         toast.success('Deposit recorded');
       } else if (cfModal === 'withdraw') {
-        await withdraw.mutateAsync({ accountId: cfAcct, amount, description: cfDesc });
+        await withdraw.mutateAsync({ accountId: cfAcct, counterpartAccountId: cfToAcct, amount, description: cfDesc });
         toast.success('Withdrawal recorded');
       } else if (cfModal === 'transfer') {
         await transfer.mutateAsync({
@@ -479,15 +480,15 @@ export function CashAccountsPage() {
                 </SelectContent>
               </Select>
             </div>
-            {cfModal === 'transfer' && (
+            {cfModal && (
               <div className="space-y-2">
-                <Label>To Account</Label>
+                <Label>{cfModal === 'transfer' ? 'To Account' : cfModal === 'deposit' ? 'Source / counterpart account' : 'Expense / counterpart account'}</Label>
                 <Select value={cfToAcct} onValueChange={setCfToAcct} required>
-                  <SelectTrigger><SelectValue placeholder="Select destination account" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select counterpart account" /></SelectTrigger>
                   <SelectContent>
-                    {allAccounts.filter((a: any) => a.id !== cfAcct).map((a: any) => (
+                    {(cfModal === 'transfer' ? allAccounts : (ledgerAccounts?.data ?? [])).filter((a: any) => a.id !== cfAcct && a.isActive && !a.isGroup).map((a: any) => (
                       <SelectItem key={a.id} value={a.id}>
-                        {a.name} ({a.accountType}) — Bal: {Number(a.balance).toLocaleString()}
+                        {a.code} · {a.name}{a.balance != null ? ` — Bal: ${Number(a.balance).toLocaleString()}` : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>

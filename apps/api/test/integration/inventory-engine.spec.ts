@@ -123,6 +123,9 @@ describeDb('integration: inventory engine', () => {
         data: { organizationId, code: 'ALT', name: 'Second Store', type: 'warehouse' },
       })
     ).id;
+    await prisma.setting.create({
+      data: { organizationId, scopeType: 'organization', scopeId: '', key: 'pos.stockLocationId', value: mainLocationId as any },
+    });
 
     // CoreModule must be present: InventoryModule declares 'core' as a
     // dependency and ModuleRegistry validates that at bootstrap.
@@ -153,6 +156,7 @@ describeDb('integration: inventory engine', () => {
       await prisma.journalEntry.deleteMany({ where: { organizationId } });
       await prisma.auditLog.deleteMany({ where: { organizationId } });
       await prisma.accountMapping.deleteMany({ where: { organizationId } });
+      await prisma.setting.deleteMany({ where: { organizationId } });
       await prisma.account.deleteMany({ where: { organizationId } });
       await prisma.journal.deleteMany({ where: { organizationId } });
       await prisma.product.deleteMany({ where: { organizationId } });

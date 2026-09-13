@@ -25,18 +25,14 @@ export function CashFlowTransactionsPage() {
   const [typeFilter, setTypeFilter] = useState<TxType>('all');
   const [search, setSearch] = useState('');
 
-  const { data, isLoading } = useCashFlowTransactions({ page, pageSize });
-
-  const all = data?.data ?? [];
-  const filtered = all.filter((t) => {
-    if (typeFilter !== 'all' && t.type !== typeFilter) return false;
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      const hay = `${t.description ?? ''} ${t.accountName} ${t.fromName ?? ''} ${t.toName ?? ''} ${t.entryNumber}`.toLowerCase();
-      if (!hay.includes(q)) return false;
-    }
-    return true;
+  const { data, isLoading } = useCashFlowTransactions({
+    page,
+    pageSize,
+    type: typeFilter === 'all' ? undefined : typeFilter,
+    search: search.trim() || undefined,
   });
+
+  const filtered = data?.data ?? [];
 
   const total = data?.total ?? 0;
   const totalPages = data?.totalPages ?? 1;
@@ -149,7 +145,6 @@ export function CashFlowTransactionsPage() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {total} movement{total !== 1 ? 's' : ''}
-          {search || typeFilter !== 'all' ? ` · ${filtered.length} shown` : ''}
         </p>
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>

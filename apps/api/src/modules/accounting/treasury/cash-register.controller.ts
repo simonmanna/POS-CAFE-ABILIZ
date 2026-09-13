@@ -18,14 +18,17 @@ import { IsBoolean, IsOptional, IsString } from 'class-validator';
 class CreateCashRegisterDto {
   @IsString() code!: string;
   @IsString() name!: string;
-  @IsString() defaultAccountId!: string;
+  /** Optional for backward compatibility; creation provisions DRW-{code}. */
+  @IsOptional() @IsString() defaultAccountId?: string;
   @IsOptional() @IsString() locationId?: string;
+  @IsOptional() @IsString() branchId?: string;
 }
 
 class UpdateCashRegisterDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() defaultAccountId?: string;
   @IsOptional() @IsString() locationId?: string;
+  @IsOptional() @IsString() branchId?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
 

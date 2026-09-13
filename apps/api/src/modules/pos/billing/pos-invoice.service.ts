@@ -974,13 +974,7 @@ export class PosInvoiceService {
               })
             : [];
           const failures = await this.issueStockForItems(items, ctx, tx);
-          await tx.stockPostingJob.update({
-            where: { id: job.id },
-            data: {
-              status: 'done', processedAt: new Date(), claimToken: null, claimedAt: null,
-              lastError: failures > 0 ? `${failures} line(s) need review` : null,
-            },
-          });
+          await this.completeStockPostingJob(tx, job.id, failures);
           return { failures };
         },
         { timeout: 30_000 },
@@ -1034,7 +1028,28 @@ export class PosInvoiceService {
           data: { status: 'pending', attempts, lastError: msg, claimToken: null, claimedAt: null, nextRetryAt: new Date(Date.now() + backoffMs) },
         });
       }
+      for (const failure of (e?.stockFailures ?? []) as StockLineFailure[]) {
+        await this.recordInventoryException(ctx, failure);
+      }
+      if (attempts < job.maxAttempts && !(e?.stockFailures?.length)) {
+        await this.recordInventoryException(ctx, {
+          kind: 'whole_invoice', productId: null, menuItemId: null, description: 'whole-invoice stock deduction',
+          quantity: 0, locationId: null, reason: msg, stackTrace: e?.stack ?? null, payload: { jobId: job.id },
+        });
+      }
     }
+  }
+
+  /** Completion must share the stock/COGS transaction so a late crash rolls
+   * the physical and financial changes back together. */
+  private async completeStockPostingJob(tx: any, jobId: string, failures: number) {
+    await tx.stockPostingJob.update({
+      where: { id: jobId },
+      data: {
+        status: 'done', processedAt: new Date(), claimToken: null, claimedAt: null,
+        lastError: failures > 0 ? `${failures} line(s) need review` : null,
+      },
+    });
   }
 
   // Deduct stock for a billed order's lines. Throws only on a SYSTEMIC failure
@@ -1045,11 +1060,18 @@ export class PosInvoiceService {
   private async issueStockForItems(items: any[], ctx: StockPostingCtx, tx: any): Promise<number> {
     const orgId = this.tenant.organizationId;
     const db = tx ?? this.prisma.client;
-    const warehouse = await resolvePosStockLocation(this.prisma, orgId, db);
+    const invoice = ctx.invoiceId ? await db.invoice.findFirst({ where: { id: ctx.invoiceId, organizationId: orgId }, select: { cashSessionId: true } }) : null;
+    const session = invoice?.cashSessionId ? await db.cashSession.findFirst({ where: { id: invoice.cashSessionId, organizationId: orgId }, select: { registerLocationId: true, cashRegister: { select: { locationId: true } } } }) : null;
+    const warehouse = await resolvePosStockLocation(this.prisma, orgId, db, session?.registerLocationId ?? session?.cashRegister?.locationId);
     if (!warehouse) throw new Error('No active warehouse configured — cannot deduct stock');
+    const invoiceItems = ctx.invoiceId
+      ? await db.invoiceItem.findMany({ where: { invoiceId: ctx.invoiceId, organizationId: orgId }, select: { id: true, lineNumber: true } })
+      : [];
+    const invoiceItemByLine = new Map<number, string>(invoiceItems.map((item: any) => [item.lineNumber, item.id]));
     const reference = ctx.invoiceNumber;
     const ref = `POS bill ${reference}`;
     let failures = 0;
+    const failureDetails: StockLineFailure[] = [];
     for (const it of items) {
       // Rental lines never enqueue a stock issue: checkout moved the unit via
       // the rental posting service's internal transfer (RENT-STOCK →
@@ -1060,7 +1082,7 @@ export class PosInvoiceService {
       if (it.rentalAgreementLineId || it.repairOrderLineId) continue;
       try {
         if (it.menuItemId) {
-          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx, it.variantId ?? null, it.id);
+          failures += await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx, it.variantId ?? null, invoiceItemByLine.get(it.lineNumber));
         } else if (it.productId) {
           const product = await db.product.findFirst({ where: { id: it.productId } });
           if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
@@ -1069,11 +1091,12 @@ export class PosInvoiceService {
             // Capture recipe snapshot for product-direct issues
             const cost = issueResult?.unitCost ? Number(issueResult.unitCost) : 0;
             const value = issueResult?.totalValue ? Number(issueResult.totalValue) : 0;
-            if (value > 0) {
+            const invoiceItemId = invoiceItemByLine.get(it.lineNumber);
+            if (invoiceItemId && value > 0) {
               await tx.invoiceItemRecipeIngredient.create({
                 data: {
                   organizationId: orgId,
-                  invoiceItemId: it.id,
+                  invoiceItemId,
                   invoiceId: ctx.invoiceId,
                   productId: it.productId,
                   quantity: Number(it.quantity),
@@ -1090,27 +1113,35 @@ export class PosInvoiceService {
       } catch (e: any) {
         failures++;
         this.logger.error(`[stock] issue failed for "${it.description ?? it.productId ?? it.menuItemId}" on ${reference} (sale kept): ${e?.message ?? e}`);
-        await this.recordInventoryException(ctx, {
+        failureDetails.push({
           kind: it.menuItemId ? 'menu_recipe' : 'product',
           productId: it.productId ?? null, menuItemId: it.menuItemId ?? null, description: it.description ?? null,
           quantity: Number(it.quantity), locationId: warehouse.id, reason: e?.message ?? String(e), stackTrace: e?.stack ?? null,
           payload: { orderItemId: it.id, reference },
-        }, tx);
+        });
       }
       // H3: deplete paid modifiers + accompaniments. A failure here never blocks
       // the (already final) sale, but it IS counted and recorded like any other
       // un-deducted line so the back office sees the drift.
       for (const f of await this.issueLineExtras(db, it, Number(it.quantity), warehouse.id, ref, ctx, tx)) {
         failures++;
-        await this.recordInventoryException(ctx, {
+        failureDetails.push({
           kind: 'line_extras',
           productId: f.productId, menuItemId: it.menuItemId ?? null,
           description: `${f.componentType} on ${it.description ?? it.productId ?? it.menuItemId}`,
           quantity: Number(it.quantity), locationId: warehouse.id,
           reason: f.error?.message ?? String(f.error), stackTrace: f.error?.stack ?? null,
           payload: { orderItemId: it.id, reference, componentId: f.componentId, componentType: f.componentType },
-        }, tx);
+        });
       }
+    }
+    if (failureDetails.length || failures > 0) {
+      const error: any = new Error(`${Math.max(failures, failureDetails.length)} stock line(s) could not be deducted`);
+      error.stockFailures = failureDetails.length ? failureDetails : [{
+        kind: 'whole_invoice', productId: null, menuItemId: null, description: 'stock deduction', quantity: 0,
+        locationId: warehouse.id, reason: error.message, stackTrace: null, payload: { orderId: ctx.orderId },
+      }];
+      throw error;
     }
     return failures;
   }
@@ -1237,13 +1268,7 @@ export class PosInvoiceService {
     // Never blocks the sale.
     if ((recipe as any[]).length === 0) {
       this.logger.warn(`[stock] menu item ${menuItemId} (${menuItem.name ?? ''}) is inventory-tracked but has no recipe on ${reference} — no COGS relieved (sale kept)`);
-      await this.recordInventoryException(ctx, {
-        kind: 'menu_recipe', productId: null, menuItemId, description: menuItem.name ?? 'menu item',
-        quantity: lineQty, locationId: warehouseId,
-        reason: 'Menu item is inventory-tracked but has no recipe (BOM); COGS was not relieved. Add a recipe or turn off inventory tracking for this item.',
-        stackTrace: null, payload: { menuItemId, lineQty, reference },
-      }, tx);
-      return 1;
+      throw new Error('Menu item is inventory-tracked but has no recipe (BOM); COGS was not relieved. Add a recipe or turn off inventory tracking for this item.');
     }
 
     let failures = 0;
@@ -1285,13 +1310,8 @@ export class PosInvoiceService {
           });
         }
       } catch (e: any) {
-        failures++;
         this.logger.error(`[stock] recipe issue failed (menuItem ${menuItemId}, product ${ing.productId}) on ${reference} (sale kept): ${e?.message ?? e}`);
-        await this.recordInventoryException(ctx, {
-          kind: 'menu_recipe', productId: ing.productId, menuItemId, description: 'recipe ingredient',
-          quantity: qty, locationId: warehouseId, reason: e?.message ?? String(e), stackTrace: e?.stack ?? null,
-          payload: { menuItemId, ingredientProductId: ing.productId, quantity: qty, reference },
-        }, tx);
+        throw e;
       }
     }
     return failures;

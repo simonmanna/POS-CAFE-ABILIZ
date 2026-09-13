@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import type { WorkflowDefinition } from '@erp/shared';
 import { WorkflowRegistry } from '../../../kernel/workflow/workflow.registry';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
@@ -427,10 +427,32 @@ export class InvoicingWorkflowsInitializer implements OnModuleInit {
           permission: 'payment:void',
           sideEffect: async (ctx, tx) => {
             const payment = ctx.entity as any;
-            if (payment.journalEntryId) {
-              await this.posting.reverse(payment.journalEntryId, { description: `Void of ${payment.paymentNumber}` }, tx);
+            const drawerMovements = await tx.cashMovement.findMany({
+              where: { paymentId: payment.id },
+              include: { cashSession: { select: { status: true } } },
+            });
+            if (drawerMovements.some((m: any) => m.cashSession.status !== 'open')) {
+              throw new BadRequestException('Cash payments from a closed or reconciled shift cannot be voided; post an approved correction in a current shift');
             }
-            await tx.cashMovement.deleteMany({ where: { paymentId: payment.id } });
+            let reversal: any = null;
+            if (payment.journalEntryId) {
+              reversal = await this.posting.reverse(payment.journalEntryId, { description: `Void of ${payment.paymentNumber}` }, tx);
+            }
+            // Financial evidence is append-only. Keep the original sale/refund
+            // and append the opposite drawer effect linked to it.
+            for (const movement of drawerMovements) {
+              await tx.cashMovement.create({ data: {
+                organizationId: ctx.organizationId,
+                cashSessionId: movement.cashSessionId,
+                movementType: 'adjustment',
+                amount: movement.movementType === 'sale' ? movement.amount.negated() : movement.amount,
+                reason: `Void of ${payment.paymentNumber}`,
+                counterpartAccountId: movement.counterpartAccountId,
+                journalEntryId: reversal?.id ?? null,
+                reversalOfMovementId: movement.id,
+                performedBy: payment.updatedBy ?? payment.createdBy ?? null,
+              } });
+            }
             for (const alloc of payment.allocations ?? []) {
               // R2: allocation may target a POS Invoice (separate from Document).
               if (alloc.invoiceId) {

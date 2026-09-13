@@ -32,6 +32,12 @@ describe('CashSessionService input guards', () => {
   });
 
   describe('recordMovement — H4 sign rules', () => {
+    it('rejects payment-owned movement types even when called outside HTTP validation', async () => {
+      await expect(
+        svc.recordMovement(undefined, { movementType: 'sale' as any, amount: 50, reason: 'Forged sale', counterpartAccountId: 'short-over' }),
+      ).rejects.toThrow(/movement type must be/i);
+      expect(prisma.client.$transaction).not.toHaveBeenCalled();
+    });
     it('rejects a zero amount for any movement type', async () => {
       await expect(
         svc.recordMovement(undefined, { movementType: 'pay_in', amount: 0 }),
@@ -66,6 +72,11 @@ describe('CashSessionService input guards', () => {
   describe('close — C2 negative count', () => {
     it('rejects a negative counted amount before any DB work', async () => {
       await expect(svc.close({ closingCounted: -1 })).rejects.toThrow(/cannot be negative/i);
+      expect(prisma.client.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects a denomination breakdown that differs from the counted cash', async () => {
+      await expect(svc.close({ closingCounted: 100, closingDenomination: { '50': 1 } })).rejects.toThrow(/denomination total/i);
       expect(prisma.client.$transaction).not.toHaveBeenCalled();
     });
   });

@@ -1,4 +1,4 @@
-import { IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsPositive, IsString } from 'class-validator';
 
 export class CreateBankAccountDto {
   @IsString()
@@ -57,11 +57,11 @@ export class TransferDto {
   @IsNotEmpty()
   toAccountId!: string;
 
-  @IsNotEmpty()
+  @IsNumber()
+  @IsPositive()
   amount!: number;
 
-  @IsString()
-  @IsNotEmpty()
+  @IsDateString()
   date!: string;
 
   @IsOptional()

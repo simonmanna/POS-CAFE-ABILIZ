@@ -3837,6 +3837,7 @@ model CashRegister {
   code             String
   name             String
   locationId       String?
+  branchId         String?
   defaultAccountId String
   isActive         Boolean   @default(true)
   createdAt        DateTime  @default(now())
@@ -3852,6 +3853,7 @@ model CashRegister {
   @@unique([organizationId, code])
   @@index([organizationId])
   @@index([locationId])
+  @@index([organizationId, branchId])
 }
 
 /// An open shift at a CashRegister. `openingFloat` is the starting cash;
@@ -3862,6 +3864,11 @@ model CashSession {
   id                  String            @id @default(uuid())
   organizationId      String
   cashRegisterId      String
+  /// Immutable drawer account captured when the shift opens. Register
+  /// configuration changes must never redirect postings within a shift.
+  drawerAccountId     String?
+  /// Immutable inventory location captured when the shift opens.
+  registerLocationId String?
   /// Phase F: redundant cache of the register's branch, for branch-scoped
   /// reports without joining back to the register.
   branchId            String?
@@ -3907,6 +3914,7 @@ model CashSession {
 
   @@index([organizationId])
   @@index([cashRegisterId])
+  @@index([drawerAccountId])
   @@index([userId])
   @@index([status])
   @@index([organizationId, branchId])
@@ -3925,6 +3933,8 @@ model CashMovement {
   reason               String?
   counterpartAccountId String?
   journalEntryId       String?
+  /// Append-only link used when a posted drawer movement is corrected.
+  reversalOfMovementId String?
   performedBy          String?
   createdAt            DateTime         @default(now())
 
@@ -3934,6 +3944,7 @@ model CashMovement {
   @@index([organizationId])
   @@index([cashSessionId])
   @@index([paymentId])
+  @@index([reversalOfMovementId])
 }
 
 /// A payment mode the cashier can pick in the Charge dialog, bound to the finance
@@ -8961,61 +8972,61 @@ model HrPosition {
 }
 
 model HrEmployee {
-  id                   String           @id @default(uuid())
-  organizationId       String
-  employeeCode         String
-  userId               String?          @unique
-  firstName            String
-  middleName           String?
-  lastName             String?
-  preferredName        String?
-  nationality          String?
-  email                String?
-  phone                String?
-  photoUrl             String?
+  id                       String             @id @default(uuid())
+  organizationId           String
+  employeeCode             String
+  userId                   String?            @unique
+  firstName                String
+  middleName               String?
+  lastName                 String?
+  preferredName            String?
+  nationality              String?
+  email                    String?
+  phone                    String?
+  photoUrl                 String?
   emergencyContactName     String?
   emergencyContactPhone    String?
   emergencyContactRelation String?
-  gender               String?
-  dateOfBirth          DateTime?
-  address              String?
-  employmentType       HrEmploymentType @default(FULL_TIME)
+  gender                   String?
+  dateOfBirth              DateTime?
+  address                  String?
+  employmentType           HrEmploymentType   @default(FULL_TIME)
   /// Lifecycle state. `isActive` is derived from this on every transition so
   /// that every pre-existing query keeps working unchanged.
-  employmentStatus     HrEmploymentStatus @default(ACTIVE)
-  hireDate             DateTime?
-  contractEndDate      DateTime?
-  probationEndDate     DateTime?
+  employmentStatus         HrEmploymentStatus @default(ACTIVE)
+  hireDate                 DateTime?
+  contractEndDate          DateTime?
+  probationEndDate         DateTime?
   /// Set when probation is passed.
-  confirmedAt          DateTime?
-  terminationDate      DateTime?
-  terminationReason    String?
-  suspendedAt          DateTime?
-  suspensionReason     String?
-  departmentId         String?
-  positionId           String?
-  supervisorId         String?
+  confirmedAt              DateTime?
+  terminationDate          DateTime?
+  terminationReason        String?
+  suspendedAt              DateTime?
+  suspensionReason         String?
+  departmentId             String?
+  positionId               String?
+  supervisorId             String?
   /// Where this person works now. Historical transactions keep their own
   /// branch — moving an employee never rewrites the past.
-  branchId             String?
-  baseSalary           Decimal?         @db.Decimal(20, 6)
-  payFrequency         HrPayFrequency   @default(MONTHLY)
-  hourlyRate           Decimal?         @db.Decimal(20, 6)
-  bankName             String?
-  bankAccountName      String?
-  bankAccountNumber    String?
-  mobileMoneyProvider  String?
-  mobileMoneyNumber    String?
-  taxNumber            String?
-  pensionNumber        String?
-  socialSecurityNumber String?
-  isActive             Boolean          @default(true)
-  notes                String?
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-  createdBy            String?
-  updatedBy            String?
-  deletedAt            DateTime?
+  branchId                 String?
+  baseSalary               Decimal?           @db.Decimal(20, 6)
+  payFrequency             HrPayFrequency     @default(MONTHLY)
+  hourlyRate               Decimal?           @db.Decimal(20, 6)
+  bankName                 String?
+  bankAccountName          String?
+  bankAccountNumber        String?
+  mobileMoneyProvider      String?
+  mobileMoneyNumber        String?
+  taxNumber                String?
+  pensionNumber            String?
+  socialSecurityNumber     String?
+  isActive                 Boolean            @default(true)
+  notes                    String?
+  createdAt                DateTime           @default(now())
+  updatedAt                DateTime           @updatedAt
+  createdBy                String?
+  updatedBy                String?
+  deletedAt                DateTime?
 
   /// HR identity spine. `userId` alone is @unique (1:1), while the FK is
   /// composite so the linked User must belong to the same organization.
@@ -9023,12 +9034,12 @@ model HrEmployee {
   /// unlinked employee is still valid. onDelete defaults to Restrict: Users
   /// are only ever soft-deleted, and a hard delete of a linked User should
   /// fail loudly rather than orphan the employee record.
-  user               User?                 @relation("UserEmployee", fields: [organizationId, userId], references: [organizationId, id])
-  department         HrDepartment?         @relation(fields: [departmentId], references: [id])
-  position           HrPosition?           @relation(fields: [positionId], references: [id])
-  supervisor         HrEmployee?           @relation("HrSupervisor", fields: [supervisorId], references: [id])
-  subordinates       HrEmployee[]          @relation("HrSupervisor")
-  departmentsManaged HrDepartment[]        @relation("HrDeptManager")
+  user               User?                     @relation("UserEmployee", fields: [organizationId, userId], references: [organizationId, id])
+  department         HrDepartment?             @relation(fields: [departmentId], references: [id])
+  position           HrPosition?               @relation(fields: [positionId], references: [id])
+  supervisor         HrEmployee?               @relation("HrSupervisor", fields: [supervisorId], references: [id])
+  subordinates       HrEmployee[]              @relation("HrSupervisor")
+  departmentsManaged HrDepartment[]            @relation("HrDeptManager")
   attendance         HrAttendance[]
   attendanceLogs     HrAttendanceLog[]
   shiftAssignments   HrShiftAssignment[]
@@ -9046,12 +9057,12 @@ model HrEmployee {
   documents          HrEmployeeDocument[]
   trainings          HrEmployeeTraining[]
 
-  @@index([organizationId, branchId])
-  @@index([organizationId, employmentStatus])
   @@unique([organizationId, employeeCode])
   /// Required by Prisma for the composite 1:1 above. `userId` also carries a
   /// standalone @unique, so a User can back exactly one employee globally.
   @@unique([organizationId, userId])
+  @@index([organizationId, branchId])
+  @@index([organizationId, employmentStatus])
   @@index([organizationId, deletedAt])
   @@index([organizationId, departmentId])
 }

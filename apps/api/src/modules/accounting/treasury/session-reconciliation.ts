@@ -35,6 +35,8 @@ export async function reconcileSession(tx: any, organizationId: string, session:
     tx.cashRegister.findFirst({ where: { id: session.cashRegisterId, organizationId } }),
   ]);
   const issues: string[] = [];
+  const drawerAccountId = session.drawerAccountId ?? register?.defaultAccountId;
+  if (!drawerAccountId) issues.push('Session has no immutable drawer account');
   const byAccount: Record<string, any> = {};
   const byMethod: Record<string, { method: string; count: number; total: string }> = {};
   const pendingPayments = invoices.filter((i: any) => i.paymentMode !== 'credit' && ['unsettled', 'partially_settled'].includes(i.settlementStatus) && Number(i.amountResidual) > 0).length;
@@ -61,14 +63,14 @@ export async function reconcileSession(tx: any, organizationId: string, session:
     }
     const cashMoves = movements.filter((m: any) => m.paymentId === p.id);
     if (p.paymentMethod === 'cash') {
-      if (p.accountId !== register.defaultAccountId || cashMoves.length !== 1 || !dec(cashMoves[0].amount).eq(p.amount) || cashMoves[0].movementType !== (sign === 1 ? 'sale' : 'refund')) issues.push(`Payment ${p.paymentNumber} differs from the physical drawer movement`);
+      if (p.accountId !== drawerAccountId || cashMoves.length !== 1 || !dec(cashMoves[0].amount).eq(p.amount) || cashMoves[0].movementType !== (sign === 1 ? 'sale' : 'refund')) issues.push(`Payment ${p.paymentNumber} differs from the physical drawer movement`);
     } else if (cashMoves.length) issues.push(`Electronic payment ${p.paymentNumber} incorrectly moved drawer cash`);
   }
   for (const m of movements.filter((m: any) => !m.paymentId)) {
     const journal = await tx.journalEntry.findFirst({ where: { organizationId, ...(m.journalEntryId ? { id: m.journalEntryId } : { sourceType: 'cash_movement', sourceId: m.id }), status: { in: ['posted', 'reversed'] } }, include: { lines: true } });
     if (!journal) { issues.push(`Drawer movement ${m.id} has no posted journal`); continue; }
     const expected = dec(m.amount).times(m.movementType === 'pay_out' ? -1 : 1);
-    const actual = journal.lines.filter((l: any) => l.accountId === register.defaultAccountId).reduce((s: any, l: any) => s.plus(dec(l.debit).minus(l.credit)), dec(0));
+    const actual = journal.lines.filter((l: any) => l.accountId === drawerAccountId).reduce((s: any, l: any) => s.plus(dec(l.debit).minus(l.credit)), dec(0));
     if (!expected.eq(actual)) issues.push(`Drawer movement ${m.id} differs from the register cash account`);
   }
   const settlements = await tx.tenderSettlement.findMany({ where: { organizationId, cashSessionId: session.id } });
@@ -81,7 +83,7 @@ export async function reconcileSession(tx: any, organizationId: string, session:
   const movementTotal = (type: string) => movements.filter((m: any) => m.movementType === type).reduce((s: any, m: any) => s.plus(m.amount), dec(0));
   const expectedCash = dec(session.openingFloat).plus(movementTotal('sale')).plus(movementTotal('pay_in')).plus(movementTotal('adjustment')).minus(movementTotal('pay_out')).minus(movementTotal('refund'));
   const sumInvoices = (field: string) => invoices.reduce((n: any, i: any) => n.plus(i[field] ?? 0), dec(0)).toString();
-  const ledgerCash = await accountLedgerBalance(tx, organizationId, register.defaultAccountId);
+  const ledgerCash = drawerAccountId ? await accountLedgerBalance(tx, organizationId, drawerAccountId) : dec(0);
   const expectedLedger = session.status === 'open' ? expectedCash : dec(session.closingCounted ?? expectedCash);
   // A later shift may legitimately change this account; only the open drawer owns today's balance.
   if (session.status === 'open' && !ledgerCash.eq(expectedLedger)) issues.push('Physical drawer movements differ from the register ledger balance');

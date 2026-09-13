@@ -210,7 +210,7 @@ describeDb('AUDIT: multi-tenant and multi-location isolation', () => {
       } as any,
     });
 
-    const resolved = await asB(() => resolvePosStockLocation(prismaSvc, orgB.organizationId));
+    const resolved = await asB(() => resolvePosStockLocation(prismaSvc, orgB.organizationId, undefined, register.locationId));
 
     // eslint-disable-next-line no-console
     console.log('[H10 EVIDENCE]', JSON.stringify({
@@ -218,7 +218,7 @@ describeDb('AUDIT: multi-tenant and multi-location isolation', () => {
       registerLocationId: branchStore.id,
       resolvedLocationId: resolved?.id ?? null,
       orgMainLocationId: orgB.mainLocationId,
-      resolverSignatureTakesRegister: false,
+      resolverSignatureTakesRegister: true,
     }));
 
     // EXPECTED: a till bound to Branch 2 relieves Branch 2's stock.

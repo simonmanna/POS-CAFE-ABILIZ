@@ -49,7 +49,7 @@ class CloseSessionDto {
 class RecordMovementDto {
   @IsString() counterpartAccountId!: string;
   @IsOptional() @IsString() sessionId?: string;
-  @IsString() movementType!: 'pay_in' | 'pay_out' | 'adjustment';
+  @IsIn(['pay_in', 'pay_out', 'adjustment']) movementType!: 'pay_in' | 'pay_out' | 'adjustment';
   @IsNumber() amount!: number;
   @IsOptional() @IsString() reason?: string;
   /** Manager sign-off — required for pay_out (cash leaving the drawer). */

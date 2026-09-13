@@ -8,10 +8,13 @@ import {
   Patch,
   Post,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
 import { PaginationDto } from '../../../kernel/common/pagination.dto';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
+import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
+import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
 import { BankAccountService } from './bank-account.service';
 import { TreasuryService } from './treasury.service';
 import {
@@ -21,6 +24,7 @@ import {
 } from './dto/bank-account.dto';
 
 @Controller()
+@UseInterceptors(IdempotencyInterceptor)
 export class TreasuryController {
   constructor(
     private readonly bankAccounts: BankAccountService,
@@ -53,6 +57,7 @@ export class TreasuryController {
   }
 
   @Post('treasury/transfer')
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.treasury.transfer)
   transfer(@Body() dto: TransferDto) {
     return this.treasury.transfer(dto);

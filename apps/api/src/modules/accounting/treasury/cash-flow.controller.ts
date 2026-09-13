@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
 import {
@@ -23,6 +24,8 @@ import {
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
+import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
+import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
 import { CashFlowService } from './cash-flow.service';
 import {
   CashMovementReportService,
@@ -55,6 +58,7 @@ class UpdateCashAccountDto {
 
 export class CashFlowDto {
   @IsString() @IsNotEmpty() accountId!: string;
+  @IsString() @IsNotEmpty() counterpartAccountId!: string;
   @IsNumber() @Min(0.01) amount!: number;
   @IsOptional() @IsString() description?: string;
 }
@@ -62,6 +66,8 @@ export class CashFlowDto {
 class TransactionsQueryDto {
   @IsOptional() @Type(() => Number) page: number = 1;
   @IsOptional() @Type(() => Number) pageSize: number = 25;
+  @IsOptional() @IsIn(['deposit', 'withdrawal', 'transfer']) type?: 'deposit' | 'withdrawal' | 'transfer';
+  @IsOptional() @IsString() search?: string;
 }
 
 class CashFlowReportQueryDto {
@@ -79,6 +85,7 @@ class CashFlowReportQueryDto {
 }
 
 @Controller('accounts/cash-flow')
+@UseInterceptors(IdempotencyInterceptor)
 export class CashFlowController {
   constructor(
     private readonly cashFlow: CashFlowService,
@@ -124,7 +131,7 @@ export class CashFlowController {
   @Get('transactions')
   @RequirePermissions(PERMISSIONS.account.read)
   allTransactions(@Query() query: TransactionsQueryDto) {
-    return this.cashFlow.getAllTransactions(query.page, query.pageSize);
+    return this.cashFlow.getAllTransactions(query.page, query.pageSize, query.type, query.search);
   }
 
   @Get(':id/transactions')
@@ -134,14 +141,16 @@ export class CashFlowController {
   }
 
   @Post('deposit')
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.treasury.transfer)
   deposit(@Body() dto: CashFlowDto) {
-    return this.cashFlow.deposit(dto.accountId, dto.amount, dto.description);
+    return this.cashFlow.deposit(dto.accountId, dto.counterpartAccountId, dto.amount, dto.description);
   }
 
   @Post('withdraw')
+  @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.treasury.transfer)
   withdraw(@Body() dto: CashFlowDto) {
-    return this.cashFlow.withdraw(dto.accountId, dto.amount, dto.description);
+    return this.cashFlow.withdraw(dto.accountId, dto.counterpartAccountId, dto.amount, dto.description);
   }
 }

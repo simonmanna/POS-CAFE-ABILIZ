@@ -928,6 +928,7 @@ export class StockService {
           date: dto.date ? new Date(dto.date) : new Date(),
           sourceType: dto.sourceType ?? 'stock_issue',
           sourceId: dto.sourceId ?? ledgerCode,
+          postingKey: `inventory:issue:${organizationId}:${ledgerCode}`,
           description: `Stock issue · ${product.name} · ${dto.quantity}`,
           movementType: (INV_MOVE_TYPES[moveType] ?? 'STOCK_OUT') as any,
           // Layer-costed issues (FIFO/SPECIFIC/batch/serial) already computed the
@@ -1029,6 +1030,8 @@ export class StockService {
           balanceAfter: countedQty,
           unitCost,
           totalValue: unitCost.times(delta.abs()),
+          referenceType: 'stock_adjust',
+          referenceId: ledgerCode,
           notes: dto.notes ?? null,
           performedBy: this.tenant.userId ?? null,
         },

@@ -262,14 +262,14 @@ describeDb('AUDIT: async stock posting under failure (H3, H8, crash boundaries)'
 
     // Force a failure AFTER the stock issue and COGS post, while the job row is
     // being completed. If the boundary is one transaction, everything unwinds.
-    const original = (prismaSvc.client as any).stockPostingJob.update;
+    const original = (billing as any).completeStockPostingJob;
     let injected = false;
-    (prismaSvc.client as any).stockPostingJob.update = async (args: any) => {
-      if (!injected && args?.data?.status === 'done') {
+    (billing as any).completeStockPostingJob = async (...args: any[]) => {
+      if (!injected) {
         injected = true;
         throw new Error('AUDIT: injected crash at job completion');
       }
-      return original.call((prismaSvc.client as any).stockPostingJob, args);
+      return original.apply(billing, args);
     };
 
     let threw: string | null = null;
@@ -278,7 +278,7 @@ describeDb('AUDIT: async stock posting under failure (H3, H8, crash boundaries)'
     } catch (e: any) {
       threw = e?.message ?? String(e);
     } finally {
-      (prismaSvc.client as any).stockPostingJob.update = original;
+      (billing as any).completeStockPostingJob = original;
     }
 
     const after = await onHand(prisma, org.organizationId, product.id, org.mainLocationId);
