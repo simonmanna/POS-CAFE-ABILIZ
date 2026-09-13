@@ -615,6 +615,6 @@ export const MANAGER_PERMISSIONS: readonly string[] = [
   'treasury:read', 'treasury:transfer', 'account:read', 'bank_account:read',
   'payment:read', 'payment:create', 'payment:allocate', 'payment:void',
   'expense:read', 'expense:create', 'expense:update', 'expense:post', 'expense:cancel', 'expense:approve',
-  'partner:read', 'partners.view', 'products.view', 'menu.view',
+  'partner:read', 'partners.view', 'products.view', 'product:read', 'menu.view', 'user:read',
   'tables:view', 'tables:transfer', 'tables:merge', 'tables:split', 'tables:edit',
 ];

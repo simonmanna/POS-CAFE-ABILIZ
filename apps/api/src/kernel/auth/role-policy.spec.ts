@@ -40,8 +40,14 @@ describe('cash-management role policy', () => {
   });
 
   it('the provisioning migration grants the same manager list as the seed', () => {
-    const sql = readFileSync(join(__dirname, '../../../prisma/migrations/20260914000200_manager_role/migration.sql'), 'utf8');
-    const first = /ARRAY\[([^\]]*)\]/.exec(sql)![1];
-    expect([...first.matchAll(/'([^']+)'/g)].map((x) => x[1]).sort()).toEqual([...MANAGER_PERMISSIONS].sort());
+    // Applied migrations are never edited; later ones extend the list, so the
+    // union of every manager provisioning migration must equal the seed list.
+    const granted = new Set<string>();
+    for (const name of ['20260914000200_manager_role', '20260914000600_manager_role_read_gaps']) {
+      const sql = readFileSync(join(__dirname, `../../../prisma/migrations/${name}/migration.sql`), 'utf8');
+      const first = /ARRAY\[([^\]]*)\]/.exec(sql)![1];
+      for (const x of first.matchAll(/'([^']+)'/g)) granted.add(x[1]);
+    }
+    expect([...granted].sort()).toEqual([...MANAGER_PERMISSIONS].sort());
   });
 });
