@@ -338,3 +338,60 @@ Every P0 and P1 in this report was addressed. What changed, per finding:
 2. Run `node scripts/pos-release-preflight.cjs --all` until exit 0. In the dev copy, `Cafe-X` needs its Cash 1100 negative balance investigated and the shift open since 2026-09-04 closed/force-closed.
 3. Give managers `expense:*` permissions (Administrator already has them) and `cash_session:force_close`/`correct` (migrated from reopen/approve_variance holders).
 4. Moving the app to a non-owner DB role (DB-enforced tenancy) remains a separate hardening track. Isolation is enforced by the application layer and proven in tests.
+
+---
+
+## 15. Final hardening & release certification
+
+Commits on `main` (not pushed): `ece8a76`, `585c455`, `df5e2d8`, `dc3c0fa`, `e9d24fa`, `cba1922`.
+
+### Fixed in this pass
+| Area | Fix |
+|---|---|
+| Supplier payments | New `CashMovementType.supplier_payment`. Reconciliation, Z report and expected cash treat it as a pay-out. Legacy `refund` supplier payouts are still recognised. |
+| Movement insert consistency | Trigger `cash_movement_insert_consistency`: open session in the same org, payment link matches the cash payment, shift and direction, and corrections stay in the same org. |
+| Session evidence | `varianceReason`/`notes` append-only after close. |
+| Inventory exceptions | One open exception per invoice line key (unique partial index). |
+| Payment void | `workflow.service` wrote non-column fields, so void had never worked. It now filters to model columns. |
+| Paging balances | Running balance on page 2+ now includes the newer rows. |
+| RLS on fresh deploy | Migrations 000400/500 set NO FORCE on every table. FORCE broke owner reads and `pg_dump`. |
+| Schema drift | Reconciliation migration 000300; `migrate diff` reports no difference. |
+| Raw SQL tenancy | Static gate `raw-sql-tenancy.spec.ts`. Report queries now carry explicit org predicates. |
+| Roles | Manager role (`MANAGER_PERMISSIONS`) provisioned by migrations 000200 and 000600. UAT found missing `product:read`/`user:read`, added in 000600. |
+| Shift close (UAT) | Unconfigured orgs could not close: the dialog required not-counted wallets that the server rejected. Fixed via shared `terminalPaymentMethods()`. |
+| Web idempotency | POS checkout, invoice generation and order invoicing use `idempotentPost`. |
+| Silent skips | DB suites throw when `REQUIRE_DB_TESTS=1`/CI and there is no database. |
+| Release gate | `pnpm release:gate`, wired into CI. |
+| Preflight | New checks: lock capacity for backups, FORCE RLS, stale unreconciled sessions, register bindings, drawer/payment mismatch, inconsistent closed totals. |
+| Data correction | `src/scripts/reverse-journal-entry.ts` reverses through PostingService with an audit record. Cafe-X double cleanup (ADJ/2026/00002) was reversed this way; Cash 1100 is now 82,090.00. |
+
+### New tests
+- `pos-cash-flow-day.spec.ts` (10): full café day through next-day banking. Payments = movements = expected = Z = GL.
+- `pos-cash-flow-adversarial.spec.ts` (8): tenant isolation, key namespaces, inventory line isolation, paging, register-vs-open race, void-vs-close race, lost responses.
+
+### Final gate (`node scripts/release-gate.cjs`, clean seeded DB + `pos_stage1_9021` + shadow)
+```
+PASS shared build / api typecheck / web typecheck / architecture lint / web build
+PASS migrate deploy / schema drift
+PASS full jest (DB)       suites 89/95, tests 765 passed / 0 failed / 48 skipped (= isolated suites)
+PASS isolated money suites 6/6, 48 passed / 0 failed / 0 skipped
+PASS release preflight    exit 0; READY
+ALL RELEASE GATES PASSED
+```
+
+### Browser UAT (Manager role, clean DB)
+Owner deposit worked. Cash In with the drawer as counterpart was refused; with Petty Cash it was accepted. Open shift, blind count and close with a −1,000 variance worked: manager sign-off and not-counted wallets were stored, and the variance is `pending_review`. Bank it moved 19,000 to Bank. GL check: 1100 = 0, PETTY = 30,000, BANK-DEFAULT = 19,000; total debit − credit = 0.
+
+### Backup / restore drill
+`pos_stage1_7001` → `pos_restore_check`: counts, dr/cr totals, GL/stock/Z md5, trigger count and preflight all identical.
+
+### Remaining (operational — blocks the dev copy, not the code)
+1. Dev/production copy preflight exit 2:
+   - Cafe-X shift `d1832c52` open since 2026-09-04 (reconciles clean; needs a staff count or manager force-close)
+   - 2 stale unreconciled shifts
+   - 1950 Suspense −50,000 unexplained
+2. `max_locks_per_transaction=1024` (or higher) must be set on the production Postgres before backups can run (40,070 relations vs 6,400 slots).
+3. `BACKUP_DIR` must exist on the host.
+4. Configure POS payment methods per org (the seed has none; the synthesized fallback works).
+5. Web ESLint toolchain broken (pre-existing).
+6. Commits not pushed; no production DB clone was tested, only the dev copy.
