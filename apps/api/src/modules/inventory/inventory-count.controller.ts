@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { PERMISSIONS } from '@erp/shared';
 import { RequirePermissions } from '../../kernel/auth/decorators/require-permissions.decorator';
+import { Idempotent } from '../../kernel/idempotency/idempotent.decorator';
 import { InventoryCountService } from './inventory-count.service';
 import { PreviewCountQueryDto, SaveCountDraftDto, StartCountDto, SubmitCountDto } from './dto/inventory-count.dto';
 
@@ -44,6 +45,7 @@ export class InventoryCountController {
   }
 
   @Post(':id/submit')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.inventoryCount.submit)
   submit(@Param('id') id: string, @Body() dto: SubmitCountDto) {
     return this.counts.submit(id, dto);

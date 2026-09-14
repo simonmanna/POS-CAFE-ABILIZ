@@ -37,7 +37,7 @@ describeDb('INV P0 remediation', () => {
   let staffId = '';
 
   const asOrg = <T>(fn: () => Promise<T>): Promise<T> =>
-    tenant.run({ organizationId: org.organizationId, userId: staffId, permissions: [] }, fn);
+    tenant.run({ organizationId: org.organizationId, userId: staffId, permissions: ['inventory_doc:approve'] }, fn);
 
   beforeAll(async () => {
     await prisma.$connect();

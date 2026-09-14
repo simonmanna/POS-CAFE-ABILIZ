@@ -20,6 +20,8 @@ export class StockPostingWorker {
   private readonly logger = new Logger('StockPostingWorker');
   private readonly batchSize = Number(process.env.STOCK_POSTING_BATCH ?? '20');
   private readonly staleClaimMs = 60_000;
+  /** Release gate: no job older than this may still be unposted. */
+  private readonly lagAlertMs = Number(process.env.STOCK_POSTING_LAG_ALERT_MS ?? 15 * 60_000);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -69,6 +71,36 @@ export class StockPostingWorker {
           this.logger.error(`stock job ${id} failed: ${String(err)}`);
         }
       });
+    }
+  }
+
+  /**
+   * Queue-health monitor. The drain above only logs; a dead worker, a wedged
+   * claim or an exhausted job would otherwise surface as silently stale on-hand
+   * and understated COGS. Every 5 minutes, raise an in-app inventory alert
+   * (rate-limited per org) for jobs failed or unposted beyond the lag budget.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES, { name: 'stock-posting-health' })
+  async monitor(): Promise<void> {
+    const lagBefore = new Date(Date.now() - this.lagAlertMs);
+    const rows = await this.prisma.raw.$queryRaw<{ organizationId: string; failed: bigint; lagging: bigint; oldest: Date | null }[]>`
+      SELECT "organizationId",
+             COUNT(*) FILTER (WHERE "status" = 'failed') AS failed,
+             COUNT(*) FILTER (WHERE "status" IN ('pending', 'processing') AND "createdAt" < ${lagBefore}) AS lagging,
+             MIN("createdAt") FILTER (WHERE "status" <> 'done') AS oldest
+        FROM "StockPostingJob"
+       WHERE "status" <> 'done'
+       GROUP BY "organizationId"
+      HAVING COUNT(*) FILTER (WHERE "status" = 'failed') > 0
+          OR COUNT(*) FILTER (WHERE "status" IN ('pending', 'processing') AND "createdAt" < ${lagBefore}) > 0
+    `;
+    for (const r of rows) {
+      const failed = Number(r.failed);
+      const lagging = Number(r.lagging);
+      this.logger.error(`stock posting unhealthy for org ${r.organizationId}: ${failed} failed, ${lagging} older than ${Math.round(this.lagAlertMs / 60_000)} min (oldest ${r.oldest?.toISOString() ?? 'n/a'})`);
+      await this.tenant.run({ organizationId: r.organizationId }, () =>
+        this.billing.raiseStockPostingHealthAlert({ failed, lagging, oldest: r.oldest }),
+      ).catch((err) => this.logger.error(`stock posting health alert failed: ${String(err)}`));
     }
   }
 }

@@ -13,8 +13,11 @@
  *   net loss  → Dr Stock Adjustment Expense / Cr Stock Valuation
  *
  * Opening-balance rows (seed / opening backfill) are memo entries by design and
- * are REPORTED, never posted: opening inventory belongs in an opening-balance
- * journal against equity, which the accountant posts deliberately.
+ * are REPORTED, not posted, unless the accountant opts in explicitly with
+ * --post-opening-balances: then ONE entry per organization capitalises them
+ * against the account mapped to --opening-equity-key (default
+ * `opening_balance_equity`):  Dr Stock Valuation / Cr Opening Balance Equity.
+ * The mapping must already exist — the script never invents a counter-account.
  *
  * SAFETY
  *   - DRY-RUN BY DEFAULT. Pass --apply to write.
@@ -22,6 +25,7 @@
  *     excluded from the next run (and from the GL tie-out report).
  *   - --before <ISO>  only rows created at or before this instant (default now).
  *   - --org <id>      restrict to one organization.
+ *   - --post-opening-balances [--opening-equity-key <mapping key>]
  *
  *   pnpm backfill:inventory-gl-gaps            # dry run
  *   pnpm backfill:inventory-gl-gaps --apply    # write
@@ -48,6 +52,8 @@ const BEFORE = argValue('--before') ? new Date(argValue('--before')!) : new Date
 const ONLY_ORG = argValue('--org');
 const MEMO_TYPES = new Set(['opening_balance']);
 const MEMO_SOURCES = new Set(['opening_balance', 'opening_backfill']);
+const POST_OPENING = process.argv.includes('--post-opening-balances');
+const OPENING_EQUITY_KEY = argValue('--opening-equity-key') ?? 'opening_balance_equity';
 
 async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['warn', 'error'] });
@@ -77,10 +83,16 @@ async function main() {
         }
 
         const groups = new Map<string, { rows: number; value: ReturnType<typeof dec>; codes: string[] }>();
+        const opening = new Map<string, { rows: number; value: ReturnType<typeof dec>; codes: string[] }>();
         for (const r of rows) {
           if (MEMO_TYPES.has(r.move_type) || MEMO_SOURCES.has(r.source ?? '')) {
             memoRows++;
-            console.log(`  · memo ${r.move_type} ${r.ledger_code} ${dec(r.signed_value).toString()} (opening balance — not posted)`);
+            const key = r.source ?? '(none)';
+            const o = opening.get(key) ?? { rows: 0, value: ZERO, codes: [] };
+            o.rows++;
+            o.value = o.value.plus(dec(r.signed_value));
+            o.codes.push(r.ledger_code);
+            opening.set(key, o);
             continue;
           }
           const key = r.source ?? '(none)';
@@ -89,6 +101,50 @@ async function main() {
           g.value = g.value.plus(dec(r.signed_value));
           g.codes.push(r.ledger_code);
           groups.set(key, g);
+        }
+
+        for (const [source, o] of opening) {
+          console.log(`  · opening ${source}: ${o.rows} row(s), ${o.value.toFixed(2)} ${POST_OPENING ? `→ Dr Stock / Cr ${OPENING_EQUITY_KEY}` : '(memo — pass --post-opening-balances to capitalise)'}`);
+          if (!POST_OPENING || o.value.isZero()) continue;
+          const equity = (await prisma.raw.accountMapping.findFirst({ where: { organizationId: org.id, key: OPENING_EQUITY_KEY }, select: { accountId: true } }))?.accountId;
+          if (!equity) {
+            console.log(`    ⚠ no ${OPENING_EQUITY_KEY} account mapping — map the opening-balance equity account first; skipped`);
+            continue;
+          }
+          entries++;
+          postedValue = postedValue.plus(o.value.abs());
+          if (!APPLY) continue;
+          const stockAccount = accountIds[0];
+          const gain = o.value.gt(ZERO);
+          const amount = o.value.abs().toString();
+          await prisma.client.$transaction(async (tx: any) => {
+            const je = await posting.post(
+              {
+                journalCode: 'GEN',
+                date: new Date(),
+                description: `Opening inventory capitalised · ${source} · ${o.rows} opening-balance movement(s)`,
+                sourceType: GL_GAP_BACKFILL_SOURCE,
+                sourceId: source,
+                postingKey: `inventory:opening:${org.id}:${source}:${BEFORE.toISOString()}`,
+                lines: gain
+                  ? [
+                      { accountId: stockAccount, debit: amount, description: 'Opening inventory' },
+                      { accountId: equity, credit: amount, description: 'Opening inventory' },
+                    ]
+                  : [
+                      { accountId: equity, debit: amount, description: 'Opening inventory' },
+                      { accountId: stockAccount, credit: amount, description: 'Opening inventory' },
+                    ],
+              },
+              tx,
+            );
+            await audit.recordInTx(tx, {
+              entity: 'JournalEntry',
+              entityId: je.id,
+              action: 'create',
+              newValues: { reason: 'inventory_opening_balance_capitalised', source, rows: o.rows, amount, ledgerCodes: o.codes.slice(0, 200) },
+            });
+          });
         }
 
         for (const [source, g] of groups) {

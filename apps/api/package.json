@@ -16,6 +16,7 @@
     "backfill:inventory-gl": "ts-node src/scripts/backfill-inventory-gl.ts",
     "backfill:opening-ledger": "ts-node src/scripts/backfill-opening-ledger.ts",
     "backfill:inventory-gl-gaps": "ts-node --transpile-only src/scripts/backfill-inventory-gl-gaps.ts",
+    "validate:ledger-constraints": "node scripts/validate-ledger-constraints.cjs",
     "rls:setup-role": "ts-node scripts/setup-rls-role.ts",
     "test": "jest",
     "test:integration": "jest --testPathPattern 'test/integration'",

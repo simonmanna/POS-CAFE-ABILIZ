@@ -42,7 +42,7 @@ describeDb('INV P2/P3 accounting + evidence', () => {
 
   const asOrg = <T>(fn: () => Promise<T>): Promise<T> =>
     tenant.run(
-      { organizationId: org.organizationId, userId: staffId, permissions: ['goods_receipt:create', 'goods_receipt:post'] },
+      { organizationId: org.organizationId, userId: staffId, permissions: ['goods_receipt:create', 'goods_receipt:post', 'inventory_doc:approve'] },
       fn,
     );
 
@@ -199,7 +199,7 @@ describeDb('INV P2/P3 accounting + evidence', () => {
 
     const current: any = await asOrg(() => valuation.valuation());
     const past: any = await asOrg(() => valuation.valuation(new Date(Date.now() - 365 * 86_400_000).toISOString()));
-    expect(current.basis).toBe('current_cost');
+    expect(current.basis).toBe('current_cost_by_method');
     expect(Number(current.summary.totalValue)).toBeCloseTo(tie.subledgerValue, 2);
     expect(past.basis).toBe('ledger');
     expect(past.items).toEqual([]);

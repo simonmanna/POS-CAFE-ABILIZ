@@ -4,7 +4,7 @@ import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { StockService } from './stock.service';
-import { assertActiveStaff } from './staff-attribution';
+import { assertActiveStaff, assertDirectStockApproval } from './staff-attribution';
 import { DirectStockInDto, DirectStockOutDto } from './dto/direct-stock.dto';
 
 @Injectable()
@@ -20,10 +20,22 @@ export class DirectStockService {
     return this.tenant.organizationId;
   }
 
+  /** Attribution ids are real org users AND the named approver provably approved. */
+  private async assertAttribution(dto: { responsibleById: string; approvedById: string; approverPin?: string }) {
+    await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
+    await assertDirectStockApproval(this.prisma.client, {
+      organizationId: this.org,
+      actorUserId: this.tenant.userId,
+      actorPermissions: this.tenant.permissions ?? [],
+      approvedById: dto.approvedById,
+      approverPin: dto.approverPin,
+    });
+  }
+
   async directIn(dto: DirectStockInDto) {
     const location = await this.prisma.client.inventoryLocation.findFirst({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundException('Location not found');
-    await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
+    await this.assertAttribution(dto);
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.client.product.findMany({
@@ -90,13 +102,13 @@ export class DirectStockService {
         notes: dto.notes ?? null,
         timestamp: new Date(),
       };
-    });
+    }, { timeout: 20_000 });
   }
 
   async directOut(dto: DirectStockOutDto) {
     const location = await this.prisma.client.inventoryLocation.findFirst({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundException('Location not found');
-    await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
+    await this.assertAttribution(dto);
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.client.product.findMany({
@@ -113,47 +125,22 @@ export class DirectStockService {
 
     const code = await this.seq.next('direct_stock_out', { prefix: 'DSO-', padding: 5 });
 
-    // F1 fix: validate stock availability INSIDE the transaction, then lock the
-    // StockItem row (`SELECT ... FOR UPDATE`) before each issue so concurrent
-    // directOuts of the same product can't both pass the check and both
-    // decrement. The original TOCTOU window (pre-check outside the TX) let
-    // concurrent callers oversell.
+    // Availability is enforced by StockService.issue under the StockItem row
+    // lock (`requireAvailable`), re-reading on-hand in BASE units after the lock
+    // is held. A check before the lock let two concurrent stock-outs of the last
+    // unit both pass and drive on-hand negative. Lines are issued in a
+    // deterministic (product, variant) order so multi-line documents touching
+    // the same quants lock in the same order and cannot deadlock.
     return this.prisma.client.$transaction(async (tx: any) => {
       let totalValue = ZERO;
       const results: any[] = [];
 
-      // Phase 1 — re-validate availability INSIDE the TX so the read sees the
-      // same snapshot the issue writes against. Negative-stock orgs (default)
-      // still pass; the lock prevents oversell across concurrent callers.
-      for (const item of dto.items) {
-        const variantKey = item.variantId ?? '';
-        const stockItem = await tx.stockItem.findFirst({
-          where: { organizationId: this.org, productId: item.productId, variantKey, locationId: dto.locationId },
-        });
-        const available = stockItem ? dec(stockItem.quantity) : ZERO;
-        if (available.lt(dec(item.quantity))) {
-          const prod = productMap.get(item.productId)!;
-          throw new BadRequestException(
-            `Insufficient stock for "${prod.name}": requested ${item.quantity}, available ${available}`,
-          );
-        }
-      }
-
-      // Phase 2 — issue each line under a row lock so the decrement is
-      // serialised against any concurrent issue / transfer / adjust touching
-      // the same (product, variant, location).
-      for (const item of dto.items) {
-        const variantKey = item.variantId ?? '';
-        // FOR UPDATE the StockItem row. Concurrent directOuts of the same line
-        // block here until the holder commits.
-        await tx.$queryRawUnsafe(
-          `SELECT id FROM "StockItem" WHERE "organizationId" = $1 AND "productId" = $2 AND "variantKey" = $3 AND "locationId" = $4 FOR UPDATE`,
-          this.org,
-          item.productId,
-          variantKey,
-          dto.locationId,
-        );
-
+      const ordered = [...dto.items].sort((a, b) =>
+        a.productId === b.productId
+          ? (a.variantId ?? '').localeCompare(b.variantId ?? '')
+          : a.productId.localeCompare(b.productId),
+      );
+      for (const item of ordered) {
         const res = await this.stock.issue(
           {
             productId: item.productId,
@@ -165,6 +152,7 @@ export class DirectStockService {
             batchNumber: item.batchNumber,
             sourceType: 'direct_stock_out',
             sourceId: code,
+            requireAvailable: true,
             notes: item.notes ?? dto.notes ?? undefined,
             responsibleById: dto.responsibleById,
             approvedById: dto.approvedById,
@@ -189,6 +177,6 @@ export class DirectStockService {
         notes: dto.notes ?? null,
         timestamp: new Date(),
       };
-    });
+    }, { timeout: 20_000 });
   }
 }

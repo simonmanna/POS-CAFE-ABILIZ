@@ -819,14 +819,17 @@ export class PosInvoiceService {
         const cost = result?.unitCost ? Number(result.unitCost) : 0;
         const value = result?.totalValue ? Number(result.totalValue) : 0;
         // The snapshot belongs to the InvoiceItem, never the OrderItem (F-01).
-        if (ctx && tx && invoiceItemId && value > 0) {
+        // quantity = BASE units actually relieved (consumptionUom → base), so a
+        // refund restock returns exactly what left stock. Zero-cost rows are kept
+        // too: without them a free component could never be restocked.
+        if (ctx && tx && invoiceItemId) {
           await tx.invoiceItemRecipeIngredient.create({
             data: {
               organizationId: orgId,
               invoiceItemId,
               invoiceId: ctx.invoiceId,
               productId,
-              quantity: qty,
+              quantity: result?.baseQuantity ?? qty, baseQuantity: result?.baseQuantity ?? null, baseUomId: result?.baseUomId ?? null,
               unitCost: cost,
               totalValue: value,
               variantMultiplier: 1,
@@ -1188,7 +1191,7 @@ export class PosInvoiceService {
               } as any, tx);
               if (invoiceItemId) await tx.invoiceItemRecipeIngredient.create({ data: {
                 organizationId: orgId, invoiceItemId, invoiceId: ctx.invoiceId,
-                productId: component.productId, quantity,
+                productId: component.productId, quantity: issueResult?.baseQuantity ?? quantity, baseQuantity: issueResult?.baseQuantity ?? null, baseUomId: issueResult?.baseUomId ?? null,
                 unitCost: Number(issueResult?.unitCost ?? 0), totalValue: Number(issueResult?.totalValue ?? 0),
                 variantMultiplier: 1, componentType: 'combo', componentId: component.id,
               } });
@@ -1202,14 +1205,16 @@ export class PosInvoiceService {
               const issueResult = await this.stock.issue({ productId: it.productId, locationId: warehouse.id, quantity: Number(it.quantity), uomId: product.salesUomId ?? undefined, reference: ref, sourceType: 'pos_invoice', sourceId: ctx.invoiceId } as any, tx);
               const cost = issueResult?.unitCost ? Number(issueResult.unitCost) : 0;
               const value = issueResult?.totalValue ? Number(issueResult.totalValue) : 0;
-              if (invoiceItemId && value > 0) {
+              // Snapshot the BASE quantity relieved (sales unit → base), never the
+              // line quantity: a case-of-12 sale must restock 12 pieces, not 1.
+              if (invoiceItemId) {
                 await tx.invoiceItemRecipeIngredient.create({
                   data: {
                     organizationId: orgId,
                     invoiceItemId,
                     invoiceId: ctx.invoiceId,
                     productId: it.productId,
-                    quantity: Number(it.quantity),
+                    quantity: issueResult?.baseQuantity ?? Number(it.quantity), baseQuantity: issueResult?.baseQuantity ?? null, baseUomId: issueResult?.baseUomId ?? null,
                     unitCost: cost,
                     totalValue: value,
                     variantMultiplier: 1,
@@ -1270,6 +1275,15 @@ export class PosInvoiceService {
    * fault (a missing warehouse, say) raises one alert rather than one per sale.
    * Never throws: an alerting hiccup must not fail an already-final sale.
    */
+  /** Queue-health alert from StockPostingWorker.monitor (tenant scope already set). */
+  async raiseStockPostingHealthAlert(stats: { failed: number; lagging: number; oldest: Date | null }): Promise<void> {
+    const parts = [
+      stats.failed ? `${stats.failed} failed job(s)` : null,
+      stats.lagging ? `${stats.lagging} job(s) unposted for over 15 minutes` : null,
+    ].filter(Boolean).join(' and ');
+    await this.alertStockPostingFailure({} as StockPostingCtx, `Stock posting queue unhealthy: ${parts}`, stats.failed + stats.lagging);
+  }
+
   private async alertStockPostingFailure(ctx: StockPostingCtx, reason: string, lines = 0): Promise<void> {
     const orgId = this.tenant.organizationId;
     try {
@@ -1412,14 +1426,15 @@ export class PosInvoiceService {
         // MenuProduct recipe changes later. Written atomically with the stock issue.
         const cost = issueResult?.unitCost ? Number(issueResult.unitCost) : 0;
         const value = issueResult?.totalValue ? Number(issueResult.totalValue) : 0;
-        if (invoiceItemId && value > 0) {
+        // BASE quantity relieved (recipe uom → base): 18 g stores 0.018 kg.
+        if (invoiceItemId) {
           await tx.invoiceItemRecipeIngredient.create({
             data: {
               organizationId: orgId,
               invoiceItemId,
               invoiceId: ctx.invoiceId,
               productId: ing.productId,
-              quantity: qty,
+              quantity: issueResult?.baseQuantity ?? qty, baseQuantity: issueResult?.baseQuantity ?? null, baseUomId: issueResult?.baseUomId ?? null,
               unitCost: cost,
               totalValue: value,
               variantMultiplier: recipeMultiplier,

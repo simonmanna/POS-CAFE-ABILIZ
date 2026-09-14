@@ -78,7 +78,7 @@ export function InventoryValuationPage() {
           {data && (
             <span className="text-[10px] text-muted-foreground">
               As of {format(new Date(data.asOf), 'MMM d, yyyy')} ·{' '}
-              {data.basis === 'ledger' ? 'rebuilt from the stock ledger' : 'on-hand × running average'}
+              {data.basis === 'ledger' ? 'rebuilt from the stock ledger' : 'remaining value by costing method (AVCO average, FIFO/batch lots, serial costs, standard cost)'}
             </span>
           )}
         </CardHeader>

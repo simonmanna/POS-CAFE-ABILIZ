@@ -14,6 +14,7 @@ import {
 import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { notify } from '@/lib/notify';
+import { useAuthStore } from '@/stores/auth.store';
 
 interface Location { id: string; code: string; name: string; type: string }
 
@@ -51,6 +52,9 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
   );
 
   const qc = useQueryClient();
+  // A named approver other than the signed-in user must prove the approval
+  // with their override PIN; the server rejects a bare approver id.
+  const myId = useAuthStore((s) => s.user?.id) ?? '';
 
   /** Refresh every list a stock movement can change, plus the host page's own. */
   const invalidateAll = () => {
@@ -65,6 +69,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
   const [inNotes, setInNotes] = useState('');
   const [inResponsibleId, setInResponsibleId] = useState('');
   const [inApprovedId, setInApprovedId] = useState('');
+  const [inApproverPin, setInApproverPin] = useState('');
   const [inLines, setInLines] = useState<{ productId: string; name: string; quantity: number; unitCost: string; batchNumber: string; expiryDate: string }[]>([
     { productId: '', name: '', quantity: 1, unitCost: '', batchNumber: '', expiryDate: '' },
   ]);
@@ -84,6 +89,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
         locationId: inLocId,
         responsibleById: inResponsibleId,
         approvedById: inApprovedId,
+        ...(inApprovedId !== myId && inApproverPin ? { approverPin: inApproverPin } : {}),
         items,
         notes: inNotes || undefined,
       });
@@ -96,6 +102,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
       setInNotes('');
       setInResponsibleId('');
       setInApprovedId('');
+      setInApproverPin('');
       setInLines([{ productId: '', name: '', quantity: 1, unitCost: '', batchNumber: '', expiryDate: '' }]);
       invalidateAll();
     },
@@ -108,6 +115,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
   const [outNotes, setOutNotes] = useState('');
   const [outResponsibleId, setOutResponsibleId] = useState('');
   const [outApprovedId, setOutApprovedId] = useState('');
+  const [outApproverPin, setOutApproverPin] = useState('');
   const [outLines, setOutLines] = useState<{ productId: string; name: string; quantity: number; distStrategy: string; batchNumber: string }[]>([
     { productId: '', name: '', quantity: 1, distStrategy: 'FEFO', batchNumber: '' },
   ]);
@@ -126,6 +134,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
         locationId: outLocId,
         responsibleById: outResponsibleId,
         approvedById: outApprovedId,
+        ...(outApprovedId !== myId && outApproverPin ? { approverPin: outApproverPin } : {}),
         items,
         notes: outNotes || undefined,
       });
@@ -138,6 +147,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
       setOutNotes('');
       setOutResponsibleId('');
       setOutApprovedId('');
+      setOutApproverPin('');
       setOutLines([{ productId: '', name: '', quantity: 1, distStrategy: 'FEFO', batchNumber: '' }]);
       invalidateAll();
     },
@@ -238,6 +248,9 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                 searchPlaceholder="Search staff…"
                 emptyText="No staff match"
               />
+              {inApprovedId && inApprovedId !== myId && (
+                <Input type="password" inputMode="numeric" autoComplete="off" placeholder="Approver PIN" value={inApproverPin} onChange={(e) => setInApproverPin(e.target.value)} />
+              )}
             </div>
             <div className="space-y-1.5 md:col-span-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -333,7 +346,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setInOpen(false)}>Cancel</Button>
-            <Button className="bg-[#3c8dbc] hover:bg-[#367fa9]" disabled={!inLocId || !inResponsibleId || !inApprovedId || inFilledCount === 0 || directIn.isPending} onClick={() => directIn.mutate()}>
+            <Button className="bg-[#3c8dbc] hover:bg-[#367fa9]" disabled={!inLocId || !inResponsibleId || !inApprovedId || (inApprovedId !== myId && !inApproverPin) || inFilledCount === 0 || directIn.isPending} onClick={() => directIn.mutate()}>
               {directIn.isPending ? 'Processing…' : 'Complete Stock In'}
             </Button>
           </div>
@@ -396,6 +409,9 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                 searchPlaceholder="Search staff…"
                 emptyText="No staff match"
               />
+              {outApprovedId && outApprovedId !== myId && (
+                <Input type="password" inputMode="numeric" autoComplete="off" placeholder="Approver PIN" value={outApproverPin} onChange={(e) => setOutApproverPin(e.target.value)} />
+              )}
             </div>
             <div className="space-y-1.5 md:col-span-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -492,7 +508,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setOutOpen(false)}>Cancel</Button>
-            <Button className="bg-rose-600 hover:bg-rose-700" disabled={!outLocId || !outResponsibleId || !outApprovedId || outFilledCount === 0 || outMissingBatch > 0 || directOut.isPending} onClick={() => directOut.mutate()}>
+            <Button className="bg-rose-600 hover:bg-rose-700" disabled={!outLocId || !outResponsibleId || !outApprovedId || (outApprovedId !== myId && !outApproverPin) || outFilledCount === 0 || outMissingBatch > 0 || directOut.isPending} onClick={() => directOut.mutate()}>
               {directOut.isPending ? 'Processing…' : 'Complete Stock Out'}
             </Button>
           </div>

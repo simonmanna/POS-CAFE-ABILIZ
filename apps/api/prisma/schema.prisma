@@ -5946,6 +5946,13 @@ model InvoiceItemRecipeIngredient {
   /// Quantity consumed, in the ingredient's base stock unit (already converted
   /// from the recipe-line uomId). This is exactly what was deducted from stock.
   quantity          Decimal  @db.Decimal(20, 6)
+  /// Authoritative BASE-unit quantity relieved (StockService.issue baseQuantity).
+  /// Refund restocks use ONLY this. Legacy rows (written before 2026-09-14,
+  /// when `quantity` could hold the sales/recipe unit) were backfilled as
+  /// totalValue / unitCost, which is base-unit by construction.
+  baseQuantity      Decimal? @db.Decimal(20, 6)
+  /// Product base UOM at time of issue.
+  baseUomId         String?
   /// Unit cost at time of issue (copied from the ledger row for independent
   /// COGS verifiability, even if the ledger is later purged).
   unitCost          Decimal  @db.Decimal(20, 6)

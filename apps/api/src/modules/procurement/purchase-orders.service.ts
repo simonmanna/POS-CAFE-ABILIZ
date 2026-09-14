@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import {
   BadRequestException,
   ForbiddenException,
@@ -15,6 +16,7 @@ import { StockService } from '../inventory/stock.service';
 import { StockPostingService } from '../inventory/posting/stock-posting.service';
 import { CashSessionService } from '../accounting/treasury/cash-session.service';
 import { dec, ZERO } from '../../kernel/common/money';
+import { Prisma } from '@prisma/client';
 import type {
   CreatePODto,
   ReceivePODto,
@@ -348,6 +350,91 @@ export class PurchaseOrdersService {
     return { status: newStatus };
   }
 
+  /** GRN row data shared by the immediate-post and approval-draft paths. */
+  private grnDraftData(grnId: string, orgId: string, receiptNumber: string, po: any, dto: ReceivePODto, resolvedLines: any[]) {
+    return {
+      id: grnId,
+      organizationId: orgId,
+      receiptNumber,
+      purchaseOrderId: po.id,
+      partnerId: po.partnerId,
+      branchId: po.branchId,
+      warehouseId: dto.warehouseId,
+      receivedAt: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
+      status: 'draft',
+      notes: dto.notes,
+      createdBy: this.tenant.userId ?? null,
+      lines: {
+        create: resolvedLines.map((rln, idx) => ({
+          organizationId: orgId,
+          purchaseOrderLineId: rln._resolvedLineId,
+          productId: rln.productId ?? null,
+          description: rln.description,
+          quantity: rln.quantity,
+          unitCost: rln._unitCost ?? 0,
+          batchNumber: rln.batchNumber ?? null,
+          expiryDate: rln.expiryDate ? new Date(rln.expiryDate) : null,
+          notes: rln.notes ?? null,
+          lineNumber: idx + 1,
+        })),
+      },
+    } as any;
+  }
+
+  /**
+   * Cash purchase: settle exactly what one receipt vouchered to AP
+   * (Dr AP / Cr Cash) and record the drawer pay-out. Shared by the PO receive
+   * and by GoodsReceiptsService.post() for approval-gated PO receipts, so a
+   * cash PO is settled identically whichever route posts the GRN. The PO row is
+   * locked so concurrent receipts cannot lose a totalPaid update.
+   */
+  async settleCashReceipt(tx: any, purchaseOrderId: string, settleAmount: Prisma.Decimal, ref: { grnId: string; receiptNumber: string; date: Date }) {
+    const orgId = this.tenant.organizationId;
+    if (!settleAmount.gt(ZERO)) return;
+    await tx.$queryRawUnsafe('SELECT id FROM "PurchaseOrder" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', purchaseOrderId, orgId);
+    const po = await tx.purchaseOrder.findFirst({ where: { id: purchaseOrderId, organizationId: orgId } });
+    if (!po || po.paymentType !== 'cash') return;
+    const newTotalPaid = dec(po.totalPaid).plus(settleAmount);
+    await tx.purchaseOrder.update({
+      where: { id: purchaseOrderId },
+      data: {
+        totalPaid: newTotalPaid,
+        paymentStatus: newTotalPaid.gte(dec(po.totalAmount)) ? 'paid' : 'partial',
+      },
+    });
+    await tx.purchasePayment.create({
+      data: {
+        organizationId: orgId,
+        purchaseOrderId,
+        amount: settleAmount,
+        paidAt: new Date(),
+        paidById: this.tenant.userId ?? null,
+        reference: `auto:GRN ${ref.receiptNumber}`,
+      },
+    });
+    // GL: Dr AP / Cr Cash — relieve the payable the voucher just raised.
+    const session = await this.cashSession.findOpen();
+    if (!session) throw new BadRequestException('Select an open cashier register for this cash purchase');
+    const paymentJournal = await this.stockPosting.postPurchasePayment({
+      cashSessionId: session.id,
+      partnerId: po.partnerId,
+      amount: settleAmount,
+      method: 'cash',
+      date: ref.date,
+      sourceType: 'purchase_order',
+      sourceId: purchaseOrderId,
+      description: `Cash purchase ${po.orderNumber} · GRN ${ref.receiptNumber}`,
+      // One auto-settlement per receipt — the PO id alone would collide
+      // across partial receipts.
+      postingKey: `purchase_payment:goods_receipt:${ref.grnId}`,
+      tx,
+    });
+    // Drawer artifact: the till's expected cash reflects the withdrawal. GL already done.
+    await this.cashSession.recordExternalPayOut(
+      tx, session.id, settleAmount, `Cash purchase PO ${po.orderNumber}`, paymentJournal.id,
+    );
+  }
+
   async receive(id: string, dto: ReceivePODto) {
     const orgId = this.tenant.organizationId;
 
@@ -423,40 +510,43 @@ export class PurchaseOrdersService {
       padding: 5,
     });
 
+    // Same goods_receipt approval policy as GoodsReceiptsService.post(): one
+    // economic event, one control. The id is minted up front so the approval
+    // request references the exact GRN it gates. When approval is required the
+    // delivery is captured as a DRAFT only (no stock, GL, PO advance or cash
+    // settlement); the approver posts it via POST /goods-receipts/:id/post,
+    // which runs the same stock + voucher + PO + cash-settlement path.
+    const grnId = randomUUID();
+    const gate = await this.approvals.checkOrRequestApproval({
+      entityType: 'goods_receipt',
+      entityId: grnId,
+      snapshot: {
+        amount: Number(resolvedLines.reduce((sum, r) => sum.plus(dec(r.quantity).times(dec(r._unitCost ?? 0))), ZERO)),
+        receiptNumber,
+        partnerId: po.partnerId ?? null,
+        purchaseOrderId: id,
+        createdBy: this.tenant.userId ?? null,
+      },
+    });
+    if (gate?.needsApproval) {
+      const draft = await this.prisma.client.goodsReceiptNote.create({
+        data: this.grnDraftData(grnId, orgId, receiptNumber, po, dto, resolvedLines),
+        include: { lines: true },
+      });
+      await this.audit.record({
+        entity: 'GoodsReceiptNote',
+        entityId: draft.id,
+        action: 'create',
+        newValues: { receiptNumber, status: 'draft', purchaseOrderId: id, approvalRequestId: gate.requestId },
+      });
+      return { grn: draft, status: po.status, approvalRequired: true, approvalRequestId: gate.requestId };
+    }
+
     // Everything in ONE transaction — stock, GRN, PO status, PO lines
     const result = await this.prisma.client.$transaction(async (tx) => {
       // 1. Create GRN (draft)
       const grn = await tx.goodsReceiptNote.create({
-        data: {
-          organizationId: orgId,
-          receiptNumber,
-          purchaseOrderId: id,
-          partnerId: po.partnerId,
-          branchId: po.branchId,
-          warehouseId: dto.warehouseId,
-          receivedAt: dto.receivedAt
-            ? new Date(dto.receivedAt)
-            : new Date(),
-          status: 'draft',
-          notes: dto.notes,
-          createdBy: this.tenant.userId ?? null,
-          lines: {
-            create: resolvedLines.map((rln, idx) => ({
-              organizationId: orgId,
-              purchaseOrderLineId: rln._resolvedLineId,
-              productId: rln.productId ?? null,
-              description: rln.description,
-              quantity: rln.quantity,
-              unitCost: rln._unitCost ?? 0,
-              batchNumber: rln.batchNumber ?? null,
-              expiryDate: rln.expiryDate
-                ? new Date(rln.expiryDate)
-                : null,
-              notes: rln.notes ?? null,
-              lineNumber: idx + 1,
-            })),
-          },
-        },
+        data: this.grnDraftData(grnId, orgId, receiptNumber, po, dto, resolvedLines),
         include: { lines: true },
       });
 
@@ -547,51 +637,11 @@ export class PurchaseOrdersService {
       //    received (goods can arrive across several partial receipts), so the
       //    cash out never exceeds what has been vouchered to AP.
       if (po.paymentType === 'cash') {
-        const settleAmount = receiptNet.plus(receiptTax);
-        if (settleAmount.gt(ZERO)) {
-          await tx.purchaseOrder.update({
-            where: { id },
-            data: {
-              totalPaid: { increment: settleAmount.toNumber() },
-              paymentStatus:
-                dec(po.totalPaid).plus(settleAmount).gte(dec(po.totalAmount)) ? 'paid' : 'partial',
-            },
-          });
-          await tx.purchasePayment.create({
-            data: {
-              organizationId: orgId,
-              purchaseOrderId: id,
-              amount: settleAmount.toNumber(),
-              paidAt: new Date(),
-              paidById: this.tenant.userId ?? null,
-              reference: `auto:GRN ${receiptNumber}`,
-            },
-          });
-          // GL: Dr AP / Cr Cash — relieve the payable the voucher just raised.
-          const session = await this.cashSession.findOpen();
-          if (!session) throw new BadRequestException('Select an open cashier register for this cash purchase');
-          const paymentJournal = await this.stockPosting.postPurchasePayment({
-            cashSessionId: session.id,
-            partnerId: po.partnerId,
-            amount: settleAmount,
-            method: 'cash',
-            date: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
-            sourceType: 'purchase_order',
-            sourceId: id,
-            description: `Cash purchase ${po.orderNumber} · GRN ${receiptNumber}`,
-            // One auto-settlement per receipt — the PO id alone would collide
-            // across partial receipts.
-            postingKey: `purchase_payment:goods_receipt:${grn.id}`,
-            tx,
-          });
-          // Drawer artifact (best-effort): record the pay-out on an open session
-          // so the till's expected cash reflects the withdrawal. GL already done.
-          if (session) {
-            await this.cashSession.recordExternalPayOut(
-              tx, session.id, settleAmount, `Cash purchase PO ${po.orderNumber}`, paymentJournal.id,
-            );
-          }
-        }
+        await this.settleCashReceipt(tx, id, receiptNet.plus(receiptTax), {
+          grnId: grn.id,
+          receiptNumber,
+          date: dto.receivedAt ? new Date(dto.receivedAt) : new Date(),
+        });
       }
 
       // F3 fix: write the audit row inside the TX so an audit failure rolls
@@ -625,31 +675,50 @@ export class PurchaseOrdersService {
 
   async pay(id: string, dto: PayPODto) {
     const orgId = this.tenant.organizationId;
-    const po = await this.requireOwned(id);
+    await this.requireOwned(id);
 
-    if (po.paymentType !== 'credit')
-      throw new BadRequestException(
-        'Only credit purchases can accept manual payments',
-      );
-    if (po.status === 'cancelled')
-      throw new BadRequestException('Cannot pay a cancelled PO');
-
-    const amount = dto.amount ?? Number(po.totalAmount) - Number(po.totalPaid);
-    if (amount <= 0)
-      throw new BadRequestException('Payment amount must be positive');
-
-    const remaining = Number(po.totalAmount) - Number(po.totalPaid);
-    if (amount > remaining) {
-      throw new BadRequestException(
-        `Payment of ${amount} exceeds remaining balance of ${remaining}`,
-      );
-    }
-
-    const newTotalPaid = Number(po.totalPaid) + amount;
-    const newPaymentStatus =
-      newTotalPaid >= Number(po.totalAmount) ? 'paid' : 'partial';
-
+    let amount = 0;
     const result = await this.prisma.client.$transaction(async (tx) => {
+      // Lock the PO BEFORE reading its balance. Reading totalPaid outside the
+      // transaction let two concurrent full-balance payments (different
+      // idempotency keys) both pass the remaining-balance check, each post a
+      // payment + journal, and both write the same cumulative totalPaid.
+      await tx.$queryRawUnsafe(
+        'SELECT id FROM "PurchaseOrder" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE',
+        id,
+        orgId,
+      );
+      const po = await tx.purchaseOrder.findFirst({ where: { id, organizationId: orgId } });
+      if (!po) throw new NotFoundException('Purchase order not found');
+      if (po.paymentType !== 'credit')
+        throw new BadRequestException(
+          'Only credit purchases can accept manual payments',
+        );
+      if (po.status === 'cancelled')
+        throw new BadRequestException('Cannot pay a cancelled PO');
+
+      // Derive paid-to-date from the immutable payment rows, not the cached
+      // aggregate, so a historically drifted totalPaid cannot open headroom.
+      const paidAgg = await tx.purchasePayment.aggregate({
+        where: { organizationId: orgId, purchaseOrderId: id },
+        _sum: { amount: true },
+      });
+      const paidToDate = Prisma.Decimal.max(dec(paidAgg._sum.amount ?? 0), dec(po.totalPaid));
+      const remaining = dec(po.totalAmount).minus(paidToDate);
+      const payAmount = dto.amount != null ? dec(dto.amount) : remaining;
+      if (!payAmount.isFinite() || payAmount.lte(0))
+        throw new BadRequestException(
+          remaining.lte(0) ? 'This purchase order is already fully paid' : 'Payment amount must be positive',
+        );
+      if (payAmount.gt(remaining)) {
+        throw new BadRequestException(
+          `Payment of ${payAmount.toString()} exceeds remaining balance of ${remaining.toString()}`,
+        );
+      }
+      amount = Number(payAmount);
+      const newTotalPaid = paidToDate.plus(payAmount);
+      const newPaymentStatus = newTotalPaid.gte(dec(po.totalAmount)) ? 'paid' : 'partial';
+
       // 1. Record payment
       const payment = await tx.purchasePayment.create({
         data: {

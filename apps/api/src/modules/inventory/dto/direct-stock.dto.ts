@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize, IsArray, IsDateString, IsIn, IsNotEmpty, IsNumber,
-  IsOptional, IsPositive, IsString, ValidateNested,
+  IsOptional, IsPositive, IsString, MaxLength, ValidateNested,
 } from 'class-validator';
 import { STOCK_DISTRIBUTION_STRATEGIES, type StockDistributionStrategy } from '@erp/shared';
 
@@ -49,10 +49,18 @@ export class DirectStockInDto {
   @IsNotEmpty()
   responsibleById!: string;
 
-  /// Staff member who approved the stock-in. Required.
+  /// Staff member who approved the stock-in. Required. When it is not the
+  /// authenticated caller, `approverPin` must prove the approval.
   @IsString()
   @IsNotEmpty()
   approvedById!: string;
+
+  /// Approver's override PIN (or `password:<pw>`). Required unless the caller
+  /// self-approves while holding inventory_doc:approve.
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  approverPin?: string;
 
   @IsArray()
   @ArrayMinSize(1)
@@ -105,10 +113,18 @@ export class DirectStockOutDto {
   @IsNotEmpty()
   responsibleById!: string;
 
-  /// Staff member who approved the stock-out. Required.
+  /// Staff member who approved the stock-out. Required. When it is not the
+  /// authenticated caller, `approverPin` must prove the approval.
   @IsString()
   @IsNotEmpty()
   approvedById!: string;
+
+  /// Approver's override PIN (or `password:<pw>`). Required unless the caller
+  /// self-approves while holding inventory_doc:approve.
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  approverPin?: string;
 
   @IsArray()
   @ArrayMinSize(1)

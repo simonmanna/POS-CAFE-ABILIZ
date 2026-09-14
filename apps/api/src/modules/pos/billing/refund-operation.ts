@@ -104,15 +104,24 @@ export async function refundInvoice(ctx: any, invoiceId: string, reason: string 
           const posLoc = await resolvePosStockLocation(ctx.prisma, orgId, tx, saleSession?.registerLocationId ?? saleSession?.cashRegister?.locationId);
           const locId = posLoc?.id;
           if (!locId) throw new BadRequestException('No active warehouse configured — cannot restock inventory');
+          const fraction = quantity.div(src.quantity);
           for (const ing of ingredients) {
-            const fraction = quantity.div(src.quantity);
-            const returnQty = dec(ing.quantity).times(fraction).toDecimalPlaces(6);
+            // Restore ONLY the persisted base quantity (no uomId: it is already
+            // in base units, and unitCost is per base unit). `quantity` on legacy
+            // rows could hold the sales/recipe unit — a case of 12 restocked as 1
+            // piece, 18 g as 18 kg — so it is never used when baseQuantity exists.
+            // The value reversed is the same fraction of what the sale expensed.
+            const baseQty = ing.baseQuantity != null
+              ? dec(ing.baseQuantity)
+              : dec(ing.unitCost).gt(0) ? dec(ing.totalValue).div(ing.unitCost) : dec(ing.quantity);
+            const returnQty = baseQty.times(fraction).toDecimalPlaces(6);
             if (returnQty.lte(0)) continue;
+            const returnValue = dec(ing.totalValue).times(fraction);
             await ctx.stock.receiveReturn({
               productId: ing.productId,
               locationId: locId,
               quantity: Number(returnQty),
-              unitCost: Number(ing.unitCost),
+              unitCost: Number(dec(ing.totalValue).gt(0) ? returnValue.div(returnQty) : dec(ing.unitCost)),
               reference: `Refund ${refund.id}`,
               sourceType: 'pos_refund',
               sourceId: refund.id,

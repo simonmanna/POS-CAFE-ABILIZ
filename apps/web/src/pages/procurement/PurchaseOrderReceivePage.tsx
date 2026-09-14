@@ -59,8 +59,12 @@ export function PurchaseOrderReceivePage() {
             unitCost: l.unitPrice,
           })) ?? [],
       })).data,
-    onSuccess: () => {
-      notify.success('Stock received successfully');
+    onSuccess: (res: any) => {
+      if (res?.approvalRequired) {
+        notify.success(`Receipt ${res.grn?.receiptNumber ?? ''} saved as a draft — awaiting goods-receipt approval before stock is posted`);
+      } else {
+        notify.success('Stock received successfully');
+      }
       qc.invalidateQueries({ queryKey: ['purchase-order', id] });
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       navigate(`/procurement/purchase-orders/${id}`);

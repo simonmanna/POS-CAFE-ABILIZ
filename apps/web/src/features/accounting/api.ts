@@ -786,8 +786,8 @@ export interface InventoryValuationItem {
 
 export interface InventoryValuationResult {
   asOf: string;
-  /** current_cost = on-hand × running average; ledger = rebuilt from the stock ledger up to asOf. */
-  basis: 'current_cost' | 'ledger';
+  /** current_cost_by_method = remaining value per costing method (AVCO avg, STANDARD cost, FIFO/batch lots, serial costs); ledger = rebuilt from the stock ledger up to asOf. */
+  basis: 'current_cost_by_method' | 'ledger';
   items: InventoryValuationItem[];
   summary: { totalItems: number; totalValue: string; totalQty: number };
   groupedBy: string;
@@ -805,7 +805,7 @@ export interface InventoryGlTieOut {
   asOf: string;
   accounts: { id: string; code: string; name: string }[];
   subledgerValue: number;
-  subledgerBasis?: 'current_cost' | 'ledger';
+  subledgerBasis?: 'current_cost_by_method' | 'ledger';
   glBalance: number;
   variance: number;
   tolerance: number;

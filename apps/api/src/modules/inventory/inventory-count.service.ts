@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { dec } from '../../kernel/common/money';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
@@ -462,9 +462,10 @@ export class InventoryCountService {
     }
 
     if (varianceLines.length === 0) {
-      // No variances — no adjustment needed, submit directly.
-      await this.prisma.client.inventoryCountSession.update({
-        where: { id },
+      // No variances — no adjustment needed, submit directly. Conditional
+      // draft→submitted claim: a concurrent submit/cancel matches zero rows.
+      const claimed = await this.prisma.client.inventoryCountSession.updateMany({
+        where: { id, status: 'draft' },
         data: {
           status: 'submitted',
           submittedById: this.tenant.userId ?? null,
@@ -472,6 +473,7 @@ export class InventoryCountService {
           ...(stale.length > 0 ? { notes: this.appendForceNote(sessionSnapshot.notes, stale, dto) } : {}),
         },
       });
+      if (claimed.count === 0) throw new ConflictException('Count was already submitted or cancelled by another request');
       await this.auditSubmit(id, sessionSnapshot, stale, dto, null);
       return this.get(id);
     }
@@ -479,14 +481,20 @@ export class InventoryCountService {
     // Atomic: create adjustment + approve + mark session submitted in one tx.
     // If any step fails the entire operation rolls back — no orphaned adjustments.
     return this.prisma.client.$transaction(async (tx: any) => {
-      // Re-assert draft inside the tx so a concurrent submit/cancel can't race.
+      // Atomic draft→submitted claim FIRST: a plain read-then-check let two
+      // concurrent submits both see 'draft' and each post an adjustment. The
+      // loser matches zero rows (and waits on the winner's row lock meanwhile).
+      const claim = await tx.inventoryCountSession.updateMany({
+        where: { id, status: 'draft' },
+        data: { status: 'submitted', submittedById: this.tenant.userId ?? null, submittedAt: new Date() },
+      });
+      if (claim.count === 0) {
+        throw new ConflictException('Count was already submitted or cancelled by another request');
+      }
       const session = await tx.inventoryCountSession.findFirst({
         where: { id },
         include: { lines: { orderBy: [{ parentProductId: 'asc' }, { productName: 'asc' }] }, location: true },
       });
-      if (!session || session.status !== 'draft') {
-        throw new BadRequestException('Session was modified; please retry.');
-      }
 
       const adj = await this.stockDoc.createAdjustment({
         locationId: session.locationId,
@@ -507,9 +515,6 @@ export class InventoryCountService {
       await tx.inventoryCountSession.update({
         where: { id },
         data: {
-          status: 'submitted',
-          submittedById: this.tenant.userId ?? null,
-          submittedAt: new Date(),
           adjustmentId: adj.id,
           ...(stale.length > 0 ? { notes: this.appendForceNote(session.notes, stale, dto) } : {}),
         },

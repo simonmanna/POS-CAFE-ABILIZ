@@ -299,6 +299,15 @@ export class GoodsReceiptsService {
           description: `Goods received ${grn.receiptNumber} · PO ${po.orderNumber}`,
           tx,
         });
+        // Cash PO: settle what this receipt vouchered, exactly as the PO
+        // receive route does (an approval-gated PO receipt is posted here).
+        if (po.paymentType === 'cash') {
+          await this.purchaseOrders.settleCashReceipt(tx, po.id, receiptNet.plus(receiptTax), {
+            grnId: grn.id,
+            receiptNumber: grn.receiptNumber,
+            date: grn.receivedAt ?? new Date(),
+          });
+        }
       }
 
       return updated;

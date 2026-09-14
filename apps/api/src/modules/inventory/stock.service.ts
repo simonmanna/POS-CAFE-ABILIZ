@@ -42,7 +42,16 @@ export type GlReceiptContext = {
  * deliberately NOT on the HTTP DTO: only a caller that posts the balanced JE itself
  * (debit note RTV, production reversal) may use it.
  */
-export type InternalIssueInput = IssueStockDto & { skipGlPosting?: boolean };
+export type InternalIssueInput = IssueStockDto & {
+  skipGlPosting?: boolean;
+  /**
+   * Workflow promises availability (direct stock-out, …): refuse the issue when
+   * pickable on-hand — re-read UNDER the StockItem row lock — is below the base
+   * quantity, regardless of the org's permissive negative-stock setting. POS
+   * sales never set this (never-block-sales rule).
+   */
+  requireAvailable?: boolean;
+};
 
 @Injectable()
 export class StockService {
@@ -418,6 +427,27 @@ export class StockService {
       // existing row back to in_stock instead of colliding on the unique serial.
       if (product.serialTracking && dto.serialNumbers?.length) {
         const receiptRef = `${glCtx?.sourceType ?? dto.sourceType ?? 'receipt'}:${glCtx?.sourceId ?? dto.sourceId ?? ledgerCode}`;
+        // State guard: an upsert alone let a serial already in_stock be
+        // "received" again, adding a second on-hand unit + ledger row backed by
+        // one physical serial. A purchase/production/transfer receipt may only
+        // create previously unseen serials; a customer return may only bring
+        // back a unit that is currently `issued`. Rows are locked so two
+        // concurrent receipts of the same serial serialise on this check.
+        const existing: Array<{ serialNumber: string; status: string }> = await tx.$queryRawUnsafe(
+          `SELECT "serialNumber", status FROM "InventorySerial" WHERE "organizationId" = $1 AND "productId" = $2 AND "serialNumber" = ANY($3::text[]) FOR UPDATE`,
+          organizationId,
+          dto.productId,
+          dto.serialNumbers,
+        );
+        const isReturn = dto.moveType === 'return_in' || dto.moveType === 'reversal_in';
+        const conflicts = existing.filter((row) => (isReturn ? row.status !== 'issued' : true));
+        if (conflicts.length > 0) {
+          throw new BadRequestException(
+            isReturn
+              ? `Serial number(s) cannot be returned because they are not currently issued: ${conflicts.map((c) => `${c.serialNumber} (${c.status})`).join(', ')}`
+              : `Serial number(s) already exist for this product: ${conflicts.map((c) => `${c.serialNumber} (${c.status})`).join(', ')}`,
+          );
+        }
         for (const serialNumber of dto.serialNumbers) {
           await tx.inventorySerial.upsert({
             where: {
@@ -654,7 +684,7 @@ export class StockService {
 
       // Strict-mode oversell guard. Skipped entirely when negative stock is allowed
       // (the default), so the never-block-sales behaviour is unchanged out of the box.
-      if (!allowNegativeStock) {
+      if (!allowNegativeStock || dto.requireAvailable) {
         const usesLayers = product.costingMethod === 'FIFO' || product.batchTracking;
         const available = usesLayers
           ? dec(
@@ -675,7 +705,7 @@ export class StockService {
             )
           : dec(stockItem.quantity);
         if (qty.gt(available)) {
-          if (product.stockPolicy === 'block') {
+          if (dto.requireAvailable || product.stockPolicy === 'block') {
             throw new BadRequestException(
               `Insufficient stock for ${product.name}: on hand ${available.toString()}, requested ${qty.toString()}.`,
             );
@@ -1045,7 +1075,17 @@ export class StockService {
         newValues: { productId: dto.productId, locationId: dto.locationId, quantity: dto.quantity, unitCost: unitCost.toString(), totalValue: totalValue.toString(), ledgerCode },
       });
 
-      return { ledgerCode, quantity: dto.quantity, unitCost: unitCost.toString(), totalValue: totalValue.toString() };
+      // `quantity` echoes the caller's unit; `baseQuantity`/`baseUomId` are what
+      // actually left stock. `unitCost` is per BASE unit — snapshots that feed a
+      // later restock must persist baseQuantity, never the requested quantity.
+      return {
+        ledgerCode,
+        quantity: dto.quantity,
+        baseQuantity: qty.toString(),
+        baseUomId: product.uomId ?? null,
+        unitCost: unitCost.toString(),
+        totalValue: totalValue.toString(),
+      };
     };
     // 20s (vs Prisma's 5s default): these paths can wait on the per-quant AVCO
     // advisory lock under contention, and a receipt/transfer must not fail just

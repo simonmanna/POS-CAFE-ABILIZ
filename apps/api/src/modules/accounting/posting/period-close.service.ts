@@ -77,7 +77,6 @@ export class PeriodCloseService {
             `Drain the stock-posting queue, and resolve any failed jobs in the Posting Monitor, before closing.`,
         );
       }
-
       // Also check for pending synchronous inventory mutations that could post
       // to the GL for this period. These are not queued (they post synchronously
       // when approved), so the queue check above does not catch them.
@@ -100,6 +99,19 @@ export class PeriodCloseService {
             `(${pendingStockOuts} stock-outs, ${pendingWaste} waste, ` +
             `${pendingAdjustments} adjustments, ${pendingTransfers} transfers). ` +
             `Post or cancel them before closing.`,
+        );
+      }
+
+      // A job can finish `done` with individual lines that never relieved stock
+      // (each recorded as an open InventoryException). COGS for those sales is
+      // missing from the period, so closing would lock in overstated margin.
+      const openStockExceptions = await tx.inventoryException.count({
+        where: { organizationId, status: 'open', createdAt: { gte: period.startDate, lte: period.endDate } },
+      });
+      if (openStockExceptions > 0) {
+        throw new BadRequestException(
+          `Cannot close '${period.name}': ${openStockExceptions} open inventory exception(s) in this period — sale lines whose stock/COGS was not posted. ` +
+            `Resolve them in the Posting Monitor before closing.`,
         );
       }
 

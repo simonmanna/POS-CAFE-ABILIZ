@@ -52,6 +52,10 @@ async function checkDatabase(db) {
   }
   const ledgerCheck = (await db.query(`SELECT 1 FROM pg_constraint WHERE conname = 'InventoryLedger_balance_arithmetic_check'`)).rows;
   if (!ledgerCheck.length) blockers.push({ check: 'inventory_ledger_arithmetic_constraint', detail: 'Stock ledger rows are not arithmetic-checked; run prisma migrate deploy' });
+  const notValidated = (await db.query(`SELECT conrelid::regclass::text AS "table", conname FROM pg_constraint WHERE connamespace = 'public'::regnamespace AND contype = 'c' AND NOT convalidated`)).rows;
+  if (notValidated.length) warnings.push({ check: 'check_constraints_not_validated', detail: 'Historical rows are not proven against these CHECK constraints; run pnpm --filter @erp/api validate:ledger-constraints', constraints: notValidated });
+  const payTrigger = triggers.has('PurchasePayment.purchase_payment_not_over_po');
+  if (!payTrigger) blockers.push({ check: 'purchase_payment_cap_trigger', detail: 'Credit PO payments are not capped at the PO total in the database; run prisma migrate deploy' });
   const pending = (await db.query(`SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL`)).rows;
   if (pending.length) blockers.push({ check: 'unfinished_migrations', migrations: pending.map((r) => r.migration_name) });
   return { role, blockers, warnings };
@@ -122,7 +126,6 @@ async function checkOrganization(db, organizationId) {
 
   add(blockers, 'failed_stock_postings', await q(`SELECT id, "invoiceNumber", "lastError" FROM "StockPostingJob" WHERE "organizationId" = $1 AND status = 'failed'`), 'Stock/COGS never posted; fix configuration and retry from the Posting Monitor');
 
-  add(warnings, 'queued_stock_postings', await q(`SELECT id, "invoiceNumber", status, attempts FROM "StockPostingJob" WHERE "organizationId" = $1 AND status IN ('pending','processing') AND "createdAt" < now() - interval '15 minutes'`), 'Stock posting queue is behind');
 
   add(warnings, 'open_inventory_exceptions', await q(`SELECT id, kind, "invoiceNumber", reason FROM "InventoryException" WHERE "organizationId" = $1 AND status = 'open'`), 'Stock drift awaiting a decision');
 
@@ -193,18 +196,79 @@ async function checkOrganization(db, organizationId) {
     GROUP BY l."referenceType", l.type`), 'Stock value moved with no journal entry; run pnpm --filter @erp/api backfill:inventory-gl-gaps');
 
   const tolerance = Number(process.env.INVENTORY_GL_TOLERANCE ?? 1);
+  // Same basis as Accounting > Inventory GL Tie-out: costing-method-correct
+  // remaining value (AVCO avg, STANDARD cost, FIFO/batch lots, serial costs) vs
+  // every inventory account (mappings, STOCK_IN debit rules, category/product
+  // overrides). Variance is computed in SQL numeric, never JS floats.
   const tie = (await q(`
-    SELECT
-      (SELECT COALESCE(SUM(s.quantity * CASE WHEN s."runningAverageCost" > 0 THEN s."runningAverageCost" ELSE COALESCE(p."costPrice", 0) END), 0)
-         FROM "StockItem" s JOIN "Product" p ON p.id = s."productId" WHERE s."organizationId" = $1) AS subledger,
-      (SELECT COALESCE(SUM(jl."baseDebit" - jl."baseCredit"), 0)
-         FROM "JournalLine" jl JOIN "JournalEntry" e ON e.id = jl."journalEntryId" AND e.status <> 'draft'
-         WHERE e."organizationId" = $1
-           AND jl."accountId" IN (SELECT "accountId" FROM "AccountMapping" WHERE "organizationId" = $1 AND key IN ('stock_valuation', 'inventory'))) AS gl`))[0];
-  const inventoryVariance = Number(tie.subledger) - Number(tie.gl);
-  if (Math.abs(inventoryVariance) > tolerance) {
-    blockers.push({ check: 'inventory_gl_variance', detail: `Inventory sub-ledger ${Number(tie.subledger).toFixed(2)} vs Stock Valuation GL ${Number(tie.gl).toFixed(2)} (tolerance ${tolerance}); explain it in Accounting > Inventory GL Tie-out`, variance: inventoryVariance.toFixed(2) });
+    WITH inv_accounts AS (
+      SELECT "accountId" AS id FROM "AccountMapping" WHERE "organizationId" = $1 AND key IN ('stock_valuation', 'inventory')
+      UNION SELECT m."accountId" FROM "InventoryPostingRule" r JOIN "AccountMapping" m ON m."organizationId" = r."organizationId" AND m.key = r."accountMappingKey"
+             WHERE r."organizationId" = $1 AND r."isActive" AND r."movementType"::text = 'STOCK_IN' AND r."debitOrCredit" = 'debit'
+      UNION SELECT r."literalAccountId" FROM "InventoryPostingRule" r
+             WHERE r."organizationId" = $1 AND r."isActive" AND r."movementType"::text = 'STOCK_IN' AND r."debitOrCredit" = 'debit' AND r."literalAccountId" IS NOT NULL
+      UNION SELECT "inventoryAccountId" FROM "ProductCategory" WHERE "organizationId" = $1 AND "inventoryAccountId" IS NOT NULL
+      UNION SELECT "inventoryAccountOverrideId" FROM "Product" WHERE "organizationId" = $1 AND "inventoryAccountOverrideId" IS NOT NULL
+    ),
+    quant AS (
+      SELECT s."productId", s."variantKey", s."locationId", s.quantity AS qty,
+             CASE WHEN s."runningAverageCost" > 0 THEN s."runningAverageCost" ELSE COALESCE(p."costPrice", 0) END AS avg_cost,
+             COALESCE(p."costPrice", 0) AS std_cost, p."costingMethod"::text AS method, p."batchTracking" AS lots, p."serialTracking" AS serials
+        FROM "StockItem" s JOIN "Product" p ON p.id = s."productId" WHERE s."organizationId" = $1
+    ),
+    lot AS (
+      SELECT "productId", COALESCE("variantId", '') AS "variantKey", "locationId", SUM(quantity) AS qty, SUM(quantity * COALESCE("unitCost", 0)) AS value
+        FROM "InventoryBatch" WHERE "organizationId" = $1 AND "isActive" AND quantity > 0 GROUP BY 1, 2, 3
+    ),
+    ser AS (
+      SELECT sr."productId", COALESCE(sr."variantId", '') AS "variantKey", sr."locationId", COUNT(*)::numeric AS qty, SUM(COALESCE(sr."unitCost", p."costPrice", 0)) AS value
+        FROM "InventorySerial" sr JOIN "Product" p ON p.id = sr."productId" WHERE sr."organizationId" = $1 AND sr.status = 'in_stock' GROUP BY 1, 2, 3
+    ),
+    sub AS (
+      SELECT COALESCE(SUM(CASE
+               WHEN q.serials THEN COALESCE(se.value, 0) + (q.qty - COALESCE(se.qty, 0)) * q.avg_cost
+               WHEN q.method = 'FIFO' OR q.lots THEN COALESCE(l.value, 0) + (q.qty - COALESCE(l.qty, 0)) * q.avg_cost
+               WHEN q.method = 'STANDARD' THEN q.qty * q.std_cost
+               ELSE q.qty * q.avg_cost END), 0) AS v
+        FROM quant q
+        LEFT JOIN lot l ON l."productId" = q."productId" AND l."locationId" = q."locationId" AND l."variantKey" = q."variantKey"
+        LEFT JOIN ser se ON se."productId" = q."productId" AND se."locationId" = q."locationId" AND se."variantKey" = q."variantKey"
+    ),
+    gl AS (
+      SELECT COALESCE(SUM(jl."baseDebit" - jl."baseCredit"), 0) AS v
+        FROM "JournalLine" jl JOIN "JournalEntry" e ON e.id = jl."journalEntryId" AND e.status <> 'draft'
+       WHERE e."organizationId" = $1 AND jl."accountId" IN (SELECT id FROM inv_accounts)
+    )
+    SELECT sub.v::text AS subledger, gl.v::text AS gl, (sub.v - gl.v)::text AS variance,
+           abs(sub.v - gl.v) > $2::numeric AS over_tolerance
+      FROM sub, gl`.replace(/\$2::numeric/, `${Number.isFinite(tolerance) ? tolerance : 1}::numeric`)))[0];
+  if (tie.over_tolerance) {
+    blockers.push({ check: 'inventory_gl_variance', detail: `Inventory sub-ledger ${Number(tie.subledger).toFixed(2)} vs inventory GL ${Number(tie.gl).toFixed(2)} (tolerance ${tolerance}); explain it in Accounting > Inventory GL Tie-out from ledger layers and journal lines — never post the difference blindly`, variance: tie.variance });
   }
+
+  add(blockers, 'credit_purchase_orders_overpaid', await q(`
+    SELECT po.id, po."orderNumber", po."totalAmount", SUM(pp.amount) AS paid
+    FROM "PurchaseOrder" po JOIN "PurchasePayment" pp ON pp."purchaseOrderId" = po.id
+    WHERE po."organizationId" = $1 AND po."paymentType" = 'credit'
+    GROUP BY po.id, po."orderNumber", po."totalAmount" HAVING SUM(pp.amount) > po."totalAmount" + 0.000001`), 'Supplier paid more than the purchase order total (double payment); recover or record a supplier credit');
+
+  add(blockers, 'purchase_order_paid_aggregate_drift', await q(`
+    SELECT po.id, po."orderNumber", po."totalPaid", COALESCE(SUM(pp.amount), 0) AS payments
+    FROM "PurchaseOrder" po LEFT JOIN "PurchasePayment" pp ON pp."purchaseOrderId" = po.id
+    WHERE po."organizationId" = $1
+    GROUP BY po.id, po."orderNumber", po."totalPaid" HAVING abs(po."totalPaid" - COALESCE(SUM(pp.amount), 0)) > 0.000001`), 'PurchaseOrder.totalPaid disagrees with its payment rows');
+
+  add(warnings, 'sale_snapshots_without_base_quantity', await q(`
+    SELECT id, "invoiceId", "productId", quantity FROM "InvoiceItemRecipeIngredient"
+    WHERE "organizationId" = $1 AND "baseQuantity" IS NULL LIMIT 100`), 'Refund restock of these lines uses a derived base quantity; review before restocking');
+
+  add(blockers, 'serials_in_stock_at_multiple_units', await q(`
+    SELECT sr."productId", sr."locationId", COUNT(sr.id) AS serials, s.quantity
+    FROM "InventorySerial" sr JOIN "StockItem" s ON s."productId" = sr."productId" AND s."locationId" = sr."locationId" AND s."variantKey" = COALESCE(sr."variantId", '')
+    WHERE sr."organizationId" = $1 AND sr.status = 'in_stock'
+    GROUP BY sr."productId", sr."locationId", s.quantity HAVING COUNT(sr.id) > s.quantity`), 'More in-stock serials than on-hand units; a serial was received twice');
+
+  add(blockers, 'stale_stock_posting_jobs', await q(`SELECT id, "invoiceNumber", status, attempts, "createdAt" FROM "StockPostingJob" WHERE "organizationId" = $1 AND status IN ('pending','processing') AND "createdAt" < now() - interval '15 minutes'`), 'POS stock/COGS jobs older than 15 minutes; the worker is down or wedged');
 
   add(warnings, 'inventory_ledger_chain_breaks', await q(`
     SELECT "productId", "locationId", COUNT(*) AS breaks FROM (
