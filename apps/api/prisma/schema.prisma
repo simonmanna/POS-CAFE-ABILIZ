@@ -1464,6 +1464,7 @@ model JournalEntry {
   @@index([organizationId, postingDate])
   @@index([organizationId, branchId, postingDate])
   @@index([sourceType, sourceId])
+  @@index([organizationId, sourceId])
   @@index([organizationId, postingType])
 }
 
@@ -3095,6 +3096,10 @@ enum StockMoveType {
   // packages/shared/src/enums.ts (IssueStockDto.moveType validates against it).
   production_consume
   production_output
+  // Posted reversal of a stock document: the inverse movement, linked by
+  // referenceType "<kind>_reversal" + the original document code.
+  reversal_in
+  reversal_out
 }
 
 /// Configurable inventory movement types for the posting rule engine.
@@ -3132,6 +3137,7 @@ enum StockDocStatus {
   rejected
   completed
   cancelled
+  reversed
 }
 
 enum StockOutCategory {
@@ -3393,6 +3399,9 @@ model InventoryLedger {
   @@index([productId])
   @@index([locationId])
   @@index([organizationId, createdAt])
+  /// Stock card / per-quant chain reads at scale.
+  @@index([organizationId, productId, locationId, createdAt])
+  @@index([organizationId, referenceType, referenceId])
 }
 
 /// One row per serialized physical unit (only when product.serialTracking).
@@ -3454,6 +3463,11 @@ model StockOut {
   approvedById   String?
   approvedAt     DateTime?
   postedAt       DateTime?
+  /// Posted reversal: set once, when a linked reversal re-posted the inverse
+  /// movements and journal entries in the current period.
+  reversedAt     DateTime?
+  reversedById   String?
+  reversalReason String?
   totalValue     Decimal          @default(0) @db.Decimal(20, 6)
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
@@ -3502,6 +3516,11 @@ model WasteRecord {
   approvedById   String?
   approvedAt     DateTime?
   postedAt       DateTime?
+  /// Posted reversal: set once, when a linked reversal re-posted the inverse
+  /// movements and journal entries in the current period.
+  reversedAt     DateTime?
+  reversedById   String?
+  reversalReason String?
   totalValue     Decimal        @default(0) @db.Decimal(20, 6)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
@@ -3551,6 +3570,11 @@ model StockAdjustment {
   approvedById   String?
   approvedAt     DateTime?
   postedAt       DateTime?
+  /// Posted reversal: set once, when a linked reversal re-posted the inverse
+  /// movements and journal entries in the current period.
+  reversedAt     DateTime?
+  reversedById   String?
+  reversalReason String?
   createdAt      DateTime              @default(now())
   updatedAt      DateTime              @updatedAt
   createdBy      String?
@@ -3598,6 +3622,11 @@ model StockTransfer {
   approvedById   String?
   approvedAt     DateTime?
   postedAt       DateTime?
+  /// Posted reversal: set once, when a linked reversal re-posted the inverse
+  /// movements and journal entries in the current period.
+  reversedAt     DateTime?
+  reversedById   String?
+  reversalReason String?
   completedAt    DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
@@ -4660,6 +4689,7 @@ enum GoodsReceiptStatus {
   draft
   posted
   cancelled
+  reversed
 }
 
 enum MatchStatus {
@@ -4853,6 +4883,11 @@ model GoodsReceiptNote {
   status          GoodsReceiptStatus @default(draft)
   notes           String?
   postedAt        DateTime?
+  /// Posted reversal: set once, when a linked reversal re-posted the inverse
+  /// movements and journal entries in the current period.
+  reversedAt     DateTime?
+  reversedById   String?
+  reversalReason String?
   postedById      String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt

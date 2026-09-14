@@ -32,3 +32,15 @@ export function eq(a: Prisma.Decimal, b: Prisma.Decimal): boolean {
 export function approxEqual(a: Prisma.Decimal, b: Prisma.Decimal, epsilon = 0.0001): boolean {
   return a.minus(b).abs().lessThanOrEqualTo(epsilon);
 }
+
+/**
+ * Multiply quantities exactly (Decimal) and round to the ledger's 6-dp scale,
+ * returned as a JS number for DTO boundaries. Multiplying raw JS numbers drifts
+ * (0.1 × 3 = 0.30000000000000004, 0.018 × 7 = 0.12599999999999999) and the
+ * error accumulates across recipe lines and high-volume sales.
+ */
+export function qtyMul(...factors: Prisma.Decimal.Value[]): number {
+  return Number(
+    factors.reduce<Prisma.Decimal>((acc, f) => acc.times(new Prisma.Decimal(f ?? 0)), new Prisma.Decimal(1)).toDecimalPlaces(6),
+  );
+}

@@ -15,6 +15,7 @@
     "db:seed": "ts-node prisma/seed.ts",
     "backfill:inventory-gl": "ts-node src/scripts/backfill-inventory-gl.ts",
     "backfill:opening-ledger": "ts-node src/scripts/backfill-opening-ledger.ts",
+    "backfill:inventory-gl-gaps": "ts-node --transpile-only src/scripts/backfill-inventory-gl-gaps.ts",
     "rls:setup-role": "ts-node scripts/setup-rls-role.ts",
     "test": "jest",
     "test:integration": "jest --testPathPattern 'test/integration'",

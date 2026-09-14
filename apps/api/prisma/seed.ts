@@ -222,23 +222,21 @@ async function main(): Promise<void> {
     });
 
     const openingQty = 100;
-    await prisma.stockItem.upsert({
+    // Opening stock is written ONCE with its opening_balance ledger row. Re-running
+    // the seed must neither overwrite live on-hand nor rewrite ledger history (the
+    // ledger is append-only; an update here used to break every stock card).
+    const widgetCell = await prisma.stockItem.findUnique({
       where: { organizationId_productId_variantKey_locationId: { organizationId: org.id, productId: widget.id, variantKey: '', locationId: warehouse.id } },
-      update: { runningAverageCost: 6 },
-      create: { organizationId: org.id, productId: widget.id, variantKey: '', locationId: warehouse.id, quantity: openingQty, runningAverageCost: 6 },
+      select: { id: true },
     });
-
-    // Ledger no longer uses a (org, ledgerCode) unique (one code spans multiple
-    // rows), so upsert-by-code is replaced with an idempotent find-or-create.
-    const existingOpening = await prisma.inventoryLedger.findFirst({
-      where: { organizationId: org.id, ledgerCode: 'STK/OPENING' },
+    const widgetHasLedger = await prisma.inventoryLedger.findFirst({
+      where: { organizationId: org.id, productId: widget.id, locationId: warehouse.id },
+      select: { id: true },
     });
-    if (existingOpening) {
-      await prisma.inventoryLedger.update({
-        where: { id: existingOpening.id },
-        data: { quantityChange: openingQty, balanceAfter: openingQty, unitCost: 6, totalValue: 600 },
+    if (!widgetCell && !widgetHasLedger) {
+      await prisma.stockItem.create({
+        data: { organizationId: org.id, productId: widget.id, variantKey: '', locationId: warehouse.id, quantity: openingQty, runningAverageCost: 6 },
       });
-    } else {
       await prisma.inventoryLedger.create({
         data: {
           organizationId: org.id,
@@ -246,10 +244,13 @@ async function main(): Promise<void> {
           productId: widget.id,
           locationId: warehouse.id,
           type: 'opening_balance',
+          qtyBefore: 0,
           quantityChange: openingQty,
           balanceAfter: openingQty,
           unitCost: 6,
-          totalValue: 600,
+          totalValue: openingQty * 6,
+          referenceType: 'opening_balance',
+          referenceId: 'seed',
           notes: 'Opening balance from seed',
         },
       });

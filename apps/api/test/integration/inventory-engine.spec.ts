@@ -142,7 +142,7 @@ describeDb('integration: inventory engine', () => {
 
   afterAll(async () => {
     if (organizationId) {
-      await prisma.inventoryLedger.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.inventoryLedger.deleteMany({ where: { organizationId } }));
       await prisma.inventorySerial.deleteMany({ where: { organizationId } });
       await prisma.inventoryBatch.deleteMany({ where: { organizationId } });
       await prisma.stockItem.deleteMany({ where: { organizationId } });
@@ -539,7 +539,7 @@ describeDb('integration: inventory engine', () => {
   describe('physical count sessions', () => {
     /** Start a count at MAIN and record a physical figure for one product. */
     const countTo = async (productId: string, countedQty: number) => {
-      const session = await counts.start({ locationId: mainLocationId, countType: 'opening' } as any);
+      const session = await counts.start({ locationId: mainLocationId, countType: 'opening', restart: true } as any);
       const line = (session as any).lines.find((l: any) => l.productId === productId);
       expect(line).toBeDefined();
       await counts.saveDraft(session.id, {
@@ -585,7 +585,7 @@ describeDb('integration: inventory engine', () => {
       );
 
       await asOrg(async () => {
-        const started: any = await counts.start({ locationId: mainLocationId, countType: 'closing' } as any);
+        const started: any = await counts.start({ locationId: mainLocationId, countType: 'closing', restart: true } as any);
         const resumed: any = await counts.preview(mainLocationId, 'closing');
         expect(resumed.status).toBe('draft');
         expect(resumed.id).toBe(started.id);

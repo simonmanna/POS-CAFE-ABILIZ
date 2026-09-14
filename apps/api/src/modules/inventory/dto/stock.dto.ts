@@ -200,12 +200,6 @@ export class IssueStockDto {
   @IsIn([...STOCK_MOVE_TYPES])
   moveType?: StockMoveType;
 
-  /// Quantitative-only issue: decrement stock + write the ledger row but skip the
-  /// Dr COGS / Cr Stock Valuation GL posting. Used by return-to-vendor, where the
-  /// calling document (debit note) owns the balanced Dr AP / Cr Stock Valuation JE.
-  @IsOptional()
-  skipGlPosting?: boolean;
-
   /// Batch distribution strategy for batch-tracked products.
   @IsOptional()
   @IsIn([...STOCK_DISTRIBUTION_STRATEGIES])
@@ -257,6 +251,40 @@ export class AdjustStockDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /// Batch-tracked items: the lot a gain lands in / a loss is taken from.
+  /// Defaults to the most recent lot (gain) or FEFO picking (loss).
+  @IsOptional()
+  @IsString()
+  batchNumber?: string;
+
+  /// Expiry for a gain that opens a new lot on an expiry-tracked item.
+  @IsOptional()
+  @IsString()
+  expiryDate?: string;
+
+  /// Serial-tracked items: the exact units found (gain) or missing (loss).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  serialNumbers?: string[];
+
+  /// Owning document (e.g. stock_adjustment / ADJ-00012) stamped on the ledger + JE.
+  @IsOptional()
+  @IsString()
+  sourceType?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceId?: string;
+
+  @IsOptional()
+  @IsString()
+  responsibleById?: string;
+
+  @IsOptional()
+  @IsString()
+  approvedById?: string;
 }
 
 export class TransferStockDto {
@@ -291,4 +319,12 @@ export class TransferStockDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  responsibleById?: string;
+
+  @IsOptional()
+  @IsString()
+  approvedById?: string;
 }

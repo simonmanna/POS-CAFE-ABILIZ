@@ -61,8 +61,8 @@ export class InventoryCountService {
   }
 
   /**
-   * Start a fresh count session. Any existing draft for this location + type is
-   * cancelled first, so the count always reflects the latest product list.
+   * Start a count session. An open draft with counts entered is resumed (pass
+   * restart=true to discard it); an untouched draft is replaced by a fresh sheet.
    *
    * Non-variant products → one flat row per product.
    * Variant parents      → one row per child variant, grouped under the parent.
@@ -75,12 +75,21 @@ export class InventoryCountService {
     await this.location(dto.locationId);
     const countType = dto.countType ?? 'opening';
 
-    // Cancel any existing draft for this location + type so the new count is
-    // always fresh (picks up new products, removes deactivated ones, etc.).
-    await this.prisma.client.inventoryCountSession.updateMany({
+    // An open draft that already holds counts is someone's work in progress:
+    // resume it rather than silently cancelling it. Only an untouched draft (or
+    // an explicit restart) is replaced with a fresh sheet — which also picks up
+    // products added or deactivated since it was opened.
+    const open = await this.prisma.client.inventoryCountSession.findFirst({
       where: { locationId: dto.locationId, countType, status: 'draft' },
-      data: { status: 'cancelled', updatedBy: this.tenant.userId ?? null },
+      select: { id: true, _count: { select: { lines: { where: { countedQty: { not: null } } } } } },
     });
+    if (open && open._count.lines > 0 && !dto.restart) return this.get(open.id);
+    if (open) {
+      await this.prisma.client.inventoryCountSession.updateMany({
+        where: { id: open.id, status: 'draft' },
+        data: { status: 'cancelled', updatedBy: this.tenant.userId ?? null },
+      });
+    }
 
     const lines = await this.buildLines(dto.locationId);
 

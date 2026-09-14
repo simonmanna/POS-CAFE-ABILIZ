@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { dec, ZERO } from '../../kernel/common/money';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockService } from './stock.service';
+import { assertActiveStaff } from './staff-attribution';
 import {
   CreateStockOutDto,
   CreateWasteDto,
@@ -75,6 +76,7 @@ export class StockDocService {
 
   async createStockOut(dto: CreateStockOutDto) {
     await this.location(dto.locationId);
+    await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
     const names = await this.productNames(dto.items.map((i) => i.productId));
     const outCode = await this.seq.next('stock_out', { prefix: 'SO-', padding: 5 });
     return this.prisma.client.stockOut.create({
@@ -119,6 +121,14 @@ export class StockDocService {
     );
 
     return this.prisma.client.$transaction(async (tx: any) => {
+      // Claim inside the tx (same pattern as approveWaste): two concurrent
+      // approvals must not both issue the stock and double-post the GL.
+      const claim = await tx.stockOut.updateMany({
+        where: { id: doc.id, postedAt: null, status: { in: ['pending', 'draft'] } },
+        data: { status: 'approved' },
+      });
+      if (claim.count === 0) throw new BadRequestException('Stock-out was posted or cancelled concurrently');
+
       let total = ZERO;
       for (const item of doc.items) {
         // Map StockOutCategory to StockMoveType for correct GL posting.
@@ -145,6 +155,8 @@ export class StockDocService {
             sourceType: 'stock_out',
             sourceId: doc.outCode,
             notes: doc.reason ?? undefined,
+            responsibleById: doc.responsibleById ?? undefined,
+            approvedById: this.tenant.userId ?? doc.approvedById ?? undefined,
           },
           tx,
         );
@@ -175,6 +187,7 @@ export class StockDocService {
 
   async createWaste(dto: CreateWasteDto) {
     await this.location(dto.locationId);
+    await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
     const products = await this.prisma.client.product.findMany({
       where: { id: { in: [...new Set(dto.items.map((i) => i.productId))] } },
       select: { id: true, name: true, costPrice: true },
@@ -270,6 +283,8 @@ export class StockDocService {
             sourceType: 'waste',
             sourceId: doc.wasteCode,
             notes: doc.notes ?? undefined,
+            responsibleById: doc.responsibleById ?? undefined,
+            approvedById: this.tenant.userId ?? doc.approvedById ?? undefined,
           },
           tx,
         );
@@ -341,7 +356,7 @@ export class StockDocService {
     const [journalEntries, ledger] = doc.postedAt
       ? await Promise.all([
           this.prisma.client.journalEntry.findMany({
-            where: { sourceType: 'waste', sourceId: doc.wasteCode },
+            where: { sourceType: { in: ['waste', 'waste_reversal'] }, sourceId: doc.wasteCode },
             select: {
               id: true, entryNumber: true, postingDate: true, status: true, description: true,
               lines: { select: { debit: true, credit: true, account: { select: { code: true, name: true } } } },
@@ -349,7 +364,7 @@ export class StockDocService {
             orderBy: { entryNumber: 'asc' },
           }),
           this.prisma.client.inventoryLedger.findMany({
-            where: { referenceType: 'waste', referenceId: doc.wasteCode },
+            where: { referenceType: { in: ['waste', 'waste_reversal'] }, referenceId: doc.wasteCode },
             select: { id: true, ledgerCode: true, productId: true, type: true, quantityChange: true, balanceAfter: true, unitCost: true, totalValue: true, createdAt: true },
             orderBy: { createdAt: 'asc' },
           }),
@@ -419,6 +434,11 @@ export class StockDocService {
 
   async createAdjustment(dto: CreateStockAdjustmentDto, externalTx?: any) {
     await this.location(dto.locationId);
+    // Embedded callers (count / bottle-count submit) derive attribution from the
+    // session themselves; only client-supplied ids need proving.
+    if (!externalTx) {
+      await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
+    }
     // One line per product/variant: approval counts each line to qtyActual in
     // turn, so a duplicate would silently overwrite the earlier count.
     const seen = new Set<string>();
@@ -476,7 +496,7 @@ export class StockDocService {
     return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
   }
 
-  async approveAdjustment(id: string, externalTx?: any) {
+  async approveAdjustment(id: string, externalTx?: any, opts: { force?: boolean; forceReason?: string } = {}) {
     // Standalone approval is gated by the approval engine. When embedded in another
     // flow (externalTx present, e.g. guided count submit) the caller owns approval.
     if (!externalTx) {
@@ -500,6 +520,50 @@ export class StockDocService {
       if (doc.status !== 'pending' && doc.status !== 'draft') {
         throw new BadRequestException(`Cannot approve a ${doc.status} document`);
       }
+      // The read above is not a lock: claim the document before moving stock so a
+      // concurrent approval cannot post the same lines a second time.
+      const claim = await tx.stockAdjustment.updateMany({
+        where: { id: doc.id, postedAt: null, status: { in: ['pending', 'draft'] } },
+        data: { status: 'approved' },
+      });
+      if (claim.count === 0) throw new BadRequestException('Adjustment was posted or cancelled concurrently');
+
+      // Drift guard (standalone approvals only; embedded count flows run their own
+      // stale-count check). Each line counts to qtyActual, so if stock moved since
+      // the document snapshotted qtySystem, approving would silently fold those
+      // sales / receipts into the variance. Refuse unless explicitly forced.
+      if (!externalTx) {
+        const drifted: string[] = [];
+        for (const item of doc.items) {
+          const si = await tx.stockItem.findFirst({
+            where: { organizationId: this.org, productId: item.productId, variantKey: item.variantId ?? '', locationId: doc.locationId },
+            select: { quantity: true },
+          });
+          const nowQty = si ? dec(si.quantity) : ZERO;
+          if (!nowQty.eq(dec(item.qtySystem))) {
+            drifted.push(`${item.productName} (counted against ${dec(item.qtySystem).toString()}, now ${nowQty.toString()})`);
+          }
+        }
+        if (drifted.length > 0 && !opts.force) {
+          throw new ConflictException({
+            code: 'ADJUSTMENT_STOCK_DRIFT',
+            message:
+              `Stock moved after this adjustment was created: ${drifted.slice(0, 5).join('; ')}` +
+              `${drifted.length > 5 ? ` …and ${drifted.length - 5} more` : ''}. ` +
+              'Re-create the adjustment, or approve with force and a reason to set the counted quantities anyway.',
+            drifted,
+          });
+        }
+        if (drifted.length > 0 && !opts.forceReason?.trim()) {
+          throw new BadRequestException('A reason is required to force-approve an adjustment over stock that moved.');
+        }
+        if (drifted.length > 0) {
+          await tx.stockAdjustment.update({
+            where: { id: doc.id },
+            data: { notes: [doc.notes, `Force-approved over drift: ${opts.forceReason!.trim()}`].filter(Boolean).join(' · ') },
+          });
+        }
+      }
 
       for (const item of doc.items) {
         // adjust() re-reads current on-hand and counts to qtyActual — robust to
@@ -511,6 +575,11 @@ export class StockDocService {
             locationId: doc.locationId,
             countedQuantity: Number(item.qtyActual),
             notes: `${doc.adjCode} · ${doc.reason}`,
+            batchNumber: item.batchNumber ?? undefined,
+            sourceType: 'stock_adjustment',
+            sourceId: doc.adjCode,
+            responsibleById: doc.responsibleById ?? undefined,
+            approvedById: this.tenant.userId ?? doc.approvedById ?? undefined,
           },
           tx,
         );
@@ -552,6 +621,7 @@ export class StockDocService {
     }
     await this.location(dto.fromLocationId);
     await this.location(dto.toLocationId);
+    await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
     const names = await this.productNames(dto.items.map((i) => i.productId));
     const transferCode = await this.seq.next('stock_transfer', { prefix: 'TRF-', padding: 5 });
     return this.prisma.client.stockTransfer.create({
@@ -597,6 +667,12 @@ export class StockDocService {
     );
 
     return this.prisma.client.$transaction(async (tx: any) => {
+      const claim = await tx.stockTransfer.updateMany({
+        where: { id: doc.id, postedAt: null, status: { in: ['pending', 'draft'] } },
+        data: { status: 'approved' },
+      });
+      if (claim.count === 0) throw new BadRequestException('Transfer was posted or cancelled concurrently');
+
       for (const item of doc.items) {
         await this.stock.transfer(
           {
@@ -608,6 +684,8 @@ export class StockDocService {
             sourceType: 'stock_transfer',
             sourceId: doc.transferCode,
             notes: doc.notes ?? undefined,
+            responsibleById: doc.responsibleById ?? undefined,
+            approvedById: this.tenant.userId ?? doc.approvedById ?? undefined,
           },
           tx,
         );

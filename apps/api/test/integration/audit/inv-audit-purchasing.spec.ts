@@ -45,7 +45,7 @@ describeDb('AUDIT: purchasing — receiving vs vendor bill (H1)', () => {
   let org: AuditOrg;
   let supplierId: string;
 
-  const asOrg = <T>(fn: () => Promise<T>): Promise<T> => tenant.run({ organizationId: org.organizationId, userId: 'audit-user', permissions: ['expense:post','expense:cancel','invoice:post','invoice:cancel','payment:void','credit_note:post'] }, fn);
+  const asOrg = <T>(fn: () => Promise<T>): Promise<T> => tenant.run({ organizationId: org.organizationId, userId: 'audit-user', permissions: ['expense:post','expense:cancel','invoice:post','invoice:cancel','payment:void','credit_note:post','goods_receipt:create','goods_receipt:post'] }, fn);
 
   beforeAll(async () => {
     await prisma.$connect();

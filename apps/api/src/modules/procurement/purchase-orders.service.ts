@@ -245,9 +245,9 @@ export class PurchaseOrdersService {
    * used to stock the warehouse while leaving the PO at 0 received, letting the
    * same goods be received again).
    *
-   * Lines are matched to PO lines by explicit purchaseOrderLineId, else by the
-   * first PO line with the same productId. Lines that match nothing are ignored
-   * here (they still receive stock) — only matched lines move the PO.
+   * Lines bind by explicit purchaseOrderLineId, else by a product that appears on
+   * exactly one PO line. Product lines that bind to nothing (or ambiguously) are
+   * refused. Free-text lines with neither id carry no stock and are skipped.
    */
   async applyReceiptToPO(
     tx: any,
@@ -268,20 +268,33 @@ export class PurchaseOrdersService {
       throw new BadRequestException(`PO is in status "${po.status}" — cannot receive`);
 
     const poLines = new Map<string, any>(po.lines.map((l: any) => [l.id, l]));
-    const poLinesByProduct = new Map<string, any>(
-      po.lines.filter((l: any) => l.productId).map((l: any) => [l.productId, l]),
-    );
-    const resolve = (ln: { purchaseOrderLineId?: string; productId?: string }): string | null => {
+    const poLinesByProduct = new Map<string, any[]>();
+    for (const l of po.lines as any[]) {
+      if (!l.productId) continue;
+      poLinesByProduct.set(l.productId, [...(poLinesByProduct.get(l.productId) ?? []), l]);
+    }
+    // A PO-linked receipt line must bind to exactly one PO line. An explicit
+    // purchaseOrderLineId always wins; a product-only line is accepted only when
+    // that product appears on a single PO line. Anything else is refused: an
+    // unmatched line would stock goods that were never ordered (bypassing the
+    // over-receipt ceiling), and a guessed line would misapply price and tax.
+    const resolve = (ln: { purchaseOrderLineId?: string; productId?: string; description?: string }): string | null => {
+      if (!ln.purchaseOrderLineId && !ln.productId) return null;
       if (ln.purchaseOrderLineId) {
         if (!poLines.has(ln.purchaseOrderLineId))
           throw new BadRequestException(`PO line ${ln.purchaseOrderLineId} not found`);
         return ln.purchaseOrderLineId;
       }
-      if (ln.productId) {
-        const match = poLinesByProduct.get(ln.productId);
-        if (match) return match.id;
+      const candidates = ln.productId ? (poLinesByProduct.get(ln.productId) ?? []) : [];
+      if (candidates.length === 1) return candidates[0].id;
+      if (candidates.length > 1) {
+        throw new BadRequestException(
+          `Receipt line "${ln.description ?? ln.productId}" matches ${candidates.length} PO lines — specify purchaseOrderLineId`,
+        );
       }
-      return null;
+      throw new BadRequestException(
+        `Receipt line "${ln.description ?? ln.productId ?? 'unknown'}" is not on PO ${po.orderNumber}`,
+      );
     };
 
     // Aggregate by PO line: two receipt lines can map to one PO line, and the

@@ -160,7 +160,7 @@ describeDb('integration: manufacturing flow', () => {
       await prisma.productionOrder.deleteMany({ where: { organizationId } });
       await prisma.bomLine.deleteMany({ where: { organizationId } });
       await prisma.bom.deleteMany({ where: { organizationId } });
-      await prisma.inventoryLedger.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.inventoryLedger.deleteMany({ where: { organizationId } }));
       await prisma.inventoryBatch.deleteMany({ where: { organizationId } });
       await prisma.stockItem.deleteMany({ where: { organizationId } });
       await prisma.stockReservation.deleteMany({ where: { organizationId } });

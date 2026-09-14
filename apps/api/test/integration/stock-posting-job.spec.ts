@@ -92,7 +92,7 @@ describeDb('integration: stock posting jobs', () => {
 
   afterAll(async () => {
     if (organizationId) {
-      await prisma.inventoryLedger.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.inventoryLedger.deleteMany({ where: { organizationId } }));
       await prisma.stockItem.deleteMany({ where: { organizationId } });
       await prisma.inventoryException.deleteMany({ where: { organizationId } });
       await prisma.stockPostingJob.deleteMany({ where: { organizationId } });

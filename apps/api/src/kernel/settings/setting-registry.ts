@@ -82,8 +82,38 @@ export const SETTING_DEFINITIONS = {
     description:
       'post_commit = sale proceeds, reservation is best-effort (default). ' +
       'pre_invoice = check ATP before invoice, warn if insufficient. ' +
-      'strict = check ATP before invoice, block if insufficient.',
+      'strict = check ATP before invoice and refuse the sale if insufficient. ' +
+      'This is an advisory pre-check, not a reservation: two terminals selling the ' +
+      'last unit at the same instant can both pass. For a hard stock ceiling also set ' +
+      'Allow Negative Stock off with the item stock policy "block".',
     default: 'post_commit',
+    enumValues: ['post_commit', 'pre_invoice', 'strict'],
+    cascades: true,
+    scopeLevels: ALL_LEVELS,
+  },
+  'inventory.serialPolicy': {
+    key: 'inventory.serialPolicy',
+    group: 'inventory',
+    type: 'enum',
+    label: 'Serial Number Policy',
+    description:
+      'capture_optional = serials are recorded when supplied; quantity-only movements are allowed (default). ' +
+      'required = every receipt, adjustment gain and issue of a serial-tracked item must name one serial per unit.',
+    default: 'capture_optional',
+    enumValues: ['capture_optional', 'required'],
+    cascades: true,
+    scopeLevels: ALL_LEVELS,
+  },
+  'inventory.expiredStockPolicy': {
+    key: 'inventory.expiredStockPolicy',
+    group: 'inventory',
+    type: 'enum',
+    label: 'Expired Stock Policy',
+    description:
+      'allow = expired batches remain pickable (default). ' +
+      'skip_expired = FEFO/FIFO picking never consumes a batch past its expiry date; write it off via Waste instead.',
+    default: 'allow',
+    enumValues: ['allow', 'skip_expired'],
     cascades: true,
     scopeLevels: ALL_LEVELS,
   },

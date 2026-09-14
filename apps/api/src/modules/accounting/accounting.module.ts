@@ -55,6 +55,7 @@ import { CostCenterController } from './cost-center/cost-center.controller';
 import { CostCenterService } from './cost-center/cost-center.service';
 import { FiscalPeriodCrudController } from './posting/fiscal-period-crud.controller';
 import { InventoryValuationController } from './reporting/inventory-valuation.controller';
+import { InventoryValuationReportService } from './reporting/inventory-valuation.service';
 
 /**
  * Phase 2 — the financial engine. Exports PostingService + account
@@ -84,6 +85,7 @@ import { InventoryValuationController } from './reporting/inventory-valuation.co
     ExportController,
   ],
   providers: [
+    InventoryValuationReportService,
     AccountService,
     JournalService,
     AccountMappingService,
@@ -117,6 +119,7 @@ import { InventoryValuationController } from './reporting/inventory-valuation.co
     AccountingWorkflowsInitializer,
   ],
   exports: [
+    InventoryValuationReportService,
       PostingService,
       JournalService,
       AccountCategoryService,

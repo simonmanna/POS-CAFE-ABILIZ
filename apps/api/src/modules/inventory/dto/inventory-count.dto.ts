@@ -27,6 +27,12 @@ export class StartCountDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /// Discard an open draft that already has counts entered and start over.
+  /// Without it, start() resumes that draft instead of wiping someone's work.
+  @IsOptional()
+  @IsBoolean()
+  restart?: boolean;
 }
 
 /** Read-only look at the sheet a count of this location would produce. */

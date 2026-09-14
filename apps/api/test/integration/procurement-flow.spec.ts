@@ -154,7 +154,7 @@ describeDb('integration: purchase order → goods receipt → GL', () => {
       await prisma.purchasePayment.deleteMany({ where: { organizationId } });
       await prisma.purchaseOrderLine.deleteMany({ where: { organizationId } });
       await prisma.purchaseOrder.deleteMany({ where: { organizationId } });
-      await prisma.inventoryLedger.deleteMany({ where: { organizationId } });
+      await purge(prisma, (tx) => tx.inventoryLedger.deleteMany({ where: { organizationId } }));
       await prisma.stockItem.deleteMany({ where: { organizationId } });
       await purge(prisma, (tx) => tx.journalLine.deleteMany({ where: { organizationId } }));
       await purge(prisma, (tx) => tx.journalEntry.deleteMany({ where: { organizationId } }));

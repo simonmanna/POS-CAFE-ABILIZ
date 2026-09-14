@@ -29,7 +29,20 @@ export type GlReceiptContext = {
   sourceType: string;
   sourceId: string;
   date: Date;
+  /**
+   * Which credit owns the receipt. `receipt_grni` (default): Dr Stock Valuation /
+   * Cr GRNI — goods owed to a supplier. `stock_gain`: Dr Stock Valuation / Cr
+   * Inventory Adjustment — stock added with no supplier obligation (direct stock-in).
+   */
+  kind?: 'receipt_grni' | 'stock_gain';
 };
+
+/**
+ * Internal-only issue input. `skipGlPosting` makes the issue quantity-only and is
+ * deliberately NOT on the HTTP DTO: only a caller that posts the balanced JE itself
+ * (debit note RTV, production reversal) may use it.
+ */
+export type InternalIssueInput = IssueStockDto & { skipGlPosting?: boolean };
 
 @Injectable()
 export class StockService {
@@ -309,6 +322,14 @@ export class StockService {
     }
     if (product.serialTracking) {
       const serials = dto.serialNumbers ?? [];
+      const serialPolicy = await this.settings.resolveEnum('inventory.serialPolicy', {
+        productId: dto.productId, categoryId: product.categoryId, warehouseId: dto.locationId,
+      });
+      if (serialPolicy === 'required' && serials.length !== Number(dto.quantity)) {
+        throw new BadRequestException(
+          `Serial policy is "required": ${product.name} needs exactly ${dto.quantity} serial number(s), got ${serials.length}`,
+        );
+      }
       // Serials are captured when supplied but NOT mandatory at receive: a receive
       // path without a serial-input UI (e.g. a goods receipt) must never be blocked
       // — units still track by quantity and the issue side auto-picks whatever
@@ -458,16 +479,30 @@ export class StockService {
       // GL effect (Dr Stock Valuation / Cr GRNI): only when a source document
       // owns the receipt's accounting. A bare receive() stays quantity-only.
       if (glCtx) {
-        await this.stockPosting.postReceipt({
-          productId: dto.productId,
-          quantity: qty,
-          unitCost,
-          date: glCtx.date,
-          sourceType: glCtx.sourceType,
-          sourceId: glCtx.sourceId,
-          description: `Stock receipt · ${product.name} · ${dto.quantity}`,
-          tx,
-        });
+        if (glCtx.kind === 'stock_gain') {
+          // Positive delta → ADJUSTMENT_GAIN rule: Dr Stock Valuation / Cr Inventory Adjustment.
+          await this.stockPosting.postAdjustment({
+            productId: dto.productId,
+            delta: qty,
+            unitCost,
+            date: glCtx.date,
+            sourceType: glCtx.sourceType,
+            sourceId: glCtx.sourceId,
+            description: `Direct stock-in · ${product.name} · ${dto.quantity}`,
+            tx,
+          });
+        } else {
+          await this.stockPosting.postReceipt({
+            productId: dto.productId,
+            quantity: qty,
+            unitCost,
+            date: glCtx.date,
+            sourceType: glCtx.sourceType,
+            sourceId: glCtx.sourceId,
+            description: `Stock receipt · ${product.name} · ${dto.quantity}`,
+            tx,
+          });
+        }
 
         // The receipt landed on negative on-hand: the units already sold were
         // expensed at a stale (often zero) average, so inventory is overstated
@@ -522,7 +557,7 @@ export class StockService {
     return externalTx ? run(externalTx) : this.prisma.client.$transaction(run, { timeout: 20_000 });
   }
 
-  async issue(dto: IssueStockDto, externalTx?: any) {
+  async issue(dto: InternalIssueInput, externalTx?: any) {
     const organizationId = this.tenant.organizationId;
     await this.assertStockPeriodOpen(dto.date ? new Date(dto.date) : new Date(), externalTx);
     const product = await this.prisma.client.product.findFirst({ where: { id: dto.productId } });
@@ -552,6 +587,21 @@ export class StockService {
       'FEFO') as StockDistributionStrategy;
     // Negative-stock policy: default keeps sales unblocked (owner rule). Only when an
     // admin sets allowNegativeStock=false do we consult the product's stock policy.
+    const [serialPolicy, expiredPolicy] = await Promise.all([
+      this.settings.resolveEnum('inventory.serialPolicy', settingCtx),
+      this.settings.resolveEnum('inventory.expiredStockPolicy', settingCtx),
+    ]);
+    // Expired lots are excluded from picking when the policy says so. They stay
+    // on hand (and visible in the expiry report) until written off via Waste.
+    const pickableBatch =
+      expiredPolicy === 'skip_expired' && dto.moveType !== 'expiry_write_off' && dto.moveType !== 'waste'
+        ? { OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }] }
+        : {};
+    if (product.serialTracking && serialPolicy === 'required' && (dto.serialNumbers?.length ?? 0) !== Number(dto.quantity)) {
+      throw new BadRequestException(
+        `Serial policy is "required": issuing ${dto.quantity} of ${product.name} needs ${dto.quantity} serial number(s)`,
+      );
+    }
     const allowNegativeStock = await this.settings.resolveBool(
       'inventory.allowNegativeStock',
       settingCtx,
@@ -617,6 +667,7 @@ export class StockService {
                     locationId: dto.locationId,
                     quantity: { gt: 0 },
                     isActive: true,
+                    ...pickableBatch,
                   },
                   _sum: { quantity: true },
                 })
@@ -782,6 +833,7 @@ export class StockService {
             locationId: dto.locationId,
             quantity: { gt: 0 },
             isActive: true,
+            ...pickableBatch,
             ...(strategy === 'MANUAL' && dto.batchNumber ? { batchNumber: dto.batchNumber } : {}),
           },
           orderBy,
@@ -893,7 +945,9 @@ export class StockService {
         // bypass it for AVCO and value the issue at the running average directly
         // (identical result when stock is positive). STANDARD never throws.
         if (product.costingMethod === 'AVCO') {
-          unitCost = dec(stockItem.runningAverageCost);
+          // A running average can only go non-positive through bad history; value
+          // the issue at zero rather than write a negative-cost ledger row.
+          unitCost = Prisma.Decimal.max(dec(stockItem.runningAverageCost), ZERO);
           totalValue = unitCost.times(qty);
         } else {
           const resolution = this.costResolver.resolveIssueCost(
@@ -1021,6 +1075,14 @@ export class StockService {
       const delta = countedQty.minus(currentQty);
       if (delta.isZero()) return { ledgerCode: null, quantity: 0, delta: 0 };
 
+      // Batch / serial / FIFO items: the variance must move the identified layers
+      // too, or on-hand drifts away from sum(batches) / in-stock serials and FEFO
+      // picks from lots that no longer exist. Delegate to the layer-aware engine
+      // paths (quantity-only), then post the variance JE at the value they moved.
+      if (product.batchTracking || product.serialTracking || product.costingMethod === 'FIFO') {
+        return this.adjustLayered(tx, dto, product, currentQty, countedQty, delta, stockItem);
+      }
+
       const ledgerCode = await this.seq.next('stock_move', { prefix: 'STK/', padding: 6 }, tx);
       const moveType: StockMoveType = delta.gt(ZERO) ? 'adjustment_in' : 'adjustment_out';
 
@@ -1066,10 +1128,12 @@ export class StockService {
           balanceAfter: countedQty,
           unitCost,
           totalValue: unitCost.times(delta.abs()),
-          referenceType: 'stock_adjust',
-          referenceId: ledgerCode,
+          referenceType: dto.sourceType ?? 'stock_adjust',
+          referenceId: dto.sourceId ?? ledgerCode,
           notes: dto.notes ?? null,
           performedBy: this.tenant.userId ?? null,
+          responsibleById: dto.responsibleById ?? null,
+          approvedById: dto.approvedById ?? null,
         },
       });
 
@@ -1079,8 +1143,8 @@ export class StockService {
         delta,
         unitCost,
         date: new Date(),
-        sourceType: 'stock_adjust',
-        sourceId: ledgerCode,
+        sourceType: dto.sourceType ?? 'stock_adjust',
+        sourceId: dto.sourceId ?? ledgerCode,
         description: `Stock adjustment · ${product.name}`,
         tx,
       });
@@ -1107,6 +1171,123 @@ export class StockService {
     // advisory lock under contention, and a receipt/transfer must not fail just
     // because another movement on the same quant is mid-flight.
     return externalTx ? run(externalTx) : this.prisma.client.$transaction(run, { timeout: 20_000 });
+  }
+
+  /**
+   * Adjustment for batch / serial / FIFO items. A loss is an `adjustment_out`
+   * issue (FEFO, or the named lot / serials); a gain is an `adjustment_in`
+   * receipt into the named lot, else the most recent lot, else a new ADJ lot.
+   * Both run quantity-only; the balanced variance JE is posted here at the value
+   * the layers actually moved, so the GL matches the ledger exactly.
+   */
+  private async adjustLayered(
+    tx: any,
+    dto: AdjustStockDto,
+    product: any,
+    currentQty: Prisma.Decimal,
+    countedQty: Prisma.Decimal,
+    delta: Prisma.Decimal,
+    stockItem: any,
+  ) {
+    const sourceType = dto.sourceType ?? 'stock_adjust';
+    const common = {
+      productId: dto.productId,
+      variantId: dto.variantId,
+      locationId: dto.locationId,
+      quantity: Number(delta.abs()),
+      sourceType,
+      sourceId: dto.sourceId,
+      notes: dto.notes,
+      serialNumbers: dto.serialNumbers,
+      batchNumber: dto.batchNumber,
+      responsibleById: dto.responsibleById,
+      approvedById: dto.approvedById,
+    };
+
+    let ledgerCode: string;
+    let totalValue: Prisma.Decimal;
+    if (delta.lt(ZERO)) {
+      const res = await this.issue(
+        {
+          ...common,
+          moveType: 'adjustment_out',
+          distStrategy: dto.batchNumber ? 'MANUAL' : undefined,
+          skipGlPosting: true,
+        } as InternalIssueInput,
+        tx,
+      );
+      ledgerCode = res.ledgerCode;
+      totalValue = dec(res.totalValue);
+    } else {
+      const organizationId = this.tenant.organizationId;
+      const variantId = dto.variantId ?? null;
+      const lotWhere = { organizationId, productId: dto.productId, variantId, locationId: dto.locationId };
+      const lot = product.batchTracking
+        ? ((dto.batchNumber
+            ? await tx.inventoryBatch.findFirst({ where: { ...lotWhere, batchNumber: dto.batchNumber }, orderBy: { receivedAt: 'desc' } })
+            : null) ??
+          (await tx.inventoryBatch.findFirst({ where: lotWhere, orderBy: { receivedAt: 'desc' } })))
+        : null;
+      const unitCost =
+        lot?.unitCost && dec(lot.unitCost).gt(ZERO)
+          ? dec(lot.unitCost)
+          : stockItem && dec(stockItem.runningAverageCost).gt(ZERO)
+            ? dec(stockItem.runningAverageCost)
+            : dec(product.costPrice ?? 0);
+      const expiry = dto.expiryDate ?? (lot?.expiryDate ? new Date(lot.expiryDate).toISOString() : undefined);
+      if (product.expiryTracking && !expiry) {
+        throw new BadRequestException(
+          `${product.name} is expiry-tracked and has no existing lot here — give the adjustment a batch number and expiry date`,
+        );
+      }
+      const res = await this.receiveCore(
+        {
+          ...common,
+          moveType: 'adjustment_in',
+          unitCost: Number(unitCost),
+          batchNumber: product.batchTracking
+            ? (dto.batchNumber ?? lot?.batchNumber ?? `ADJ-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`)
+            : undefined,
+          expiryDate: product.batchTracking ? expiry : undefined,
+        } as any,
+        null,
+        tx,
+      );
+      ledgerCode = res.ledgerCode;
+      totalValue = dec(res.totalValue);
+    }
+
+    const absQty = delta.abs();
+    if (totalValue.gt(ZERO)) {
+      await this.stockPosting.postAdjustment({
+        productId: dto.productId,
+        delta,
+        unitCost: totalValue.dividedBy(absQty),
+        date: new Date(),
+        sourceType,
+        sourceId: dto.sourceId ?? ledgerCode,
+        description: `Stock adjustment · ${product.name}`,
+        tx,
+      });
+    }
+
+    await this.audit.recordInTx(tx, {
+      entity: 'StockItem',
+      entityId: stockItem?.id ?? 'new',
+      action: 'adjust',
+      newValues: {
+        productId: dto.productId, locationId: dto.locationId, countedQuantity: dto.countedQuantity,
+        previousQuantity: Number(currentQty), ledgerCode, layered: true,
+      },
+    });
+
+    return {
+      ledgerCode,
+      previousQuantity: Number(currentQty),
+      newQuantity: Number(countedQty),
+      delta: Number(delta),
+      unitCost: absQty.gt(ZERO) ? totalValue.dividedBy(absQty).toString() : '0',
+    };
   }
 
   async transfer(dto: TransferStockDto, externalTx?: any) {
@@ -1139,57 +1320,44 @@ export class StockService {
       // such lock.
       await this.lockQuantForAvco(tx, organizationId, dto.productId, variantKey, dto.toLocationId);
 
-      const fromItem = await tx.stockItem.findFirst({
+      const sourceRow = await tx.stockItem.findFirst({
         where: { organizationId, productId: dto.productId, variantKey, locationId: dto.fromLocationId },
+        select: { id: true },
       });
-      if (!fromItem) throw new BadRequestException('No stock found at source location');
+      if (!sourceRow) throw new BadRequestException('No stock found at source location');
 
       const ledgerCode = await this.seq.next('stock_move', { prefix: 'STK/', padding: 6 }, tx);
 
-      // Preserve AVCO across the transfer (same product, same org).
-      const carriedAvg = dec(fromItem.runningAverageCost);
-
-      // Atomic conditional decrement at the source. Returns 0 if a concurrent
-      // transfer/issue drained the stock first.
+      // Atomic conditional decrement at the source. The UPDATE also row-locks the
+      // quant for the rest of the tx, so the re-read below is the authoritative
+      // before/after balance — reading first (as this used to) could stamp a stale
+      // qtyBefore on the ledger when an issue committed in between.
       const fromDecrement = await tx.stockItem.updateMany({
         where: {
-          id: fromItem.id,
+          id: sourceRow.id,
           organizationId,
           quantity: { gte: qty.toString() as any },
         },
         data: { quantity: { decrement: qty } },
       });
       if (fromDecrement.count === 0) {
-        const fresh = await tx.stockItem.findFirst({ where: { id: fromItem.id, organizationId } });
+        const fresh = await tx.stockItem.findFirst({ where: { id: sourceRow.id, organizationId } });
         throw new BadRequestException(
           `Insufficient stock at source: available ${fresh?.quantity ?? 0}, requested ${qty}`,
         );
       }
+      const fromItem = await tx.stockItem.findFirst({ where: { id: sourceRow.id, organizationId } });
+      const newFromQty = dec(fromItem.quantity);
+      const fromQtyBefore = newFromQty.plus(qty);
 
-      // Blend the carried cost into the destination's running average. A
-      // transfer-in is economically a receipt at the source's carried cost, so it
-      // reuses the same AVCO recompute as receiveCore (including the negative-on-
-      // hand basis reset). Without this, moving stock into a destination that
-      // already holds units at a different average silently kept the old average
-      // and the destination valuation drifted from the ledger.
-      const existingTo = await tx.stockItem.findFirst({
-        where: { organizationId, productId: dto.productId, variantKey, locationId: dto.toLocationId },
-      });
-      const destCost = this.costResolver.resolveReceiptCost(
-        { costingMethod: product.costingMethod, costPrice: product.costPrice },
-        existingTo
-          ? { quantity: dec(existingTo.quantity), runningAverageCost: dec(existingTo.runningAverageCost) }
-          : null,
-        qty,
-        carriedAvg,
-      );
+      // Preserve AVCO across the transfer (same product, same org).
+      const carriedAvg = dec(fromItem.runningAverageCost);
 
-      const toItem = await tx.stockItem.upsert({
-        where: { organizationId_productId_variantKey_locationId: { organizationId, productId: dto.productId, variantKey, locationId: dto.toLocationId } },
-        create: { organizationId, productId: dto.productId, variantId, variantKey, locationId: dto.toLocationId, quantity: qty, runningAverageCost: destCost.newRunningAverage ?? carriedAvg },
-        update: { quantity: { increment: qty }, ...(destCost.newRunningAverage ? { runningAverageCost: destCost.newRunningAverage } : {}) },
-      });
-
+      // Batch-tracked: move the actual lots (FIFO by receipt) with a conditional
+      // decrement per lot, carrying each lot's own cost, expiry, mfg date and
+      // original receipt date. The value that crosses is the lots' value, not the
+      // source running average — for FIFO/batch items those differ.
+      let carriedValue = carriedAvg.times(qty);
       if (product.batchTracking) {
         const batches = await tx.inventoryBatch.findMany({
           where: { organizationId, productId: dto.productId, variantId, locationId: dto.fromLocationId, quantity: { gt: 0 }, isActive: true },
@@ -1197,16 +1365,22 @@ export class StockService {
         });
 
         let remaining = qty;
+        let layerValue = ZERO;
         for (const batch of batches) {
           if (remaining.lte(ZERO)) break;
           const batchQty = dec(batch.quantity);
           const movedQty = Prisma.Decimal.min(remaining, batchQty);
-          const leftover = batchQty.minus(movedQty);
 
-          await tx.inventoryBatch.updateMany({
-            where: { id: batch.id, organizationId },
-            data: { quantity: leftover, ...(leftover.lte(ZERO) ? { isActive: false } : {}) },
+          // Conditional: only succeeds if the lot still holds movedQty. A
+          // concurrent issue that consumed it first makes this a no-op; skip it.
+          const moved = await tx.inventoryBatch.updateMany({
+            where: { id: batch.id, organizationId, quantity: { gte: movedQty.toString() as any } },
+            data: { quantity: { decrement: movedQty } },
           });
+          if (moved.count === 0) continue;
+          if (batchQty.minus(movedQty).lte(ZERO)) {
+            await tx.inventoryBatch.updateMany({ where: { id: batch.id, organizationId, quantity: { lte: 0 } }, data: { isActive: false } });
+          }
 
           await tx.inventoryBatch.create({
             data: {
@@ -1218,12 +1392,41 @@ export class StockService {
               quantity: movedQty,
               unitCost: batch.unitCost,
               expiryDate: batch.expiryDate,
+              mfgDate: batch.mfgDate,
+              receivedAt: batch.receivedAt,
             },
           });
 
+          const lotCost = batch.unitCost ? dec(batch.unitCost) : carriedAvg;
+          layerValue = layerValue.plus(lotCost.times(movedQty));
           remaining = remaining.minus(movedQty);
         }
+        // Any shortfall (on-hand ahead of lots) crosses at the running average.
+        carriedValue = layerValue.plus(carriedAvg.times(remaining));
       }
+      const carriedUnit = carriedValue.dividedBy(qty);
+
+      // Blend the carried cost into the destination's running average. A
+      // transfer-in is economically a receipt at the carried cost, so it reuses
+      // the same AVCO recompute as receiveCore (including the negative-on-hand
+      // basis reset).
+      const existingTo = await tx.stockItem.findFirst({
+        where: { organizationId, productId: dto.productId, variantKey, locationId: dto.toLocationId },
+      });
+      const destCost = this.costResolver.resolveReceiptCost(
+        { costingMethod: product.costingMethod, costPrice: product.costPrice },
+        existingTo
+          ? { quantity: dec(existingTo.quantity), runningAverageCost: dec(existingTo.runningAverageCost) }
+          : null,
+        qty,
+        carriedUnit,
+      );
+
+      const toItem = await tx.stockItem.upsert({
+        where: { organizationId_productId_variantKey_locationId: { organizationId, productId: dto.productId, variantKey, locationId: dto.toLocationId } },
+        create: { organizationId, productId: dto.productId, variantId, variantKey, locationId: dto.toLocationId, quantity: qty, runningAverageCost: destCost.newRunningAverage ?? carriedUnit },
+        update: { quantity: { increment: qty }, ...(destCost.newRunningAverage ? { runningAverageCost: destCost.newRunningAverage } : {}) },
+      });
 
       // Serial-tracked products: the physical units move with the stock, so their
       // location must move too. Without this the serials stayed at the source —
@@ -1286,7 +1489,6 @@ export class StockService {
         }
       }
 
-      const newFromQty = dec(fromItem.quantity).minus(qty);
       const newToQty = dec(toItem.quantity);
 
       await tx.inventoryLedger.create({
@@ -1297,15 +1499,17 @@ export class StockService {
           variantId,
           locationId: dto.fromLocationId,
           type: 'transfer_out',
-          qtyBefore: dec(fromItem.quantity),
+          qtyBefore: fromQtyBefore,
           quantityChange: qty.negated(),
           balanceAfter: newFromQty,
-          unitCost: carriedAvg,
-          totalValue: carriedAvg.times(qty),
+          unitCost: carriedUnit,
+          totalValue: carriedValue,
           referenceType: dto.sourceType ?? null,
           referenceId: dto.sourceId ?? null,
           notes: dto.notes ?? null,
           performedBy: this.tenant.userId ?? null,
+          responsibleById: dto.responsibleById ?? null,
+          approvedById: dto.approvedById ?? null,
         },
       });
 
@@ -1320,12 +1524,14 @@ export class StockService {
           qtyBefore: newToQty.minus(qty),
           quantityChange: qty,
           balanceAfter: newToQty,
-          unitCost: carriedAvg,
-          totalValue: carriedAvg.times(qty),
+          unitCost: carriedUnit,
+          totalValue: carriedValue,
           referenceType: dto.sourceType ?? null,
           referenceId: dto.sourceId ?? null,
           notes: dto.notes ?? null,
           performedBy: this.tenant.userId ?? null,
+          responsibleById: dto.responsibleById ?? null,
+          approvedById: dto.approvedById ?? null,
         },
       });
 
@@ -1333,7 +1539,6 @@ export class StockService {
       // Uses configurable posting rules so inter-branch transfers can be routed
       // through clearing accounts. Same-unit transfers are a wash at the org level
       // but still produce audit entries.
-      const carriedValue = carriedAvg.times(qty);
       if (carriedValue.gt(ZERO)) {
         await this.stockPosting.postTransfer({
           productId: dto.productId,

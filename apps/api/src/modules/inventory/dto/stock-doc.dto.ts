@@ -250,3 +250,23 @@ export class ApproveStockDocDto {
   @IsString()
   notes?: string;
 }
+
+/** Body of POST /inventory/adjustments/:id/approve. */
+export class ApproveAdjustmentDto {
+  /// Approve even though stock moved since the adjustment was created.
+  @IsOptional()
+  @IsBoolean()
+  force?: boolean;
+
+  /// Mandatory when force is used; appended to the document notes.
+  @IsOptional()
+  @IsString()
+  forceReason?: string;
+}
+
+/** Body of POST /inventory/{stock-outs|waste|adjustments|transfers}/:id/reverse. */
+export class ReverseStockDocDto {
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
+}

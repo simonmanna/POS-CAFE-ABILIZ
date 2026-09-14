@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
@@ -7,6 +7,7 @@ import { AuditService } from '../../kernel/audit/audit.service';
 import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockService } from '../inventory/stock.service';
 import { StockPostingService } from '../inventory/posting/stock-posting.service';
+import { StockReversalService } from '../inventory/stock-reversal.service';
 import { PurchaseOrdersService } from './purchase-orders.service';
 import { dec, ZERO } from '../../kernel/common/money';
 import { PaginatedResult, PaginationQuery, DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '@erp/shared';
@@ -42,134 +43,40 @@ export class GoodsReceiptsService {
     private readonly stock: StockService,
     private readonly stockPosting: StockPostingService,
     private readonly purchaseOrders: PurchaseOrdersService,
+    private readonly reversals: StockReversalService,
   ) {}
 
+  /**
+   * Capture + post in one call for ad-hoc stock-ins with no PO. It is exactly
+   * {@link createDraft} followed by {@link post}, so it inherits the same
+   * approval gate, atomic claim and product validation. A caller without
+   * `goods_receipt:post` (a receiving clerk) only ever gets a draft — capturing
+   * a delivery note must not also commit it to stock and the GL.
+   */
   async createAdhoc(input: CreateGRNInput) {
-    const orgId = this.tenant.organizationId;
     if (!input.lines?.length) throw new BadRequestException('At least one line required');
-    if (!input.warehouseId) throw new BadRequestException('Warehouse required');
+    const draft = await this.createDraft(input);
+    if (!this.tenant.has('goods_receipt:post')) return draft;
 
-    const warehouse = await this.prisma.raw.inventoryLocation.findFirst({
-      where: { id: input.warehouseId, organizationId: orgId },
+    const gate = await this.approvals.checkOrRequestApproval({
+      entityType: 'goods_receipt',
+      entityId: draft.id,
+      snapshot: this.approvalSnapshot(draft),
     });
-    if (!warehouse) throw new NotFoundException('Warehouse not found');
+    if (gate?.needsApproval) return draft;
+    return this.post(draft.id);
+  }
 
-    const year = new Date().getUTCFullYear();
-    const receiptNumber = await this.sequence.next(`grn:${year}`, {
-      prefix: `GRN-${year}-`,
-      padding: 5,
-    });
-
-    const result = await this.prisma.client.$transaction(async (tx) => {
-      const grn = await tx.goodsReceiptNote.create({
-        data: {
-          organizationId: orgId,
-          receiptNumber,
-          partnerId: input.partnerId ?? null,
-          branchId: input.branchId ?? null,
-          warehouseId: input.warehouseId,
-          receivedAt: input.receivedAt ? new Date(input.receivedAt) : new Date(),
-          status: 'draft',
-          notes: input.notes,
-          createdBy: this.tenant.userId ?? null,
-          lines: {
-            create: input.lines.map((ln, idx) => ({
-              organizationId: orgId,
-              productId: ln.productId ?? null,
-              description: ln.description,
-              quantity: ln.quantity,
-              unitCost: ln.unitCost ?? 0,
-              batchNumber: ln.batchNumber ?? null,
-              expiryDate: ln.expiryDate ? new Date(ln.expiryDate) : null,
-              notes: ln.notes ?? null,
-              lineNumber: idx + 1,
-            })),
-          },
-        },
-        include: { lines: true },
-      });
-
-      // Approval gate: if an active policy exists, the GRN stays in draft
-      // pending approval. Otherwise it auto-approves to posted.
-      const approvalResult = await this.approvals.requestApproval({
-        entityType: 'goods_receipt',
-        entityId: grn.id,
-        snapshot: {
-          receiptNumber,
-          partnerId: input.partnerId ?? null,
-          createdBy: this.tenant.userId,
-        },
-      });
-
-      if (!approvalResult) {
-        // No policy → auto-approve, GRN posted immediately with stock issue
-        await tx.goodsReceiptNote.update({
-          where: { id: grn.id },
-          data: {
-            status: 'posted',
-            postedAt: new Date(),
-            postedById: this.tenant.userId ?? null,
-          },
-        });
-        grn.status = 'posted';
-
-        for (const ln of input.lines) {
-          if (!ln.productId) continue;
-          const product = await tx.product.findFirst({
-            where: { id: ln.productId, organizationId: orgId },
-          });
-          if (!product) continue;
-          await this.stock.receiveForDocument(
-            {
-              productId: ln.productId,
-              locationId: input.warehouseId,
-              quantity: Number(ln.quantity),
-              // Never 0: a zero-cost receipt posts a zero-value JE (inventory
-              // never capitalised) and permanently dilutes the moving average.
-              unitCost: ln.unitCost ?? Number(product.costPrice ?? 0),
-              // Line qty/cost are in the product's purchase unit → convert to base.
-              uomId: product.purchaseUomId ?? undefined,
-              batchNumber: ln.batchNumber,
-              expiryDate: ln.expiryDate ? new Date(ln.expiryDate) : undefined,
-              reference: `GRN ${receiptNumber}`,
-            } as any,
-            {
-              sourceType: 'goods_receipt',
-              sourceId: grn.id,
-              date: input.receivedAt ? new Date(input.receivedAt) : new Date(),
-            },
-            tx,
-          );
-        }
-      } else {
-        await this.audit.recordInTx(tx, {
-          entity: 'GoodsReceiptNote',
-          entityId: grn.id,
-          action: 'create',
-          newValues: {
-            receiptNumber,
-            approvalRequestId: approvalResult.id,
-            status: 'draft',
-          },
-        });
-      }
-
-      return grn;
-    });
-
-    await this.audit.record({
-      entity: 'GoodsReceiptNote',
-      entityId: result.id,
-      action: result.status === 'posted' ? 'post' : 'create',
-      newValues: { receiptNumber, lines: input.lines.length, status: result.status },
-    });
-    this.events.publish('goods_receipt.posted' as any, {
-      organizationId: this.tenant.organizationId,
-      receiptId: result.id,
-      receiptNumber,
-    });
-
-    return result;
+  /** Approval snapshot: `amount` is the receipt's money value (see approval amount units). */
+  private approvalSnapshot(grn: { receiptNumber: string; partnerId: string | null; purchaseOrderId?: string | null; lines: Array<{ quantity: any; unitCost: any }> }) {
+    const amount = grn.lines.reduce((s, l) => s.plus(dec(l.quantity).times(dec(l.unitCost ?? 0))), ZERO);
+    return {
+      amount: Number(amount),
+      receiptNumber: grn.receiptNumber,
+      partnerId: grn.partnerId ?? null,
+      purchaseOrderId: grn.purchaseOrderId ?? null,
+      createdBy: this.tenant.userId ?? null,
+    };
   }
 
   /**
@@ -272,15 +179,49 @@ export class GoodsReceiptsService {
         );
       }
     }
+    // Enforce the goods_receipt approval policy here, not only at ad-hoc
+    // creation: a draft created via createDraft never requested approval, so
+    // posting it used to bypass the policy entirely.
+    const gate = await this.approvals.checkOrRequestApproval({
+      entityType: 'goods_receipt',
+      entityId: id,
+      snapshot: this.approvalSnapshot(grn),
+    });
+    if (gate?.needsApproval) {
+      throw new BadRequestException(
+        `Goods receipt requires approval before posting (request ${gate.requestId})`,
+      );
+    }
+
+    // Every product line must resolve now — posting a GRN whose line silently
+    // received nothing leaves the delivery half-booked.
+    const productIds = [...new Set(grn.lines.map((l) => l.productId).filter(Boolean))] as string[];
+    if (productIds.length) {
+      const found = await this.prisma.client.product.findMany({
+        where: { id: { in: productIds }, organizationId: orgId },
+        select: { id: true },
+      });
+      const missing = productIds.filter((pid) => !found.some((f) => f.id === pid));
+      if (missing.length) throw new NotFoundException(`Product(s) not found: ${missing.join(', ')}`);
+    }
 
     const result = await this.prisma.client.$transaction(async (tx) => {
-      const updated = await tx.goodsReceiptNote.update({
-        where: { id },
+      // Atomic draft→posted claim. The status check above is outside the tx, so
+      // two concurrent posts (distinct idempotency keys) would both see 'draft'
+      // and both receive the delivery. Only one updateMany can match.
+      const claim = await tx.goodsReceiptNote.updateMany({
+        where: { id, organizationId: orgId, status: 'draft' },
         data: {
           status: 'posted',
           postedAt: new Date(),
           postedById: this.tenant.userId ?? null,
         },
+      });
+      if (claim.count === 0) {
+        throw new ConflictException('Goods receipt was already posted by another request');
+      }
+      const updated = await tx.goodsReceiptNote.findFirstOrThrow({
+        where: { id, organizationId: orgId },
         include: { lines: true },
       });
 
@@ -375,6 +316,102 @@ export class GoodsReceiptsService {
       receiptNumber: grn.receiptNumber,
     });
 
+    return result;
+  }
+
+  /**
+   * Posted reversal of a goods receipt: returns the received quantities out of
+   * stock, mirrors every journal the receipt posted (Dr Stock / Cr GRNI, and the
+   * PO voucher Dr GRNI / Cr AP) in the current period, and rolls the PO's
+   * received quantities back. Refused once a vendor bill has been matched to
+   * the receipt or the PO has payments — reverse those documents first, or
+   * return the goods through a debit note.
+   */
+  async reverse(id: string, reason: string) {
+    const orgId = this.tenant.organizationId;
+    if (!reason?.trim()) throw new BadRequestException('A reason is required to reverse a goods receipt');
+    const grn = await this.prisma.client.goodsReceiptNote.findFirst({
+      where: { id, organizationId: orgId },
+      include: { lines: true },
+    });
+    if (!grn) throw new NotFoundException('Goods receipt not found');
+    if (grn.status === 'reversed' || grn.reversedAt) throw new ConflictException(`Goods receipt ${grn.receiptNumber} is already reversed`);
+    if (grn.status !== 'posted') throw new BadRequestException('Only posted goods receipts can be reversed');
+
+    const matched = await this.prisma.client.vendorBillReceiptMatch.count({
+      where: { organizationId: orgId, goodsReceiptLineId: { in: grn.lines.map((l) => l.id) } },
+    });
+    if (matched > 0) {
+      throw new BadRequestException(
+        `Goods receipt ${grn.receiptNumber} is matched to a vendor bill — reverse the bill or raise a debit note instead`,
+      );
+    }
+    if (grn.purchaseOrderId) {
+      const [links, payments] = await Promise.all([
+        this.prisma.client.vendorBillLink.count({ where: { organizationId: orgId, purchaseOrderId: grn.purchaseOrderId } }),
+        this.prisma.client.purchasePayment.count({ where: { organizationId: orgId, purchaseOrderId: grn.purchaseOrderId } }),
+      ]);
+      if (links > 0 || payments > 0) {
+        throw new BadRequestException(
+          `The purchase order for ${grn.receiptNumber} already has ${links > 0 ? 'a vendor bill' : 'payments'} — return the goods with a debit note instead`,
+        );
+      }
+    }
+
+    const result = await this.prisma.client.$transaction(
+      async (tx: any) => {
+        const claim = await tx.goodsReceiptNote.updateMany({
+          where: { id, organizationId: orgId, status: 'posted', reversedAt: null },
+          data: { status: 'reversed', reversedAt: new Date(), reversedById: this.tenant.userId ?? null, reversalReason: reason.trim() },
+        });
+        if (claim.count === 0) throw new ConflictException('Goods receipt was reversed concurrently');
+
+        const hasStock = grn.lines.some((l) => l.productId);
+        if (hasStock) {
+          await this.reversals.reverseLedgerSource(tx, {
+            referenceType: 'goods_receipt',
+            referenceId: grn.id,
+            reversalSourceType: 'goods_receipt_reversal',
+            reversalSourceId: grn.id,
+            journalSourceTypes: ['goods_receipt'],
+            notes: `Reversal of GRN ${grn.receiptNumber}: ${reason.trim()}`,
+          });
+        }
+
+        if (grn.purchaseOrderId) {
+          const po = await tx.purchaseOrder.findFirst({ where: { id: grn.purchaseOrderId, organizationId: orgId }, include: { lines: true } });
+          if (po) {
+            const byProduct = new Map<string, any[]>();
+            for (const l of po.lines) if (l.productId) byProduct.set(l.productId, [...(byProduct.get(l.productId) ?? []), l]);
+            for (const ln of grn.lines) {
+              const poLineId = ln.purchaseOrderLineId ?? (ln.productId && byProduct.get(ln.productId)?.length === 1 ? byProduct.get(ln.productId)![0].id : null);
+              if (!poLineId) continue;
+              await tx.purchaseOrderLine.updateMany({
+                where: { id: poLineId },
+                data: { receivedQuantity: { decrement: ln.quantity }, version: { increment: 1 } },
+              });
+            }
+            const lines = await tx.purchaseOrderLine.findMany({ where: { purchaseOrderId: po.id } });
+            const anyReceived = lines.some((l: any) => Number(l.receivedQuantity) > 0);
+            const allReceived = lines.every((l: any) => Number(l.receivedQuantity) >= Number(l.quantity));
+            const status = allReceived ? 'received' : anyReceived ? 'partially_received' : 'active';
+            await tx.purchaseOrder.updateMany({
+              where: { id: po.id, organizationId: orgId },
+              data: { status, version: { increment: 1 } },
+            });
+          }
+        }
+
+        await this.audit.recordInTx(tx, {
+          entity: 'GoodsReceiptNote',
+          entityId: grn.id,
+          action: 'update',
+          newValues: { status: 'reversed', reason: reason.trim(), receiptNumber: grn.receiptNumber },
+        });
+        return tx.goodsReceiptNote.findFirst({ where: { id }, include: { lines: true } });
+      },
+      { timeout: 60_000 },
+    );
     return result;
   }
 

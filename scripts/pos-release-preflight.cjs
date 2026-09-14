@@ -27,6 +27,7 @@ const EVIDENCE_TRIGGERS = [
   ['Payment', 'payment_immutable_core'],
   ['PaymentAllocation', 'payment_allocation_evidence'],
   ['PosRefund', 'pos_refund_evidence'],
+  ['InventoryLedger', 'inventory_ledger_append_only'],
 ];
 
 async function checkDatabase(db) {
@@ -49,6 +50,8 @@ async function checkDatabase(db) {
   } else if (capacity.relations > capacity.lock_slots * 0.5) {
     warnings.push({ check: 'backup_lock_capacity', detail: 'Over half of the lock table is needed by pg_dump', ...capacity });
   }
+  const ledgerCheck = (await db.query(`SELECT 1 FROM pg_constraint WHERE conname = 'InventoryLedger_balance_arithmetic_check'`)).rows;
+  if (!ledgerCheck.length) blockers.push({ check: 'inventory_ledger_arithmetic_constraint', detail: 'Stock ledger rows are not arithmetic-checked; run prisma migrate deploy' });
   const pending = (await db.query(`SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NULL AND rolled_back_at IS NULL`)).rows;
   if (pending.length) blockers.push({ check: 'unfinished_migrations', migrations: pending.map((r) => r.migration_name) });
   return { role, blockers, warnings };
@@ -150,6 +153,88 @@ async function checkOrganization(db, organizationId) {
   const unlocatedRegisters = await q(`SELECT id, code FROM "CashRegister" WHERE "organizationId" = $1 AND "isActive" AND "deletedAt" IS NULL AND "locationId" IS NULL`);
   if (warehouses[0].n > 1 && !posLocation.length && unlocatedRegisters.length) {
     blockers.push({ check: 'ambiguous_pos_stock_location', detail: 'More than one warehouse and no POS stock location: sales will not relieve stock', registers: unlocatedRegisters });
+  }
+
+  // ── Inventory integrity ─────────────────────────────────────────────────────
+  add(blockers, 'inventory_stock_ledger_drift', await q(`
+    SELECT s."productId", s."locationId", s."variantKey", s.quantity, COALESCE(l.total, 0) AS ledger
+    FROM "StockItem" s
+    LEFT JOIN (SELECT "productId", "locationId", COALESCE("variantId", '') AS vk, SUM("quantityChange") AS total
+               FROM "InventoryLedger" WHERE "organizationId" = $1 GROUP BY 1, 2, 3) l
+      ON l."productId" = s."productId" AND l."locationId" = s."locationId" AND l.vk = s."variantKey"
+    WHERE s."organizationId" = $1 AND abs(s.quantity - COALESCE(l.total, 0)) > 0.000001`), 'On-hand must equal the sum of its stock ledger; run a count or the opening-ledger backfill');
+
+  add(blockers, 'inventory_batch_drift', await q(`
+    SELECT s."productId", s."locationId", s.quantity, COALESCE(b.total, 0) AS batches
+    FROM "StockItem" s JOIN "Product" p ON p.id = s."productId" AND p."batchTracking"
+    LEFT JOIN (SELECT "productId", "locationId", COALESCE("variantId", '') AS vk, SUM(quantity) AS total
+               FROM "InventoryBatch" WHERE "organizationId" = $1 GROUP BY 1, 2, 3) b
+      ON b."productId" = s."productId" AND b."locationId" = s."locationId" AND b.vk = s."variantKey"
+    WHERE s."organizationId" = $1 AND s.quantity >= 0 AND abs(s.quantity - COALESCE(b.total, 0)) > 0.000001`), 'Batch-tracked on-hand must equal the sum of its lots');
+
+  add(warnings, 'inventory_serial_drift', await q(`
+    SELECT s."productId", s."locationId", s.quantity, COUNT(sr.id) AS in_stock_serials
+    FROM "StockItem" s JOIN "Product" p ON p.id = s."productId" AND p."serialTracking"
+    LEFT JOIN "InventorySerial" sr ON sr."productId" = s."productId" AND sr."locationId" = s."locationId" AND sr.status = 'in_stock'
+    WHERE s."organizationId" = $1
+    GROUP BY s."productId", s."locationId", s.quantity HAVING s.quantity <> COUNT(sr.id)`), 'Serial-tracked on-hand differs from in-stock serials (expected while inventory.serialPolicy = capture_optional)');
+
+  add(blockers, 'inventory_valued_movements_without_journal', await q(`
+    SELECT l."referenceType", l.type, COUNT(*) AS rows, SUM(l."totalValue") AS value
+    FROM "InventoryLedger" l
+    WHERE l."organizationId" = $1 AND l."totalValue" > 0
+      AND l.type::text NOT IN ('transfer_in', 'transfer_out', 'opening_balance')
+      AND COALESCE(l."referenceType", '') NOT IN ('opening_balance', 'opening_backfill')
+      AND NOT EXISTS (
+        SELECT 1 FROM "JournalEntry" e
+        WHERE e."organizationId" = l."organizationId" AND e.status <> 'draft'
+          AND (e."sourceId" = l."referenceId" OR e."sourceId" = l."ledgerCode"
+               OR (e."sourceType" = 'inventory_gl_gap_backfill' AND e."sourceId" = COALESCE(l."referenceType", '(none)') AND l."createdAt" <= e."createdAt")))
+    GROUP BY l."referenceType", l.type`), 'Stock value moved with no journal entry; run pnpm --filter @erp/api backfill:inventory-gl-gaps');
+
+  const tolerance = Number(process.env.INVENTORY_GL_TOLERANCE ?? 1);
+  const tie = (await q(`
+    SELECT
+      (SELECT COALESCE(SUM(s.quantity * CASE WHEN s."runningAverageCost" > 0 THEN s."runningAverageCost" ELSE COALESCE(p."costPrice", 0) END), 0)
+         FROM "StockItem" s JOIN "Product" p ON p.id = s."productId" WHERE s."organizationId" = $1) AS subledger,
+      (SELECT COALESCE(SUM(jl."baseDebit" - jl."baseCredit"), 0)
+         FROM "JournalLine" jl JOIN "JournalEntry" e ON e.id = jl."journalEntryId" AND e.status <> 'draft'
+         WHERE e."organizationId" = $1
+           AND jl."accountId" IN (SELECT "accountId" FROM "AccountMapping" WHERE "organizationId" = $1 AND key IN ('stock_valuation', 'inventory'))) AS gl`))[0];
+  const inventoryVariance = Number(tie.subledger) - Number(tie.gl);
+  if (Math.abs(inventoryVariance) > tolerance) {
+    blockers.push({ check: 'inventory_gl_variance', detail: `Inventory sub-ledger ${Number(tie.subledger).toFixed(2)} vs Stock Valuation GL ${Number(tie.gl).toFixed(2)} (tolerance ${tolerance}); explain it in Accounting > Inventory GL Tie-out`, variance: inventoryVariance.toFixed(2) });
+  }
+
+  add(warnings, 'inventory_ledger_chain_breaks', await q(`
+    SELECT "productId", "locationId", COUNT(*) AS breaks FROM (
+      SELECT "productId", "locationId", "qtyBefore",
+             lag("balanceAfter") OVER (PARTITION BY "productId", COALESCE("variantId", ''), "locationId" ORDER BY "createdAt", id) AS prev
+      FROM "InventoryLedger" WHERE "organizationId" = $1) x
+    WHERE prev IS NOT NULL AND prev <> "qtyBefore" GROUP BY "productId", "locationId"`), 'Historic stock-card rows do not chain (usually a mid-stream opening balance); totals are still right');
+
+  add(warnings, 'inventory_negative_stock', await q(`SELECT "productId", "locationId", quantity FROM "StockItem" WHERE "organizationId" = $1 AND quantity < 0`), 'Sold before received; COGS used a stale cost until the covering receipt lands');
+
+  add(warnings, 'inventory_expired_lots_on_hand', await q(`SELECT id, "productId", "batchNumber", quantity, "expiryDate" FROM "InventoryBatch" WHERE "organizationId" = $1 AND quantity > 0 AND "expiryDate" < now()`), 'Expired stock on hand; write it off via Waste');
+
+  add(warnings, 'inventory_tracked_menu_items_without_recipe', await q(`
+    SELECT m.id, m.name FROM "MenuItem" m
+    WHERE m."organizationId" = $1 AND m."isInventoryTracked"
+      AND NOT EXISTS (SELECT 1 FROM "MenuProduct" mp WHERE mp."menuItemId" = m.id)`), 'Every sale of these items raises an inventory exception and posts no COGS');
+
+  add(warnings, 'inventory_documents_pending_over_7_days', await q(`
+    SELECT 'stock_out' AS kind, "outCode" AS code, "createdAt" FROM "StockOut" WHERE "organizationId" = $1 AND status IN ('draft','pending') AND "createdAt" < now() - interval '7 days'
+    UNION ALL SELECT 'waste', "wasteCode", "createdAt" FROM "WasteRecord" WHERE "organizationId" = $1 AND status IN ('draft','pending') AND "createdAt" < now() - interval '7 days'
+    UNION ALL SELECT 'adjustment', "adjCode", "createdAt" FROM "StockAdjustment" WHERE "organizationId" = $1 AND status IN ('draft','pending') AND "createdAt" < now() - interval '7 days'
+    UNION ALL SELECT 'transfer', "transferCode", "createdAt" FROM "StockTransfer" WHERE "organizationId" = $1 AND status IN ('draft','pending') AND "createdAt" < now() - interval '7 days'
+    UNION ALL SELECT 'goods_receipt', "receiptNumber", "createdAt" FROM "GoodsReceiptNote" WHERE "organizationId" = $1 AND status = 'draft' AND "createdAt" < now() - interval '7 days'`), 'Stock documents awaiting approval/posting');
+
+  const trackedWithoutWarehouse = await q(`
+    SELECT COUNT(*)::int AS n FROM "Product" p
+    WHERE p."organizationId" = $1 AND p."trackInventory" AND p."isActive" AND p."deletedAt" IS NULL
+      AND NOT EXISTS (SELECT 1 FROM "InventoryLocation" l WHERE l."organizationId" = $1 AND l.type = 'warehouse' AND l."isActive" AND l."deletedAt" IS NULL)`);
+  if (trackedWithoutWarehouse[0].n > 0) {
+    blockers.push({ check: 'inventory_no_active_warehouse', detail: `${trackedWithoutWarehouse[0].n} inventory-tracked product(s) but no active warehouse: every sale fails to relieve stock` });
   }
 
   return { organization: org, blockers, warnings };

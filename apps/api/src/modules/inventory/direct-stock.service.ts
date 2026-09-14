@@ -4,6 +4,7 @@ import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { StockService } from './stock.service';
+import { assertActiveStaff } from './staff-attribution';
 import { DirectStockInDto, DirectStockOutDto } from './dto/direct-stock.dto';
 
 @Injectable()
@@ -22,11 +23,12 @@ export class DirectStockService {
   async directIn(dto: DirectStockInDto) {
     const location = await this.prisma.client.inventoryLocation.findFirst({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundException('Location not found');
+    await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.client.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, name: true, batchTracking: true },
+      select: { id: true, name: true, batchTracking: true, expiryTracking: true },
     });
     const productMap = new Map(products.map((p) => [p.id, p]));
 
@@ -36,8 +38,8 @@ export class DirectStockService {
       if (prod.batchTracking && !item.batchNumber) {
         throw new BadRequestException(`Batch number required for batch-tracked product "${prod.name}"`);
       }
-      if (prod.batchTracking && !item.expiryDate) {
-        throw new BadRequestException(`Expiry date required for batch-tracked product "${prod.name}"`);
+      if (prod.expiryTracking && !item.expiryDate) {
+        throw new BadRequestException(`Expiry date required for expiry-tracked product "${prod.name}"`);
       }
     }
 
@@ -48,7 +50,10 @@ export class DirectStockService {
       const results: any[] = [];
 
       for (const item of dto.items) {
-        const res = await this.stock.receive(
+        // Direct stock-in has no supplier document, so the value is a stock gain:
+        // Dr Stock Valuation / Cr Inventory Adjustment. A bare receive() here left
+        // inventory capitalised in the sub-ledger with no GL entry at all.
+        const res = await this.stock.receiveForDocument(
           {
             productId: item.productId,
             variantId: item.variantId ?? undefined,
@@ -63,6 +68,7 @@ export class DirectStockService {
             responsibleById: dto.responsibleById,
             approvedById: dto.approvedById,
           },
+          { sourceType: 'direct_stock_in', sourceId: code, date: new Date(), kind: 'stock_gain' },
           tx,
         );
         const uc = dec(res.unitCost ?? 0);
@@ -90,6 +96,7 @@ export class DirectStockService {
   async directOut(dto: DirectStockOutDto) {
     const location = await this.prisma.client.inventoryLocation.findFirst({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundException('Location not found');
+    await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.client.product.findMany({
@@ -123,8 +130,8 @@ export class DirectStockService {
         const stockItem = await tx.stockItem.findFirst({
           where: { organizationId: this.org, productId: item.productId, variantKey, locationId: dto.locationId },
         });
-        const available = stockItem ? Number(stockItem.quantity) : 0;
-        if (available < item.quantity) {
+        const available = stockItem ? dec(stockItem.quantity) : ZERO;
+        if (available.lt(dec(item.quantity))) {
           const prod = productMap.get(item.productId)!;
           throw new BadRequestException(
             `Insufficient stock for "${prod.name}": requested ${item.quantity}, available ${available}`,

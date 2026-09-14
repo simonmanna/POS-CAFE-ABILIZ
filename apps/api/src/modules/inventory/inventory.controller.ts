@@ -16,8 +16,8 @@ import { RequirePermissions } from '../../kernel/auth/decorators/require-permiss
 import { Idempotent } from '../../kernel/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../kernel/idempotency/idempotency.interceptor';
 import { LocationService } from './location.service';
-import { StockService } from './stock.service';
 import { StockDocService } from './stock-doc.service';
+import { StockReversalService } from './stock-reversal.service';
 import { InventoryQueryService } from './inventory-query.service';
 import { LedgerDetailService } from './ledger-detail.service';
 import { InventoryReportsService, type ReportScopeQuery } from './inventory-reports.service';
@@ -26,13 +26,14 @@ import { InventoryQueryDto } from './dto/inventory-query.dto';
 import { DirectStockService } from './direct-stock.service';
 import { DirectStockInDto, DirectStockOutDto, StockLedgerQueryDto } from './dto/direct-stock.dto';
 import { CreateLocationDto, UpdateLocationDto, LocationQueryDto } from './dto/location.dto';
-import { ReceiveStockDto, IssueStockDto, AdjustStockDto, TransferStockDto } from './dto/stock.dto';
 import {
   CreateStockOutDto,
   CreateWasteDto,
   CreateStockAdjustmentDto,
   CreateStockTransferDto,
   WasteQueryDto,
+  ApproveAdjustmentDto,
+  ReverseStockDocDto,
 } from './dto/stock-doc.dto';
 
 @Controller('inventory')
@@ -40,8 +41,8 @@ import {
 export class InventoryController {
   constructor(
     private readonly locations: LocationService,
-    private readonly stock: StockService,
     private readonly stockDocs: StockDocService,
+    private readonly reversals: StockReversalService,
     private readonly queries: InventoryQueryService,
     private readonly directStock: DirectStockService,
     private readonly ledgerDetail: LedgerDetailService,
@@ -82,35 +83,9 @@ export class InventoryController {
     return this.locations.remove(id);
   }
 
-  // ---- Stock Operations ----
-
-  @Post('stock/receive')
-  @Idempotent()
-  @RequirePermissions(PERMISSIONS.inventory.move)
-  receive(@Body() dto: ReceiveStockDto) {
-    return this.stock.receive(dto);
-  }
-
-  @Post('stock/issue')
-  @Idempotent()
-  @RequirePermissions(PERMISSIONS.inventory.move)
-  issue(@Body() dto: IssueStockDto) {
-    return this.stock.issue(dto);
-  }
-
-  @Post('stock/adjust')
-  @Idempotent()
-  @RequirePermissions(PERMISSIONS.inventory.move)
-  adjust(@Body() dto: AdjustStockDto) {
-    return this.stock.adjust(dto);
-  }
-
-  @Post('stock/transfer')
-  @Idempotent()
-  @RequirePermissions(PERMISSIONS.inventory.move)
-  transfer(@Body() dto: TransferStockDto) {
-    return this.stock.transfer(dto);
-  }
+  // Bare quantity movements (/stock/receive|issue|adjust|transfer) are
+  // intentionally NOT exposed: they bypass document approval and (for receive)
+  // the GL. Use direct-stock, stock documents, or procurement instead.
 
   // ---- Direct Stock In / Out ----
 
@@ -264,6 +239,7 @@ export class InventoryController {
   }
 
   @Post('stock-outs/:id/approve')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
   approveStockOut(@Param('id') id: string) {
     return this.stockDocs.approveStockOut(id);
@@ -298,12 +274,14 @@ export class InventoryController {
   }
 
   @Post('waste/:id/approve')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
   approveWaste(@Param('id') id: string) {
     return this.stockDocs.approveWaste(id);
   }
 
   @Post('waste/:id/cancel')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
   cancelWaste(@Param('id') id: string) {
     return this.stockDocs.cancelWaste(id);
@@ -325,12 +303,14 @@ export class InventoryController {
   }
 
   @Post('adjustments/:id/approve')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
-  approveAdjustment(@Param('id') id: string) {
-    return this.stockDocs.approveAdjustment(id);
+  approveAdjustment(@Param('id') id: string, @Body() dto: ApproveAdjustmentDto) {
+    return this.stockDocs.approveAdjustment(id, undefined, dto ?? {});
   }
 
   @Post('adjustments/:id/cancel')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
   cancelAdjustment(@Param('id') id: string) {
     return this.stockDocs.cancelAdjustment(id);
@@ -352,8 +332,39 @@ export class InventoryController {
   }
 
   @Post('transfers/:id/approve')
+  @Idempotent()
   @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
   approveTransfer(@Param('id') id: string) {
     return this.stockDocs.approveTransfer(id);
+  }
+
+  // ---- Posted reversals (linked inverse movements + mirrored journals) ----
+
+  @Post('stock-outs/:id/reverse')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
+  reverseStockOut(@Param('id') id: string, @Body() dto: ReverseStockDocDto) {
+    return this.reversals.reverseDocument('stock_out', id, dto.reason);
+  }
+
+  @Post('waste/:id/reverse')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
+  reverseWaste(@Param('id') id: string, @Body() dto: ReverseStockDocDto) {
+    return this.reversals.reverseDocument('waste', id, dto.reason);
+  }
+
+  @Post('adjustments/:id/reverse')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
+  reverseAdjustment(@Param('id') id: string, @Body() dto: ReverseStockDocDto) {
+    return this.reversals.reverseDocument('stock_adjustment', id, dto.reason);
+  }
+
+  @Post('transfers/:id/reverse')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
+  reverseTransfer(@Param('id') id: string, @Body() dto: ReverseStockDocDto) {
+    return this.reversals.reverseDocument('stock_transfer', id, dto.reason);
   }
 }

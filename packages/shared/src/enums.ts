@@ -159,6 +159,9 @@ export const STOCK_MOVE_TYPES = [
   // receives finished goods. MUST match the StockMoveType enum in schema.prisma.
   'production_consume',
   'production_output',
+  // Posted reversal of a stock document (inverse movement, linked by referenceType).
+  'reversal_in',
+  'reversal_out',
 ] as const;
 export type StockMoveType = (typeof STOCK_MOVE_TYPES)[number];
 
@@ -194,6 +197,7 @@ export const STOCK_DOC_STATUS = [
   'rejected',
   'completed',
   'cancelled',
+  'reversed',
 ] as const;
 export type StockDocStatus = (typeof STOCK_DOC_STATUS)[number];
 
@@ -289,7 +293,7 @@ export const PURCHASE_ORDER_STATUS = [
 ] as const;
 export type PurchaseOrderStatus = (typeof PURCHASE_ORDER_STATUS)[number];
 
-export const GOODS_RECEIPT_STATUS = ['draft', 'posted', 'cancelled'] as const;
+export const GOODS_RECEIPT_STATUS = ['draft', 'posted', 'cancelled', 'reversed'] as const;
 export type GoodsReceiptStatus = (typeof GOODS_RECEIPT_STATUS)[number];
 
 export const MATCH_STATUS = [

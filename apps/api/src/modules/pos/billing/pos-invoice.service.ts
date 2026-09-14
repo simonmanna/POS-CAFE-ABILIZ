@@ -11,7 +11,7 @@ import { TenantContextService } from '../../../kernel/tenancy/tenant-context.ser
 import { AuditService } from '../../../kernel/audit/audit.service';
 import { ApprovalsService } from '../../../kernel/approvals/approvals.service';
 import { EventBus } from '../../../kernel/events/event-bus';
-import { dec } from '../../../kernel/common/money';
+import { dec, qtyMul } from '../../../kernel/common/money';
 import { resolveOccurredAt } from '../../../kernel/common/occurred-at';
 import { DocumentBuilderService } from '../../invoicing/document/document-builder.service';
 import { SequenceService } from '../../../kernel/sequence/sequence.service';
@@ -256,7 +256,7 @@ export class PosInvoiceService {
             });
             if (!combo?.items?.length) throw new Error('Combo is unavailable or has no stock components');
             for (const component of combo.items as any[]) {
-              const quantity = Number(component.quantity) * Number(it.quantity);
+              const quantity = qtyMul(component.quantity, it.quantity);
               if (!(quantity > 0)) throw new Error('Combo component quantities must be greater than zero');
               const atp = await this.reservations.availableToPromise(component.productId, atpWarehouse.id);
               if (dec(quantity).gt(dec(atp.available))) {
@@ -268,7 +268,7 @@ export class PosInvoiceService {
           } else if (it.menuItemId) {
             const recipe = await db.menuProduct.findMany({ where: { menuItemId: it.menuItemId } });
             for (const ing of recipe) {
-              const qty = Number(ing.quantity) * Number(it.quantity);
+              const qty = qtyMul(ing.quantity, it.quantity);
               const atp = await this.reservations.availableToPromise(ing.productId, atpWarehouse.id);
               if (dec(qty).gt(dec(atp.available))) {
                 const msg = `Low stock for "${it.description}": need ${qty} of ingredient, ${atp.available} available`;
@@ -977,7 +977,7 @@ export class PosInvoiceService {
         const recipe = await this.prisma.client.menuProduct.findMany({
           where: { menuItemId: it.menuItemId, organizationId: orgId },
         });
-        for (const ing of recipe as any[]) add(ing.productId, Number(ing.quantity) * lineQty);
+        for (const ing of recipe as any[]) add(ing.productId, qtyMul(ing.quantity, lineQty));
       } else if (it.productId) {
         const product = await this.prisma.client.product.findFirst({ where: { id: it.productId } });
         if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
@@ -1178,7 +1178,7 @@ export class PosInvoiceService {
             const components = snapshot?.kind === 'combo' ? snapshot.components : [];
             if (!components.length) throw new Error('Combo has no immutable stock-component snapshot');
             for (const component of components as any[]) {
-              const quantity = Number(component.quantity) * Number(it.quantity);
+              const quantity = qtyMul(component.quantity, it.quantity);
               if (!(quantity > 0)) throw new Error('Combo component quantities must be greater than zero');
               if (!component.trackInventory || !['stockable', 'consumable'].includes(component.productType)) continue;
               const issueResult = await this.stock.issue({
@@ -1371,7 +1371,7 @@ export class PosInvoiceService {
       const m = variant?.qtyMultiplier != null ? Number(variant.qtyMultiplier) : 1;
       if (Number.isFinite(m) && m > 0) recipeMultiplier = m;
     }
-    const effectiveLineQty = lineQty * recipeMultiplier;
+    const effectiveLineQty = qtyMul(lineQty, recipeMultiplier);
     const recipe = immutableSnapshot?.kind === 'menu'
       ? immutableSnapshot.ingredients
       : await db.menuProduct.findMany({ where: { menuItemId, organizationId: orgId } });
@@ -1392,7 +1392,7 @@ export class PosInvoiceService {
 
     let failures = 0;
     for (const ing of recipe as any[]) {
-      const qty = Number(ing.quantity) * effectiveLineQty;
+      const qty = qtyMul(ing.quantity, effectiveLineQty);
       if (!(qty > 0)) continue;
       try {
         // A-024: stamp the recipe issue with the owning menu item + invoice so
@@ -1444,7 +1444,7 @@ export class PosInvoiceService {
     if (!menuItem?.isInventoryTracked) return;
     const recipe = await tx.menuProduct.findMany({ where: { menuItemId, organizationId: this.tenant.organizationId } });
     for (const ing of recipe as any[]) {
-      const qty = Number(ing.quantity) * lineQty;
+      const qty = qtyMul(ing.quantity, lineQty);
       if (!(qty > 0)) continue;
       await this.stock.receiveReturn({ productId: ing.productId, locationId: warehouseId, quantity: qty, uomId: ing.uomId ?? undefined, reference, sourceType: 'pos_refund', sourceId: reference }, tx);
     }

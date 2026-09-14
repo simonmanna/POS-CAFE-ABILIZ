@@ -13,6 +13,8 @@ export class GoodsReceiptsController {
 
   @Post('adhoc')
   @RequirePermissions('goods_receipt:create')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent()
   createAdhoc(
     @Body()
     body: {
@@ -98,5 +100,17 @@ export class GoodsReceiptsController {
   @RequirePermissions('goods_receipt:read')
   findOne(@Param('id') id: string) {
     return this.svc.findOne(id);
+  }
+
+  /**
+   * Posted reversal: returns the goods out of stock, mirrors the receipt's
+   * journals in the current period and rolls the PO back. Refused once billed/paid.
+   */
+  @Patch(':id/reverse')
+  @RequirePermissions('goods_receipt:cancel')
+  @UseInterceptors(IdempotencyInterceptor)
+  @Idempotent()
+  reverse(@Param('id') id: string, @Body() body: { reason: string }) {
+    return this.svc.reverse(id, body?.reason);
   }
 }
