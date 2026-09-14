@@ -23,7 +23,7 @@ import { parseLocalDay, type ReportScopeQuery } from './inventory-reports.servic
  *   transfers    transfer_out lines, paired with their transfer_in for the route
  */
 
-export const REGISTER_KINDS = ['stock_in', 'stock_out', 'damages', 'adjustments', 'transfers'] as const;
+export const REGISTER_KINDS = ['stock_in', 'stock_out', 'damages', 'adjustments', 'transfers', 'all'] as const;
 export type RegisterKind = (typeof REGISTER_KINDS)[number];
 
 const KIND_TYPES: Record<RegisterKind, string[]> = {
@@ -32,6 +32,8 @@ const KIND_TYPES: Record<RegisterKind, string[]> = {
   damages: ['waste', 'expiry_write_off', 'adjustment_out', 'internal_use', 'promo_sample', 'issue'],
   adjustments: ['adjustment_in', 'adjustment_out'],
   transfers: ['transfer_out', 'transfer_in'],
+  // Every stock movement — no type filter.
+  all: [],
 };
 
 const DAMAGE_REASONS = new Set(['damaged', 'expired', 'theft']);
@@ -98,6 +100,10 @@ interface Line {
   location: string;
   toLocationId: string | null;
   toLocation: string | null;
+  /** On-hand before / after the movement — the ledger chain (qtyBefore → balanceAfter). */
+  qtyBefore: number;
+  balanceAfter: number;
+  batchNumber: string | null;
   /** Absolute for in/out/damages/transfers; signed (+gain / −loss) for adjustments. */
   qty: number;
   unitCost: number;
@@ -222,9 +228,10 @@ export class InventoryRegisterService {
     const where: Prisma.InventoryLedgerWhereInput = {
       organizationId,
       createdAt: { gte: start, lte: end },
-      type: { in: KIND_TYPES[kind] as any },
       ...(productIds ? { productId: { in: productIds } } : {}),
     };
+    const kindTypes = KIND_TYPES[kind];
+    if (kindTypes.length > 0) where.type = { in: kindTypes as any };
     // Transfers match the location on either leg — resolved after pairing.
     if (q.locationId && kind !== 'transfers') where.locationId = q.locationId;
 
@@ -232,7 +239,8 @@ export class InventoryRegisterService {
       where,
       select: {
         id: true, createdAt: true, ledgerCode: true, type: true, productId: true, locationId: true,
-        quantityChange: true, unitCost: true, totalValue: true, referenceType: true, referenceId: true,
+        qtyBefore: true, quantityChange: true, balanceAfter: true, unitCost: true, totalValue: true,
+        referenceType: true, referenceId: true, batchId: true, batch: { select: { batchNumber: true } },
         notes: true, performedBy: true, responsibleById: true, approvedById: true,
       },
       orderBy: { createdAt: 'asc' },
@@ -304,6 +312,8 @@ export class InventoryRegisterService {
       let approvedId = l.approvedById;
       let toLocationId: string | null = null;
 
+      const isSignedKind = kind === 'adjustments' || kind === 'all';
+
       const adjCode = /^(ADJ-[\w-]+)(?:\s*·\s*(\w+))?/.exec(l.notes ?? '');
       if (l.referenceType === 'waste' && l.referenceId && wasteBy.has(l.referenceId)) {
         const w = wasteBy.get(l.referenceId)!;
@@ -357,9 +367,12 @@ export class InventoryRegisterService {
         location: locBy.get(l.locationId) ?? '—',
         toLocationId,
         toLocation: toLocationId ? (locBy.get(toLocationId) ?? '—') : null,
-        qty: kind === 'adjustments' ? signedQty : Math.abs(signedQty),
+        qtyBefore: n(l.qtyBefore),
+        balanceAfter: n(l.balanceAfter),
+        batchNumber: l.batch?.batchNumber ?? null,
+        qty: isSignedKind ? signedQty : Math.abs(signedQty),
         unitCost: n(l.unitCost),
-        value: kind === 'adjustments' ? Math.sign(signedQty) * absValue : absValue,
+        value: isSignedKind ? Math.sign(signedQty) * absValue : absValue,
         reason,
         responsibleId: responsibleId ?? null,
         responsible: person(responsibleId),
@@ -372,10 +385,11 @@ export class InventoryRegisterService {
   }
 
   private summary(kind: RegisterKind, rows: Line[], prev: Line[], days: number) {
+    const isSigned = kind === 'adjustments' || kind === 'all';
     const tot = (ls: Line[]) => ({
       lines: ls.length,
-      qty: r6(ls.reduce((s, l) => s + (kind === 'adjustments' ? l.qty : Math.abs(l.qty)), 0)),
-      value: r2(ls.reduce((s, l) => s + (kind === 'adjustments' ? l.value : Math.abs(l.value)), 0)),
+      qty: r6(ls.reduce((s, l) => s + (isSigned ? l.qty : Math.abs(l.qty)), 0)),
+      value: r2(ls.reduce((s, l) => s + (isSigned ? l.value : Math.abs(l.value)), 0)),
     });
     const cur = tot(rows);
     const pv = tot(prev);
@@ -406,7 +420,7 @@ export class InventoryRegisterService {
       paretoItems: pareto,
       unassignedLines: rows.filter((l) => !l.responsibleId).length,
       unapprovedLines: rows.filter((l) => !l.approvedBy).length,
-      ...(kind === 'adjustments'
+      ...(kind === 'adjustments' || kind === 'all'
         ? {
             gainQty: r6(gains.reduce((s, l) => s + l.qty, 0)),
             gainValue: r2(gains.reduce((s, l) => s + l.value, 0)),
@@ -440,7 +454,7 @@ export class InventoryRegisterService {
       b.lines += 1;
       b.qty += Math.abs(l.qty);
       b.value += Math.abs(l.value);
-      if (kind === 'adjustments') { if (l.value >= 0) b.gain += l.value; else b.loss += -l.value; }
+      if (kind === 'adjustments' || kind === 'all') { if (l.value >= 0) b.gain += l.value; else b.loss += -l.value; }
     }
     return {
       bucket,
