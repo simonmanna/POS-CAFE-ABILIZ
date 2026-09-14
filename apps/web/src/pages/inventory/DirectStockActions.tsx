@@ -4,6 +4,7 @@ import { Minus, Plus, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { useStaffOptions } from '@/features/inventory/staff-options';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -35,6 +36,9 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
     },
   });
 
+  const staffOptionsQuery = useStaffOptions();
+  const staffOptions = staffOptionsQuery.data ?? [];
+
   const products = useQuery<{ data: { id: string; code: string; name: string }[] }>({
     queryKey: ['products-simple'],
     queryFn: async () => (await api.get('/products?pageSize=1000')).data,
@@ -59,6 +63,8 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
   const [inOpen, setInOpen] = useState(false);
   const [inLocId, setInLocId] = useState('');
   const [inNotes, setInNotes] = useState('');
+  const [inResponsibleId, setInResponsibleId] = useState('');
+  const [inApprovedId, setInApprovedId] = useState('');
   const [inLines, setInLines] = useState<{ productId: string; name: string; quantity: number; unitCost: string; batchNumber: string; expiryDate: string }[]>([
     { productId: '', name: '', quantity: 1, unitCost: '', batchNumber: '', expiryDate: '' },
   ]);
@@ -74,7 +80,13 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           ...(l.batchNumber ? { batchNumber: l.batchNumber } : {}),
           ...(l.expiryDate ? { expiryDate: l.expiryDate } : {}),
         }));
-      const res = await api.post('/inventory/direct-stock/in', { locationId: inLocId, items, notes: inNotes || undefined });
+      const res = await api.post('/inventory/direct-stock/in', {
+        locationId: inLocId,
+        responsibleById: inResponsibleId,
+        approvedById: inApprovedId,
+        items,
+        notes: inNotes || undefined,
+      });
       return res.data;
     },
     onSuccess: (data: any) => {
@@ -82,6 +94,8 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
       setInOpen(false);
       setInLocId('');
       setInNotes('');
+      setInResponsibleId('');
+      setInApprovedId('');
       setInLines([{ productId: '', name: '', quantity: 1, unitCost: '', batchNumber: '', expiryDate: '' }]);
       invalidateAll();
     },
@@ -92,6 +106,8 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
   const [outOpen, setOutOpen] = useState(false);
   const [outLocId, setOutLocId] = useState('');
   const [outNotes, setOutNotes] = useState('');
+  const [outResponsibleId, setOutResponsibleId] = useState('');
+  const [outApprovedId, setOutApprovedId] = useState('');
   const [outLines, setOutLines] = useState<{ productId: string; name: string; quantity: number; distStrategy: string; batchNumber: string }[]>([
     { productId: '', name: '', quantity: 1, distStrategy: 'FEFO', batchNumber: '' },
   ]);
@@ -106,7 +122,13 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           distStrategy: l.distStrategy,
           ...(l.batchNumber ? { batchNumber: l.batchNumber } : {}),
         }));
-      const res = await api.post('/inventory/direct-stock/out', { locationId: outLocId, items, notes: outNotes || undefined });
+      const res = await api.post('/inventory/direct-stock/out', {
+        locationId: outLocId,
+        responsibleById: outResponsibleId,
+        approvedById: outApprovedId,
+        items,
+        notes: outNotes || undefined,
+      });
       return res.data;
     },
     onSuccess: (data: any) => {
@@ -114,6 +136,8 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
       setOutOpen(false);
       setOutLocId('');
       setOutNotes('');
+      setOutResponsibleId('');
+      setOutApprovedId('');
       setOutLines([{ productId: '', name: '', quantity: 1, distStrategy: 'FEFO', batchNumber: '' }]);
       invalidateAll();
     },
@@ -189,7 +213,33 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5 md:col-span-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Responsible Person <span className="text-destructive">*</span>
+              </label>
+              <SearchableSelect
+                value={inResponsibleId}
+                onValueChange={setInResponsibleId}
+                options={staffOptions}
+                placeholder="Select staff…"
+                searchPlaceholder="Search staff…"
+                emptyText="No staff match"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Approved By <span className="text-destructive">*</span>
+              </label>
+              <SearchableSelect
+                value={inApprovedId}
+                onValueChange={setInApprovedId}
+                options={staffOptions}
+                placeholder="Select staff…"
+                searchPlaceholder="Search staff…"
+                emptyText="No staff match"
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Notes <span className="font-normal normal-case tracking-normal">(optional)</span>
               </label>
@@ -283,7 +333,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setInOpen(false)}>Cancel</Button>
-            <Button className="bg-[#3c8dbc] hover:bg-[#367fa9]" disabled={!inLocId || inFilledCount === 0 || directIn.isPending} onClick={() => directIn.mutate()}>
+            <Button className="bg-[#3c8dbc] hover:bg-[#367fa9]" disabled={!inLocId || !inResponsibleId || !inApprovedId || inFilledCount === 0 || directIn.isPending} onClick={() => directIn.mutate()}>
               {directIn.isPending ? 'Processing…' : 'Complete Stock In'}
             </Button>
           </div>
@@ -321,7 +371,33 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-1.5 md:col-span-2">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Responsible Person <span className="text-destructive">*</span>
+              </label>
+              <SearchableSelect
+                value={outResponsibleId}
+                onValueChange={setOutResponsibleId}
+                options={staffOptions}
+                placeholder="Select staff…"
+                searchPlaceholder="Search staff…"
+                emptyText="No staff match"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Approved By <span className="text-destructive">*</span>
+              </label>
+              <SearchableSelect
+                value={outApprovedId}
+                onValueChange={setOutApprovedId}
+                options={staffOptions}
+                placeholder="Select staff…"
+                searchPlaceholder="Search staff…"
+                emptyText="No staff match"
+              />
+            </div>
+            <div className="space-y-1.5 md:col-span-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Notes <span className="font-normal normal-case tracking-normal">(optional)</span>
               </label>
@@ -416,7 +492,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setOutOpen(false)}>Cancel</Button>
-            <Button className="bg-rose-600 hover:bg-rose-700" disabled={!outLocId || outFilledCount === 0 || outMissingBatch > 0 || directOut.isPending} onClick={() => directOut.mutate()}>
+            <Button className="bg-rose-600 hover:bg-rose-700" disabled={!outLocId || !outResponsibleId || !outApprovedId || outFilledCount === 0 || outMissingBatch > 0 || directOut.isPending} onClick={() => directOut.mutate()}>
               {directOut.isPending ? 'Processing…' : 'Complete Stock Out'}
             </Button>
           </div>

@@ -3,11 +3,14 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsIn,
+  IsPositive,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
+  Min,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -61,6 +64,16 @@ export class CreateStockOutDto {
   @IsNotEmpty()
   locationId!: string;
 
+  /// Staff member responsible for the stock-out. Required.
+  @IsString()
+  @IsNotEmpty()
+  responsibleById!: string;
+
+  /// Staff member who approved the stock-out. Required.
+  @IsString()
+  @IsNotEmpty()
+  approvedById!: string;
+
   @IsOptional()
   @IsIn([...STOCK_OUT_CATEGORIES])
   category?: StockOutCategory;
@@ -86,6 +99,7 @@ export class CreateStockOutDto {
 
 export class WasteItemDto extends BaseStockLineDto {
   @IsNumber()
+  @IsPositive()
   qty!: number;
 
   /** true → post EXPIRY_WRITE_OFF instead of WASTE. */
@@ -98,6 +112,16 @@ export class CreateWasteDto {
   @IsString()
   @IsNotEmpty()
   locationId!: string;
+
+  /// Staff member responsible for the damage / waste. Required.
+  @IsString()
+  @IsNotEmpty()
+  responsibleById!: string;
+
+  /// Staff member who approved the damage / waste record. Required.
+  @IsString()
+  @IsNotEmpty()
+  approvedById!: string;
 
   @IsOptional()
   @IsIn([...WASTE_CATEGORIES])
@@ -114,6 +138,29 @@ export class CreateWasteDto {
   items!: WasteItemDto[];
 }
 
+/** Filters for the damages & waste list and summary. Dates are ISO (YYYY-MM-DD or full). */
+export class WasteQueryDto {
+  @IsOptional()
+  @IsIn(['draft', 'pending', 'approved', 'rejected', 'completed', 'cancelled'])
+  status?: string;
+
+  @IsOptional()
+  @IsIn([...WASTE_CATEGORIES])
+  category?: WasteCategory;
+
+  @IsOptional()
+  @IsString()
+  locationId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  from?: string;
+
+  @IsOptional()
+  @IsDateString()
+  to?: string;
+}
+
 // ---------------------------------------------------------------------------
 // StockAdjustment (cycle count)
 // ---------------------------------------------------------------------------
@@ -121,6 +168,7 @@ export class CreateWasteDto {
 export class StockAdjustmentItemDto extends BaseStockLineDto {
   /** Counted on-hand. The system qty + diff are computed server-side. */
   @IsNumber()
+  @Min(0)
   qtyActual!: number;
 }
 
@@ -128,6 +176,16 @@ export class CreateStockAdjustmentDto {
   @IsString()
   @IsNotEmpty()
   locationId!: string;
+
+  /// Staff member responsible for the count / adjustment. Required.
+  @IsString()
+  @IsNotEmpty()
+  responsibleById!: string;
+
+  /// Staff member who approved the adjustment. Required.
+  @IsString()
+  @IsNotEmpty()
+  approvedById!: string;
 
   @IsOptional()
   @IsIn([...STOCK_ADJUSTMENT_REASONS])
@@ -165,6 +223,16 @@ export class CreateStockTransferDto {
   @IsString()
   @IsNotEmpty()
   toLocationId!: string;
+
+  /// Staff member responsible for the transfer. Required.
+  @IsString()
+  @IsNotEmpty()
+  responsibleById!: string;
+
+  /// Staff member who approved the transfer. Required.
+  @IsString()
+  @IsNotEmpty()
+  approvedById!: string;
 
   @IsOptional()
   @IsString()

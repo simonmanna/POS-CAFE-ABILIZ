@@ -44,6 +44,16 @@ export class DirectStockInDto {
   @IsNotEmpty()
   locationId!: string;
 
+  /// Staff member responsible for the stock-in. Required.
+  @IsString()
+  @IsNotEmpty()
+  responsibleById!: string;
+
+  /// Staff member who approved the stock-in. Required.
+  @IsString()
+  @IsNotEmpty()
+  approvedById!: string;
+
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
@@ -89,6 +99,16 @@ export class DirectStockOutDto {
   @IsString()
   @IsNotEmpty()
   locationId!: string;
+
+  /// Staff member responsible for the stock-out. Required.
+  @IsString()
+  @IsNotEmpty()
+  responsibleById!: string;
+
+  /// Staff member who approved the stock-out. Required.
+  @IsString()
+  @IsNotEmpty()
+  approvedById!: string;
 
   @IsArray()
   @ArrayMinSize(1)

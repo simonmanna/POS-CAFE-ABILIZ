@@ -60,6 +60,8 @@ export class DirectStockService {
             sourceType: 'direct_stock_in',
             sourceId: code,
             notes: item.notes ?? dto.notes ?? undefined,
+            responsibleById: dto.responsibleById,
+            approvedById: dto.approvedById,
           },
           tx,
         );
@@ -157,6 +159,8 @@ export class DirectStockService {
             sourceType: 'direct_stock_out',
             sourceId: code,
             notes: item.notes ?? dto.notes ?? undefined,
+            responsibleById: dto.responsibleById,
+            approvedById: dto.approvedById,
           },
           tx,
         );

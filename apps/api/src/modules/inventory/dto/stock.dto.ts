@@ -78,6 +78,19 @@ export class ReceiveStockDto {
   @IsIn([...STOCK_MOVE_TYPES])
   moveType?: StockMoveType;
 
+  /// Staff member responsible for this receipt (Direct Stock In). Optional so the
+  /// shared engine stays usable by POS/production flows that have no responsible
+  /// party; the direct-stock DTOs require it for their dialogs.
+  @IsOptional()
+  @IsString()
+  responsibleById?: string;
+
+  /// Staff member who approved this receipt (Direct Stock In). Optional for the
+  /// same reason as `responsibleById`.
+  @IsOptional()
+  @IsString()
+  approvedById?: string;
+
   /// Serial numbers captured for a serial-tracked product (one per unit; length
   /// must equal quantity). Ignored for non-serial products.
   @IsOptional()
@@ -209,6 +222,19 @@ export class IssueStockDto {
   @IsArray()
   @IsString({ each: true })
   serialNumbers?: string[];
+
+  /// Staff member responsible for this issue (Direct Stock Out). Optional so the
+  /// shared engine stays usable by POS/production flows that have no responsible
+  /// party; the direct-stock DTOs require it for their dialogs.
+  @IsOptional()
+  @IsString()
+  responsibleById?: string;
+
+  /// Staff member who approved this issue (Direct Stock Out). Optional for the
+  /// same reason as `responsibleById`.
+  @IsOptional()
+  @IsString()
+  approvedById?: string;
 }
 
 export class AdjustStockDto {

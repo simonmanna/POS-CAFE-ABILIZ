@@ -3374,6 +3374,12 @@ model InventoryLedger {
   referenceId    String?
   notes          String?
   performedBy    String?
+  /// Staff member responsible for the movement (Direct Stock In/Out). Optional for
+  /// engine-generated moves (POS sales, production…) that have no responsible party.
+  responsibleById String?
+  /// Staff member who approved the movement (Direct Stock In/Out). Optional for
+  /// engine-generated moves.
+  approvedById    String?
   createdAt      DateTime      @default(now())
 
   product  Product           @relation(fields: [productId], references: [id])
@@ -3443,6 +3449,8 @@ model StockOut {
   reason         String?
   notes          String?
   performedById  String?
+  /// The staff member responsible for this stock-out. Required at creation.
+  responsibleById String?
   approvedById   String?
   approvedAt     DateTime?
   postedAt       DateTime?
@@ -3489,6 +3497,8 @@ model WasteRecord {
   status         StockDocStatus @default(draft)
   notes          String?
   reportedById   String?
+  /// The staff member responsible for the damage / waste. Required at creation.
+  responsibleById String?
   approvedById   String?
   approvedAt     DateTime?
   postedAt       DateTime?
@@ -3536,6 +3546,8 @@ model StockAdjustment {
   status         StockDocStatus        @default(draft)
   notes          String?
   performedById  String?
+  /// The staff member responsible for the count / adjustment. Required at creation.
+  responsibleById String?
   approvedById   String?
   approvedAt     DateTime?
   postedAt       DateTime?
@@ -3581,6 +3593,8 @@ model StockTransfer {
   status         StockDocStatus @default(draft)
   notes          String?
   performedById  String?
+  /// The staff member responsible for the transfer. Required at creation.
+  responsibleById String?
   approvedById   String?
   approvedAt     DateTime?
   postedAt       DateTime?

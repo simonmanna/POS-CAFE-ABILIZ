@@ -481,6 +481,8 @@ export class InventoryCountService {
 
       const adj = await this.stockDoc.createAdjustment({
         locationId: session.locationId,
+        responsibleById: session.startedById || this.tenant.userId || '',
+        approvedById: this.tenant.userId || '',
         reason: 'cycle_count',
         notes: `${session.countType} count ${session.countCode}`,
         items: varianceLines.map((l) => ({

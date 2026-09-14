@@ -10,6 +10,7 @@ import {
   CreateWasteDto,
   CreateStockAdjustmentDto,
   CreateStockTransferDto,
+  WasteQueryDto,
 } from './dto/stock-doc.dto';
 
 /**
@@ -86,6 +87,8 @@ export class StockDocService {
         reason: dto.reason ?? null,
         notes: dto.notes ?? null,
         performedById: this.tenant.userId ?? null,
+        responsibleById: dto.responsibleById,
+        approvedById: dto.approvedById,
         createdBy: this.tenant.userId ?? null,
         items: {
           create: dto.items.map((i) => ({
@@ -172,7 +175,46 @@ export class StockDocService {
 
   async createWaste(dto: CreateWasteDto) {
     await this.location(dto.locationId);
-    const names = await this.productNames(dto.items.map((i) => i.productId));
+    const products = await this.prisma.client.product.findMany({
+      where: { id: { in: [...new Set(dto.items.map((i) => i.productId))] } },
+      select: { id: true, name: true, costPrice: true },
+    });
+    const byId = new Map(products.map((p) => [p.id, p]));
+    const missing = dto.items.find((i) => !byId.has(i.productId));
+    if (missing) throw new NotFoundException(`Product ${missing.productId} not found`);
+
+    // Estimated value at the current running average (product cost as fallback).
+    // Posting re-values each line from the real cost layers; the estimate exists so
+    // pending records show a value and amount-banded approval policies can fire —
+    // a zero totalValue made every `minAmount` waste policy silently inert.
+    const stockItems = await this.prisma.client.stockItem.findMany({
+      where: { locationId: dto.locationId, productId: { in: products.map((p) => p.id) } },
+      select: { productId: true, variantKey: true, runningAverageCost: true },
+    });
+    const avg = new Map(stockItems.map((s) => [`${s.productId}:${s.variantKey}`, dec(s.runningAverageCost)]));
+
+    let total = ZERO;
+    const lines = dto.items.map((i) => {
+      const product = byId.get(i.productId)!;
+      const qty = dec(i.qty);
+      const avgCost = avg.get(`${i.productId}:${i.variantId ?? ''}`);
+      const unitCost = avgCost && avgCost.gt(ZERO) ? avgCost : dec(product.costPrice ?? ZERO);
+      const totalCost = unitCost.times(qty);
+      total = total.plus(totalCost);
+      return {
+        organizationId: this.org,
+        productId: i.productId,
+        variantId: i.variantId ?? null,
+        productName: product.name,
+        unit: i.unit ?? null,
+        qty,
+        unitCost,
+        totalCost,
+        batchNumber: i.batchNumber?.trim() || null,
+        isExpiry: i.isExpiry ?? false,
+      };
+    });
+
     const wasteCode = await this.seq.next('waste_doc', { prefix: 'WST-', padding: 5 });
     return this.prisma.client.wasteRecord.create({
       data: {
@@ -183,21 +225,13 @@ export class StockDocService {
         status: 'pending',
         notes: dto.notes ?? null,
         reportedById: this.tenant.userId ?? null,
+        responsibleById: dto.responsibleById,
+        approvedById: dto.approvedById,
         createdBy: this.tenant.userId ?? null,
-        items: {
-          create: dto.items.map((i) => ({
-            organizationId: this.org,
-            productId: i.productId,
-            variantId: i.variantId ?? null,
-            productName: names[i.productId] ?? 'Unknown',
-            unit: i.unit ?? null,
-            qty: dec(i.qty),
-            batchNumber: i.batchNumber ?? null,
-            isExpiry: i.isExpiry ?? false,
-          })),
-        },
+        totalValue: total,
+        items: { create: lines },
       },
-      include: { items: true },
+      include: { items: true, location: true },
     });
   }
 
@@ -208,11 +242,20 @@ export class StockDocService {
     await this.gateApproval(
       'waste',
       doc.id,
-      { amount: Number(doc.totalValue ?? 0), lines: doc.items.length },
-      'waste',
+      { amount: Number(doc.totalValue ?? 0), lines: doc.items.length, category: doc.category },
+      `waste ${doc.wasteCode}`,
     );
 
     return this.prisma.client.$transaction(async (tx: any) => {
+      // Claim the document inside the tx so two concurrent approvals cannot both
+      // issue the stock and double-post the GL. Rolled back with everything else
+      // if any line fails.
+      const claim = await tx.wasteRecord.updateMany({
+        where: { id: doc.id, postedAt: null, status: { in: ['pending', 'draft'] } },
+        data: { status: 'approved' },
+      });
+      if (claim.count === 0) throw new BadRequestException('Waste record was posted or cancelled concurrently');
+
       let total = ZERO;
       for (const item of doc.items) {
         const res = await this.stock.issue(
@@ -246,9 +289,128 @@ export class StockDocService {
           postedAt: new Date(),
           totalValue: total,
         },
-        include: { items: true },
+        include: { items: true, location: true },
       });
     });
+  }
+
+  /** Discard a not-yet-posted waste record. Posted records are immutable (reverse via stock-in). */
+  async cancelWaste(id: string) {
+    const doc = await this.prisma.client.wasteRecord.findFirst({ where: { id } });
+    if (!doc) throw new NotFoundException('Waste record not found');
+    this.assertPostable(doc.status, doc.postedAt);
+    const upd = await this.prisma.client.wasteRecord.updateMany({
+      where: { id, postedAt: null, status: { in: ['pending', 'draft'] } },
+      data: { status: 'cancelled', updatedBy: this.tenant.userId ?? null },
+    });
+    if (upd.count === 0) throw new BadRequestException('Waste record was posted or cancelled concurrently');
+    return this.prisma.client.wasteRecord.findFirst({ where: { id }, include: { items: true, location: true } });
+  }
+
+  private wasteWhere(q: WasteQueryDto, dateField: 'createdAt' | 'postedAt') {
+    const where: any = {};
+    if (q.status) where.status = q.status;
+    if (q.category) where.category = q.category;
+    if (q.locationId) where.locationId = q.locationId;
+    if (q.from || q.to) {
+      where[dateField] = {
+        ...(q.from ? { gte: new Date(q.from) } : {}),
+        // A bare date "to" is inclusive of that whole day.
+        ...(q.to ? { lt: q.to.length <= 10 ? new Date(new Date(q.to).getTime() + 86_400_000) : new Date(q.to) } : {}),
+      };
+    }
+    return where;
+  }
+
+  listWaste(q: WasteQueryDto) {
+    return this.prisma.client.wasteRecord.findMany({
+      where: this.wasteWhere(q, 'createdAt'),
+      orderBy: { createdAt: 'desc' },
+      include: { items: true, location: { select: { id: true, code: true, name: true } } },
+      take: 500,
+    });
+  }
+
+  /** One record with its stock-ledger rows and the GL journal entries it posted. */
+  async getWaste(id: string) {
+    const doc = await this.prisma.client.wasteRecord.findFirst({
+      where: { id },
+      include: { items: true, location: { select: { id: true, code: true, name: true } } },
+    });
+    if (!doc) throw new NotFoundException('Waste record not found');
+    const [journalEntries, ledger] = doc.postedAt
+      ? await Promise.all([
+          this.prisma.client.journalEntry.findMany({
+            where: { sourceType: 'waste', sourceId: doc.wasteCode },
+            select: {
+              id: true, entryNumber: true, postingDate: true, status: true, description: true,
+              lines: { select: { debit: true, credit: true, account: { select: { code: true, name: true } } } },
+            },
+            orderBy: { entryNumber: 'asc' },
+          }),
+          this.prisma.client.inventoryLedger.findMany({
+            where: { referenceType: 'waste', referenceId: doc.wasteCode },
+            select: { id: true, ledgerCode: true, productId: true, type: true, quantityChange: true, balanceAfter: true, unitCost: true, totalValue: true, createdAt: true },
+            orderBy: { createdAt: 'asc' },
+          }),
+        ])
+      : [[], []];
+    return { ...doc, journalEntries, ledger };
+  }
+
+  /**
+   * Posted (completed) damages & waste within the period, valued at the actual
+   * posted cost, plus what is still pending. Filtered on postedAt.
+   */
+  async wasteSummary(q: WasteQueryDto) {
+    const { status: _ignored, ...rest } = q;
+    const posted = await this.prisma.client.wasteRecord.findMany({
+      where: { ...this.wasteWhere(rest, 'postedAt'), status: 'completed' },
+      select: {
+        category: true, totalValue: true, locationId: true,
+        location: { select: { code: true, name: true } },
+        items: { select: { productId: true, productName: true, unit: true, qty: true, totalCost: true, isExpiry: true } },
+      },
+    });
+    const pending = await this.prisma.client.wasteRecord.aggregate({
+      where: { ...this.wasteWhere({ category: q.category, locationId: q.locationId }, 'createdAt'), status: { in: ['pending', 'draft'] } },
+      _count: { _all: true },
+      _sum: { totalValue: true },
+    });
+
+    const byCategory = new Map<string, { category: string; records: number; value: number }>();
+    const byLocation = new Map<string, { locationId: string; code: string; name: string; records: number; value: number }>();
+    const byProduct = new Map<string, { productId: string; productName: string; unit: string | null; qty: number; value: number; lines: number }>();
+    let totalValue = 0;
+    let expiryValue = 0;
+
+    for (const r of posted) {
+      const value = Number(r.totalValue);
+      totalValue += value;
+      const c = byCategory.get(r.category) ?? { category: r.category, records: 0, value: 0 };
+      c.records += 1; c.value += value; byCategory.set(r.category, c);
+      const l = byLocation.get(r.locationId) ?? { locationId: r.locationId, code: r.location.code, name: r.location.name, records: 0, value: 0 };
+      l.records += 1; l.value += value; byLocation.set(r.locationId, l);
+      for (const it of r.items) {
+        const p = byProduct.get(it.productId) ?? { productId: it.productId, productName: it.productName, unit: it.unit, qty: 0, value: 0, lines: 0 };
+        p.qty += Number(it.qty); p.value += Number(it.totalCost); p.lines += 1;
+        byProduct.set(it.productId, p);
+        if (it.isExpiry) expiryValue += Number(it.totalCost);
+      }
+    }
+
+    const desc = <T extends { value: number }>(a: T, b: T) => b.value - a.value;
+    return {
+      period: { from: q.from ?? null, to: q.to ?? null },
+      postedRecords: posted.length,
+      totalValue,
+      expiryValue,
+      pendingRecords: pending._count._all,
+      pendingValue: Number(pending._sum.totalValue ?? 0),
+      byCategory: [...byCategory.values()].sort(desc),
+      byLocation: [...byLocation.values()].sort(desc),
+      topProducts: [...byProduct.values()].sort(desc).slice(0, 10),
+    };
   }
 
   // ===========================================================================
@@ -257,7 +419,17 @@ export class StockDocService {
 
   async createAdjustment(dto: CreateStockAdjustmentDto, externalTx?: any) {
     await this.location(dto.locationId);
+    // One line per product/variant: approval counts each line to qtyActual in
+    // turn, so a duplicate would silently overwrite the earlier count.
+    const seen = new Set<string>();
+    for (const i of dto.items) {
+      const key = `${i.productId}:${i.variantId ?? ''}`;
+      if (seen.has(key)) throw new BadRequestException('Each product can appear only once in an adjustment');
+      seen.add(key);
+    }
     const names = await this.productNames(dto.items.map((i) => i.productId));
+    const missing = dto.items.find((i) => !names[i.productId]);
+    if (missing) throw new NotFoundException(`Product ${missing.productId} not found`);
     const adjCode = await this.seq.next('stock_adj', { prefix: 'ADJ-', padding: 5 });
 
     // Snapshot system on-hand per line at creation time.
@@ -294,6 +466,8 @@ export class StockDocService {
           status: 'pending',
           notes: dto.notes ?? null,
           performedById: this.tenant.userId ?? null,
+          responsibleById: dto.responsibleById,
+          approvedById: dto.approvedById,
           createdBy: this.tenant.userId ?? null,
           items: { create: lines },
         },
@@ -355,6 +529,19 @@ export class StockDocService {
     return externalTx ? run(externalTx) : this.prisma.client.$transaction(run);
   }
 
+  /** Discard a not-yet-posted adjustment. Posted documents are immutable. */
+  async cancelAdjustment(id: string) {
+    const doc = await this.prisma.client.stockAdjustment.findFirst({ where: { id } });
+    if (!doc) throw new NotFoundException('Adjustment not found');
+    this.assertPostable(doc.status, doc.postedAt);
+    const upd = await this.prisma.client.stockAdjustment.updateMany({
+      where: { id, postedAt: null, status: { in: ['pending', 'draft'] } },
+      data: { status: 'cancelled', updatedBy: this.tenant.userId ?? null },
+    });
+    if (upd.count === 0) throw new BadRequestException('Adjustment was posted or cancelled concurrently');
+    return this.prisma.client.stockAdjustment.findFirst({ where: { id }, include: { items: true, location: true } });
+  }
+
   // ===========================================================================
   // StockTransfer — inter-location (posts TRANSFER_OUT / TRANSFER_IN)
   // ===========================================================================
@@ -376,6 +563,8 @@ export class StockDocService {
         status: 'pending',
         notes: dto.notes ?? null,
         performedById: this.tenant.userId ?? null,
+        responsibleById: dto.responsibleById,
+        approvedById: dto.approvedById,
         createdBy: this.tenant.userId ?? null,
         items: {
           create: dto.items.map((i) => ({

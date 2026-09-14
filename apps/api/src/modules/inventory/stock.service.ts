@@ -450,6 +450,8 @@ export class StockService {
           referenceId: glCtx?.sourceId ?? dto.sourceId ?? null,
           notes: dto.notes ?? null,
           performedBy: this.tenant.userId ?? null,
+          responsibleById: dto.responsibleById ?? null,
+          approvedById: dto.approvedById ?? null,
         },
       });
 
@@ -718,6 +720,8 @@ export class StockService {
               referenceId: dto.sourceId ?? null,
               notes: ledgerNotes,
               performedBy: this.tenant.userId ?? null,
+              responsibleById: dto.responsibleById ?? null,
+              approvedById: dto.approvedById ?? null,
             },
           });
           totalValue = totalValue.plus(sUnit);
@@ -755,6 +759,8 @@ export class StockService {
               referenceId: dto.sourceId ?? null,
               notes: ledgerNotes,
               performedBy: this.tenant.userId ?? null,
+              responsibleById: dto.responsibleById ?? null,
+              approvedById: dto.approvedById ?? null,
             },
           });
           totalValue = totalValue.plus(overflowValue);
@@ -834,6 +840,8 @@ export class StockService {
               referenceId: dto.sourceId ?? null,
               notes: ledgerNotes,
               performedBy: this.tenant.userId ?? null,
+              responsibleById: dto.responsibleById ?? null,
+              approvedById: dto.approvedById ?? null,
             },
           });
           totalValue = totalValue.plus(consumedValue);
@@ -869,6 +877,8 @@ export class StockService {
               referenceId: dto.sourceId ?? null,
               notes: ledgerNotes,
               performedBy: this.tenant.userId ?? null,
+              responsibleById: dto.responsibleById ?? null,
+              approvedById: dto.approvedById ?? null,
             },
           });
           totalValue = totalValue.plus(overflowValue);
@@ -919,6 +929,8 @@ export class StockService {
             referenceId: dto.sourceId ?? null,
             notes: ledgerNotes,
             performedBy: this.tenant.userId ?? null,
+            responsibleById: dto.responsibleById ?? null,
+            approvedById: dto.approvedById ?? null,
           },
         });
       }

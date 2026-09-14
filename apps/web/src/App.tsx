@@ -115,6 +115,7 @@ import { DebitNoteCreatePage } from '@/pages/procurement/debit-note-create';
 import { InventoryItemsPage } from '@/pages/inventory/InventoryItemsPage';
 import InventoryDetailPage from '@/pages/inventory/InventoryDetailPage';
 import { StockAdjustmentsPage } from '@/pages/inventory/StockAdjustmentsPage';
+import { WastePage } from '@/pages/inventory/WastePage';
 import { StockTransfersPage } from '@/pages/inventory/StockTransfersPage';
 import { InventoryCountPage } from '@/pages/inventory/InventoryCountPage';
 import { InventoryReportsPage } from '@/pages/inventory/InventoryReportsPage';
@@ -317,6 +318,7 @@ export function App() {
           <Route path="/inventory/items" element={<InventoryItemsPage />} />
           <Route path="/inventory/items/:productId" element={<InventoryDetailPage />} />
           <Route path="/inventory/adjustments" element={<StockAdjustmentsPage />} />
+          <Route path="/inventory/waste" element={<WastePage />} />
           <Route path="/inventory/transfers" element={<StockTransfersPage />} />
           <Route path="/inventory/reports" element={<InventoryReportsPage />} />
           <Route path="/inventory/count" element={<InventoryCountPage />} />

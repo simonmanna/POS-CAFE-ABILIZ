@@ -58,8 +58,9 @@ export function sourceRoute(source: LedgerSourceRef | null | undefined): string 
     // List-only modules — no per-document page exists yet.
     case 'debit_note':
       return '/procurement/debit-notes';
-    case 'stock_out':
     case 'waste':
+      return source.code ? `/inventory/waste?code=${encodeURIComponent(source.code)}` : '/inventory/waste';
+    case 'stock_out':
       return '/inventory/adjustments';
     case 'stock_adjustment':
       return '/inventory/adjustments';

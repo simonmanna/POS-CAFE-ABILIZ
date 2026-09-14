@@ -41,6 +41,8 @@ export function useCreateTransfer() {
     mutationFn: async (data: {
       fromLocationId: string;
       toLocationId: string;
+      responsibleById: string;
+      approvedById: string;
       notes?: string;
       items: { productId: string; qtyRequested: number; distStrategy?: string }[];
     }) => {

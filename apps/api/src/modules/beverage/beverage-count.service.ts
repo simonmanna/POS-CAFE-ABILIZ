@@ -374,6 +374,8 @@ export class BeverageCountService {
       if (varianceLines.length > 0) {
         const adj = await this.stockDoc.createAdjustment({
           locationId: session.locationId,
+          responsibleById: session.startedById || this.tenant.userId || '',
+          approvedById: approverId || this.tenant.userId || '',
           reason: 'cycle_count',
           notes: `${session.countType} bottle count ${session.countCode}`,
           items: varianceLines.map((l) => ({

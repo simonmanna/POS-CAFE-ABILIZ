@@ -30,6 +30,7 @@ import {
   CreateWasteDto,
   CreateStockAdjustmentDto,
   CreateStockTransferDto,
+  WasteQueryDto,
 } from './dto/stock-doc.dto';
 
 @Controller('inventory')
@@ -267,14 +268,33 @@ export class InventoryController {
 
   @Get('waste')
   @RequirePermissions(PERMISSIONS.inventoryDoc.read)
-  listWaste(@Query('status') status?: string) {
-    return this.stockDocs.list('waste', status);
+  listWaste(@Query() query: WasteQueryDto) {
+    return this.stockDocs.listWaste(query);
+  }
+
+  /** Posted damages & waste totals by category / product / location. Declared before `waste/:id`. */
+  @Get('waste/summary')
+  @RequirePermissions(PERMISSIONS.inventoryDoc.read)
+  wasteSummary(@Query() query: WasteQueryDto) {
+    return this.stockDocs.wasteSummary(query);
+  }
+
+  @Get('waste/:id')
+  @RequirePermissions(PERMISSIONS.inventoryDoc.read)
+  getWaste(@Param('id') id: string) {
+    return this.stockDocs.getWaste(id);
   }
 
   @Post('waste/:id/approve')
   @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
   approveWaste(@Param('id') id: string) {
     return this.stockDocs.approveWaste(id);
+  }
+
+  @Post('waste/:id/cancel')
+  @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
+  cancelWaste(@Param('id') id: string) {
+    return this.stockDocs.cancelWaste(id);
   }
 
   // ---- F.8 Stock documents: Adjustment ----
@@ -296,6 +316,12 @@ export class InventoryController {
   @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
   approveAdjustment(@Param('id') id: string) {
     return this.stockDocs.approveAdjustment(id);
+  }
+
+  @Post('adjustments/:id/cancel')
+  @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
+  cancelAdjustment(@Param('id') id: string) {
+    return this.stockDocs.cancelAdjustment(id);
   }
 
   // ---- F.8 Stock documents: Transfer ----

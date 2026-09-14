@@ -49,6 +49,7 @@ function getSourceLink(sourceType: string, sourceId: string): { path: string; la
     case 'receipt': return { path: `/pos/receipts/${sourceId}`, label: 'POS Receipt' };
     case 'stock_transfer': return { path: `/inventory/transfers`, label: 'Stock Transfer' };
     case 'stock_adjustment': return { path: `/inventory/adjustments`, label: 'Stock Adjustment' };
+    case 'waste': return { path: `/inventory/waste?code=${encodeURIComponent(sourceId)}`, label: 'Damages & Waste' };
     case 'journal_entry_draft': return { path: `/journal-entries/${sourceId}`, label: 'Draft Journal Entry' };
     default: return null;
   }

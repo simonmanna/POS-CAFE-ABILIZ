@@ -12,6 +12,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { useStaffOptions } from '@/features/inventory/staff-options';
 import { api } from '@/lib/api';
 import { dateTime } from '@/lib/format';
 import { useTransfers, useCreateTransfer, useApproveTransfer } from '@/features/inventory/transfers-api';
@@ -39,6 +41,8 @@ export function StockTransfersPage() {
   const [fromLocId, setFromLocId] = useState('');
   const [toLocId, setToLocId] = useState('');
   const [notes, setNotes] = useState('');
+  const [responsibleId, setResponsibleId] = useState('');
+  const [approvedId, setApprovedId] = useState('');
   const [lines, setLines] = useState<TransferLine[]>([
     { productId: '', productName: '', quantity: 1, distStrategy: 'FEFO' },
   ]);
@@ -46,6 +50,9 @@ export function StockTransfersPage() {
   const { data: transfers, isLoading } = useTransfers();
   const createTransfer = useCreateTransfer();
   const approveTransfer = useApproveTransfer();
+
+  const staffOptionsQuery = useStaffOptions();
+  const staffOptions = staffOptionsQuery.data ?? [];
 
   const products = useQuery<Product[]>({
     queryKey: ['products'],
@@ -82,13 +89,15 @@ export function StockTransfersPage() {
         distStrategy: l.distStrategy,
       }));
     createTransfer.mutate(
-      { fromLocationId: fromLocId, toLocationId: toLocId, items, notes: notes || undefined },
+      { fromLocationId: fromLocId, toLocationId: toLocId, responsibleById: responsibleId, approvedById: approvedId, items, notes: notes || undefined },
       {
         onSuccess: () => {
           setShowForm(false);
           setFromLocId('');
           setToLocId('');
           setNotes('');
+          setResponsibleId('');
+          setApprovedId('');
           setLines([{ productId: '', productName: '', quantity: 1, distStrategy: 'FEFO' }]);
           qc.invalidateQueries({ queryKey: ['inventory-product-stock-levels'] });
           qc.invalidateQueries({ queryKey: ['inventory-stats'] });
@@ -97,7 +106,7 @@ export function StockTransfersPage() {
     );
   };
 
-  const canSubmit = fromLocId && toLocId && fromLocId !== toLocId && lines.some((l) => l.productId && l.quantity > 0) && !createTransfer.isPending;
+  const canSubmit = fromLocId && toLocId && fromLocId !== toLocId && responsibleId && approvedId && lines.some((l) => l.productId && l.quantity > 0) && !createTransfer.isPending;
 
   return (
     <div className="space-y-4">
@@ -188,6 +197,30 @@ export function StockTransfersPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium">Responsible Person <span className="text-destructive">*</span></label>
+                <SearchableSelect
+                  value={responsibleId}
+                  onValueChange={setResponsibleId}
+                  options={staffOptions}
+                  placeholder="Select staff…"
+                  searchPlaceholder="Search staff…"
+                  emptyText="No staff match"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Approved By <span className="text-destructive">*</span></label>
+                <SearchableSelect
+                  value={approvedId}
+                  onValueChange={setApprovedId}
+                  options={staffOptions}
+                  placeholder="Select staff…"
+                  searchPlaceholder="Search staff…"
+                  emptyText="No staff match"
+                />
               </div>
             </div>
             {fromLocId && toLocId && fromLocId === toLocId && (
