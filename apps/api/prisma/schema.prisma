@@ -6269,6 +6269,8 @@ model StockPostingJob {
   /// Shape: `<trigger>:<orderId|invoiceId>`, so a replayed trigger event cannot
   /// enqueue a second job for the same order+policy.
   idempotencyKey String    @default("")
+  /// Immutable component/BOM snapshot captured when the job is enqueued.
+  recipeSnapshot Json?
   status         String    @default("pending") // pending | processing | done | failed
   attempts       Int       @default(0)
   maxAttempts    Int       @default(5)

@@ -148,9 +148,9 @@ export default function AccompanimentGroupsPage() {
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
-                  <button onClick={() => renameGroup(g.id, g.name)} className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-slate-100" title="Rename"><Pencil className="h-4 w-4" /></button>
-                  <button onClick={() => toggleActive(g.id, g.isActive)} className="p-1.5 text-slate-400 hover:text-amber-600 rounded-lg hover:bg-slate-100" title={g.isActive ? 'Disable' : 'Enable'}><X className="h-4 w-4" /></button>
-                  <button onClick={() => removeGroup(g.id, g.name)} className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100" title="Delete"><Trash2 className="h-4 w-4" /></button>
+                  <button onClick={() => renameGroup(g.id, g.name)} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-slate-100" title="Rename" aria-label={`Rename ${g.name}`}><Pencil className="h-4 w-4" aria-hidden="true" /></button>
+                  <button onClick={() => toggleActive(g.id, g.isActive)} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-amber-600 rounded-lg hover:bg-slate-100" title={g.isActive ? 'Disable' : 'Enable'} aria-label={`${g.isActive ? 'Disable' : 'Enable'} ${g.name}`}><X className="h-4 w-4" aria-hidden="true" /></button>
+                  <button onClick={() => removeGroup(g.id, g.name)} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100" title="Delete" aria-label={`Delete ${g.name}`}><Trash2 className="h-4 w-4" aria-hidden="true" /></button>
                 </div>
               </div>
 
@@ -162,10 +162,10 @@ export default function AccompanimentGroupsPage() {
                     {o.isDefault ? <Star className="h-4 w-4 text-amber-500" /> : null}
                     {o.name}
                     <span className="font-mono text-slate-500">{o.priceImpact === 0 ? '' : (o.priceImpact > 0 ? '+' : '') + fmt(o.priceImpact)}</span>
-                    <button onClick={() => renameOption(o.id, o.name, o.priceImpact)} className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors" title="Edit">
+                    <button onClick={() => renameOption(o.id, o.name, o.priceImpact)} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-indigo-600 rounded transition-colors" title="Edit" aria-label={`Edit ${o.name}`}>
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={() => removeOption(o.id, o.name)} className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors" title="Remove">
+                    <button onClick={() => removeOption(o.id, o.name)} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-rose-600 rounded transition-colors" title="Remove" aria-label={`Remove ${o.name}`}>
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </span>

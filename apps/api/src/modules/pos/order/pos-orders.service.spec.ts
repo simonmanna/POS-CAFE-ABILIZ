@@ -175,4 +175,26 @@ describe('PosOrdersService — fireKitchen (menu-item routing)', () => {
       expect((svc as any).pickPrimaryStation([])).toBe('cafe');
     });
   });
+
+  describe('combo selling', () => {
+    it('keeps a combo as one server-priced editable line', async () => {
+      (svc as any).modifiers = {
+        getCombo: jest.fn().mockResolvedValue({ id: 'c1', name: 'Breakfast Deal', price: 18000, items: [{ productId: 'p1', quantity: 1 }] }),
+      };
+      prisma.client.product.findMany = jest.fn().mockResolvedValue([]);
+      const lines = await (svc as any).resolveLines([{ comboId: 'c1', productId: 'client-fake', description: 'tampered', quantity: 2, unitPrice: 1 }]);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatchObject({ comboId: 'c1', productId: null, menuItemId: null, description: 'Breakfast Deal', quantity: 2, unitPrice: 18000 });
+    });
+
+    it('sends a combo line to KDS using a component station', async () => {
+      prisma.client.orderItem.findMany.mockResolvedValueOnce([
+        { id: 'i-combo', productId: null, menuItemId: null, comboId: 'c1', description: 'Breakfast Deal', quantity: 1, kitchenPrintedQty: 0, modifiers: [] },
+      ]);
+      (svc as any).modifiers = { getCombo: jest.fn().mockResolvedValue({ id: 'c1', items: [{ productId: 'p1' }] }) };
+      prisma.client.product.findMany = jest.fn().mockResolvedValue([{ station: 'grill' }]);
+      await svc.fireKitchen('o1');
+      expect(kds.createTicketsForSale.mock.calls[0][0].items[0]).toMatchObject({ productId: 'c1', station: 'grill' });
+    });
+  });
 });

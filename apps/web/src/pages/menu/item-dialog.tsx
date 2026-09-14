@@ -195,7 +195,11 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
     }
   }, [open, item?.id]);
 
-  const valid = name.trim();
+  const ingredientIds = ingredients.map((ingredient) => ingredient.productId).filter(Boolean);
+  const valid = Boolean(name.trim())
+    && (!isInventoryTracked || ingredients.length > 0)
+    && ingredients.every((ingredient) => Boolean(ingredient.productId) && Number(ingredient.quantity) > 0)
+    && new Set(ingredientIds).size === ingredientIds.length;
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -415,7 +419,9 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
              />
 
             {ingredients.length === 0 && (
-              <p className="text-sm text-muted-foreground">No ingredients yet. Products can be added later.</p>
+              <p className={isInventoryTracked ? 'text-sm text-rose-600' : 'text-sm text-muted-foreground'} role={isInventoryTracked ? 'alert' : undefined}>
+                {isInventoryTracked ? 'Add at least one ingredient before publishing this inventory-tracked item.' : 'No ingredients required while inventory tracking is off.'}
+              </p>
             )}
 
             <div className="space-y-2">
@@ -441,7 +447,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                     </SelectContent>
                   </Select>
                   <Input
-                    type="number" min="0" step="0.001"
+                    type="number" min="0.001" step="0.001"
                     className="w-24"
                     placeholder="Qty"
                     value={ing.quantity ?? 1}
@@ -625,14 +631,14 @@ function VariantRow({
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white">
       <span className="flex-1 font-medium text-sm text-slate-800">{variant.name}</span>
       <span className="font-mono text-sm text-slate-600">{fmt(variant.price)}</span>
-      <button onClick={() => { setName(variant.name); setPrice(String(variant.price)); setEditing(true); }} className="p-1 text-slate-400 hover:text-indigo-600" title="Edit">
+      <button onClick={() => { setName(variant.name); setPrice(String(variant.price)); setEditing(true); }} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-indigo-600" title="Edit" aria-label={`Edit ${variant.name}`}>
         <Pencil className="h-3.5 w-3.5" />
       </button>
       <button onClick={async () => {
         if (!window.confirm(`Delete variant "${variant.name}"?`)) return;
         try { await onDelete.mutateAsync({ menuItemId, variantId: variant.id }); toast.success('Variant deleted'); }
         catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to delete'); }
-      }} className="p-1 text-slate-400 hover:text-rose-600" title="Delete variant">
+      }} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-rose-600" title="Delete variant" aria-label={`Delete ${variant.name}`}>
         <Trash2 className="h-3.5 w-3.5" />
       </button>
     </div>

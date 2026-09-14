@@ -29,6 +29,7 @@ import type { CreateOrderDto, SaveOrderItemsDto, AddOrderItemsDto, OrderLineDto,
 interface ResolvedLine {
   productId: string | null;
   menuItemId: string | null;
+  comboId?: string | null;
   description: string;
   quantity: number;
   unitPrice: number;
@@ -304,6 +305,7 @@ export class PosOrdersService {
     lines: Array<{
       productId?: string | null;
       menuItemId?: string | null;
+      comboId?: string | null;
       variantId?: string;
       variantName?: string;
       description: string;
@@ -327,6 +329,7 @@ export class PosOrdersService {
     const resolved: ResolvedLine[] = input.lines.map((l) => ({
       productId: l.productId ?? null,
       menuItemId: l.menuItemId ?? null,
+      comboId: l.comboId ?? null,
       description: l.description,
       quantity: l.quantity,
       unitPrice: l.unitPrice,
@@ -701,7 +704,7 @@ export class PosOrdersService {
         // item. Menu items carry `menuItemId` only (no single `productId`), so the
         // old `if (!it.productId) continue` silently dropped every menu-driven order
         // — the kitchen never saw it. Only lines with neither id are skipped.
-        if (!it.productId && !it.menuItemId) continue;
+        if (!it.productId && !it.menuItemId && !it.comboId) continue;
         // P5 — "Fire course": when a course is given, only fire that course's lines
         // (leave earlier/later courses held). Uncoursed lines always fire.
         if (opts.course != null && it.course != null && it.course !== opts.course) continue;
@@ -719,7 +722,7 @@ export class PosOrdersService {
           // A-016: exact back-reference so a later per-line void can pull this
           // entry off the board without guessing from product identity.
           orderItemId: item.id,
-          productId: item.productId ?? item.menuItemId,
+          productId: item.productId ?? item.menuItemId ?? item.comboId,
           productName: item.description,
           quantity: delta,
           // Include the kitchen print name so the KDS shows the kitchen-facing
@@ -835,6 +838,21 @@ export class PosOrdersService {
     // 1. Explicit menu-item override.
     const override = await this.explicitStationFor(it, cache);
     if (override) return override;
+    // Combo lines remain a single editable/receipted line, but route from their
+    // component products so the kitchen still receives them at a relevant station.
+    if (it.comboId) {
+      const key = `c:${it.comboId}`;
+      if (cache.has(key)) return cache.get(key)!;
+      const combo = await this.modifiers.getCombo(it.comboId);
+      const productIds = combo?.items.map((item) => item.productId) ?? [];
+      const products = productIds.length
+        ? await this.prisma.client.product.findMany({ where: { id: { in: productIds } }, select: { station: true } })
+        : [];
+      const stations = (products as any[]).map((product) => product.station as string).filter(Boolean);
+      const station = stations.length ? this.pickPrimaryStation(stations) : await this.defaultStationCode(cache);
+      cache.set(key, station);
+      return station;
+    }
     // 2. Menu-item line derives from the recipe.
     if (it.menuItemId) {
       const key = `m:${it.menuItemId}`;
@@ -931,7 +949,7 @@ export class PosOrdersService {
       if (ln.variantId && ln.menuItemId) await this.variants.validateVariant(ln.menuItemId, ln.variantId);
       if (ln.menuItemId) await this.accompaniments.validateSelections(ln.menuItemId, ln.accompanimentOptionIds ?? [], bypassRequired);
     }
-    await this.modifiers.validateSelections(lines as any, bypassRequired);
+    await this.modifiers.validateSelections(lines.filter((line) => !line.comboId) as any, bypassRequired);
   }
 
   /** Assert that the override user has pos:override permission. Returns true if override is valid. */
@@ -960,7 +978,19 @@ export class PosOrdersService {
     const lines: ResolvedLine[] = [];
     for (const l of inputLines) {
       if (!Number.isFinite(Number(l.quantity)) || Number(l.quantity) <= 0) throw new BadRequestException('Sale quantities must be positive');
-      if (l.comboId) throw new BadRequestException('Combo selling is paused until component quantities and prices can be preserved through order editing. Sell the individual catalog items.');
+      if (l.comboId) {
+        const combo = await this.modifiers.getCombo(l.comboId);
+        if (!combo || !combo.items.length) throw new BadRequestException('This combo is unavailable or has no components');
+        lines.push({
+          productId: null, menuItemId: null, comboId: combo.id,
+          description: combo.name, quantity: Number(l.quantity), unitPrice: combo.price,
+          taxId: null, discountPercent: l.discountPercent ?? 0,
+          discountType: l.discountType, discountAmount: l.discountAmount,
+          discountReason: l.discountReason ?? null, note: l.note ?? null,
+          taxInclusive: false, modifiers: [], accompanimentNames: [], accompanimentOptionIds: [], course: l.course ?? null,
+        });
+        continue;
+      }
       // IDENTITY: a sale line represents exactly ONE catalog thing. The client
       // says which by sending `menuItemId` (cafe) or `productId` (retail); the
       // server never infers the other one. In particular a product is NEVER
@@ -1036,6 +1066,7 @@ export class PosOrdersService {
       lines.push({
         productId,
         menuItemId: menuItemId,
+        comboId: null,
         description: l.description,
         quantity: l.quantity,
         unitPrice: finalUnitPrice,
@@ -1075,11 +1106,11 @@ export class PosOrdersService {
    * kitchen lifecycle of every order open across that deploy.
    */
   private lineSignature(it: {
-    productId?: string | null; menuItemId?: string | null; variantName?: string | null;
+    productId?: string | null; menuItemId?: string | null; comboId?: string | null; variantName?: string | null;
     description?: string | null; note?: string | null; course?: number | null;
     modifierIds?: (string | null)[]; accompanimentOptionIds?: string[];
   }): string {
-    const base = it.menuItemId ? `m:${it.menuItemId}` : it.productId ? `p:${it.productId}` : `d:${it.description ?? ''}`;
+    const base = it.comboId ? `c:${it.comboId}` : it.menuItemId ? `m:${it.menuItemId}` : it.productId ? `p:${it.productId}` : `d:${it.description ?? ''}`;
     const mods = [...(it.modifierIds ?? [])].filter(Boolean).sort().join(',');
     const accs = [...(it.accompanimentOptionIds ?? [])].filter(Boolean).sort().join(',');
     return [base, it.variantName ?? '', it.course ?? '', (it.note ?? '').trim(), mods, accs].join('|');
@@ -1088,7 +1119,7 @@ export class PosOrdersService {
   /** Signature of a persisted OrderItem row (needs its modifiers loaded). */
   private rowSignature(row: any): string {
     return this.lineSignature({
-      productId: row.productId, menuItemId: row.menuItemId, variantName: row.variantName,
+      productId: row.productId, menuItemId: row.menuItemId, comboId: row.comboId, variantName: row.variantName,
       description: row.description, note: row.note, course: row.course,
       modifierIds: (row.modifiers ?? []).map((m: any) => m.modifierId),
       accompanimentOptionIds: row.accompanimentOptionIds ?? [],
@@ -1098,7 +1129,7 @@ export class PosOrdersService {
   /** Signature of an incoming resolved line. */
   private resolvedSignature(l: ResolvedLine): string {
     return this.lineSignature({
-      productId: l.productId, menuItemId: l.menuItemId, variantName: l.variantName,
+      productId: l.productId, menuItemId: l.menuItemId, comboId: l.comboId, variantName: l.variantName,
       description: l.description, note: l.note, course: l.course,
       modifierIds: (l.modifiers ?? []).map((m) => m.modifierId),
       accompanimentOptionIds: l.accompanimentOptionIds ?? [],
@@ -1110,6 +1141,7 @@ export class PosOrdersService {
     return {
       productId: it.productId ?? null,
       menuItemId: it.menuItemId ?? null,
+      comboId: it.comboId ?? null,
       description: it.description,
       quantity: Number(it.quantity),
       unitPrice: Number(it.unitPrice),
@@ -1263,6 +1295,7 @@ export class PosOrdersService {
       const data = {
         productId: prepared.productId,
         menuItemId: prepared.menuItemId,
+        comboId: src.comboId ?? null,
         variantId: prepared.variantId ?? undefined,
         variantName: prepared.variantName ?? undefined,
         description: prepared.description,

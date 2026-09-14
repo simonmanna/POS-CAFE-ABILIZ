@@ -34,6 +34,13 @@ export class PosSplitController {
     return this.svc.addBills(tableId, dto.count ?? 1);
   }
 
+  /** Create bills and divide every line quantity equally, including fractions. */
+  @Post('tabs/:tableId/split/equal')
+  @RequirePermissions('tables:split')
+  splitEqually(@Param('tableId') tableId: string, @Body() dto: AddBillsDto) {
+    return this.svc.splitEqually(tableId, dto.count ?? 2);
+  }
+
   /** Abort the split: discard every open (unpaid) bill. */
   @Post('tabs/:tableId/split/cancel')
   @RequirePermissions('tables:split')

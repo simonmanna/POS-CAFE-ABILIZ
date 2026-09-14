@@ -177,12 +177,7 @@ const TerminalPage: React.FC = () => {
   // They span categories, so we surface them only in the "All" view and let the
   // backend expand the `comboId` line into component rows at checkout.
   const { data: combos } = useCombos();
-  // F13 — combo selling is paused: the checkout guard 400s any combo line until
-  // component quantities/prices survive order editing. Don't surface combo tiles
-  // the cashier cannot ring up. (`COMBOS_PAUSED` flips this back on once fixed.)
-  const COMBOS_PAUSED = true;
   const comboCards = useMemo(() => {
-    if (COMBOS_PAUSED) return [];
     const term = search.trim().toLowerCase();
     return (combos ?? [])
       .filter(() => !activeCategory)

@@ -1276,6 +1276,15 @@ export function useAddSplitBills() {
   });
 }
 
+export function useSplitEqually() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ tableId, count = 2 }: { tableId: string; count?: number }) =>
+      (await api.post<SplitState>(`/pos/tabs/${tableId}/split/equal`, { count })).data,
+    onSuccess: (data) => qc.setQueryData(['pos-split', data.tableId], data),
+  });
+}
+
 export function useCancelSplit() {
   const qc = useQueryClient();
   return useMutation({

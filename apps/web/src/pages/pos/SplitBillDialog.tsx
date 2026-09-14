@@ -11,14 +11,14 @@ const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR'
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Minus, X, Trash2, Printer, Wallet, Check } from 'lucide-react';
+import { Plus, X, Trash2, Printer, Wallet, Check } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { PaymentDialog } from './PaymentDialog';
 import { ReceiptPreviewDialog } from './ReceiptPreviewDialog';
 import {
   useSplitState, useAddSplitBills, useAssignSplitItems, useUnassignSplitItems,
-  useMergeSplitBills, useDeleteSplitBill, useSettleSplitBill, useCancelSplit,
+  useMergeSplitBills, useDeleteSplitBill, useSettleSplitBill, useCancelSplit, useSplitEqually,
   type SplitBill,
 } from './api';
 import type { PaymentTender } from '@/features/pos/types';
@@ -44,6 +44,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
   const deleteBill = useDeleteSplitBill();
   const settleBill = useSettleSplitBill();
   const cancelSplit = useCancelSplit();
+  const splitEqually = useSplitEqually();
 
   const [activeBillId, setActiveBillId] = useState<string | null>(null);
   const [qtyByLine, setQtyByLine] = useState<Record<string, number>>({});
@@ -65,11 +66,11 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
   if (!tableId) return null;
 
   const busy = addBills.isPending || assignItems.isPending || unassignItems.isPending
-    || mergeBills.isPending || deleteBill.isPending || cancelSplit.isPending;
+    || mergeBills.isPending || deleteBill.isPending || cancelSplit.isPending || splitEqually.isPending;
 
   const stepFor = (lineId: string, max: number) => {
     const v = qtyByLine[lineId];
-    return Math.max(1, Math.min(max, v ?? Math.max(1, max)));
+    return Math.max(0.001, Math.min(max, v ?? max));
   };
   const setStep = (lineId: string, v: number) => setQtyByLine((p) => ({ ...p, [lineId]: v }));
 
@@ -79,6 +80,14 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
       const created = res.bills.filter((b) => b.status === 'open');
       setActiveBillId(created[created.length - 1]?.id ?? activeBillId);
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not add a bill'); }
+  };
+
+  const onSplitEqually = async () => {
+    try {
+      const res = await splitEqually.mutateAsync({ tableId, count: 2 });
+      setActiveBillId(res.bills.find((bill) => bill.status === 'open')?.id ?? null);
+      toast.success('Order split equally into 2 bills');
+    } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not split equally'); }
   };
 
   const onAssign = async (lineId: string, qty: number) => {
@@ -162,7 +171,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
                 <div className="space-y-1.5">
                   {lines.map((l) => {
                     const remaining = l.unassignedQty;
-                    const step = stepFor(l.id, Math.max(1, Math.ceil(remaining)));
+                    const step = stepFor(l.id, remaining);
                     return (
                       <div key={l.id} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                         <div className="flex items-start justify-between gap-2">
@@ -180,11 +189,10 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
                         </div>
                         {remaining > 0 && (
                           <div className="flex items-center gap-2 mt-2">
-                            <div className="flex items-center border border-slate-200 rounded-md">
-                              <button type="button" className="px-2 py-1 text-slate-500 hover:bg-slate-100 disabled:opacity-40" disabled={step <= 1} onClick={() => setStep(l.id, step - 1)}><Minus className="h-3 w-3" /></button>
-                              <span className="px-2 text-sm font-bold w-7 text-center">{step}</span>
-                              <button type="button" className="px-2 py-1 text-slate-500 hover:bg-slate-100 disabled:opacity-40" disabled={step >= Math.ceil(remaining)} onClick={() => setStep(l.id, step + 1)}><Plus className="h-3 w-3" /></button>
-                            </div>
+                            <label className="sr-only" htmlFor={`split-qty-${l.id}`}>Quantity of {l.description} to assign</label>
+                            <input id={`split-qty-${l.id}`} type="number" min="0.001" max={remaining} step="0.001" value={step}
+                              onChange={(event) => setStep(l.id, Math.min(remaining, Math.max(0.001, Number(event.target.value))))}
+                              className="h-11 w-24 rounded-md border border-slate-300 px-2 text-center text-sm font-bold" />
                             <Button size="sm" className="h-7 text-xs flex-1" disabled={!activeBillId || busy} onClick={() => onAssign(l.id, step)}>
                               Add to {bills.find((b) => b.id === activeBillId)?.label ?? 'bill'}
                             </Button>
@@ -201,9 +209,12 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
             <div className="p-3 overflow-y-auto bg-slate-50">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Bills</div>
-                <Button size="sm" variant="outline" className="h-7 text-xs" disabled={lines.length === 0 || busy} onClick={onAddBill}>
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Add Bill
-                </Button>
+                <div className="flex gap-2">
+                  {bills.length === 0 && <Button size="sm" variant="secondary" className="min-h-11 text-xs" disabled={lines.length === 0 || busy} onClick={onSplitEqually}>Split equally</Button>}
+                  <Button size="sm" variant="outline" className="min-h-11 text-xs" disabled={lines.length === 0 || busy} onClick={onAddBill}>
+                    <Plus className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> Add Bill
+                  </Button>
+                </div>
               </div>
               {bills.length === 0 ? (
                 <div className="text-center text-slate-400 py-8 text-sm">Add a bill, then assign items to it.</div>

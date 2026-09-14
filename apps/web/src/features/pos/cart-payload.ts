@@ -22,6 +22,7 @@ export function draftPricing(state: any) {
 export function draftRestore(view: any) { return { ...draftPricing(view ?? {}), transactionDiscountReason: view?.discountReason, customer: view?.customer ?? null }; }
 export function serverLineToCart(l: any): CartLine {
   return { lineId: l.id ?? crypto.randomUUID(), productId: l.productId ?? undefined, menuItemId: l.menuItemId ?? undefined,
+    comboId: l.comboId ?? undefined,
     name: l.description, quantity: Number(l.quantity), unitPrice: Number(l.unitPrice),
     discountPercent: Number(l.discountPercent ?? 0), discountType: l.discountType ?? 'percentage', discountAmount: Number(l.discountAmount ?? 0), discountReason: l.discountReason ?? undefined,
     taxId: l.taxId ?? undefined, taxInclusive: l.taxInclusive ?? undefined, note: l.note ?? undefined,

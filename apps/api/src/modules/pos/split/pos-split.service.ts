@@ -91,6 +91,40 @@ export class PosSplitService {
     });
   }
 
+  /** Atomically create N bills and distribute every source line equally. */
+  async splitEqually(tableId: string, count = 2) {
+    const orgId = this.tenant.organizationId;
+    const n = Math.max(2, Math.min(20, Math.floor(count)));
+    return this.withTableLock(tableId, async (tx) => {
+      const { order, items } = await this.loadOpenTab(tx, tableId);
+      if (!order) throw new BadRequestException('No open tab on this table to split');
+      if (!items.length) throw new BadRequestException('The tab is empty');
+      const existing = await tx.splitBill.count({ where: { sourceOrderId: order.id, status: { not: 'void' } } });
+      if (existing) throw new ConflictException('A split is already in progress. Cancel it before splitting equally.');
+      const bills: any[] = [];
+      for (let i = 0; i < n; i++) {
+        bills.push(await tx.splitBill.create({ data: {
+          organizationId: orgId, tableId, sourceOrderId: order.id,
+          label: `Bill ${i + 1}`, splitType: 'equal', status: 'open', createdBy: this.tenant.userId ?? null,
+        } }));
+      }
+      for (const item of items) {
+        const total = Number(item.quantity);
+        let allocated = 0;
+        for (let i = 0; i < bills.length; i++) {
+          const quantity = i === bills.length - 1
+            ? Number((total - allocated).toFixed(6))
+            : Number((total / bills.length).toFixed(6));
+          allocated += quantity;
+          if (quantity > 0) await this.upsertItem(tx, bills[i].id, item.id, quantity);
+        }
+      }
+      for (const bill of bills) await this.recomputeBill(tx, bill.id);
+      await this.audit.recordInTx(tx, { entity: 'SplitBill', entityId: order.id, action: 'create', newValues: { tableId, count: n, splitType: 'equal' } });
+      return this.reloadState(tx, tableId, order.id);
+    });
+  }
+
   /** Assign quantity from the unassigned pool into a bill. */
   async assign(billId: string, items: ItemAssignment[]) {
     return this.mutateBill(billId, async (tx, bill, order, srcItems) => {

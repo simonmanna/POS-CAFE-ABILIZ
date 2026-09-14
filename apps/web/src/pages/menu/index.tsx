@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Coffee, Edit, PlusCircle, Trash2, Search, Eye,
@@ -64,7 +64,7 @@ export function MenuPage() {
   const canDeleteCat = hasPermission(PERMISSIONS.menuCategories.delete);
 
   const cats = useMenuCategories();
-  const items = useMenuItems({ page, pageSize: 20, search: debounced || undefined });
+  const items = useMenuItems({ page, pageSize: 20, search: debounced || undefined, categoryId: selectedCat || undefined });
   const restoreCategory = useRestoreCategory();
 
   const createCategory = useCreateCategory();
@@ -76,25 +76,16 @@ export function MenuPage() {
   const toggleAvailability = useToggleAvailability();
 
   const allPaginatedItems = items.data?.data ?? [];
-  const activeItems = useMemo(() => {
-    return allPaginatedItems.filter((it) => {
-      if (selectedCat && it.categoryId !== selectedCat) return false;
-      return true;
-    });
-  }, [allPaginatedItems, selectedCat]);
+  const activeItems = allPaginatedItems;
 
-  useEffect(() => { setPage(1); }, [debounced]);
+  useEffect(() => { setPage(1); }, [debounced, selectedCat]);
 
   const meta = items.data?.meta;
   const liveCats = (cats.data ?? []).filter((c) => !c.deletedAt);
   const deletedCats = (cats.data ?? []).filter((c) => c.deletedAt);
 
-  // Density stats — derived from the loaded page (POS menus are small).
-  const availableCount = allPaginatedItems.filter((it) => it.isAvailable).length;
-  const priced = allPaginatedItems
-    .map((it) => (it.basePrice != null ? Number(it.basePrice) : null))
-    .filter((v): v is number => v != null && !Number.isNaN(v));
-  const avgPrice = priced.length ? priced.reduce((a, b) => a + b, 0) / priced.length : null;
+  const availableCount = meta?.availableCount ?? 0;
+  const avgPrice = meta?.avgPrice ?? null;
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
@@ -222,7 +213,8 @@ export function MenuPage() {
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="h-6 w-6"
+                  className="h-11 w-11"
+                  aria-label="Add menu category"
                   onClick={() => setCatDialog({ open: true })}
                   title="Add category"
                 >
@@ -255,7 +247,7 @@ export function MenuPage() {
               )}
 
               {liveCats.map((c) => {
-                const count = allPaginatedItems.filter((it) => it.categoryId === c.id).length;
+                const count = meta?.categoryCounts?.[c.id] ?? 0;
                 const selected = selectedCat === c.id;
                 return (
                   <div key={c.id} className="group flex items-center gap-0.5">
@@ -472,7 +464,7 @@ export function MenuPage() {
             const onError = (e: any) => { notify.error(e?.response?.data?.message ?? e?.message ?? 'Could not save item'); reject(e); };
             if (itemDialog.item) {
               updateItem.mutate(
-                { id: itemDialog.item.id, patch: input },
+                { id: itemDialog.item.id, patch: { ...input, expectedUpdatedAt: itemDialog.item.updatedAt } },
                 { onSuccess, onError },
               );
             } else {

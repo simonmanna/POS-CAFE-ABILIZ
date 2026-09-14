@@ -165,7 +165,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
             aria-label={`decrease ${m.name}`}
             disabled={qty === 0}
             onClick={() => decAddon(g, m.id)}
-            className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50 transition-colors"
+            className="w-11 h-11 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50 transition-colors"
           >
             <Minus className="h-3 w-3" />
           </button>
@@ -175,7 +175,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
             aria-label={`increase ${m.name}`}
             disabled={qty >= g.maxSelect}
             onClick={() => incAddon(g, m.id)}
-            className="w-7 h-7 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50 transition-colors"
+            className="w-11 h-11 rounded-md border border-slate-300 flex items-center justify-center font-bold text-sm leading-none disabled:opacity-30 hover:bg-slate-50 transition-colors"
           >
             <Plus className="h-3 w-3" />
           </button>

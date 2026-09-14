@@ -719,13 +719,14 @@ export class PosModifiersService {
         documentLine: { document: { status: { in: ['posted', 'paid'] } } },
         ...dateFilter,
       },
-      select: { name: true, priceDelta: true },
+      select: { name: true, priceDelta: true, documentLine: { select: { quantity: true } } },
     });
     const map = new Map<string, { name: string; count: number; revenue: number }>();
     for (const r of rows as any[]) {
       const cur = map.get(r.name) ?? { name: r.name, count: 0, revenue: 0 };
-      cur.count += 1;
-      cur.revenue += Number(r.priceDelta);
+      const quantity = Number(r.documentLine?.quantity ?? 1);
+      cur.count += quantity;
+      cur.revenue += Number(r.priceDelta) * quantity;
       map.set(r.name, cur);
     }
     return [...map.values()].sort((a, b) => b.count - a.count);

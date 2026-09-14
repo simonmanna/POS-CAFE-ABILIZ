@@ -134,6 +134,24 @@ describe('PosInvoiceService', () => {
     });
   });
 
+  describe('stock posting recipe snapshots', () => {
+    it('captures the menu recipe and variant multiplier when the job is enqueued', async () => {
+      prisma.client.orderItem.findMany.mockResolvedValue([{ id: 'oi-menu', menuItemId: 'm1', comboId: null, variantId: 'v1' }]);
+      prisma.client.menuItem = { findFirst: jest.fn().mockResolvedValue({ isInventoryTracked: true }) };
+      prisma.client.menuProduct = { findMany: jest.fn().mockResolvedValue([{ productId: 'p1', quantity: 0.018, uomId: 'gram' }]) };
+      prisma.client.menuItemVariant = { findFirst: jest.fn().mockResolvedValue({ qtyMultiplier: 1.5 }) };
+      prisma.client.stockPostingJob = { create: jest.fn().mockResolvedValue({ id: 'job-1' }) };
+
+      await svc.enqueueStockPosting({ orderId: 'o1', invoiceId: 'inv1', trigger: 'at_invoice' });
+
+      expect(prisma.client.stockPostingJob.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+        recipeSnapshot: {
+          'oi-menu': { kind: 'menu', tracked: true, multiplier: 1.5, ingredients: [{ productId: 'p1', quantity: 0.018, uomId: 'gram' }] },
+        },
+      }) });
+    });
+  });
+
   describe('receivePayment', () => {
     const mockInvoice = {
       id: 'inv-1', invoiceNumber: 'INV-001', partnerId: 'p-1',

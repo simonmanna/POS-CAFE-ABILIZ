@@ -134,6 +134,7 @@ export interface UpdateMenuItemInput {
   isInventoryTracked?: boolean;
   displayOrder?: number;
   ingredients?: IngredientInput[];
+  expectedUpdatedAt?: string;
 }
 
 // ─── Categories ───────────────────────────────────────────────────────────
@@ -204,10 +205,10 @@ export function useMenuItemsAvailable() {
   });
 }
 
-export function useMenuItems(params: { page: number; pageSize: number; search?: string }) {
+export function useMenuItems(params: { page: number; pageSize: number; search?: string; categoryId?: string }) {
   return useQuery({
     queryKey: ['menu-items-all', params],
-    queryFn: async () => (await api.get<{ data: MenuItem[]; meta: { page: number; pageSize: number; total: number; totalPages: number } }>('/pos/menu/items', { params })).data,
+    queryFn: async () => (await api.get<{ data: MenuItem[]; meta: { page: number; pageSize: number; total: number; totalPages: number; availableCount: number; avgPrice: number | null; categoryCounts: Record<string, number> } }>('/pos/menu/items', { params })).data,
   });
 }
 

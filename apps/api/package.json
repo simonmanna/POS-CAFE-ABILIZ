@@ -113,6 +113,8 @@
     ],
     "coverageDirectory": "./coverage",
     "testEnvironment": "node",
+    "testTimeout": 15000,
+    "maxWorkers": 2,
     "roots": [
       "<rootDir>/src",
       "<rootDir>/test"

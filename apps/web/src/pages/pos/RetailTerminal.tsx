@@ -106,11 +106,7 @@ const RetailTerminal: React.FC = () => {
   // Combo bundles (GET /pos/modifiers/combos) — span categories, so shown only
   // in the "All" view. The backend expands the `comboId` line at checkout.
   const { data: combos } = useCombos();
-  // F13 — combo selling is paused (see Terminal.tsx); the checkout guard 400s
-  // combo lines, so don't show tiles the cashier cannot ring up.
-  const COMBOS_PAUSED = true;
   const comboCards = useMemo(() => {
-    if (COMBOS_PAUSED) return [];
     const term = search.trim().toLowerCase();
     return (combos ?? [])
       .filter(() => !activeCategory)

@@ -49,7 +49,10 @@ class CreateMenuItemDto {
 }
 class IngredientDto {
   @ApiProperty() @IsUUID() productId!: string;
-  @ApiProperty({ required: false, default: 1 }) @IsOptional() @IsNumber() quantity?: number;
+  @ApiProperty({ required: false, default: 1 }) @IsOptional() @IsNumber() @Min(0.000001) quantity?: number;
+}
+class MenuPaginationDto extends PaginationDto {
+  @ApiProperty({ required: false }) @IsOptional() @IsUUID() declare categoryId?: string;
 }
 
 class UpdateMenuItemDto {
@@ -69,6 +72,8 @@ class UpdateMenuItemDto {
   @ApiProperty({ required: false, type: () => [IngredientDto] })
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => IngredientDto)
   ingredients?: IngredientDto[];
+  @ApiProperty({ required: false, description: 'Last observed updatedAt value. Rejects stale concurrent edits.' })
+  @IsOptional() @IsString() expectedUpdatedAt?: string;
 }
 
 class CreateCategoryDto {
@@ -160,25 +165,25 @@ export class PosMenuController {
   listCategories() { return this.svc.listCategories(); }
 
   @Post('categories')
-  @RequirePermissions('product:create')
+  @RequirePermissions('menu_categories.create')
   createCategory(@Body() body: CreateCategoryDto) { return this.svc.createCategory(body); }
 
   @Patch('categories/:id')
-  @RequirePermissions('product:update')
+  @RequirePermissions('menu_categories.edit')
   updateCategory(@Param('id') id: string, @Body() body: Partial<CreateCategoryDto>) {
     return this.svc.updateCategory(id, body);
   }
 
   @Delete('categories/:id')
-  @RequirePermissions('product:delete')
+  @RequirePermissions('menu_categories.delete')
   deleteCategory(@Param('id') id: string) { return this.svc.deleteCategory(id); }
 
   @Get('categories/deleted')
-  @RequirePermissions('menuCategories.view')
+  @RequirePermissions('menu_categories.view')
   listDeletedCategories() { return this.svc.listDeletedCategories(); }
 
   @Patch('categories/:id/restore')
-  @RequirePermissions('menuCategories.edit')
+  @RequirePermissions('menu_categories.edit')
   restoreCategory(@Param('id') id: string) { return this.svc.restoreCategory(id); }
 
   // ─── Items ───
@@ -186,41 +191,41 @@ export class PosMenuController {
   available() { return this.svc.listAvailable(); }
 
   @Get('items')
-  list(@Query() query: PaginationDto) { return this.svc.listAll(query); }
+  list(@Query() query: MenuPaginationDto) { return this.svc.listAll(query); }
 
   @Get('items/:id')
   getOne(@Param('id') id: string) { return this.svc.getOne(id); }
 
   @Post('items')
-  @RequirePermissions('product:create')
+  @RequirePermissions('menu.create')
   create(@Body() body: CreateMenuItemDto) { return this.svc.create(body); }
 
   @Patch('items/:id')
-  @RequirePermissions('product:update')
+  @RequirePermissions('menu.edit')
   update(@Param('id') id: string, @Body() body: UpdateMenuItemDto) {
     return this.svc.update(id, body);
   }
 
   @Patch('items/:id/availability')
-    @RequirePermissions('product:update')
+    @RequirePermissions('menu.edit')
     setAvail(@Param('id') id: string, @Body() body: { isAvailable: boolean }) {
       return this.svc.setAvailability(id, body.isAvailable);
     }
 
     @Delete('items/:id')
-    @RequirePermissions('product:delete')
+    @RequirePermissions('menu.delete')
     remove(@Param('id') id: string) { return this.svc.disable(id); }
 
     @Delete('items/:id/hard')
-    @RequirePermissions('product:delete')
+    @RequirePermissions('menu.delete')
     hardDelete(@Param('id') id: string) { return this.svc.deleteItem(id); }
 
     @Patch('items/:id/restore')
-    @RequirePermissions('product:update')
+    @RequirePermissions('menu.edit')
     restoreItem(@Param('id') id: string) { return this.svc.restoreItem(id); }
 
     @Get('items/deleted')
-    @RequirePermissions('menuItems.view')
+    @RequirePermissions('menu.view')
     listDeletedItems() { return this.svc.listDeletedItems(); }
 
     // ─── Full bundle (terminal) ───────────────────────────────────────────────

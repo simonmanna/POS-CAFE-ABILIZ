@@ -106,18 +106,32 @@ export class SequenceService implements OnApplicationBootstrap {
     private readonly tenant: TenantContextService,
   ) {}
 
-  /** Pre-create every sequence for every tenant. Runs once at boot. */
+  /**
+   * Remove native sequences left by deleted tenants. Sequences are otherwise
+   * created lazily: eager warm-up multiplied catalog objects by tenants × keys,
+   * eventually making pg_dump exceed PostgreSQL's lock table.
+   */
   async onApplicationBootstrap(): Promise<void> {
     try {
-      const orgs = await this.prisma.raw.organization.findMany({ select: { id: true } });
-      for (const org of orgs) {
-        for (const key of SequenceService.KNOWN_KEYS) {
-          await this.ensure(org.id, key);
-        }
-      }
-      this.logger.log(`Warmed up ${orgs.length * SequenceService.KNOWN_KEYS.length} sequences`);
+      await this.prisma.raw.$executeRawUnsafe(`DO $cleanup$
+        DECLARE seq record;
+        BEGIN
+          FOR seq IN
+            SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'public'
+              AND c.relkind = 'S'
+              AND c.relname ~ '^seq_[0-9a-f]{8}_'
+              AND substring(c.relname from 5 for 8) NOT IN (
+                SELECT substring(replace(id::text, '-', '') from 1 for 8) FROM "Organization"
+              )
+          LOOP
+            EXECUTE format('DROP SEQUENCE IF EXISTS %I', seq.relname);
+          END LOOP;
+        END $cleanup$`);
     } catch (err) {
-      this.logger.warn(`Sequence warm-up failed (will lazy-create on first use): ${String(err)}`);
+      this.logger.warn(`Orphan sequence cleanup failed (numbering remains available): ${String(err)}`);
     }
   }
 

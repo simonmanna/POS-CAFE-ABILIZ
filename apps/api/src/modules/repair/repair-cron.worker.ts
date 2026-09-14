@@ -38,6 +38,12 @@ export class RepairCronWorker {
   }
 
   private async runForOrg(orgId: string): Promise<void> {
+    await this.tenant.run({ organizationId: orgId }, async () => {
+      await this.runForOrgInTenant(orgId);
+    });
+  }
+
+  private async runForOrgInTenant(orgId: string): Promise<void> {
     const now = new Date();
 
     // 1. Preventive maintenance — generate work orders for due schedules.

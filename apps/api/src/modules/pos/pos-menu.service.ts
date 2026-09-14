@@ -16,11 +16,12 @@
  *   - Fresh signed download URLs are minted on every read so images never
  *     expire in the UI even though the underlying signed URL TTL is 15 min.
  */
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { FilesService } from '../../kernel/files/files.service';
 import type { PaginatedResult, PaginationQuery } from '@erp/shared';
+import { AuditService } from '../../kernel/audit/audit.service';
 
 export interface MenuItemBundle {
   product: {
@@ -74,6 +75,7 @@ export class PosMenuService {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly files: FilesService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Convert a stored value to a fresh signed download URL.
@@ -115,34 +117,50 @@ export class PosMenuService {
     icon?: string;
     displayOrder?: number;
   }) {
-    return this.prisma.client.menuCategory.create({
-      data: {
+    return this.prisma.client.$transaction(async (tx) => {
+      const created = await tx.menuCategory.create({ data: {
         organizationId: this.tenant.organizationId,
         name: input.name,
         parentId: input.parentId,
         image: input.image,
         icon: input.icon,
         displayOrder: input.displayOrder ?? 0,
-      },
+        createdBy: this.tenant.userId ?? null,
+        updatedBy: this.tenant.userId ?? null,
+      } });
+      await this.audit.recordInTx(tx, { entity: 'MenuCategory', entityId: created.id, action: 'create', newValues: created });
+      return created;
     });
   }
 
   async updateCategory(id: string, data: { name?: string; displayOrder?: number; image?: string; icon?: string }) {
     const existing = await this.prisma.client.menuCategory.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new NotFoundException(`MenuCategory ${id} not found`);
-    return this.prisma.client.menuCategory.update({ where: { id }, data });
+    return this.prisma.client.$transaction(async (tx) => {
+      const updated = await tx.menuCategory.update({ where: { id }, data: { ...data, updatedBy: this.tenant.userId ?? null } });
+      await this.audit.recordInTx(tx, { entity: 'MenuCategory', entityId: id, action: 'update', oldValues: existing, newValues: updated });
+      return updated;
+    });
   }
 
   async deleteCategory(id: string) {
     const existing = await this.prisma.client.menuCategory.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new NotFoundException(`MenuCategory ${id} not found`);
-    return this.prisma.client.menuCategory.update({ where: { id }, data: { deletedAt: new Date(), isActive: false } });
+    return this.prisma.client.$transaction(async (tx) => {
+      const updated = await tx.menuCategory.update({ where: { id }, data: { deletedAt: new Date(), isActive: false, updatedBy: this.tenant.userId ?? null } });
+      await this.audit.recordInTx(tx, { entity: 'MenuCategory', entityId: id, action: 'delete', oldValues: existing, newValues: updated });
+      return updated;
+    });
   }
 
   async restoreCategory(id: string) {
     const existing = await this.prisma.client.menuCategory.findFirst({ where: { id, deletedAt: { not: null } } });
     if (!existing) throw new NotFoundException(`Deleted MenuCategory ${id} not found`);
-    return this.prisma.client.menuCategory.update({ where: { id }, data: { deletedAt: null, isActive: true } });
+    return this.prisma.client.$transaction(async (tx) => {
+      const updated = await tx.menuCategory.update({ where: { id }, data: { deletedAt: null, isActive: true, updatedBy: this.tenant.userId ?? null } });
+      await this.audit.recordInTx(tx, { entity: 'MenuCategory', entityId: id, action: 'restore' as any, oldValues: existing, newValues: updated });
+      return updated;
+    });
   }
 
   listDeletedCategories() {
@@ -172,7 +190,7 @@ export class PosMenuService {
       };
     }
 
-    async listAll(query: PaginationQuery): Promise<PaginatedResult<any>> {
+    async listAll(query: PaginationQuery & { categoryId?: string }): Promise<PaginatedResult<any> & { meta: PaginatedResult<any>['meta'] & { availableCount: number; avgPrice: number | null; categoryCounts: Record<string, number> } }> {
         const page = Math.max(1, Number(query.page ?? 1));
         const pageSize = Math.min(100, Math.max(1, Number(query.pageSize ?? 20)));
         const where: any = { deletedAt: null };
@@ -183,10 +201,12 @@ export class PosMenuService {
             { description: { contains: query.search, mode: 'insensitive' } },
           ];
         }
+        const categoryCountWhere = { ...where };
+        if (query.categoryId) where.categoryId = query.categoryId;
         const orderBy = query.sortBy
           ? { [query.sortBy]: query.sortOrder ?? 'asc' as const }
           : [{ displayOrder: 'asc' as const }, { name: 'asc' as const }];
-        const [data, total] = await Promise.all([
+        const [data, total, stats, availableCount, categoryGroups] = await Promise.all([
           this.prisma.client.menuItem.findMany({
             where, orderBy, skip: (page - 1) * pageSize, take: pageSize,
             include: {
@@ -195,10 +215,14 @@ export class PosMenuService {
             },
           }),
           this.prisma.client.menuItem.count({ where }),
+          this.prisma.client.menuItem.aggregate({ where, _count: { _all: true }, _avg: { basePrice: true } }),
+          this.prisma.client.menuItem.count({ where: { ...where, isAvailable: true } }),
+          this.prisma.client.menuItem.groupBy({ by: ['categoryId'], where: categoryCountWhere, _count: { _all: true } }),
         ]);
+        const categoryCounts = Object.fromEntries((categoryGroups as any[]).filter((row) => row.categoryId).map((row) => [row.categoryId, row._count._all]));
         return {
           data: data.map((it) => ({ ...it, image: this.resolveImage(it.image) })),
-          meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+          meta: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)), availableCount, avgPrice: stats._avg.basePrice == null ? null : Number(stats._avg.basePrice), categoryCounts },
         };
       }
 
@@ -227,7 +251,8 @@ export class PosMenuService {
     displayOrder?: number;
     ingredients?: { productId: string; quantity?: number }[];
   }) {
-    const tracked = input.isInventoryTracked === true;
+    const tracked = input.isInventoryTracked !== false;
+    const ingredients = this.validateIngredients(input.ingredients ?? [], tracked);
     const stationCode = await this.normalizeStationCode(input.stationCode);
     return this.prisma.client.$transaction(async (tx) => {
       const item = await tx.menuItem.create({
@@ -246,7 +271,7 @@ export class PosMenuService {
           displayOrder: input.displayOrder ?? 0,
         },
       });
-      for (const ing of input.ingredients ?? []) {
+      for (const ing of ingredients) {
         await tx.menuProduct.create({
           data: {
             organizationId: this.tenant.organizationId,
@@ -256,10 +281,12 @@ export class PosMenuService {
           },
         });
       }
-      return tx.menuItem.findUniqueOrThrow({
+      const created = await tx.menuItem.findUniqueOrThrow({
         where: { id: item.id },
         include: { ingredients: { include: { product: true } }, category: true },
       });
+      await this.audit.recordInTx(tx, { entity: 'MenuItem', entityId: item.id, action: 'create', newValues: created });
+      return created;
     });
   }
 
@@ -276,18 +303,28 @@ export class PosMenuService {
     isAvailable: boolean;
     displayOrder: number;
     ingredients: { productId: string; quantity?: number }[];
+    expectedUpdatedAt: string;
   }>) {
-    await this.getOne(id);
-    const { ingredients, isInventoryTracked, ...data } = patch;
+    const { ingredients, isInventoryTracked, expectedUpdatedAt, ...data } = patch;
     if ('stationCode' in data) data.stationCode = await this.normalizeStationCode(data.stationCode);
-    const tracked = isInventoryTracked === true;
     return this.prisma.client.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "MenuItem" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', id, this.tenant.organizationId);
+      const existing = await tx.menuItem.findFirst({ where: { id, deletedAt: null }, include: { ingredients: true } });
+      if (!existing) throw new NotFoundException(`MenuItem ${id} not found`);
+      if (expectedUpdatedAt && existing.updatedAt.toISOString() !== new Date(expectedUpdatedAt).toISOString()) {
+        throw new ConflictException('This menu item was changed by another user. Refresh it and apply your changes again.');
+      }
+      const tracked = isInventoryTracked ?? existing.isInventoryTracked;
+      const normalizedIngredients = ingredients === undefined
+        ? existing.ingredients.map((ing) => ({ productId: ing.productId, quantity: Number(ing.quantity) }))
+        : this.validateIngredients(ingredients, tracked);
+      if (tracked && normalizedIngredients.length === 0) throw new BadRequestException('Inventory-tracked menu items require at least one recipe ingredient');
       if (data && Object.keys(data).length > 0) {
         await tx.menuItem.update({ where: { id }, data: { ...data, ...(isInventoryTracked !== undefined ? { isInventoryTracked: tracked } : {}) } });
       }
       if (ingredients) {
         await tx.menuProduct.deleteMany({ where: { menuItemId: id } });
-        for (const ing of ingredients) {
+        for (const ing of normalizedIngredients) {
           await tx.menuProduct.create({
             data: {
               organizationId: this.tenant.organizationId,
@@ -298,10 +335,27 @@ export class PosMenuService {
           });
         }
       }
-      return tx.menuItem.findUniqueOrThrow({
+      const updated = await tx.menuItem.findUniqueOrThrow({
         where: { id },
         include: { ingredients: { include: { product: true } }, category: true },
       });
+      await this.audit.recordInTx(tx, { entity: 'MenuItem', entityId: id, action: 'update', oldValues: existing, newValues: updated });
+      return updated;
+    });
+  }
+
+  private validateIngredients(
+    ingredients: Array<{ productId: string; quantity?: number }>,
+    tracked: boolean,
+  ): Array<{ productId: string; quantity: number }> {
+    if (tracked && ingredients.length === 0) throw new BadRequestException('Inventory-tracked menu items require at least one recipe ingredient');
+    const seen = new Set<string>();
+    return ingredients.map((ingredient) => {
+      const quantity = ingredient.quantity ?? 1;
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new BadRequestException('Recipe ingredient quantities must be greater than zero');
+      if (seen.has(ingredient.productId)) throw new BadRequestException('A product can appear only once in a menu recipe');
+      seen.add(ingredient.productId);
+      return { productId: ingredient.productId, quantity };
     });
   }
 
@@ -327,29 +381,25 @@ export class PosMenuService {
   }
 
   async setAvailability(id: string, isAvailable: boolean) {
-    return this.prisma.client.menuItem.update({ where: { id }, data: { isAvailable } });
+    return this.auditItemMutation(id, 'update', { isAvailable });
   }
   /** Soft disable — just sets isAvailable=false (keeps history intact). */
     async disable(id: string) {
-      await this.getOne(id);
-      return this.prisma.client.menuItem.update({
-        where: { id },
-        data: { isAvailable: false },
-      });
+      return this.auditItemMutation(id, 'update', { isAvailable: false });
     }
 
     /** Soft delete — sets deletedAt and isAvailable=false. */
     async deleteItem(id: string) {
       const existing = await this.prisma.client.menuItem.findFirst({ where: { id, deletedAt: null } });
       if (!existing) throw new NotFoundException(`MenuItem ${id} not found`);
-      return this.prisma.client.menuItem.update({ where: { id }, data: { deletedAt: new Date(), isAvailable: false } });
+      return this.auditItemMutation(id, 'delete', { deletedAt: new Date(), isAvailable: false });
     }
 
     /** Restore a soft-deleted menu item. */
     async restoreItem(id: string) {
       const existing = await this.prisma.client.menuItem.findFirst({ where: { id, deletedAt: { not: null } } });
       if (!existing) throw new NotFoundException(`Deleted MenuItem ${id} not found`);
-      return this.prisma.client.menuItem.update({ where: { id }, data: { deletedAt: null, isAvailable: true } });
+      return this.auditItemMutation(id, 'restore' as any, { deletedAt: null, isAvailable: true }, true);
     }
 
     /** List all soft-deleted menu items. */
@@ -357,6 +407,16 @@ export class PosMenuService {
       return this.prisma.client.menuItem.findMany({
         where: { deletedAt: { not: null } },
         orderBy: [{ deletedAt: 'desc' }],
+      });
+    }
+
+    private async auditItemMutation(id: string, action: any, data: Record<string, unknown>, includeDeleted = false) {
+      return this.prisma.client.$transaction(async (tx) => {
+        const existing = await tx.menuItem.findFirst({ where: { id, ...(includeDeleted ? {} : { deletedAt: null }) } });
+        if (!existing) throw new NotFoundException(`MenuItem ${id} not found`);
+        const updated = await tx.menuItem.update({ where: { id }, data });
+        await this.audit.recordInTx(tx, { entity: 'MenuItem', entityId: id, action, oldValues: existing, newValues: updated });
+        return updated;
       });
     }
 

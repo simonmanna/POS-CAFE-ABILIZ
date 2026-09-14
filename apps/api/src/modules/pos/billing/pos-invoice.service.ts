@@ -153,6 +153,39 @@ export class PosInvoiceService {
     const keyBase = params.invoiceId ?? params.orderId;
     const idempotencyKey = `${params.trigger}:${keyBase}`;
     const db = params.tx ?? this.prisma.client;
+    // Snapshot every mutable recipe at enqueue time. Posting can be delayed or
+    // retried, so reading MenuProduct/ComboItem in the worker would let a later
+    // menu edit rewrite the stock and COGS of an earlier sale.
+    const orderItems = await db.orderItem.findMany({
+      where: { orderId: params.orderId, organizationId: orgId, cancelled: false },
+      select: { id: true, menuItemId: true, comboId: true, variantId: true },
+    });
+    const recipeSnapshot: Record<string, unknown> = {};
+    for (const item of orderItems as any[]) {
+      if (item.menuItemId) {
+        const [menuItem, recipe, variant] = await Promise.all([
+          db.menuItem.findFirst({ where: { id: item.menuItemId, organizationId: orgId }, select: { isInventoryTracked: true } }),
+          db.menuProduct.findMany({ where: { menuItemId: item.menuItemId, organizationId: orgId }, select: { productId: true, quantity: true, uomId: true } }),
+          item.variantId ? db.menuItemVariant.findFirst({ where: { id: item.variantId, menuItemId: item.menuItemId }, select: { qtyMultiplier: true } }) : null,
+        ]);
+        recipeSnapshot[item.id] = {
+          kind: 'menu', tracked: Boolean(menuItem?.isInventoryTracked), multiplier: Number(variant?.qtyMultiplier ?? 1),
+          ingredients: recipe.map((ingredient: any) => ({ productId: ingredient.productId, quantity: Number(ingredient.quantity), uomId: ingredient.uomId ?? null })),
+        };
+      } else if (item.comboId) {
+        const combo = await db.combo.findFirst({
+          where: { id: item.comboId, organizationId: orgId, isActive: true },
+          include: { items: { include: { product: { select: { trackInventory: true, productType: true, salesUomId: true } } } } },
+        });
+        recipeSnapshot[item.id] = {
+          kind: 'combo', components: (combo?.items ?? []).map((component: any) => ({
+            id: component.id, productId: component.productId, quantity: Number(component.quantity),
+            trackInventory: Boolean(component.product?.trackInventory), productType: component.product?.productType,
+            uomId: component.product?.salesUomId ?? null,
+          })),
+        };
+      }
+    }
     try {
       await db.stockPostingJob.create({
         data: {
@@ -162,6 +195,7 @@ export class PosInvoiceService {
           orderId: params.orderId,
           postingTrigger: params.trigger,
           idempotencyKey,
+          recipeSnapshot,
         },
       });
     } catch (e: any) {
@@ -215,7 +249,23 @@ export class PosInvoiceService {
       const atpWarehouse = await resolvePosStockLocation(this.prisma, orgId, db);
       if (atpWarehouse) {
         for (const it of items) {
-          if (it.menuItemId) {
+          if (it.comboId) {
+            const combo = await db.combo.findFirst({
+              where: { id: it.comboId, organizationId: orgId, isActive: true },
+              include: { items: true },
+            });
+            if (!combo?.items?.length) throw new Error('Combo is unavailable or has no stock components');
+            for (const component of combo.items as any[]) {
+              const quantity = Number(component.quantity) * Number(it.quantity);
+              if (!(quantity > 0)) throw new Error('Combo component quantities must be greater than zero');
+              const atp = await this.reservations.availableToPromise(component.productId, atpWarehouse.id);
+              if (dec(quantity).gt(dec(atp.available))) {
+                const msg = `Low stock for "${it.description}": need ${quantity} of component, ${atp.available} available`;
+                if (atpMode === 'strict') throw new BadRequestException(msg);
+                this.logger.warn(`[atp] ${msg}`);
+              }
+            }
+          } else if (it.menuItemId) {
             const recipe = await db.menuProduct.findMany({ where: { menuItemId: it.menuItemId } });
             for (const ing of recipe) {
               const qty = Number(ing.quantity) * Number(it.quantity);
@@ -982,7 +1032,10 @@ export class PosInvoiceService {
                 where: { orderId: job.orderId, cancelled: false }, orderBy: { lineNumber: 'asc' }, include: { modifiers: true },
               })
             : [];
-          const result = await this.issueStockForItems(items, ctx, tx, new Set<string>(current?.postedLineKeys ?? []));
+          const result = await this.issueStockForItems(
+            items, ctx, tx, new Set<string>(current?.postedLineKeys ?? []),
+            (current?.recipeSnapshot ?? job.recipeSnapshot ?? {}) as Record<string, any>,
+          );
           await this.completeStockPostingJob(tx, job.id, result.failures, { postedLineKeys: result.postedLineKeys, attempts: current?.attempts ?? job.attempts, maxAttempts: current?.maxAttempts ?? job.maxAttempts, lastError: result.lastError });
           return { failures: result.failures };
         },
@@ -1078,7 +1131,7 @@ export class PosInvoiceService {
   // line is isolated: a per-line failure is recorded as an InventoryException and
   // counted, never thrown, so one un-stocked ingredient can't stop the rest and
   // the sale (already final) is never affected. Returns the number of line failures.
-  private async issueStockForItems(items: any[], ctx: StockPostingCtx, tx: any, alreadyPosted = new Set<string>()): Promise<{ failures: number; postedLineKeys: string[]; lastError: string | null }> {
+  private async issueStockForItems(items: any[], ctx: StockPostingCtx, tx: any, alreadyPosted = new Set<string>(), recipeSnapshots: Record<string, any> = {}): Promise<{ failures: number; postedLineKeys: string[]; lastError: string | null }> {
     const orgId = this.tenant.organizationId;
     const db = tx ?? this.prisma.client;
     const invoice = ctx.invoiceId ? await db.invoice.findFirst({ where: { id: ctx.invoiceId, organizationId: orgId }, select: { cashSessionId: true } }) : null;
@@ -1120,8 +1173,28 @@ export class PosInvoiceService {
       // and every other line still relieves stock and posts COGS in this job.
       if (!posted.has(lineKey)) try {
         await this.inSavepoint(tx, async () => {
-          if (it.menuItemId) {
-            await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx, it.variantId ?? null, invoiceItemId);
+          if (it.comboId) {
+            const snapshot = recipeSnapshots[it.id];
+            const components = snapshot?.kind === 'combo' ? snapshot.components : [];
+            if (!components.length) throw new Error('Combo has no immutable stock-component snapshot');
+            for (const component of components as any[]) {
+              const quantity = Number(component.quantity) * Number(it.quantity);
+              if (!(quantity > 0)) throw new Error('Combo component quantities must be greater than zero');
+              if (!component.trackInventory || !['stockable', 'consumable'].includes(component.productType)) continue;
+              const issueResult = await this.stock.issue({
+                productId: component.productId, locationId: warehouse.id, quantity,
+                uomId: component.uomId ?? undefined, reference: ref,
+                sourceType: 'pos_invoice_combo', sourceId: `${it.id}:${component.id}`,
+              } as any, tx);
+              if (invoiceItemId) await tx.invoiceItemRecipeIngredient.create({ data: {
+                organizationId: orgId, invoiceItemId, invoiceId: ctx.invoiceId,
+                productId: component.productId, quantity,
+                unitCost: Number(issueResult?.unitCost ?? 0), totalValue: Number(issueResult?.totalValue ?? 0),
+                variantMultiplier: 1, componentType: 'combo', componentId: component.id,
+              } });
+            }
+          } else if (it.menuItemId) {
+            await this.issueMenuItemRecipe(it.menuItemId, Number(it.quantity), warehouse.id, ctx, tx, it.variantId ?? null, invoiceItemId, recipeSnapshots[it.id]);
           } else if (it.productId) {
             const product = await db.product.findFirst({ where: { id: it.productId } });
             if (product?.trackInventory && (product.productType === 'stockable' || product.productType === 'consumable')) {
@@ -1280,25 +1353,28 @@ export class PosInvoiceService {
   /** Issue a menu item's recipe BOM, all ingredients or none: any failure throws
    *  and the caller rolls the line back to its savepoint and records it.
    *  @param invoiceItemId - the InvoiceItem id for recipe snapshot capture */
-  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx, tx: any, variantId?: string | null, invoiceItemId?: string): Promise<number> {
+  private async issueMenuItemRecipe(menuItemId: string, lineQty: number, warehouseId: string, ctx: StockPostingCtx, tx: any, variantId?: string | null, invoiceItemId?: string, immutableSnapshot?: any): Promise<number> {
     const db = tx ?? this.prisma.client;
     const orgId = this.tenant.organizationId;
     const menuItem = await db.menuItem.findUnique({
       where: { id: menuItemId },
       select: { isInventoryTracked: true, name: true },
     });
-    if (!menuItem?.isInventoryTracked) return 0;
+    const tracked = immutableSnapshot?.kind === 'menu' ? Boolean(immutableSnapshot.tracked) : Boolean(menuItem?.isInventoryTracked);
+    if (!tracked) return 0;
     // F14 — a size variant can consume more (or less) of the base recipe. The
     // multiplier is independent of price: a "Large" priced +30% may still use
     // 1.5× the ingredients (or the same). Defaults to 1 when unset.
-    let recipeMultiplier = 1;
-    if (variantId) {
+    let recipeMultiplier = immutableSnapshot?.kind === 'menu' ? Number(immutableSnapshot.multiplier ?? 1) : 1;
+    if (immutableSnapshot?.kind !== 'menu' && variantId) {
       const variant = await db.menuItemVariant.findFirst({ where: { id: variantId, menuItemId }, select: { qtyMultiplier: true } });
       const m = variant?.qtyMultiplier != null ? Number(variant.qtyMultiplier) : 1;
       if (Number.isFinite(m) && m > 0) recipeMultiplier = m;
     }
     const effectiveLineQty = lineQty * recipeMultiplier;
-    const recipe = await db.menuProduct.findMany({ where: { menuItemId, organizationId: orgId } });
+    const recipe = immutableSnapshot?.kind === 'menu'
+      ? immutableSnapshot.ingredients
+      : await db.menuProduct.findMany({ where: { menuItemId, organizationId: orgId } });
     const reference = ctx.invoiceNumber;
     const ref = `POS bill ${reference}`;
 
@@ -1310,7 +1386,7 @@ export class PosInvoiceService {
     // for this item). Counts as one failure so the job's lastError reflects it.
     // Never blocks the sale.
     if ((recipe as any[]).length === 0) {
-      this.logger.warn(`[stock] menu item ${menuItemId} (${menuItem.name ?? ''}) is inventory-tracked but has no recipe on ${reference} — no COGS relieved (sale kept)`);
+      this.logger.warn(`[stock] menu item ${menuItemId} (${menuItem?.name ?? ''}) is inventory-tracked but has no recipe on ${reference} — no COGS relieved (sale kept)`);
       throw new Error('Menu item is inventory-tracked but has no recipe (BOM); COGS was not relieved. Add a recipe or turn off inventory tracking for this item.');
     }
 
@@ -1330,7 +1406,7 @@ export class PosInvoiceService {
           reference: ref,
           sourceType: 'menu_recipe',
           sourceId: ctx.invoiceId,
-          notes: `${menuItem.name ?? 'menu item'} → ${ref}`,
+          notes: `${menuItem?.name ?? 'menu item'} → ${ref}`,
         } as any, tx);
         // Capture recipe snapshot so historical COGS is preserved even if the
         // MenuProduct recipe changes later. Written atomically with the stock issue.
