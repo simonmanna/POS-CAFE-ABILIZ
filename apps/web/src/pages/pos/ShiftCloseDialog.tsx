@@ -1,21 +1,21 @@
 /**
  * Shift-close dialog — a three-step walk-through: Check → Count → Confirm.
  *
- * BLIND close is preserved: the cashier counts the drawer without ever seeing
- * the expected figure, and only learns the variance after the count is
- * committed. What changed is everything around that rule — readiness problems
- * are explained in plain language before the count starts, the numpad shows its
- * own arithmetic, and every server refusal is translated into a sentence that
- * says what to do next instead of echoing an API message.
+ * The closing amounts are visible from the first step: the expected drawer cash
+ * and every wallet/bank account figure are shown up front, so the cashier knows
+ * what the shift should finish with before sealing it. The count is therefore a
+ * verification against a known target rather than a blind guess; the drawer
+ * difference is still only revealed once the count is committed. What changed is
+ * everything around that rule — readiness problems are explained in plain
+ * language before the count starts, the numpad shows its own arithmetic, and
+ * every server refusal is translated into a sentence that says what to do next
+ * instead of echoing an API message.
  *
  * Provider balances are never RE-typed from scratch: the POS already knows what
  * it took into each wallet/bank account, so the confirm step shows opening,
  * received, refunds and the expected figure for every account. Confirming the
  * balance the provider actually shows is optional per account — blank means
  * "not checked", exactly as at shift open — and only then is a variance claimed.
- *
- * The drawer stays BLIND; wallet accounts do not, because their expected figure
- * is already visible on the Cash Register page all shift long.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -394,8 +394,36 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
           {/* ---------------------------------------------------------- check */}
           {step === 'check' ? (
             <>
+              {/* Closing amounts — shown up front so the cashier can see what the
+                  shift should finish with before anything is sealed. The drawer
+                  expected figure is exposed here by design, so the count is a
+                  verification against a known target rather than a blind guess. */}
+              {recon ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                    Closing amounts
+                  </p>
+                  <div className="mt-1.5 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-slate-700">Cash (drawer)</span>
+                      <span className="font-mono text-sm font-bold tabular-nums text-slate-900">
+                        {fmt(recon.report?.totals?.expectedCash)}
+                      </span>
+                    </div>
+                    {accountRows.map((row) => (
+                      <div key={row.accountId} className="flex items-center justify-between">
+                        <span className="truncate text-sm text-slate-700">{row.label}</span>
+                        <span className="font-mono text-sm font-bold tabular-nums text-slate-900">
+                          {fmt(row.expected)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
               {!recon ? (
-                <Notice tone="info" title="Checking this shift…">
+                <Notice tone="info" title="Checking this shift...">
                   <p>Looking for open orders, unpaid sales and stock still posting.</p>
                 </Notice>
               ) : ready ? (
@@ -439,10 +467,10 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
           {/* ---------------------------------------------------------- count */}
           {step === 'count' ? (
             <>
-              <Notice tone="info" title="Count first, compare after">
+              <Notice tone="info" title="Count to the expected figures">
                 <p>
-                  We keep the expected amount hidden until you commit — that is what makes the count worth
-                  something. You will see the difference on the next screen.
+                  The expected closing amounts were shown on the previous screen. Count what is actually
+                  there and enter it — the difference is shown when you confirm.
                 </p>
               </Notice>
 
