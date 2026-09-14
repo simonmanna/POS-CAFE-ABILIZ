@@ -21,6 +21,8 @@ export interface StockTransfer {
   status: string;
   notes: string | null;
   createdAt: string;
+  reversedAt?: string | null;
+  reversalReason?: string | null;
   items: StockTransferItem[];
 }
 
@@ -72,5 +74,20 @@ export function useApproveTransfer() {
       qc.invalidateQueries({ queryKey: ['inventory-ledger'] });
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed to approve transfer'),
+  });
+}
+
+export function useReverseTransfer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (v: { id: string; reason: string }) =>
+      (await api.post<StockTransfer>(`/inventory/transfers/${v.id}/reverse`, { reason: v.reason })).data,
+    onSuccess: (d) => {
+      notify.success(`${d.transferCode} reversed — stock moved back`);
+      for (const key of ['inventory-transfers', 'inventory-product-stock-levels', 'inventory-stats', 'inventory-ledger']) {
+        qc.invalidateQueries({ queryKey: [key] });
+      }
+    },
+    onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed to reverse transfer'),
   });
 }

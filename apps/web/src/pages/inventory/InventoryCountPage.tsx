@@ -180,8 +180,10 @@ export function InventoryCountPage() {
   }, [sheet.data]);
 
   const start = useMutation({
-    mutationFn: async () =>
-      (await api.post<CountSession>('/inventory/counts/start', { locationId, countType })).data,
+    // restart=true discards an open draft that already has counts; without it
+    // the API resumes that draft instead of wiping a colleague's work.
+    mutationFn: async (restart: boolean = false) =>
+      (await api.post<CountSession>('/inventory/counts/start', { locationId, countType, ...(restart ? { restart: true } : {}) })).data,
     onSuccess: (s) => {
       loadSession(s);
       qc.invalidateQueries({ queryKey: ['inventory-count-sheet'] });
@@ -378,11 +380,20 @@ export function InventoryCountPage() {
               </div>
               <div className="flex items-end">
                 {isDraft ? (
-                  <div className="w-full rounded-md border border-emerald-600/30 bg-emerald-600/10 px-3 py-2 text-sm">
-                    Counting <span className="font-medium">{session?.countCode}</span> — enter actual quantities below.
+                  <div className="flex w-full items-center justify-between gap-2 rounded-md border border-emerald-600/30 bg-emerald-600/10 px-3 py-2 text-sm">
+                    <span>Counting <span className="font-medium">{session?.countCode}</span> — enter actual quantities below.</span>
+                    <Button
+                      size="sm" variant="ghost" className="h-7 shrink-0 text-xs"
+                      disabled={start.isPending}
+                      onClick={() => {
+                        if (window.confirm(`Discard ${session?.countCode ?? 'this count'} and every quantity entered so far, and start a fresh sheet?`)) start.mutate(true);
+                      }}
+                    >
+                      Start over
+                    </Button>
                   </div>
                 ) : (
-                  <Button className="w-full" disabled={!locationId || start.isPending || locations.isLoading} onClick={() => start.mutate()}>
+                  <Button className="w-full" disabled={!locationId || start.isPending || locations.isLoading} onClick={() => start.mutate(false)}>
                     <Play className="mr-2 h-4 w-4" />
                     {start.isPending ? 'Starting…' : locations.isLoading ? 'Loading locations…' : 'Start Count'}
                   </Button>

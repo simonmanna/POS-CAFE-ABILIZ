@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { Plus, Trash2, Save, CheckCircle2, XCircle, Eye, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Save, CheckCircle2, XCircle, Eye, RefreshCw, Undo2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useStaffOptions } from '@/features/inventory/staff-options';
+import { ReasonDialog, isStockDriftError } from '@/features/inventory/reason-dialog';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -33,6 +34,7 @@ interface AdjustmentRow {
   location: { id: string; code: string; name: string } | null;
   items: AdjustmentItem[];
   approvedAt: string | null; postedAt: string | null;
+  reversedAt?: string | null; reversalReason?: string | null;
 }
 
 interface DraftLine {
@@ -61,6 +63,7 @@ const STATUS_COLORS: Record<string, string> = {
   completed: 'bg-emerald-100 text-emerald-700',
   rejected: 'bg-red-100 text-red-700',
   cancelled: 'bg-red-100 text-red-700',
+  reversed: 'bg-slate-200 text-slate-700',
 };
 const STATUS_LABELS: Record<string, string> = { completed: 'posted' };
 
@@ -78,6 +81,9 @@ export function StockAdjustmentsPage() {
   const [responsibleId, setResponsibleId] = useState('');
   const [approvedId, setApprovedId] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
+  // Approval refused because stock moved since the adjustment was created.
+  const [drift, setDrift] = useState<{ id: string; code: string; lines: string[] } | null>(null);
+  const [reversing, setReversing] = useState<AdjustmentRow | null>(null);
 
   const staffOptionsQuery = useStaffOptions();
   const staffOptions = staffOptionsQuery.data ?? [];
@@ -174,9 +180,27 @@ export function StockAdjustmentsPage() {
   });
 
   const approve = useMutation({
-    mutationFn: async (id: string) => (await api.post<AdjustmentRow>(`/inventory/adjustments/${id}/approve`)).data,
-    onSuccess: (d) => { notify.success(`${d.adjCode} posted — stock updated`); setViewing(null); invalidateStock(); },
-    onError: (e: any) => notify.error(errMsg(e, 'Posting failed')),
+    mutationFn: async (v: { id: string; forceReason?: string }) =>
+      (await api.post<AdjustmentRow>(
+        `/inventory/adjustments/${v.id}/approve`,
+        v.forceReason ? { force: true, forceReason: v.forceReason } : {},
+      )).data,
+    onSuccess: (d) => { notify.success(`${d.adjCode} posted — stock updated`); setViewing(null); setDrift(null); invalidateStock(); },
+    onError: (e: any, v) => {
+      if (isStockDriftError(e)) {
+        const row = adjustments.data?.find((a) => a.id === v.id);
+        setDrift({ id: v.id, code: row?.adjCode ?? '', lines: e.response.data.drifted ?? [] });
+        return;
+      }
+      notify.error(errMsg(e, 'Posting failed'));
+    },
+  });
+
+  const reverse = useMutation({
+    mutationFn: async (v: { id: string; reason: string }) =>
+      (await api.post<AdjustmentRow>(`/inventory/adjustments/${v.id}/reverse`, { reason: v.reason })).data,
+    onSuccess: (d) => { notify.success(`${d.adjCode} reversed — stock and journals restored`); setReversing(null); setViewing(null); invalidateStock(); },
+    onError: (e: any) => notify.error(errMsg(e, 'Reversal failed')),
   });
 
   const cancel = useMutation({
@@ -211,6 +235,7 @@ export function StockAdjustmentsPage() {
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="completed">Posted</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
+              <SelectItem value="reversed">Reversed</SelectItem>
             </SelectContent>
           </Select>
           <Button onClick={() => { resetForm(); setShowForm(true); }}>
@@ -269,7 +294,7 @@ export function StockAdjustmentsPage() {
                         {isPending(adj.status) && (
                           <>
                             <Button size="icon" variant="ghost" className="h-7 w-7" title="Approve & post"
-                              disabled={approve.isPending} onClick={() => approve.mutate(adj.id)}>
+                              disabled={approve.isPending} onClick={() => approve.mutate({ id: adj.id })}>
                               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                             </Button>
                             <Button size="icon" variant="ghost" className="h-7 w-7" title="Cancel"
@@ -278,6 +303,12 @@ export function StockAdjustmentsPage() {
                               <XCircle className="h-4 w-4 text-destructive" />
                             </Button>
                           </>
+                        )}
+                        {adj.status === 'completed' && (
+                          <Button size="icon" variant="ghost" className="h-7 w-7" title="Reverse posted adjustment"
+                            disabled={reverse.isPending} onClick={() => setReversing(adj)}>
+                            <Undo2 className="h-4 w-4 text-slate-600" />
+                          </Button>
                         )}
                       </div>
                     </td>
@@ -465,6 +496,9 @@ export function StockAdjustmentsPage() {
                 <div><span className="text-muted-foreground">Status: </span>{STATUS_LABELS[viewing.status] ?? viewing.status}</div>
                 {viewing.postedAt && <div><span className="text-muted-foreground">Posted: </span>{dateTime(viewing.postedAt)}</div>}
                 {viewing.notes && <div className="col-span-2"><span className="text-muted-foreground">Notes: </span>{viewing.notes}</div>}
+                {viewing.reversedAt && (
+                  <div className="col-span-2"><span className="text-muted-foreground">Reversed: </span>{dateTime(viewing.reversedAt)}{viewing.reversalReason ? ` — ${viewing.reversalReason}` : ''}</div>
+                )}
               </div>
               <div className="overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">
@@ -505,16 +539,56 @@ export function StockAdjustmentsPage() {
                       onClick={() => { if (window.confirm(`Cancel ${viewing.adjCode}?`)) cancel.mutate(viewing.id); }}>
                       <XCircle className="mr-2 h-4 w-4" />Cancel Adjustment
                     </Button>
-                    <Button disabled={approve.isPending} onClick={() => approve.mutate(viewing.id)}>
+                    <Button disabled={approve.isPending} onClick={() => approve.mutate({ id: viewing.id })}>
                       <CheckCircle2 className="mr-2 h-4 w-4" />{approve.isPending ? 'Posting…' : 'Approve & Post'}
                     </Button>
                   </>
+                )}
+                {viewing.status === 'completed' && (
+                  <Button variant="outline" onClick={() => setReversing(viewing)}>
+                    <Undo2 className="mr-2 h-4 w-4" />Reverse
+                  </Button>
                 )}
               </DialogFooter>
             </>
           )}
         </DialogContent>
       </Dialog>
+
+      <ReasonDialog
+        open={!!drift}
+        onOpenChange={(o) => { if (!o) setDrift(null); }}
+        title={`Stock moved since ${drift?.code ?? 'this adjustment'} was created`}
+        description={
+          <>
+            <p>Sales or receipts changed these quantities after the count was entered. Posting now sets them to the counted figures and books the difference as variance.</p>
+            {drift && drift.lines.length > 0 && (
+              <ul className="list-disc space-y-0.5 pl-5 text-xs">
+                {drift.lines.slice(0, 8).map((l) => <li key={l}>{l}</li>)}
+                {drift.lines.length > 8 && <li>…and {drift.lines.length - 8} more</li>}
+              </ul>
+            )}
+            <p>Safer: cancel it and create a fresh adjustment. Or post anyway with a reason.</p>
+          </>
+        }
+        confirmLabel="Post anyway"
+        pendingLabel="Posting…"
+        pending={approve.isPending}
+        placeholder="e.g. Recounted the shelf after the sales — counted figures are correct"
+        onConfirm={(reason) => drift && approve.mutate({ id: drift.id, forceReason: reason })}
+      />
+
+      <ReasonDialog
+        open={!!reversing}
+        onOpenChange={(o) => { if (!o) setReversing(null); }}
+        title={`Reverse ${reversing?.adjCode ?? ''}`}
+        description={<p>Posts the opposite stock movement and journal entries today. The original stays on record, marked reversed.</p>}
+        confirmLabel="Reverse adjustment"
+        pendingLabel="Reversing…"
+        destructive
+        pending={reverse.isPending}
+        onConfirm={(reason) => reversing && reverse.mutate({ id: reversing.id, reason })}
+      />
     </div>
   );
 }

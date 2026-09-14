@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { RefreshCw, Package, DollarSign, BarChart3 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,7 +23,7 @@ export function InventoryValuationPage() {
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
           <h1 className="text-3xl font-bold tracking-tight text-gray-900">Inventory Valuation</h1>
-          <p className="text-sm text-gray-500">Stock value by product, category, and valuation account.</p>
+          <p className="text-sm text-gray-500">Stock value by product and category. Compare it with the GL on <Link to="/inventory-gl-tieout" className="text-primary hover:underline">Inventory ↔ GL</Link>.</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching} className="gap-1.5">
           <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? 'animate-spin' : ''}`} /> Refresh
@@ -76,7 +77,8 @@ export function InventoryValuationPage() {
           </CardTitle>
           {data && (
             <span className="text-[10px] text-muted-foreground">
-              As of {format(new Date(data.asOf), 'MMM d, yyyy')}
+              As of {format(new Date(data.asOf), 'MMM d, yyyy')} ·{' '}
+              {data.basis === 'ledger' ? 'rebuilt from the stock ledger' : 'on-hand × running average'}
             </span>
           )}
         </CardHeader>

@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Plus, Trash2, Save } from 'lucide-react';
+import { Plus, Trash2, Save, Undo2 } from 'lucide-react';
+import { ReasonDialog } from '@/features/inventory/reason-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,7 +17,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useStaffOptions } from '@/features/inventory/staff-options';
 import { api } from '@/lib/api';
 import { dateTime } from '@/lib/format';
-import { useTransfers, useCreateTransfer, useApproveTransfer } from '@/features/inventory/transfers-api';
+import { useTransfers, useCreateTransfer, useApproveTransfer, useReverseTransfer } from '@/features/inventory/transfers-api';
 
 interface Location { id: string; code: string; name: string }
 interface Product { id: string; code: string; name: string }
@@ -33,6 +34,7 @@ const STATUS_COLORS: Record<string, string> = {
   pending: 'bg-amber-100 text-amber-700',
   completed: 'bg-green-100 text-green-700',
   cancelled: 'bg-red-100 text-red-700',
+  reversed: 'bg-slate-200 text-slate-700',
 };
 
 export function StockTransfersPage() {
@@ -50,6 +52,8 @@ export function StockTransfersPage() {
   const { data: transfers, isLoading } = useTransfers();
   const createTransfer = useCreateTransfer();
   const approveTransfer = useApproveTransfer();
+  const reverseTransfer = useReverseTransfer();
+  const [reversing, setReversing] = useState<{ id: string; code: string } | null>(null);
 
   const staffOptionsQuery = useStaffOptions();
   const staffOptions = staffOptionsQuery.data ?? [];
@@ -160,6 +164,12 @@ export function StockTransfersPage() {
                       {tr.status === 'pending' && (
                         <Button size="sm" variant="outline" onClick={() => approveTransfer.mutate(tr.id)} disabled={approveTransfer.isPending}>
                           {approveTransfer.isPending ? '…' : 'Approve'}
+                        </Button>
+                      )}
+                      {tr.status === 'completed' && (
+                        <Button size="sm" variant="ghost" title="Reverse posted transfer"
+                          onClick={() => setReversing({ id: tr.id, code: tr.transferCode })} disabled={reverseTransfer.isPending}>
+                          <Undo2 className="mr-1 h-3.5 w-3.5" />Reverse
                         </Button>
                       )}
                     </td>
@@ -309,6 +319,18 @@ export function StockTransfersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ReasonDialog
+        open={!!reversing}
+        onOpenChange={(o) => { if (!o) setReversing(null); }}
+        title={`Reverse ${reversing?.code ?? ''}`}
+        description={<p>Moves the transferred quantities back to the source location today. It fails if the destination no longer holds them.</p>}
+        confirmLabel="Reverse transfer"
+        pendingLabel="Reversing…"
+        destructive
+        pending={reverseTransfer.isPending}
+        onConfirm={(reason) => reversing && reverseTransfer.mutate({ id: reversing.id, reason }, { onSuccess: () => setReversing(null) })}
+      />
     </div>
   );
 }

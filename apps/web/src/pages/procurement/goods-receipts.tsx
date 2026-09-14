@@ -25,9 +25,10 @@ const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
   posted: 'Posted',
   cancelled: 'Cancelled',
+  reversed: 'Reversed',
 };
 
-const STATUS_FILTERS = ['all', 'draft', 'posted', 'cancelled'] as const;
+const STATUS_FILTERS = ['all', 'draft', 'posted', 'cancelled', 'reversed'] as const;
 
 export function GoodsReceiptsPage() {
   const navigate = useNavigate();

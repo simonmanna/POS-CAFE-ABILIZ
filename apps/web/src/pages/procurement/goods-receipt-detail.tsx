@@ -1,6 +1,11 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Undo2 } from 'lucide-react';
+import { idempotentPatch } from '@/lib/idempotent-request';
+import { notify } from '@/lib/notify';
+import { useAuthStore } from '@/stores/auth.store';
+import { ReasonDialog } from '@/features/inventory/reason-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -41,7 +46,9 @@ interface GRNPartner {
 interface GRNDetail {
   id: string;
   receiptNumber: string;
-  status: 'draft' | 'posted' | 'cancelled';
+  status: 'draft' | 'posted' | 'cancelled' | 'reversed';
+  reversedAt?: string | null;
+  reversalReason?: string | null;
   receivedAt: string;
   notes: string | null;
   postedAt: string | null;
@@ -58,22 +65,51 @@ const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
   posted: 'Posted',
   cancelled: 'Cancelled',
+  reversed: 'Reversed',
 };
 
 const BADGE_VARIANTS: Record<string, 'default' | 'secondary' | 'destructive'> = {
   draft: 'secondary',
   posted: 'default',
   cancelled: 'destructive',
+  reversed: 'secondary',
 };
 
 export default function GoodsReceiptDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
+  const qc = useQueryClient();
+  const has = useAuthStore((s) => s.hasPermission);
+  const [reversing, setReversing] = useState(false);
+
   const { data: grn, isLoading } = useQuery<GRNDetail>({
     queryKey: ['goods-receipt', id],
     queryFn: async () => (await api.get<GRNDetail>(`/procurement/goods-receipts/${id}`)).data,
     enabled: !!id,
+  });
+
+  const refresh = () => {
+    for (const key of ['goods-receipt', 'goods-receipts', 'inventory-product-stock-levels', 'inventory-ledger', 'purchase-orders']) {
+      qc.invalidateQueries({ queryKey: [key] });
+    }
+  };
+  const errText = (e: any, fallback: string) => {
+    const m = e?.response?.data?.message;
+    return Array.isArray(m) ? m.join(', ') : (m ?? fallback);
+  };
+
+  const post = useMutation({
+    mutationFn: async () => await idempotentPatch<GRNDetail>(`/procurement/goods-receipts/${id}/post`),
+    onSuccess: () => { notify.success('Goods receipt posted — stock received'); refresh(); },
+    onError: (e: any) => notify.error(errText(e, 'Posting failed')),
+  });
+
+  const reverse = useMutation({
+    mutationFn: async (reason: string) =>
+      await idempotentPatch<GRNDetail>(`/procurement/goods-receipts/${id}/reverse`, { reason }),
+    onSuccess: () => { notify.success('Goods receipt reversed — stock returned and journals reversed'); setReversing(false); refresh(); },
+    onError: (e: any) => notify.error(errText(e, 'Reversal failed')),
   });
 
   if (isLoading) {
@@ -150,7 +186,24 @@ export default function GoodsReceiptDetailPage() {
         </button>
         <span className="text-sky-300">/</span>
         <span className="font-mono text-sm text-sky-900 font-semibold">{grn.receiptNumber}</span>
+        <div className="ml-auto flex gap-2">
+          {grn.status === 'draft' && has('goods_receipt:post') && (
+            <Button size="sm" disabled={post.isPending} onClick={() => post.mutate()}>
+              <CheckCircle2 className="mr-1.5 h-4 w-4" />{post.isPending ? 'Posting…' : 'Post receipt'}
+            </Button>
+          )}
+          {grn.status === 'posted' && has('goods_receipt:cancel') && (
+            <Button size="sm" variant="outline" disabled={reverse.isPending} onClick={() => setReversing(true)}>
+              <Undo2 className="mr-1.5 h-4 w-4" />Reverse
+            </Button>
+          )}
+        </div>
       </div>
+      {grn.reversedAt && (
+        <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
+          Reversed {date(grn.reversedAt)}{grn.reversalReason ? ` — ${grn.reversalReason}` : ''}. Stock was returned and the receipt's journals were reversed.
+        </div>
+      )}
 
       <div className="rounded-t-lg bg-gradient-to-r from-sky-400 to-sky-500 px-6 py-3 flex items-center justify-between shadow-sm">
         <h1 className="text-white font-bold text-base tracking-wide">GOODS RECEIPT NOTE</h1>
@@ -287,6 +340,23 @@ export default function GoodsReceiptDetailPage() {
           </div>
         </div>
       </div>
+
+      <ReasonDialog
+        open={reversing}
+        onOpenChange={setReversing}
+        title={`Reverse ${grn.receiptNumber}`}
+        description={
+          <>
+            <p>Returns the received quantities out of stock, reverses the receipt's journal entries (inventory, GRNI and any supplier payable) today, and rolls the purchase order back.</p>
+            <p>Not possible once a vendor bill or payment exists — use a debit note for supplier returns.</p>
+          </>
+        }
+        confirmLabel="Reverse receipt"
+        pendingLabel="Reversing…"
+        destructive
+        pending={reverse.isPending}
+        onConfirm={(reason) => reverse.mutate(reason)}
+      />
     </div>
   );
 }

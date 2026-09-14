@@ -786,6 +786,8 @@ export interface InventoryValuationItem {
 
 export interface InventoryValuationResult {
   asOf: string;
+  /** current_cost = on-hand × running average; ledger = rebuilt from the stock ledger up to asOf. */
+  basis: 'current_cost' | 'ledger';
   items: InventoryValuationItem[];
   summary: { totalItems: number; totalValue: string; totalQty: number };
   groupedBy: string;
@@ -796,6 +798,28 @@ export function useInventoryValuation(asOf?: string) {
     queryKey: ['inventory-valuation', asOf],
     queryFn: async () =>
       (await api.get<InventoryValuationResult>('/reports/inventory/valuation', { params: asOf ? { asOf } : {} })).data,
+  });
+}
+
+export interface InventoryGlTieOut {
+  asOf: string;
+  accounts: { id: string; code: string; name: string }[];
+  subledgerValue: number;
+  subledgerBasis?: 'current_cost' | 'ledger';
+  glBalance: number;
+  variance: number;
+  tolerance: number;
+  withinTolerance: boolean;
+  bySource: { source: string; ledgerValue: number; glValue: number; difference: number }[];
+  unpostedMovements: { source: string; moveType: string; rows: number; value: number }[];
+  warning?: string;
+}
+
+export function useInventoryGlTieOut(asOf?: string) {
+  return useQuery({
+    queryKey: ['inventory-gl-tieout', asOf],
+    queryFn: async () =>
+      (await api.get<InventoryGlTieOut>('/reports/inventory/gl-tieout', { params: asOf ? { asOf } : {} })).data,
   });
 }
 

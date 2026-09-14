@@ -2,8 +2,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
-  Plus, Trash2, Save, CheckCircle2, XCircle, Eye, AlertTriangle, PackageX, Clock, CalendarX, BookOpen,
+  Plus, Trash2, Save, CheckCircle2, XCircle, Eye, AlertTriangle, PackageX, Clock, CalendarX, BookOpen, Undo2,
 } from 'lucide-react';
+import { ReasonDialog } from '@/features/inventory/reason-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,6 +36,7 @@ interface WasteItem {
 interface WasteRow {
   id: string; wasteCode: string; createdAt: string; category: string; status: string; notes: string | null;
   totalValue: string | number; postedAt: string | null; approvedAt: string | null;
+  reversedAt?: string | null; reversalReason?: string | null;
   location: { id: string; code: string; name: string } | null;
   items: WasteItem[];
 }
@@ -82,6 +84,7 @@ const STATUS_COLORS: Record<string, string> = {
   completed: 'bg-emerald-100 text-emerald-700',
   rejected: 'bg-red-100 text-red-700',
   cancelled: 'bg-red-100 text-red-700',
+  reversed: 'bg-slate-200 text-slate-700',
 };
 const STATUS_LABELS: Record<string, string> = { completed: 'posted' };
 const isPending = (s: string) => s === 'pending' || s === 'draft';
@@ -239,6 +242,14 @@ export function WastePage() {
     onError: (e: any) => notify.error(errMsg(e, 'Posting failed')),
   });
 
+  const [reversing, setReversing] = useState<{ id: string; code: string } | null>(null);
+  const reverse = useMutation({
+    mutationFn: async (v: { id: string; reason: string }) =>
+      (await api.post<WasteRow>(`/inventory/waste/${v.id}/reverse`, { reason: v.reason })).data,
+    onSuccess: (d) => { notify.success(`${d.wasteCode} reversed — stock restored and write-off undone`); setReversing(null); invalidate(); },
+    onError: (e: any) => notify.error(errMsg(e, 'Reversal failed')),
+  });
+
   const cancel = useMutation({
     mutationFn: async (id: string) => (await api.post<WasteRow>(`/inventory/waste/${id}/cancel`)).data,
     onSuccess: (d) => { notify.success(`${d.wasteCode} cancelled`); invalidate(); },
@@ -314,6 +325,7 @@ export function WastePage() {
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="completed">Posted</SelectItem>
               <SelectItem value="cancelled">Cancelled</SelectItem>
+              <SelectItem value="reversed">Reversed</SelectItem>
             </SelectContent>
           </Select>
         )}
@@ -394,6 +406,12 @@ export function WastePage() {
                                 <XCircle className="h-4 w-4 text-destructive" />
                               </Button>
                             </>
+                          )}
+                          {canApprove && r.status === 'completed' && (
+                            <Button size="icon" variant="ghost" className="h-7 w-7" title="Reverse posted write-off"
+                              disabled={reverse.isPending} onClick={() => setReversing({ id: r.id, code: r.wasteCode })}>
+                              <Undo2 className="h-4 w-4 text-slate-600" />
+                            </Button>
                           )}
                         </div>
                       </td>
@@ -663,6 +681,9 @@ export function WastePage() {
                   {d.postedAt && <div><span className="text-muted-foreground">Posted: </span>{dateTime(d.postedAt)}</div>}
                   <div><span className="text-muted-foreground">{isPending(d.status) ? 'Estimated value: ' : 'Value: '}</span><span className="font-semibold">{formatMoney(Number(d.totalValue))}</span></div>
                   {d.notes && <div className="sm:col-span-2"><span className="text-muted-foreground">Notes: </span>{d.notes}</div>}
+                  {d.reversedAt && (
+                    <div className="sm:col-span-2"><span className="text-muted-foreground">Reversed: </span>{dateTime(d.reversedAt)}{d.reversalReason ? ` — ${d.reversalReason}` : ''}</div>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto rounded-md border">
@@ -735,12 +756,29 @@ export function WastePage() {
                       </Button>
                     </>
                   )}
+                  {canApprove && d.status === 'completed' && (
+                    <Button variant="outline" onClick={() => setReversing({ id: d.id, code: d.wasteCode })}>
+                      <Undo2 className="mr-2 h-4 w-4" />Reverse
+                    </Button>
+                  )}
                 </DialogFooter>
               </>
             );
           })()}
         </DialogContent>
       </Dialog>
+
+      <ReasonDialog
+        open={!!reversing}
+        onOpenChange={(o) => { if (!o) setReversing(null); }}
+        title={`Reverse ${reversing?.code ?? ''}`}
+        description={<p>Puts the written-off stock back at its original cost and posts the opposite journal entries today. The original record stays, marked reversed.</p>}
+        confirmLabel="Reverse write-off"
+        pendingLabel="Reversing…"
+        destructive
+        pending={reverse.isPending}
+        onConfirm={(reason) => reversing && reverse.mutate({ id: reversing.id, reason })}
+      />
     </div>
   );
 }

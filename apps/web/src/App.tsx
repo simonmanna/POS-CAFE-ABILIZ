@@ -67,6 +67,7 @@ import FiscalPositionsPage from '@/pages/accounting/fiscal-positions';
 import { CostCentersPage } from '@/pages/accounting/cost-centers';
 import { CurrencyPage } from '@/pages/accounting/currency';
 import { InventoryValuationPage } from '@/pages/accounting/inventory-valuation';
+import { InventoryGlTieOutPage } from '@/pages/accounting/inventory-gl-tieout';
 import { YearEndClosePage } from '@/pages/accounting/year-end-close';
 import { TrialBalancePage } from '@/pages/accounting/trial-balance';
 import { DetailedAccountingReportPage } from '@/pages/accounting/detailed-report';
@@ -284,6 +285,7 @@ export function App() {
           <Route path="/cost-centers" element={<CostCentersPage />} />
           <Route path="/currency" element={<CurrencyPage />} />
           <Route path="/inventory-valuation" element={<InventoryValuationPage />} />
+          <Route path="/inventory-gl-tieout" element={<InventoryGlTieOutPage />} />
           <Route path="/year-end-close" element={<YearEndClosePage />} />
           <Route path="/balance-sheet" element={<BalanceSheetPage />} />
           <Route path="/reports" element={<ReportCenterPage />} />
