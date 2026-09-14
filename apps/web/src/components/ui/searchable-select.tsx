@@ -126,7 +126,7 @@ export function SearchableSelect({
           (e.currentTarget as HTMLElement).querySelector('input')?.focus();
         }}
       >
-        <div className="flex items-center gap-2 border-b px-3">
+        <div className="flex items-center gap-2 border-b px-3 bg-popover">
           <Search className="h-4 w-4 shrink-0 opacity-50" />
           <input
             value={query}
@@ -137,7 +137,7 @@ export function SearchableSelect({
           />
         </div>
 
-        <div ref={listRef} className="max-h-64 overflow-y-auto p-1">
+        <div ref={listRef} className="max-h-64 overflow-y-auto p-1 bg-popover">
           {filtered.length === 0 && (
             <div className="px-3 py-6 text-center text-sm text-muted-foreground">{emptyText}</div>
           )}
@@ -150,7 +150,7 @@ export function SearchableSelect({
               onMouseEnter={() => setActiveIndex(idx)}
               onClick={() => pick(option)}
               className={cn(
-                'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none disabled:pointer-events-none disabled:opacity-50',
+                'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm outline-none disabled:pointer-events-none disabled:opacity-50 bg-popover',
                 idx === activeIndex && 'bg-accent text-accent-foreground',
               )}
             >
