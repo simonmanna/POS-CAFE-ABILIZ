@@ -20,6 +20,8 @@ import { StockService } from './stock.service';
 import { StockDocService } from './stock-doc.service';
 import { InventoryQueryService } from './inventory-query.service';
 import { LedgerDetailService } from './ledger-detail.service';
+import { InventoryReportsService, type ReportScopeQuery } from './inventory-reports.service';
+import { InventoryRegisterService, type RegisterQuery } from './inventory-register.service';
 import { InventoryQueryDto } from './dto/inventory-query.dto';
 import { DirectStockService } from './direct-stock.service';
 import { DirectStockInDto, DirectStockOutDto, StockLedgerQueryDto } from './dto/direct-stock.dto';
@@ -43,6 +45,8 @@ export class InventoryController {
     private readonly queries: InventoryQueryService,
     private readonly directStock: DirectStockService,
     private readonly ledgerDetail: LedgerDetailService,
+    private readonly reports: InventoryReportsService,
+    private readonly registers: InventoryRegisterService,
   ) {}
 
   // ---- Locations ----
@@ -167,14 +171,14 @@ export class InventoryController {
 
   @Get('reports/expiring')
   @RequirePermissions(PERMISSIONS.inventory.read)
-  expiring(@Query() query: { days?: string; locationId?: string }) {
-    return this.queries.getExpiringBatches(query);
+  expiring(@Query() query: ReportScopeQuery & { days?: string }) {
+    return this.reports.expiring(query);
   }
 
   @Get('reports/reorder')
   @RequirePermissions(PERMISSIONS.inventory.read)
-  reorder(@Query() query: { locationId?: string }) {
-    return this.queries.getReorderSuggestions(query);
+  reorder(@Query() query: ReportScopeQuery) {
+    return this.reports.reorder(query);
   }
 
   @Get('reports/movements')
@@ -184,32 +188,40 @@ export class InventoryController {
   }
 
   /**
-   * Item movement summary report — per item: Qty Before (opening), Qty In,
-   * Qty Out and Balance over the selected window. Optional filters: location,
-   * single item, product category, paging.
+   * Item movement summary (stock card summary) — per item: opening, in, out,
+   * closing qty, inbound/outbound value and closing value over local-day
+   * [start, end]. Filters: location, item, category (incl. sub-categories),
+   * search, move types, includeIdle, excludeTransfers.
    */
   @Get('reports/item-movements')
   @RequirePermissions(PERMISSIONS.inventory.read)
-  itemMovements(
-    @Query() query: {
-      start?: string;
-      end?: string;
-      locationId?: string;
-      productId?: string;
-      categoryId?: string;
-      page?: string;
-      pageSize?: string;
-    },
-  ) {
-    return this.queries.getItemMovementSummary({
-      start: query.start,
-      end: query.end,
-      locationId: query.locationId,
-      productId: query.productId,
-      categoryId: query.categoryId,
-      page: query.page != null ? Number(query.page) : undefined,
-      pageSize: query.pageSize != null ? Number(query.pageSize) : undefined,
-    });
+  itemMovements(@Query() query: ReportScopeQuery & { includeIdle?: string; excludeTransfers?: string }) {
+    return this.reports.itemMovements(query);
+  }
+
+  /** Current on-hand valuation per item, with stock-status filter and category breakdown. */
+  @Get('reports/valuation')
+  @RequirePermissions(PERMISSIONS.inventory.read)
+  valuation(@Query() query: ReportScopeQuery & { status?: string; includeZero?: string }) {
+    return this.reports.valuation(query);
+  }
+
+  /** Movement analysis — totals by move type, daily in/out trend, top consumed/lost/received items. */
+  @Get('reports/movement-analysis')
+  @RequirePermissions(PERMISSIONS.inventory.read)
+  movementAnalysis(@Query() query: ReportScopeQuery) {
+    return this.reports.movementAnalysis(query);
+  }
+
+  /**
+   * Movement registers with analytics: stock_in | stock_out | damages |
+   * adjustments | transfers. Line register + summary with previous-period
+   * comparison, trend, and breakdowns by item/category/location/source/reason/staff.
+   */
+  @Get('reports/register/:kind')
+  @RequirePermissions(PERMISSIONS.inventory.read)
+  movementRegister(@Param('kind') kind: string, @Query() query: RegisterQuery) {
+    return this.registers.register(kind, query);
   }
 
   @Get('reports/reconciliation')
@@ -232,8 +244,8 @@ export class InventoryController {
    */
   @Get('reports/negative-stock')
   @RequirePermissions(PERMISSIONS.inventory.read)
-  negativeStock(@Query() query: { locationId?: string }) {
-    return this.queries.getNegativeStock({ locationId: query.locationId });
+  negativeStock(@Query() query: ReportScopeQuery) {
+    return this.reports.negativeStock(query);
   }
 
   // ---- F.8 Stock documents: StockOut ----

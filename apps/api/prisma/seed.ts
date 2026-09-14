@@ -411,23 +411,45 @@ async function main(): Promise<void> {
       });
 
       // Opening stock for stockable items.
+      // Written ONCE, with a matching opening_balance ledger row: stock without a
+      // ledger row breaks every ledger-based report, and re-running the seed must
+      // never overwrite live on-hand quantities.
       if (p.trackInventory && p.stock > 0) {
-        await prisma.stockItem.upsert({
-          where: {
-            organizationId_productId_variantKey_locationId: {
-              organizationId: orgId, productId: product.id, variantKey: '', locationId: warehouseId,
+        const cellWhere = {
+          organizationId_productId_variantKey_locationId: {
+            organizationId: orgId, productId: product.id, variantKey: '', locationId: warehouseId,
+          },
+        };
+        const existingCell = await prisma.stockItem.findUnique({ where: cellWhere, select: { id: true } });
+        if (!existingCell) {
+          await prisma.stockItem.create({
+            data: {
+              organizationId: orgId,
+              productId: product.id,
+              variantKey: '',
+              locationId: warehouseId,
+              quantity: p.stock,
+              runningAverageCost: p.cost,
             },
-          },
-          update: { quantity: p.stock, runningAverageCost: p.cost },
-          create: {
-            organizationId: orgId,
-            productId: product.id,
-            variantKey: '',
-            locationId: warehouseId,
-            quantity: p.stock,
-            runningAverageCost: p.cost,
-          },
-        });
+          });
+          await prisma.inventoryLedger.create({
+            data: {
+              organizationId: orgId,
+              ledgerCode: 'STK/OPENING',
+              productId: product.id,
+              locationId: warehouseId,
+              type: 'opening_balance',
+              qtyBefore: 0,
+              quantityChange: p.stock,
+              balanceAfter: p.stock,
+              unitCost: p.cost,
+              totalValue: p.stock * p.cost,
+              referenceType: 'opening_balance',
+              referenceId: 'seed',
+              notes: 'Seeded opening stock',
+            },
+          });
+        }
       }
     }
 

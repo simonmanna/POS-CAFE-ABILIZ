@@ -8,6 +8,8 @@ import { StockService } from './stock.service';
 import { StockDocService } from './stock-doc.service';
 import { DirectStockService } from './direct-stock.service';
 import { InventoryQueryService } from './inventory-query.service';
+import { InventoryReportsService } from './inventory-reports.service';
+import { InventoryRegisterService } from './inventory-register.service';
 import { LedgerDetailService } from './ledger-detail.service';
 import { InventoryController } from './inventory.controller';
 import { InventoryCountService } from './inventory-count.service';
@@ -23,7 +25,7 @@ import { PostingRuleController } from './posting/posting-rule.http.controller';
 @Module({
   imports: [AccountingModule, ProductModule],
   controllers: [InventoryController, InventoryCountController, StockReservationController, PostingRuleController],
-  providers: [LocationService, StockService, StockDocService, DirectStockService, InventoryQueryService, LedgerDetailService, InventoryCountService, CostResolverService, StockPostingService, StockReservationService, InventoryPostingRuleService, InventoryPostingRuleControllerService],
+  providers: [LocationService, StockService, StockDocService, DirectStockService, InventoryQueryService, InventoryReportsService, InventoryRegisterService, LedgerDetailService, InventoryCountService, CostResolverService, StockPostingService, StockReservationService, InventoryPostingRuleService, InventoryPostingRuleControllerService],
   exports: [LocationService, StockService, StockDocService, DirectStockService, InventoryQueryService, LedgerDetailService, InventoryCountService, CostResolverService, StockPostingService, StockReservationService, InventoryPostingRuleService],
 })
 export class InventoryModule implements OnModuleInit {
