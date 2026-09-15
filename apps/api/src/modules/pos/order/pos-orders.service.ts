@@ -557,6 +557,7 @@ export class PosOrdersService {
             quantity: remaining,
             // Never let a later re-fire re-send what was just voided off.
             kitchenPrintedQty: row.kitchenPrintedQty == null ? null : Math.min(firedQty, remaining),
+            kotPrintedQty: Math.min(Number(row.kotPrintedQty ?? 0), remaining),
             voidedQty: Number(row.voidedQty ?? 0) + asked,
             cancelReason: reason,
             voidedBy: this.tenant.userId ?? null,
@@ -771,13 +772,12 @@ export class PosOrdersService {
     }
     await this.audit.record({ entity: 'Order', entityId: orderId, action: 'update' as any, newValues: { kind: 'fire_kitchen', tickets: ticketIds.length } });
 
-    // Paper KOT on the thermal printer mirrors the KDS ticket. Best-effort —
-    // printKotPaper never throws, so the fire succeeds even with the printer off.
-    const paper = await this.receipts.printKotPaper(
-      orderId,
-      deltas.map(({ item, delta }) => ({ line: item, delta })),
-    );
-
+    // Auto-send runs on every save and only feeds the KDS board; paper waits for
+    // an explicit fire or the KOT button. An explicit fire prints whatever is not
+    // yet on paper (tracked separately in kotPrintedQty, so a line the auto-send
+    // already put on the board still makes the first KOT). Never throws.
+    if (opts.onlyRouted) return { ticketIds, count: ticketIds.length };
+    const paper = await this.receipts.printKotDelta(orderId, this.tenant.userId ?? undefined);
     return { ticketIds, count: ticketIds.length, paperKot: paper.backend, kotNumber: paper.kotNumber };
   }
 

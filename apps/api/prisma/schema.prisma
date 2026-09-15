@@ -5824,6 +5824,10 @@ model OrderItem {
   kitchenPrintCount      Int                    @default(0)
   kitchenLastPrintedAt   DateTime?
   kitchenPrintedQty      Decimal?               @db.Decimal(20, 6)
+  /// Quantity already on a PAPER KOT. Independent of kitchenPrintedQty (KDS
+  /// dispatch, which auto-send stamps on every save): the first KOT prints the
+  /// whole order, additional KOTs print only quantity - kotPrintedQty.
+  kotPrintedQty          Decimal                @default(0) @db.Decimal(20, 6)
   /// Quantity already included on customer bill print(s). Additional bills
   /// print only quantity - billPrintedQty, so increasing an existing line by
   /// one cannot reprint the quantities shown on the first bill.

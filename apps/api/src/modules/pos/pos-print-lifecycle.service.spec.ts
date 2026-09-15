@@ -169,12 +169,12 @@ describe('PosPrintLifecycleService', () => {
   });
 
   describe('getKitchenDeltas', () => {
-    it('excludes previously printed quantities and returns only additions', async () => {
+    it('excludes quantities already on a paper KOT and returns only additions', async () => {
       const tx = mockTx();
       tx.orderItem.findMany.mockResolvedValue([
-        { id: 'same', quantity: 2, kitchenPrintedQty: 2, kitchenLastPrintedAt: new Date(), modifiers: [] },
-        { id: 'increased', quantity: 3, kitchenPrintedQty: 1, kitchenLastPrintedAt: new Date(), modifiers: [] },
-        { id: 'new', quantity: 1, kitchenPrintedQty: null, kitchenLastPrintedAt: null, modifiers: [] },
+        { id: 'same', quantity: 2, kotPrintedQty: 2, kitchenPrintedQty: 2, kitchenLastPrintedAt: new Date(), modifiers: [] },
+        { id: 'increased', quantity: 3, kotPrintedQty: 1, kitchenPrintedQty: 3, kitchenLastPrintedAt: new Date(), modifiers: [] },
+        { id: 'new', quantity: 1, kotPrintedQty: 0, kitchenPrintedQty: null, kitchenLastPrintedAt: null, modifiers: [] },
       ]);
 
       const delta = await svc.getKitchenDeltas(tx, 'ord-1');
@@ -184,6 +184,15 @@ describe('PosPrintLifecycleService', () => {
         { id: 'new', qty: 1 },
       ]);
       expect(delta.unchangedLines.map(({ line }) => line.id)).toEqual(['same']);
+    });
+
+    it('prints the whole order on the first KOT even when auto-send already put it on the KDS', async () => {
+      const tx = mockTx();
+      tx.orderItem.findMany.mockResolvedValue([
+        { id: 'auto-sent', quantity: 2, kotPrintedQty: 0, kitchenPrintedQty: 2, kitchenLastPrintedAt: new Date(), modifiers: [] },
+      ]);
+      const delta = await svc.getKitchenDeltas(tx, 'ord-1');
+      expect(delta.addLines.map(({ line, delta: qty }) => ({ id: line.id, qty }))).toEqual([{ id: 'auto-sent', qty: 2 }]);
     });
   });
 });

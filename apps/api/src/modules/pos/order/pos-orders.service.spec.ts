@@ -18,7 +18,7 @@ describe('PosOrdersService — fireKitchen (menu-item routing)', () => {
   let kds: any;
   let svc: PosOrdersService;
 
-  const receipts = { printKotPaper: jest.fn().mockResolvedValue({ ok: true, backend: 'console', kotNumber: 1 }) };
+  const receipts = { printKotDelta: jest.fn().mockResolvedValue({ ok: true, backend: 'console', kotNumber: 1 }) };
   // ADR-007 state machine. Status transitions are covered by pos.workflows.spec.ts;
   // here it only needs to not blow up so the KOT routing assertions can run.
   const workflows = { transition: jest.fn().mockResolvedValue({ fromState: 'confirmed', toState: 'in_progress' }) };

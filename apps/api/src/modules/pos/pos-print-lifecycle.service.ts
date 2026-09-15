@@ -168,9 +168,11 @@ export class PosPrintLifecycleService {
   /* ─────────── KOT deltas (open tab = Order + OrderItem) ─────────── */
 
   /**
-   * Compute kitchen deltas between an order's current item quantities and the
-   * last-printed quantities stored in `kitchenPrintedQty`. Used by the manual
-   * KOT-print endpoint. `line` is an OrderItem (carries its `modifiers`).
+   * Paper-KOT deltas: an order's current item quantities against what already
+   * appeared on a paper KOT (`kotPrintedQty`). Deliberately NOT compared with
+   * `kitchenPrintedQty` — that tracks KDS dispatch, which auto-send stamps on
+   * every save, so the first KOT would otherwise find "nothing new". Mirrors the
+   * bill's `billPrintedQty`. `line` is an OrderItem (carries its `modifiers`).
    */
   async getKitchenDeltas(tx: any, orderId: string): Promise<KitchenDelta> {
     const items = await tx.orderItem.findMany({
@@ -183,15 +185,15 @@ export class PosPrintLifecycleService {
     const unchangedLines: KitchenDelta['unchangedLines'] = [];
     for (const ln of items) {
       const currentQty = Number(ln.quantity);
-      const printedQty = ln.kitchenPrintedQty != null ? Number(ln.kitchenPrintedQty) : 0;
-      if (ln.kitchenLastPrintedAt == null) addLines.push({ line: ln, delta: currentQty });
-      else if (currentQty > printedQty) addLines.push({ line: ln, delta: currentQty - printedQty });
-      else if (currentQty < printedQty) removeLines.push({ line: ln, delta: printedQty - currentQty });
+      const printedQty = Number(ln.kotPrintedQty ?? 0);
+      if (currentQty > printedQty + 0.000001) addLines.push({ line: ln, delta: currentQty - printedQty });
+      else if (currentQty < printedQty - 0.000001) removeLines.push({ line: ln, delta: printedQty - currentQty });
       else unchangedLines.push({ line: ln });
     }
     return { addLines, removeLines, unchangedLines };
   }
 
+  /** Record that these lines' current quantities are now on a paper KOT. */
   async markKitchenPrinted(tx: any, itemIds: string[], qtyMap: Map<string, number>, userId?: string): Promise<void> {
     if (!itemIds.length) return;
     const now = new Date();
@@ -201,7 +203,7 @@ export class PosPrintLifecycleService {
     });
     for (const id of itemIds) {
       const qty = qtyMap.get(id);
-      if (qty != null) await tx.orderItem.update({ where: { id }, data: { kitchenPrintedQty: qty } });
+      if (qty != null) await tx.orderItem.update({ where: { id }, data: { kotPrintedQty: qty } });
     }
   }
 

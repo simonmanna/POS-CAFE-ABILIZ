@@ -557,6 +557,8 @@ export class PosService {
           // A-016: the terminal needs to know a line is already with the kitchen
           // — that line may only leave through the audited void route.
           kitchenPrintedQty: Number(it.kitchenPrintedQty ?? 0),
+          // Paper KOT progress — the terminal's KOT preview shows quantity - this.
+          kotPrintedQty: Number(it.kotPrintedQty ?? 0),
           billPrintedQty: Number(it.billPrintedQty ?? 0),
           kitchenStatus: it.kitchenStatus ?? 'pending',
           // Per-item attribution: who punched THIS line (may differ from the

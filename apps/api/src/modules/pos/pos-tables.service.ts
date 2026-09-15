@@ -179,7 +179,7 @@ export class PosTablesService {
     const oldItems = await tx.orderItem.findMany({
       where: { orderId },
       select: {
-        productId: true, kitchenPrintCount: true, kitchenLastPrintedAt: true, kitchenPrintedQty: true,
+        productId: true, kitchenPrintCount: true, kitchenLastPrintedAt: true, kitchenPrintedQty: true, kotPrintedQty: true,
         billPrintedQty: true, billLastPrintedAt: true, lastBillPrintedById: true,
         cancelPrintCount: true, cancelLastPrintedAt: true, lastKitchenPrintedById: true, kitchenStatus: true,
       },
@@ -211,6 +211,7 @@ export class PosTablesService {
           kitchenPrintCount: lc?.kitchenPrintCount ?? 0,
           kitchenLastPrintedAt: lc?.kitchenLastPrintedAt ?? null,
           kitchenPrintedQty: lc?.kitchenPrintedQty ?? null,
+          kotPrintedQty: lc?.kotPrintedQty ?? 0,
           billPrintedQty: lc?.billPrintedQty ?? 0,
           billLastPrintedAt: lc?.billLastPrintedAt ?? null,
           lastBillPrintedById: lc?.lastBillPrintedById ?? null,
@@ -1147,6 +1148,7 @@ export class PosTablesService {
     // matching is needed here — the mapping is exact.
       const srcLifecycle = new Map<string, any>();
       const firedRemaining = new Map<string, number>();
+      const kotRemaining = new Map<string, number>();
       for (const it of sourceOrder.items as any[]) {
         srcLifecycle.set(it.id, {
           kitchenPrintCount: it.kitchenPrintCount ?? 0,
@@ -1157,6 +1159,7 @@ export class PosTablesService {
           kitchenStatus: it.kitchenStatus ?? 'pending',
         });
         firedRemaining.set(it.id, Number(it.kitchenPrintedQty ?? 0));
+        kotRemaining.set(it.id, Number(it.kotPrintedQty ?? 0));
       }
 
       // Close the source tab link — it is about to be cancelled and replaced.
@@ -1229,12 +1232,17 @@ export class PosTablesService {
           const left = firedRemaining.get(sourceItemId!) ?? 0;
           const claimed = Math.min(Number(item.quantity), left);
           firedRemaining.set(sourceItemId!, left - claimed);
+          // Paper-KOT quantity splits the same way, so a child's next KOT stays additional.
+          const kotLeft = kotRemaining.get(sourceItemId!) ?? 0;
+          const kotClaimed = Math.min(Number(item.quantity), kotLeft);
+          kotRemaining.set(sourceItemId!, kotLeft - kotClaimed);
           await tx.orderItem.update({
             where: { id: item.id },
             data: {
               kitchenPrintCount: claimed > 0 ? lc.kitchenPrintCount : 0,
               kitchenLastPrintedAt: claimed > 0 ? lc.kitchenLastPrintedAt : null,
               kitchenPrintedQty: claimed > 0 ? claimed : null,
+              kotPrintedQty: kotClaimed,
               cancelPrintCount: lc.cancelPrintCount,
               cancelLastPrintedAt: lc.cancelLastPrintedAt,
               lastKitchenPrintedById: claimed > 0 ? lc.lastKitchenPrintedById : null,

@@ -961,49 +961,72 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
   }
 
   /**
-   * Print a paper KOT for already-computed kitchen deltas. Called by the
-   * fire-kitchen flow right after it creates the KDS tickets — the KDS decides
-   * WHAT fires; this puts the same delta on paper. Never throws: a kitchen
-   * fire must not fail because the printer is off.
+   * Print a paper KOT for everything not yet on paper — like the bill: the
+   * first KOT carries the whole order, a later one only what was added since
+   * (or a cancel slip for what was reduced). The claim of `kotPrintedQty`
+   * happens under the order lock, so two presses cannot print the same food
+   * twice. Independent of KDS dispatch. `recordId` is an Order id (open tab) or
+   * an Invoice id (settled sale).
    */
-  async printKotPaper(
-    orderId: string,
-    addLines: Array<{ line: any; delta: number }>,
-    removeLines: Array<{ line: any; delta: number }> = [],
-  ): Promise<{ ok: boolean; backend: string; kotNumber?: number; message?: string }> {
-    try {
-      if (addLines.length === 0 && removeLines.length === 0) {
-        return { ok: true, backend: 'none', message: 'No kitchen changes to print' };
-      }
-      const kotNumber = await this.printLifecycle.getKotCopyNumber(this.prisma.client, orderId);
-      const text = addLines.length > 0
-        ? await this.buildTextKot(orderId, kotNumber, addLines, removeLines)
-        : await this.buildTextCancelKot(orderId, kotNumber, removeLines);
-      await this.printLifecycle.markKotPrinted(this.prisma.client, orderId, this.tenant.userId ?? undefined);
-      const logType = removeLines.length > 0 && addLines.length === 0 ? 'CANCEL' : 'KOT';
+  async printKotDelta(recordId: string, userId?: string): Promise<{
+    ok: boolean; backend: string; kotNumber?: number; message?: string; text?: string; printedCount?: number;
+  }> {
+    const orgId = this.tenant.organizationId;
+    const inv = await this.prisma.client.invoice.findFirst({ where: { id: recordId, organizationId: orgId }, select: { orderId: true } });
+    const orderId = inv?.orderId
+      ?? (await this.prisma.client.order.findFirst({ where: { id: recordId, organizationId: orgId }, select: { id: true } }))?.id
+      ?? null;
+    if (!orderId) return { ok: false, backend: 'none', message: 'Invoice has no linked order' };
 
+    // A line is kitchen-eligible if it maps to a stock product, menu item or combo.
+    const kotEligible = (l: any) => !!l.productId || !!l.menuItemId || !!l.comboId;
+    const { addLines, removeLines } = await this.prisma.client.$transaction(async (tx: any) => {
+      await tx.$queryRawUnsafe('SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', orderId, orgId);
+      const delta = await this.printLifecycle.getKitchenDeltas(tx, orderId);
+      const adds = delta.addLines.filter(({ line }: any) => kotEligible(line));
+      const removes = delta.removeLines.filter(({ line }: any) => kotEligible(line));
+      const changed = [...adds, ...removes];
+      if (changed.length) {
+        await this.printLifecycle.markKitchenPrinted(
+          tx,
+          changed.map(({ line }: any) => line.id),
+          new Map<string, number>(changed.map(({ line }: any) => [line.id, Number(line.quantity)])),
+          userId,
+        );
+      }
+      return { addLines: adds, removeLines: removes };
+    });
+    if (addLines.length === 0 && removeLines.length === 0) {
+      return { ok: true, backend: 'none', message: 'No new kitchen items to print', printedCount: 0 };
+    }
+
+    const kotNumber = await this.printLifecycle.getKotCopyNumber(this.prisma.client, orderId);
+    const text = addLines.length > 0
+      ? await this.buildTextKot(orderId, kotNumber, addLines, removeLines)
+      : await this.buildTextCancelKot(orderId, kotNumber, removeLines);
+    await this.printLifecycle.markKotPrinted(this.prisma.client, orderId, userId);
+    const logType = removeLines.length > 0 && addLines.length === 0 ? 'CANCEL' : 'KOT';
+    const printedCount = addLines.length + removeLines.length;
+    const log = () => this.printLifecycle.recordPrintLog(this.prisma.client, { organizationId: orgId, documentId: orderId, type: logType, printedById: userId });
+
+    try {
       const target = await this.resolvePrintTarget();
       if (target.kind === 'none') {
         this.logger.warn(`[POS] No printer configured; KOT #${kotNumber}:\n${text}`);
-        await this.printLifecycle.recordPrintLog(this.prisma.client, {
-          organizationId: this.tenant.organizationId, documentId: orderId, type: logType, printedById: this.tenant.userId ?? undefined,
-        });
-        return { ok: true, backend: 'console', kotNumber };
+        await log();
+        return { ok: true, backend: 'console', message: 'No printer; KOT logged to server console.', kotNumber, text, printedCount };
       }
-
-      const payload = Buffer.concat([
+      await this.sendRaw(target, Buffer.concat([
         Buffer.from(toPrinterAscii(text) + '\n', 'ascii'),
         await this.feedBuffer(),
         Buffer.from([0x1d, 0x56, 0x00]), // GS V 0 — full cut
-      ]);
-      await this.sendRaw(target, payload);
-      await this.printLifecycle.recordPrintLog(this.prisma.client, {
-        organizationId: this.tenant.organizationId, documentId: orderId, type: logType, printedById: this.tenant.userId ?? undefined,
-      });
-      return { ok: true, backend: target.backend, kotNumber };
+      ]));
+      await log();
+      return { ok: true, backend: target.backend, kotNumber, text, printedCount };
     } catch (e: any) {
-      this.logger.warn(`[POS] Paper KOT failed (kitchen fire continues): ${e?.message}`);
-      return { ok: false, backend: 'error', message: e?.message ?? 'printer error' };
+      // Never throws: a kitchen fire must not fail because the printer is off.
+      this.logger.warn(`[POS] Printer unreachable; KOT #${kotNumber} fallback: ${e?.message}`);
+      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error', kotNumber, text, printedCount };
     }
   }
 
@@ -1541,85 +1564,9 @@ export class PosReceiptsController {
   @Post(':invoiceId/print-kot')
   @RequirePermissions('pos:checkout')
   async printKot(@Param('invoiceId') id: string) {
-    const userId = this.svc.tenantSvc().userId ?? undefined;
-    const orgId = this.svc.tenantSvc().organizationId;
-    const kotNumber = await this.svc.lifecycle().getKotCopyNumber(this.svc.prismaSvc().client, id);
-
-    // Resolve the order ID — getKitchenDeltas keys on OrderItem.orderId.
-    // Frontend passes an Order ID (open tab) or Invoice ID (settled); support both.
-    let orderId: string | null = null;
-    const kotInv = await this.svc.prismaSvc().client.invoice.findFirst({
-      where: { id, organizationId: orgId },
-      select: { orderId: true },
-    });
-    if (kotInv?.orderId) {
-      orderId = kotInv.orderId;
-    } else {
-      // Fallback: id is an Order ID directly (pre-settle tab)
-      const order = await this.svc.prismaSvc().client.order.findFirst({
-        where: { id, organizationId: orgId },
-        select: { id: true },
-      });
-      if (order) orderId = order.id;
-    }
-    if (!orderId) {
-      return { ok: false, backend: 'none', message: 'Invoice has no linked order' };
-    }
-    // A line is kitchen-eligible if it maps to a stock product OR a menu item.
-    const kotEligible = (l: any) => !!l.productId || !!l.menuItemId;
-    // Claim only new quantities while holding the order lock. This endpoint is
-    // server-authoritative: callers cannot force an ordinary KOT to repeat an
-    // already printed item by supplying their own line list.
-    const { addLines, removeLines } = await this.svc.prismaSvc().client.$transaction(async (tx: any) => {
-      await tx.$queryRawUnsafe('SELECT id FROM "Order" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', orderId, orgId);
-      const delta = await this.svc.lifecycle().getKitchenDeltas(tx, orderId!);
-      const adds = delta.addLines.filter(({ line }: any) => kotEligible(line));
-      const removes = delta.removeLines.filter(({ line }: any) => kotEligible(line));
-      if (adds.length === 0 && removes.length === 0) return { addLines: adds, removeLines: removes };
-      const changed = [...adds, ...removes];
-      await this.svc.lifecycle().markKitchenPrinted(
-        tx,
-        changed.map(({ line }: any) => line.id),
-        new Map<string, number>(changed.map(({ line }: any) => [line.id, Number(line.quantity)])),
-        userId,
-      );
-      return { addLines: adds, removeLines: removes };
-    });
-
-    if (addLines.length === 0 && removeLines.length === 0) {
-      return { ok: true, backend: 'none', message: 'No new kitchen items to print', kotNumber } as any;
-    }
-
-    const text = await this.svc.buildTextKot(id, kotNumber, addLines, removeLines);
-
-    await this.svc.lifecycle().markKotPrinted(this.svc.prismaSvc().client, id, userId);
-
-    const target = await this.svc.resolvePrintTarget();
-
-    if (target.kind === 'none') {
-      this.logger.warn(`[POS] No printer configured; KOT #${kotNumber}:\n${text}`);
-      await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
-        organizationId: orgId, documentId: id, type: 'KOT', printedById: userId,
-      });
-      return { ok: true, backend: 'console', message: 'No printer; KOT logged to server console.', kotNumber, text } as any;
-    }
-
-    try {
-      // Feed + cut so the ticket ejects fully instead of half-hanging in the printer.
-      const payload = Buffer.concat([
-        Buffer.from(toPrinterAscii(text) + '\n', 'ascii'),
-        Buffer.from([0x1b, 0x64, 0x0c]), // ESC d 12 — generous feed past head→cutter gap
-        Buffer.from([0x1d, 0x56, 0x00]), // GS V 0 — full cut
-      ]);
-      await this.svc.sendRaw(target, payload);
-      await this.svc.lifecycle().recordPrintLog(this.svc.prismaSvc().client, {
-        organizationId: orgId, documentId: id, type: 'KOT', printedById: userId,
-      });
-      return { ok: true, backend: target.backend, kotNumber, text } as any;
-    } catch (e: any) {
-      this.logger.warn(`[POS] Printer unreachable; KOT #${kotNumber} fallback: ${e?.message}`);
-      return { ok: false, backend: 'escpos', message: e?.message ?? 'printer error', kotNumber, text } as any;
-    }
+    // Server-authoritative: callers cannot force a KOT to repeat already
+    // printed food by supplying their own line list.
+    return this.svc.printKotDelta(id, this.svc.tenantSvc().userId ?? undefined);
   }
 
   @Get(':invoiceId')
