@@ -31,7 +31,7 @@ import { AuditService } from '../../kernel/audit/audit.service';
 import { EventBus } from '../../kernel/events/event-bus';
 import { DocumentBuilderService } from '../invoicing/document/document-builder.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
-import { recomputeTableStatus, TABLE_HELD_ORDER_STATUSES, isTableHeldOrderStatus } from './table-status.util';
+import { lockFloorShared, recomputeTableStatus, TABLE_HELD_ORDER_STATUSES, isTableHeldOrderStatus } from './table-status.util';
 import { WorkflowService } from '../../kernel/workflow/workflow.service';
 import { PosTableZonesService } from './pos-table-zones.service';
 import { EVENTS } from '@erp/shared';
@@ -175,6 +175,7 @@ export class PosTablesService {
     }>,
     modsList: Array<Array<{ modifierId: string | null; name: string; priceDelta: any }>> = [],
   ): Promise<void> {
+    await lockFloorShared(tx, organizationId);
     const oldItems = await tx.orderItem.findMany({
       where: { orderId },
       select: {

@@ -1,4 +1,5 @@
-import { accountLedgerBalance, accountObservations, reconcileSession, settleTender } from './session-reconciliation';
+import { accountLedgerBalance, accountObservations, reconcileSession, sessionProviderExpectations, settleTender } from './session-reconciliation';
+import { lockFloorExclusive } from '../../pos/table-status.util';
 import { assertNotDrawerAccount, lockAccounts, operationId, requireAccount } from './treasury-guards';
 import { terminalPaymentMethods } from './pos-payment-method.service';
 import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
@@ -382,6 +383,10 @@ export class CashSessionService {
           userId: dto.incomingUserId,
           status: 'open',
           openingFloat: opening,
+          // The wallets carry over exactly like the drawer: what the outgoing
+          // cashier observed is where the incoming shift's expectation starts.
+          openingAccounts: Object.fromEntries(Object.entries(closing.closingAccounts).filter(([, row]: [string, any]) => !row.notCounted)
+            .map(([id, row]: [string, any]) => [id, { accountId: id, code: row.code, name: row.name, accountType: row.accountType, observed: row.observed, ledger: row.ledger, carriedFromSessionId: outgoing.id }])),
           openingDenomination: this.sanitizeDenomination(dto.closingDenomination),
           notes: dto.notes ?? `Opened by handover from session ${outgoing.id}`,
         },
@@ -438,9 +443,21 @@ export class CashSessionService {
     approval: { verifiedManagerId: string } | { approverId?: string; approverEmail?: string; managerPin?: string };
   }) {
     const organizationId = this.tenant.organizationId;
+    // Authoritative re-check: whatever the dialog's Check step showed, no order
+    // can gain items between this count and the close commit.
+    await lockFloorExclusive(tx, organizationId);
     const reconciliation = await reconcileSession(tx, organizationId, session);
-    if (reconciliation.unsettledOrders || reconciliation.pendingPayments || reconciliation.pendingPostings || reconciliation.issues.length) {
-      throw new BadRequestException({ message: 'Resolve unsettled orders, payments and posting differences before closing', reconciliation });
+    if (reconciliation.openOrderCount) {
+      throw new BadRequestException({
+        code: 'OPEN_ORDERS',
+        message: `${reconciliation.openOrderCount} open order(s) must be settled or voided before closing — resolve unsettled orders first`,
+        openOrderCount: reconciliation.openOrderCount,
+        openOrders: reconciliation.openOrders,
+        reconciliation,
+      });
+    }
+    if (reconciliation.pendingPayments || reconciliation.pendingPostings || reconciliation.issues.length) {
+      throw new BadRequestException({ code: 'RECONCILIATION_ISSUES', message: 'Resolve unsettled orders, payments and posting differences before closing', reconciliation });
     }
     let manager: any = null;
     const approve = async (actionLabel: string) => {
@@ -475,13 +492,20 @@ export class CashSessionService {
       (await terminalPaymentMethods(tx, organizationId)).filter((m) => m.trackInShift && m.accountId).map((m) => m.accountId as string),
     );
     for (const id of Object.keys(uncounted)) {
-      if (!trackedIds.has(id)) throw new BadRequestException('Only tracked tender accounts can be marked as not counted');
-      if (id in observed) throw new BadRequestException('An account cannot be both counted and not counted');
-      if (!String(uncounted[id] ?? '').trim()) throw new BadRequestException('Give a reason for every tender account that was not counted');
+      if (!trackedIds.has(id)) throw new BadRequestException({ code: 'TENDER_NOT_COUNTED', message: 'Only tracked tender accounts can be marked as not counted' });
+      if (id in observed) throw new BadRequestException({ code: 'TENDER_NOT_COUNTED', message: 'An account cannot be both counted and not counted' });
+      if (!String(uncounted[id] ?? '').trim()) throw new BadRequestException({ code: 'TENDER_NOT_COUNTED', message: 'Give a reason for every tender account that was not counted' });
     }
     const missing = tracked.filter((m: any) => !(m.accountId in observed) && !(m.accountId in uncounted));
-    if (missing.length) throw new BadRequestException(`Enter closing balances for: ${missing.map((m: any) => m.label).join(', ')} (or mark them not counted with a reason)`);
+    if (missing.length) throw new BadRequestException({ code: 'TENDER_NOT_COUNTED', message: `Enter closing balances for: ${missing.map((m: any) => m.label).join(', ')} (or mark them not counted with a reason)` });
     const closingAccounts: Record<string, any> = await accountObservations(tx, organizationId, observed);
+    // Compare with what this shift should have left with the provider, not the
+    // all-time ledger balance (kept on the row as audit evidence only).
+    const expectations = await sessionProviderExpectations(tx, organizationId, session, Object.keys(closingAccounts));
+    for (const [id, row] of Object.entries(closingAccounts)) {
+      const e = expectations[id];
+      Object.assign(row, { ...e, difference: dec(row.observed).minus(e.expected).toString() });
+    }
     if (Object.keys(uncounted).length) {
       const m = await approve('uncounted tender balances');
       for (const [id, why] of Object.entries(uncounted)) {
@@ -491,7 +515,15 @@ export class CashSessionService {
     }
     const providerDifferences = Object.values(closingAccounts).filter((row: any) => !row.notCounted && !dec(row.difference).isZero());
     if (providerDifferences.length) {
-      if (!reason) throw new BadRequestException('Explain card, bank or mobile-money balance differences before closing');
+      if (!reason) {
+        throw new BadRequestException({
+          code: 'PROVIDER_BALANCE_VARIANCE',
+          message: 'Explain card, bank or mobile-money balance differences before closing',
+          requiresReason: true,
+          requiresManagerApproval: true,
+          accounts: providerDifferences.map((r: any) => ({ accountId: r.accountId, name: r.name, expected: r.expected, observed: r.observed, difference: r.difference })),
+        });
+      }
       await approve('electronic tender balance differences');
     }
 
@@ -500,7 +532,7 @@ export class CashSessionService {
     let varianceStatus: string | null = null;
     let approvedById: string | null = manager?.id ?? null;
     if (!difference.isZero()) {
-      if (!reason) throw new BadRequestException('A variance reason is required when counted cash differs from expected');
+      if (!reason) throw new BadRequestException({ code: 'CASH_VARIANCE_REASON_REQUIRED', message: 'A variance reason is required when counted cash differs from expected' });
       const managerPresent = 'verifiedManagerId' in input.approval;
       if (managerPresent || difference.abs().greaterThanOrEqualTo(this.largeVarianceThreshold)) {
         approvedById = (await approve(managerPresent ? 'the shift variance' : 'a large cash variance')).id;
@@ -1389,13 +1421,13 @@ export class CashSessionService {
         ? await tx.user.findFirst({ where: { email: opts.approverEmail.toLowerCase(), organizationId: orgId, isActive: true }, include: { roles: true } })
         : null;
     if (!opts.approverId && !opts.approverEmail) {
-      throw new BadRequestException(`${actionLabel} requires manager approval`);
+      throw new BadRequestException({ code: 'MANAGER_APPROVAL_REQUIRED', message: `${actionLabel} requires manager approval` });
     }
     if (!manager) throw new NotFoundException('Approving manager not found');
     if (manager.id === cashierUserId) {
       throw new ForbiddenException(`The session cashier cannot approve ${actionLabel}`);
     }
-    if (!managerPin && manager.id !== this.tenant.userId) throw new BadRequestException('Manager PIN is required');
+    if (!managerPin && manager.id !== this.tenant.userId) throw new BadRequestException({ code: 'MANAGER_APPROVAL_REQUIRED', message: 'Manager PIN is required' });
     if (managerPin) {
       if (!manager.pinHash) throw new BadRequestException('Manager has not set a PIN');
       const ok = await this.password.compare(managerPin, manager.pinHash);

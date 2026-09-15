@@ -1,6 +1,31 @@
 import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import { BadRequestException } from '@nestjs/common';
 import { dec } from '../../../kernel/common/money';
+import { heldOrderWhere } from '../../pos/table-status.util';
+import { terminalPaymentMethods } from './pos-payment-method.service';
+
+/** Display rows for open orders (first OPEN_ORDER_DISPLAY_LIMIT, oldest first). */
+async function openOrderSummaries(tx: any, where: any) {
+  const orders = await tx.order.findMany({ where, orderBy: { openedAt: 'asc' }, take: OPEN_ORDER_DISPLAY_LIMIT });
+  const tableIds = [...new Set(orders.map((o: any) => o.tableId).filter(Boolean))] as string[];
+  const waiterIds = [...new Set(orders.map((o: any) => o.waiterId).filter(Boolean))] as string[];
+  const [tables, waiters] = await Promise.all([
+    tableIds.length ? tx.posTable.findMany({ where: { id: { in: tableIds } }, select: { id: true, name: true } }) : [],
+    waiterIds.length ? tx.user.findMany({ where: { id: { in: waiterIds } }, select: { id: true, firstName: true, lastName: true } }) : [],
+  ]);
+  const tableName = new Map((tables as any[]).map((t) => [t.id, t.name]));
+  const waiterName = new Map((waiters as any[]).map((w) => [w.id, `${w.firstName}${w.lastName ? ' ' + w.lastName : ''}`]));
+  return orders.map((o: any) => ({
+    id: o.id,
+    orderNumber: o.orderNumber,
+    orderType: o.orderType ?? null,
+    tableName: o.tableId ? tableName.get(o.tableId) ?? null : null,
+    waiterName: o.waiterId ? waiterName.get(o.waiterId) ?? null : null,
+    cashSessionId: o.cashSessionId ?? null,
+    openedAt: o.openedAt ?? o.createdAt,
+    totalAmount: String(o.totalAmount ?? 0),
+  }));
+}
 
 export async function accountLedgerBalance(tx: any, organizationId: string, accountId: string) {
   const totals = await tx.journalLine.aggregate({ where: { organizationId, accountId, entry: { status: { in: ['posted', 'reversed'] } } }, _sum: { debit: true, credit: true } });
@@ -24,16 +49,106 @@ export async function accountObservations(tx: any, organizationId: string, input
   return rows;
 }
 
+/** Most open orders returned for display; the blocker itself is a full count. */
+export const OPEN_ORDER_DISPLAY_LIMIT = 50;
+
+/** The shift-open observation for a provider account (object or legacy bare number). */
+export function openingObservation(session: any, accountId: string) {
+  const raw = (session?.openingAccounts ?? {})[accountId];
+  if (raw == null) return { opening: dec(0), openingKnown: false };
+  const value = typeof raw === 'object' ? raw.observed : raw;
+  return { opening: dec(value ?? 0), openingKnown: true };
+}
+
+export interface ProviderExpectation {
+  accountId: string;
+  opening: string;
+  openingKnown: boolean;
+  receipts: string;
+  refunds: string;
+  settledOut: string;
+  settledIn: string;
+  movementsIn: string;
+  movementsOut: string;
+  /** What the provider should show at close for this shift. */
+  expected: string;
+}
+
+/**
+ * THE definition of a wallet / bank / card-clearing account's expected closing
+ * balance for one shift. Close, force-close, handover, the close preview and the
+ * Z snapshot all read this, never the all-time GL balance (which still carries
+ * earlier shifts' unswept receipts and is kept as audit evidence only).
+ *
+ *   opening observation recorded at shift open (0 when none was recorded)
+ * + inbound payments into the account          (net of withholding)
+ * − outbound payments out of the account       (refunds, supplier payouts)
+ * − provider settlements swept out of it       (gross)
+ * + provider settlements swept into it         (gross − fee)
+ * ± drawer movements whose counterpart it is   (the drawer's opposite side)
+ *
+ * Each source is disjoint: payment-linked drawer movements are excluded, since
+ * the payment itself already moved the account.
+ */
+export async function sessionProviderExpectations(tx: any, organizationId: string, session: any, accountIds: string[]): Promise<Record<string, ProviderExpectation>> {
+  const ids = [...new Set(accountIds.filter(Boolean))];
+  if (!ids.length) return {};
+  const [payments, settlements, movements] = await Promise.all([
+    tx.payment.findMany({ where: { organizationId, cashSessionId: session.id, status: { not: 'cancelled' }, accountId: { in: ids } } }),
+    tx.tenderSettlement.findMany({ where: { organizationId, cashSessionId: session.id, OR: [{ sourceAccountId: { in: ids } }, { destinationAccountId: { in: ids } }] } }),
+    tx.cashMovement.findMany({ where: { organizationId, cashSessionId: session.id, paymentId: null, counterpartAccountId: { in: ids } } }),
+  ]);
+  const out: Record<string, ProviderExpectation> = {};
+  for (const id of ids) {
+    const { opening, openingKnown } = openingObservation(session, id);
+    let receipts = dec(0), refunds = dec(0), settledOut = dec(0), settledIn = dec(0), movementsIn = dec(0), movementsOut = dec(0);
+    for (const p of (payments as any[]).filter((p) => p.accountId === id)) {
+      const settled = dec(p.amount).minus(p.withholdingAmount ?? 0);
+      if (p.direction === 'inbound') receipts = receipts.plus(settled); else refunds = refunds.plus(settled);
+    }
+    for (const s of settlements as any[]) {
+      if (s.sourceAccountId === id) settledOut = settledOut.plus(s.grossAmount);
+      if (s.destinationAccountId === id) settledIn = settledIn.plus(dec(s.grossAmount).minus(s.feeAmount ?? 0));
+    }
+    for (const m of (movements as any[]).filter((m) => m.counterpartAccountId === id)) {
+      // Same sign rule reconcileSession applies to the drawer, mirrored.
+      const drawerDelta = dec(m.amount).times(m.movementType === 'pay_out' ? -1 : 1);
+      if (drawerDelta.isNegative()) movementsIn = movementsIn.plus(drawerDelta.abs()); else movementsOut = movementsOut.plus(drawerDelta);
+    }
+    const expected = opening.plus(receipts).minus(refunds).minus(settledOut).plus(settledIn).plus(movementsIn).minus(movementsOut);
+    out[id] = {
+      accountId: id, opening: opening.toString(), openingKnown,
+      receipts: receipts.toString(), refunds: refunds.toString(),
+      settledOut: settledOut.toString(), settledIn: settledIn.toString(),
+      movementsIn: movementsIn.toString(), movementsOut: movementsOut.toString(),
+      expected: expected.toString(),
+    };
+  }
+  return out;
+}
+
+/** Accounts the terminal asks the cashier to count at close. */
+async function trackedTenderAccountIds(tx: any, organizationId: string): Promise<string[]> {
+  return (await terminalPaymentMethods(tx, organizationId)).filter((m) => m.trackInShift && m.accountId).map((m) => m.accountId as string);
+}
+
 /** Compare monetary evidence, not merely whether a journal balances. */
 export async function reconcileSession(tx: any, organizationId: string, session: any) {
+  // An open shift is closed as a floor close: every held order in the
+  // organization blocks it, whichever shift, device or waiter opened it (many
+  // carry no cashSessionId at all). A closed shift is only answerable for its own.
+  const openOrderWhere = session.status === 'open'
+    ? heldOrderWhere(organizationId)
+    : { ...heldOrderWhere(organizationId), cashSessionId: session.id };
   const [payments, movements, invoices, unsettledOrders, postingJobs, register] = await Promise.all([
     tx.payment.findMany({ where: { organizationId, cashSessionId: session.id, status: { not: 'cancelled' } }, include: { allocations: true } }),
     tx.cashMovement.findMany({ where: { organizationId, cashSessionId: session.id } }),
     tx.invoice.findMany({ where: { organizationId, cashSessionId: session.id, status: { not: 'cancelled' } }, include: { items: true } }),
-    tx.order.count({ where: { organizationId, cashSessionId: session.id, invoiceId: null, status: { notIn: ['closed', 'cancelled'] }, items: { some: { cancelled: false } } } }),
+    tx.order.count({ where: openOrderWhere }),
     tx.stockPostingJob.count({ where: { organizationId, status: { not: 'done' }, invoiceId: { in: (await tx.invoice.findMany({ where: { organizationId, cashSessionId: session.id }, select: { id: true } })).map((i: any) => i.id) } } }),
     tx.cashRegister.findFirst({ where: { id: session.cashRegisterId, organizationId } }),
   ]);
+  const openOrders = unsettledOrders ? await openOrderSummaries(tx, openOrderWhere) : [];
   const issues: string[] = [];
   const drawerAccountId = session.drawerAccountId ?? register?.defaultAccountId;
   if (!drawerAccountId) issues.push('Session has no immutable drawer account');
@@ -77,6 +192,11 @@ export async function reconcileSession(tx: any, organizationId: string, session:
     if (!expected.eq(actual)) issues.push(`Drawer movement ${m.id} differs from the register cash account`);
   }
   const settlements = await tx.tenderSettlement.findMany({ where: { organizationId, cashSessionId: session.id } });
+  // Every counted account gets a row, even one this shift never touched.
+  const trackedIds = await trackedTenderAccountIds(tx, organizationId);
+  for (const id of trackedIds) byAccount[id] ??= { accountId: id, receipts: '0', refunds: '0', net: '0', paymentIds: [] };
+  const expectations = await sessionProviderExpectations(tx, organizationId, session, trackedIds);
+  for (const [id, e] of Object.entries(expectations)) Object.assign(byAccount[id], { opening: e.opening, openingKnown: e.openingKnown, settledOut: e.settledOut, settledIn: e.settledIn, movementsIn: e.movementsIn, movementsOut: e.movementsOut, expected: e.expected, tracked: true });
   for (const account of Object.values(byAccount) as any[]) {
     const master = await tx.account.findFirst({ where: { id: account.accountId, organizationId } });
     account.name = master?.name; account.code = master?.code;
@@ -110,7 +230,7 @@ export async function reconcileSession(tx: any, organizationId: string, session:
     if (item.discountApprovedBy) approvedDiscounts = approvedDiscounts.plus(item.discountAmount ?? 0);
   }
   const cashier = await tx.user.findFirst({ where: { id: session.userId, organizationId }, select: { firstName: true, lastName: true } });
-  return { ledgerCash: ledgerCash.toString(), unsettledOrders, pendingPayments, pendingPostings: postingJobs, issues, accounts: Object.values(byAccount), settlements, byMethod: Object.values(byMethod),
+  return { ledgerCash: ledgerCash.toString(), unsettledOrders, openOrderCount: unsettledOrders, openOrders, pendingPayments, pendingPostings: postingJobs, issues, accounts: Object.values(byAccount), settlements, byMethod: Object.values(byMethod),
     report: { asOf: new Date().toISOString(), cashSession: { registerName: register.name, cashierName: cashier ? `${cashier.firstName} ${cashier.lastName ?? ''}`.trim() : session.userId, id: session.id, cashRegisterId: session.cashRegisterId, userId: session.userId, openedAt: session.openedAt, openingFloat: String(session.openingFloat) },
       totals: { grossSales: sumInvoices('totalAmount'), netRevenue: sumInvoices('subtotal'), taxTotal: sumInvoices('taxAmount'), discountTotal: sumInvoices('discountTotal'), overridesTotal: approvedDiscounts.toString(), refundedTotal: refundEvents.reduce((n: any, r: any) => n.plus(r.amount), dec(0)).toString(), saleCount: invoices.length, salesTotal: invoices.reduce((s: any, i: any) => s.plus(i.totalAmount), dec(0)).toString(), cashCollected: movementTotal('sale').toString(), cashRefunds: movementTotal('refund').minus(legacySupplierPayouts).toString(), supplierPayouts: supplierPayouts.toString(), payInsTotal: movementTotal('pay_in').toString(), payOutsTotal: movementTotal('pay_out').toString(), adjustments: movementTotal('adjustment').toString(), expectedCash: expectedCash.toString() }, byMethod: Object.values(byMethod), byCategory: Object.values(categories), refunds: refundEvents } };
 }

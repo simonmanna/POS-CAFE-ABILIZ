@@ -12,6 +12,7 @@ import { DocumentBuilderService } from '../invoicing/document/document-builder.s
 import { WorkflowService } from '../../kernel/workflow/workflow.service';
 import { PosInvoiceService } from '../pos/billing/pos-invoice.service';
 import { dec } from '../../kernel/common/money';
+import { lockFloorShared } from '../pos/table-status.util';
 import type {
   AddOrderItemsDto, BillOrderDto, CancelOrderDto, CreateOrderDto,
   SaveOrderItemsDto, UpdateOrderHeaderDto, UpdateOrderSettingsDto,
@@ -434,6 +435,7 @@ export class OrdersService {
     opts: { replace?: boolean; append?: boolean } = {},
   ): Promise<void> {
     const orgId = this.tenant.organizationId;
+    await lockFloorShared(tx, orgId);
     let baseline: ResolvedLine[] = [];
     if (opts.append) {
       const existing = await tx.orderItem.findMany({ where: { orderId, cancelled: false }, orderBy: { lineNumber: 'asc' } });

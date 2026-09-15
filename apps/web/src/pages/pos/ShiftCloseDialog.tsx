@@ -100,8 +100,61 @@ interface Decoded {
  * The API speaks in constraints; a cashier at 11pm needs a next action. Every
  * branch here names the thing to do, not the rule that was broken.
  */
-function decodeError(raw: string): Decoded {
-  const msg = raw || 'Something went wrong while closing the shift';
+export function decodeError(body: unknown): Decoded {
+  const data = (body && typeof body === 'object' ? body : { message: body }) as {
+    code?: string; message?: string | string[]; openOrderCount?: number;
+    accounts?: Array<{ name?: string; expected?: string; observed?: string; difference?: string }>;
+  };
+  const msg = (Array.isArray(data.message) ? data.message.join('; ') : data.message) || 'Something went wrong while closing the shift';
+  // Structured codes first; the regexes below remain for older servers.
+  switch (data.code) {
+    case 'PROVIDER_BALANCE_VARIANCE': {
+      const lines = (data.accounts ?? []).map((a) => {
+        const d = Number(a.difference ?? 0);
+        return `${a.name ?? 'Account'}: expected ${Number(a.expected ?? 0).toLocaleString()}, entered ${Number(a.observed ?? 0).toLocaleString()} (${d > 0 ? '+' : ''}${d.toLocaleString()})`;
+      });
+      return {
+        tone: 'warn',
+        title: 'A wallet or bank balance does not match',
+        detail: `${lines.length ? lines.join('. ') + '. ' : ''}Re-check the figure, or write why it differs and ask a manager to approve below.`,
+        goTo: 'confirm',
+        focusReason: true,
+        revealManager: true,
+      };
+    }
+    case 'OPEN_ORDERS':
+      return {
+        tone: 'warn',
+        title: 'There are still open orders',
+        detail: `${data.openOrderCount ?? 'Some'} open order(s) must be settled or voided before the shift can close. The list below shows them.`,
+        goTo: 'check',
+      };
+    case 'RECONCILIATION_ISSUES':
+      return {
+        tone: 'warn',
+        title: 'There is still open work on this shift',
+        detail: 'The list below shows what is left. Clear it, tap Check again, then come back.',
+        goTo: 'check',
+      };
+    case 'CASH_VARIANCE_REASON_REQUIRED':
+      return {
+        tone: 'warn',
+        title: 'The drawer does not balance',
+        detail: 'That is fine — it happens. Write one line about why, and we can finish closing.',
+        goTo: 'confirm',
+        focusReason: true,
+      };
+    case 'MANAGER_APPROVAL_REQUIRED':
+      return {
+        tone: 'warn',
+        title: 'This needs a manager',
+        detail: 'Ask a manager to enter their email and PIN below, then close the shift again.',
+        goTo: 'confirm',
+        revealManager: true,
+      };
+    case 'TENDER_NOT_COUNTED':
+      return { tone: 'error', title: 'Check every wallet and bank account', detail: msg, goTo: 'confirm' };
+  }
   if (/variance reason/i.test(msg)) {
     return {
       tone: 'warn',
@@ -306,9 +359,10 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       setStep('done');
       toast.success('Shift closed');
     } catch (e: any) {
-      const decoded = decodeError(e?.response?.data?.message || e?.message);
+      const decoded = decodeError(e?.response?.data ?? e?.message);
       setProblem(decoded);
       if (decoded.revealManager) setShowManager(true);
+      if (decoded.goTo === 'check') void recheck();
       if (decoded.goTo) setStep(decoded.goTo);
     }
   };
@@ -440,10 +494,10 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                         <span className="opacity-80">{b.hint}</span>
                         {b.items?.length ? (
                           <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px] opacity-70">
-                            {b.items.slice(0, 4).map((item) => (
+                            {b.items.slice(0, b.count ? 50 : 4).map((item) => (
                               <li key={item}>{item}</li>
                             ))}
-                            {b.items.length > 4 ? <li>and {b.items.length - 4} more like this</li> : null}
+                            {!b.count && b.items.length > 4 ? <li>and {b.items.length - 4} more like this</li> : null}
                           </ul>
                         ) : null}
                       </li>
@@ -594,7 +648,12 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                           <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-500">{plain(row.opening)}</td>
                           <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-700">{plain(row.received)}</td>
                           <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-500">{plain(row.refunds)}</td>
-                          <td className="px-2 py-1.5 text-right font-mono tabular-nums font-bold text-slate-900">{plain(row.expected)}</td>
+                          <td
+                            className="px-2 py-1.5 text-right font-mono tabular-nums font-bold text-slate-900"
+                            title={`Opening ${plain(row.opening)} + received ${plain(row.received)} − refunds ${plain(row.refunds)}${row.otherMovements ? ` ${row.otherMovements > 0 ? '+' : '−'} settlements/transfers ${plain(Math.abs(row.otherMovements))}` : ''}`}
+                          >
+                            {plain(row.expected)}
+                          </td>
                           <td className="px-2 py-1.5 text-right">
                             {row.accountId in uncounted ? (
                               <div className="flex flex-col items-end gap-1">
@@ -667,7 +726,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
               <div>
                 <Label className="text-sm font-bold">
-                  If the drawer is short or over, why?{' '}
+                  If the drawer or a wallet doesn&apos;t balance, why?{' '}
                   <span className="font-normal text-slate-400">(only needed if it does not balance)</span>
                 </Label>
                 <Textarea

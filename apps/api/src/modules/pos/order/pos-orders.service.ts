@@ -19,7 +19,7 @@ import { PosKdsService } from '../pos-kds.service';
 import { PosOverridesService } from '../pos-overrides.service';
 import { PosReceiptsService } from '../pos-receipts.service';
 import { dec } from '../../../kernel/common/money';
-import { recomputeTableStatus, TABLE_HELD_ORDER_STATUSES } from '../table-status.util';
+import { heldOrderWhere, lockFloorShared, recomputeTableStatus, TABLE_HELD_ORDER_STATUSES } from '../table-status.util';
 import { toCanonicalOrderStatus, withLegacyOrderStatus } from '../order-status.util';
 import { WorkflowService } from '../../../kernel/workflow/workflow.service';
 import { MilestoneService } from '../../../kernel/milestones/milestone.service';
@@ -159,16 +159,12 @@ export class PosOrdersService {
     const orgId = this.tenant.organizationId;
     const orders = await this.prisma.client.order.findMany({
       where: {
-        organizationId: orgId,
-        status: { in: TABLE_HELD_ORDER_STATUSES as any },
-        invoiceId: null,
         // An order with no live item is not an order anyone can serve. The floor
         // map has always derived occupancy this way (recomputeTableStatus counts
         // active items), so listing every empty shell here made the Orders panel
-        // disagree with the tables view: rows for tables that read "available",
-        // and rows for abandoned tableless carts nobody could see anywhere else.
-        // Same rule, one place — see table-status.util.recomputeTableStatus.
-        items: { some: { cancelled: false } },
+        // disagree with the tables view. Same rule, one place — heldOrderWhere is
+        // also the shift-close gate.
+        ...heldOrderWhere(orgId),
         ...(filter.orderType ? { orderType: filter.orderType as any } : {}),
         ...(filter.cashSessionId ? { cashSessionId: filter.cashSessionId } : {}),
         ...(filter.branchId ? { branchId: filter.branchId } : {}),
@@ -1240,6 +1236,7 @@ export class PosOrdersService {
     opts: { replace?: boolean; append?: boolean } & Partial<SaveOrderItemsDto> = {},
   ): Promise<void> {
     const orgId = this.tenant.organizationId;
+    await lockFloorShared(tx, orgId);
 
     // The rows an incoming line may match against. A fresh order has none.
     const existing: any[] = (opts.replace || opts.append)

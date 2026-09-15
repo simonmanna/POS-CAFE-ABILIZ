@@ -28,6 +28,38 @@ export const TABLE_HELD_ORDER_STATUSES = [
   'served',
 ] as const;
 
+/**
+ * Prisma `where` for an order that is still open on the floor: a held status,
+ * not yet billed, with at least one live item. The Orders panel, the floor map
+ * and the shift-close gate all use this one predicate, so they never disagree
+ * about how many orders are open.
+ */
+export function heldOrderWhere(organizationId: string) {
+  return {
+    organizationId,
+    status: { in: TABLE_HELD_ORDER_STATUSES as unknown as string[] },
+    invoiceId: null,
+    items: { some: { cancelled: false } },
+  } as any;
+}
+
+/**
+ * Floor-close lock. Every write that puts live items on an order takes it
+ * SHARED (writers never block each other); a shift close takes it EXCLUSIVE
+ * before counting open orders. So no order can gain items between the close's
+ * open-order check and its commit. Transaction-scoped: released on commit.
+ */
+export async function lockFloorShared(tx: any, organizationId: string): Promise<void> {
+  // Unit-test doubles have no raw SQL; a real client always does.
+  if (typeof tx?.$queryRawUnsafe !== 'function') return;
+  await tx.$queryRawUnsafe(`SELECT pg_advisory_xact_lock_shared(hashtext($1))::text`, `pos-floor-close:${organizationId}`);
+}
+
+export async function lockFloorExclusive(tx: any, organizationId: string): Promise<void> {
+  if (typeof tx?.$queryRawUnsafe !== 'function') return;
+  await tx.$queryRawUnsafe(`SELECT pg_advisory_xact_lock(hashtext($1))::text`, `pos-floor-close:${organizationId}`);
+}
+
 /** True when `status` keeps a dine-in table held. Accepts legacy values. */
 export function isTableHeldOrderStatus(status: string | null | undefined): boolean {
   return !!status && (TABLE_HELD_ORDER_STATUSES as readonly string[]).includes(status);

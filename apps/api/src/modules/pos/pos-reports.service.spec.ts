@@ -29,7 +29,9 @@ function mockPrisma(): any {
     cashRegister: { findFirst: jest.fn().mockResolvedValue({ name: 'Counter', defaultAccountId: 'cash' }) },
     journalEntry: { findFirst: jest.fn().mockResolvedValue(null) },
     journalLine: { aggregate: jest.fn().mockResolvedValue({ _sum: { debit: 170, credit: 0 } }) },
-    account: { findFirst: jest.fn().mockResolvedValue(null) },
+    account: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
+    accountMapping: { findFirst: jest.fn().mockResolvedValue(null) },
+    posPaymentMethod: { findMany: jest.fn().mockResolvedValue([]) },
     tenderSettlement: { findMany: jest.fn().mockResolvedValue([]) },
     posRefund: { findMany: jest.fn().mockResolvedValue([]) },
   });

@@ -234,7 +234,9 @@ const isolated = !!process.env.DATABASE_URL && /^\/pos_stage1_\d+$/.test(new URL
 
     it('handover and force-close enforce segregation of duties', async () => {
       as(users.cashier);
-      const next = await cash.open({ cashRegisterId: registerId, openingFloat: 0 });
+      // The wallet still holds the previous shift's 100: record it at open, so
+      // the close compares with this shift's expectation (100), not the GL.
+      const next = await cash.open({ cashRegisterId: registerId, openingFloat: 0, openingAccounts: { [ids.airtel]: 100 } });
       await expect(cash.handover({ cashRegisterId: registerId, closingCounted: 0, incomingUserId: users.cashier2, approvedById: users.cashier, closingAccounts: { [ids.airtel]: 100 } })).rejects.toThrow(/neither the outgoing/);
       as(users.manager);
       const out = await cash.handover({ cashRegisterId: registerId, closingCounted: 0, incomingUserId: users.cashier2, approvedById: users.manager, closingAccounts: { [ids.airtel]: 100 } });

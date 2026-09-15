@@ -11,11 +11,37 @@ export interface ReconAccount {
   pendingSettlement?: string;
   name?: string;
   code?: string;
+  /**
+   * Server-computed shift expectation (sessionProviderExpectations). The close
+   * validation uses exactly these figures, so the dialog must not re-derive them.
+   */
+  opening?: string;
+  openingKnown?: boolean;
+  settledOut?: string;
+  settledIn?: string;
+  movementsIn?: string;
+  movementsOut?: string;
+  expected?: string;
+}
+
+/** An order still open on the floor (org-wide while the shift is open). */
+export interface OpenOrderSummary {
+  id: string;
+  orderNumber: string;
+  orderType: string | null;
+  tableName: string | null;
+  waiterName: string | null;
+  cashSessionId: string | null;
+  openedAt: string;
+  totalAmount: string;
 }
 
 export interface SessionReconciliationData {
   ledgerCash: string;
   unsettledOrders: number;
+  /** Full count — the blocker. `openOrders` holds at most the first 50. */
+  openOrderCount?: number;
+  openOrders?: OpenOrderSummary[];
   pendingPayments: number;
   pendingPostings: number;
   issues: string[];
@@ -45,6 +71,8 @@ export interface BlockerGroup {
   hint: string;
   /** Raw server findings behind this group, if it stands for more than itself. */
   items?: string[];
+  /** How many problems the group stands for when `items` is only a sample. */
+  count?: number;
 }
 
 /**
@@ -58,10 +86,16 @@ export function closeBlockers(recon?: SessionReconciliationData): BlockerGroup[]
   if (!recon) return [];
   const out: BlockerGroup[] = [];
   const s = (n: number) => (n === 1 ? '' : 's');
-  if (recon.unsettledOrders) {
+  const openCount = recon.openOrderCount ?? recon.unsettledOrders;
+  if (openCount) {
+    const listed = recon.openOrders ?? [];
+    const items = listed.map(openOrderLine);
+    if (openCount > listed.length && listed.length) items.push(`+${openCount - listed.length} more`);
     out.push({
-      text: `${recon.unsettledOrders} order${s(recon.unsettledOrders)} still open on the floor`,
-      hint: 'Settle or cancel them in the terminal, then check again.',
+      text: `${openCount} open order${s(openCount)} must be settled or voided`,
+      hint: 'Settle them, or void them through the normal order controls (manager approval applies), then check again.',
+      items: items.length ? items : undefined,
+      count: openCount,
     });
   }
   if (recon.pendingPayments) {
@@ -87,9 +121,20 @@ export function closeBlockers(recon?: SessionReconciliationData): BlockerGroup[]
   return out;
 }
 
+const ORDER_TYPE_LABEL: Record<string, string> = {
+  dine_in: 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery', counter: 'Counter',
+};
+
+/** "Table 4 · ORD-123 · Mary · 45,000" — enough for a cashier to find it on the floor. */
+export function openOrderLine(o: OpenOrderSummary): string {
+  const where = o.tableName ? `Table ${o.tableName}` : ORDER_TYPE_LABEL[o.orderType ?? ''] ?? 'Order';
+  const total = toNum(o.totalAmount).toLocaleString();
+  return [where, o.orderNumber, o.waiterName, total].filter(Boolean).join(' · ');
+}
+
 /** How many distinct problems to announce in the heading. */
 export function blockerCount(groups: BlockerGroup[]): number {
-  return groups.reduce((n, g) => n + (g.items?.length ?? 1), 0);
+  return groups.reduce((n, g) => n + (g.count ?? g.items?.length ?? 1), 0);
 }
 
 /* ------------------------------------------- per-account tender reconciliation */
@@ -106,7 +151,9 @@ export interface TenderAccountRow {
   openingKnown: boolean;
   received: number;
   refunds: number;
-  /** opening + received − refunds. */
+  /** Settlements and drawer transfers in (+) / out (−) of the account this shift. */
+  otherMovements: number;
+  /** opening + received − refunds + otherMovements (server-computed). */
   expected: number;
   /** Still sitting with the provider, not yet swept to the bank. */
   pendingSettlement: number;
@@ -147,11 +194,13 @@ export function tenderAccountRows(input: {
     // Opening observations are stored as `{ observed, ledger, difference }` by
     // accountObservations(); older sessions stored a bare number.
     const raw = input.openingAccounts?.[a.accountId];
-    const openingKnown = raw != null;
-    const opening = toNum(typeof raw === 'object' && raw !== null ? raw.observed : raw);
     const received = toNum(r?.receipts);
     const refunds = toNum(r?.refunds);
-    const expected = opening + received - refunds;
+    // Prefer the server's figures: they are what the close is validated against.
+    // The fallback only covers an older API that does not send them yet.
+    const openingKnown = r?.openingKnown ?? raw != null;
+    const opening = r?.opening != null ? toNum(r.opening) : toNum(typeof raw === 'object' && raw !== null ? raw.observed : raw);
+    const expected = r?.expected != null ? toNum(r.expected) : opening + received - refunds - toNum(r?.settled);
     const countedRaw = input.counted?.[a.accountId];
     const counted = countedRaw == null || Number.isNaN(countedRaw) ? null : Number(countedRaw);
     return {
@@ -164,6 +213,7 @@ export function tenderAccountRows(input: {
       received,
       refunds,
       expected,
+      otherMovements: toNum(r?.settledIn) - toNum(r?.settledOut) + toNum(r?.movementsIn) - toNum(r?.movementsOut),
       pendingSettlement: toNum(r?.pendingSettlement),
       counted,
       variance: counted == null ? null : counted - expected,
