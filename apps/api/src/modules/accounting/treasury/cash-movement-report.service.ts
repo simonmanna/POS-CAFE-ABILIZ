@@ -4,6 +4,8 @@ import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { AccountResolverService } from '../posting/account-resolver.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
+import { CATEGORY_LABEL, CATEGORY_OPTIONS, categoryOf } from './money-activity.taxonomy';
+import { EFFECTIVE_SOURCE_TYPE, categorySql } from './money-activity.sql';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -26,66 +28,7 @@ import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
  * accounts still add up).
  */
 
-/** Movement categories, derived from the journal entry's `sourceType`. */
-export const CASH_MOVEMENT_CATEGORIES: { key: string; label: string; sourceTypes: string[] }[] = [
-  { key: 'pos_sales', label: 'POS Sales', sourceTypes: ['pos', 'pos_invoice', 'pos_invoice_extra'] },
-  {
-    key: 'customer_receipts',
-    label: 'Customer Receipts',
-    sourceTypes: ['payment', 'invoice', 'sales_invoice', 'document', 'reservation', 'agreement'],
-  },
-  {
-    key: 'refunds',
-    label: 'Refunds & Credits',
-    sourceTypes: ['pos_refund', 'credit_note', 'pos_invoice_writeoff', 'store_credit_issue'],
-  },
-  {
-    key: 'supplier_payments',
-    label: 'Supplier Payments',
-    sourceTypes: ['purchase_payment', 'vendor_bill', 'debit_note', 'purchase_order', 'goods_receipt'],
-  },
-  { key: 'expenses', label: 'Expenses', sourceTypes: ['expense_payment'] },
-  { key: 'payroll', label: 'Payroll', sourceTypes: ['payroll_run'] },
-  { key: 'transfers', label: 'Internal Transfers', sourceTypes: ['treasury_transfer'] },
-  { key: 'deposits', label: 'Deposits', sourceTypes: ['cash_flow_deposit'] },
-  { key: 'withdrawals', label: 'Withdrawals', sourceTypes: ['cash_flow_withdrawal'] },
-  {
-    key: 'cash_drawer',
-    label: 'Cash Drawer',
-    sourceTypes: [
-      'cash_movement',
-      'cash_session_opening',
-      'cash_session_variance',
-      'drawer_account_split',
-    ],
-  },
-  { key: 'tender_settlement', label: 'Tender Settlement', sourceTypes: ['tender_settlement'] },
-  { key: 'rental', label: 'Rental', sourceTypes: ['rental_checkout', 'rental_inspect', 'rental_return'] },
-  {
-    key: 'adjustments',
-    label: 'Manual & Adjustments',
-    sourceTypes: [
-      'manual',
-      'reversal',
-      'fx_revaluation',
-      'period_close',
-      'recurring',
-      'a009_legacy_adjustment',
-    ],
-  },
-];
-
-const OTHER_CATEGORY = { key: 'other', label: 'Other', sourceTypes: [] as string[] };
-
-const CATEGORY_OF_SOURCE = new Map<string, string>();
-for (const c of CASH_MOVEMENT_CATEGORIES) {
-  for (const st of c.sourceTypes) CATEGORY_OF_SOURCE.set(st, c.key);
-}
-const KNOWN_SOURCE_TYPES = [...CATEGORY_OF_SOURCE.keys()];
-
-const CATEGORY_LABEL = new Map<string, string>(
-  [...CASH_MOVEMENT_CATEGORIES, OTHER_CATEGORY].map((c) => [c.key, c.label]),
-);
+export { CASH_MOVEMENT_CATEGORIES } from './money-activity.taxonomy';
 
 export type CashMovementGrouping = 'day' | 'week' | 'month';
 
@@ -179,8 +122,9 @@ export class CashMovementReportService {
     `;
     const where = Prisma.sql`${scope} ${this.movementFilters(filters, from, to)}`;
 
-    const [totals, rows, byAccount, byCategory, series, opening] = await Promise.all([
+    const [totals, entryTotals, rows, byAccount, byCategory, series, opening] = await Promise.all([
       this.queryTotals(where),
+      this.queryEntryTotals(where),
       this.queryRows(where, page, pageSize),
       this.queryByAccount(where),
       this.queryByCategory(where),
@@ -219,6 +163,11 @@ export class CashMovementReportService {
         outflowCount: totals.outflowCount,
         largestInflow: totals.largestInflow.toFixed(2),
         largestOutflow: totals.largestOutflow.toFixed(2),
+        // Netted per journal entry: transfers and settlements between our own
+        // accounts do not inflate money in/out (see money-activity.taxonomy).
+        externalIn: entryTotals.externalIn.toFixed(2),
+        externalOut: entryTotals.externalOut.toFixed(2),
+        internalMoved: entryTotals.internalMoved.toFixed(2),
       },
       data: rows.map((r) => {
         const inflow = Number(r.baseDebit);
@@ -271,10 +220,7 @@ export class CashMovementReportService {
       })),
       series: this.withRunningBalance(series, openingBalance),
       accountOptions,
-      categoryOptions: [...CASH_MOVEMENT_CATEGORIES, OTHER_CATEGORY].map((c) => ({
-        key: c.key,
-        label: c.label,
-      })),
+      categoryOptions: CATEGORY_OPTIONS,
       page,
       pageSize,
       total: totals.count,
@@ -297,22 +243,7 @@ export class CashMovementReportService {
     if (f.direction === 'in') parts.push(Prisma.sql`jl."baseDebit" > 0`);
     if (f.direction === 'out') parts.push(Prisma.sql`jl."baseCredit" > 0`);
 
-    if (f.categories?.length) {
-      const keys = new Set(f.categories);
-      const sourceTypes = KNOWN_SOURCE_TYPES.filter((st) => keys.has(CATEGORY_OF_SOURCE.get(st)!));
-      const clauses: Prisma.Sql[] = [];
-      if (sourceTypes.length) {
-        clauses.push(Prisma.sql`je."sourceType" IN (${Prisma.join(sourceTypes)})`);
-      }
-      if (keys.has('other')) {
-        // 'other' = anything the map does not know about, NULL included.
-        clauses.push(
-          Prisma.sql`(je."sourceType" IS NULL OR je."sourceType" NOT IN (${Prisma.join(KNOWN_SOURCE_TYPES)}))`,
-        );
-      }
-      // A category filter that resolves to nothing must return nothing.
-      parts.push(clauses.length ? Prisma.sql`(${Prisma.join(clauses, ' OR ')})` : Prisma.sql`FALSE`);
-    }
+    if (f.categories?.length) parts.push(categorySql(f.categories));
 
     const q = f.search?.trim();
     if (q) {
@@ -380,6 +311,29 @@ export class CashMovementReportService {
     };
   }
 
+  private async queryEntryTotals(where: Prisma.Sql) {
+    const rows = await this.prisma.raw.$queryRaw<
+      { external_in: string; external_out: string; internal_moved: string }[]
+    >(Prisma.sql`
+      SELECT
+        COALESCE(SUM(GREATEST(x.d - x.c, 0)), 0)::text AS external_in,
+        COALESCE(SUM(GREATEST(x.c - x.d, 0)), 0)::text AS external_out,
+        COALESCE(SUM(LEAST(x.d, x.c)), 0)::text AS internal_moved
+      FROM (
+        SELECT je.id, SUM(jl."baseDebit") AS d, SUM(jl."baseCredit") AS c
+        ${this.fromClause}
+        WHERE ${where}
+        GROUP BY je.id
+      ) x
+    `);
+    const r = rows[0];
+    return {
+      externalIn: Number(r?.external_in ?? 0),
+      externalOut: Number(r?.external_out ?? 0),
+      internalMoved: Number(r?.internal_moved ?? 0),
+    };
+  }
+
   private async queryRows(where: Prisma.Sql, page: number, pageSize: number) {
     return this.prisma.raw.$queryRaw<RawRow[]>(Prisma.sql`
       SELECT
@@ -441,13 +395,13 @@ export class CashMovementReportService {
       { sourceType: string | null; inflow: string; outflow: string; count: bigint }[]
     >(Prisma.sql`
       SELECT
-        je."sourceType",
+        ${EFFECTIVE_SOURCE_TYPE} AS "sourceType",
         COALESCE(SUM(jl."baseDebit"), 0)::text AS inflow,
         COALESCE(SUM(jl."baseCredit"), 0)::text AS outflow,
         COUNT(*)::bigint AS count
       ${this.fromClause}
       WHERE ${where}
-      GROUP BY je."sourceType"
+      GROUP BY 1
     `);
 
     const acc = new Map<string, { category: string; inflow: number; outflow: number; count: number }>();
@@ -559,8 +513,7 @@ export class CashMovementReportService {
   // ───────────────────────────── helpers ──────────────────────────────────────
 
   private categoryOf(sourceType: string | null): string {
-    if (!sourceType) return 'other';
-    return CATEGORY_OF_SOURCE.get(sourceType) ?? 'other';
+    return categoryOf(sourceType);
   }
 
   private withRunningBalance(
@@ -621,16 +574,16 @@ export class CashMovementReportService {
         outflowCount: 0,
         largestInflow: '0.00',
         largestOutflow: '0.00',
+        externalIn: '0.00',
+        externalOut: '0.00',
+        internalMoved: '0.00',
       },
       data: [],
       byAccount: [],
       byCategory: [],
       series: [],
       accountOptions,
-      categoryOptions: [...CASH_MOVEMENT_CATEGORIES, OTHER_CATEGORY].map((c) => ({
-        key: c.key,
-        label: c.label,
-      })),
+      categoryOptions: CATEGORY_OPTIONS,
       page,
       pageSize,
       total: 0,

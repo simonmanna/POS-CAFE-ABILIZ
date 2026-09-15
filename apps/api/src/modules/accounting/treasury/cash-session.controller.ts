@@ -12,7 +12,9 @@ import { PERMISSIONS } from '@erp/shared';
 import { RequirePermissions } from '../../../kernel/auth/decorators/require-permissions.decorator';
 import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
+import { Type } from 'class-transformer';
 import { CashSessionService } from './cash-session.service';
+import { MoneySettlementService } from './money-settlement.service';
 import { IsBoolean, IsISO8601, IsNumber, IsObject, IsOptional, IsString, Min, IsIn } from 'class-validator';
 import { PaginationDto } from '../../../kernel/common/pagination.dto';
 
@@ -100,6 +102,14 @@ class DailyResetDto {
   @IsOptional() @IsBoolean() force?: boolean;
 }
 
+class SettlementHistoryQueryDto {
+  @IsOptional() @IsString() sourceAccountId?: string;
+  @IsOptional() @IsISO8601() from?: string;
+  @IsOptional() @IsISO8601() to?: string;
+  @IsOptional() @Type(() => Number) @IsNumber() page?: number;
+  @IsOptional() @Type(() => Number) @IsNumber() pageSize?: number;
+}
+
 class TenderSettlementDto {
   @IsString() sourceAccountId!: string;
   @IsString() destinationAccountId!: string;
@@ -114,7 +124,10 @@ class TenderSettlementDto {
 @Controller('cash-sessions')
 @UseInterceptors(IdempotencyInterceptor)
 export class CashSessionController {
-  constructor(private readonly sessions: CashSessionService) {}
+  constructor(
+    private readonly sessions: CashSessionService,
+    private readonly settlements: MoneySettlementService,
+  ) {}
 
   @Get('open')
   @RequirePermissions(PERMISSIONS.cashSession.read)
@@ -150,6 +163,16 @@ export class CashSessionController {
   @Idempotent({ required: true })
   @RequirePermissions(PERMISSIONS.cashSession.reconcile)
   settleTender(@Body() dto: TenderSettlementDto) { return this.sessions.settleTender(dto); }
+
+  /** Settlement history (newest first). Declared before `:id` so the path is not captured. */
+  @Get('tender-settlements')
+  @RequirePermissions(PERMISSIONS.cashSession.reconcile)
+  settlementHistory(@Query() q: SettlementHistoryQueryDto) { return this.settlements.history(q); }
+
+  /** Provider accounts that can be settled, with balance and POS receipts since the last settlement. */
+  @Get('tender-settlements/sources')
+  @RequirePermissions(PERMISSIONS.cashSession.reconcile)
+  settlementSources() { return this.settlements.sources(); }
 
   @Get(':id')
   @RequirePermissions(PERMISSIONS.cashSession.read)

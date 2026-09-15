@@ -27,6 +27,8 @@ import { RequirePermissions } from '../../../kernel/auth/decorators/require-perm
 import { Idempotent } from '../../../kernel/idempotency/idempotent.decorator';
 import { IdempotencyInterceptor } from '../../../kernel/idempotency/idempotency.interceptor';
 import { CashFlowService } from './cash-flow.service';
+import { MoneyActivityService } from './money-activity.service';
+import { MoneyOverviewService } from './money-overview.service';
 import {
   CashMovementReportService,
   type CashMovementGrouping,
@@ -72,6 +74,17 @@ class TransactionsQueryDto {
   @IsOptional() @IsString() search?: string;
 }
 
+class MoneyActivityQueryDto {
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @Transform(toList) @IsArray() @IsString({ each: true }) categories?: string[];
+  @IsOptional() @IsString() accountId?: string;
+  @IsOptional() @IsIn(['in', 'out', 'internal', 'adjustment', 'all']) direction?: 'in' | 'out' | 'internal' | 'adjustment' | 'all';
+  @IsOptional() @IsString() search?: string;
+  @IsOptional() @Type(() => Number) page: number = 1;
+  @IsOptional() @Type(() => Number) pageSize: number = 25;
+}
+
 class CashFlowReportQueryDto {
   @IsOptional() @IsDateString() from?: string;
   @IsOptional() @IsDateString() to?: string;
@@ -92,6 +105,8 @@ export class CashFlowController {
   constructor(
     private readonly cashFlow: CashFlowService,
     private readonly movementReport: CashMovementReportService,
+    private readonly moneyActivity: MoneyActivityService,
+    private readonly moneyOverview: MoneyOverviewService,
   ) {}
 
   @Get()
@@ -128,6 +143,24 @@ export class CashFlowController {
   @RequirePermissions(PERMISSIONS.account.read)
   report(@Query() query: CashFlowReportQueryDto) {
     return this.movementReport.report(query);
+  }
+
+  /** Money & Accounts overview: balances by type, registers, today, needs-attention, recent activity. */
+  @Get('overview')
+  @RequirePermissions(PERMISSIONS.account.read)
+  overview() {
+    return this.moneyOverview.overview();
+  }
+
+  /**
+   * Money Activity — one row per journal entry touching a money account, with
+   * category, derived direction (in / out / internal / adjustment), external vs
+   * internal amounts and every money-account leg.
+   */
+  @Get('activity')
+  @RequirePermissions(PERMISSIONS.account.read)
+  activity(@Query() query: MoneyActivityQueryDto) {
+    return this.moneyActivity.list(query);
   }
 
   @Get('operation-types')

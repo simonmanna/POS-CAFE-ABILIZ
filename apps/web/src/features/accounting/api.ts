@@ -1020,7 +1020,17 @@ export interface CashAccount {
   accountNumber: string | null;
   isDefault: boolean;
   currencyId: string | null;
+  /** Native currency label; `balance` is always in `baseCurrency`. */
+  currencyCode?: string | null;
+  baseCurrency?: string | null;
   cashRegister: { id: string; name: string; code: string } | null;
+  registers?: { id: string; name: string; code: string; isActive: boolean }[];
+  posMethods?: { id: string; code: string; label: string; kind: string; isActive: boolean }[];
+  /** `drawer` → money moves only through register shifts. */
+  restrictions?: string[];
+  lastActivityAt?: string | null;
+  todayIn?: string;
+  todayOut?: string;
 }
 
 export function useCashAccounts() {
@@ -1037,6 +1047,9 @@ export interface CashTransaction {
   postingDate: string;
   description: string | null;
   sourceType: string | null;
+  sourceId?: string | null;
+  category?: string;
+  categoryLabel?: string;
   debit: string;
   credit: string;
   baseDebit: string;
@@ -1050,7 +1063,7 @@ export interface TransactionsResult {
   page: number;
   pageSize: number;
   totalPages: number;
-  account: { id: string; code: string; name: string; accountType: string; bankName: string | null; accountNumber: string | null; currencyId: string | null; currentBalance: string };
+  account: { id: string; code: string; name: string; accountType: string; bankName: string | null; accountNumber: string | null; currencyId: string | null; currentBalance: string; cashRegister?: { id: string; name: string; code: string } | null; registers?: { id: string; name: string; code: string }[] };
 }
 
 export function useCashAccountTransactions(id: string | undefined, params: { page?: number; pageSize?: number }) {
@@ -1150,6 +1163,9 @@ export interface CashFlowReportResult {
     outflowCount: number;
     largestInflow: string;
     largestOutflow: string;
+    externalIn?: string;
+    externalOut?: string;
+    internalMoved?: string;
   };
   data: CashMovementRow[];
   byAccount: {
@@ -1245,6 +1261,8 @@ export function useCashFlowDeposit() {
       qc.invalidateQueries({ queryKey: ['cash-accounts'] });
       qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });
       qc.invalidateQueries({ queryKey: ['trial-balance'] });
+      qc.invalidateQueries({ queryKey: ['money-overview'] });
+      qc.invalidateQueries({ queryKey: ['money-activity'] });
     },
   });
 }
@@ -1257,6 +1275,8 @@ export function useCashFlowWithdraw() {
       qc.invalidateQueries({ queryKey: ['cash-accounts'] });
       qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });
       qc.invalidateQueries({ queryKey: ['trial-balance'] });
+      qc.invalidateQueries({ queryKey: ['money-overview'] });
+      qc.invalidateQueries({ queryKey: ['money-activity'] });
     },
   });
 }
@@ -1270,6 +1290,8 @@ export function useTreasuryTransfer() {
       qc.invalidateQueries({ queryKey: ['cash-accounts'] });
       qc.invalidateQueries({ queryKey: ['cash-account-transactions'] });
       qc.invalidateQueries({ queryKey: ['trial-balance'] });
+      qc.invalidateQueries({ queryKey: ['money-overview'] });
+      qc.invalidateQueries({ queryKey: ['money-activity'] });
     },
   });
 }
@@ -1551,6 +1573,10 @@ function invalidatePosMethods(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['pos-payment-method-config'] });
   // The terminal reads its tiles from a different key.
   qc.invalidateQueries({ queryKey: ['pos-payment-methods'] });
+  // Accounts list their linked methods; the overview flags unmapped ones.
+  qc.invalidateQueries({ queryKey: ['cash-accounts'] });
+  qc.invalidateQueries({ queryKey: ['money-overview'] });
+  qc.invalidateQueries({ queryKey: ['settlement-sources'] });
 }
 
 export function useCreatePosPaymentMethod() {

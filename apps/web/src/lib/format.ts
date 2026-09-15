@@ -1,8 +1,11 @@
 import { useAuthStore } from '@/stores/auth.store';
 
-/** Org base currency, set in Settings → Company. Falls back to IDR. */
+/**
+ * Org base currency, set in Settings → Company. Never guesses a currency: when
+ * it is unknown this is '' and `money()` renders a plain number.
+ */
 export function useOrgCurrency(): string {
-  return useAuthStore((s) => s.organization?.currencyCode ?? 'IDR');
+  return useAuthStore((s) => s.organization?.currencyCode ?? '');
 }
 
 export function money(value?: string | number | null, currency?: string): string {

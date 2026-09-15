@@ -203,7 +203,7 @@ export function CashFlowReportPage() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Cash Flow Report</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Money Reports</h1>
           <p className="text-sm text-gray-500">
             Every cash movement in and out of your payment accounts — receipts, payments, transfers
             and drawer operations, with the ledger entry behind each one.
@@ -233,7 +233,7 @@ export function CashFlowReportPage() {
             onClick={() =>
               exportPDF(
                 `cash-flow-report_${stamp}.pdf`,
-                `Cash Flow Report — ${from} to ${to}`,
+                `Money Report — ${from} to ${to}`,
                 COLUMNS.map((c) => c.header),
                 exportRows(),
               )
@@ -439,17 +439,19 @@ export function CashFlowReportPage() {
           loading={isLoading}
         />
         <SummaryCard
-          label="Cash In"
-          value={summary?.cashIn}
+          label="Money In"
+          value={summary?.externalIn ?? summary?.cashIn}
           currency={currency}
           icon={TrendingUp}
           tone="in"
-          sub={summary ? `${summary.inflowCount} movement${summary.inflowCount !== 1 ? 's' : ''}` : undefined}
+          sub={summary ? (Number(summary.internalMoved ?? 0) > 0
+            ? `Excludes ${money(summary.internalMoved, currency)} moved between your accounts`
+            : `${summary.inflowCount} movement${summary.inflowCount !== 1 ? 's' : ''}`) : undefined}
           loading={isLoading}
         />
         <SummaryCard
-          label="Cash Out"
-          value={summary?.cashOut}
+          label="Money Out"
+          value={summary?.externalOut ?? summary?.cashOut}
           currency={currency}
           icon={TrendingDown}
           tone="out"

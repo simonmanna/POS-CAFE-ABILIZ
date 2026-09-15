@@ -224,26 +224,25 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Cash Flow',
-    icon: HandCoins,
+    title: 'Money & Accounts',
+    icon: Wallet,
     items: [
-      { to: '/pos/cash-registers', label: 'Cash Register', icon: Banknote },
-      { to: '/payments', label: 'Receipts', icon: HandCoins },
-      { to: '/ar-aging', label: 'Accounts Receivable', icon: Clock },
-      { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote },
-      { to: '/accounts/cash-accounts', label: 'Accounts', icon: Wallet },
-      { to: '/cash-flow/report', label: 'Cash Flow Reports', icon: BarChart3, permission: PERMISSIONS.account.read },
+      { to: '/accounts/cash-accounts', label: 'Overview', icon: LayoutDashboard, permission: PERMISSIONS.account.read },
+      { to: '/accounts/cash-accounts/accounts', label: 'Accounts', icon: Wallet, permission: PERMISSIONS.account.read },
+      { to: '/accounts/cash-accounts/activity', label: 'Money Activity', icon: ArrowRightLeft, permission: PERMISSIONS.account.read },
+      { to: '/accounts/cash-accounts/settlements', label: 'Settlements', icon: Landmark, permission: PERMISSIONS.cashSession.reconcile },
+      { to: '/pos/cash-registers', label: 'Cash Registers', icon: Banknote, permission: PERMISSIONS.cashSession.read },
+      { to: '/payments', label: 'Customer Receipts', icon: HandCoins, permission: PERMISSIONS.payment.read },
+      { to: '/supplier-payments', label: 'Supplier Payments', icon: Truck, permission: PERMISSIONS.payment.read },
+      { to: '/cash-flow/report', label: 'Money Reports', icon: BarChart3, permission: PERMISSIONS.account.read },
     ],
   },
   {
     title: 'Accounting',
     icon: Calculator,
     items: [
-      { to: '/accounts/cash-accounts', label: 'Financial Accounts', icon: Banknote, permission: PERMISSIONS.account.read },
-      { to: '/accounts/cash-accounts/transactions', label: 'Treasury Movements', icon: ArrowRightLeft, permission: PERMISSIONS.account.read },
       { to: '/accounts', label: 'Chart of Accounts', icon: BookOpen, permission: PERMISSIONS.account.read },
       { to: '/accounts/categories', label: 'Account Categories', icon: Layers, permission: PERMISSIONS.accountCategory.read },
-      { to: '/accounts/cash-registers', label: 'Cash Registers', icon: Smartphone, permission: 'cash_register:read' },
       { to: '/accounts/mappings', label: 'Account Mappings', icon: Link2, permission: PERMISSIONS.accountMapping.read },
       { to: '/accounts/posting-rules', label: 'Posting Rules', icon: FileText, permission: PERMISSIONS.inventoryPostingRule.read },
       { to: '/journals', label: 'Journals', icon: BookText, permission: PERMISSIONS.journal.read },
@@ -252,7 +251,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/general-ledger', label: 'General Ledger', icon: ArrowUpDown, permission: PERMISSIONS.report.accounting },
       { to: '/accounting-detailed-report', label: 'Detailed Report', icon: FileSpreadsheet, permission: PERMISSIONS.report.accounting },
       { to: '/profit-and-loss', label: 'Profit & Loss', icon: TrendingUp, permission: PERMISSIONS.report.accounting },
-      { to: '/cash-flow', label: 'Cash Flow', icon: TrendingDown, permission: PERMISSIONS.report.accounting },
+      { to: '/cash-flow', label: 'Cash Flow Statement', icon: TrendingDown, permission: PERMISSIONS.report.accounting },
       { to: '/tieout', label: 'Tie-Out', icon: ShieldCheck, permission: PERMISSIONS.report.accounting },
       { to: '/pos-gl-reconciliation', label: 'POS → GL Recon', icon: Package, permission: PERMISSIONS.report.accounting },
       { to: '/audit-log', label: 'Audit Log', icon: History, permission: PERMISSIONS.auditLog.read },
@@ -407,6 +406,8 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/approval-policies', label: 'Approval Policies (legacy)', icon: Shield, permission: 'approvals:read' },
       { to: '/staff', label: 'Staff', icon: UserCog, permission: PERMISSIONS.user.read },
       { to: '/staff/roles', label: 'Roles & Permissions', icon: Shield, permission: PERMISSIONS.role.read },
+      { to: '/settings/payment-methods', label: 'Payment Methods', icon: Wallet, permission: PERMISSIONS.account.read },
+      { to: '/settings/registers', label: 'Registers', icon: Banknote, permission: PERMISSIONS.cashRegister.read },
       { to: '/settings/devices', label: 'Offline devices', icon: Smartphone, permission: PERMISSIONS.organization.read },
       { to: '/settings/backup', label: 'Backup', icon: HardDrive, permission: PERMISSIONS.backup.read },
       { to: '/settings/company', label: 'Company Settings', icon: Landmark, permission: PERMISSIONS.setting.read },
@@ -603,7 +604,7 @@ export function AppShell() {
                   <NavLink
                     key={item.to}
                     to={item.to}
-                    end={item.to === '/'}
+                    end={item.to === '/' || item.to === '/accounts' || item.to === '/accounts/cash-accounts'}
                     onClick={onItemClick}
                     className={() =>
                       cn(

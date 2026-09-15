@@ -45,11 +45,16 @@ import { ManufacturingReportsPage } from '@/pages/manufacturing/ManufacturingRep
 import { ManufacturingResourcesPage } from '@/pages/manufacturing/ManufacturingResourcesPage';
 import { ChartOfAccountsPage } from '@/pages/accounting/chart-of-accounts';
 import { AccountDetailPage } from '@/pages/accounting/AccountDetailPage';
-import { CashAccountsPage } from '@/pages/accounting/cash-accounts';
 import { CashFlowReportPage } from '@/pages/accounting/cash-flow-report';
-import { CashAccountDetailPage } from '@/pages/accounting/cash-account-detail';
-import { CashFlowTransactionsPage } from '@/pages/accounting/cash-flow-transactions';
-import { CashRegistersCrudPage } from '@/pages/accounting/cash-registers';
+import { MoneyOverviewPage } from '@/pages/money/MoneyOverviewPage';
+import { MoneyAccountsPage } from '@/pages/money/MoneyAccountsPage';
+import { MoneyAccountDetailPage } from '@/pages/money/MoneyAccountDetailPage';
+import { MoneyActivityPage } from '@/pages/money/MoneyActivityPage';
+import { MoneySettlementsPage } from '@/pages/money/MoneySettlementsPage';
+import { PaymentMethodsSettingsPage } from '@/pages/settings/PaymentMethodsSettingsPage';
+import { RegistersSettingsPage } from '@/pages/settings/RegistersSettingsPage';
+import { RequirePermission } from '@/components/require-permission';
+import { PERMISSIONS } from '@erp/shared';
 import { AccountMappingsPage } from '@/pages/accounting/account-mappings';
 import { AccountCategoriesPage } from '@/pages/accounting/account-categories';
 import { JournalEntriesPage } from '@/pages/accounting/journal-entries';
@@ -203,7 +208,7 @@ export function App() {
           {/* KDS kitchen performance reports + live dashboard. */}
           <Route path="/pos/kds-reports" element={<KdsReportsPage />} />
           {/* POS Cash Register Management */}
-          <Route path="/pos/cash-registers" element={<CashRegistersPage />} />
+          <Route path="/pos/cash-registers" element={<RequirePermission permission={PERMISSIONS.cashSession.read}><CashRegistersPage /></RequirePermission>} />
           <Route path="/tables" element={<TablesPage />} />
           <Route path="/tables/reservations" element={<ReservationsPage />} />
           <Route path="/tables/reports" element={<TableReportsPage />} />
@@ -255,11 +260,17 @@ export function App() {
           {/* Static segments must stay ahead of /accounts/:id. */}
           <Route path="/accounts/categories" element={<AccountCategoriesPage />} />
           <Route path="/accounts/:id" element={<AccountDetailPage />} />
-          <Route path="/accounts/cash-accounts" element={<CashAccountsPage />} />
-          <Route path="/accounts/cash-accounts/transactions" element={<CashFlowTransactionsPage />} />
-          <Route path="/cash-flow/report" element={<CashFlowReportPage />} />
-          <Route path="/accounts/cash-accounts/:id" element={<CashAccountDetailPage />} />
-          <Route path="/accounts/cash-registers" element={<CashRegistersCrudPage />} />
+          {/* Money & Accounts — overview keeps the old /accounts/cash-accounts URL. */}
+          <Route path="/accounts/cash-accounts" element={<RequirePermission permission={PERMISSIONS.account.read}><MoneyOverviewPage /></RequirePermission>} />
+          <Route path="/accounts/cash-accounts/accounts" element={<RequirePermission permission={PERMISSIONS.account.read}><MoneyAccountsPage /></RequirePermission>} />
+          <Route path="/accounts/cash-accounts/activity" element={<RequirePermission permission={PERMISSIONS.account.read}><MoneyActivityPage /></RequirePermission>} />
+          <Route path="/accounts/cash-accounts/settlements" element={<RequirePermission permission={PERMISSIONS.cashSession.reconcile}><MoneySettlementsPage /></RequirePermission>} />
+          <Route path="/accounts/cash-accounts/transactions" element={<Navigate to="/accounts/cash-accounts/activity" replace />} />
+          <Route path="/accounts/cash-accounts/:id" element={<RequirePermission permission={PERMISSIONS.account.read}><MoneyAccountDetailPage /></RequirePermission>} />
+          <Route path="/cash-flow/report" element={<RequirePermission permission={PERMISSIONS.account.read}><CashFlowReportPage /></RequirePermission>} />
+          <Route path="/accounts/cash-registers" element={<Navigate to="/settings/registers" replace />} />
+          <Route path="/settings/registers" element={<RequirePermission permission={PERMISSIONS.cashRegister.read}><RegistersSettingsPage /></RequirePermission>} />
+          <Route path="/settings/payment-methods" element={<RequirePermission permission={PERMISSIONS.account.read}><PaymentMethodsSettingsPage /></RequirePermission>} />
           <Route path="/accounts/mappings" element={<AccountMappingsPage />} />
           <Route path="/accounts/posting-rules" element={<InventoryPostingRulesPage />} />
           <Route path="/journals" element={<JournalsPage />} />
@@ -273,7 +284,7 @@ export function App() {
           <Route path="/general-ledger" element={<GeneralLedgerPage />} />
           <Route path="/accounting-detailed-report" element={<DetailedAccountingReportPage />} />
           <Route path="/profit-and-loss" element={<ProfitAndLossPage />} />
-          <Route path="/cash-flow" element={<CashFlowPage />} />
+          <Route path="/cash-flow" element={<RequirePermission permission={PERMISSIONS.report.accounting}><CashFlowPage /></RequirePermission>} />
           <Route path="/accounts/ledger/:id" element={<AccountLedgerPage />} />
           <Route path="/tieout" element={<TieOutPage />} />
           <Route path="/pos-gl-reconciliation" element={<PosGlReconciliationPage />} />

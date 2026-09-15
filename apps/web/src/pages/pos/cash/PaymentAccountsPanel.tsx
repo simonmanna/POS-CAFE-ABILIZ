@@ -173,10 +173,10 @@ export const PaymentAccountsPanel: React.FC<Props> = ({ session, registerId }) =
             {posCount} of {rows.length} accepted in POS
           </span>
           <Link
-            to="/accounts/cash-accounts"
+            to="/settings/payment-methods"
             className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
           >
-            Manage accounts
+            Payment methods
           </Link>
         </div>
       </div>

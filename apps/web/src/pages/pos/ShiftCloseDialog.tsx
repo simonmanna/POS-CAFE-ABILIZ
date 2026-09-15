@@ -719,7 +719,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   <p className="px-3 py-1.5 text-[11px] text-slate-500">
                     Enter what each provider shows. If you cannot check an account, choose "Could not check",
                     give the reason and get a manager to approve. Money still sitting with a provider is swept
-                    to the bank separately, on the Financial Accounts page.
+                    to the bank separately, under Money &amp; Accounts → Settlements.
                   </p>
                 </div>
               ) : null}

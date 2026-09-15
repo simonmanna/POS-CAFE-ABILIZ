@@ -4,6 +4,8 @@ import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { PostingService } from '../posting/posting.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
+import { CATEGORY_LABEL, categoryOf, classifyMoneyEntry, effectiveSourceType } from './money-activity.taxonomy';
+import { zonedDayRange } from './cash-session.service';
 import { dec, ZERO } from '../../../kernel/common/money';
 import { AccountResolverService } from '../posting/account-resolver.service';
 import { AuditService } from '../../../kernel/audit/audit.service';
@@ -73,45 +75,102 @@ export class CashFlowService {
       orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
       include: {
         category: { select: { key: true, name: true } },
-        cashRegisters: { select: { id: true, name: true, code: true } },
+        cashRegisters: { where: { deletedAt: null }, select: { id: true, name: true, code: true, isActive: true } },
       },
     });
+    const ids = accounts.map((a) => a.id);
 
-    const grouped = await this.prisma.client.journalLine.groupBy({
-      by: ['accountId'],
-      where: {
-        organizationId: orgId,
-        accountId: { in: accounts.map((a) => a.id) },
-        // Balance must count both `posted` and `reversed` entries: a reversed
-        // entry's lines are still real and are cancelled by the mirror reversal
-        // entry. Filtering to `posted` alone keeps the reversal but drops the
-        // original, so the balance diverges from the trial balance / GL.
-        entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] } },
-      },
-      _sum: { baseDebit: true, baseCredit: true },
-    });
+    const [grouped, org, methods, openSessions] = await Promise.all([
+      this.prisma.client.journalLine.groupBy({
+        by: ['accountId'],
+        where: {
+          organizationId: orgId,
+          accountId: { in: ids },
+          // Balance must count both `posted` and `reversed` entries: a reversed
+          // entry's lines are still real and are cancelled by the mirror reversal
+          // entry. Filtering to `posted` alone keeps the reversal but drops the
+          // original, so the balance diverges from the trial balance / GL.
+          entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] } },
+        },
+        _sum: { baseDebit: true, baseCredit: true },
+        _max: { createdAt: true },
+      }),
+      this.prisma.client.organization.findUnique({ where: { id: orgId }, select: { currencyCode: true, timezone: true } }),
+      this.prisma.client.posPaymentMethod.findMany({
+        where: { organizationId: orgId, deletedAt: null, accountId: { in: ids } },
+        select: { id: true, code: true, label: true, kind: true, isActive: true, accountId: true },
+        orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
+      }),
+      this.prisma.client.cashSession.findMany({
+        where: { organizationId: orgId, status: 'open' },
+        select: { id: true, cashRegisterId: true, drawerAccountId: true },
+      }),
+    ]);
 
     const balanceMap = new Map<string, Prisma.Decimal>();
+    const lastActivity = new Map<string, Date | null>();
     for (const g of grouped) {
       const debit = (g as any)._sum.baseDebit ?? ZERO;
       const credit = (g as any)._sum.baseCredit ?? ZERO;
       balanceMap.set(g.accountId, dec(debit).minus(dec(credit)));
+      lastActivity.set(g.accountId, (g as any)._max?.createdAt ?? null);
     }
 
-    return accounts.map((a) => ({
-      id: a.id,
-      code: a.code,
-      name: a.name,
-      // `accountType` is the payment-mode key the frontend groups/filters on
-      // (cash | bank | mobile_money | petty_cash) — sourced from the category.
-      accountType: (a as any).category?.key ?? null,
-      currencyId: a.currencyId,
-      bankName: a.bankName,
-      accountNumber: a.accountNumber,
-      isDefault: a.isDefault,
-      balance: balanceMap.get(a.id)?.toString() ?? '0',
-      cashRegister: (a as any).cashRegisters?.[0] ?? null,
-    }));
+    // Today's in/out per account, in the organisation's time zone.
+    const timezone = (org as any)?.timezone || 'UTC';
+    const todayStr = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+    const { start, end } = zonedDayRange(todayStr, timezone);
+    const today = ids.length
+      ? await this.prisma.client.journalLine.groupBy({
+        by: ['accountId'],
+        where: {
+          organizationId: orgId,
+          accountId: { in: ids },
+          entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { gte: start, lt: end } },
+        },
+        _sum: { baseDebit: true, baseCredit: true },
+      })
+      : [];
+    const todayMap = new Map((today as any[]).map((t) => [t.accountId, t._sum]));
+
+    const methodsOf = new Map<string, any[]>();
+    for (const m of methods as any[]) {
+      const arr = methodsOf.get(m.accountId) ?? [];
+      arr.push({ id: m.id, code: m.code, label: m.label, kind: m.kind, isActive: m.isActive });
+      methodsOf.set(m.accountId, arr);
+    }
+    const openDrawerIds = new Set((openSessions as any[]).map((s) => s.drawerAccountId).filter(Boolean));
+    const baseCurrency = (org as any)?.currencyCode ?? null;
+
+    return accounts.map((a) => {
+      const registers = ((a as any).cashRegisters ?? []).map((r: any) => ({ id: r.id, name: r.name, code: r.code, isActive: r.isActive }));
+      const isDrawer = registers.length > 0 || openDrawerIds.has(a.id);
+      const t = todayMap.get(a.id);
+      return {
+        id: a.id,
+        code: a.code,
+        name: a.name,
+        // `accountType` is the payment-mode key the frontend groups/filters on
+        // (cash | bank | mobile_money | petty_cash) — sourced from the category.
+        accountType: (a as any).category?.key ?? null,
+        currencyId: a.currencyId,
+        /** Native currency label; balances are always in `baseCurrency`. */
+        currencyCode: a.currencyId ?? baseCurrency,
+        baseCurrency,
+        bankName: a.bankName,
+        accountNumber: a.accountNumber,
+        isDefault: a.isDefault,
+        balance: balanceMap.get(a.id)?.toString() ?? '0',
+        cashRegister: registers[0] ?? null,
+        registers,
+        posMethods: methodsOf.get(a.id) ?? [],
+        /** `drawer`: money moves only through register shifts (no deposit / withdrawal / transfer). */
+        restrictions: isDrawer ? ['drawer'] : [],
+        lastActivityAt: lastActivity.get(a.id) ?? null,
+        todayIn: dec(t?.baseDebit ?? 0).toFixed(2),
+        todayOut: dec(t?.baseCredit ?? 0).toFixed(2),
+      };
+    });
   }
 
   async create(dto: {
@@ -351,7 +410,13 @@ export class CashFlowService {
       );
       newerDelta = dec(row?.delta ?? 0);
     }
+    const paymentIds = lines.filter((l: any) => l.entry.sourceType === 'payment' && l.entry.sourceId).map((l: any) => l.entry.sourceId);
+    const paymentRows = paymentIds.length
+      ? await this.prisma.client.payment.findMany({ where: { organizationId: orgId, id: { in: paymentIds } }, select: { id: true, cashSessionId: true, direction: true } })
+      : [];
+    const paymentOf = new Map((paymentRows as any[]).map((p) => [p.id, { cashSessionId: p.cashSessionId, direction: String(p.direction) }]));
     const rows = lines.map((l) => {
+      const effective = effectiveSourceType((l as any).entry.sourceType, paymentOf.get((l as any).entry.sourceId));
       const runningBalance = currentBalance.minus(newerDelta);
       newerDelta = newerDelta.plus(dec(l.baseDebit).minus(l.baseCredit));
       return ({
@@ -361,6 +426,9 @@ export class CashFlowService {
       postingDate: (l as any).entry.postingDate,
       description: (l as any).entry.description ?? l.description,
       sourceType: (l as any).entry.sourceType,
+      sourceId: (l as any).entry.sourceId ?? null,
+      category: categoryOf(effective),
+      categoryLabel: CATEGORY_LABEL.get(categoryOf(effective)) ?? 'Other',
       debit: l.debit.toString(),
       credit: l.credit.toString(),
       baseDebit: l.baseDebit.toString(),
@@ -384,6 +452,7 @@ export class CashFlowService {
         currencyId: account.currencyId,
         currentBalance: currentBalance.toString(),
         cashRegister: (account as any).cashRegisters?.[0] ?? null,
+        registers: (account as any).cashRegisters ?? [],
       },
     };
   }
@@ -431,22 +500,26 @@ export class CashFlowService {
     const rows = (entries as any[]).map((entry: any) => {
       const cashLines = entry.lines.filter((l: any) => cashIds.has(l.accountId));
       const sourceType: string = entry.sourceType;
-      let type: 'deposit' | 'withdrawal' | 'transfer' = 'deposit';
-      let fromName: string | null = null;
-      let toName: string | null = null;
-      if (sourceType === 'treasury_transfer') {
-        type = 'transfer';
-        fromName = accountName(cashLines.find((l: any) => dec(l.baseCredit).gt(0)));
-        toName = accountName(cashLines.find((l: any) => dec(l.baseDebit).gt(0)));
-      } else if (sourceType === 'cash_flow_withdrawal') {
-        type = 'withdrawal';
-      }
-      const primary = type === 'withdrawal'
-        ? cashLines.find((l: any) => dec(l.baseCredit).gt(0))
-        : cashLines.find((l: any) => dec(l.baseDebit).gt(0)) ?? cashLines[0];
-      const amount = type === 'transfer'
-        ? dec(cashLines.find((l: any) => dec(l.baseCredit).gt(0))?.baseCredit ?? 0)
-        : dec(primary?.baseDebit ?? 0).plus(primary?.baseCredit ?? 0);
+      // Direction and amount come from the netted money legs (shared taxonomy),
+      // never a default: a supplier payment is money out, not a "deposit".
+      const figures = classifyMoneyEntry(sourceType, cashLines.map((l: any) => ({
+        accountId: l.accountId,
+        accountName: accountName(l),
+        accountType: null,
+        baseDebit: l.baseDebit.toString(),
+        baseCredit: l.baseCredit.toString(),
+      })));
+      const type: 'deposit' | 'withdrawal' | 'transfer' = figures.direction === 'internal' ? 'transfer'
+        : figures.direction === 'out' ? 'withdrawal' : 'deposit';
+      const outLeg = figures.legs.find((l) => l.side === 'out');
+      const inLeg = figures.legs.find((l) => l.side === 'in');
+      const fromName = type === 'transfer' ? outLeg?.accountName ?? null : null;
+      const toName = type === 'transfer' ? inLeg?.accountName ?? null : null;
+      const primaryLeg = figures.direction === 'out' ? outLeg : inLeg ?? outLeg;
+      const primary = cashLines.find((l: any) => l.accountId === primaryLeg?.accountId) ?? cashLines[0];
+      const amount = figures.direction === 'internal' ? figures.internalMoved
+        : figures.direction === 'out' ? figures.externalOut
+          : figures.direction === 'in' ? figures.externalIn : figures.grossAmount;
       return {
         id: entry.id,
         journalEntryId: entry.id,
@@ -455,10 +528,12 @@ export class CashFlowService {
         description: entry.description ?? primary?.description,
         sourceType,
         type,
-        amount: amount.toString(),
-        direction: type === 'withdrawal' || type === 'transfer' ? 'out' : 'in',
-        accountId: primary?.accountId ?? cashLines[0]?.accountId,
-        accountName: accountName(primary ?? cashLines[0]),
+        category: figures.category,
+        categoryLabel: figures.categoryLabel,
+        amount,
+        direction: figures.direction === 'out' ? 'out' : figures.direction === 'internal' ? 'internal' : 'in',
+        accountId: primary?.accountId,
+        accountName: accountName(primary),
         fromName,
         toName,
       };

@@ -122,7 +122,7 @@ function tzOffsetMs(timeZone: string, date: Date): number {
 }
 
 /** UTC instants bounding a calendar day (YYYY-MM-DD) in the given time zone. */
-function zonedDayRange(dateStr: string, timeZone: string): { start: Date; end: Date } {
+export function zonedDayRange(dateStr: string, timeZone: string): { start: Date; end: Date } {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
   if (!m) throw new BadRequestException('Invalid date — expected YYYY-MM-DD');
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];

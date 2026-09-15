@@ -25,6 +25,9 @@ import { TreasuryController } from './treasury/treasury.controller';
 import { CashFlowService } from './treasury/cash-flow.service';
 import { CashFlowController } from './treasury/cash-flow.controller';
 import { CashMovementReportService } from './treasury/cash-movement-report.service';
+import { MoneyActivityService } from './treasury/money-activity.service';
+import { MoneyOverviewService } from './treasury/money-overview.service';
+import { MoneySettlementService } from './treasury/money-settlement.service';
 import { PosPaymentMethodService } from './treasury/pos-payment-method.service';
 import { PosPaymentMethodController } from './treasury/pos-payment-method.controller';
 import { BankReconciliationService } from './treasury/bank-reconciliation.service';
@@ -99,6 +102,9 @@ import { InventoryValuationReportService } from './reporting/inventory-valuation
     TreasuryService,
     CashFlowService,
     CashMovementReportService,
+    MoneyActivityService,
+    MoneyOverviewService,
+    MoneySettlementService,
     PosPaymentMethodService,
     BankReconciliationService,
     CashRegisterService,

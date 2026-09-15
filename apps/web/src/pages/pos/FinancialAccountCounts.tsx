@@ -25,7 +25,7 @@ export function FinancialAccountCounts({ value, onChange, stage }: { value: Reco
       </label>)}
       {!accounts.length && <p className="text-xs">
         No wallet or bank accounts are bound to a POS payment method yet.{' '}
-        <Link to="/accounts/cash-accounts" className="font-semibold text-sky-700 underline">Set them up under Financial Accounts.</Link>
+        <Link to="/settings/payment-methods" className="font-semibold text-sky-700 underline">Connect them in Settings → Payment methods.</Link>
       </p>}
     </div>
   </fieldset>;

@@ -374,14 +374,14 @@ export const PaymentDialog: React.FC<Props> = ({
                 </div>
                 <p className="text-xs text-amber-700">
                   A {TENDER_KIND_LABEL[activeKind]?.toLowerCase()} payment has to land in a named finance
-                  account. Ask finance to add one under Financial Accounts, then bind it to a POS payment
-                  method — the mode will appear here automatically.
+                  account. Ask finance to add one under Money &amp; Accounts, then connect it in Settings →
+                  Payment methods — the mode will appear here automatically.
                 </p>
                 <Link
-                  to="/accounts/cash-accounts"
+                  to="/settings/payment-methods"
                   className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
                 >
-                  <Settings2 className="h-3.5 w-3.5" /> Open Financial Accounts
+                  <Settings2 className="h-3.5 w-3.5" /> Open Payment methods
                 </Link>
               </div>
             ) : null}

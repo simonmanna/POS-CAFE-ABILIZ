@@ -8,7 +8,7 @@
  * rejected at settle time.
  */
 import { useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Loader2, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, ArrowRight, Banknote, Smartphone, CreditCard, Landmark, Gift, type LucideIcon } from 'lucide-react';
 import {
   useCashAccounts, usePosPaymentMethodConfig, useCreatePosPaymentMethod,
   useUpdatePosPaymentMethod, useDeletePosPaymentMethod,
@@ -26,8 +26,8 @@ type Kind = typeof KINDS[number];
 const KIND_LABEL: Record<string, string> = {
   cash: 'Cash', mobile_money: 'Mobile Money', card: 'Card', bank: 'Bank', store_credit: 'Store Credit',
 };
-const KIND_ICON: Record<string, string> = {
-  cash: '💵', mobile_money: '📱', card: '💳', bank: '🏦', store_credit: '🎁',
+const KIND_ICON: Record<string, LucideIcon> = {
+  cash: Banknote, mobile_money: Smartphone, card: CreditCard, bank: Landmark, store_credit: Gift,
 };
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -109,81 +109,70 @@ export function PosPaymentMethodsPanel() {
   };
 
   return (
-    <details className="rounded border bg-white p-4" open={!isLoading && methods.length === 0}>
-      <summary className="cursor-pointer font-semibold">POS payment methods</summary>
-      <p className="my-3 text-sm text-slate-500">
-        What the cashier sees in the Charge dialog, and where each mode's money is booked.
-        The cashier never picks an account — these bindings decide it.
-      </p>
+    <section className="space-y-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Each tile the cashier sees in the Charge dialog, and the account its money lands in.
+          The cashier never picks an account — these links decide it.
+        </p>
+        <Button onClick={openCreate} className="min-h-[44px]">
+          <Plus className="mr-1 h-4 w-4" /> Add payment method
+        </Button>
+      </div>
 
       {isLoading ? (
-        <div className="flex items-center gap-2 py-6 text-sm text-slate-500">
+        <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-[11px] uppercase tracking-wide text-slate-400">
-                <th className="py-2 pr-3 font-bold">Mode</th>
-                <th className="py-2 pr-3 font-bold">Kind</th>
-                <th className="py-2 pr-3 font-bold">Provider</th>
-                <th className="py-2 pr-3 font-bold">Receiving account</th>
-                <th className="py-2 pr-3 font-bold">Reference</th>
-                <th className="py-2 pr-3 font-bold">Shift count</th>
-                <th className="py-2 pr-3 font-bold">Status</th>
-                <th className="py-2 font-bold" />
-              </tr>
-            </thead>
-            <tbody>
-              {methods.map((m) => (
-                <tr key={m.id} className="border-t border-slate-100">
-                  <td className="py-2 pr-3 font-semibold text-slate-800">
-                    <span className="mr-1.5">{KIND_ICON[m.kind] ?? '📄'}</span>{m.label}
-                    <span className="block text-[10px] font-normal text-slate-400">{m.code}</span>
-                  </td>
-                  <td className="py-2 pr-3 text-slate-600">{KIND_LABEL[m.kind] ?? m.kind}</td>
-                  <td className="py-2 pr-3 text-slate-600">{m.provider ?? '—'}</td>
-                  <td className="py-2 pr-3 text-slate-600">
+        <ul className="divide-y rounded-xl border bg-card">
+          {methods.map((m) => {
+            const Icon = KIND_ICON[m.kind] ?? Banknote;
+            const connected = m.kind === 'cash' || m.kind === 'store_credit' || !!m.accountName;
+            return (
+              <li key={m.id} className="flex flex-col gap-3 p-3 md:flex-row md:items-center">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                  <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-muted" aria-hidden><Icon className="h-4 w-4" /></span>
+                  <span className="min-w-[140px]">
+                    <span className="block font-medium text-foreground">{m.label}</span>
+                    <span className="block text-xs text-muted-foreground">{KIND_LABEL[m.kind] ?? m.kind}{m.provider ? ` · ${m.provider}` : ''} · {m.code}</span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" aria-label="goes to" />
+                  <span className={connected ? 'text-foreground' : 'font-medium text-destructive'}>
                     {m.kind === 'cash'
-                      ? <span className="text-slate-400">Register drawer</span>
-                      : m.accountName
-                        ? <>{m.accountName} <span className="text-slate-400">· {m.accountCode}</span></>
-                        : <span className="text-rose-600">Not set</span>}
-                  </td>
-                  <td className="py-2 pr-3">{m.requiresReference ? <Check className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-slate-300" />}</td>
-                  <td className="py-2 pr-3">{m.trackInShift ? <Check className="h-4 w-4 text-emerald-600" /> : <X className="h-4 w-4 text-slate-300" />}</td>
-                  <td className="py-2 pr-3">
-                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${m.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                      {m.isActive ? 'Active' : 'Hidden'}
-                    </span>
-                  </td>
-                  <td className="py-2 text-right whitespace-nowrap">
-                    <Button variant="ghost" size="icon" aria-label={`Edit ${m.label}`} onClick={() => openEdit(m)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" aria-label={`Remove ${m.label}`} onClick={() => retire(m)}>
-                      <Trash2 className="h-4 w-4 text-rose-500" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-              {!methods.length ? (
-                <tr>
-                  <td colSpan={8} className="py-4 text-sm text-slate-500">
-                    Nothing configured yet — the terminal is falling back to whatever cash, wallet and
-                    bank accounts exist. Add methods here to control the tiles the cashier sees.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
+                      ? 'Drawer of the register taking the sale'
+                      : m.kind === 'store_credit'
+                        ? 'Customer store credit'
+                        : m.accountName ? <>{m.accountName} <span className="text-muted-foreground">· {m.accountCode}</span></> : 'Not connected to an account'}
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${connected ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'}`}>
+                    {connected ? 'Connected' : 'Not connected'}
+                  </span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                    {m.isActive ? 'Shown at till' : 'Hidden at till'}
+                  </span>
+                  {m.requiresReference ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">Asks for reference</span> : null}
+                  {m.trackInShift ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">Counted at shift close</span> : null}
+                  <Button variant="outline" size="sm" className="min-h-[40px]" onClick={() => openEdit(m)}>
+                    <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden /> Edit
+                  </Button>
+                  <Button variant="ghost" size="sm" className="min-h-[40px]" aria-label={`Remove ${m.label}`} onClick={() => retire(m)}>
+                    <Trash2 className="h-4 w-4 text-destructive" aria-hidden />
+                  </Button>
+                </div>
+              </li>
+            );
+          })}
+          {!methods.length ? (
+            <li className="p-4 text-sm text-muted-foreground">
+              Nothing configured yet — the terminal is falling back to whatever cash, wallet and
+              bank accounts exist. Add methods here to control the tiles the cashier sees.
+            </li>
+          ) : null}
+        </ul>
       )}
-
-      <Button onClick={openCreate} className="mt-3" variant="outline">
-        <Plus className="mr-1 h-4 w-4" /> Add payment method
-      </Button>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-[520px]">
@@ -259,7 +248,7 @@ export function PosPaymentMethodsPanel() {
                 </select>
                 {!eligibleAccounts.length ? (
                   <p className="mt-1 text-[11px] text-amber-700">
-                    No {KIND_LABEL[form.kind].toLowerCase()} account exists yet. Create one above first.
+                    No {KIND_LABEL[form.kind].toLowerCase()} account exists yet. Add one under Money &amp; Accounts → Accounts first.
                     {form.kind === 'card' ? ' A card method must use the account mapped as card_clearing.' : ''}
                   </p>
                 ) : null}
@@ -305,6 +294,6 @@ export function PosPaymentMethodsPanel() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </details>
+    </section>
   );
 }

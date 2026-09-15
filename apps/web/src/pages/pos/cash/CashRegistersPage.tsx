@@ -18,6 +18,7 @@ const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR'
  *   - Daily reconciliation report
  */
 import React, { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   ArrowLeftRight, ArrowRight, Banknote, Calculator,
   CircleDollarSign, ClipboardList, Coins, Eye, ThumbsUp, ThumbsDown,
@@ -57,7 +58,10 @@ const SHOW_CASH_MOVEMENTS = true;
    ========================================================================== */
 
 const CashRegistersPage: React.FC = () => {
-  const [tab, setTab] = useState<Tab>('register');
+  // `?tab=history` deep-links from Money & Accounts (variances, cash awaiting banking).
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab');
+  const [tab, setTab] = useState<Tab>(initialTab === 'history' || initialTab === 'reconciliation' ? initialTab : 'register');
   const [selectedRegisterId, setSelectedRegisterId] = useState<string>('');
 
   const { data: registers = [] } = useCashRegisters();
@@ -283,7 +287,8 @@ const Power: React.FC<{ className?: string }> = ({ className }) => (
 );
 
 /* ==========================================================================
-   Cash In / Cash Out Button + Dialog (hidden — enable via SHOW_CASH_MOVEMENTS)
+   Cash In / Cash Out Button + Dialog (shown while SHOW_CASH_MOVEMENTS is on;
+   the API enforces cash_session:cash_out or manager approval for pay-outs)
    ========================================================================== */
 
 const CashInOutButton: React.FC<{
