@@ -3074,6 +3074,9 @@ enum LocationType {
   // Manufacturing (additive) — a bakery/prep-kitchen production floor. Raw
   // materials transfer in and are consumed here; finished goods land elsewhere.
   production
+  /// System-managed "goods on the road" location for dispatched, not-yet-received
+  /// inter-branch transfers. Never a POS/sales location.
+  transit
 }
 
 enum StockMoveType {
@@ -3138,6 +3141,10 @@ enum StockDocStatus {
   completed
   cancelled
   reversed
+  /// Transit transfers: dispatched from the source, awaiting destination receipt.
+  in_transit
+  /// Transit transfers: some dispatched quantity is still unaccounted for.
+  partially_received
 }
 
 enum StockOutCategory {
@@ -3628,14 +3635,24 @@ model StockTransfer {
   reversedById   String?
   reversalReason String?
   completedAt    DateTime?
+  /// immediate = same-premises move posted on approval (source and destination in
+  /// one transaction). transit = branch transfer: approve → dispatch (source →
+  /// transit location) → one or more destination receipts with damage/shortage.
+  mode           String         @default("immediate")
+  /// The org's transit location the dispatched goods sit in until received.
+  transitLocId   String?
+  dispatchedAt   DateTime?
+  dispatchedById String?
+  lastReceivedAt DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   createdBy      String?
   updatedBy      String?
 
-  fromLoc InventoryLocation   @relation("StockTransferFrom", fields: [fromLocId], references: [id])
-  toLoc   InventoryLocation   @relation("StockTransferTo", fields: [toLocId], references: [id])
-  items   StockTransferItem[]
+  fromLoc  InventoryLocation      @relation("StockTransferFrom", fields: [fromLocId], references: [id])
+  toLoc    InventoryLocation      @relation("StockTransferTo", fields: [toLocId], references: [id])
+  items    StockTransferItem[]
+  receipts StockTransferReceipt[]
 
   @@unique([organizationId, transferCode])
   @@index([organizationId, status])
@@ -3651,12 +3668,43 @@ model StockTransferItem {
   unit           String?
   qtyRequested   Decimal @db.Decimal(20, 6)
   qtyTransferred Decimal @default(0) @db.Decimal(20, 6)
+  /// Transit mode: base quantity that left the source.
+  qtyDispatched  Decimal @default(0) @db.Decimal(20, 6)
+  /// Transit mode: accepted into the destination.
+  qtyReceived    Decimal @default(0) @db.Decimal(20, 6)
+  /// Transit mode: arrived damaged — written off as waste from transit.
+  qtyDamaged     Decimal @default(0) @db.Decimal(20, 6)
+  /// Transit mode: never arrived — written off as an adjustment loss from transit.
+  qtyShort       Decimal @default(0) @db.Decimal(20, 6)
+  /// Transit mode: recalled from transit back to the source.
+  qtyRecalled    Decimal @default(0) @db.Decimal(20, 6)
   batchNumber    String?
   distStrategy   String? @default("FEFO")
   unitCost       Decimal @default(0) @db.Decimal(20, 6)
 
   transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId, transferId])
+}
+
+/// One destination receipt (or recall) against a transit transfer. Immutable
+/// evidence of what arrived, what was damaged and what was short, and who said so.
+model StockTransferReceipt {
+  id             String   @id @default(uuid())
+  organizationId String
+  transferId     String
+  receiptCode    String
+  /// receipt | recall
+  kind           String   @default("receipt")
+  receivedById   String?
+  notes          String?
+  /// [{ itemId, productId, received, damaged, short, recalled }]
+  lines          Json
+  createdAt      DateTime @default(now())
+
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, receiptCode])
   @@index([organizationId, transferId])
 }
 
@@ -3678,6 +3726,10 @@ enum MeasurementMethod {
 enum InventoryCountType {
   opening
   closing
+  /// Recurring partial count of a scope (category / product list).
+  cycle
+  /// Ad-hoc spot check of a few products.
+  spot
 }
 
 enum InventoryCountStatus {
@@ -3696,6 +3748,12 @@ model InventoryCountSession {
   locationId     String
   countType      InventoryCountType   @default(opening)
   status         InventoryCountStatus @default(draft)
+  /// Blind count: system quantities and variances are hidden from counters while
+  /// the session is a draft; only a submitter can review them.
+  blind          Boolean              @default(false)
+  /// Partial-count scope. Empty = every countable product at the location.
+  scopeCategoryIds String[]           @default([])
+  scopeProductIds  String[]           @default([])
   notes          String?
   startedById    String?
   startedAt      DateTime             @default(now())
@@ -4929,6 +4987,83 @@ model GoodsReceiptLine {
   billMatches VendorBillReceiptMatch[]
 
   @@index([organizationId, goodsReceiptId])
+  @@index([organizationId, productId])
+}
+
+/// Landed cost (freight, duty, insurance, handling) capitalised onto the goods
+/// of one posted goods receipt. On post the charges are allocated to the receipt
+/// lines; the share still on hand raises the item's cost layer (AVCO average or
+/// the receipt's own lot) and the share already consumed is expensed to COGS.
+/// Dr Stock Valuation + Dr COGS / Cr the chosen accrual / payable account.
+model LandedCost {
+  id               String    @id @default(uuid())
+  organizationId   String
+  code             String
+  goodsReceiptId   String
+  /// draft | posted | cancelled
+  status           String    @default("draft")
+  /// value | quantity | equal
+  allocationMethod String    @default("value")
+  /// Account credited on post (freight accrual, AP clearing, cash…).
+  creditAccountId  String
+  date             DateTime  @default(now())
+  notes            String?
+  totalAmount      Decimal   @default(0) @db.Decimal(20, 6)
+  capitalizedAmount Decimal  @default(0) @db.Decimal(20, 6)
+  expensedAmount   Decimal   @default(0) @db.Decimal(20, 6)
+  journalEntryId   String?
+  postedAt         DateTime?
+  postedById       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  createdBy        String?
+  updatedBy        String?
+
+  charges     LandedCostCharge[]
+  allocations LandedCostAllocation[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, goodsReceiptId])
+  @@index([organizationId, status])
+}
+
+model LandedCostCharge {
+  id             String  @id @default(uuid())
+  organizationId String
+  landedCostId   String
+  /// freight | duty | insurance | handling | other
+  kind           String
+  description    String?
+  amount         Decimal @db.Decimal(20, 6)
+
+  landedCost LandedCost @relation(fields: [landedCostId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, landedCostId])
+}
+
+/// How a posted landed cost was spread over one receipt line (audit trail).
+model LandedCostAllocation {
+  id                 String  @id @default(uuid())
+  organizationId     String
+  landedCostId       String
+  goodsReceiptLineId String
+  productId          String
+  locationId         String
+  batchId            String?
+  /// Base quantity the receipt line brought in.
+  receivedQty        Decimal @db.Decimal(20, 6)
+  /// Base quantity of that receipt still on hand when the cost was posted.
+  onHandQty          Decimal @db.Decimal(20, 6)
+  basisValue         Decimal @db.Decimal(20, 6)
+  allocatedAmount    Decimal @db.Decimal(20, 6)
+  capitalizedAmount  Decimal @db.Decimal(20, 6)
+  expensedAmount     Decimal @db.Decimal(20, 6)
+  unitCostBefore     Decimal @db.Decimal(20, 6)
+  unitCostAfter      Decimal @db.Decimal(20, 6)
+
+  landedCost LandedCost @relation(fields: [landedCostId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, landedCostId])
   @@index([organizationId, productId])
 }
 

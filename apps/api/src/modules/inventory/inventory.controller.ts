@@ -31,6 +31,7 @@ import {
   CreateWasteDto,
   CreateStockAdjustmentDto,
   CreateStockTransferDto,
+  ReceiveStockTransferDto,
   WasteQueryDto,
   ApproveAdjustmentDto,
   ReverseStockDocDto,
@@ -217,6 +218,16 @@ export class InventoryController {
    * covering receipt lands, those units were expensed at a stale cost basis and
    * inventory is overstated by `valuationExposure`.
    */
+  /**
+   * Stock health: aging buckets, turnover, days of cover and slow / dead stock
+   * classification per quant (INV-P2-04).
+   */
+  @Get('reports/stock-health')
+  @RequirePermissions(PERMISSIONS.inventory.read)
+  stockHealth(@Query() query: ReportScopeQuery & { slowDays?: string; deadDays?: string; status?: string }) {
+    return this.reports.stockHealth(query);
+  }
+
   @Get('reports/negative-stock')
   @RequirePermissions(PERMISSIONS.inventory.read)
   negativeStock(@Query() query: ReportScopeQuery) {
@@ -336,6 +347,43 @@ export class InventoryController {
   @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
   approveTransfer(@Param('id') id: string) {
     return this.stockDocs.approveTransfer(id);
+  }
+
+  @Get('transfers/:id')
+  @RequirePermissions(PERMISSIONS.inventoryDoc.read)
+  getTransfer(@Param('id') id: string) {
+    return this.stockDocs.getTransfer(id);
+  }
+
+  /** Transit transfers: stock leaves the source into the transit location. */
+  @Post('transfers/:id/dispatch')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventoryDoc.update)
+  dispatchTransfer(@Param('id') id: string) {
+    return this.stockDocs.dispatchTransfer(id);
+  }
+
+  /** Transit transfers: destination receipt with optional damage / shortage split. */
+  @Post('transfers/:id/receive')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventoryDoc.update)
+  receiveTransfer(@Param('id') id: string, @Body() dto: ReceiveStockTransferDto) {
+    return this.stockDocs.receiveTransfer(id, dto);
+  }
+
+  /** Transit transfers: return everything still in transit to the source. */
+  @Post('transfers/:id/recall')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
+  recallTransfer(@Param('id') id: string, @Body() dto: ReverseStockDocDto) {
+    return this.stockDocs.recallTransfer(id, dto.reason);
+  }
+
+  @Post('transfers/:id/cancel')
+  @Idempotent()
+  @RequirePermissions(PERMISSIONS.inventoryDoc.approve)
+  cancelTransfer(@Param('id') id: string) {
+    return this.stockDocs.cancelTransfer(id);
   }
 
   // ---- Posted reversals (linked inverse movements + mirrored journals) ----

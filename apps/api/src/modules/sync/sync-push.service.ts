@@ -294,8 +294,10 @@ export class SyncPushService {
         if (!payload.invoiceId) throw new HttpException('sale.refund requires an invoiceId', 400);
         const res: any = await this.billing.refund(String(payload.invoiceId), payload.reason, {
           overrideById: payload.overrideById,
+          overridePin: payload.overridePin,
           cashSessionId: payload.cashSessionId,
           lines: Array.isArray(payload.lines) && payload.lines.length ? payload.lines : undefined,
+          stockDisposition: offlineStockDisposition(payload.stockDisposition),
         });
         const invId = res?.invoiceId ?? String(payload.invoiceId);
         return { id: invId, mapping: { invoiceId: invId } };
@@ -309,8 +311,10 @@ export class SyncPushService {
           `VOID: ${payload.reason ?? ''}`,
           {
             overrideById: payload.overrideById,
+            overridePin: payload.overridePin,
             cashSessionId: payload.cashSessionId,
             requireOverride: true,
+            stockDisposition: offlineStockDisposition(payload.stockDisposition),
           },
         );
         const invId = res?.invoiceId ?? String(payload.invoiceId);
@@ -860,4 +864,15 @@ export class SyncPushService {
       this.logger.error(`FAILED TO DEAD-LETTER sync op ${op.opId}: ${String(e)}`);
     }
   }
+}
+
+/**
+ * Goods disposition for an offline refund/void. The refund engine refuses a
+ * refund without one, but the offline client queues the online RefundDto body
+ * and has always restocked the goods on-device when it recorded the refund —
+ * so a replay that omits it must restock too, or every offline refund
+ * dead-letters and the device and server stock diverge. An explicit value wins.
+ */
+function offlineStockDisposition(value: unknown): 'restock' | 'waste' | 'no_return' {
+  return value === 'waste' || value === 'no_return' || value === 'restock' ? value : 'restock';
 }

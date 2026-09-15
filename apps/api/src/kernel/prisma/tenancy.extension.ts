@@ -64,6 +64,11 @@ const ORG_SCOPED = new Set<string>([
   'StockAdjustmentItem',
   'StockTransfer',
   'StockTransferItem',
+  'StockTransferReceipt',
+  // Landed cost capitalised onto goods receipts
+  'LandedCost',
+  'LandedCostCharge',
+  'LandedCostAllocation',
   // Phase 3 — soft stock reservations (available-to-promise)
   'StockReservation',
   // Inventory count sessions (opening/closing physical counts)

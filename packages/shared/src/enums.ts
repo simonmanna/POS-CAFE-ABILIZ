@@ -137,6 +137,8 @@ export const LOCATION_TYPES = [
   'branch',
   // Manufacturing (additive) — the production floor.
   'production',
+  // System-managed goods-in-transit location for branch transfers.
+  'transit',
 ] as const;
 export type LocationType = (typeof LOCATION_TYPES)[number];
 
@@ -198,6 +200,8 @@ export const STOCK_DOC_STATUS = [
   'completed',
   'cancelled',
   'reversed',
+  'in_transit',
+  'partially_received',
 ] as const;
 export type StockDocStatus = (typeof STOCK_DOC_STATUS)[number];
 

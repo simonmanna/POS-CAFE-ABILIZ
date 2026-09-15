@@ -6,7 +6,16 @@ import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { ApprovalsService } from '../../kernel/approvals/approvals.service';
 import { StockDocService } from './stock-doc.service';
-import { SaveCountDraftDto, StartCountDto, SubmitCountDto } from './dto/inventory-count.dto';
+import { SaveCountDraftDto, StartCountDto, SubmitCountDto, type InventoryCountTypeDto } from './dto/inventory-count.dto';
+
+type CountScope = { categoryIds: string[]; productIds: string[] };
+
+const COUNT_TYPE_LABEL: Record<InventoryCountTypeDto, string> = {
+  opening: 'Opening',
+  closing: 'Closing',
+  cycle: 'Cycle',
+  spot: 'Spot',
+};
 
 /**
  * Inventory Count Sessions — guided physical stock count (opening / closing).
@@ -38,8 +47,15 @@ export class InventoryCountService {
     return loc;
   }
 
-  /** Full session with lines, ordered for display (parents first, then variants). */
-  async get(id: string) {
+  /**
+   * Full session with lines, ordered for display (parents first, then variants).
+   *
+   * Blind counts (INV-P2-03): while the session is a draft, system quantities and
+   * variances are masked unless `reveal` is set — the controller only sets it for
+   * the submit-permission review route, so counters cannot anchor on the book
+   * figure. Submitted sessions are always shown in full.
+   */
+  async get(id: string, reveal = false) {
     const session = await this.prisma.client.inventoryCountSession.findFirst({
       where: { id },
       include: {
@@ -48,7 +64,38 @@ export class InventoryCountService {
       },
     });
     if (!session) throw new NotFoundException('Count session not found');
-    return session;
+    if (session.blind && session.status === 'draft' && !reveal) {
+      return {
+        ...session,
+        systemHidden: true,
+        lines: session.lines.map((l) => ({ ...l, systemQty: null, variance: null })),
+      };
+    }
+    return { ...session, systemHidden: false };
+  }
+
+  /** Normalise + validate the partial-count scope for a count type. */
+  private async resolveScope(
+    countType: InventoryCountTypeDto,
+    categoryIds: string[] | undefined,
+    productIds: string[] | undefined,
+  ): Promise<CountScope> {
+    const scope = { categoryIds: [...new Set(categoryIds ?? [])], productIds: [...new Set(productIds ?? [])] };
+    if (countType === 'spot' && scope.productIds.length === 0) {
+      throw new BadRequestException('A spot count needs at least one product.');
+    }
+    if (countType === 'cycle' && scope.categoryIds.length === 0 && scope.productIds.length === 0) {
+      throw new BadRequestException('A cycle count needs a scope: pick categories or products.');
+    }
+    if (scope.categoryIds.length > 0) {
+      const found = await this.prisma.client.productCategory.count({ where: { id: { in: scope.categoryIds } } });
+      if (found !== scope.categoryIds.length) throw new BadRequestException('One or more scope categories were not found');
+    }
+    if (scope.productIds.length > 0) {
+      const found = await this.prisma.client.product.count({ where: { id: { in: scope.productIds } } });
+      if (found !== scope.productIds.length) throw new BadRequestException('One or more scope products were not found');
+    }
+    return scope;
   }
 
   /** Session headers (most recent first) for the history list. */
@@ -74,6 +121,7 @@ export class InventoryCountService {
   async start(dto: StartCountDto) {
     await this.location(dto.locationId);
     const countType = dto.countType ?? 'opening';
+    const scope = await this.resolveScope(countType, dto.scopeCategoryIds, dto.scopeProductIds);
 
     // An open draft that already holds counts is someone's work in progress:
     // resume it rather than silently cancelling it. Only an untouched draft (or
@@ -91,7 +139,7 @@ export class InventoryCountService {
       });
     }
 
-    const lines = await this.buildLines(dto.locationId);
+    const lines = await this.buildLines(dto.locationId, scope);
 
     const countCode = await this.seq.next('inv_count', { prefix: 'CNT-', padding: 5 });
     const autoName = this.autoName(countType);
@@ -104,6 +152,9 @@ export class InventoryCountService {
           locationId: dto.locationId,
           countType,
           status: 'draft',
+          blind: dto.blind === true,
+          scopeCategoryIds: scope.categoryIds,
+          scopeProductIds: scope.productIds,
           notes: dto.notes ?? null,
           startedById: this.tenant.userId ?? null,
           createdBy: this.tenant.userId ?? null,
@@ -143,7 +194,11 @@ export class InventoryCountService {
    *
    * Read-only: needs no count permission, writes no row.
    */
-  async preview(locationId: string, countType: 'opening' | 'closing' = 'opening') {
+  async preview(
+    locationId: string,
+    countType: InventoryCountTypeDto = 'opening',
+    scopeIn: { categoryIds?: string[]; productIds?: string[] } = {},
+  ) {
     const location = await this.location(locationId);
 
     const draft = await this.prisma.client.inventoryCountSession.findFirst({
@@ -151,7 +206,13 @@ export class InventoryCountService {
     });
     if (draft) return this.get(draft.id);
 
-    const lines = await this.buildLines(locationId);
+    // A cycle/spot preview without a scope yet is simply an empty sheet.
+    const hasScope = (scopeIn.categoryIds?.length ?? 0) + (scopeIn.productIds?.length ?? 0) > 0;
+    const scope =
+      (countType === 'cycle' || countType === 'spot') && !hasScope
+        ? null
+        : await this.resolveScope(countType, scopeIn.categoryIds, scopeIn.productIds);
+    const lines = scope ? await this.buildLines(locationId, scope) : [];
     return {
       id: '',
       countCode: 'PREVIEW',
@@ -159,6 +220,10 @@ export class InventoryCountService {
       locationId,
       countType,
       status: 'preview' as const,
+      blind: false,
+      systemHidden: false,
+      scopeCategoryIds: scope?.categoryIds ?? [],
+      scopeProductIds: scope?.productIds ?? [],
       notes: null,
       startedAt: new Date(),
       submittedAt: null,
@@ -178,11 +243,11 @@ export class InventoryCountService {
     };
   }
 
-  private autoName(countType: 'opening' | 'closing'): string {
+  private autoName(countType: InventoryCountTypeDto): string {
     const now = new Date();
     const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const dateStr = `${months[now.getMonth()]} ${String(now.getDate()).padStart(2,'0')}, ${now.getFullYear()}`;
-    return `${countType === 'opening' ? 'Opening' : 'Closing'} Count – ${dateStr}`;
+    return `${COUNT_TYPE_LABEL[countType]} Count – ${dateStr}`;
   }
 
   /**
@@ -190,7 +255,7 @@ export class InventoryCountService {
    * the system on-hand at this instant. Shared by `start` (which persists them)
    * and `preview` (which does not) so the two can never disagree.
    */
-  private async buildLines(locationId: string) {
+  private async buildLines(locationId: string, scope: CountScope = { categoryIds: [], productIds: [] }) {
     // Only countable goods belong on a count sheet. Services and non-tracked
     // items have no on-hand to count — including them produced sheets hundreds
     // of rows long where every row was a guaranteed zero-variance no-op, and
@@ -200,13 +265,25 @@ export class InventoryCountService {
         isActive: true,
         trackInventory: true,
         productType: { in: ['stockable', 'consumable'] },
+        // Partial counts: a product is in scope when its category OR the product
+        // itself was selected. Empty scope = the whole location.
+        ...(scope.categoryIds.length > 0 || scope.productIds.length > 0
+          ? {
+              OR: [
+                ...(scope.categoryIds.length > 0 ? [{ categoryId: { in: scope.categoryIds } }] : []),
+                ...(scope.productIds.length > 0 ? [{ id: { in: scope.productIds } }] : []),
+              ],
+            }
+          : {}),
       },
       select: { id: true, name: true, hasVariants: true, uom: { select: { code: true } } },
       orderBy: { name: 'asc' },
     });
     if (products.length === 0) {
       throw new BadRequestException(
-        'No countable products found. A product must be active, inventory-tracked, and of type stockable or consumable to appear on a count sheet.',
+        scope.categoryIds.length > 0 || scope.productIds.length > 0
+          ? 'No countable products in the selected scope. Products must be active, inventory-tracked, and stockable or consumable.'
+          : 'No countable products found. A product must be active, inventory-tracked, and of type stockable or consumable to appear on a count sheet.',
       );
     }
     const parentById = new Map(products.map((p) => [p.id, p]));

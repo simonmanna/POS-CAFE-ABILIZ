@@ -83,7 +83,7 @@ if (!DATABASE_URL) {
   // The isolated money suites run in step 3; the RLS role-flip spec needs a
   // separately provisioned `app` role and documents the application-tenancy model.
   jest('full jest suite (DB required)', null, DATABASE_URL, [
-    /pos-money-foundations|pos-sale-pipeline|pos-store-credit-issuance|pos-cash-flow-go-live|pos-cash-flow-day|pos-cash-flow-adversarial/,
+    /pos-money-foundations|pos-sale-pipeline|pos-store-credit-issuance|pos-cash-flow-go-live|pos-cash-flow-day|pos-cash-flow-adversarial|pos-offline-inventory-replay|pos-shift-close-gates/,
     /kernel\/prisma\/rls\.spec\.ts$/,
   ]);
 }
@@ -93,7 +93,7 @@ if (!POS_TEST_DATABASE_URL || !/^\/pos_stage1_\d+$/.test(new URL(POS_TEST_DATABA
   results.push({ gate: 'isolated money suites', status: 'FAIL', seconds: 0, detail: 'POS_TEST_DATABASE_URL must name a disposable pos_stage1_<digits> database' });
 } else {
   run('migrate deploy (isolated)', 'npx', ['prisma', 'migrate', 'deploy'], { cwd: API, env: { DATABASE_URL: POS_TEST_DATABASE_URL } });
-  jest('isolated money suites', 'pos-money-foundations|pos-sale-pipeline|pos-store-credit-issuance|pos-cash-flow-go-live|pos-cash-flow-day|pos-cash-flow-adversarial', POS_TEST_DATABASE_URL, []);
+  jest('isolated money suites', 'pos-money-foundations|pos-sale-pipeline|pos-store-credit-issuance|pos-cash-flow-go-live|pos-cash-flow-day|pos-cash-flow-adversarial|pos-offline-inventory-replay|pos-shift-close-gates', POS_TEST_DATABASE_URL, []);
 }
 
 // ── 4. release preflight ────────────────────────────────────────────────────

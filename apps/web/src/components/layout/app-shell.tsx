@@ -199,10 +199,10 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/inventory', label: 'Stock Levels', icon: Package, permission: 'inventory:read' },
       { to: '/inventory/ledger', label: 'Stock Ledger', icon: ScrollText, permission: 'inventory:read' },
-      { to: '/inventory/count', label: 'Stock Count', icon: ClipboardList, permission: 'inventory_count:read' },
-      { to: '/inventory/adjustments', label: 'Stock Adjustments', icon: Scale, permission: 'inventory:move' },
+      { to: '/inventory/count', label: 'Stock Count', icon: ClipboardList, permission: PERMISSIONS.inventoryCount.read },
+      { to: '/inventory/adjustments', label: 'Stock Adjustments', icon: Scale, permission: PERMISSIONS.inventoryDoc.read },
       { to: '/inventory/waste', label: 'Damages & Waste', icon: PackageX, permission: PERMISSIONS.inventoryDoc.read },
-      { to: '/inventory/transfers', label: 'Stock Transfers', icon: Truck, permission: 'inventory:move' },
+      { to: '/inventory/transfers', label: 'Stock Transfers', icon: Truck, permission: PERMISSIONS.inventoryDoc.read },
       { to: '/inventory/locations', label: 'Locations', icon: MapPin, permission: PERMISSIONS.inventoryLocation.read },
       { to: '/inventory/reports', label: 'Inventory Reports', icon: BarChart3, permission: 'inventory:read' },
     ],

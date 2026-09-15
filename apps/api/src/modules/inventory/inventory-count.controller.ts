@@ -23,13 +23,27 @@ export class InventoryCountController {
   @Get('preview')
   @RequirePermissions(PERMISSIONS.inventoryCount.read)
   preview(@Query() query: PreviewCountQueryDto) {
-    return this.counts.preview(query.locationId, query.countType ?? 'opening');
+    return this.counts.preview(query.locationId, query.countType ?? 'opening', {
+      categoryIds: query.scopeCategoryIds,
+      productIds: query.scopeProductIds,
+    });
   }
 
   @Get(':id')
   @RequirePermissions(PERMISSIONS.inventoryCount.read)
   get(@Param('id') id: string) {
     return this.counts.get(id);
+  }
+
+  /**
+   * Blind-count review: the unmasked sheet (system quantities + variances) for
+   * whoever is allowed to submit it. Counters without submit rights only ever
+   * get the masked sheet from `GET :id`.
+   */
+  @Get(':id/review')
+  @RequirePermissions(PERMISSIONS.inventoryCount.submit)
+  review(@Param('id') id: string) {
+    return this.counts.get(id, true);
   }
 
   @Post('start')

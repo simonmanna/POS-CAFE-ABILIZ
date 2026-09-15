@@ -347,6 +347,14 @@ export class GoodsReceiptsService {
     if (grn.status === 'reversed' || grn.reversedAt) throw new ConflictException(`Goods receipt ${grn.receiptNumber} is already reversed`);
     if (grn.status !== 'posted') throw new BadRequestException('Only posted goods receipts can be reversed');
 
+    const landed = await this.prisma.client.landedCost.count({ where: { goodsReceiptId: grn.id, status: 'posted' } });
+    if (landed > 0) {
+      throw new BadRequestException(
+        `Goods receipt ${grn.receiptNumber} has posted landed cost — the capitalised freight/duty would be stranded; return the goods with a debit note instead`,
+      );
+    }
+    await this.prisma.client.landedCost.updateMany({ where: { goodsReceiptId: grn.id, status: 'draft' }, data: { status: 'cancelled' } });
+
     const matched = await this.prisma.client.vendorBillReceiptMatch.count({
       where: { organizationId: orgId, goodsReceiptLineId: { in: grn.lines.map((l) => l.id) } },
     });

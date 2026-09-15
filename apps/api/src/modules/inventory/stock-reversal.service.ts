@@ -65,7 +65,9 @@ export class StockReversalService {
         if (claim.count === 0) throw new ConflictException(`${spec.label} ${code} was reversed concurrently`);
 
         const reversalSource = `${kind}_reversal`;
-        if (kind === 'stock_transfer') {
+        if (kind === 'stock_transfer' && doc.mode === 'transit') {
+          await this.reverseTransitTransfer(tx, doc, code, reason);
+        } else if (kind === 'stock_transfer') {
           await this.reverseTransferMovements(tx, doc, code, reason);
         } else {
           await this.reverseLedgerSource(tx, {
@@ -133,6 +135,80 @@ export class StockReversalService {
         },
         tx,
       );
+    }
+  }
+
+  /**
+   * Reverse a completed TRANSIT transfer: received goods go straight back from
+   * the destination to the source; damage / shortage write-offs are reversed
+   * (inverse ledger + mirrored journals, restoring them into transit) and those
+   * units then return from transit to the source. Recalled units are already home.
+   */
+  private async reverseTransitTransfer(tx: any, doc: any, code: string, reason: string) {
+    const notes = `Reversal of ${code}: ${reason.trim()}`;
+    const received = await tx.inventoryLedger.findMany({
+      where: { organizationId: this.org, referenceType: 'stock_transfer_receipt', referenceId: code, type: 'transfer_in' },
+      orderBy: { createdAt: 'asc' },
+    });
+    const sum = (rows: any[]) => {
+      const m = new Map<string, { productId: string; variantId: string | null; locationId: string; qty: ReturnType<typeof dec> }>();
+      for (const r of rows) {
+        const key = `${r.productId}:${r.variantId ?? ''}:${r.locationId}`;
+        const cur = m.get(key) ?? { productId: r.productId, variantId: r.variantId, locationId: r.locationId, qty: ZERO };
+        cur.qty = cur.qty.plus(dec(r.quantityChange).abs());
+        m.set(key, cur);
+      }
+      return [...m.values()];
+    };
+    for (const line of sum(received)) {
+      await this.stock.transfer(
+        {
+          productId: line.productId,
+          variantId: line.variantId ?? undefined,
+          fromLocationId: line.locationId,
+          toLocationId: doc.fromLocId,
+          quantity: Number(line.qty),
+          sourceType: 'stock_transfer_reversal',
+          sourceId: code,
+          notes,
+          approvedById: this.tenant.userId ?? undefined,
+        },
+        tx,
+      );
+    }
+
+    const losses = await tx.inventoryLedger.findMany({
+      where: { organizationId: this.org, referenceType: 'stock_transfer_loss', referenceId: code },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (losses.length > 0) {
+      await this.reverseLedgerSource(tx, {
+        referenceType: 'stock_transfer_loss',
+        referenceId: code,
+        reversalSourceType: 'stock_transfer_reversal',
+        reversalSourceId: code,
+        journalSourceTypes: ['stock_transfer_loss'],
+        notes,
+      });
+      for (const line of sum(losses)) {
+        await this.stock.transfer(
+          {
+            productId: line.productId,
+            variantId: line.variantId ?? undefined,
+            fromLocationId: line.locationId,
+            toLocationId: doc.fromLocId,
+            quantity: Number(line.qty),
+            sourceType: 'stock_transfer_reversal',
+            sourceId: code,
+            notes,
+            approvedById: this.tenant.userId ?? undefined,
+          },
+          tx,
+        );
+      }
+    }
+    if (received.length === 0 && losses.length === 0) {
+      throw new BadRequestException(`Transfer ${code} has no received or written-off quantities to reverse`);
     }
   }
 

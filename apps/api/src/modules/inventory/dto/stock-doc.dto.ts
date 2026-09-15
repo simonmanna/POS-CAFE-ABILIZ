@@ -215,10 +215,19 @@ export class StockTransferItemDto extends BaseStockLineDto {
   distStrategy?: StockDistributionStrategy;
 }
 
+export const STOCK_TRANSFER_MODES = ['immediate', 'transit'] as const;
+export type StockTransferMode = (typeof STOCK_TRANSFER_MODES)[number];
+
 export class CreateStockTransferDto {
   @IsString()
   @IsNotEmpty()
   fromLocationId!: string;
+
+  /// immediate (default) = same-premises move posted on approval. transit =
+  /// branch transfer: approve, dispatch, then receive at the destination.
+  @IsOptional()
+  @IsIn([...STOCK_TRANSFER_MODES])
+  mode?: StockTransferMode;
 
   @IsString()
   @IsNotEmpty()
@@ -243,6 +252,43 @@ export class CreateStockTransferDto {
   @ValidateNested({ each: true })
   @Type(() => StockTransferItemDto)
   items!: StockTransferItemDto[];
+}
+
+export class ReceiveStockTransferLineDto {
+  @IsString()
+  @IsNotEmpty()
+  itemId!: string;
+
+  /// Accepted into the destination (base units).
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  received?: number;
+
+  /// Arrived damaged — written off as waste.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  damaged?: number;
+
+  /// Never arrived — written off as a stock loss.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  short?: number;
+}
+
+/** Body of POST /inventory/transfers/:id/receive (transit transfers). */
+export class ReceiveStockTransferDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => ReceiveStockTransferLineDto)
+  lines!: ReceiveStockTransferLineDto[];
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class ApproveStockDocDto {

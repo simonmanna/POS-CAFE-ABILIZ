@@ -410,6 +410,66 @@ export class StockPostingService {
   }
 
   /**
+   * Landed cost (freight / duty / insurance) on a goods receipt, one balanced JE:
+   *   Dr Stock Valuation (per product's inventory account)  — share still on hand
+   *   Dr COGS                                              — share already consumed
+   *   Cr creditAccountId                                   — the charge owed / paid
+   * The stock account is the debit side of the product's STOCK_IN rule, so the
+   * capitalised amount lands on the same account the receipt itself debited and
+   * the inventory ↔ GL tie-out keeps matching.
+   */
+  async postLandedCost(params: {
+    lines: Array<{ productId: string; capitalized: Prisma.Decimal.Value; expensed: Prisma.Decimal.Value }>;
+    creditAccountId: string;
+    date: Date;
+    sourceType: string;
+    sourceId: string;
+    description: string;
+    tx: any;
+  }): Promise<{ id: string } | null> {
+    const lines: PostingLineInput[] = [];
+    let credit = ZERO;
+    let cogsTotal = ZERO;
+    for (const l of params.lines) {
+      const cap = dec(l.capitalized);
+      const exp = dec(l.expensed);
+      if (cap.gt(ZERO)) {
+        const ruled = await this.resolveLines('STOCK_IN', l.productId, cap, params.tx);
+        const stockAccountId =
+          ruled?.find((r) => r.debit && dec(r.debit).gt(ZERO))?.accountId ??
+          (await this.determination.mapped('stock_valuation', params.tx));
+        lines.push({ accountId: stockAccountId, debit: cap.toString(), description: params.description });
+        credit = credit.plus(cap);
+      }
+      if (exp.gt(ZERO)) {
+        cogsTotal = cogsTotal.plus(exp);
+        credit = credit.plus(exp);
+      }
+    }
+    if (cogsTotal.gt(ZERO)) {
+      lines.push({
+        accountId: await this.determination.mapped('cogs', params.tx),
+        debit: cogsTotal.toString(),
+        description: `${params.description} · already consumed`,
+      });
+    }
+    if (credit.lte(ZERO)) return null;
+    lines.push({ accountId: params.creditAccountId, credit: credit.toString(), description: params.description });
+    return this.posting.post(
+      {
+        journalCode: 'INV',
+        date: params.date,
+        description: params.description,
+        sourceType: params.sourceType,
+        sourceId: params.sourceId,
+        postingKey: `inventory:landed_cost:${this.tenant.organizationId}:${params.sourceId}`,
+        lines,
+      },
+      params.tx,
+    );
+  }
+
+  /**
    * Variance from a stock adjustment (count vs system):
    * positive (delta > 0) → ADJUSTMENT_GAIN, negative (delta < 0) → ADJUSTMENT_LOSS
    */

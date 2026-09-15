@@ -53,6 +53,15 @@ export type InternalIssueInput = IssueStockDto & {
   requireAvailable?: boolean;
 };
 
+/** Serial-tracked goods move in whole base units — one serial per physical unit. */
+function assertWholeSerialQuantity(productName: string, baseQty: Prisma.Decimal): void {
+  if (!baseQty.isInteger()) {
+    throw new BadRequestException(
+      `${productName} is serial-tracked: quantity must be a whole number of base units, got ${baseQty.toString()}`,
+    );
+  }
+}
+
 @Injectable()
 export class StockService {
   constructor(
@@ -329,14 +338,24 @@ export class StockService {
     if (product.costingMethod === 'FIFO' && !product.batchTracking) {
       throw new BadRequestException('FIFO costing requires batchTracking=true on the product');
     }
+    // Convert a purchase-unit receipt into the base stock unit (total value kept).
+    // Done BEFORE serial validation: serials identify BASE units, so a case of 12
+    // needs 12 serials, not 1.
+    const { quantity: qty, unitCost } = await this.toBaseQtyCost(
+      product,
+      dto.uomId,
+      dec(dto.quantity),
+      dto.unitCost != null ? dec(dto.unitCost) : ZERO,
+    );
     if (product.serialTracking) {
       const serials = dto.serialNumbers ?? [];
+      assertWholeSerialQuantity(product.name, qty);
       const serialPolicy = await this.settings.resolveEnum('inventory.serialPolicy', {
         productId: dto.productId, categoryId: product.categoryId, warehouseId: dto.locationId,
       });
-      if (serialPolicy === 'required' && serials.length !== Number(dto.quantity)) {
+      if (serialPolicy === 'required' && !qty.equals(serials.length)) {
         throw new BadRequestException(
-          `Serial policy is "required": ${product.name} needs exactly ${dto.quantity} serial number(s), got ${serials.length}`,
+          `Serial policy is "required": ${product.name} needs exactly ${qty.toString()} serial number(s) (base units), got ${serials.length}`,
         );
       }
       // Serials are captured when supplied but NOT mandatory at receive: a receive
@@ -348,21 +367,14 @@ export class StockService {
         if (new Set(serials).size !== serials.length) {
           throw new BadRequestException('Duplicate serial numbers in the receipt');
         }
-        if (serials.length > Number(dto.quantity)) {
+        if (qty.lt(serials.length)) {
           throw new BadRequestException(
-            `Received ${dto.quantity} unit(s) but ${serials.length} serial number(s) provided`,
+            `Received ${qty.toString()} base unit(s) but ${serials.length} serial number(s) provided`,
           );
         }
       }
     }
 
-    // Convert a purchase-unit receipt into the base stock unit (total value kept).
-    const { quantity: qty, unitCost } = await this.toBaseQtyCost(
-      product,
-      dto.uomId,
-      dec(dto.quantity),
-      dto.unitCost != null ? dec(dto.unitCost) : ZERO,
-    );
     const variantId = dto.variantId ?? null;
     const variantKey = variantId ?? '';
 
@@ -627,9 +639,13 @@ export class StockService {
       expiredPolicy === 'skip_expired' && dto.moveType !== 'expiry_write_off' && dto.moveType !== 'waste'
         ? { OR: [{ expiryDate: null }, { expiryDate: { gt: new Date() } }] }
         : {};
-    if (product.serialTracking && serialPolicy === 'required' && (dto.serialNumbers?.length ?? 0) !== Number(dto.quantity)) {
+    // Serial checks run on the BASE quantity (after UOM conversion above): one case
+    // of 12 serialised units needs 12 serials, and half a serialised unit is invalid.
+    const serialRequired = product.serialTracking && serialPolicy === 'required';
+    if (product.serialTracking) assertWholeSerialQuantity(product.name, qty);
+    if (serialRequired && !qty.equals(dto.serialNumbers?.length ?? 0)) {
       throw new BadRequestException(
-        `Serial policy is "required": issuing ${dto.quantity} of ${product.name} needs ${dto.quantity} serial number(s)`,
+        `Serial policy is "required": issuing ${qty.toString()} base unit(s) of ${product.name} needs ${qty.toString()} serial number(s), got ${dto.serialNumbers?.length ?? 0}`,
       );
     }
     const allowNegativeStock = await this.settings.resolveBool(
@@ -734,6 +750,9 @@ export class StockService {
         // it issued, and write one ledger row per unit linked to its serialId. Never
         // blocks a sale — any shortfall of serials overflows at the product cost.
         const requested = dto.serialNumbers ?? [];
+        if (new Set(requested).size !== requested.length) {
+          throw new BadRequestException('Duplicate serial numbers in the issue');
+        }
         let serialRows: Array<{ id: string; unitCost: any; batchId: string | null; serialNumber: string }>;
         if (requested.length > 0) {
           serialRows = await tx.inventorySerial.findMany({
@@ -812,6 +831,14 @@ export class StockService {
         // Shortfall (fewer serials than requested qty): never block — overflow the
         // remainder at product cost, mirroring the batch overflow path.
         const covered = dec(serialRows.length);
+        if (qty.gt(covered) && serialRequired) {
+          // Required policy: an un-serialised overflow row would make units
+          // untraceable. (Explicit serials were already length-checked above, so
+          // this only guards duplicates in the request.)
+          throw new BadRequestException(
+            `Serial policy is "required": only ${covered.toString()} of ${qty.toString()} serialised unit(s) of ${product.name} are available`,
+          );
+        }
         if (qty.gt(covered)) {
           const remaining = qty.minus(covered);
           const overflowUnit = dec(product.costPrice ?? 0);
@@ -874,7 +901,8 @@ export class StockService {
         // instead of the batch-scoped values this branch used to write — those two
         // meanings on one column made every batch-product stock card wrong.
         let runningBefore = dec(stockItem.quantity);
-        for (const batch of batches) {
+        const consumeBatches = async (list: any[], rowNotes: string | null) => {
+        for (const batch of list) {
           if (remaining.lte(ZERO)) break;
           const batchQty = dec(batch.quantity);
           // Atomic decrement: only succeeds when batch.quantity >= consumed.
@@ -920,7 +948,7 @@ export class StockService {
               totalValue: consumedValue,
               referenceType: dto.sourceType ?? null,
               referenceId: dto.sourceId ?? null,
-              notes: ledgerNotes,
+              notes: rowNotes,
               performedBy: this.tenant.userId ?? null,
               responsibleById: dto.responsibleById ?? null,
               approvedById: dto.approvedById ?? null,
@@ -929,6 +957,59 @@ export class StockService {
           totalValue = totalValue.plus(consumedValue);
           remaining = remaining.minus(consumed);
           runningBefore = afterLoc;
+        }
+        };
+        await consumeBatches(batches, ledgerNotes);
+
+        // INV-P1-02: skip_expired hid expired lots from picking. If those lots are
+        // all that is left, deducting the shortfall as an unlayered overflow would
+        // drop StockItem below Σ(lots) while the expired lots stay untouched —
+        // lot/quant drift that corrupts FEFO, expiry and valuation reports. A
+        // strict caller already refused above (available excludes expired lots);
+        // a permissive one (POS never-block rule) consumes the expired lots so
+        // quant = Σ lots is conserved, and the event is flagged for review.
+        if (remaining.gt(ZERO) && 'OR' in pickableBatch && strategy !== 'MANUAL') {
+          const expiredLots = await tx.inventoryBatch.findMany({
+            where: {
+              organizationId,
+              productId: dto.productId,
+              variantId,
+              locationId: dto.locationId,
+              quantity: { gt: 0 },
+              isActive: true,
+              expiryDate: { lte: new Date() },
+            },
+            orderBy: [{ expiryDate: 'asc' as const }, { receivedAt: 'asc' as const }],
+          });
+          if (expiredLots.length > 0) {
+            const beforeExpired = remaining;
+            const expiredNote = [ledgerNotes, 'EXPIRED LOT CONSUMED (skip_expired: no valid lot available)']
+              .filter(Boolean)
+              .join(' · ');
+            await consumeBatches(expiredLots, expiredNote);
+            const expiredQty = beforeExpired.minus(remaining);
+            if (expiredQty.gt(ZERO)) {
+              await tx.inventoryException.create({
+                data: {
+                  organizationId,
+                  locationId: dto.locationId,
+                  productId: dto.productId,
+                  description: product.name,
+                  quantity: expiredQty,
+                  kind: 'expired_lot_consumed',
+                  reason: `Issued ${expiredQty.toString()} from expired lot(s) because no unexpired stock was available (${ledgerCode})`,
+                  payload: {
+                    ledgerCode,
+                    moveType,
+                    sourceType: dto.sourceType ?? null,
+                    sourceId: dto.sourceId ?? null,
+                    reference: dto.reference ?? null,
+                  } as any,
+                  status: 'open',
+                },
+              });
+            }
+          }
         }
         if (remaining.gt(ZERO)) {
           const consumedQty = qty.minus(remaining);

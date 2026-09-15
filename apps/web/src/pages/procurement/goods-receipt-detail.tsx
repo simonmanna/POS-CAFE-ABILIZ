@@ -6,6 +6,7 @@ import { idempotentPatch } from '@/lib/idempotent-request';
 import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
 import { ReasonDialog } from '@/features/inventory/reason-dialog';
+import { LandedCostPanel } from '@/features/procurement/landed-cost-panel';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -340,6 +341,10 @@ export default function GoodsReceiptDetailPage() {
           </div>
         </div>
       </div>
+
+      {grn.status === 'posted' && (
+        <LandedCostPanel goodsReceiptId={grn.id} canCreate={has('goods_receipt:create')} canPost={has('goods_receipt:post')} canCancel={has('goods_receipt:cancel')} />
+      )}
 
       <ReasonDialog
         open={reversing}

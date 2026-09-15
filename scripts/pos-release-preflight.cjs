@@ -277,7 +277,28 @@ async function checkOrganization(db, organizationId) {
       FROM "InventoryLedger" WHERE "organizationId" = $1) x
     WHERE prev IS NOT NULL AND prev <> "qtyBefore" GROUP BY "productId", "locationId"`), 'Historic stock-card rows do not chain (usually a mid-stream opening balance); totals are still right');
 
-  add(warnings, 'inventory_negative_stock', await q(`SELECT "productId", "locationId", quantity FROM "StockItem" WHERE "organizationId" = $1 AND quantity < 0`), 'Sold before received; COGS used a stale cost until the covering receipt lands');
+  add(warnings, 'inventory_negative_stock', await q(`
+    SELECT s."productId", p.name, s."locationId", s.quantity,
+           ROUND(abs(s.quantity) * GREATEST(COALESCE(NULLIF(s."runningAverageCost", 0), p."costPrice", 0), 0), 2) AS "valuationExposure"
+    FROM "StockItem" s JOIN "Product" p ON p.id = s."productId"
+    WHERE s."organizationId" = $1 AND s.quantity < 0
+    ORDER BY abs(s.quantity) * COALESCE(p."costPrice", 0) DESC`), 'Sold before received; COGS used a stale cost until the covering receipt lands — physically count these before trading');
+
+  // INV-P1-01: the permissive default must be a recorded decision, not an accident.
+  add(warnings, 'inventory_negative_stock_policy_not_decided', await q(`
+    SELECT 'inventory.allowNegativeStock' AS key WHERE NOT EXISTS (
+      SELECT 1 FROM "Setting" WHERE "organizationId" = $1 AND key = 'inventory.allowNegativeStock')`),
+    'Negative stock runs on the permissive default. Record the decision in Settings > Inventory (organization, category or product level; set false + stock policy "block" where physical stock is authoritative)');
+
+  add(warnings, 'inventory_transfers_in_transit_over_3_days', await q(`
+    SELECT "transferCode", status, "dispatchedAt" FROM "StockTransfer"
+    WHERE "organizationId" = $1 AND status IN ('in_transit', 'partially_received') AND "dispatchedAt" < now() - interval '3 days'`),
+    'Goods dispatched but not received; receive (with damage/shortage) or recall them');
+
+  add(warnings, 'inventory_open_exceptions', await q(`
+    SELECT kind, COUNT(*)::int AS n FROM "InventoryException"
+    WHERE "organizationId" = $1 AND status = 'open' GROUP BY kind`),
+    'Open inventory exceptions (failed recipe consumption, expired lots sold…) block period close; review them');
 
   add(warnings, 'inventory_expired_lots_on_hand', await q(`SELECT id, "productId", "batchNumber", quantity, "expiryDate" FROM "InventoryBatch" WHERE "organizationId" = $1 AND quantity > 0 AND "expiryDate" < now()`), 'Expired stock on hand; write it off via Waste');
 

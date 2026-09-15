@@ -4,15 +4,21 @@ import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
 import { ApprovalsService } from '../../kernel/approvals/approvals.service';
-import { StockService } from './stock.service';
+import { StockService, type InternalIssueInput } from './stock.service';
+import { StockPostingService } from './posting/stock-posting.service';
+import { AuditService } from '../../kernel/audit/audit.service';
 import { assertActiveStaff } from './staff-attribution';
 import {
   CreateStockOutDto,
   CreateWasteDto,
   CreateStockAdjustmentDto,
   CreateStockTransferDto,
+  ReceiveStockTransferDto,
   WasteQueryDto,
 } from './dto/stock-doc.dto';
+
+/** Quantities within this of each other are equal (Decimal(20,6) columns). */
+const QTY_EPSILON = dec('0.000001');
 
 /**
  * F.8 — Document wrappers around the stock engine. Each header carries lines and
@@ -29,6 +35,8 @@ export class StockDocService {
     private readonly seq: SequenceService,
     private readonly stock: StockService,
     private readonly approvals: ApprovalsService,
+    private readonly stockPosting: StockPostingService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -619,8 +627,14 @@ export class StockDocService {
     if (dto.fromLocationId === dto.toLocationId) {
       throw new BadRequestException('Source and destination must differ');
     }
-    await this.location(dto.fromLocationId);
-    await this.location(dto.toLocationId);
+    const fromLoc = await this.location(dto.fromLocationId);
+    const toLoc = await this.location(dto.toLocationId);
+    if (fromLoc.type === 'transit' || toLoc.type === 'transit') {
+      throw new BadRequestException('The transit location is system-managed; use a transit transfer instead of moving stock into or out of it directly');
+    }
+    for (const i of dto.items) {
+      if (!(Number(i.qtyRequested) > 0)) throw new BadRequestException('Every transfer line needs a positive quantity');
+    }
     await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
     const names = await this.productNames(dto.items.map((i) => i.productId));
     const transferCode = await this.seq.next('stock_transfer', { prefix: 'TRF-', padding: 5 });
@@ -631,6 +645,7 @@ export class StockDocService {
         fromLocId: dto.fromLocationId,
         toLocId: dto.toLocationId,
         status: 'pending',
+        mode: dto.mode ?? 'immediate',
         notes: dto.notes ?? null,
         performedById: this.tenant.userId ?? null,
         responsibleById: dto.responsibleById,
@@ -666,9 +681,20 @@ export class StockDocService {
       `transfer ${doc.transferCode}`,
     );
 
+    if (doc.mode === 'transit') {
+      // Transit: approval authorises the movement but moves nothing. Stock leaves
+      // the source only when it is physically dispatched.
+      const claim = await this.prisma.client.stockTransfer.updateMany({
+        where: { id: doc.id, postedAt: null, status: { in: ['pending', 'draft'] } },
+        data: { status: 'approved', approvedById: this.tenant.userId ?? null, approvedAt: new Date() },
+      });
+      if (claim.count === 0) throw new BadRequestException('Transfer was approved or cancelled concurrently');
+      return this.getTransfer(doc.id);
+    }
+
     return this.prisma.client.$transaction(async (tx: any) => {
       const claim = await tx.stockTransfer.updateMany({
-        where: { id: doc.id, postedAt: null, status: { in: ['pending', 'draft'] } },
+        where: { id: doc.id, postedAt: null, status: { in: ['pending', 'draft'] }, mode: 'immediate' },
         data: { status: 'approved' },
       });
       if (claim.count === 0) throw new BadRequestException('Transfer was posted or cancelled concurrently');
@@ -709,6 +735,357 @@ export class StockDocService {
   }
 
   // ===========================================================================
+  // Transit transfers (INV-P1-04): approve → dispatch → receive (partial, with
+  // damage / shortage) → completed; recall returns what is still on the road.
+  //
+  // Goods on the road sit in a system `transit` location, so every stage reuses
+  // the stock engine (quants, lots, serials, AVCO carry, ledger chain, GL) and the
+  // in-transit balance is real, valued, reportable stock — never "already at the
+  // destination" before anyone has received it.
+  // ===========================================================================
+
+  async getTransfer(id: string) {
+    const doc = await this.prisma.client.stockTransfer.findFirst({
+      where: { id },
+      include: { items: true, receipts: { orderBy: { createdAt: 'asc' } } },
+    });
+    if (!doc) throw new NotFoundException('Transfer not found');
+    return doc;
+  }
+
+  /** The org's transit location, created on first use. Runs outside a tx so a P2002 race can retry. */
+  private async ensureTransitLocation(): Promise<{ id: string }> {
+    const find = () =>
+      this.prisma.client.inventoryLocation.findFirst({
+        where: { type: 'transit', isActive: true, deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true },
+      });
+    const existing = await find();
+    if (existing) return existing;
+    for (const code of ['TRANSIT', 'TRANSIT-SYS']) {
+      try {
+        return await this.prisma.client.inventoryLocation.create({
+          data: { organizationId: this.org, code, name: 'Goods in transit', type: 'transit', createdBy: this.tenant.userId ?? null },
+          select: { id: true },
+        });
+      } catch (err: any) {
+        if (err?.code !== 'P2002') throw err;
+        const raced = await find();
+        if (raced) return raced;
+      }
+    }
+    throw new ConflictException('Could not create the transit location (codes TRANSIT and TRANSIT-SYS are used by other locations)');
+  }
+
+  /** Row-lock the transfer header for the rest of the tx and return it with fresh items. */
+  private async lockTransfer(tx: any, id: string) {
+    await tx.$queryRawUnsafe(`SELECT id FROM "StockTransfer" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE`, id, this.org);
+    const doc = await tx.stockTransfer.findFirst({ where: { id, organizationId: this.org }, include: { items: true } });
+    if (!doc) throw new NotFoundException('Transfer not found');
+    if (doc.mode !== 'transit') {
+      throw new BadRequestException(`${doc.transferCode} is an immediate transfer; it has no dispatch or receipt stages`);
+    }
+    return doc;
+  }
+
+  private outstanding(item: any) {
+    return dec(item.qtyDispatched)
+      .minus(dec(item.qtyReceived))
+      .minus(dec(item.qtyDamaged))
+      .minus(dec(item.qtyShort))
+      .minus(dec(item.qtyRecalled));
+  }
+
+  /** Dispatch an approved transit transfer: source → transit for every line. */
+  async dispatchTransfer(id: string) {
+    const transit = await this.ensureTransitLocation();
+    return this.prisma.client.$transaction(
+      async (tx: any) => {
+        const doc = await this.lockTransfer(tx, id);
+        if (doc.status !== 'approved' || doc.dispatchedAt) {
+          throw new BadRequestException(`Only an approved, undispatched transfer can be dispatched (${doc.transferCode} is ${doc.status})`);
+        }
+        // Deterministic lock order across lines (same as direct stock-out).
+        const items = [...doc.items].sort((a: any, b: any) =>
+          `${a.productId}:${a.variantId ?? ''}`.localeCompare(`${b.productId}:${b.variantId ?? ''}`),
+        );
+        for (const item of items) {
+          await this.stock.transfer(
+            {
+              productId: item.productId,
+              variantId: item.variantId ?? undefined,
+              fromLocationId: doc.fromLocId,
+              toLocationId: transit.id,
+              quantity: Number(item.qtyRequested),
+              sourceType: 'stock_transfer_dispatch',
+              sourceId: doc.transferCode,
+              notes: doc.notes ?? undefined,
+              responsibleById: doc.responsibleById ?? undefined,
+              approvedById: doc.approvedById ?? undefined,
+            },
+            tx,
+          );
+          await tx.stockTransferItem.update({ where: { id: item.id }, data: { qtyDispatched: item.qtyRequested } });
+        }
+        const now = new Date();
+        await tx.stockTransfer.update({
+          where: { id: doc.id },
+          data: {
+            status: 'in_transit',
+            transitLocId: transit.id,
+            dispatchedAt: now,
+            dispatchedById: this.tenant.userId ?? null,
+            postedAt: now,
+            updatedBy: this.tenant.userId ?? null,
+          },
+        });
+        await this.audit.recordInTx(tx, {
+          entity: 'StockTransfer',
+          entityId: doc.id,
+          action: 'update',
+          newValues: { kind: 'transfer_dispatched', transferCode: doc.transferCode, transitLocId: transit.id },
+        });
+        return tx.stockTransfer.findFirst({ where: { id: doc.id }, include: { items: true, receipts: true } });
+      },
+      { timeout: 60_000 },
+    );
+  }
+
+  /**
+   * Record one destination receipt. Each line splits (part of) the outstanding
+   * in-transit quantity into received (transit → destination), damaged (waste
+   * write-off from transit) and short (loss write-off from transit). Repeatable
+   * until every dispatched unit is accounted for.
+   */
+  async receiveTransfer(id: string, dto: ReceiveStockTransferDto) {
+    return this.prisma.client.$transaction(
+      async (tx: any) => {
+        const doc = await this.lockTransfer(tx, id);
+        if (doc.status !== 'in_transit' && doc.status !== 'partially_received') {
+          throw new BadRequestException(`${doc.transferCode} is ${doc.status}; only in-transit transfers can be received`);
+        }
+        const byId = new Map<string, any>(doc.items.map((i: any) => [i.id, i]));
+        const seen = new Set<string>();
+        const plan: Array<{ item: any; received: ReturnType<typeof dec>; damaged: ReturnType<typeof dec>; short: ReturnType<typeof dec> }> = [];
+        for (const line of dto.lines) {
+          const item = byId.get(line.itemId);
+          if (!item) throw new BadRequestException(`Line ${line.itemId} does not belong to ${doc.transferCode}`);
+          if (seen.has(line.itemId)) throw new BadRequestException(`${item.productName} appears more than once in the receipt`);
+          seen.add(line.itemId);
+          const received = dec(line.received ?? 0);
+          const damaged = dec(line.damaged ?? 0);
+          const short = dec(line.short ?? 0);
+          const total = received.plus(damaged).plus(short);
+          if (total.isZero()) continue;
+          const open = this.outstanding(item);
+          if (total.gt(open.plus(QTY_EPSILON))) {
+            throw new BadRequestException(
+              `${item.productName}: received ${received} + damaged ${damaged} + short ${short} exceeds the ${open} still in transit`,
+            );
+          }
+          plan.push({ item, received, damaged, short });
+        }
+        if (plan.length === 0) throw new BadRequestException('Enter a received, damaged or short quantity on at least one line');
+
+        const receiptCode = await this.seq.next('stock_transfer_receipt', { prefix: 'TRR-', padding: 5 }, tx);
+        const transitLocId = doc.transitLocId as string;
+        const reference = `${doc.transferCode} ${receiptCode}`;
+        for (const { item, received, damaged, short } of plan) {
+          const base = { productId: item.productId, variantId: item.variantId ?? undefined };
+          if (received.gt(ZERO)) {
+            await this.stock.transfer(
+              {
+                ...base,
+                fromLocationId: transitLocId,
+                toLocationId: doc.toLocId,
+                quantity: Number(received),
+                sourceType: 'stock_transfer_receipt',
+                sourceId: doc.transferCode,
+                notes: [receiptCode, dto.notes].filter(Boolean).join(' · '),
+                responsibleById: doc.responsibleById ?? undefined,
+                approvedById: this.tenant.userId ?? undefined,
+              },
+              tx,
+            );
+          }
+          if (damaged.gt(ZERO)) {
+            await this.stock.issue(
+              {
+                ...base,
+                locationId: transitLocId,
+                quantity: Number(damaged),
+                moveType: 'waste',
+                sourceType: 'stock_transfer_loss',
+                sourceId: doc.transferCode,
+                reference: `${reference} damaged in transit`,
+                requireAvailable: true,
+                approvedById: this.tenant.userId ?? undefined,
+              } as InternalIssueInput,
+              tx,
+            );
+          }
+          if (short.gt(ZERO)) {
+            // Quantity-only issue, then the loss journal at the exact moved value.
+            const res = await this.stock.issue(
+              {
+                ...base,
+                locationId: transitLocId,
+                quantity: Number(short),
+                moveType: 'adjustment_out',
+                sourceType: 'stock_transfer_loss',
+                sourceId: doc.transferCode,
+                reference: `${reference} short on arrival`,
+                requireAvailable: true,
+                skipGlPosting: true,
+                approvedById: this.tenant.userId ?? undefined,
+              } as InternalIssueInput,
+              tx,
+            );
+            await this.stockPosting.postAdjustment({
+              productId: item.productId,
+              delta: -1,
+              unitCost: dec(res.totalValue),
+              date: new Date(),
+              sourceType: 'stock_transfer_loss',
+              sourceId: doc.transferCode,
+              description: `Transit shortage · ${item.productName} · ${short} · ${reference}`,
+              tx,
+            });
+          }
+          await tx.stockTransferItem.update({
+            where: { id: item.id },
+            data: {
+              qtyReceived: { increment: received },
+              qtyDamaged: { increment: damaged },
+              qtyShort: { increment: short },
+              qtyTransferred: { increment: received },
+            },
+          });
+        }
+
+        await tx.stockTransferReceipt.create({
+          data: {
+            organizationId: this.org,
+            transferId: doc.id,
+            receiptCode,
+            kind: 'receipt',
+            receivedById: this.tenant.userId ?? null,
+            notes: dto.notes ?? null,
+            lines: plan.map((p) => ({
+              itemId: p.item.id,
+              productId: p.item.productId,
+              received: p.received.toString(),
+              damaged: p.damaged.toString(),
+              short: p.short.toString(),
+            })),
+          },
+        });
+        const done = await this.finaliseTransit(tx, doc.id, false);
+        await this.audit.recordInTx(tx, {
+          entity: 'StockTransfer',
+          entityId: doc.id,
+          action: 'update',
+          newValues: { kind: 'transfer_received', transferCode: doc.transferCode, receiptCode, status: done.status },
+        });
+        return done;
+      },
+      { timeout: 60_000 },
+    );
+  }
+
+  /**
+   * Recall everything still in transit back to the source (delivery aborted,
+   * goods turned back). Before dispatch, cancel the document instead.
+   */
+  async recallTransfer(id: string, reason: string) {
+    if (!reason?.trim()) throw new BadRequestException('A reason is required to recall a transfer');
+    return this.prisma.client.$transaction(
+      async (tx: any) => {
+        const doc = await this.lockTransfer(tx, id);
+        if (doc.status !== 'in_transit' && doc.status !== 'partially_received') {
+          throw new BadRequestException(`${doc.transferCode} is ${doc.status}; only goods still in transit can be recalled`);
+        }
+        const receiptCode = await this.seq.next('stock_transfer_receipt', { prefix: 'TRR-', padding: 5 }, tx);
+        const lines: Array<Record<string, string>> = [];
+        for (const item of doc.items) {
+          const open = this.outstanding(item);
+          if (open.lte(QTY_EPSILON)) continue;
+          await this.stock.transfer(
+            {
+              productId: item.productId,
+              variantId: item.variantId ?? undefined,
+              fromLocationId: doc.transitLocId as string,
+              toLocationId: doc.fromLocId,
+              quantity: Number(open),
+              sourceType: 'stock_transfer_recall',
+              sourceId: doc.transferCode,
+              notes: `${receiptCode} recall: ${reason.trim()}`,
+              approvedById: this.tenant.userId ?? undefined,
+            },
+            tx,
+          );
+          await tx.stockTransferItem.update({ where: { id: item.id }, data: { qtyRecalled: { increment: open } } });
+          lines.push({ itemId: item.id, productId: item.productId, recalled: open.toString() });
+        }
+        if (lines.length === 0) throw new BadRequestException(`${doc.transferCode} has nothing left in transit`);
+        await tx.stockTransferReceipt.create({
+          data: {
+            organizationId: this.org,
+            transferId: doc.id,
+            receiptCode,
+            kind: 'recall',
+            receivedById: this.tenant.userId ?? null,
+            notes: reason.trim(),
+            lines,
+          },
+        });
+        const done = await this.finaliseTransit(tx, doc.id, true);
+        await this.audit.recordInTx(tx, {
+          entity: 'StockTransfer',
+          entityId: doc.id,
+          action: 'update',
+          newValues: { kind: 'transfer_recalled', transferCode: doc.transferCode, receiptCode, reason: reason.trim(), status: done.status },
+        });
+        return done;
+      },
+      { timeout: 60_000 },
+    );
+  }
+
+  /** Cancel a transfer that has not moved any stock yet (pending, or approved but undispatched). */
+  async cancelTransfer(id: string) {
+    const doc = await this.getTransfer(id);
+    const upd = await this.prisma.client.stockTransfer.updateMany({
+      where: { id: doc.id, postedAt: null, dispatchedAt: null, status: { in: ['draft', 'pending', 'approved'] } },
+      data: { status: 'cancelled', updatedBy: this.tenant.userId ?? null },
+    });
+    if (upd.count === 0) {
+      throw new BadRequestException(`${doc.transferCode} has already moved stock; recall or reverse it instead`);
+    }
+    return this.getTransfer(id);
+  }
+
+  /** Settle the header status after a receipt or recall. */
+  private async finaliseTransit(tx: any, id: string, recalled: boolean) {
+    const items = await tx.stockTransferItem.findMany({ where: { transferId: id } });
+    const allAccounted = items.every((i: any) => this.outstanding(i).lte(QTY_EPSILON));
+    const anyDelivered = items.some((i: any) => dec(i.qtyReceived).plus(dec(i.qtyDamaged)).plus(dec(i.qtyShort)).gt(ZERO));
+    const now = new Date();
+    const status = !allAccounted ? 'partially_received' : anyDelivered ? 'completed' : 'cancelled';
+    await tx.stockTransfer.update({
+      where: { id },
+      data: {
+        status,
+        ...(recalled ? {} : { lastReceivedAt: now }),
+        ...(status === 'completed' ? { completedAt: now } : {}),
+        updatedBy: this.tenant.userId ?? null,
+      },
+    });
+    return tx.stockTransfer.findFirst({ where: { id }, include: { items: true, receipts: { orderBy: { createdAt: 'asc' } } } });
+  }
+
+  // ===========================================================================
   // Shared helpers + list/get
   // ===========================================================================
 
@@ -730,7 +1107,7 @@ export class StockDocService {
       case 'adjustment':
         return this.prisma.client.stockAdjustment.findMany({ where, orderBy: order, include: { items: true, location: true } });
       case 'transfer':
-        return this.prisma.client.stockTransfer.findMany({ where, orderBy: order, include: { items: true } });
+        return this.prisma.client.stockTransfer.findMany({ where, orderBy: order, include: { items: true, receipts: { orderBy: { createdAt: 'asc' } } } });
     }
   }
 }

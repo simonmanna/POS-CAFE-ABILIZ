@@ -3,6 +3,9 @@ import { IsInt, Min, Max, IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString } fr
 import { LOCATION_TYPES, DEFAULT_PAGE, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '@erp/shared';
 import { type LocationType } from '@erp/shared';
 
+/** `transit` is system-managed (created by the first transit transfer dispatch). */
+const USER_LOCATION_TYPES = LOCATION_TYPES.filter((t) => t !== 'transit');
+
 export class LocationQueryDto {
   @IsOptional()
   @Type(() => Number)
@@ -44,7 +47,7 @@ export class CreateLocationDto {
   name!: string;
 
   @IsOptional()
-  @IsIn([...LOCATION_TYPES])
+  @IsIn([...USER_LOCATION_TYPES], { message: 'type must be a user-managed location type (transit is system-managed)' })
   type?: LocationType;
 
   @IsOptional()
@@ -62,7 +65,7 @@ export class UpdateLocationDto {
   name?: string;
 
   @IsOptional()
-  @IsIn([...LOCATION_TYPES])
+  @IsIn([...USER_LOCATION_TYPES], { message: 'type must be a user-managed location type (transit is system-managed)' })
   type?: LocationType;
 
   @IsOptional()

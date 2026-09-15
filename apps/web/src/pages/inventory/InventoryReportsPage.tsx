@@ -7,6 +7,7 @@ import { MovementReport } from './inventory-reports/MovementReport';
 import { ValuationReport } from './inventory-reports/ValuationReport';
 import { AnalysisReport } from './inventory-reports/AnalysisReport';
 import { ExpiringReport, NegativeStockReport, ReorderReport } from './inventory-reports/ExceptionReports';
+import { StockHealthReport } from './inventory-reports/StockHealthReport';
 import { RegisterReport, type RegisterKind } from './inventory-reports/RegisterReport';
 
 const REGISTER_TABS: RegisterKind[] = ['stock_in', 'stock_out', 'damages', 'adjustments', 'transfers'];
@@ -19,6 +20,7 @@ const TABS = [
   { value: 'adjustments', label: 'Adjustments', description: 'Count corrections: gains vs losses, reasons, and who adjusted what.' },
   { value: 'transfers', label: 'Stock Transfers', description: 'Stock moved between locations — routes, items and value in transit.' },
   { value: 'valuation', label: 'Stock Valuation', description: 'Current on-hand at running average cost, by status and category.' },
+  { value: 'health', label: 'Stock Health', description: 'Aging, turnover, days of cover and slow-moving / dead stock per item and location.' },
   { value: 'analysis', label: 'Movement Analysis', description: 'Flow by movement type, daily trend, top consumed / wasted / received.' },
   { value: 'reorder', label: 'Reorder', description: 'Items at or below par with suggested purchase quantities.' },
   { value: 'expiring', label: 'Expiring Batches', description: 'Batch-tracked stock nearing or past expiry.' },
@@ -54,6 +56,7 @@ export function InventoryReportsPage() {
           <TabsContent key={k} value={k}>{tab === k && <RegisterReport kind={k} ctl={ctl} />}</TabsContent>
         ))}
         <TabsContent value="valuation"><ValuationReport ctl={ctl} /></TabsContent>
+        <TabsContent value="health">{tab === 'health' && <StockHealthReport ctl={ctl} />}</TabsContent>
         <TabsContent value="analysis"><AnalysisReport ctl={ctl} /></TabsContent>
         <TabsContent value="reorder"><ReorderReport ctl={ctl} /></TabsContent>
         <TabsContent value="expiring"><ExpiringReport ctl={ctl} /></TabsContent>

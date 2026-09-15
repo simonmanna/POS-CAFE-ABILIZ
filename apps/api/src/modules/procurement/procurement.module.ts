@@ -16,6 +16,8 @@ import { DebitNotesService } from './debit-notes.service';
 import { DebitNotesController } from './debit-notes.controller';
 import { GrniReconciliationService } from './grni-reconciliation.service';
 import { GrniReconciliationController } from './grni-reconciliation.controller';
+import { LandedCostService } from './landed-cost.service';
+import { LandedCostController } from './landed-cost.controller';
 
 /**
  * Procurement module (Phase F.6).
@@ -36,6 +38,7 @@ import { GrniReconciliationController } from './grni-reconciliation.controller';
     GoodsReceiptsController,
     DebitNotesController,
     GrniReconciliationController,
+    LandedCostController,
   ],
   providers: [
     PurchaseRequestsService,
@@ -43,6 +46,7 @@ import { GrniReconciliationController } from './grni-reconciliation.controller';
     GoodsReceiptsService,
     DebitNotesService,
     GrniReconciliationService,
+    LandedCostService,
   ],
   exports: [
     PurchaseOrdersService,

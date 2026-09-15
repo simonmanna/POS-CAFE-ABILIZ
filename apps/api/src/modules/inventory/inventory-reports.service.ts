@@ -625,4 +625,206 @@ export class InventoryReportsService {
       rows,
     };
   }
+
+  // ---------------------------------------------------------------------------
+  // 7. Stock health — aging, turnover, slow-moving and dead stock (INV-P2-04)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * One row per quant with stock on hand:
+   *  - aging buckets: on-hand is attributed to the most recent inbound movements
+   *    (receipts, returns, production output, transfers in, opening balances)
+   *    at that location — FIFO consumption leaves the newest layers on the shelf —
+   *    and bucketed by the age of those layers;
+   *  - turnover over [start, end] (default: last 90 days): consumed qty (sales,
+   *    recipe/production consumption) ÷ average on-hand, plus days of cover;
+   *  - status: dead (no consumption for `deadDays`, default 180), slow (none for
+   *    `slowDays`, default 90) or active.
+   * Computed in SQL bounded by org + location + product scope (capped at 5,000
+   * quants); the inbound window is served by the (org, product, location,
+   * createdAt) ledger index.
+   */
+  async stockHealth(q: ReportScopeQuery & { slowDays?: string; deadDays?: string; status?: string }) {
+    const org = this.tenant.organizationId;
+    const now = new Date();
+    const slowDays = Math.max(1, Math.min(3650, Number(q.slowDays ?? 90) || 90));
+    const deadDays = Math.max(slowDays, Math.min(3650, Number(q.deadDays ?? 180) || 180));
+    const range = this.range(q);
+    const end = range.end ?? now;
+    const start = range.start ?? new Date(end.getTime() - 90 * 86_400_000);
+    const periodDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
+    const ids = await this.scopedProductIds(q);
+    if (ids && ids.length === 0) return { summary: this.emptyHealthSummary(slowDays, deadDays, start, end), rows: [] };
+
+    const params: unknown[] = [org, start, end];
+    let scope = '';
+    if (q.locationId) {
+      params.push(q.locationId);
+      scope += ` AND si."locationId" = $${params.length}`;
+    }
+    if (ids) {
+      params.push(ids);
+      scope += ` AND si."productId" = ANY($${params.length}::text[])`;
+    }
+
+    const rows: any[] = await this.prisma.raw.$queryRawUnsafe(
+      `
+      WITH quant AS (
+        SELECT si."productId", si."variantId", si."variantKey", si."locationId", si.quantity AS on_hand, si."runningAverageCost" AS avg_cost
+          FROM "StockItem" si
+          JOIN "InventoryLocation" loc ON loc.id = si."locationId"
+         WHERE si."organizationId" = $1 AND si.quantity > 0 AND loc.type <> 'transit' ${scope}
+      ),
+      inbound AS (
+        SELECT l."productId", COALESCE(l."variantId", '') AS vkey, l."locationId", l."createdAt", l."quantityChange" AS q,
+               SUM(l."quantityChange") OVER (
+                 PARTITION BY l."productId", COALESCE(l."variantId", ''), l."locationId"
+                 ORDER BY l."createdAt" DESC, l.id DESC
+               ) AS cum
+          FROM "InventoryLedger" l
+          JOIN quant qt ON qt."productId" = l."productId" AND qt."variantKey" = COALESCE(l."variantId", '') AND qt."locationId" = l."locationId"
+         WHERE l."organizationId" = $1 AND l."quantityChange" > 0
+           AND l.type IN ('receipt', 'return_in', 'production_output', 'transfer_in', 'opening_balance', 'adjustment_in', 'reversal_in')
+      ),
+      layers AS (
+        SELECT i."productId", i.vkey, i."locationId",
+               GREATEST(LEAST(i.q, qt.on_hand - (i.cum - i.q)), 0) AS layer_qty,
+               EXTRACT(EPOCH FROM (now() - i."createdAt")) / 86400 AS age_days
+          FROM inbound i
+          JOIN quant qt ON qt."productId" = i."productId" AND qt."variantKey" = i.vkey AND qt."locationId" = i."locationId"
+         WHERE i.cum - i.q < qt.on_hand
+      ),
+      aging AS (
+        SELECT "productId", vkey, "locationId",
+               SUM(layer_qty) FILTER (WHERE age_days <= 30)                    AS b0_30,
+               SUM(layer_qty) FILTER (WHERE age_days > 30 AND age_days <= 60)  AS b31_60,
+               SUM(layer_qty) FILTER (WHERE age_days > 60 AND age_days <= 90)  AS b61_90,
+               SUM(layer_qty) FILTER (WHERE age_days > 90 AND age_days <= 180) AS b91_180,
+               SUM(layer_qty) FILTER (WHERE age_days > 180)                    AS b180_plus,
+               SUM(layer_qty * age_days) / NULLIF(SUM(layer_qty), 0)           AS weighted_age
+          FROM layers GROUP BY "productId", vkey, "locationId"
+      ),
+      moves AS (
+        SELECT l."productId", COALESCE(l."variantId", '') AS vkey, l."locationId",
+               MAX(l."createdAt") FILTER (WHERE l."quantityChange" < 0 AND l.type IN ('issue', 'production_consume')) AS last_consumed_at,
+               MAX(l."createdAt") FILTER (WHERE l."quantityChange" > 0 AND l.type IN ('receipt', 'return_in', 'production_output', 'transfer_in', 'opening_balance')) AS last_inbound_at,
+               COALESCE(SUM(-l."quantityChange") FILTER (WHERE l."quantityChange" < 0 AND l.type IN ('issue', 'production_consume') AND l."createdAt" BETWEEN $2 AND $3), 0) AS consumed_qty,
+               COALESCE(SUM(l."totalValue") FILTER (WHERE l."quantityChange" < 0 AND l.type IN ('issue', 'production_consume') AND l."createdAt" BETWEEN $2 AND $3), 0) AS consumed_value,
+               COALESCE(SUM(l."quantityChange") FILTER (WHERE l."createdAt" > $2), 0) AS net_since_start,
+               COALESCE(SUM(l."quantityChange") FILTER (WHERE l."createdAt" > $3), 0) AS net_since_end
+          FROM "InventoryLedger" l
+          JOIN quant qt ON qt."productId" = l."productId" AND qt."variantKey" = COALESCE(l."variantId", '') AND qt."locationId" = l."locationId"
+         WHERE l."organizationId" = $1
+         GROUP BY l."productId", COALESCE(l."variantId", ''), l."locationId"
+      ),
+      lots AS (
+        SELECT b."productId", COALESCE(b."variantId", '') AS vkey, b."locationId", SUM(b.quantity * COALESCE(b."unitCost", 0)) AS lot_value
+          FROM "InventoryBatch" b
+          JOIN quant qt ON qt."productId" = b."productId" AND qt."variantKey" = COALESCE(b."variantId", '') AND qt."locationId" = b."locationId"
+         WHERE b."organizationId" = $1 AND b."isActive" = true AND b.quantity > 0
+         GROUP BY b."productId", COALESCE(b."variantId", ''), b."locationId"
+      )
+      SELECT qt."productId", qt."variantId", qt."locationId", loc.name AS location_name,
+             p.code, p.name, p."batchTracking", p."costingMethod", p."costPrice", u.code AS uom, c.name AS category,
+             qt.on_hand, qt.avg_cost, lots.lot_value,
+             a.b0_30, a.b31_60, a.b61_90, a.b91_180, a.b180_plus, a.weighted_age,
+             m.last_consumed_at, m.last_inbound_at, m.consumed_qty, m.consumed_value, m.net_since_start, m.net_since_end
+        FROM quant qt
+        JOIN "Product" p ON p.id = qt."productId"
+        JOIN "InventoryLocation" loc ON loc.id = qt."locationId"
+        LEFT JOIN "UnitOfMeasure" u ON u.id = p."uomId"
+        LEFT JOIN "ProductCategory" c ON c.id = p."categoryId"
+        LEFT JOIN aging a ON a."productId" = qt."productId" AND a.vkey = qt."variantKey" AND a."locationId" = qt."locationId"
+        LEFT JOIN moves m ON m."productId" = qt."productId" AND m.vkey = qt."variantKey" AND m."locationId" = qt."locationId"
+        LEFT JOIN lots ON lots."productId" = qt."productId" AND lots.vkey = qt."variantKey" AND lots."locationId" = qt."locationId"
+       ORDER BY p.name ASC, loc.name ASC
+       LIMIT 5000
+      `,
+      ...params,
+    );
+
+    const dayMs = 86_400_000;
+    const out = rows.map((r) => {
+      const onHand = n(r.on_hand);
+      const unit =
+        r.batchTracking || r.costingMethod === 'FIFO'
+          ? onHand > 0 ? n(r.lot_value) / onHand : 0
+          : r.costingMethod === 'STANDARD' ? n(r.costPrice) : n(r.avg_cost);
+      const value = round(onHand * unit, 2);
+      const consumedQty = n(r.consumed_qty);
+      const closingQty = onHand - n(r.net_since_end);
+      const openingQty = onHand - n(r.net_since_start);
+      const avgQty = (Math.max(openingQty, 0) + Math.max(closingQty, 0)) / 2;
+      const lastConsumed: Date | null = r.last_consumed_at ? new Date(r.last_consumed_at) : null;
+      const daysSinceConsumed = lastConsumed ? Math.floor((now.getTime() - lastConsumed.getTime()) / dayMs) : null;
+      const status =
+        daysSinceConsumed == null || daysSinceConsumed > deadDays ? 'dead' : daysSinceConsumed > slowDays ? 'slow' : 'active';
+      const dailyUse = consumedQty / periodDays;
+      const attributed = n(r.b0_30) + n(r.b31_60) + n(r.b61_90) + n(r.b91_180) + n(r.b180_plus);
+      // On-hand no inbound movement explains (e.g. legacy seeded stock) is shown as oldest.
+      const unattributed = Math.max(0, onHand - attributed);
+      return {
+        productId: r.productId,
+        variantId: r.variantId,
+        locationId: r.locationId,
+        location: r.location_name,
+        code: r.code,
+        name: r.name,
+        category: r.category,
+        uom: r.uom,
+        onHand: round(onHand),
+        unitCost: round(unit),
+        value,
+        aging: {
+          d0_30: round(n(r.b0_30)),
+          d31_60: round(n(r.b31_60)),
+          d61_90: round(n(r.b61_90)),
+          d91_180: round(n(r.b91_180)),
+          d180_plus: round(n(r.b180_plus) + unattributed),
+        },
+        weightedAgeDays: r.weighted_age == null ? null : Math.round(n(r.weighted_age)),
+        lastConsumedAt: lastConsumed,
+        lastInboundAt: r.last_inbound_at,
+        daysSinceConsumed,
+        consumedQty: round(consumedQty),
+        consumedValue: round(n(r.consumed_value), 2),
+        turnover: avgQty > 0 ? round(consumedQty / avgQty, 2) : null,
+        daysOfCover: dailyUse > 0 ? Math.round(onHand / dailyUse) : null,
+        status,
+      };
+    });
+    const filtered = q.status && q.status !== 'all' ? out.filter((r) => r.status === q.status) : out;
+    const sum = (list: typeof out) => round(list.reduce((s, r) => s + r.value, 0), 2);
+    return {
+      summary: {
+        ...this.emptyHealthSummary(slowDays, deadDays, start, end),
+        quants: out.length,
+        totalValue: sum(out),
+        activeValue: sum(out.filter((r) => r.status === 'active')),
+        slowValue: sum(out.filter((r) => r.status === 'slow')),
+        deadValue: sum(out.filter((r) => r.status === 'dead')),
+        slowCount: out.filter((r) => r.status === 'slow').length,
+        deadCount: out.filter((r) => r.status === 'dead').length,
+        truncated: rows.length >= 5000,
+      },
+      rows: filtered,
+    };
+  }
+
+  private emptyHealthSummary(slowDays: number, deadDays: number, start: Date, end: Date) {
+    return {
+      slowDays,
+      deadDays,
+      start: localIso(start),
+      end: localIso(end),
+      quants: 0,
+      totalValue: 0,
+      activeValue: 0,
+      slowValue: 0,
+      deadValue: 0,
+      slowCount: 0,
+      deadCount: 0,
+      truncated: false,
+    };
+  }
 }

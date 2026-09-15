@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -11,7 +11,11 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-export const INVENTORY_COUNT_TYPES = ['opening', 'closing'] as const;
+export const INVENTORY_COUNT_TYPES = ['opening', 'closing', 'cycle', 'spot'] as const;
+
+/** Accept `a,b` query strings as well as JSON arrays. */
+const toIdList = ({ value }: { value: unknown }) =>
+  value == null || value === '' ? undefined : Array.isArray(value) ? value : String(value).split(',').map((v) => v.trim()).filter(Boolean);
 export type InventoryCountTypeDto = (typeof INVENTORY_COUNT_TYPES)[number];
 
 /** Start (or resume) a count for a location + type. */
@@ -27,6 +31,25 @@ export class StartCountDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  /// Blind count: counters never see system quantities or variances while counting.
+  @IsOptional()
+  @IsBoolean()
+  blind?: boolean;
+
+  /// Partial count: only products in these categories (cycle counts).
+  @IsOptional()
+  @Transform(toIdList)
+  @IsArray()
+  @IsString({ each: true })
+  scopeCategoryIds?: string[];
+
+  /// Partial count: only these products (spot checks).
+  @IsOptional()
+  @Transform(toIdList)
+  @IsArray()
+  @IsString({ each: true })
+  scopeProductIds?: string[];
 
   /// Discard an open draft that already has counts entered and start over.
   /// Without it, start() resumes that draft instead of wiping someone's work.
@@ -44,6 +67,18 @@ export class PreviewCountQueryDto {
   @IsOptional()
   @IsIn([...INVENTORY_COUNT_TYPES])
   countType?: InventoryCountTypeDto;
+
+  @IsOptional()
+  @Transform(toIdList)
+  @IsArray()
+  @IsString({ each: true })
+  scopeCategoryIds?: string[];
+
+  @IsOptional()
+  @Transform(toIdList)
+  @IsArray()
+  @IsString({ each: true })
+  scopeProductIds?: string[];
 }
 
 /** One counted row in a draft save. `countedQty` null = not yet counted. */
