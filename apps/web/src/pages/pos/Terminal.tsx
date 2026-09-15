@@ -253,8 +253,6 @@ const TerminalPage: React.FC = () => {
   const [showBillPreview, setShowBillPreview] = useState(false);
   const [showKotPreview, setShowKotPreview] = useState(false);
   const [kotLines, setKotLines] = useState<CartLine[]>([]);
-  /** The saved order the open KOT preview belongs to (read fresh at KOT press). */
-  const [kotOrderId, setKotOrderId] = useState<string | null>(null);
   const [kotCopy, setKotCopy] = useState(1);
   const [showAdditionalBillPreview, setShowAdditionalBillPreview] = useState(false);
   const [additionalBillLines, setAdditionalBillLines] = useState<CartLine[]>([]);
@@ -1930,9 +1928,19 @@ const TerminalPage: React.FC = () => {
                   .filter((line: any) => line.quantity > 0.000001)
                   .map(serverLineToCart);
                 if (unprinted.length === 0) { toast.info('No new items to print on the KOT'); return; }
+                if (!saved?.id) { toast.error('No open order on this table'); return; }
+                // Like the Bill: pressing KOT prints and claims immediately, so
+                // closing the preview can never leave these items "unprinted"
+                // and repeat them on the next KOT. The server decides the delta
+                // under the order lock; the preview just shows what went out.
+                const result: any = await printKot.mutateAsync({ invoiceId: saved.id });
+                if (result?.printedCount === 0) { toast.info('No new items to print on the KOT'); return; }
+                if (result?.ok === false && result?.message) toast.error(`KOT printer: ${result.message}`);
+                // Put anything not yet on the KDS board there too; its own paper
+                // step finds nothing left to print.
+                try { await fireKitchen.mutateAsync({ tableId }); } catch { /* the KDS never blocks a KOT */ }
                 setKotLines(unprinted);
-                setKotOrderId(saved?.id ?? null);
-                setKotCopy((Number(saved?.kotPrintCount ?? 0) + 1) || 1);
+                setKotCopy(Number(result?.kotNumber ?? (Number(saved?.kotPrintCount ?? 0) + 1)) || 1);
                 setShowKotPreview(true);
               } catch (e: any) {
                 toast.error(e?.response?.data?.message || e?.message || 'Failed to prepare KOT');
@@ -2104,25 +2112,6 @@ const TerminalPage: React.FC = () => {
         orderTypeLabel={orderTypeLabel ?? undefined}
         tableLabel={activeTableLabel ?? undefined}
         customerName={customer?.name}
-        onPrint={async () => {
-          const docId = kotOrderId ?? selectedTable?.orders?.find((o) => !o.closedAt)?.orderId;
-          if (docId) {
-            // Claim + print on the thermal printer (server decides the delta
-            // under the order lock), then put anything not yet on the KDS board
-            // there too. The fire's own paper step finds nothing left to print.
-            try {
-              const result: any = await printKot.mutateAsync({ invoiceId: docId });
-              if (result?.printedCount === 0) toast.info('No new items to print on the KOT');
-              else if (result?.ok === false && result?.message) toast.error(`KOT printer: ${result.message}`);
-            } catch (e: any) {
-              toast.error(e?.response?.data?.message || 'Failed to print the KOT');
-            }
-          }
-          if (tableId) {
-            // The next KOT press re-reads the tab, so it is additional.
-            try { await fireKitchen.mutateAsync({ tableId }); } catch { /* the KDS never blocks a KOT */ }
-          }
-        }}
       />
 
       <ReceiptPreview
