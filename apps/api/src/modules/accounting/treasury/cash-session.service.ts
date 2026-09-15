@@ -179,17 +179,18 @@ export class CashSessionService {
     this.assertDenominationTotal(dto.openingDenomination, dto.openingFloat ?? 0, 'opening float');
 
     return this.prisma.client.$transaction(async (tx: any) => {
-      const register = await tx.cashRegister.findFirst({ where: { id: dto.cashRegisterId, organizationId } });
-      if (!register || !register.isActive) throw new NotFoundException('Active cash register not found');
       if (!dec(dto.openingFloat ?? 0).isFinite() || dec(dto.openingFloat ?? 0).lt(0)) throw new BadRequestException('Invalid counted opening float');
 
-      // Lock the register row (always exists) to serialize concurrent open()
-      // calls for this register. Prevents two requests from both seeing
-      // "no open session" and creating duplicate sessions.
+      // Lock the register row to serialize concurrent open() calls (no duplicate
+      // sessions) and register edits. Read the register only AFTER the lock: a
+      // drawer-account change committing between an earlier read and the lock
+      // would open the shift on a stale drawer account.
       await tx.$queryRawUnsafe(
         'SELECT id FROM "CashRegister" WHERE "id" = $1 AND "organizationId" = $2 FOR UPDATE',
         dto.cashRegisterId, organizationId,
       );
+      const register = await tx.cashRegister.findFirst({ where: { id: dto.cashRegisterId, organizationId } });
+      if (!register || !register.isActive) throw new NotFoundException('Active cash register not found');
 
       const existing = await tx.cashSession.findFirst({
         where: { organizationId, cashRegisterId: dto.cashRegisterId, status: 'open' },
