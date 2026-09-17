@@ -23,6 +23,21 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return;
     }
 
+    // A unique-key violation that escaped a service is almost always two clients
+    // racing on the same operation (a double-tap, a retried request). The first
+    // one won and nothing was written twice, so answer 409 — retry or refresh —
+    // rather than a 500 that reads as "the sale may have failed".
+    if ((exception as { code?: string })?.code === 'P2002') {
+      const target = (exception as { meta?: { target?: unknown } }).meta?.target;
+      this.logger.warn(`Unique conflict on ${request.method} ${request.url} [req: ${request.id ?? '-'}]: ${JSON.stringify(target ?? null)}`);
+      response.status(409).json({
+        message: 'This operation conflicts with one that was just completed. Refresh and try again.',
+        statusCode: 409,
+        requestId: request.id,
+      });
+      return;
+    }
+
     const detail = exception instanceof Error ? exception.message : String(exception);
     const name = exception instanceof Error ? exception.name : 'Error';
     this.logger.error(

@@ -22,6 +22,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { Response } from 'express';
@@ -35,6 +36,8 @@ import { lockFloorShared, recomputeTableStatus, TABLE_HELD_ORDER_STATUSES, isTab
 import { WorkflowService } from '../../kernel/workflow/workflow.service';
 import { PosTableZonesService } from './pos-table-zones.service';
 import { EVENTS } from '@erp/shared';
+import { ModuleRef } from '@nestjs/core';
+import { PosOrdersService } from './order/pos-orders.service';
 
 // ─── DTOs ──────────────────────────────────────────────────────────────────
 
@@ -83,6 +86,7 @@ export class PosTablesService {
     private readonly sequence: SequenceService,
     private readonly zones: PosTableZonesService,
     private readonly workflows: WorkflowService,
+    @Optional() private readonly moduleRef?: ModuleRef,
   ) {
     const relevant = [
       EVENTS.PosTableCreated,
@@ -718,6 +722,24 @@ export class PosTablesService {
         select: { id: true },
       });
       const allSourceIds = [sourceId, ...cascadedSourceIds.map((c: any) => c.id)];
+
+      // One open dine-in tab per table: when the target already has one, fold
+      // each source tab into it instead of re-pointing a second open order.
+      const targetTab = await tx.posTableOrder.findFirst({
+        where: { tableId: targetId, closedAt: null },
+        include: { order: { select: { id: true, invoiceId: true, status: true } } },
+      });
+      if (targetTab?.order && !targetTab.order.invoiceId && !['closed', 'cancelled'].includes(targetTab.order.status)) {
+        const sourceTabs = await tx.posTableOrder.findMany({ where: { tableId: { in: allSourceIds }, closedAt: null } });
+        if (sourceTabs.length) {
+          if (!this.moduleRef) throw new ConflictException('Both tables have open tabs; merge requires the orders service');
+          const orders = this.moduleRef.get(PosOrdersService, { strict: false });
+          for (const tab of sourceTabs) {
+            await orders.absorbOrderInTx(tx, targetTab.order.id, tab.orderId, `Merged into T${target.number}`);
+            await tx.posTableOrder.update({ where: { id: tab.id }, data: { closedAt: new Date() } });
+          }
+        }
+      }
 
       // Reassign open PosTableOrder rows + their Order.tableId cache.
       const reassigned = await tx.posTableOrder.findMany({

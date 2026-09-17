@@ -1,6 +1,7 @@
 import { Global, Module, OnModuleInit } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { StaffAwareThrottlerGuard } from './throttling/staff-aware-throttler.guard';
 import { ScheduleModule } from '@nestjs/schedule';
 
 import { TenantContextService } from './tenancy/tenant-context.service';
@@ -100,7 +101,7 @@ import { FulfillmentRegistry } from './fulfillment/fulfillment.registry';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
     { provide: APP_GUARD, useClass: ModuleEnabledGuard },
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: StaffAwareThrottlerGuard },
   ],
   exports: [
     TenantContextService,

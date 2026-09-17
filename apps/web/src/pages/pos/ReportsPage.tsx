@@ -300,7 +300,7 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
 
       <div className="pos-report-grid">
         <ReportCard title="Gross sales" value={fmt(t.grossSales)} sub={`incl. tax · ${t.saleCount} sale${t.saleCount === 1 ? '' : 's'}`} />
-        <ReportCard title="Net revenue" value={fmt(t.netRevenue)} sub="ex-tax" />
+        <ReportCard title="Net revenue" value={fmt(t.netRevenueAfterRefunds ?? t.netRevenue)} sub={t.refundedRevenue && Number(t.refundedRevenue) ? `ex-tax · after ${fmt(t.refundedRevenue)} refunded` : 'ex-tax'} />
         <ReportCard title="Discounts" value={fmt(t.discountTotal)} sub="given this shift" />
         <ReportCard title="Cash collected" value={fmt(t.cashCollected)} sub="cash tenders into drawer" />
         <ReportCard title="Expected cash" value={fmt(t.expectedCash)} sub="float + cash − refunds + ins − outs" accent />

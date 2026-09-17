@@ -6,6 +6,7 @@ import { dec } from '../../../kernel/common/money';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 import { accountLedgerBalance } from './session-reconciliation';
 import { EFFECTIVE_SOURCE_TYPE, POS_SALE_SOURCE_TYPES } from './money-activity.sql';
+import { orgDateBound, orgTimezone } from './org-dates';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -105,8 +106,9 @@ export class MoneySettlementService {
     const pageSize = Math.min(100, Math.max(1, Number(filters.pageSize ?? 25) || 25));
     const where: any = { organizationId: orgId };
     if (filters.sourceAccountId) where.sourceAccountId = filters.sourceAccountId;
-    const from = this.parseDate(filters.from, 'from');
-    const to = this.parseDate(filters.to, 'to', true);
+    const timezone = await orgTimezone(this.prisma, orgId);
+    const from = orgDateBound(filters.from, 'from', timezone, 'start');
+    const to = orgDateBound(filters.to, 'to', timezone, 'end');
     if (from || to) where.settledAt = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
 
     const [total, rows] = await Promise.all([
@@ -169,11 +171,4 @@ export class MoneySettlementService {
     return dec(rows[0]?.total ?? 0);
   }
 
-  private parseDate(value: string | undefined, label: string, endOfDay = false): Date | undefined {
-    if (!value) return undefined;
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) throw new BadRequestException(`Invalid \`${label}\` date: ${value}`);
-    if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) d.setUTCHours(23, 59, 59, 999);
-    return d;
-  }
 }

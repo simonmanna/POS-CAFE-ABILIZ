@@ -105,7 +105,14 @@ export class IdempotencyService {
     const { key, requestHash } = params;
     const method = params.method ?? 'OP';
     const path = params.path ?? 'sync';
-    const organizationId = this.tenant.organizationId;
+    let organizationId: string | undefined;
+    try { organizationId = this.tenant.organizationId; } catch { organizationId = undefined; }
+    // Unauthenticated routes (login) have no tenant to scope a replay record to;
+    // they move no money, so a client-sent key is simply not recorded.
+    if (!organizationId) {
+      const out = await params.runHandler();
+      return { statusCode: out.statusCode, body: out.body, replayed: false } as IdempotencyResult;
+    }
     const recoverableSale = /\/pos\/(checkout|tabs\/[^/]+\/settle|orders\/[^/]+\/settle)$/.test(path);
     let recovery: any;
 

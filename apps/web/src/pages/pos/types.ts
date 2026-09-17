@@ -206,6 +206,14 @@ export interface XReport {
     /** Net revenue, ex-tax. */
     netRevenue: string;
     taxTotal: string;
+    /** Revenue and VAT reversed by refunds rung in this shift. */
+    refundedRevenue?: string;
+    refundedTax?: string;
+    /** Ex-tax revenue after refunds — ties to the P&L revenue account. */
+    netRevenueAfterRefunds?: string;
+    /** Output VAT after refunds — ties to the VAT account. */
+    taxAfterRefunds?: string;
+    netSalesAfterRefunds?: string;
     discountTotal: string;
     /** Cash actually collected into the drawer. */
     cashCollected: string;

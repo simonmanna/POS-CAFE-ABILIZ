@@ -6,6 +6,7 @@ import { AccountResolverService } from '../posting/account-resolver.service';
 import { BALANCE_AFFECTING_STATUSES } from '../posting/posting.types';
 import { CATEGORY_LABEL, CATEGORY_OPTIONS, categoryOf } from './money-activity.taxonomy';
 import { EFFECTIVE_SOURCE_TYPE, categorySql } from './money-activity.sql';
+import { orgDateBound, orgTimezone } from './org-dates';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -79,8 +80,9 @@ export class CashMovementReportService {
 
   async report(filters: CashMovementReportFilters) {
     const orgId = this.tenant.organizationId;
-    const from = this.parseDate(filters.from, 'from');
-    const to = this.parseDate(filters.to, 'to', true);
+    const timezone = await orgTimezone(this.prisma, orgId);
+    const from = orgDateBound(filters.from, 'from', timezone, 'start');
+    const to = orgDateBound(filters.to, 'to', timezone, 'end');
     if (from && to && from > to) {
       throw new BadRequestException('`from` must be on or before `to`');
     }
@@ -128,7 +130,7 @@ export class CashMovementReportService {
       this.queryRows(where, page, pageSize),
       this.queryByAccount(where),
       this.queryByCategory(where),
-      this.querySeries(where, groupBy),
+      this.querySeries(where, groupBy, timezone),
       // Opening balance ignores the movement filters (type/category/search) on
       // purpose — it is a *balance*, so only the account scope applies.
       from ? this.queryOpening(scope, from) : Promise.resolve({ inflow: 0, outflow: 0 }),
@@ -418,13 +420,14 @@ export class CashMovementReportService {
     );
   }
 
-  private async querySeries(where: Prisma.Sql, groupBy: CashMovementGrouping) {
+  private async querySeries(where: Prisma.Sql, groupBy: CashMovementGrouping, timezone: string) {
     const unit = groupBy === 'month' ? 'month' : groupBy === 'week' ? 'week' : 'day';
     const rows = await this.prisma.raw.$queryRaw<
       { period: Date; inflow: string; outflow: string; count: bigint }[]
     >(Prisma.sql`
       SELECT
-        date_trunc(${unit}, je."postingDate") AS period,
+        -- Periods follow the organisation's calendar, not UTC.
+        date_trunc(${unit}, (je."postingDate" AT TIME ZONE 'UTC') AT TIME ZONE ${timezone}) AS period,
         COALESCE(SUM(jl."baseDebit"), 0)::text AS inflow,
         COALESCE(SUM(jl."baseCredit"), 0)::text AS outflow,
         COUNT(*)::bigint AS count
@@ -534,15 +537,6 @@ export class CashMovementReportService {
     });
   }
 
-  private parseDate(value: string | undefined, label: string, endOfDay = false): Date | undefined {
-    if (!value) return undefined;
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) throw new BadRequestException(`Invalid \`${label}\` date: ${value}`);
-    if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
-      d.setUTCHours(23, 59, 59, 999);
-    }
-    return d;
-  }
 
   private emptyReport(
     filters: CashMovementReportFilters,

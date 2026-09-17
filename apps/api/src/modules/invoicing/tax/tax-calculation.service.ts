@@ -34,7 +34,15 @@ export interface LineTaxResult {
  */
 @Injectable()
 export class TaxCalculationService {
-  computeLine(amount: Prisma.Decimal, taxes: TaxLike[]): LineTaxResult {
+  /**
+   * `scale` is the currency's decimal places. When given, each output-tax amount
+   * is rounded once, half-up, to that scale (a whole-shilling VAT line for UGX)
+   * and the line stays exact: an inclusive price keeps the shelf price as gross
+   * and net absorbs the rounding; an exclusive price adds the rounded tax on top.
+   * Without a scale the legacy 6dp behaviour is unchanged.
+   */
+  computeLine(amount: Prisma.Decimal, taxes: TaxLike[], opts: { scale?: number } = {}): LineTaxResult {
+    const scale = opts.scale;
     const output = (taxes ?? []).filter((t) => t.type !== 'withholding');
     const withholding = (taxes ?? []).filter((t) => t.type === 'withholding');
 
@@ -54,13 +62,15 @@ export class TaxCalculationService {
     const breakdown: { taxId: string; amount: Prisma.Decimal }[] = [];
     for (const t of output) {
       const base = t.isCompound ? net.plus(taxTotal) : net;
-      const amt = round(base.times(dec(t.rate).dividedBy(100)), 6);
+      const amt = round(base.times(dec(t.rate).dividedBy(100)), scale ?? 6);
       taxTotal = taxTotal.plus(amt);
       breakdown.push({ taxId: t.id, amount: amt });
     }
 
-    net = round(net, 6);
     taxTotal = round(taxTotal, 6);
+    const inclusive = output.some((t) => t.isInclusive);
+    // Inclusive at a currency scale: the guest pays the shelf price; net is the remainder.
+    net = scale != null && inclusive ? round(amount, 6).minus(taxTotal) : round(net, 6);
 
     // ── Withholding tax (separate; on the net base; never part of gross) ──
     let withholdingTotal = ZERO;

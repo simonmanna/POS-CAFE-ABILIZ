@@ -231,7 +231,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/accounts/cash-accounts/accounts', label: 'Accounts', icon: Wallet, permission: PERMISSIONS.account.read },
       { to: '/accounts/cash-accounts/activity', label: 'Money Activity', icon: ArrowRightLeft, permission: PERMISSIONS.account.read },
       { to: '/accounts/cash-accounts/settlements', label: 'Settlements', icon: Landmark, permission: PERMISSIONS.cashSession.reconcile },
-      { to: '/pos/cash-registers', label: 'Cash Registers', icon: Banknote, permission: PERMISSIONS.cashSession.read },
+      // Cash Registers lives under POS only; Overview links to it from "Open registers".
       { to: '/payments', label: 'Customer Receipts', icon: HandCoins, permission: PERMISSIONS.payment.read },
       { to: '/supplier-payments', label: 'Supplier Payments', icon: Truck, permission: PERMISSIONS.payment.read },
       { to: '/cash-flow/report', label: 'Money Reports', icon: BarChart3, permission: PERMISSIONS.account.read },

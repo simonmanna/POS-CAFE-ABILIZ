@@ -113,9 +113,20 @@ export class DocumentBuilderService {
     private readonly determination: AccountDeterminationService,
   ) {}
 
+  /** Decimal places of the organization's currency; VAT lines round to it. */
+  private async currencyScale(client: any): Promise<number | undefined> {
+    const orgId = this.tenant.optionalOrganizationId;
+    if (!orgId) return undefined;
+    const org = await client.organization.findFirst({ where: { id: orgId }, select: { currencyCode: true } });
+    if (!org?.currencyCode) return undefined;
+    const currency = await client.currency.findFirst({ where: { code: org.currencyCode }, select: { decimalPlaces: true } });
+    return currency?.decimalPlaces ?? undefined;
+  }
+
   async prepareLines(client: any, lines: DocumentLineInput[]) {
     const prepared: PreparedLine[] = [];
     let discountTotal = ZERO;
+    const taxScale = await this.currencyScale(client);
 
     for (const [i, l] of lines.entries()) {
       const lineType = l.lineType ?? 'product';
@@ -162,6 +173,7 @@ export class DocumentBuilderService {
         taxRow
           ? [{ id: taxRow.id, rate: taxRow.rate, isInclusive: taxInclusive, isCompound: taxRow.isCompound, type: taxRow.type }]
           : [],
+        { scale: taxScale },
       );
 
       prepared.push({

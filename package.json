@@ -27,7 +27,11 @@
     "test:pos:stage1": "node scripts/test-pos-stage1.cjs",
     "test:pos:recovery": "vitest run --config vitest.pos.config.ts",
     "audit:pos:preflight": "node scripts/pos-release-preflight.cjs",
-    "release:gate": "node scripts/release-gate.cjs"
+    "release:gate": "node scripts/release-gate.cjs",
+    "test:sim": "node scripts/run-simulation.cjs",
+    "test:sim:quick": "node scripts/run-simulation.cjs --quick",
+    "test:sim:mutants": "node apps/api/test/business-simulation/run-mutants.cjs",
+    "sim:dr-drill": "node scripts/dr-drill.cjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

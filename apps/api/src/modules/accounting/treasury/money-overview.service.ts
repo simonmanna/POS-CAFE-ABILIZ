@@ -199,6 +199,8 @@ export class MoneyOverviewService {
     return {
       baseCurrency,
       timezone,
+      /** Organisation-local calendar date the "today" figures cover. */
+      todayDate: todayStr,
       totalAvailableBookBalance: total.toFixed(2),
       byType: [...byType.values()]
         .sort((x, y) => y.balance - x.balance)

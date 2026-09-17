@@ -266,11 +266,15 @@ describeDb('integration: POS sale → Order → Invoice → Receipt', () => {
     }));
     const invoice = await prisma.invoice.findUniqueOrThrow({ where: { id: result.invoiceId }, include: { items: true } });
     expect(invoice.totalAmount.toString()).toBe('212.4');
-    expect(invoice.subtotal.toString()).toBe('180');
-    expect(invoice.taxAmount.toString()).toBe('32.4');
+    // VAT rounds once per line to the currency's decimal places (UGX = 0 → 32;
+    // a 2dp currency keeps 32.4); the shelf price stays the gross and net absorbs it.
+    const places = (await prisma.currency.findUniqueOrThrow({ where: { code: 'UGX' } })).decimalPlaces;
+    const vat = Number((32.4).toFixed(places));
+    expect(Number(invoice.taxAmount)).toBe(vat);
+    expect(Number(invoice.subtotal)).toBeCloseTo(212.4 - vat, 6);
     expect(invoice.items[0].taxAccountId).toBe(taxAccount.id);
     const journal = await prisma.journalEntry.findUniqueOrThrow({ where: { id: invoice.journalEntryId! }, include: { lines: true } });
-    expect(journal.lines.filter(l => l.accountId === taxAccount.id).reduce((n, l) => n + Number(l.credit), 0)).toBe(32.4);
+    expect(journal.lines.filter(l => l.accountId === taxAccount.id).reduce((n, l) => n + Number(l.credit), 0)).toBe(vat);
     expect(journal.lines.filter(l => l.accountId === invoice.receivableAccountId).reduce((n, l) => n + Number(l.debit), 0)).toBe(212.4);
   }, 60000);
 

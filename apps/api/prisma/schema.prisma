@@ -3366,34 +3366,34 @@ model FiscalPosition {
 
 /// Immutable stock ledger — every movement (receipt/issue/adjustment/transfer).
 model InventoryLedger {
-  id             String        @id @default(uuid())
-  organizationId String
-  ledgerCode     String
-  productId      String
-  variantId      String?
-  locationId     String
-  batchId        String?
+  id              String        @id @default(uuid())
+  organizationId  String
+  ledgerCode      String
+  productId       String
+  variantId       String?
+  locationId      String
+  batchId         String?
   /// F.8+: links a movement to the specific serialized unit it moved (serial-tracked
   /// products). Null for non-serial movements.
-  serialId       String?
-  type           StockMoveType
+  serialId        String?
+  type            StockMoveType
   /// Location on-hand BEFORE this movement (qtyAfter = balanceAfter).
-  qtyBefore      Decimal       @default(0) @db.Decimal(20, 6)
-  quantityChange Decimal       @db.Decimal(20, 6)
-  balanceAfter   Decimal       @db.Decimal(20, 6)
-  unitCost       Decimal       @default(0) @db.Decimal(20, 6)
-  totalValue     Decimal       @default(0) @db.Decimal(20, 6)
-  referenceType  String?
-  referenceId    String?
-  notes          String?
-  performedBy    String?
+  qtyBefore       Decimal       @default(0) @db.Decimal(20, 6)
+  quantityChange  Decimal       @db.Decimal(20, 6)
+  balanceAfter    Decimal       @db.Decimal(20, 6)
+  unitCost        Decimal       @default(0) @db.Decimal(20, 6)
+  totalValue      Decimal       @default(0) @db.Decimal(20, 6)
+  referenceType   String?
+  referenceId     String?
+  notes           String?
+  performedBy     String?
   /// Staff member responsible for the movement (Direct Stock In/Out). Optional for
   /// engine-generated moves (POS sales, production…) that have no responsible party.
   responsibleById String?
   /// Staff member who approved the movement (Direct Stock In/Out). Optional for
   /// engine-generated moves.
   approvedById    String?
-  createdAt      DateTime      @default(now())
+  createdAt       DateTime      @default(now())
 
   product  Product           @relation(fields: [productId], references: [id])
   variant  ProductVariant?   @relation(fields: [variantId], references: [id])
@@ -3456,30 +3456,30 @@ model InventorySerial {
 
 /// Non-sale stock-out (internal use, testing, samples, comps). Posts ISSUE.
 model StockOut {
-  id             String           @id @default(uuid())
-  organizationId String
-  outCode        String
-  locationId     String
-  category       StockOutCategory @default(general_use)
-  status         StockDocStatus   @default(draft)
-  reason         String?
-  notes          String?
-  performedById  String?
+  id              String           @id @default(uuid())
+  organizationId  String
+  outCode         String
+  locationId      String
+  category        StockOutCategory @default(general_use)
+  status          StockDocStatus   @default(draft)
+  reason          String?
+  notes           String?
+  performedById   String?
   /// The staff member responsible for this stock-out. Required at creation.
   responsibleById String?
-  approvedById   String?
-  approvedAt     DateTime?
-  postedAt       DateTime?
+  approvedById    String?
+  approvedAt      DateTime?
+  postedAt        DateTime?
   /// Posted reversal: set once, when a linked reversal re-posted the inverse
   /// movements and journal entries in the current period.
-  reversedAt     DateTime?
-  reversedById   String?
-  reversalReason String?
-  totalValue     Decimal          @default(0) @db.Decimal(20, 6)
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  createdBy      String?
-  updatedBy      String?
+  reversedAt      DateTime?
+  reversedById    String?
+  reversalReason  String?
+  totalValue      Decimal          @default(0) @db.Decimal(20, 6)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  createdBy       String?
+  updatedBy       String?
 
   location InventoryLocation @relation(fields: [locationId], references: [id])
   items    StockOutItem[]
@@ -3510,29 +3510,29 @@ model StockOutItem {
 
 /// Spoilage / expiry / breakage. Posts WASTE (or EXPIRY_WRITE_OFF).
 model WasteRecord {
-  id             String         @id @default(uuid())
-  organizationId String
-  wasteCode      String
-  locationId     String
-  category       WasteCategory  @default(other)
-  status         StockDocStatus @default(draft)
-  notes          String?
-  reportedById   String?
+  id              String         @id @default(uuid())
+  organizationId  String
+  wasteCode       String
+  locationId      String
+  category        WasteCategory  @default(other)
+  status          StockDocStatus @default(draft)
+  notes           String?
+  reportedById    String?
   /// The staff member responsible for the damage / waste. Required at creation.
   responsibleById String?
-  approvedById   String?
-  approvedAt     DateTime?
-  postedAt       DateTime?
+  approvedById    String?
+  approvedAt      DateTime?
+  postedAt        DateTime?
   /// Posted reversal: set once, when a linked reversal re-posted the inverse
   /// movements and journal entries in the current period.
-  reversedAt     DateTime?
-  reversedById   String?
-  reversalReason String?
-  totalValue     Decimal        @default(0) @db.Decimal(20, 6)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  createdBy      String?
-  updatedBy      String?
+  reversedAt      DateTime?
+  reversedById    String?
+  reversalReason  String?
+  totalValue      Decimal        @default(0) @db.Decimal(20, 6)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  createdBy       String?
+  updatedBy       String?
 
   location InventoryLocation @relation(fields: [locationId], references: [id])
   items    WasteItem[]
@@ -3564,28 +3564,28 @@ model WasteItem {
 
 /// Cycle-count correction document with approval. Posts ADJUSTMENT_IN/OUT.
 model StockAdjustment {
-  id             String                @id @default(uuid())
-  organizationId String
-  adjCode        String
-  locationId     String
-  reason         StockAdjustmentReason @default(cycle_count)
-  status         StockDocStatus        @default(draft)
-  notes          String?
-  performedById  String?
+  id              String                @id @default(uuid())
+  organizationId  String
+  adjCode         String
+  locationId      String
+  reason          StockAdjustmentReason @default(cycle_count)
+  status          StockDocStatus        @default(draft)
+  notes           String?
+  performedById   String?
   /// The staff member responsible for the count / adjustment. Required at creation.
   responsibleById String?
-  approvedById   String?
-  approvedAt     DateTime?
-  postedAt       DateTime?
+  approvedById    String?
+  approvedAt      DateTime?
+  postedAt        DateTime?
   /// Posted reversal: set once, when a linked reversal re-posted the inverse
   /// movements and journal entries in the current period.
-  reversedAt     DateTime?
-  reversedById   String?
-  reversalReason String?
-  createdAt      DateTime              @default(now())
-  updatedAt      DateTime              @updatedAt
-  createdBy      String?
-  updatedBy      String?
+  reversedAt      DateTime?
+  reversedById    String?
+  reversalReason  String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  createdBy       String?
+  updatedBy       String?
 
   location InventoryLocation     @relation(fields: [locationId], references: [id])
   items    StockAdjustmentItem[]
@@ -3616,38 +3616,38 @@ model StockAdjustmentItem {
 
 /// Inter-location transfer document with status workflow. Posts TRANSFER_OUT/IN.
 model StockTransfer {
-  id             String         @id @default(uuid())
-  organizationId String
-  transferCode   String
-  fromLocId      String
-  toLocId        String
-  status         StockDocStatus @default(draft)
-  notes          String?
-  performedById  String?
+  id              String         @id @default(uuid())
+  organizationId  String
+  transferCode    String
+  fromLocId       String
+  toLocId         String
+  status          StockDocStatus @default(draft)
+  notes           String?
+  performedById   String?
   /// The staff member responsible for the transfer. Required at creation.
   responsibleById String?
-  approvedById   String?
-  approvedAt     DateTime?
-  postedAt       DateTime?
+  approvedById    String?
+  approvedAt      DateTime?
+  postedAt        DateTime?
   /// Posted reversal: set once, when a linked reversal re-posted the inverse
   /// movements and journal entries in the current period.
-  reversedAt     DateTime?
-  reversedById   String?
-  reversalReason String?
-  completedAt    DateTime?
+  reversedAt      DateTime?
+  reversedById    String?
+  reversalReason  String?
+  completedAt     DateTime?
   /// immediate = same-premises move posted on approval (source and destination in
   /// one transaction). transit = branch transfer: approve → dispatch (source →
   /// transit location) → one or more destination receipts with damage/shortage.
-  mode           String         @default("immediate")
+  mode            String         @default("immediate")
   /// The org's transit location the dispatched goods sit in until received.
-  transitLocId   String?
-  dispatchedAt   DateTime?
-  dispatchedById String?
-  lastReceivedAt DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  createdBy      String?
-  updatedBy      String?
+  transitLocId    String?
+  dispatchedAt    DateTime?
+  dispatchedById  String?
+  lastReceivedAt  DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  createdBy       String?
+  updatedBy       String?
 
   fromLoc  InventoryLocation      @relation("StockTransferFrom", fields: [fromLocId], references: [id])
   toLoc    InventoryLocation      @relation("StockTransferTo", fields: [toLocId], references: [id])
@@ -3741,32 +3741,32 @@ enum InventoryCountStatus {
 /// Header for one physical count. Resumable while `draft`; terminal once
 /// `submitted` (links to the generated StockAdjustment) or `cancelled`.
 model InventoryCountSession {
-  id             String               @id @default(uuid())
-  organizationId String
-  countCode      String
-  name           String?
-  locationId     String
-  countType      InventoryCountType   @default(opening)
-  status         InventoryCountStatus @default(draft)
+  id               String               @id @default(uuid())
+  organizationId   String
+  countCode        String
+  name             String?
+  locationId       String
+  countType        InventoryCountType   @default(opening)
+  status           InventoryCountStatus @default(draft)
   /// Blind count: system quantities and variances are hidden from counters while
   /// the session is a draft; only a submitter can review them.
-  blind          Boolean              @default(false)
+  blind            Boolean              @default(false)
   /// Partial-count scope. Empty = every countable product at the location.
-  scopeCategoryIds String[]           @default([])
-  scopeProductIds  String[]           @default([])
-  notes          String?
-  startedById    String?
-  startedAt      DateTime             @default(now())
-  submittedById  String?
-  submittedAt    DateTime?
+  scopeCategoryIds String[]             @default([])
+  scopeProductIds  String[]             @default([])
+  notes            String?
+  startedById      String?
+  startedAt        DateTime             @default(now())
+  submittedById    String?
+  submittedAt      DateTime?
   /// StockAdjustment generated on submit (audit link). Null until submitted, or
   /// when the count had no variances to post.
-  adjustmentId   String?
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  createdBy      String?
-  updatedBy      String?
-  deletedAt      DateTime?
+  adjustmentId     String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  createdBy        String?
+  updatedBy        String?
+  deletedAt        DateTime?
 
   location InventoryLocation    @relation(fields: [locationId], references: [id])
   lines    InventoryCountLine[]
@@ -3986,6 +3986,8 @@ model CashSession {
   /// Offline-first (P1): PosDevice that ran this session offline.
   deviceId            String?
   openedAt            DateTime          @default(now())
+  /// Trading day this shift belongs to (06:00 local cutoff); handover keeps it.
+  businessDate        DateTime?         @db.Date
   closedAt            DateTime?
   openingFloat        Decimal           @default(0) @db.Decimal(20, 6)
   closingCounted      Decimal?          @db.Decimal(20, 6)
@@ -4943,9 +4945,9 @@ model GoodsReceiptNote {
   postedAt        DateTime?
   /// Posted reversal: set once, when a linked reversal re-posted the inverse
   /// movements and journal entries in the current period.
-  reversedAt     DateTime?
-  reversedById   String?
-  reversalReason String?
+  reversedAt      DateTime?
+  reversedById    String?
+  reversalReason  String?
   postedById      String?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
@@ -4996,28 +4998,28 @@ model GoodsReceiptLine {
 /// the receipt's own lot) and the share already consumed is expensed to COGS.
 /// Dr Stock Valuation + Dr COGS / Cr the chosen accrual / payable account.
 model LandedCost {
-  id               String    @id @default(uuid())
-  organizationId   String
-  code             String
-  goodsReceiptId   String
+  id                String    @id @default(uuid())
+  organizationId    String
+  code              String
+  goodsReceiptId    String
   /// draft | posted | cancelled
-  status           String    @default("draft")
+  status            String    @default("draft")
   /// value | quantity | equal
-  allocationMethod String    @default("value")
+  allocationMethod  String    @default("value")
   /// Account credited on post (freight accrual, AP clearing, cash…).
-  creditAccountId  String
-  date             DateTime  @default(now())
-  notes            String?
-  totalAmount      Decimal   @default(0) @db.Decimal(20, 6)
-  capitalizedAmount Decimal  @default(0) @db.Decimal(20, 6)
-  expensedAmount   Decimal   @default(0) @db.Decimal(20, 6)
-  journalEntryId   String?
-  postedAt         DateTime?
-  postedById       String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  createdBy        String?
-  updatedBy        String?
+  creditAccountId   String
+  date              DateTime  @default(now())
+  notes             String?
+  totalAmount       Decimal   @default(0) @db.Decimal(20, 6)
+  capitalizedAmount Decimal   @default(0) @db.Decimal(20, 6)
+  expensedAmount    Decimal   @default(0) @db.Decimal(20, 6)
+  journalEntryId    String?
+  postedAt          DateTime?
+  postedById        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  createdBy         String?
+  updatedBy         String?
 
   charges     LandedCostCharge[]
   allocations LandedCostAllocation[]
@@ -5933,6 +5935,8 @@ model Invoice {
   waiterId             String?
   tableId              String?
   issueDate            DateTime                @default(now())
+  /// Trading day of the sale: the cash session's trading date, else derived from issueDate.
+  businessDate         DateTime?               @db.Date
   dueDate              DateTime?
   currencyId           String?
   exchangeRate         Decimal                 @default(1) @db.Decimal(18, 8)
@@ -6004,6 +6008,7 @@ model Invoice {
 
   @@unique([organizationId, invoiceNumber])
   @@index([organizationId])
+  @@index([organizationId, businessDate])
   @@index([organizationId, status])
   @@index([organizationId, partnerId])
   @@index([organizationId, settlementStatus])

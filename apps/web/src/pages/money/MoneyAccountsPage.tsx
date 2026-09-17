@@ -9,7 +9,7 @@ import {
 } from '@/features/accounting/api';
 import { apiErrorMessage } from '@/lib/api-error';
 import { useOrgCurrency } from '@/lib/format';
-import { AccountTypeIcon, EmptyState, MoneyAmount, MoneyPage, accountTypeLabel } from '@/components/money/money-ui';
+import { AccountTypeIcon, EmptyState, LoadError, MoneyAmount, MoneyPage, accountTypeLabel, useOrgTimezone } from '@/components/money/money-ui';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -126,6 +126,7 @@ export function MoneyAccountsPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const hasPermission = useAuthStore((s) => s.hasPermission);
+  const timeZone = useOrgTimezone();
   const { data: accounts = [], isLoading, isError, refetch } = useCashAccounts();
   const type = params.get('type') ?? 'all';
   const q = params.get('q') ?? '';
@@ -198,9 +199,7 @@ export function MoneyAccountsPage() {
       {isLoading ? (
         <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" /></div>
       ) : isError ? (
-        <div className="flex items-center justify-between rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
-          Accounts could not be loaded. <Button variant="outline" size="sm" onClick={() => refetch()}>Try again</Button>
-        </div>
+        <LoadError message="Accounts could not be loaded." onRetry={() => refetch()} />
       ) : filtered.length === 0 ? (
         <EmptyState title={q || type !== 'all' ? 'No accounts match' : 'No money accounts yet'}>
           {q || type !== 'all' ? 'Try another search or type.' : 'Add your bank, mobile-money and petty-cash accounts to start tracking money.'}
@@ -250,11 +249,11 @@ export function MoneyAccountsPage() {
                           <p className="text-[11px] text-muted-foreground">
                             {Number(a.todayIn ?? 0) || Number(a.todayOut ?? 0)
                               ? <>Today +<MoneyAmount value={a.todayIn} currency="" /> / −<MoneyAmount value={a.todayOut} currency="" /></>
-                              : a.lastActivityAt ? `Last activity ${new Date(a.lastActivityAt).toLocaleDateString()}` : 'No activity yet'}
+                              : a.lastActivityAt ? `Last activity ${new Date(a.lastActivityAt).toLocaleDateString(undefined, { timeZone })}` : 'No activity yet'}
                           </p>
                         </div>
                         {hasPermission(PERMISSIONS.account.update) ? (
-                          <Button variant="outline" size="sm" className="min-h-[40px]" onClick={() => setDialog({ editing: a })}>
+                          <Button variant="outline" size="sm" className="min-h-[44px]" onClick={() => setDialog({ editing: a })}>
                             <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Edit
                           </Button>
                         ) : null}

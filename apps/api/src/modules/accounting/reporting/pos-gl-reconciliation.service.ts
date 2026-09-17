@@ -115,6 +115,17 @@ export class PosGlReconciliationService {
         select: { amount: true, items: true },
       }),
     ]);
+    // Refund restocks reverse COGS at the issue cost; the stock side must net them.
+    const stockReturns = await this.prisma.client.inventoryLedger.aggregate({
+      where: { organizationId, createdAt: { gte: from, lte: to }, referenceType: 'pos_refund', quantityChange: { gt: 0 } },
+      _sum: { totalValue: true },
+    });
+    // Output-VAT accounts are the ones a Tax row posts to (the `tax` category
+    // reports under current liabilities, so the report section alone never finds them).
+    const taxAccountIds = new Set<string>(
+      ((await this.prisma.client.tax?.findMany({ where: { organizationId, accountId: { not: null } }, select: { accountId: true } })) ?? [])
+        .map((t: any) => t.accountId),
+    );
 
     // POS-side totals (gross), plus the refund split.
     const posSubtotal = new Prisma.Decimal((posAgg._sum.subtotal as any) ?? 0)
@@ -123,7 +134,8 @@ export class PosGlReconciliationService {
       .plus(new Prisma.Decimal((docAgg._sum?.taxAmount as any) ?? 0));
     const posDiscount = new Prisma.Decimal((posAgg._sum.discountTotal as any) ?? 0)
       .plus(new Prisma.Decimal((docAgg._sum?.discountTotal as any) ?? 0));
-    const posInvoiceCount = (posAgg._count as any) + ((docAgg._count as any) ?? 0);
+    const countOf = (c: any) => (typeof c === 'number' ? c : Number(c?._all ?? 0));
+    const posInvoiceCount = countOf(posAgg._count) + countOf(docAgg?._count);
 
     // R-1: split each refund into revenue vs tax portions from its recorded
     // line fractions. amountRefunded (invoice header) mixes both portions and
@@ -147,12 +159,14 @@ export class PosGlReconciliationService {
     const glRevenue = glSections.get('revenue') ?? ZERO;
     const glOtherIncome = glSections.get('other_income') ?? ZERO;
     const glContraRevenue = glSections.get('contra_revenue') ?? ZERO;
-    const glTax = glSections.get('tax') ?? ZERO;
+    const glTax = (glSections.get('tax') ?? ZERO).plus(await this.accountTotals(organizationId, from, to, taxAccountIds));
 
     // The POS posts NET revenue (discount folded in — C-09 net method), so the
     // expected GL revenue for the window is gross subtotal minus discounts,
     // minus the refunded REVENUE portion (not the full refund amount).
-    const expectedRevenue = posSubtotal.minus(posDiscount).minus(refundedRevenue);
+    // Invoice.subtotal is already net of line and order discounts (the builder
+    // taxes the discounted amount), so discounts must not be subtracted again.
+    const expectedRevenue = posSubtotal.minus(refundedRevenue);
     const actualRevenue = glRevenue.plus(glOtherIncome).minus(glContraRevenue);
 
     const revenueVariance = actualRevenue.minus(expectedRevenue);
@@ -163,7 +177,8 @@ export class PosGlReconciliationService {
 
     // ── Inventory / COGS lag (C-08) ────────────────────────────────────────
     const cogsGl = glSections.get('cogs') ?? ZERO;
-    const stockCogsValue = new Prisma.Decimal((stockCogs._sum.totalValue as any) ?? 0);
+    const stockCogsValue = new Prisma.Decimal((stockCogs._sum.totalValue as any) ?? 0)
+      .minus(new Prisma.Decimal((stockReturns?._sum?.totalValue as any) ?? 0));
     const backlog: Record<string, number> = {};
     for (const g of stockBacklog as any[]) backlog[g.status] = g._count;
     const unpostedJobs =
@@ -226,6 +241,24 @@ export class PosGlReconciliationService {
    * signed by its normal balance (revenue reads credit-positive, contra reads
    * debit-positive, tax reads credit-positive).
    */
+  /** Credit-positive ledger movement on specific accounts (output VAT) for the window. */
+  private async accountTotals(organizationId: string, from: Date, to: Date, accountIds: Set<string>): Promise<Prisma.Decimal> {
+    if (!accountIds.size) return ZERO;
+    const grouped = await this.prisma.client.journalLine.groupBy({
+      by: ['accountId'],
+      where: { organizationId, accountId: { in: [...accountIds] }, entry: { status: { in: [...BALANCE_AFFECTING_STATUSES] }, postingDate: { gte: from, lte: to } } },
+      _sum: { baseDebit: true, baseCredit: true },
+    });
+    const meta = await this.accounts.meta([...accountIds]);
+    let total = ZERO;
+    for (const g of grouped as any[]) {
+      // Accounts already counted in the `tax` report section are not added twice.
+      if (!accountIds.has(g.accountId) || (meta.get(g.accountId)?.reportSection as string | undefined) === 'tax') continue;
+      total = total.plus(new Prisma.Decimal(g._sum.baseCredit ?? 0).minus(new Prisma.Decimal(g._sum.baseDebit ?? 0)));
+    }
+    return total;
+  }
+
   private async glSectionTotals(
     organizationId: string,
     from: Date,

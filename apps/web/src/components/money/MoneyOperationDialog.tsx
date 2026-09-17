@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { formatAmount, useAmountCurrency } from './money-ui';
+import { formatAmount, useAmountCurrency, useOrgToday } from './money-ui';
 
 export type MoneyOperationMode = 'in' | 'out' | 'transfer';
 
@@ -39,8 +39,6 @@ const ELSEWHERE: Record<'in' | 'out', { label: string; hint: string; href: strin
 /** Operation types that duplicate a dedicated workflow above. */
 const HIDDEN_OPERATIONS = new Set(['expense']);
 
-const today = () => new Date().toISOString().slice(0, 10);
-
 export function MoneyOperationDialog({
   mode, open, onClose, defaultAccountId,
 }: {
@@ -56,6 +54,8 @@ export function MoneyOperationDialog({
   const withdraw = useCashFlowWithdraw();
   const transfer = useTreasuryTransfer();
   const currency = useAmountCurrency();
+  // Default and latest allowed date are the organisation's today, not UTC's.
+  const today = useOrgToday();
 
   const [step, setStep] = useState<'purpose' | 'details' | 'review'>('details');
   const [operation, setOperation] = useState('');
@@ -63,16 +63,17 @@ export function MoneyOperationDialog({
   const [toAccountId, setToAccountId] = useState('');
   const [counterpartId, setCounterpartId] = useState('');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(today());
+  const [date, setDate] = useState(today);
   const [reference, setReference] = useState('');
   const [note, setNote] = useState('');
 
   useEffect(() => {
     if (!open) return;
     setStep(mode === 'transfer' ? 'details' : 'purpose');
-    setOperation(''); setCounterpartId(''); setAmount(''); setDate(today()); setReference(''); setNote('');
+    setOperation(''); setCounterpartId(''); setAmount(''); setDate(today); setReference(''); setNote('');
     setAccountId(defaultAccountId ?? '');
     setToAccountId('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, defaultAccountId]);
 
   // Register drawers move only through their shift; never offered here.
@@ -201,7 +202,7 @@ export function MoneyOperationDialog({
 
             <div className="space-y-1.5">
               <Label htmlFor="money-op-account">{mode === 'in' ? 'Receive into' : mode === 'out' ? 'Pay from' : 'From'}</Label>
-              <select id="money-op-account" required className="min-h-[40px] w-full rounded-md border bg-background px-3 text-sm" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <select id="money-op-account" required className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
                 <option value="">Choose account</option>
                 {eligible.map((a) => <option key={a.id} value={a.id}>{a.name} — {fmt(a.balance)}</option>)}
               </select>
@@ -210,7 +211,7 @@ export function MoneyOperationDialog({
             {mode === 'transfer' ? (
               <div className="space-y-1.5">
                 <Label htmlFor="money-op-to">To</Label>
-                <select id="money-op-to" required className="min-h-[40px] w-full rounded-md border bg-background px-3 text-sm" value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>
+                <select id="money-op-to" required className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm" value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>
                   <option value="">Choose account</option>
                   {eligible.filter((a) => a.id !== accountId).map((a) => <option key={a.id} value={a.id}>{a.name} — {fmt(a.balance)}</option>)}
                 </select>
@@ -218,7 +219,7 @@ export function MoneyOperationDialog({
             ) : op ? (
               <div className="space-y-1.5">
                 <Label htmlFor="money-op-counterpart">Accounting account</Label>
-                <select id="money-op-counterpart" required className="min-h-[40px] w-full rounded-md border bg-background px-3 text-sm" value={counterpartId} onChange={(e) => setCounterpartId(e.target.value)}>
+                <select id="money-op-counterpart" required className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm" value={counterpartId} onChange={(e) => setCounterpartId(e.target.value)}>
                   <option value="">{op.accounts.length ? 'Choose account' : 'No eligible account — add one to the chart of accounts'}</option>
                   {op.accounts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
                 </select>
@@ -238,7 +239,7 @@ export function MoneyOperationDialog({
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="money-op-date">Date</Label>
-                <Input id="money-op-date" type="date" required value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+                <Input id="money-op-date" type="date" required value={date} max={today} onChange={(e) => setDate(e.target.value)} />
               </div>
             </div>
 
@@ -255,8 +256,8 @@ export function MoneyOperationDialog({
             ) : null}
 
             <DialogFooter className="gap-2">
-              <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
-              <Button type="submit" disabled={!detailsValid}>Review</Button>
+              <Button type="button" variant="ghost" className="min-h-[44px]" onClick={onClose}>Cancel</Button>
+              <Button type="submit" className="min-h-[44px]" disabled={!detailsValid}>Review</Button>
             </DialogFooter>
           </form>
         ) : null}
@@ -273,8 +274,8 @@ export function MoneyOperationDialog({
               {note ? (<><dt className="text-muted-foreground">Description</dt><dd>{note}</dd></>) : null}
             </dl>
             <DialogFooter className="gap-2">
-              <Button type="button" variant="ghost" onClick={() => setStep('details')} disabled={pending}>Back</Button>
-              <Button type="button" onClick={submit} disabled={pending}>
+              <Button type="button" variant="ghost" className="min-h-[44px]" onClick={() => setStep('details')} disabled={pending}>Back</Button>
+              <Button type="button" className="min-h-[44px]" onClick={submit} disabled={pending}>
                 {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Confirm and record
               </Button>

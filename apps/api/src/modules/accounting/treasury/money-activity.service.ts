@@ -11,6 +11,7 @@ import {
   type MoneyActivityFigures,
 } from './money-activity.taxonomy';
 import { DIRECTION_SQL, EFFECTIVE_SOURCE_TYPE, categorySql } from './money-activity.sql';
+import { orgDateBound, orgToday } from './org-dates';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -19,6 +20,8 @@ export interface MoneyActivityFilters {
   to?: string;
   categories?: string[];
   accountId?: string;
+  /** Only entries tagged to this branch or moving its registers' drawer cash. */
+  branchId?: string;
   direction?: MoneyActivityDirection | 'all';
   search?: string;
   page?: number;
@@ -58,24 +61,37 @@ export class MoneyActivityService {
     const orgId = this.tenant.organizationId;
     const page = Math.max(1, Number(filters.page ?? 1) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(filters.pageSize ?? 25) || 25));
-    const from = this.parseDate(filters.from, 'from');
-    const to = this.parseDate(filters.to, 'to', true);
+    const org = await this.prisma.client.organization.findUnique({
+      where: { id: orgId },
+      select: { currencyCode: true, timezone: true },
+    });
+    const currencyCode = (org as any)?.currencyCode ?? null;
+    const timezone: string = (org as any)?.timezone || 'UTC';
+    const from = orgDateBound(filters.from, 'from', timezone, 'start');
+    const to = orgDateBound(filters.to, 'to', timezone, 'end');
     if (from && to && from > to) throw new BadRequestException('`from` must be on or before `to`');
 
-    const moneyAccounts = await this.accounts.cashEquivalentAccounts();
-    const meta = new Map(moneyAccounts.map((a) => [a.id, a]));
-    const moneyAccountIds = moneyAccounts.map((a) => a.id);
+    const allMoneyAccounts = await this.accounts.cashEquivalentAccounts();
+    const meta = new Map(allMoneyAccounts.map((a) => [a.id, a]));
+    const moneyAccountIds = allMoneyAccounts.map((a) => a.id);
     if (filters.accountId && !moneyAccountIds.includes(filters.accountId)) {
       throw new BadRequestException('Account is not an active cash, bank or mobile-money account');
     }
+    // A branch owns the drawer accounts of its registers; other money accounts
+    // are organisation-wide, so their entries count only when tagged to it.
+    const branchAccountIds = filters.branchId
+      ? ((await this.prisma.client.cashRegister.findMany({
+        where: { organizationId: orgId, branchId: filters.branchId, deletedAt: null, defaultAccountId: { in: moneyAccountIds } },
+        select: { defaultAccountId: true },
+      })) as { defaultAccountId: string | null }[]).map((r) => r.defaultAccountId).filter((id): id is string => !!id)
+      : null;
 
-    const org = await this.prisma.client.organization.findUnique({
-      where: { id: orgId },
-      select: { currencyCode: true },
-    });
-    const currencyCode = (org as any)?.currencyCode ?? null;
-
-    const empty = { data: [] as MoneyActivity[], total: 0, page, pageSize, totalPages: 1, currencyCode, categoryOptions: CATEGORY_OPTIONS };
+    const zeroTotals = { externalIn: '0.00', externalOut: '0.00', internalMoved: '0.00' };
+    const today = orgToday(timezone);
+    const empty = {
+      data: [] as MoneyActivity[], total: 0, page, pageSize, totalPages: 1, currencyCode, timezone, today,
+      totals: zeroTotals, pageTotals: zeroTotals, categoryOptions: CATEGORY_OPTIONS,
+    };
     if (moneyAccountIds.length === 0) return empty;
 
     // ── Page of entry ids: classification, direction and filters all in SQL ──
@@ -89,6 +105,13 @@ export class MoneyActivityService {
     ];
     if (filters.accountId) {
       where.push(Prisma.sql`EXISTS (SELECT 1 FROM "JournalLine" al WHERE al."journalEntryId" = je.id AND al."accountId" = ${filters.accountId})`);
+    }
+    if (filters.branchId) {
+      // Tagged to the branch, or moving money in an account assigned to it.
+      const touchesBranchAccount = branchAccountIds?.length
+        ? Prisma.sql` OR EXISTS (SELECT 1 FROM "JournalLine" bl WHERE bl."journalEntryId" = je.id AND bl."accountId" IN (${Prisma.join(branchAccountIds)}))`
+        : Prisma.empty;
+      where.push(Prisma.sql`(je."branchId" = ${filters.branchId}${touchesBranchAccount})`);
     }
     if (from) where.push(Prisma.sql`je."postingDate" >= ${from}`);
     if (to) where.push(Prisma.sql`je."postingDate" <= ${to}`);
@@ -106,17 +129,25 @@ export class MoneyActivityService {
       : Prisma.empty;
     const base = Prisma.sql`
       FROM (
-        SELECT je.id, je."postingDate", je."createdAt", ${EFFECTIVE_SOURCE_TYPE} AS eff,
+        SELECT je.id, je."postingDate", je."createdAt", (je.status::text = 'reversed' OR je."reversalOfId" IS NOT NULL) AS voided, ${EFFECTIVE_SOURCE_TYPE} AS eff,
           SUM(jl."baseDebit") AS d, SUM(jl."baseCredit") AS c
         FROM "JournalEntry" je
         JOIN "JournalLine" jl ON jl."journalEntryId" = je.id
         WHERE ${Prisma.join(where, ' AND ')}
-        GROUP BY je.id
+        GROUP BY je.id, je.status, je."reversalOfId"
       ) x
       ${directionFilter}
     `;
+    // Count and totals cover every matching entry, not just this page. A voided
+    // pair (the reversed original and its mirror reversal) nets to nothing, so
+    // both sides stay out of the totals.
     const [countRows, idRows] = await Promise.all([
-      this.prisma.raw.$queryRaw<{ n: bigint }[]>(Prisma.sql`SELECT COUNT(*)::bigint AS n ${base}`),
+      this.prisma.raw.$queryRaw<{ n: bigint; external_in: string; external_out: string; internal_moved: string }[]>(Prisma.sql`
+        SELECT COUNT(*)::bigint AS n,
+          COALESCE(SUM(CASE WHEN NOT x.voided THEN GREATEST(x.d - x.c, 0) END), 0)::text AS external_in,
+          COALESCE(SUM(CASE WHEN NOT x.voided THEN GREATEST(x.c - x.d, 0) END), 0)::text AS external_out,
+          COALESCE(SUM(CASE WHEN NOT x.voided THEN LEAST(x.d, x.c) END), 0)::text AS internal_moved
+        ${base}`),
       this.prisma.raw.$queryRaw<{ id: string; eff: string | null }[]>(Prisma.sql`
         SELECT x.id, x.eff ${base}
         ORDER BY x."postingDate" DESC, x."createdAt" DESC, x.id DESC
@@ -184,6 +215,15 @@ export class MoneyActivityService {
       pageSize,
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
       currencyCode,
+      timezone,
+      /** Organisation-local calendar date, for "Today" presets and date limits. */
+      today,
+      /** Totals of every entry matching the filters (reversed originals excluded). */
+      totals: {
+        externalIn: Number(countRows[0]?.external_in ?? 0).toFixed(2),
+        externalOut: Number(countRows[0]?.external_out ?? 0).toFixed(2),
+        internalMoved: Number(countRows[0]?.internal_moved ?? 0).toFixed(2),
+      },
       /** Totals of the rows on this page (reversed entries excluded). */
       pageTotals: {
         externalIn: totals.externalIn.toFixed(2),
@@ -237,11 +277,4 @@ export class MoneyActivityService {
     }
   }
 
-  private parseDate(value: string | undefined, label: string, endOfDay = false): Date | undefined {
-    if (!value) return undefined;
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) throw new BadRequestException(`Invalid \`${label}\` date: ${value}`);
-    if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) d.setUTCHours(23, 59, 59, 999);
-    return d;
-  }
 }

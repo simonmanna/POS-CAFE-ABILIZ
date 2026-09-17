@@ -145,10 +145,14 @@ export function posSaleWhere(
     // accounting module and must never inflate POS figures.
     orderId: { not: null },
     status: { in: [...POS_SALE_STATUSES] },
-    // A-031: bucket by the BUSINESS date (issueDate) — an offline sale keeps
-    // its original day even when it syncs later. createdAt would mis-date it
-    // to the sync day and disagree with the GL (postingDate == issueDate).
-    issueDate: { gte: start, lte: end },
+    // Bucket by TRADING date: a sale rung at 00:30 in a shift that opened the
+    // day before belongs to that trading day (policy: 06:00 cutoff). Invoices
+    // written before trading dates existed fall back to issueDate (A-031: an
+    // offline sale keeps its original day, never the sync day).
+    AND: [{ OR: [
+      { businessDate: { gte: new Date(`${localIso(start)}T00:00:00.000Z`), lte: new Date(`${localIso(end)}T00:00:00.000Z`) } },
+      { businessDate: null, issueDate: { gte: start, lte: end } },
+    ] }],
     ...(f.waiterId ? { waiterId: f.waiterId } : {}),
     ...(f.tableId ? { tableId: f.tableId } : {}),
     ...(f.cashSessionId ? { cashSessionId: f.cashSessionId } : {}),
@@ -182,6 +186,12 @@ export interface XReport {
     /** Net revenue, ex-tax (Invoice.subtotal). */
     netRevenue: string;
     taxTotal: string;
+    /** Revenue/VAT reversed by refunds rung in this shift; *AfterRefunds tie to the P&L and VAT account. */
+    refundedRevenue?: string;
+    refundedTax?: string;
+    netRevenueAfterRefunds?: string;
+    taxAfterRefunds?: string;
+    netSalesAfterRefunds?: string;
     discountTotal: string;
     /** Cash actually collected into the drawer (cash tenders only). */
     cashCollected: string;

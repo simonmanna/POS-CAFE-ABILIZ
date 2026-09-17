@@ -5,11 +5,13 @@ import {
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
 import { useAuthStore } from '@/stores/auth.store';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import { useMoneyOverview } from '@/features/money/api';
 import { usePosPaymentMethodConfig } from '@/features/accounting/api';
 import { MoneyActivityList } from '@/components/money/MoneyActivityList';
 import { MoneyOperationDialog, type MoneyOperationMode } from '@/components/money/MoneyOperationDialog';
-import { AccountTypeIcon, MoneyAmount, MoneyPage, StatCard } from '@/components/money/money-ui';
+import { AccountTypeIcon, LoadError, MoneyAmount, MoneyPage, StatCard } from '@/components/money/money-ui';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -97,24 +99,30 @@ export function MoneyOverviewPage() {
   const currency = data?.baseCurrency ?? null;
 
   const actions = canMove ? (
-    <>
-      <Button variant="outline" className="min-h-[44px]" onClick={() => setOp('in')}><ArrowDownLeft className="mr-2 h-4 w-4" /> Record other money in</Button>
-      <Button variant="outline" className="min-h-[44px]" onClick={() => setOp('out')}><ArrowUpRight className="mr-2 h-4 w-4" /> Record other money out</Button>
-      <Button className="min-h-[44px]" onClick={() => setOp('transfer')}><ArrowLeftRight className="mr-2 h-4 w-4" /> Transfer between accounts</Button>
-    </>
+    <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap">
+      <Button variant="outline" className="min-h-[44px]" onClick={() => setOp('in')}><ArrowDownLeft className="mr-2 h-4 w-4" aria-hidden /> <span className="sm:hidden">Money in</span><span className="hidden sm:inline">Record other money in</span></Button>
+      <Button variant="outline" className="min-h-[44px]" onClick={() => setOp('out')}><ArrowUpRight className="mr-2 h-4 w-4" aria-hidden /> <span className="sm:hidden">Money out</span><span className="hidden sm:inline">Record other money out</span></Button>
+      <Button className="col-span-2 min-h-[44px]" onClick={() => setOp('transfer')}><ArrowLeftRight className="mr-2 h-4 w-4" aria-hidden /> Transfer between accounts</Button>
+    </div>
   ) : null;
 
   const bank = data?.byType.find((t) => t.key === 'bank');
+  // Money accounts are organisation-wide; say so plainly for multi-branch businesses.
+  const branchCount = useQuery<{ data: { id: string }[] }>({
+    queryKey: ['branches-switch'],
+    queryFn: async () => (await api.get('/branches', { params: { pageSize: 200 } })).data,
+    staleTime: 5 * 60_000,
+  }).data?.data.length ?? 0;
+  const todayLabel = data?.todayDate
+    ? new Date(`${data.todayDate}T12:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' })
+    : null;
 
   return (
     <MoneyPage title="Money & Accounts" description="See where your money is, what changed today, and what needs attention." actions={actions}>
       {isLoading ? (
         <div className="flex h-48 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" /></div>
       ) : isError || !data ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
-          The overview could not be loaded.
-          <Button variant="outline" size="sm" onClick={() => refetch()}>Try again</Button>
-        </div>
+        <LoadError message="The overview could not be loaded." onRetry={() => refetch()} retrying={isFetching} />
       ) : (
         <>
           {/* Where is the money now? */}
@@ -123,13 +131,14 @@ export function MoneyOverviewPage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <h2 id="money-now" className="text-sm font-medium text-muted-foreground">
-                    Total available book balance{currency ? ` in ${currency}` : ''}
+                    Total money on the books{currency ? ` in ${currency}` : ''}
                   </h2>
-                  <p className="mt-1 text-3xl font-semibold tracking-tight text-foreground">
+                  <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums text-foreground sm:text-4xl">
                     <MoneyAmount value={data.totalAvailableBookBalance} currency={currency} />
                   </p>
                   <p className="mt-1 max-w-xl text-xs text-muted-foreground">
-                    What the books say is in your cash, bank and mobile-money accounts. Drawer cash is what is expected until it is counted at shift close.
+                    What the books record across your cash, bank and mobile-money accounts — not all of it is ready to spend. Drawer cash is expected until counted at shift close, and card or mobile-money takings wait for the provider to settle.
+                    {branchCount > 1 ? <> Covers <strong className="font-medium text-foreground">all branches</strong>.</> : null}
                   </p>
                 </div>
                 <button
@@ -190,7 +199,7 @@ export function MoneyOverviewPage() {
                         {a.amount ? <> — <MoneyAmount value={a.amount} currency={currency} className="font-medium" /></> : null}
                       </span>
                     </div>
-                    <Button asChild variant="outline" size="sm" className="min-h-[40px] self-start sm:self-auto">
+                    <Button asChild variant="outline" className="min-h-[44px] self-stretch sm:self-auto">
                       <Link to={a.href}>{a.actionLabel}</Link>
                     </Button>
                   </li>
@@ -204,7 +213,7 @@ export function MoneyOverviewPage() {
             <section aria-labelledby="money-registers" className="space-y-2">
               <div className="flex items-center justify-between">
                 <h2 id="money-registers" className="text-base font-semibold text-foreground">Open registers</h2>
-                <Link to="/pos/cash-registers" className="text-sm font-medium text-primary hover:underline">Registers</Link>
+                <Link to="/pos/cash-registers" className="inline-flex min-h-[44px] items-center text-sm font-medium text-primary hover:underline">Registers</Link>
               </div>
               {data.openRegisters.length === 0 ? (
                 <p className="rounded-xl border bg-card p-4 text-sm text-muted-foreground">No register is open.</p>
@@ -229,14 +238,14 @@ export function MoneyOverviewPage() {
             {/* Today */}
             <section aria-labelledby="money-today" className="space-y-2">
               <div className="flex items-center justify-between">
-                <h2 id="money-today" className="text-base font-semibold text-foreground">Today</h2>
-                <Link to="/accounts/cash-accounts/activity?period=today" className="text-sm font-medium text-primary hover:underline">See today’s activity</Link>
+                <h2 id="money-today" className="text-base font-semibold text-foreground">Today{todayLabel ? <span className="ml-2 text-sm font-normal text-muted-foreground">{todayLabel}</span> : null}</h2>
+                <Link to="/accounts/cash-accounts/activity?period=today" className="inline-flex min-h-[44px] items-center text-sm font-medium text-primary hover:underline">See today’s activity</Link>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <StatCard label="Money in" value={<MoneyAmount value={data.today.externalIn} currency={currency} className="text-emerald-700 dark:text-emerald-400" />} hint={<>POS: <MoneyAmount value={data.today.posReceipts} currency={currency} /></>} onClick={() => navigate('/accounts/cash-accounts/activity?period=today&direction=in')} />
                 <StatCard label="Money out" value={<MoneyAmount value={data.today.externalOut} currency={currency} className="text-rose-700 dark:text-rose-400" />} onClick={() => navigate('/accounts/cash-accounts/activity?period=today&direction=out')} />
                 <StatCard label="Moved between accounts" value={<MoneyAmount value={data.today.internalMoved} currency={currency} />} hint="Does not change total money" onClick={() => navigate('/accounts/cash-accounts/activity?period=today&direction=internal')} />
-                <StatCard label="Activities" value={data.today.activityCount} hint={`Times in ${data.timezone}`} />
+                <StatCard label="Activities" value={data.today.activityCount} hint={`Day and times in ${data.timezone}`} />
               </div>
             </section>
           </div>
@@ -246,7 +255,7 @@ export function MoneyOverviewPage() {
           <section aria-labelledby="money-recent" className="space-y-2">
             <div className="flex items-center justify-between">
               <h2 id="money-recent" className="text-base font-semibold text-foreground">Recent activity</h2>
-              <Link to="/accounts/cash-accounts/activity" className="text-sm font-medium text-primary hover:underline">See all</Link>
+              <Link to="/accounts/cash-accounts/activity" className="inline-flex min-h-[44px] items-center text-sm font-medium text-primary hover:underline">See all</Link>
             </div>
             <MoneyActivityList rows={data.recent} emptyText="No money activity has been recorded yet." />
           </section>

@@ -4,14 +4,30 @@
     {
       "name": "api",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@erp/api", "start:dev"],
+      "runtimeArgs": [
+        "--filter",
+        "@erp/api",
+        "start:dev"
+      ],
       "port": 3001
     },
     {
       "name": "web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@erp/web", "dev"],
+      "runtimeArgs": [
+        "--filter",
+        "@erp/web",
+        "dev"
+      ],
       "port": 5173
+    },
+    {
+      "name": "api-sim",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "scripts/sim-api.cjs"
+      ],
+      "port": 3001
     }
   ]
 }

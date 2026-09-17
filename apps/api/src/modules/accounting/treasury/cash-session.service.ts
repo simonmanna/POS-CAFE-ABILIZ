@@ -1,3 +1,4 @@
+import { orgTimezone, tradingDate } from './org-dates';
 import { accountLedgerBalance, accountObservations, reconcileSession, sessionProviderExpectations, settleTender } from './session-reconciliation';
 import { lockFloorExclusive } from '../../pos/table-status.util';
 import { assertNotDrawerAccount, lockAccounts, operationId, requireAccount } from './treasury-guards';
@@ -216,9 +217,11 @@ export class CashSessionService {
         if (funding.gt(await accountLedgerBalance(tx, organizationId, source.id))) throw new BadRequestException('The funding account has insufficient recorded funds');
       }
       const occurredAt = resolveOccurredAt(dto.occurredAt);
+      const businessDate = tradingDate(occurredAt ?? new Date(), await orgTimezone(this.prisma, organizationId));
       const session = await tx.cashSession.create({
         data: {
           organizationId,
+          businessDate,
           cashRegisterId: dto.cashRegisterId,
           branchId: register.branchId ?? null,
           drawerAccountId: drawer.id,
@@ -381,6 +384,8 @@ export class CashSessionService {
           drawerAccountId: outgoing.drawerAccountId ?? null,
           registerLocationId: outgoing.registerLocationId ?? null,
           branchId: outgoing.branchId ?? null,
+          // A handover continues the same trading day.
+          businessDate: outgoing.businessDate ?? null,
           userId: dto.incomingUserId,
           status: 'open',
           openingFloat: opening,

@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { ALL_PERMISSIONS, MANAGER_PERMISSIONS, type ProductType } from '@erp/shared';
 import { seedUomCategories } from '../src/modules/core/product/uom-seed';
@@ -281,8 +281,43 @@ async function main(): Promise<void> {
   const wf = await applyDefaultApprovalWorkflows(prisma, org.id);
   console.log(`Approval workflows: ${wf.created} created, ${wf.skipped} already present.`);
 
+  // --- Opening inventory journal --------------------------------------------
+  // Seeded stock carries opening_balance ledger rows; without a matching journal
+  // the inventory sub-ledger never ties to the inventory GL and the release
+  // preflight blocks a freshly seeded organization.
+  await postSeedOpeningInventory(org.id);
+
     console.log('Seed complete (incl. chart of accounts, journals, account mappings, inventory).');
     console.log('Login -> organization: "DEMO", email: "admin@demo.test", password: "Admin@123"');
+  }
+
+  /**
+   * Dr Stock Valuation / Cr Retained Earnings for seeded opening stock not yet in
+   * the GL. Idempotent: keyed on one posting key, and only the untied difference
+   * is posted.
+   */
+  async function postSeedOpeningInventory(orgId: string): Promise<void> {
+    const postingKey = `seed_opening_inventory:${orgId}`;
+    if (await prisma.journalEntry.findFirst({ where: { organizationId: orgId, postingKey } })) return;
+    const mapped = async (key: string) => (await prisma.accountMapping.findFirst({ where: { organizationId: orgId, key } }))?.accountId;
+    const stockAccountId = await mapped('stock_valuation');
+    const equityAccountId = await mapped('retained_earnings');
+    const journal = await prisma.journal.findFirst({ where: { organizationId: orgId, code: 'INV' } }) ?? await prisma.journal.findFirst({ where: { organizationId: orgId, code: 'GEN' } });
+    if (!stockAccountId || !equityAccountId || !journal) return;
+    const ledger = await prisma.inventoryLedger.aggregate({ where: { organizationId: orgId, referenceType: 'opening_balance' }, _sum: { totalValue: true } });
+    const value = new Prisma.Decimal(ledger._sum.totalValue ?? 0);
+    if (value.lte(0)) return;
+    await prisma.journalEntry.create({
+      data: {
+        organizationId: orgId, journalId: journal.id, entryNumber: `SEED-OPEN-INV`, postingDate: new Date(), status: 'posted', postedAt: new Date(),
+        description: 'Opening inventory (seeded stock)', sourceType: 'opening_balance', sourceId: 'seed', postingKey,
+        lines: { create: [
+          { organizationId: orgId, accountId: stockAccountId, debit: value, baseDebit: value, description: 'Opening inventory', lineNumber: 1 },
+          { organizationId: orgId, accountId: equityAccountId, credit: value, baseCredit: value, description: 'Opening inventory', lineNumber: 2 },
+        ] },
+      },
+    });
+    console.log(`Opening inventory journal posted: ${value.toString()}`);
   }
 
   /** Sunrise Cafe demo data — categories, products, stock, cash register. */

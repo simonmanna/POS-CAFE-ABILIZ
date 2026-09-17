@@ -20,6 +20,20 @@ describe('TaxCalculationService', () => {
     expect(r.gross.toString()).toBe('118');
   });
 
+  it('rounds inclusive VAT once to the currency scale and keeps the shelf price as gross', () => {
+    // UGX (0dp): 20,000 incl. 18% → VAT 3,050.847… → 3,051; net absorbs the rounding.
+    const r = svc.computeLine(D(20000), [{ id: 't', rate: 18, isInclusive: true, isCompound: false }], { scale: 0 });
+    expect(r.taxTotal.toString()).toBe('3051');
+    expect(r.net.toString()).toBe('16949');
+    expect(r.gross.toString()).toBe('20000');
+  });
+
+  it('rounds exclusive VAT to the currency scale and adds it on top', () => {
+    const r = svc.computeLine(D(9999), [{ id: 't', rate: 18, isInclusive: false, isCompound: false }], { scale: 0 });
+    expect(r.taxTotal.toString()).toBe('1800');
+    expect(r.gross.toString()).toBe('11799');
+  });
+
   it('returns zero tax when there are no taxes', () => {
     const r = svc.computeLine(D(100), []);
     expect(r.taxTotal.toString()).toBe('0');

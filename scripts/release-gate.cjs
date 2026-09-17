@@ -85,6 +85,8 @@ if (!DATABASE_URL) {
   jest('full jest suite (DB required)', null, DATABASE_URL, [
     /pos-money-foundations|pos-sale-pipeline|pos-store-credit-issuance|pos-cash-flow-go-live|pos-cash-flow-day|pos-cash-flow-adversarial|pos-offline-inventory-replay|pos-shift-close-gates|pos-kot-print-delta/,
     /kernel\/prisma\/rls\.spec\.ts$/,
+    // Business simulations only run with SIM_RUN=1; they have their own gate step.
+    /^test\/business-simulation\//,
   ]);
 }
 
@@ -111,6 +113,15 @@ if (DATABASE_URL) {
       } catch { return `exit ${r.status}; ${(r.stderr || '').trim().slice(0, 200)}`; }
     },
   });
+}
+
+// ── 5. business simulation (independent oracle) ─────────────────────────────
+// SIM_DATABASE_URL=… disposable pos_stage1_<digits>. SIM_QUICK=1 skips the
+// HTTP/load specs (they need a built API).
+if (process.env.SIM_DATABASE_URL) {
+  run('business simulation (oracle)', 'node', ['scripts/run-simulation.cjs', ...(process.env.SIM_QUICK === '1' ? ['--quick'] : [])], { env: { SIM_DATABASE_URL: process.env.SIM_DATABASE_URL } });
+} else {
+  results.push({ gate: 'business simulation (oracle)', status: 'FAIL', seconds: 0, detail: 'SIM_DATABASE_URL must name a disposable pos_stage1_<digits> database' });
 }
 
 // ── summary ─────────────────────────────────────────────────────────────────

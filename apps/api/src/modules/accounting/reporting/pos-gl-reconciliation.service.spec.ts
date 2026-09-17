@@ -25,6 +25,8 @@ describe('PosGlReconciliationService R-1: refund-basis split', () => {
     accounts?: Record<string, { reportSection: string; normalBalance: string }>;
     stockJobs?: any[];
     inventoryIssues?: { totalValue: any }[];
+    inventoryReturns?: { totalValue: any }[];
+    taxAccounts?: string[];
   }) {
     const accountMeta = new Map<string, any>();
     for (const [id, m] of Object.entries(opts.accounts ?? {})) accountMeta.set(id, m);
@@ -55,10 +57,12 @@ describe('PosGlReconciliationService R-1: refund-basis split', () => {
           groupBy: jest.fn(async () => opts.stockJobs ?? [{ status: 'done', _count: 1 }]),
         },
         inventoryLedger: {
-          aggregate: jest.fn(async () => ({
-            _sum: { totalValue: D(opts.inventoryIssues?.reduce((s, i) => s.plus(D(i.totalValue)), D(0))) },
-          })),
+          aggregate: jest.fn(async (args: any) => {
+            const rows = args?.where?.referenceType === 'pos_refund' ? opts.inventoryReturns : opts.inventoryIssues;
+            return { _sum: { totalValue: D(rows?.reduce((s, i) => s.plus(D(i.totalValue)), D(0))) } };
+          }),
         },
+        tax: { findMany: jest.fn(async () => (opts.taxAccounts ?? []).map((accountId) => ({ accountId }))) },
         posRefund: {
           findMany: jest.fn(async () => opts.refunds ?? []),
         },
@@ -179,5 +183,53 @@ describe('PosGlReconciliationService R-1: refund-basis split', () => {
     expect(r.pos.refundedRevenue).toBe('100000');
     expect(r.variance.revenueBalanced).toBe(true);
     expect(r.variance.taxBalanced).toBe(true);
+  });
+});
+
+describe('PosGlReconciliationService — simulation findings (D1-GL-002)', () => {
+  // Reuse the R-1 factory through a thin re-declaration of its inputs.
+  const { PosGlReconciliationService: Svc } = require('./pos-gl-reconciliation.service');
+  const make = (o: any) => {
+    const meta = new Map<string, any>(Object.entries(o.accounts ?? {}).map(([id, m]: any) => [id, { id, ...m }]));
+    const group = (rows: any[]) => {
+      const by = new Map<string, any>();
+      for (const l of rows) { const c = by.get(l.accountId) ?? { baseDebit: D(0), baseCredit: D(0) }; by.set(l.accountId, { baseDebit: c.baseDebit.plus(D(l.baseDebit)), baseCredit: c.baseCredit.plus(D(l.baseCredit)) }); }
+      return [...by].map(([accountId, s]) => ({ accountId, _sum: s }));
+    };
+    const agg = (rows: any[]) => ({ _sum: { subtotal: D(rows.reduce((s, r) => s.plus(D(r.subtotal)), D(0))), taxAmount: D(rows.reduce((s, r) => s.plus(D(r.taxAmount)), D(0))), discountTotal: D(rows.reduce((s, r) => s.plus(D(r.discountTotal)), D(0))), totalAmount: D(0) }, _count: { _all: rows.length } });
+    const prisma: any = { client: {
+      invoice: { aggregate: jest.fn(async () => agg(o.invoices ?? [])) },
+      document: { aggregate: jest.fn(async () => agg([])) },
+      stockPostingJob: { groupBy: jest.fn(async () => []) },
+      inventoryLedger: { aggregate: jest.fn(async (a: any) => ({ _sum: { totalValue: D(a?.where?.referenceType === 'pos_refund' ? o.returns ?? 0 : o.issues ?? 0) } })) },
+      posRefund: { findMany: jest.fn(async () => o.refunds ?? []) },
+      tax: { findMany: jest.fn(async () => (o.taxAccounts ?? []).map((accountId: string) => ({ accountId }))) },
+      journalLine: { groupBy: jest.fn(async () => group(o.lines ?? [])) },
+    } };
+    const accounts: any = { meta: jest.fn(async (ids: string[]) => new Map(ids.filter((i) => meta.has(i)).map((i) => [i, meta.get(i)]))) };
+    return new Svc(prisma, { organizationId: 'org-1' } as any, accounts);
+  };
+  const ACC = {
+    rev: { reportSection: 'revenue', normalBalance: 'credit' },
+    vat: { reportSection: 'current_liabilities', normalBalance: 'credit' },
+    cogs: { reportSection: 'cogs', normalBalance: 'debit' },
+  };
+
+  it('does not subtract discounts twice (subtotal is already net of discount)', async () => {
+    const r = await make({ invoices: [{ subtotal: 180, taxAmount: 32.4, discountTotal: 20 }], lines: [{ accountId: 'rev', baseDebit: 0, baseCredit: 180 }], accounts: ACC }).reconcile({});
+    expect(r.variance.revenue).toBe('0');
+  });
+
+  it('finds output VAT through the Tax row account even outside a "tax" report section', async () => {
+    const r = await make({ invoices: [{ subtotal: 100, taxAmount: 18, discountTotal: 0 }], taxAccounts: ['vat'], lines: [{ accountId: 'rev', baseDebit: 0, baseCredit: 100 }, { accountId: 'vat', baseDebit: 0, baseCredit: 18 }], accounts: ACC }).reconcile({});
+    expect(r.gl.tax).toBe('18');
+    expect(r.variance.taxBalanced).toBe(true);
+    expect(r.balanced).toBe(true);
+  });
+
+  it('nets refund restocks out of stock-side COGS and counts invoices as a number', async () => {
+    const r = await make({ invoices: [{ subtotal: 0, taxAmount: 0, discountTotal: 0 }], issues: 83800, returns: 9080, lines: [{ accountId: 'cogs', baseDebit: 74720, baseCredit: 0 }], accounts: ACC }).reconcile({});
+    expect(r.inventory.cogsBalanced).toBe(true);
+    expect(r.pos.invoiceCount).toBe(1);
   });
 });

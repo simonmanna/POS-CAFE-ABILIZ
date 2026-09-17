@@ -31,6 +31,15 @@ export class StockPostingWorker {
 
   @Cron(CronExpression.EVERY_30_SECONDS, { name: 'stock-posting-drain' })
   async drain(): Promise<void> {
+    // After a rush the queue can hold many batches; keep claiming full batches
+    // within the tick (bounded) so COGS and on-hand catch up in seconds, not minutes.
+    for (let round = 0; round < 20; round++) {
+      if ((await this.drainBatch()) < this.batchSize) return;
+    }
+  }
+
+  /** Claim and process one batch; returns how many jobs were claimed. */
+  private async drainBatch(): Promise<number> {
     const claimToken = randomUUID();
     const staleBefore = new Date(Date.now() - this.staleClaimMs);
     // Atomically claim due jobs (pending & retry-time reached, or a stale
@@ -49,7 +58,7 @@ export class StockPostingWorker {
       )
       RETURNING "id"
     `;
-    if (!claimed.length) return;
+    if (!claimed.length) return 0;
 
     // A backlog this deep means the queue is draining slower than sales arrive
     // (or a previous instance died mid-shift). Stock deduction is asynchronous,
@@ -72,6 +81,7 @@ export class StockPostingWorker {
         }
       });
     }
+    return claimed.length;
   }
 
   /**

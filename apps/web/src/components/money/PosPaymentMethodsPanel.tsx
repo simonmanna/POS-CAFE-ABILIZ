@@ -8,7 +8,9 @@
  * rejected at settle time.
  */
 import { useMemo, useState } from 'react';
-import { Plus, Pencil, Trash2, Loader2, ArrowRight, Banknote, Smartphone, CreditCard, Landmark, Gift, type LucideIcon } from 'lucide-react';
+import { Plus, Pencil, Trash2, Loader2, ArrowRight, Banknote, Smartphone, CreditCard, Landmark, Gift, Lock, type LucideIcon } from 'lucide-react';
+import { PERMISSIONS } from '@erp/shared';
+import { useAuthStore } from '@/stores/auth.store';
 import {
   useCashAccounts, usePosPaymentMethodConfig, useCreatePosPaymentMethod,
   useUpdatePosPaymentMethod, useDeletePosPaymentMethod,
@@ -16,9 +18,13 @@ import {
 } from '@/features/accounting/api';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import { LoadError } from './money-ui';
 
 const KINDS = ['cash', 'mobile_money', 'card', 'bank'] as const;
 type Kind = typeof KINDS[number];
@@ -38,11 +44,19 @@ const emptyForm = {
 };
 
 export function PosPaymentMethodsPanel() {
-  const { data: methods = [], isLoading } = usePosPaymentMethodConfig();
+  const { data: methods = [], isLoading, isError, refetch, isFetching } = usePosPaymentMethodConfig();
   const { data: cashAccounts = [] } = useCashAccounts();
   const create = useCreatePosPaymentMethod();
   const update = useUpdatePosPaymentMethod();
   const remove = useDeletePosPaymentMethod();
+  // Each action is gated by the permission its endpoint enforces, so a
+  // read-only manager never sees a button that can only answer "forbidden".
+  const hasPermission = useAuthStore((st) => st.hasPermission);
+  const canCreate = hasPermission(PERMISSIONS.account.create);
+  const canUpdate = hasPermission(PERMISSIONS.account.update);
+  const canDelete = hasPermission(PERMISSIONS.account.delete);
+  const readOnly = !canCreate && !canUpdate && !canDelete;
+  const [retiring, setRetiring] = useState<PosPaymentMethodConfig | null>(null);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<PosPaymentMethodConfig | null>(null);
@@ -99,10 +113,13 @@ export function PosPaymentMethodsPanel() {
     }
   };
 
-  const retire = async (m: PosPaymentMethodConfig) => {
+  const retire = async () => {
+    const m = retiring;
+    if (!m || remove.isPending) return;
     try {
       await remove.mutateAsync(m.id);
       toast.success(`${m.label} removed from the terminal`);
+      setRetiring(null);
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Could not remove the payment method');
     }
@@ -115,15 +132,25 @@ export function PosPaymentMethodsPanel() {
           Each tile the cashier sees in the Charge dialog, and the account its money lands in.
           The cashier never picks an account — these links decide it.
         </p>
-        <Button onClick={openCreate} className="min-h-[44px]">
-          <Plus className="mr-1 h-4 w-4" /> Add payment method
-        </Button>
+        {canCreate ? (
+          <Button onClick={openCreate} className="min-h-[44px] w-full sm:w-auto">
+            <Plus className="mr-1 h-4 w-4" aria-hidden /> Add payment method
+          </Button>
+        ) : null}
       </div>
+      {readOnly ? (
+        <p className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+          <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          You can view these links. Ask an administrator to add, change or remove payment methods.
+        </p>
+      ) : null}
 
       {isLoading ? (
         <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Loading…
         </div>
+      ) : isError ? (
+        <LoadError message="Payment methods could not be loaded." onRetry={() => refetch()} retrying={isFetching} />
       ) : (
         <ul className="divide-y rounded-xl border bg-card">
           {methods.map((m) => {
@@ -155,12 +182,20 @@ export function PosPaymentMethodsPanel() {
                   </span>
                   {m.requiresReference ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">Asks for reference</span> : null}
                   {m.trackInShift ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">Counted at shift close</span> : null}
-                  <Button variant="outline" size="sm" className="min-h-[40px]" onClick={() => openEdit(m)}>
-                    <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden /> Edit
-                  </Button>
-                  <Button variant="ghost" size="sm" className="min-h-[40px]" aria-label={`Remove ${m.label}`} onClick={() => retire(m)}>
-                    <Trash2 className="h-4 w-4 text-destructive" aria-hidden />
-                  </Button>
+                  {canUpdate || canDelete ? (
+                    <span className="ml-auto flex gap-2 md:ml-0">
+                      {canUpdate ? (
+                        <Button variant="outline" className="min-h-[44px]" onClick={() => openEdit(m)} aria-label={`Edit ${m.label}`}>
+                          <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden /> Edit
+                        </Button>
+                      ) : null}
+                      {canDelete ? (
+                        <Button variant="ghost" className="min-h-[44px] min-w-[44px]" aria-label={`Remove ${m.label}`} onClick={() => setRetiring(m)}>
+                          <Trash2 className="h-4 w-4 text-destructive" aria-hidden />
+                        </Button>
+                      ) : null}
+                    </span>
+                  ) : null}
                 </div>
               </li>
             );
@@ -168,31 +203,51 @@ export function PosPaymentMethodsPanel() {
           {!methods.length ? (
             <li className="p-4 text-sm text-muted-foreground">
               Nothing configured yet — the terminal is falling back to whatever cash, wallet and
-              bank accounts exist. Add methods here to control the tiles the cashier sees.
+              bank accounts exist.{canCreate ? ' Add methods here to control the tiles the cashier sees.' : ''}
             </li>
           ) : null}
         </ul>
       )}
 
+      <AlertDialog open={!!retiring} onOpenChange={(v) => { if (!v && !remove.isPending) setRetiring(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove {retiring?.label} from the terminal?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Cashiers will no longer see the {retiring?.label} tile in the Charge dialog. Payments already
+              taken with it stay in the books and in {retiring?.accountName ?? 'their account'}. To pause it
+              without removing it, edit the method and turn off “Show in the terminal” instead.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="min-h-[44px]" disabled={remove.isPending}>Keep it</AlertDialogCancel>
+            <Button variant="destructive" className="min-h-[44px]" onClick={retire} disabled={remove.isPending}>
+              {remove.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
+              Remove method
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-[520px]">
+        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-[520px]">
           <DialogHeader>
             <DialogTitle>{editing ? `Edit ${editing.label}` : 'Add payment method'}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>Kind</Label>
                 <select
                   aria-label="Kind"
-                  className="w-full rounded border p-2 text-sm"
+                  className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm"
                   value={form.kind}
                   onChange={(e) => setForm({ ...form, kind: e.target.value as Kind, accountId: '' })}
                 >
                   {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
                 </select>
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className="mt-1 text-[11px] text-muted-foreground">
                   Decides the journal and the drawer rules. Stored on every payment.
                 </p>
               </div>
@@ -203,13 +258,13 @@ export function PosPaymentMethodsPanel() {
                   placeholder="MTN"
                   onChange={(e) => setForm({ ...form, provider: e.target.value })}
                 />
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className="mt-1 text-[11px] text-muted-foreground">
                   Shown as the second-step pill when a kind has several methods.
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>Label the cashier sees</Label>
                 <Input
@@ -229,7 +284,7 @@ export function PosPaymentMethodsPanel() {
             </div>
 
             {form.kind === 'cash' ? (
-              <p className="rounded border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+              <p className="rounded border bg-muted/50 p-3 text-xs text-muted-foreground">
                 Cash always books to the register's own drawer account, so there is nothing to bind here.
               </p>
             ) : (
@@ -237,7 +292,7 @@ export function PosPaymentMethodsPanel() {
                 <Label>Receiving account</Label>
                 <select
                   aria-label="Receiving account"
-                  className="w-full rounded border p-2 text-sm"
+                  className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm"
                   value={form.accountId}
                   onChange={(e) => setForm({ ...form, accountId: e.target.value })}
                 >
@@ -256,7 +311,7 @@ export function PosPaymentMethodsPanel() {
             )}
 
             <div className="flex flex-wrap gap-4 text-sm">
-              <label className="flex items-center gap-2">
+              <label className="flex min-h-[44px] items-center gap-2">
                 <input
                   type="checkbox"
                   checked={form.requiresReference}
@@ -265,7 +320,7 @@ export function PosPaymentMethodsPanel() {
                 Require a transaction id (prompts only — never blocks a sale)
               </label>
               {form.kind !== 'cash' ? (
-                <label className="flex items-center gap-2">
+                <label className="flex min-h-[44px] items-center gap-2">
                   <input
                     type="checkbox"
                     checked={form.trackInShift}
@@ -274,7 +329,7 @@ export function PosPaymentMethodsPanel() {
                   Count at shift open/close
                 </label>
               ) : null}
-              <label className="flex items-center gap-2">
+              <label className="flex min-h-[44px] items-center gap-2">
                 <input
                   type="checkbox"
                   checked={form.isActive}

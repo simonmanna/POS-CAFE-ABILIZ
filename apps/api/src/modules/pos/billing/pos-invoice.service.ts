@@ -1,3 +1,4 @@
+import { orgTimezone, tradingDate } from '../../accounting/treasury/org-dates';
 import { resolveTenderAccount } from '../../accounting/treasury/tender-account';
 import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import { assertPricingAuthority, currentPermissions, discountedLines } from '../pricing-policy';
@@ -73,6 +74,16 @@ interface LineExtraFailure {
 @Injectable()
 export class PosInvoiceService {
   private readonly logger = new Logger('PosInvoiceService');
+
+  /** Trading date of a sale: its cash session's trading day, else derived from when it happened. */
+  private async saleTradingDate(tx: any, orgId: string, cashSessionId: string | null, at: Date): Promise<Date> {
+    if (cashSessionId) {
+      const session = await tx.cashSession?.findFirst({ where: { id: cashSessionId, organizationId: orgId }, select: { businessDate: true } });
+      if (session?.businessDate) return session.businessDate;
+    }
+    const timeZone = await orgTimezone({ client: tx }, orgId).catch(() => 'UTC');
+    return tradingDate(at, timeZone);
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -362,6 +373,7 @@ export class PosInvoiceService {
           // Offline-first: an offline sale replayed later keeps its original
           // business date (drives the GL/journal date + report buckets).
           issueDate: resolveOccurredAt(dto.occurredAt) ?? new Date(),
+          businessDate: await this.saleTradingDate(tx, orgId, cashSessionId ?? null, resolveOccurredAt(dto.occurredAt) ?? new Date()),
           subtotal: totals.subtotal,
           discountTotal: totals.discountTotal,
           discountType: txDiscType,

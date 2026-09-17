@@ -11,6 +11,7 @@ import { AccountResolverService } from '../posting/account-resolver.service';
 import { AuditService } from '../../../kernel/audit/audit.service';
 import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import { assertNotDrawerAccount, assertSufficientFunds, lockAccounts, operationId, requireAccount } from './treasury-guards';
+import { orgPostingInstant, orgTimezone } from './org-dates';
 
 export interface CashFlowOperationInput {
   accountId: string;
@@ -316,6 +317,7 @@ export class CashFlowService {
     if (dto.counterpartAccountId === dto.accountId) throw new BadRequestException('Counterpart account must differ from the payment account');
     const orgId = this.tenant.organizationId;
 
+    const postingDate = orgPostingInstant(dto.date, await orgTimezone(this.prisma, orgId));
     return this.prisma.client.$transaction(async (tx: any) => {
       await lockAccounts(tx, orgId, [dto.accountId, dto.counterpartAccountId]);
       const account = await requireAccount(tx, orgId, dto.accountId, 'Payment account');
@@ -335,7 +337,7 @@ export class CashFlowService {
         : [{ accountId: counterpart.id, debit: amount.toString() }, { accountId: account.id, credit: amount.toString() }];
       const entry = await this.posting.post({
         journalCode: account.category?.key === 'cash' || account.category?.key === 'petty_cash' ? 'CASH' : 'BANK',
-        date: dto.date ? new Date(dto.date) : new Date(),
+        date: postingDate,
         description,
         sourceType: direction === 'deposit' ? 'cash_flow_deposit' : 'cash_flow_withdrawal',
         sourceId: id,

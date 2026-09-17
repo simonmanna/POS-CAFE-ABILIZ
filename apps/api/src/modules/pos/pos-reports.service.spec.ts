@@ -134,8 +134,11 @@ describe('PosReportsService (financial accuracy)', () => {
       expect(invoiceCalls.length).toBeGreaterThan(0);
       const where = invoiceCalls[0][0].where;
       expect(where.organizationId).toBe(orgId);
-      // A-031: POS sales are bucketed by the BUSINESS date, not the sync date.
-      expect(where.issueDate).toEqual({ gte: expect.any(Date), lte: expect.any(Date) });
+      // Trading date first (06:00 cutoff); legacy rows without one fall back to
+      // issueDate (A-031: the business date, never the sync date).
+      const [byTrading, legacy] = where.AND[0].OR;
+      expect(byTrading.businessDate).toEqual({ gte: new Date('2026-06-01T00:00:00.000Z'), lte: new Date('2026-06-01T00:00:00.000Z') });
+      expect(legacy).toEqual({ businessDate: null, issueDate: { gte: expect.any(Date), lte: expect.any(Date) } });
       expect(prisma.client.document.findMany).not.toHaveBeenCalled();
     });
   });

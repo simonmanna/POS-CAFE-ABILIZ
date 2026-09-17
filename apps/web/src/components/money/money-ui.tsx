@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, BriefcaseBusiness, CircleDashed, CreditCard,
+  AlertTriangle, ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Banknote, BriefcaseBusiness, ChevronLeft, ChevronRight, CircleDashed, CreditCard,
   HandCoins, Landmark, Receipt, RotateCcw, ScrollText, ShoppingBag, Smartphone, SlidersHorizontal,
   Truck, Users, Vault, Wallet, KeyRound, type LucideIcon,
 } from 'lucide-react';
@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { money, useOrgCurrency } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@erp/shared';
+import { Button } from '@/components/ui/button';
 
 // ───────────────────────────── Amounts ─────────────────────────────
 
@@ -51,6 +52,39 @@ export function MoneyAmount({
 }
 
 export { money };
+
+// ───────────────────────────── Organisation calendar ─────────────────────────────
+
+/** The organisation's IANA time zone; falls back to the browser's. */
+export function useOrgTimezone(): string {
+  const tz = useAuthStore((st) => st.organization?.timezone);
+  return validTimezone(tz) ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+function validTimezone(tz?: string | null): string | null {
+  if (!tz) return null;
+  try { new Intl.DateTimeFormat('en-CA', { timeZone: tz }); return tz; } catch { return null; }
+}
+
+/** Calendar date (YYYY-MM-DD) of an instant in a time zone. */
+export function ymdInZone(timeZone: string, at: Date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+}
+
+/** Add whole days to a YYYY-MM-DD date (calendar arithmetic, no time zone). */
+export function addDays(ymd: string, days: number): string {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/**
+ * Today in the organisation's calendar. "Today" everywhere in Money & Accounts
+ * means this date, so a 01:30 Kampala sale is today's sale in Kampala even when
+ * the browser or the server clock is on UTC.
+ */
+export function useOrgToday(): string {
+  return ymdInZone(useOrgTimezone());
+}
 
 // ───────────────────────────── Account types ─────────────────────────────
 
@@ -206,6 +240,33 @@ export function MoneyPage({ title, description, actions, children }: { title: st
       <MoneySectionNav />
       {children}
     </div>
+  );
+}
+
+/** A load failure with a way out — never an empty list or an endless spinner. */
+export function LoadError({ message, onRetry, retrying }: { message: string; onRetry: () => void; retrying?: boolean }) {
+  return (
+    <div role="alert" className="flex flex-col gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <span className="flex items-start gap-2 text-destructive">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        {message}
+      </span>
+      <Button variant="outline" className="min-h-[44px] self-start sm:self-auto" onClick={onRetry} disabled={retrying}>
+        {retrying ? 'Retrying…' : 'Try again'}
+      </Button>
+    </div>
+  );
+}
+
+export function Pager({ page, totalPages, onChange, summary }: { page: number; totalPages: number; onChange: (p: number) => void; summary?: ReactNode }) {
+  return (
+    <nav aria-label="Pagination" className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-muted-foreground">{summary ?? `Page ${page} of ${totalPages}`}</span>
+      <div className="grid grid-cols-2 gap-2 sm:flex">
+        <Button variant="outline" className="min-h-[44px]" disabled={page <= 1} onClick={() => onChange(page - 1)}><ChevronLeft className="mr-1 h-4 w-4" aria-hidden /> Previous</Button>
+        <Button variant="outline" className="min-h-[44px]" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>Next <ChevronRight className="ml-1 h-4 w-4" aria-hidden /></Button>
+      </div>
+    </nav>
   );
 }
 

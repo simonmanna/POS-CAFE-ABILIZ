@@ -79,6 +79,7 @@ class MoneyActivityQueryDto {
   @IsOptional() @IsDateString() to?: string;
   @IsOptional() @Transform(toList) @IsArray() @IsString({ each: true }) categories?: string[];
   @IsOptional() @IsString() accountId?: string;
+  @IsOptional() @IsString() branchId?: string;
   @IsOptional() @IsIn(['in', 'out', 'internal', 'adjustment', 'all']) direction?: 'in' | 'out' | 'internal' | 'adjustment' | 'all';
   @IsOptional() @IsString() search?: string;
   @IsOptional() @Type(() => Number) page: number = 1;

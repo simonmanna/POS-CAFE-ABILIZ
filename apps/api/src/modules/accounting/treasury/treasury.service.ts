@@ -8,6 +8,7 @@ import { AuditService } from '../../../kernel/audit/audit.service';
 import { recordBusinessOutcome } from '../../../kernel/idempotency/business-outcome';
 import { assertNotDrawerAccount, assertSufficientFunds, lockAccounts, operationId, requireAccount } from './treasury-guards';
 import { dec } from '../../../kernel/common/money';
+import { orgPostingInstant, orgTimezone } from './org-dates';
 
 /**
  * Treasury operations (transfers between cash/bank accounts) post through the
@@ -36,6 +37,7 @@ export class TreasuryService {
     const amount = dec(dto.amount);
     if (!amount.isFinite() || !amount.gt(0)) throw new BadRequestException('Transfer amount must be positive');
     const organizationId = this.tenant.organizationId;
+    const postingDate = orgPostingInstant(dto.date, await orgTimezone(this.prisma, organizationId));
     return this.prisma.client.$transaction(async (tx: any) => {
       await lockAccounts(tx, organizationId, [dto.fromAccountId, dto.toAccountId]);
       const from = await requireAccount(tx, organizationId, dto.fromAccountId, 'Source account');
@@ -52,7 +54,7 @@ export class TreasuryService {
       const id = operationId();
       const entry = await this.posting.post({
         journalCode: 'BANK',
-        date: dto.date,
+        date: postingDate,
         description: dto.reference ? `Funds transfer: ${dto.reference}` : `Funds transfer ${from.code} → ${to.code}`,
         sourceType: 'treasury_transfer',
         sourceId: id,

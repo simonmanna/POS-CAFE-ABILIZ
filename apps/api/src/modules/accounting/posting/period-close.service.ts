@@ -215,7 +215,7 @@ export class PeriodCloseService {
       }
 
       // 2) Ensure the CLOSING journal exists.
-      let closingJournal = await tx.journal.findFirst({ where: { code: 'CLOSING' } });
+      let closingJournal = await tx.journal.findFirst({ where: { organizationId, code: 'CLOSING' } });
       if (!closingJournal) {
         closingJournal = await tx.journal.create({
           data: {

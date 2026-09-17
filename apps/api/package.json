@@ -66,9 +66,8 @@
     "uuid": "^11.0.5",
     "web-push": "^3.6.7"
   },
+  "//optionalDependencies": "EXPERIMENTAL WhatsApp transport (WHATSAPP_TRANSPORT=baileys). Lazy-loaded; see providers/whatsapp/baileys/baileys-lib.ts — absence is handled gracefully.",
   "optionalDependencies": {
-    "//": "EXPERIMENTAL WhatsApp transport (WHATSAPP_TRANSPORT=baileys). Lazy-loaded",
-    "// see": "providers/whatsapp/baileys/baileys-lib.ts — absence is handled gracefully.",
     "@whiskeysockets/baileys": "^6.7.9"
   },
   "devDependencies": {

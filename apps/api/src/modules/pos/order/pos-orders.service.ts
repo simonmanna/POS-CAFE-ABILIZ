@@ -3,7 +3,7 @@ import { discountedLines, evaluatePricingAuthority } from '../pricing-policy';
 import { assertNoFiredItemLoss, assertOrderCancellationAllowed } from './order-mutation-policy';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import {
-  BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException,
+  BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, Optional,
 } from '@nestjs/common';
 import { EVENTS } from '@erp/shared';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
@@ -23,6 +23,8 @@ import { heldOrderWhere, lockFloorShared, recomputeTableStatus, TABLE_HELD_ORDER
 import { toCanonicalOrderStatus, withLegacyOrderStatus } from '../order-status.util';
 import { WorkflowService } from '../../../kernel/workflow/workflow.service';
 import { MilestoneService } from '../../../kernel/milestones/milestone.service';
+import { StockService } from '../../inventory/stock.service';
+import { recordKitchenWaste } from './kitchen-waste';
 import type { CreateOrderDto, SaveOrderItemsDto, AddOrderItemsDto, OrderLineDto, VoidOrderItemDto } from './dto/order.dto';
 
 /** A cart line resolved to ledger-ready values (modifiers/variant folded into unitPrice). */
@@ -78,6 +80,7 @@ export class PosOrdersService {
     private readonly receipts: PosReceiptsService,
     private readonly workflows: WorkflowService,
     private readonly milestones: MilestoneService,
+    @Optional() readonly stock?: StockService,
   ) {}
 
   /**
@@ -459,7 +462,8 @@ export class PosOrdersService {
     approval: { overrideById?: string; overridePin?: string } = {},
   ) {
     const orgId = this.tenant.organizationId;
-    return this.prisma.client.$transaction(async (tx: any) => {
+    let wasted: Array<{ id: string; kitchenPrintedQty: number; quantity: number }> = [];
+    const cancelled = await this.prisma.client.$transaction(async (tx: any) => {
       const order = await this.lockOrder(tx, orderId);
       if (order.invoiceId) throw new ConflictException('Order already billed — refund/void the invoice instead');
       if (order.status === 'cancelled' || order.status === 'closed') return order;
@@ -491,8 +495,15 @@ export class PosOrdersService {
           description: f.description, quantity: f.quantity, firedQuantity: f.kitchenPrintedQty,
         })),
       } });
+      wasted = firedLost;
       return updated;
     });
+    if (wasted.length) {
+      await recordKitchenWaste({ prisma: this.prisma, stock: this.stock }, orgId, orderId,
+        wasted.map((f) => ({ orderItemId: f.id, quantity: Math.min(f.quantity, f.kitchenPrintedQty) })),
+        { reason: reason ?? 'Order cancelled', approvedById: approval.overrideById ?? null });
+    }
+    return cancelled;
   }
 
   /**
@@ -584,6 +595,9 @@ export class PosOrdersService {
     // Post-commit: the kitchen board and the event ledger only ever see a void
     // that actually committed.
     if (outcome.firedQty > 0) {
+      await recordKitchenWaste({ prisma: this.prisma, stock: this.stock }, orgId, orderId,
+        [{ orderItemId: outcome.row.id, quantity: Math.min(outcome.asked, outcome.firedQty) }],
+        { reason, approvedById: dto.overrideById ?? null });
       await this.kds
         .cancelOrderItemTickets(orderId, outcome.row.id, outcome.whole ? null : outcome.asked, `Voided: ${reason}`)
         .catch((e: any) => this.logger.warn(`KDS cancel failed for voided item ${outcome.row.id}: ${String(e?.message ?? e)}`));
@@ -1183,6 +1197,39 @@ export class PosOrdersService {
    * Split out of `writeItems` so a void — which edits one row rather than
    * rewriting the set — refreshes the same totals through the same code.
    */
+  /**
+   * Table merge: fold an open tab's items into another open tab in the caller's
+   * transaction. Rows move as-is (kitchen history, voids and modifiers intact),
+   * kitchen tickets follow, the emptied order is cancelled for audit, and the
+   * target is re-priced through the tax engine. Only one open dine-in order may
+   * exist per table, so a merge of two occupied tables must combine the orders.
+   */
+  async absorbOrderInTx(tx: any, targetOrderId: string, sourceOrderId: string, reason: string): Promise<void> {
+    const orgId = this.tenant.organizationId;
+    const source = await tx.order.findFirst({ where: { id: sourceOrderId, organizationId: orgId } });
+    if (!source || source.invoiceId || ['closed', 'cancelled'].includes(source.status)) {
+      throw new ConflictException('Only an open, unbilled order can be merged');
+    }
+    if (Number(source.transactionDiscountPercent ?? 0) > 0 || Number(source.transactionDiscountAmount ?? 0) > 0) {
+      throw new ConflictException('Remove the order discount on the merged table before merging');
+    }
+    if (await tx.splitBill.count({ where: { organizationId: orgId, sourceOrderId } })) {
+      throw new ConflictException('This table has split bills in progress — settle or clear them before merging');
+    }
+    const last = await tx.orderItem.aggregate({ where: { orderId: targetOrderId }, _max: { lineNumber: true } });
+    let lineNumber = Number(last._max.lineNumber ?? 0);
+    const rows = await tx.orderItem.findMany({ where: { orderId: sourceOrderId }, orderBy: { lineNumber: 'asc' }, select: { id: true } });
+    for (const row of rows) {
+      await tx.orderItem.update({ where: { id: row.id }, data: { orderId: targetOrderId, lineNumber: ++lineNumber } });
+    }
+    await tx.kitchenTicket.updateMany({ where: { organizationId: orgId, orderId: sourceOrderId }, data: { orderId: targetOrderId } });
+    await tx.order.update({
+      where: { id: sourceOrderId },
+      data: { status: 'cancelled', cancelledAt: new Date(), cancelReason: reason, subtotal: 0, discountTotal: 0, taxAmount: 0, totalAmount: 0, version: { increment: 1 } },
+    });
+    await this.recomputeOrderTotals(tx, targetOrderId);
+  }
+
   private async recomputeOrderTotals(
     tx: any,
     orderId: string,

@@ -24,7 +24,17 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   public readonly client: PrismaClient;
 
   constructor(tenant: TenantContextService) {
-    this.base = new PrismaClient();
+    // POS money paths run inside interactive transactions that deliberately queue
+    // on row/advisory locks (register, table, invoice, AVCO quant). Prisma's
+    // defaults — 2s to obtain a transaction, 5s to finish — turn a lunch-rush
+    // queue into 500s and abandoned operations. Wait longer instead; a genuinely
+    // stuck transaction still aborts. Tunable per deployment.
+    this.base = new PrismaClient({
+      transactionOptions: {
+        maxWait: Number(process.env.PRISMA_TX_MAX_WAIT_MS ?? 15_000),
+        timeout: Number(process.env.PRISMA_TX_TIMEOUT_MS ?? 30_000),
+      },
+    });
     const extended = this.base.$extends(tenancyExtension(tenant)) as unknown as PrismaClient;
     this.client = extended.$extends({
       name: 'rls-tenant-context',

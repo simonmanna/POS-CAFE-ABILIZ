@@ -40,6 +40,7 @@ export interface MoneyActivityFilters {
   to?: string;
   categories?: string[];
   accountId?: string;
+  branchId?: string;
   direction?: MoneyDirection | 'all';
   search?: string;
   page?: number;
@@ -53,6 +54,11 @@ export interface MoneyActivityResult {
   pageSize: number;
   totalPages: number;
   currencyCode: string | null;
+  /** Organisation time zone and its current calendar date (YYYY-MM-DD). */
+  timezone?: string;
+  today?: string;
+  /** Totals across every activity matching the filters (voided pairs excluded). */
+  totals?: { externalIn: string; externalOut: string; internalMoved: string };
   pageTotals?: { externalIn: string; externalOut: string; internalMoved: string };
   categoryOptions: { key: string; label: string }[];
 }
@@ -63,6 +69,7 @@ export function useMoneyActivity(filters: MoneyActivityFilters) {
   if (filters.to) params.to = filters.to;
   if (filters.categories?.length) params.categories = filters.categories.join(',');
   if (filters.accountId) params.accountId = filters.accountId;
+  if (filters.branchId) params.branchId = filters.branchId;
   if (filters.direction && filters.direction !== 'all') params.direction = filters.direction;
   if (filters.search?.trim()) params.search = filters.search.trim();
   return useQuery({
@@ -86,6 +93,8 @@ export interface AttentionItem {
 export interface MoneyOverview {
   baseCurrency: string | null;
   timezone: string;
+  /** Organisation-local date (YYYY-MM-DD) the `today` figures cover. */
+  todayDate?: string;
   totalAvailableBookBalance: string;
   byType: { key: string; label: string; balance: string; accountCount: number }[];
   foreignCurrencyAccounts: { id: string; name: string; currencyId: string }[];

@@ -51,3 +51,11 @@ apps/api/p8_*.js
 apps/api/.p45/
 apps/api/.p5/
 openeducat_19.zip
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# One-off local ops scripts (hardcoded demo data)
+apps/api/scripts/cancel-orders.ts
+apps/api/scripts/verify-cancel.ts
