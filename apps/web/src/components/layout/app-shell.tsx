@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { PendingCashOperations } from '@/pages/pos/PendingCashOperations';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -564,6 +564,25 @@ export function AppShell() {
   // selling terminal — the Terminal's own Topbar covers those controls.
   const hideHeader = location.pathname.startsWith('/pos/terminal');
 
+  // Page transition: a short fade-rise of the content area on every route
+  // change. WAAPI on the existing element — no remount, so page state and
+  // nested layouts survive. Skipped on the selling terminal (speed first).
+  const mainRef = useRef<HTMLElement>(null);
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return; }
+    const el = mainRef.current;
+    if (!el || hideHeader) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    el.animate(
+      [
+        { opacity: 0, transform: 'translateY(8px)' },
+        { opacity: 1, transform: 'translateY(0)' },
+      ],
+      { duration: 340, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' },
+    );
+  }, [location.pathname, hideHeader]);
+
   // ── Sidebar rendering: themed background, brand tile, themed nav items ──
   const renderNav = (onItemClick?: () => void, collapsed = false) => {
     return (
@@ -580,14 +599,14 @@ export function AppShell() {
                 <button
                   type="button"
                   onClick={() => toggleSection(section.title as string)}
-                  className="flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-[15px] font-bold uppercase tracking-[0.04em] transition-colors hover:bg-white/10"
-                  style={{ color: sb.sidebarActive, borderBottom: `1px solid ${sb.sidebarBorder}`, marginBottom: 2 }}
+                  className="press mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[11.5px] font-semibold uppercase tracking-[0.14em] hover:bg-white/[0.06]"
+                  style={{ color: isOpen ? sb.sidebarActive : sb.sidebarMuted, marginBottom: 2 }}
                   aria-expanded={isOpen}
                 >
                   {section.icon && <section.icon className="h-4 w-4 shrink-0" />}
                   <span className="flex-1 truncate text-left">{sectionTitle(section.title, t)}</span>
                   <ChevronDown
-                    className={cn('h-3.5 w-3.5 shrink-0 transition-transform duration-150', !isOpen && '-rotate-90')}
+                    className={cn('h-3.5 w-3.5 shrink-0 opacity-70 transition-transform duration-200 ease-out', !isOpen && '-rotate-90')}
                   />
                 </button>
               ) : section.title && collapsed ? (
@@ -598,7 +617,7 @@ export function AppShell() {
                 />
               ) : null}
               {isOpen &&
-                items.map((item) => {
+                items.map((item, i) => {
                 const Icon = item.icon;
                 return (
                   <NavLink
@@ -606,38 +625,26 @@ export function AppShell() {
                     to={item.to}
                     end={item.to === '/' || item.to === '/accounts' || item.to === '/accounts/cash-accounts'}
                     onClick={onItemClick}
-                    className={() =>
+                    className={({ isActive }) =>
                       cn(
-                        'group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[15px] transition-all duration-150',
+                        'sb-link press group relative flex items-center gap-3 rounded-lg px-3 py-2 text-[15px]',
+                        section.title && !collapsed && 'enter-up',
+                        isActive && 'is-active',
                         collapsed && 'justify-center px-2',
                       )
                     }
-                    style={({ isActive }) => ({
-                      color: isActive ? sb.sidebarActive : sb.sidebarText,
-                      background: isActive ? sb.sidebarActiveBg : 'transparent',
-                      fontWeight: isActive ? 600 : 400,
-                    })}
-                    onMouseEnter={(e) => {
-                      const a = (e.currentTarget as HTMLElement);
-                      if (!a.style.background || a.style.background === 'transparent' || a.style.background === '') {
-                        a.style.background = sb.sidebarHover;
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      const el = (e.currentTarget as HTMLElement);
-                      el.style.background = '';
-                    }}
+                    style={{ '--i': Math.min(i, 12) } as CSSProperties}
                     title={collapsed ? item.label : undefined}
                   >
                     {({ isActive }) => (
                       <>
                         {isActive && (
                           <span
-                            className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 rounded-r-full"
-                            style={{ background: sb.sidebarActiveBar }}
+                            className="sb-active-bar absolute left-0 top-1/2 h-6 w-[3px] rounded-r-full"
+                            style={{ background: sb.sidebarActiveBar, boxShadow: `0 0 10px ${sb.sidebarActiveBar}` }}
                           />
                         )}
-                        <Icon className="h-4 w-4 shrink-0" style={{ width: 16, height: 16 }} />
+                        <Icon className="sb-link-icon h-4 w-4 shrink-0" style={{ width: 16, height: 16 }} />
                         {!collapsed && <span className="flex-1 truncate tracking-[0.01em]">{item.label}</span>}
                         {item.badge && !collapsed && (
                           <span
@@ -675,7 +682,8 @@ export function AppShell() {
               width: 34,
               height: 34,
               background: sb.brandBg,
-              border: '1px solid rgba(255,255,255,0.22)',
+              border: '1px solid rgba(255,255,255,0.18)',
+              boxShadow: '0 0 0 1px rgba(217,184,114,0.35), 0 6px 16px -6px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.25)',
             }}
           >
             <Coffee style={{ width: 18, height: 18, color: '#fff' }} />
@@ -716,14 +724,14 @@ export function AppShell() {
   };
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-screen">
       {/* Desktop sidebar */}
       <aside
         className={cn(
           'sticky top-0 hidden h-screen shrink-0 flex-col transition-all duration-200 md:flex print:hidden',
           sidebarCollapsed ? 'w-16' : 'w-72',
         )}
-        style={{ background: sb.sidebar }}
+        style={{ background: sb.sidebar, boxShadow: '1px 0 0 rgba(217,184,114,0.22), 8px 0 30px -18px rgba(0,0,0,0.45)' }}
       >
         {sidebarInner(sidebarCollapsed)}
       </aside>
@@ -731,8 +739,8 @@ export function AppShell() {
       {/* Mobile drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-40 md:hidden" role="dialog" aria-modal="true">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col shadow-xl">
+          <div className="fade-in absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setMobileOpen(false)} />
+          <aside className="drawer-in absolute inset-y-0 left-0 flex w-72 flex-col shadow-2xl">
             {sidebarInner(false)}
           </aside>
         </div>
@@ -740,7 +748,7 @@ export function AppShell() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {!hideHeader && (
-          <header className="app-shell-header sticky top-0 z-30 flex h-11 items-center justify-between gap-2 border-b bg-background/95 px-4 backdrop-blur print:hidden md:px-6">
+          <header className="app-shell-header sticky top-0 z-30 flex h-12 items-center justify-between gap-2 border-b border-border/70 bg-background/75 px-4 backdrop-blur-xl backdrop-saturate-150 print:hidden md:px-6">
             <div className="flex min-w-0 items-center gap-2">
               <Button
                 variant="ghost"
@@ -761,7 +769,7 @@ export function AppShell() {
                 <Menu className="h-5 w-5" />
               </Button>
               <div className="truncate text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{current}</span>
+                <span key={current} className="enter-up inline-block font-semibold tracking-tight text-foreground">{current}</span>
               </div>
             </div>
             <div className="flex items-center gap-1 sm:gap-2">
@@ -813,6 +821,7 @@ export function AppShell() {
         )}
 
         <main
+          ref={mainRef}
           className={`flex-1 overflow-auto ${
             location.pathname.startsWith('/pos/terminal') ? 'p-1 md:p-1' : 'p-1 md:p-1'
           }`}

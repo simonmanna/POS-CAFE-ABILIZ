@@ -1,131 +1,99 @@
 /**
- * ThemePicker — dropdown for switching the sidebar color palette.
+ * ThemePicker — compact two-way switch between the app's themes
+ * (Luxury Sky / Light Charcoal), shown in the header.
  *
- * Renders a swatch button in the header. On click, opens a small popover
- * listing all 5 sidebar palettes with a swatch + label, and an "Active"
- * badge on the current one.
+ * A thumb slides under the active option. Switching reveals the new theme as
+ * a circle growing from the button (View Transitions API); browsers without
+ * it — or users who prefer reduced motion — get a short colour crossfade.
  */
-import { useEffect, useRef, useState } from 'react';
-import { Palette, X, Check } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useSidebarTheme, SIDEBAR_THEMES, type SidebarThemeKey } from '@/lib/sidebar-theme';
 
+const ORDER: SidebarThemeKey[] = ['luxurySky', 'lightCharcoal'];
+
+type ViewTransitionDoc = Document & {
+  startViewTransition?: (cb: () => void) => { ready: Promise<void> };
+};
+
 export function ThemePicker({ compact = false }: { compact?: boolean }) {
   const { key, setKey } = useSidebarTheme();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const busy = useRef(false);
+  const activeIndex = ORDER.indexOf(key);
 
-  // Close on outside click / Escape
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  const choose = (next: SidebarThemeKey, e: React.MouseEvent<HTMLButtonElement>) => {
+    if (next === key || busy.current) return;
+    const doc = document as ViewTransitionDoc;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const current = SIDEBAR_THEMES[key];
+    if (!doc.startViewTransition || reduce) {
+      const root = document.documentElement;
+      root.classList.add('theme-anim');
+      setKey(next);
+      window.setTimeout(() => root.classList.remove('theme-anim'), 380);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const r = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+
+    busy.current = true;
+    const vt = doc.startViewTransition(() => flushSync(() => setKey(next)));
+    vt.ready
+      .then(() =>
+        document.documentElement.animate(
+          { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${r}px at ${x}px ${y}px)`] },
+          { duration: 560, easing: 'cubic-bezier(0.77, 0, 0.175, 1)', pseudoElement: '::view-transition-new(root)' },
+        ).finished,
+      )
+      .catch(() => undefined)
+      .finally(() => { busy.current = false; });
+  };
 
   return (
-    <div ref={ref} className="relative">
-      <Button
-        variant="ghost"
-        size={compact ? 'icon' : 'sm'}
-        onClick={() => setOpen((o) => !o)}
-        title="Color theme"
-        aria-label="Color theme"
-      >
-        {compact ? (
-          <Palette className="h-4 w-4" />
-        ) : (
-          <>
+    <div
+      role="radiogroup"
+      aria-label="Color theme"
+      className="relative grid grid-cols-[1fr_1fr] items-center rounded-full border border-border/80 bg-muted/60 p-0.5 shadow-[inset_0_1px_2px_hsl(var(--shadow)/0.06)]"
+    >
+      {/* Sliding thumb */}
+      <span
+        aria-hidden
+        className="absolute inset-y-0.5 left-0.5 rounded-full bg-card shadow-[0_1px_2px_hsl(var(--shadow)/0.10),0_4px_12px_-4px_hsl(var(--shadow)/0.22)] ring-1 ring-gold/40"
+        style={{
+          width: 'calc(50% - 2px)',
+          transform: `translateX(${activeIndex * 100}%)`,
+          transition: 'transform 320ms cubic-bezier(0.77, 0, 0.175, 1)',
+        }}
+      />
+      {ORDER.map((k) => {
+        const t = SIDEBAR_THEMES[k];
+        const active = k === key;
+        return (
+          <button
+            key={k}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            title={t.label}
+            onClick={(e) => choose(k, e)}
+            className={cn(
+              'press relative z-10 flex items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
+              active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
             <span
-              className="inline-block h-4 w-4 rounded-full border-2 border-white shadow-sm"
-              style={{ background: current.swatch }}
               aria-hidden
+              className="h-3.5 w-3.5 shrink-0 rounded-full ring-1 ring-black/10"
+              style={{ background: t.swatch, boxShadow: 'inset 0 1px 1px rgba(255,255,255,0.45)' }}
             />
-            <span className="hidden md:inline">{current.label}</span>
-          </>
-        )}
-      </Button>
-
-      {open && (
-        <div
-          className="absolute right-0 top-full z-50 mt-2 p-3"
-          style={{
-            width: 256,
-            background: '#fff',
-            borderRadius: 12,
-            boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
-            border: '1px solid #e8edf2',
-          }}
-        >
-          <div className="mb-2 flex items-center justify-between">
-            <span style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>Color Theme</span>
-            <button
-              onClick={() => setOpen(false)}
-              className="rounded-md p-0.5 transition-colors hover:bg-gray-100"
-              style={{ color: '#94a3b8' }}
-              aria-label="Close"
-            >
-              <X style={{ width: 14, height: 14 }} />
-            </button>
-          </div>
-          <div className="grid grid-cols-1 gap-1">
-            {(Object.keys(SIDEBAR_THEMES) as SidebarThemeKey[]).map((k) => {
-              const t = SIDEBAR_THEMES[k];
-              const isActive = k === key;
-              return (
-                <button
-                  key={k}
-                  onClick={() => { setKey(k); setOpen(false); }}
-                  className={cn(
-                    'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-all',
-                  )}
-                  style={{
-                    background: isActive ? '#f0f9ff' : 'transparent',
-                    border: isActive ? '1.5px solid #bae6fd' : '1px solid transparent',
-                  }}
-                >
-                  <span
-                    className="shrink-0 rounded-full border-2 border-white"
-                    style={{
-                      width: 18,
-                      height: 18,
-                      background: t.swatch,
-                      boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
-                    }}
-                    aria-hidden
-                  />
-                  <span
-                    style={{
-                      fontSize: 13,
-                      color: '#334155',
-                      fontWeight: isActive ? 600 : 400,
-                    }}
-                  >
-                    {t.label}
-                  </span>
-                  {isActive && (
-                    <span className="ml-auto" style={{ color: '#0ea5e9' }}>
-                      <Check style={{ width: 14, height: 14 }} />
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+            <span className={cn('whitespace-nowrap', compact ? 'sr-only' : 'hidden lg:inline')}>{t.label}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }

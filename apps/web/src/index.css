@@ -3,54 +3,178 @@
 @tailwind utilities;
 
 /* ──────────────────────────────────────────────────────────────────────────
-   POS Cafe — Modern design tokens
-   A vibrant, friendly theme that works for restaurants, cafes, bars and
-   fast-casual venues. Cool blues + warm orange accents + soft gradients.
+   POS Cafe — design tokens
+   Two customer-selectable themes, switched via <html data-theme="…">:
+     • sky      — "Luxury Sky": pearl canvas, midnight-sapphire sidebar,
+                  sky-blue accents, champagne-gold hairlines.
+     • charcoal — "Light Charcoal": warm ivory canvas, graphite sidebar,
+                  charcoal accents, the same champagne-gold hairlines.
+   The Tailwind `sky` / `blue` / `cyan` ramps are routed through --c-* RGB
+   variables (see tailwind.config.js), so every hard-coded `bg-sky-500`
+   across the app follows the active theme without touching the page.
    ────────────────────────────────────────────────────────────────────────── */
 @layer base {
-  :root {
-    /* Backgrounds — slightly cool off-white that lifts cards off the canvas */
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+  :root,
+  [data-theme='sky'] {
+    --background: 206 50% 97.5%;
+    --foreground: 214 55% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 214 55% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 214 55% 11%;
 
-    /* Primary — vibrant cafe blue (logo / buttons / focus rings) */
-    --primary: 217 91% 60%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 201 94% 40%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 203 90% 94%;
+    --secondary-foreground: 206 72% 22%;
+    --muted: 206 40% 95%;
+    --muted-foreground: 213 18% 44%;
+    /* Accent = the soft highlight used by hover / selected rows */
+    --accent: 201 90% 94%;
+    --accent-foreground: 205 80% 24%;
 
-    /* Secondary — soft sky tint */
-    --secondary: 214 95% 93%;
-    --secondary-foreground: 222 47% 11%;
+    --destructive: 0 78% 56%;
+    --destructive-foreground: 0 0% 100%;
 
-    /* Muted — quiet text & chips */
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-
-    /* Accent — warm orange pop (used sparingly for CTAs and totals) */
-    --accent: 24 95% 53%;
-    --accent-foreground: 0 0% 100%;
-
-    /* Destructive */
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-
-    /* Borders — cooler than slate, more cyan tinted */
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 217 91% 60%;
+    --border: 206 36% 89%;
+    --input: 206 36% 87%;
+    --ring: 199 89% 48%;
 
     --radius: 0.75rem;
 
-    /* Brand-specific tokens (consumed by tailwind.config + inline styles) */
-    --brand-grad-from: 217 91% 60%;
-    --brand-grad-to:   230 90% 56%;
-    --brand-warm:      24 95% 53%;
-    --brand-success:   142 71% 45%;
+    --gold: 40 55% 64%;
+    --shadow: 210 60% 22%;
+    --glow: 199 95% 60%;
+
+    --brand-grad-from: 199 89% 48%;
+    --brand-grad-to:   212 80% 32%;
+    --brand-warm:      40 55% 64%;
+    --brand-success:   152 60% 40%;
     --brand-warning:   38 92% 50%;
-    --brand-danger:    0 84% 60%;
+    --brand-danger:    0 78% 56%;
+
+    --hero-grad: linear-gradient(135deg, hsl(213 78% 20%) 0%, hsl(204 86% 34%) 52%, hsl(196 92% 50%) 100%);
+
+    /* POS terminal (pos-pro.css) */
+    --pos-grad: linear-gradient(135deg, #0c3a66 0%, #0369a1 100%);
+    --pos-grad-soft: linear-gradient(135deg, #0e5a8f 0%, #0284c7 100%);
+    --pos-primary: #0284c7;
+    --pos-tint: #e0f2fe;
+    --pos-tint-fg: #075985;
+
+    /* Tailwind sky / blue / cyan ramps (RGB channels) */
+    --c-sky-50: 240 249 255;
+    --c-sky-100: 224 242 254;
+    --c-sky-200: 186 230 253;
+    --c-sky-300: 125 211 252;
+    --c-sky-400: 56 189 248;
+    --c-sky-500: 14 165 233;
+    --c-sky-600: 2 132 199;
+    --c-sky-700: 3 105 161;
+    --c-sky-800: 7 89 133;
+    --c-sky-900: 12 74 110;
+    --c-sky-950: 8 47 73;
+    --c-blue-50: 239 246 255;
+    --c-blue-100: 219 234 254;
+    --c-blue-200: 191 219 254;
+    --c-blue-300: 147 197 253;
+    --c-blue-400: 96 165 250;
+    --c-blue-500: 59 130 246;
+    --c-blue-600: 37 99 235;
+    --c-blue-700: 29 78 216;
+    --c-blue-800: 30 64 175;
+    --c-blue-900: 30 58 138;
+    --c-blue-950: 23 37 84;
+    --c-cyan-50: 236 254 255;
+    --c-cyan-100: 207 250 254;
+    --c-cyan-200: 165 243 252;
+    --c-cyan-300: 103 232 249;
+    --c-cyan-400: 34 211 238;
+    --c-cyan-500: 6 182 212;
+    --c-cyan-600: 8 145 178;
+    --c-cyan-700: 14 116 144;
+    --c-cyan-800: 21 94 117;
+    --c-cyan-900: 22 78 99;
+    --c-cyan-950: 8 51 68;
+  }
+
+  [data-theme='charcoal'] {
+    --background: 40 14% 96.5%;
+    --foreground: 220 8% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 8% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 8% 12%;
+
+    --primary: 220 6% 20%;
+    --primary-foreground: 40 20% 98%;
+    --secondary: 40 9% 92%;
+    --secondary-foreground: 220 7% 18%;
+    --muted: 40 9% 93.5%;
+    --muted-foreground: 30 4% 41%;
+    --accent: 40 10% 91%;
+    --accent-foreground: 220 8% 14%;
+
+    --destructive: 0 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 40 8% 87%;
+    --input: 40 8% 84%;
+    --ring: 38 45% 52%;
+
+    --gold: 38 50% 58%;
+    --shadow: 30 10% 12%;
+    --glow: 38 55% 62%;
+
+    --brand-grad-from: 220 5% 34%;
+    --brand-grad-to:   220 7% 15%;
+    --brand-warm:      38 50% 58%;
+    --brand-success:   152 45% 36%;
+    --brand-warning:   36 85% 46%;
+    --brand-danger:    0 70% 50%;
+
+    --hero-grad: linear-gradient(135deg, hsl(220 8% 13%) 0%, hsl(220 5% 24%) 58%, hsl(32 10% 38%) 100%);
+
+    --pos-grad: linear-gradient(135deg, #3a3d42 0%, #222326 100%);
+    --pos-grad-soft: linear-gradient(135deg, #4a4d52 0%, #2e3034 100%);
+    --pos-primary: #2f3136;
+    --pos-tint: #ecebe7;
+    --pos-tint-fg: #2a2b2e;
+
+    /* sky / blue / cyan ramps → graphite */
+    --c-sky-50: 247 247 245;
+    --c-sky-100: 239 238 235;
+    --c-sky-200: 225 224 220;
+    --c-sky-300: 201 199 194;
+    --c-sky-400: 158 156 150;
+    --c-sky-500: 114 113 108;
+    --c-sky-600: 87 87 83;
+    --c-sky-700: 67 67 63;
+    --c-sky-800: 48 48 46;
+    --c-sky-900: 34 34 33;
+    --c-sky-950: 22 22 21;
+    --c-blue-50: 247 247 245;
+    --c-blue-100: 239 238 235;
+    --c-blue-200: 225 224 220;
+    --c-blue-300: 201 199 194;
+    --c-blue-400: 158 156 150;
+    --c-blue-500: 114 113 108;
+    --c-blue-600: 87 87 83;
+    --c-blue-700: 67 67 63;
+    --c-blue-800: 48 48 46;
+    --c-blue-900: 34 34 33;
+    --c-blue-950: 22 22 21;
+    --c-cyan-50: 247 247 245;
+    --c-cyan-100: 239 238 235;
+    --c-cyan-200: 225 224 220;
+    --c-cyan-300: 201 199 194;
+    --c-cyan-400: 158 156 150;
+    --c-cyan-500: 114 113 108;
+    --c-cyan-600: 87 87 83;
+    --c-cyan-700: 67 67 63;
+    --c-cyan-800: 48 48 46;
+    --c-cyan-900: 34 34 33;
+    --c-cyan-950: 22 22 21;
   }
 
   .dark {
@@ -70,8 +194,8 @@
     --muted: 217 33% 18%;
     --muted-foreground: 215 20% 65%;
 
-    --accent: 24 95% 60%;
-    --accent-foreground: 222 47% 7%;
+    --accent: 217 33% 22%;
+    --accent-foreground: 210 40% 98%;
 
     --destructive: 0 73% 55%;
     --destructive-foreground: 210 40% 98%;
@@ -80,6 +204,13 @@
     --input: 217 33% 18%;
     --ring: 217 91% 65%;
   }
+
+  /* Motion vocabulary — strong custom curves, shared by every animation */
+  :root {
+    --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+    --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  }
 }
 
 @layer base {
@@ -87,12 +218,41 @@
   html, body, #root { height: 100%; }
   body {
     @apply bg-background text-foreground antialiased;
-    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "cv11" 1;
+    /* Soft ambient glow in the top-right corner — the "lit room" feel */
+    background-image:
+      radial-gradient(1100px 520px at 100% -8%, hsl(var(--glow) / 0.10), transparent 62%),
+      radial-gradient(900px 480px at -10% 110%, hsl(var(--gold) / 0.07), transparent 60%);
+    background-attachment: fixed;
   }
+  h1, h2, h3 { letter-spacing: -0.015em; }
+  ::selection { background: hsl(var(--ring) / 0.22); }
   /* Nicer default focus ring */
   :focus-visible {
     @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
   }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Theme switch — crossfade instead of a hard cut.
+   With the View Transitions API the switch reveals as a circle expanding
+   from the toggle (see theme-picker.tsx); otherwise every surface eases its
+   colours for 350ms while `theme-anim` is on <html>.
+   ────────────────────────────────────────────────────────────────────────── */
+html.theme-anim *,
+html.theme-anim *::before,
+html.theme-anim *::after {
+  transition:
+    background-color 350ms ease,
+    border-color 350ms ease,
+    color 350ms ease,
+    fill 350ms ease,
+    box-shadow 350ms ease !important;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -102,16 +262,12 @@
 
   /* Glass card — used on hero sections / dashboard tiles */
   .glass-card {
-    @apply rounded-2xl border border-white/40 bg-white/70 backdrop-blur-md shadow-[0_8px_32px_-12px_rgba(15,23,42,0.18)];
+    @apply rounded-2xl border border-white/50 bg-white/70 backdrop-blur-md;
+    box-shadow: 0 1px 0 rgb(255 255 255 / 0.6) inset, 0 12px 36px -16px hsl(var(--shadow) / 0.22);
   }
 
   /* Gradient hero strip — for page headers */
-  .hero-strip {
-    background: linear-gradient(135deg,
-      hsl(var(--brand-grad-from)) 0%,
-      hsl(var(--brand-grad-to))   55%,
-      hsl(var(--brand-warm))      100%);
-  }
+  .hero-strip { background: var(--hero-grad); }
 
   /* Subtle gradient text */
   .text-gradient {
@@ -123,14 +279,26 @@
     color: transparent;
   }
 
+  /* Champagne hairline — a luxury accent rule */
+  .gold-rule {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--gold) / 0.8), transparent);
+  }
+
   /* "Pill" badge base */
   .pill {
     @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-bold tracking-wide;
   }
 
-  /* Sparkline-friendly card border that lifts on hover */
+  /* Card border that lifts on hover (pointer devices only) */
   .lift-on-hover {
-    @apply transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_40px_-12px_rgba(15,23,42,0.22)];
+    transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .lift-on-hover:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 18px 40px -14px hsl(var(--shadow) / 0.24);
+    }
   }
 
   /* KPI tile with gradient accent on the left edge */
@@ -141,7 +309,7 @@
     content: '';
     position: absolute;
     inset: 0 auto 0 0;
-    width: 4px;
+    width: 3px;
     background: linear-gradient(180deg, hsl(var(--brand-grad-from)), hsl(var(--brand-grad-to)));
   }
 
@@ -150,7 +318,7 @@
     @apply text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground;
   }
 
-  /* Buttons — extra polish on hover */
+  /* Buttons — light sweep on hover */
   .btn-shine {
     position: relative;
     overflow: hidden;
@@ -164,9 +332,11 @@
       rgba(255,255,255,0.35) 50%,
       transparent 70%);
     transform: translateX(-100%);
-    transition: transform 0.6s ease;
+    transition: transform 0.6s var(--ease-out);
   }
-  .btn-shine:hover::after { transform: translateX(100%); }
+  @media (hover: hover) and (pointer: fine) {
+    .btn-shine:hover::after { transform: translateX(100%); }
+  }
 
   /* Pretty empty state */
   .empty-state {
@@ -176,9 +346,9 @@
   /* Animated gradient background for the login screen */
   .animated-gradient {
     background:
-      radial-gradient(at 20% 10%, hsl(217 91% 60% / .18) 0, transparent 50%),
-      radial-gradient(at 80% 0%,  hsl(24 95% 53% / .16) 0, transparent 50%),
-      radial-gradient(at 60% 80%, hsl(230 90% 56% / .18) 0, transparent 50%),
+      radial-gradient(at 20% 10%, hsl(var(--brand-grad-from) / .20) 0, transparent 50%),
+      radial-gradient(at 80% 0%,  hsl(var(--gold) / .18) 0, transparent 50%),
+      radial-gradient(at 60% 80%, hsl(var(--brand-grad-to) / .18) 0, transparent 50%),
       hsl(var(--background));
     background-size: 200% 200%;
     animation: gradient-shift 18s ease infinite;
@@ -229,7 +399,8 @@
 
   /* Hero header for content pages */
   .page-hero {
-    @apply relative overflow-hidden rounded-2xl text-white shadow-lg shadow-blue-500/20 mb-4;
+    @apply relative overflow-hidden rounded-2xl text-white mb-4;
+    box-shadow: 0 20px 44px -22px hsl(var(--shadow) / 0.55);
   }
   .page-hero::before {
     content: '';
@@ -237,7 +408,16 @@
     inset: 0;
     background:
       radial-gradient(at 90% 0%,  hsl(0 0% 100% / .18) 0, transparent 50%),
-      radial-gradient(at 0% 100%, hsl(0 0% 100% / .12) 0, transparent 50%);
+      radial-gradient(at 0% 100%, hsl(0 0% 100% / .10) 0, transparent 50%);
+    pointer-events: none;
+  }
+  /* Champagne hairline along the bottom edge of every hero */
+  .page-hero::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--gold) / 0.9), transparent);
     pointer-events: none;
   }
   .page-hero-inner {
@@ -245,52 +425,117 @@
   }
 
   /* ────────────────────────────────────────────────────────────────────────
-     AdminLTE-inspired "sky blue" widgets
+     AdminLTE-inspired widgets (theme-aware)
      ──────────────────────────────────────────────────────────────────────── */
 
-  /* Sky-blue gradient hero (AdminLTE light-blue skin) */
-  .hero-sky {
-    background: linear-gradient(135deg,
-      hsl(207 90% 54%) 0%,
-      hsl(199 98% 48%) 55%,
-      hsl(190 95% 55%) 100%);
-  }
+  .hero-sky { background: var(--hero-grad); }
 
   /* small-box KPI widget — solid color, big number, watermark icon, footer */
   .small-box {
-    @apply relative overflow-hidden rounded-xl text-white shadow-[0_8px_24px_-8px_rgba(2,132,199,0.45)]
-           transition-all duration-200 hover:-translate-y-0.5
-           hover:shadow-[0_16px_36px_-10px_rgba(2,132,199,0.6)];
+    @apply relative overflow-hidden rounded-xl text-white;
+    box-shadow: 0 8px 24px -10px hsl(var(--shadow) / 0.45);
+    transition: transform 220ms var(--ease-out), box-shadow 220ms var(--ease-out);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .small-box:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 18px 38px -14px hsl(var(--shadow) / 0.55);
+    }
+    .small-box:hover .sb-icon { transform: scale(1.12) rotate(-6deg); opacity: 0.9; }
+    .small-box:hover .sb-footer { @apply bg-black/25 text-white; }
   }
   .small-box .sb-inner { @apply relative z-10 px-4 pt-4 pb-2; }
-  .small-box .sb-value { @apply text-3xl md:text-[2rem] leading-none font-extrabold tracking-tight; }
+  .small-box .sb-value { @apply text-3xl md:text-[2rem] leading-none font-extrabold tracking-tight tabular-nums; }
   .small-box .sb-label { @apply mt-1 text-sm font-semibold text-white/90; }
   .small-box .sb-icon {
-    @apply absolute right-2 top-1 z-0 text-white/25 transition-transform duration-300;
+    @apply absolute right-2 top-1 z-0 text-white/25;
     transform: scale(1);
+    transition: transform 300ms var(--ease-out), opacity 300ms ease;
   }
-  .small-box:hover .sb-icon { transform: scale(1.12) rotate(-6deg); opacity: 0.9; }
   .small-box .sb-footer {
     @apply relative z-10 flex items-center justify-center gap-1 bg-black/15 py-1.5
            text-xs font-semibold text-white/90 transition-colors;
   }
-  .small-box:hover .sb-footer { @apply bg-black/25 text-white; }
 
   /* info-box — white card, colored icon panel on the left */
   .info-box {
-    @apply flex items-stretch overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm
-           transition-all duration-200 hover:-translate-y-0.5
-           hover:shadow-[0_16px_36px_-12px_rgba(2,132,199,0.35)];
+    @apply flex items-stretch overflow-hidden rounded-xl border border-border/60 bg-card shadow-sm lift-on-hover;
   }
   .info-box-icon {
     @apply flex w-16 shrink-0 items-center justify-center text-white;
   }
   .info-box-content { @apply flex-1 px-3 py-2.5; }
 
-  /* box with a sky top-accent border (AdminLTE .box.box-info) */
+  /* box with a themed top-accent border */
   .box-sky {
-    @apply relative rounded-xl border border-border/60 bg-card shadow-sm;
-    border-top: 3px solid hsl(199 98% 48%);
+    @apply relative rounded-xl border border-border/60 bg-card;
+    border-top: 2px solid hsl(var(--brand-grad-from));
+    box-shadow: 0 1px 2px hsl(var(--shadow) / 0.04), 0 10px 30px -18px hsl(var(--shadow) / 0.22);
+  }
+
+  /* ────────────────────────────────────────────────────────────────────────
+     Sidebar navigation (colours come from --sb-* set by sidebar-theme.tsx)
+     ──────────────────────────────────────────────────────────────────────── */
+  .sb-link {
+    color: var(--sb-text);
+    transition: background-color 160ms ease, color 160ms ease;
+  }
+  .sb-link.is-active {
+    color: var(--sb-active);
+    background: var(--sb-active-bg);
+    font-weight: 600;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .sb-link:not(.is-active):hover { background: var(--sb-hover); color: var(--sb-active); }
+  }
+  .sb-link .sb-link-icon { transition: transform 200ms var(--ease-out); }
+  @media (hover: hover) and (pointer: fine) {
+    .sb-link:hover .sb-link-icon { transform: translateX(1px) scale(1.06); }
+  }
+  .sb-active-bar {
+    animation: sb-bar-in 260ms var(--ease-out) both;
+  }
+  @keyframes sb-bar-in {
+    from { transform: translateY(-50%) scaleY(0.3); opacity: 0; }
+    to   { transform: translateY(-50%) scaleY(1);   opacity: 1; }
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Motion
+   ────────────────────────────────────────────────────────────────────────── */
+@layer utilities {
+  /* Staggered entrance — set --i on each child for the cascade */
+  .enter-up {
+    animation: enter-up 360ms var(--ease-out) both;
+    animation-delay: calc(var(--i, 0) * 24ms);
+  }
+  @keyframes enter-up {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .fade-in { animation: fade-in 200ms ease both; }
+  @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+  .drawer-in { animation: drawer-in 320ms var(--ease-drawer) both; }
+  @keyframes drawer-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+
+  /* Press feedback for any tappable surface */
+  .press {
+    transition-property: transform, color, background-color, border-color, box-shadow, opacity;
+    transition-duration: 160ms;
+    transition-timing-function: var(--ease-out);
+  }
+  .press:active { transform: scale(0.97); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

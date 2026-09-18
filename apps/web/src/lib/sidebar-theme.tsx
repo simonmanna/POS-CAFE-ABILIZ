@@ -1,27 +1,24 @@
 /**
- * Sidebar / accent color theme system.
+ * App theme system — two customer-selectable themes.
  *
- * Distinct from the existing light/dark ThemeProvider (which only flips a
- * `dark` class on <html>). This provider cycles through 5 branded palettes
- * that tint the sidebar gradient and accent color — useful for white-label
- * deployments and per-customer aesthetics.
+ *   • luxurySky     — pearl canvas, midnight-sapphire sidebar, sky accents
+ *   • lightCharcoal — warm ivory canvas, graphite sidebar, charcoal accents
  *
- * The active palette is persisted to localStorage and rehydrated on mount.
- * Components that need the palette use the `useSidebarTheme()` hook and apply
- * the colors via inline styles (we need CSS gradients, which Tailwind can't
- * express cleanly).
+ * The active theme is written to `<html data-theme="sky|charcoal">`, which
+ * swaps every design token in index.css (including the Tailwind sky / blue /
+ * cyan ramps). The sidebar needs gradients Tailwind can't express, so its
+ * palette also lives here and is exposed as `--sb-*` CSS variables.
+ *
+ * Persisted to localStorage; index.html applies it before first paint.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-export type SidebarThemeKey =
-  | 'skyBlue'
-  | 'oceanTeal'
-  | 'slateNavy'
-  | 'sageGreen'
-  | 'warmIndigo';
+export type SidebarThemeKey = 'luxurySky' | 'lightCharcoal';
 
 export interface SidebarTheme {
   key: SidebarThemeKey;
+  /** Value written to <html data-theme>. */
+  dataTheme: 'sky' | 'charcoal';
   label: string;
   swatch: string;
   /** Background of the sidebar (linear-gradient string). */
@@ -49,96 +46,46 @@ export interface SidebarTheme {
   badgeBg: string;
 }
 
+const CHAMPAGNE = '#d9b872';
+
 export const SIDEBAR_THEMES: Record<SidebarThemeKey, SidebarTheme> = {
-  skyBlue: {
-    key: 'skyBlue',
-    label: 'Sky Blue',
-    swatch: '#38bdf8',
-    sidebar: 'linear-gradient(180deg, #0369a1 0%, #0369a1 45%, #0369a1 100%)',
-    sidebarBorder: 'rgba(255, 255, 255, 0.12)',
-    sidebarText: '#f0f9ff',
-    sidebarMuted: 'rgba(186, 230, 255, 0.65)',
-    sidebarHover: 'rgba(255, 255, 255, 0.12)',
+  luxurySky: {
+    key: 'luxurySky',
+    dataTheme: 'sky',
+    label: 'Luxury Sky',
+    swatch: 'linear-gradient(135deg, #7dd3fc 0%, #0284c7 55%, #0b2545 100%)',
+    sidebar: 'linear-gradient(180deg, #0b2545 0%, #0c3a66 52%, #0d5689 100%)',
+    sidebarBorder: 'rgba(186, 230, 253, 0.12)',
+    sidebarText: 'rgba(234, 244, 253, 0.86)',
+    sidebarMuted: 'rgba(173, 214, 245, 0.62)',
+    sidebarHover: 'rgba(255, 255, 255, 0.07)',
     sidebarActive: '#ffffff',
-    sidebarActiveBg: 'rgba(255, 255, 255, 0.22)',
-    sidebarActiveBar: '#ffffff',
-    brandBg: 'rgba(255, 255, 255, 0.20)',
-    accent: '#0ea5e9',
-    accentHover: '#0284c7',
-    accentText: '#0369a1',
-    badgeBg: '#7dd3fc',
+    sidebarActiveBg: 'linear-gradient(90deg, rgba(125, 211, 252, 0.24) 0%, rgba(125, 211, 252, 0.05) 100%)',
+    sidebarActiveBar: CHAMPAGNE,
+    brandBg: 'linear-gradient(135deg, #38bdf8 0%, #0369a1 100%)',
+    accent: '#0284c7',
+    accentHover: '#0369a1',
+    accentText: '#075985',
+    badgeBg: '#38bdf8',
   },
-  oceanTeal: {
-    key: 'oceanTeal',
-    label: 'Ocean Teal',
-    swatch: '#14b8a6',
-    sidebar: 'linear-gradient(180deg, #14b8a6 0%, #0d9488 45%, #064e3b 100%)',
-    sidebarBorder: 'rgba(255, 255, 255, 0.10)',
-    sidebarText: '#f0fdfa',
-    sidebarMuted: 'rgba(153, 246, 228, 0.60)',
-    sidebarHover: 'rgba(255, 255, 255, 0.08)',
-    sidebarActive: '#ffffff',
-    sidebarActiveBg: 'rgba(255, 255, 255, 0.18)',
-    sidebarActiveBar: '#5eead4',
-    brandBg: 'rgba(255, 255, 255, 0.15)',
-    accent: '#0d9488',
-    accentHover: '#0f766e',
-    accentText: '#134e4a',
-    badgeBg: '#2dd4bf',
-  },
-  slateNavy: {
-    key: 'slateNavy',
-    label: 'Slate Navy',
-    swatch: '#475569',
-    sidebar: 'linear-gradient(180deg, #334155 0%, #1e293b 45%, #0f172a 100%)',
-    sidebarBorder: 'rgba(255, 255, 255, 0.05)',
-    sidebarText: '#f8fafc',
-    sidebarMuted: 'rgba(148, 163, 184, 0.70)',
+  lightCharcoal: {
+    key: 'lightCharcoal',
+    dataTheme: 'charcoal',
+    label: 'Light Charcoal',
+    swatch: 'linear-gradient(135deg, #b9b7b1 0%, #4a4d52 55%, #1f2023 100%)',
+    sidebar: 'linear-gradient(180deg, #3a3d42 0%, #303236 52%, #26282b 100%)',
+    sidebarBorder: 'rgba(255, 255, 255, 0.08)',
+    sidebarText: 'rgba(241, 240, 237, 0.84)',
+    sidebarMuted: 'rgba(214, 211, 204, 0.55)',
     sidebarHover: 'rgba(255, 255, 255, 0.06)',
     sidebarActive: '#ffffff',
-    sidebarActiveBg: 'rgba(255, 255, 255, 0.10)',
-    sidebarActiveBar: '#38bdf8',
-    brandBg: 'rgba(255, 255, 255, 0.08)',
-    accent: '#3b82f6',
-    accentHover: '#2563eb',
-    accentText: '#1d4ed8',
-    badgeBg: '#60a5fa',
-  },
-  sageGreen: {
-    key: 'sageGreen',
-    label: 'Sage Green',
-    swatch: '#65a30d',
-    sidebar: 'linear-gradient(180deg, #65a30d 0%, #3f6212 45%, #1a2e05 100%)',
-    sidebarBorder: 'rgba(255, 255, 255, 0.08)',
-    sidebarText: '#f7fee7',
-    sidebarMuted: 'rgba(190, 242, 100, 0.55)',
-    sidebarHover: 'rgba(255, 255, 255, 0.08)',
-    sidebarActive: '#ffffff',
-    sidebarActiveBg: 'rgba(255, 255, 255, 0.15)',
-    sidebarActiveBar: '#bef264',
-    brandBg: 'rgba(255, 255, 255, 0.12)',
-    accent: '#65a30d',
-    accentHover: '#4d7c0f',
-    accentText: '#365314',
-    badgeBg: '#a3e635',
-  },
-  warmIndigo: {
-    key: 'warmIndigo',
-    label: 'Warm Indigo',
-    swatch: '#6366f1',
-    sidebar: 'linear-gradient(180deg, #818cf8 0%, #6366f1 45%, #4338ca 100%)',
-    sidebarBorder: 'rgba(255, 255, 255, 0.12)',
-    sidebarText: '#eef2ff',
-    sidebarMuted: 'rgba(199, 210, 254, 0.65)',
-    sidebarHover: 'rgba(255, 255, 255, 0.10)',
-    sidebarActive: '#ffffff',
-    sidebarActiveBg: 'rgba(255, 255, 255, 0.20)',
-    sidebarActiveBar: '#c7d2fe',
-    brandBg: 'rgba(255, 255, 255, 0.18)',
-    accent: '#6366f1',
-    accentHover: '#4f46e5',
-    accentText: '#3730a3',
-    badgeBg: '#a5b4fc',
+    sidebarActiveBg: 'linear-gradient(90deg, rgba(217, 184, 114, 0.18) 0%, rgba(217, 184, 114, 0.03) 100%)',
+    sidebarActiveBar: CHAMPAGNE,
+    brandBg: 'linear-gradient(135deg, #5a5d63 0%, #1f2023 100%)',
+    accent: '#2f3136',
+    accentHover: '#1f2023',
+    accentText: '#2a2b2e',
+    badgeBg: '#b39150',
   },
 };
 
@@ -150,30 +97,43 @@ interface SidebarThemeContextValue {
 
 const Ctx = createContext<SidebarThemeContextValue | null>(null);
 
-const STORAGE_KEY = 'poscafe.sidebarThemeKey';
-const DEFAULT_KEY: SidebarThemeKey = 'skyBlue';
+const STORAGE_KEY = 'poscafe.theme';
+const DEFAULT_KEY: SidebarThemeKey = 'luxurySky';
+
+const keyFromDataTheme = (v: string | null): SidebarThemeKey | null =>
+  v === 'charcoal' ? 'lightCharcoal' : v === 'sky' ? 'luxurySky' : null;
 
 export function SidebarThemeProvider({ children }: { children: React.ReactNode }) {
   const [key, setKeyState] = useState<SidebarThemeKey>(() => {
     if (typeof window === 'undefined') return DEFAULT_KEY;
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    return (stored && stored in SIDEBAR_THEMES) ? (stored as SidebarThemeKey) : DEFAULT_KEY;
+    try {
+      return keyFromDataTheme(window.localStorage.getItem(STORAGE_KEY)) ?? DEFAULT_KEY;
+    } catch {
+      return DEFAULT_KEY;
+    }
   });
 
-  // Expose the accent + sidebar gradient as CSS variables on :root so any
-  // styled component can pick them up without needing the hook.
+  // Push the palette onto <html>: data-theme swaps the design tokens, the
+  // --sb-* variables feed the sidebar and anything styled outside React.
   useEffect(() => {
     const t = SIDEBAR_THEMES[key];
     const root = document.documentElement;
+    root.dataset.theme = t.dataTheme;
     root.style.setProperty('--sb-accent', t.accent);
     root.style.setProperty('--sb-accent-hover', t.accentHover);
     root.style.setProperty('--sb-accent-text', t.accentText);
     root.style.setProperty('--sb-sidebar', t.sidebar);
+    root.style.setProperty('--sb-text', t.sidebarText);
+    root.style.setProperty('--sb-muted', t.sidebarMuted);
+    root.style.setProperty('--sb-hover', t.sidebarHover);
+    root.style.setProperty('--sb-active', t.sidebarActive);
+    root.style.setProperty('--sb-active-bg', t.sidebarActiveBg);
+    root.style.setProperty('--sb-active-bar', t.sidebarActiveBar);
   }, [key]);
 
   const setKey = useCallback((k: SidebarThemeKey) => {
     setKeyState(k);
-    try { window.localStorage.setItem(STORAGE_KEY, k); } catch { /* ignore */ }
+    try { window.localStorage.setItem(STORAGE_KEY, SIDEBAR_THEMES[k].dataTheme); } catch { /* ignore */ }
   }, []);
 
   const value = useMemo<SidebarThemeContextValue>(
