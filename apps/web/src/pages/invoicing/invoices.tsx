@@ -1,21 +1,43 @@
-import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, Plus, Search, X } from 'lucide-react';
-import { PERMISSIONS } from '@erp/shared';
+import { Eye, Plus, Receipt as ReceiptIcon } from 'lucide-react';
+import { PERMISSIONS, type PaginatedResult } from '@erp/shared';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { DataTable, type Column } from '@/components/data-table';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
+import {
+  DataTablePagination, DateRangeFilter, ExportMenu, FilterChips, FilterSelect, ListCard,
+  ListPageHeader, ListToolbar, SearchInput, StatusPill, dateRangeLabel, describeFilters,
+  useListState, type ActiveChip, type Tone,
+} from '@/components/list';
+import { api } from '@/lib/api';
+import { fetchAllPages, type ExportColumn } from '@/lib/export-list';
 import { money, date, statusLabel } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { useInvoices, type Invoice } from '@/features/invoicing/api';
 
-const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  posted: 'default',
-  paid: 'default',
-  draft: 'secondary',
-  cancelled: 'destructive',
+const statusTone: Record<string, Tone> = {
+  draft: 'neutral',
+  posted: 'info',
+  paid: 'success',
+  cancelled: 'danger',
+};
+
+const statusOptions: Record<string, string> = {
+  draft: 'Draft',
+  posted: 'Posted',
+  paid: 'Paid',
+  cancelled: 'Cancelled',
+};
+
+const paymentStatusOptions: Record<string, string> = {
+  unpaid: 'Unpaid',
+  partially_paid: 'Partially Paid',
+  paid: 'Paid',
+};
+
+const paymentStatusTone: Record<string, Tone> = {
+  unpaid: 'warning',
+  partially_paid: 'accent',
+  paid: 'success',
 };
 
 const paymentLabel: Record<string, string> = {
@@ -33,49 +55,46 @@ const settlementLabel: Record<string, string> = {
   written_off: 'Written Off',
 };
 
-const settlementColor: Record<string, string> = {
-  unsettled: 'bg-slate-100 text-slate-600',
-  partially_settled: 'bg-amber-50 text-amber-700',
-  settled: 'bg-emerald-50 text-emerald-700',
-  written_off: 'bg-rose-50 text-rose-700',
+const settlementTone: Record<string, Tone> = {
+  unsettled: 'neutral',
+  partially_settled: 'warning',
+  settled: 'success',
+  written_off: 'danger',
 };
 
-const selectClass = 'h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+const toOptions = (m: Record<string, string>) => Object.entries(m).map(([value, label]) => ({ value, label }));
+
+const FILTERS = { status: '', paymentStatus: '', settlementStatus: '', dateFrom: '', dateTo: '' };
+
+const sumOf = (rows: Invoice[], pick: (i: Invoice) => string) => rows.reduce((s, i) => s + Number(pick(i) || 0), 0);
 
 export function InvoicesPage() {
   const navigate = useNavigate();
   const hasPermission = useAuthStore((s) => s.hasPermission);
-  const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState('');
-  const search = useDebouncedValue(searchInput, 300);
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterPayment, setFilterPayment] = useState('');
-  const [filterSettlement, setFilterSettlement] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const list = useListState(FILTERS);
+  const { status, paymentStatus, settlementStatus, dateFrom, dateTo } = list.filters;
 
-  const hasActiveFilters = filterStatus || filterPayment || filterSettlement || dateFrom || dateTo;
-
-  useEffect(() => setPage(1), [search, filterStatus, filterPayment, filterSettlement, dateFrom, dateTo]);
-
-  const { data, isLoading } = useInvoices({
-    page,
-    pageSize: 10,
-    search: search || undefined,
-    status: filterStatus || undefined,
-    paymentStatus: filterPayment || undefined,
-    settlementStatus: filterSettlement || undefined,
+  const query = {
+    search: list.search || undefined,
+    status: status || undefined,
+    paymentStatus: paymentStatus || undefined,
+    settlementStatus: settlementStatus || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-  });
-
-  const clearFilters = () => {
-    setFilterStatus('');
-    setFilterPayment('');
-    setFilterSettlement('');
-    setDateFrom('');
-    setDateTo('');
   };
+  const { data, isLoading, isFetching } = useInvoices({ page: list.page, pageSize: list.pageSize, ...query });
+  const rows = data?.data ?? [];
+  const meta = data?.meta;
+
+  const chips: ActiveChip[] = [
+    ...(list.search ? [{ key: 'q', label: `“${list.search}”`, onRemove: () => list.setSearchInput('') }] : []),
+    ...(status ? [{ key: 'status', label: statusOptions[status] ?? status, onRemove: () => list.setFilter('status', '') }] : []),
+    ...(paymentStatus ? [{ key: 'payment', label: paymentStatusOptions[paymentStatus] ?? paymentStatus, onRemove: () => list.setFilter('paymentStatus', '') }] : []),
+    ...(settlementStatus ? [{ key: 'settlement', label: `Settlement: ${settlementLabel[settlementStatus] ?? settlementStatus}`, onRemove: () => list.setFilter('settlementStatus', '') }] : []),
+    ...(dateFrom || dateTo ? [{ key: 'date', label: dateRangeLabel(dateFrom, dateTo), onRemove: () => list.setFilters({ dateFrom: '', dateTo: '' }) }] : []),
+  ];
+
+  const method = (inv: Invoice) => (inv.paymentMode ? paymentLabel[inv.paymentMode] ?? inv.paymentMode : '—');
 
   const columns: Column<Invoice>[] = [
     {
@@ -87,176 +106,161 @@ export function InvoicesPage() {
         </Link>
       ),
     },
-    { key: 'partner', header: 'Customer', render: (inv) => inv.partner?.name ?? '-' },
-        { key: 'paymentTerm', header: 'Terms', render: (inv) => <span className="text-sm">{inv.paymentTermName ?? '—'}</span> },
-        { key: 'issueDate', header: 'Date', render: (inv) => date(inv.issueDate) },
-    { key: 'totalAmount', header: 'Total', className: 'text-right', render: (inv) => money(inv.totalAmount) },
-    { key: 'amountResidual', header: 'Due', className: 'text-right', render: (inv) => money(inv.amountResidual) },
+    { key: 'partner', header: 'Customer', render: (inv) => inv.partner?.name ?? <span className="text-muted-foreground">—</span> },
+    { key: 'paymentTerm', header: 'Terms', render: (inv) => <span className="text-sm text-muted-foreground">{inv.paymentTermName ?? '—'}</span> },
+    { key: 'issueDate', header: 'Date', render: (inv) => <span className="whitespace-nowrap text-muted-foreground">{date(inv.issueDate)}</span> },
+    { key: 'totalAmount', header: 'Total', className: 'text-right', render: (inv) => <span className="font-semibold tabular-nums">{money(inv.totalAmount)}</span> },
     {
-      key: 'status',
-      header: 'Status',
-      render: (inv) => <Badge variant={statusVariant[inv.status] ?? 'secondary'}>{inv.status}</Badge>,
-    },
-    {
-      key: 'paymentStatus',
-      header: 'Payment',
-      render: (inv) => <span className="text-sm text-muted-foreground">{statusLabel(inv.paymentStatus)}</span>,
+      key: 'amountResidual',
+      header: 'Due',
+      className: 'text-right',
+      render: (inv) =>
+        Number(inv.amountResidual) > 0
+          ? <span className="font-medium tabular-nums text-amber-700 dark:text-amber-400">{money(inv.amountResidual)}</span>
+          : <span className="tabular-nums text-muted-foreground">{money(0)}</span>,
     },
     {
       key: 'discount',
       header: 'Discount',
       className: 'text-right',
       render: (inv) => {
-        const hasDiscount = Number(inv.discountTotal) > 0;
-        if (!hasDiscount) return <span className="text-slate-300">—</span>;
+        if (!(Number(inv.discountTotal) > 0)) return <span className="text-muted-foreground/50">—</span>;
         const typeLabel = inv.discountType === 'fixed_amount'
-          ? ` (fixed)`
-          : inv.discountValue && Number(inv.discountValue) > 0
-            ? ` (${Number(inv.discountValue).toFixed(1)}%)`
-            : '';
+          ? 'fixed'
+          : Number(inv.discountValue) > 0 ? `${Number(inv.discountValue).toFixed(1)}%` : '';
         return (
           <div className="text-right">
-            <div className="text-amber-700 font-medium">-{money(inv.discountTotal)}</div>
-            {inv.discountReason ? <div className="text-[10px] text-slate-400">{inv.discountReason}</div> : null}
-            {typeLabel ? <div className="text-[10px] text-slate-400">{typeLabel.trim()}</div> : null}
+            <div className="font-medium tabular-nums text-amber-700 dark:text-amber-400">-{money(inv.discountTotal)}</div>
+            {(inv.discountReason || typeLabel) && (
+              <div className="text-[10px] text-muted-foreground">{[typeLabel, inv.discountReason].filter(Boolean).join(' · ')}</div>
+            )}
           </div>
         );
       },
     },
     {
-      key: 'paymentMode',
-      header: 'Method',
-      className: 'text-center',
+      key: 'status',
+      header: 'Status',
+      render: (inv) => <StatusPill tone={statusTone[inv.status] ?? 'neutral'}>{statusOptions[inv.status] ?? statusLabel(inv.status)}</StatusPill>,
+    },
+    {
+      key: 'paymentStatus',
+      header: 'Payment',
       render: (inv) => (
-        <span className="text-xs text-muted-foreground">
-          {inv.paymentMode ? paymentLabel[inv.paymentMode] ?? inv.paymentMode : '—'}
-        </span>
+        <div className="flex flex-col items-start gap-1">
+          <StatusPill tone={paymentStatusTone[inv.paymentStatus] ?? 'neutral'} dot={false}>{statusLabel(inv.paymentStatus)}</StatusPill>
+          <span className="text-[11px] text-muted-foreground">{method(inv)}</span>
+        </div>
       ),
     },
     {
       key: 'settlementStatus',
       header: 'Settlement',
-      className: 'text-center',
       render: (inv) => (
-        <span
-          className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
-            settlementColor[inv.settlementStatus] ?? ''
-          }`}
-        >
+        <StatusPill tone={settlementTone[inv.settlementStatus] ?? 'neutral'}>
           {settlementLabel[inv.settlementStatus] ?? inv.settlementStatus}
-        </span>
+        </StatusPill>
       ),
     },
     {
       key: 'actions',
       header: '',
-      className: 'w-12',
+      className: 'w-12 text-right',
       render: (inv) => (
-        <Button variant="ghost" size="sm" onClick={() => navigate(`/invoices/${inv.id}`)}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/invoices/${inv.id}`)} aria-label="View invoice">
           <Eye className="h-4 w-4" />
         </Button>
       ),
     },
   ];
 
-  const meta = data?.meta;
+  const exportColumns: ExportColumn<Invoice>[] = [
+    { header: 'Invoice #', value: (i) => i.documentNumber },
+    { header: 'Customer', value: (i) => i.partner?.name ?? '' },
+    { header: 'Terms', value: (i) => i.paymentTermName ?? '' },
+    { header: 'Date', value: (i) => date(i.issueDate) },
+    { header: 'Total', value: (i) => money(i.totalAmount), align: 'right' },
+    { header: 'Due', value: (i) => money(i.amountResidual), align: 'right' },
+    { header: 'Discount', value: (i) => (Number(i.discountTotal) > 0 ? money(i.discountTotal) : ''), align: 'right' },
+    { header: 'Status', value: (i) => statusOptions[i.status] ?? i.status },
+    { header: 'Payment', value: (i) => statusLabel(i.paymentStatus) },
+    { header: 'Method', value: method },
+    { header: 'Settlement', value: (i) => settlementLabel[i.settlementStatus] ?? i.settlementStatus },
+  ];
+
+  const fetchAll = () =>
+    fetchAllPages<Invoice>(async (page, pageSize) => {
+      const res = (await api.get<PaginatedResult<Invoice>>('/invoices', { params: { ...query, page, pageSize } })).data;
+      return { rows: res.data, totalPages: res.meta.totalPages };
+    }, { pageSize: 200 });
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Invoices</h1>
-          <p className="text-sm text-muted-foreground">Sales invoices — post to the ledger and collect payment.</p>
-        </div>
-        {hasPermission(PERMISSIONS.invoice.create) && (
-          <Button onClick={() => navigate('/invoices/new')}>
-            <Plus className="h-4 w-4" /> New Invoice
-          </Button>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="pl-9 h-9"
-            placeholder="Search invoices..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-          />
-        </div>
-        <select className={selectClass} value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
-          <option value="">All statuses</option>
-          <option value="draft">Draft</option>
-          <option value="posted">Posted</option>
-          <option value="paid">Paid</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-        <select className={selectClass} value={filterPayment} onChange={(e) => setFilterPayment(e.target.value)}>
-          <option value="">All payments</option>
-          <option value="unpaid">Unpaid</option>
-          <option value="paid">Paid</option>
-          <option value="partially_paid">Partially Paid</option>
-        </select>
-        <select className={selectClass} value={filterSettlement} onChange={(e) => setFilterSettlement(e.target.value)}>
-          <option value="">All settlements</option>
-          <option value="unsettled">Unsettled</option>
-          <option value="partially_settled">Partially Paid</option>
-          <option value="settled">Settled</option>
-          <option value="written_off">Written Off</option>
-        </select>
-        <input
-          type="date"
-          className={selectClass}
-          value={dateFrom}
-          onChange={(e) => setDateFrom(e.target.value)}
-          title="From date"
-        />
-        <span className="text-xs text-muted-foreground">—</span>
-        <input
-          type="date"
-          className={selectClass}
-          value={dateTo}
-          onChange={(e) => setDateTo(e.target.value)}
-          title="To date"
-        />
-        {hasActiveFilters && (
-          <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 gap-1">
-            <X className="h-3.5 w-3.5" /> Clear
-          </Button>
-        )}
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={data?.data ?? []}
-        loading={isLoading}
-        getRowId={(i) => i.id}
-        cellClassName="py-1.5 px-3"
-        headerRowClassName="h-10"
+      <ListPageHeader
+        icon={ReceiptIcon}
+        title="Sales / Invoices"
+        description="Sales invoices — post to the ledger and collect payment."
+        actions={
+          <>
+            <ExportMenu
+              basename="sales-invoices"
+              title="Sales / Invoices"
+              subtitle={describeFilters(chips)}
+              columns={exportColumns}
+              pageRows={rows}
+              total={meta?.total}
+              fetchAll={fetchAll}
+              totals={(r) => [
+                'Total', '', '', '',
+                money(sumOf(r, (i) => i.totalAmount)),
+                money(sumOf(r, (i) => i.amountResidual)),
+                money(sumOf(r, (i) => i.discountTotal)),
+                '', '', '', '',
+              ]}
+            />
+            {hasPermission(PERMISSIONS.invoice.create) && (
+              <Button onClick={() => navigate('/invoices/new')}>
+                <Plus className="mr-1 h-4 w-4" /> New Invoice
+              </Button>
+            )}
+          </>
+        }
       />
 
-      {meta && (
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} invoice(s)</span>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
-            </Button>
-            <span>
-              Page {meta.page} of {meta.totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= meta.totalPages}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
+      <ListToolbar chips={<FilterChips chips={chips} onClearAll={list.clearFilters} />}>
+        <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder="Search invoice #, reference or customer…" />
+        <FilterSelect value={status} onChange={(v) => list.setFilter('status', v)} options={toOptions(statusOptions)} allLabel="All statuses" className="w-[140px]" />
+        <FilterSelect value={paymentStatus} onChange={(v) => list.setFilter('paymentStatus', v)} options={toOptions(paymentStatusOptions)} allLabel="All payments" className="w-[150px]" />
+        <FilterSelect value={settlementStatus} onChange={(v) => list.setFilter('settlementStatus', v)} options={toOptions(settlementLabel)} allLabel="All settlements" />
+        <DateRangeFilter from={dateFrom} to={dateTo} onChange={(f, t) => list.setFilters({ dateFrom: f, dateTo: t })} />
+      </ListToolbar>
+
+      <ListCard>
+        <div className={isFetching && !isLoading ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+          <DataTable
+            columns={columns}
+            data={rows}
+            loading={isLoading}
+            loadingRows={10}
+            getRowId={(i) => i.id}
+            onRowClick={(i) => navigate(`/invoices/${i.id}`)}
+            cellClassName="py-2 px-4"
+            headerRowClassName="h-10"
+            emptyMessage={chips.length ? 'No invoices match these filters.' : 'No invoices yet.'}
+          />
         </div>
-      )}
+        {meta && (
+          <DataTablePagination
+            page={meta.page}
+            pageSize={list.pageSize}
+            total={meta.total}
+            totalPages={meta.totalPages}
+            onPageChange={list.setPage}
+            onPageSizeChange={list.setPageSize}
+            noun="invoice"
+          />
+        )}
+      </ListCard>
     </div>
   );
 }

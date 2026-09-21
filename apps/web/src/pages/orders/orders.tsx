@@ -1,264 +1,200 @@
-import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, Plus, Search, X, Download, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ClipboardList, Eye, FileText, MoreHorizontal, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { DataTable, type Column } from '@/components/data-table';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
+import {
+  DataTablePagination, DateRangeFilter, ExportMenu, FilterChips, FilterSelect, ListCard,
+  ListPageHeader, ListToolbar, SearchInput, StatusPill, dateRangeLabel, describeFilters,
+  useListState, type ActiveChip, type Tone,
+} from '@/components/list';
+import { api } from '@/lib/api';
+import { fetchAllPages, type ExportColumn } from '@/lib/export-list';
 import { money, dateTime, useOrgCurrency, statusLabel } from '@/lib/format';
 import { useOrders } from '@/features/orders/api';
-import type { Order } from '@/features/orders/types';
+import type { ListResponse, Order } from '@/features/orders/types';
 import { ORDER_TYPE_LABELS } from './line-source';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 
-const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
-  confirmed: 'default',
-  in_progress: 'default',
-  ready: 'secondary',
-  completed: 'secondary',
-  cancelled: 'destructive',
-  closed: 'outline',
+const statusTone: Record<string, Tone> = {
+  confirmed: 'info',
+  in_progress: 'warning',
+  ready: 'accent',
+  completed: 'success',
+  cancelled: 'danger',
+  closed: 'neutral',
 };
 
-const orderTypes = Object.entries(ORDER_TYPE_LABELS) as Array<[string, string]>;
+const STATUS_OPTIONS = ['confirmed', 'in_progress', 'ready', 'completed', 'cancelled', 'closed']
+  .map((value) => ({ value, label: statusLabel(value) }));
+const TYPE_OPTIONS = Object.entries(ORDER_TYPE_LABELS).map(([value, label]) => ({ value, label }));
 
-const selectClass = 'h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring';
+const FILTERS = { status: '', orderType: '', dateFrom: '', dateTo: '' };
 
 export function OrdersPage() {
   const navigate = useNavigate();
   const currency = useOrgCurrency();
-  const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState('');
-  const search = useDebouncedValue(searchInput, 300);
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterOrderType, setFilterOrderType] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const list = useListState(FILTERS);
+  const { status, orderType, dateFrom, dateTo } = list.filters;
 
-  const hasActiveFilters = filterStatus || filterOrderType || dateFrom || dateTo;
-
-  useEffect(() => setPage(1), [search, filterStatus, filterOrderType, dateFrom, dateTo]);
-
-  const { data, isLoading } = useOrders({
-    page,
-    pageSize: 10,
-    search: search || undefined,
-    status: filterStatus || undefined,
-    orderType: filterOrderType || undefined,
+  const query = {
+    search: list.search || undefined,
+    status: status || undefined,
+    orderType: orderType || undefined,
     dateFrom: dateFrom || undefined,
     dateTo: dateTo || undefined,
-  });
-
-  const clearFilters = () => {
-    setFilterStatus('');
-    setFilterOrderType('');
-    setDateFrom('');
-    setDateTo('');
   };
+  const { data, isLoading, isFetching } = useOrders({ page: list.page, pageSize: list.pageSize, ...query });
+  const rows = data?.rows ?? [];
+  const meta = data?.meta;
+
+  const chips: ActiveChip[] = [
+    ...(list.search ? [{ key: 'q', label: `“${list.search}”`, onRemove: () => list.setSearchInput('') }] : []),
+    ...(status ? [{ key: 'status', label: statusLabel(status), onRemove: () => list.setFilter('status', '') }] : []),
+    ...(orderType ? [{ key: 'type', label: ORDER_TYPE_LABELS[orderType as keyof typeof ORDER_TYPE_LABELS] ?? orderType, onRemove: () => list.setFilter('orderType', '') }] : []),
+    ...(dateFrom || dateTo ? [{ key: 'date', label: dateRangeLabel(dateFrom, dateTo), onRemove: () => list.setFilters({ dateFrom: '', dateTo: '' }) }] : []),
+  ];
+
+  const typeLabel = (o: Order) => ORDER_TYPE_LABELS[o.orderType] ?? o.orderType;
 
   const columns: Column<Order>[] = [
-      {
-        key: 'orderNumber',
-        header: 'Order #',
-        render: (o) => (
-          <Link to={`/orders/${o.id}`} className="font-medium text-primary hover:underline">
-            {o.orderNumber}
-          </Link>
-        ),
-      },
-      { key: 'partnerName', header: 'Customer', render: (o) => o.partnerName ?? '-' },
-      {
-        key: 'orderType',
-        header: 'Type',
-        render: (o) => <span className="text-sm">{ORDER_TYPE_LABELS[o.orderType] ?? o.orderType}</span>,
-      },
-      { key: 'openedAt', header: 'Date', render: (o) => dateTime(o.openedAt) },
-      { key: 'totalAmount', header: 'Total', className: 'text-right', render: (o) => money(o.totalAmount, currency) },
-      {
-        key: 'status',
-        header: 'Status',
-        render: (o) => (
-          <Badge variant={statusVariant[o.status] ?? 'secondary'}>
-            {statusLabel(o.status)}
-          </Badge>
-        ),
-      },
-      {
-        key: 'invoiceId',
-        header: 'Billed',
-        render: (o) =>
-          o.invoiceId ? <Badge variant="outline">Invoiced</Badge> : <span className="text-sm text-muted-foreground">—</span>,
-      },
-      {
-        key: 'actions',
-        header: '',
-        className: 'w-24 text-center',
-        render: (o) => (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <span className="sr-only">Actions</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuLabel className="font-semibold">Actions</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => navigate(`/orders/${o.id}`)}>
-                <Eye className="mr-2 h-3.5 w-3.5" /> View Details
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate(`/invoices/${o.invoiceId}`)} disabled={!o.invoiceId}>
-                <span className="mr-2 h-3.5 w-3.5" /> View Invoice
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        ),
-      },
-    ];
-
-    const meta = data?.meta;
-
-    const handleExport = () => {
-      if (!data?.rows?.length) return;
-      const headers = ['Order #', 'Customer', 'Type', 'Date', 'Total', 'Status', 'Billed'];
-      const rows = data.rows.map((o) => [
-        o.orderNumber,
-        o.partnerName ?? '',
-        ORDER_TYPE_LABELS[o.orderType] ?? o.orderType,
-        dateTime(o.openedAt),
-        money(o.totalAmount, currency),
-        statusLabel(o.status),
-        o.invoiceId ? 'Invoiced' : '—',
-      ]);
-      const csv = [headers, ...rows].map((r) => r.map((c) => `"${c}"`).join(',')).join('\n');
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `orders-${new Date().toISOString().split('T')[0]}.csv`;
-      link.click();
-    };
-
-    return (
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Orders</h1>
-            <p className="text-sm text-muted-foreground">
-              Operational orders — café, retail, rental and repair share one document.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleExport} disabled={!data?.rows?.length}>
-              <Download className="mr-1.5 h-4 w-4" /> Export CSV
+    {
+      key: 'orderNumber',
+      header: 'Order #',
+      render: (o) => (
+        <Link to={`/orders/${o.id}`} className="font-medium text-primary hover:underline">
+          {o.orderNumber}
+        </Link>
+      ),
+    },
+    {
+      key: 'partnerName',
+      header: 'Customer',
+      render: (o) => o.partnerName ?? <span className="text-muted-foreground">Walk-in</span>,
+    },
+    {
+      key: 'orderType',
+      header: 'Type',
+      render: (o) => <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium">{typeLabel(o)}</span>,
+    },
+    { key: 'openedAt', header: 'Date', render: (o) => <span className="whitespace-nowrap text-muted-foreground">{dateTime(o.openedAt)}</span> },
+    { key: 'totalAmount', header: 'Total', className: 'text-right', render: (o) => <span className="font-semibold tabular-nums">{money(o.totalAmount, currency)}</span> },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (o) => <StatusPill tone={statusTone[o.status] ?? 'neutral'}>{statusLabel(o.status)}</StatusPill>,
+    },
+    {
+      key: 'invoiceId',
+      header: 'Billed',
+      render: (o) =>
+        o.invoiceId ? <StatusPill tone="success" dot={false}>Invoiced</StatusPill> : <span className="text-sm text-muted-foreground">—</span>,
+    },
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-12 text-right',
+      render: (o) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <MoreHorizontal className="h-4 w-4" />
+              <span className="sr-only">Actions</span>
             </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem onClick={() => navigate(`/orders/${o.id}`)}>
+              <Eye className="mr-2 h-3.5 w-3.5" /> View details
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => navigate(`/invoices/${o.invoiceId}`)} disabled={!o.invoiceId}>
+              <FileText className="mr-2 h-3.5 w-3.5" /> View invoice
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    },
+  ];
+
+  const exportColumns: ExportColumn<Order>[] = [
+    { header: 'Order #', value: (o) => o.orderNumber },
+    { header: 'Customer', value: (o) => o.partnerName ?? '' },
+    { header: 'Type', value: typeLabel },
+    { header: 'Date', value: (o) => dateTime(o.openedAt) },
+    { header: 'Total', value: (o) => money(o.totalAmount, currency), align: 'right' },
+    { header: 'Status', value: (o) => statusLabel(o.status) },
+    { header: 'Billed', value: (o) => (o.invoiceId ? 'Invoiced' : '') },
+  ];
+
+  const fetchAll = () =>
+    fetchAllPages<Order>(async (page, pageSize) => {
+      const res = (await api.get<ListResponse<Order>>('/orders', { params: { ...query, page, pageSize } })).data;
+      return { rows: res.rows, totalPages: res.meta.totalPages };
+    }, { pageSize: 200 });
+
+  return (
+    <div className="space-y-4">
+      <ListPageHeader
+        icon={ClipboardList}
+        title="Orders"
+        description="Operational orders — café, retail, rental and repair share one document."
+        actions={
+          <>
+            <ExportMenu
+              basename="orders"
+              title="Orders"
+              subtitle={describeFilters(chips)}
+              columns={exportColumns}
+              pageRows={rows}
+              total={meta?.total}
+              fetchAll={fetchAll}
+              totals={(r) => ['Total', '', '', '', money(r.reduce((s, o) => s + Number(o.totalAmount || 0), 0), currency), '', '']}
+            />
             <Button onClick={() => navigate('/orders/new')}>
               <Plus className="mr-1 h-4 w-4" /> New Order
             </Button>
-          </div>
-        </div>
+          </>
+        }
+      />
 
-        {/* Filter bar — enhanced with Select components */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search order # or customer…"
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="h-9 w-72 pl-8"
-            />
-          </div>
-        
-          <Select value={filterStatus} onValueChange={setFilterStatus}>
-            <SelectTrigger className={selectClass + ' w-[150px]'}><SelectValue placeholder="All statuses" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">All statuses</SelectItem>
-              <SelectItem value="confirmed">Confirmed</SelectItem>
-              <SelectItem value="in_progress">In progress</SelectItem>
-              <SelectItem value="ready">Ready</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-              <SelectItem value="closed">Closed</SelectItem>
-            </SelectContent>
-          </Select>
+      <ListToolbar chips={<FilterChips chips={chips} onClearAll={list.clearFilters} />}>
+        <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder="Search order # or customer…" />
+        <FilterSelect value={status} onChange={(v) => list.setFilter('status', v)} options={STATUS_OPTIONS} allLabel="All statuses" />
+        <FilterSelect value={orderType} onChange={(v) => list.setFilter('orderType', v)} options={TYPE_OPTIONS} allLabel="All types" />
+        <DateRangeFilter from={dateFrom} to={dateTo} onChange={(f, t) => list.setFilters({ dateFrom: f, dateTo: t })} />
+      </ListToolbar>
 
-          <Select value={filterOrderType} onValueChange={setFilterOrderType}>
-            <SelectTrigger className={selectClass + ' w-[150px]'}><SelectValue placeholder="All types" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">All types</SelectItem>
-              {orderTypes.map(([value, label]) => (
-                <SelectItem key={value} value={value}>{label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
-            className="h-9 w-40"
-            title="Opened from"
-          />
-          <span className="text-xs text-muted-foreground">—</span>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-            className="h-9 w-40"
-            title="Opened to"
-          />
-          {hasActiveFilters && (
-            <Button variant="ghost" size="sm" onClick={clearFilters}>
-              <X className="mr-1 h-3.5 w-3.5" /> Clear
-            </Button>
-          )}
-        </div>
-
-        <div className="rounded-md border">
+      <ListCard>
+        <div className={isFetching && !isLoading ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
           <DataTable
             columns={columns}
-            data={data?.rows ?? []}
+            data={rows}
             loading={isLoading}
+            loadingRows={list.pageSize > 10 ? 10 : list.pageSize}
             getRowId={(o) => o.id}
-            cellClassName="py-2 px-3"
-            headerRowClassName="h-10 bg-muted/50"
-            emptyMessage="No orders found. Create one with “New Order”."
+            onRowClick={(o) => navigate(`/orders/${o.id}`)}
+            cellClassName="py-2.5 px-4"
+            headerRowClassName="h-10"
+            emptyMessage={chips.length ? 'No orders match these filters.' : 'No orders yet. Create one with “New Order”.'}
           />
         </div>
-
         {meta && (
-          <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-muted-foreground">
-            <span>{meta.total} order(s)</span>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                <ChevronLeft className="mr-1 h-3.5 w-3.5" /> Previous
-              </Button>
-              <span className="px-2">Page {meta.page} of {meta.totalPages}</span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= meta.totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                Next <ChevronRight className="ml-1 h-3.5 w-3.5" />
-              </Button>
-            </div>
-          </div>
+          <DataTablePagination
+            page={meta.page}
+            pageSize={list.pageSize}
+            total={meta.total}
+            totalPages={meta.totalPages}
+            onPageChange={list.setPage}
+            onPageSizeChange={list.setPageSize}
+            noun="order"
+          />
         )}
-      </div>
-    );
-  }
+      </ListCard>
+    </div>
+  );
+}

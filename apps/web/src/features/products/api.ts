@@ -78,6 +78,8 @@ export interface ListParams {
   search?: string;
   categoryId?: string;
   productType?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface CreateProductInput {

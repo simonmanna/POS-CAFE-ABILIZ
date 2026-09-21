@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Edit, Eye, Plus, Search, Trash2, Loader2 } from 'lucide-react';
-import { PERMISSIONS } from '@erp/shared';
+import { Edit, Eye, Package, Plus, Trash2, Loader2 } from 'lucide-react';
+import { PERMISSIONS, type PaginatedResult } from '@erp/shared';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -19,9 +18,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { DataTable, type Column } from '@/components/data-table';
-import { useDebouncedValue } from '@/lib/use-debounced-value';
+import {
+  DataTablePagination, ExportMenu, FilterChips, FilterSelect, ListCard, ListPageHeader,
+  ListToolbar, SearchInput, StatusPill, describeFilters, useListState, type ActiveChip,
+} from '@/components/list';
+import { api, resolveAssetUrl } from '@/lib/api';
+import { fetchAllPages, type ExportColumn } from '@/lib/export-list';
+import { money, statusLabel, useOrgCurrency } from '@/lib/format';
 import { notify } from '@/lib/notify';
-import { formatCurrency } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth.store';
 import {
   useProducts, useDeleteProduct, useProductCategories,
@@ -35,14 +39,37 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 const PRODUCT_TYPES = ['stockable', 'consumable', 'service', 'fee', 'subscription', 'asset'] as const;
+const TYPE_OPTIONS = PRODUCT_TYPES.map((t) => ({ value: t, label: statusLabel(t) }));
+const FILTERS = { categoryId: '', productType: '' };
+// Radix Select forbids an empty-string item value.
+const NO_PARENT = '__none__';
+
+/** Gross margin % from sales vs cost price, or null when either is missing. */
+function marginPct(p: Product): number | null {
+  const sale = Number(p.salesPrice);
+  const cost = Number(p.costPrice);
+  if (p.salesPrice == null || p.costPrice == null || !(sale > 0) || !(cost > 0)) return null;
+  return ((sale - cost) / sale) * 100;
+}
+
+function ProductThumb({ p }: { p: Product }) {
+  const [failed, setFailed] = useState(false);
+  const src = p.image ? resolveAssetUrl(p.image) : undefined;
+  if (src && !failed) {
+    return <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} className="h-9 w-9 shrink-0 rounded-lg border object-cover" />;
+  }
+  return (
+    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold uppercase text-primary">
+      {p.name.slice(0, 1)}
+    </div>
+  );
+}
 
 export function ProductsPage() {
   const navigate = useNavigate();
-  const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState('');
-  const search = useDebouncedValue(searchInput, 300);
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
+  const currency = useOrgCurrency();
+  const list = useListState(FILTERS);
+  const { categoryId: categoryFilter, productType: typeFilter } = list.filters;
   const [deleting, setDeleting] = useState<Product | null>(null);
 
   // Categories dialog state
@@ -67,14 +94,14 @@ export function ProductsPage() {
   const canEditCategory = hasPermission(PERMISSIONS.productCategory.update);
   const canDeleteCategory = hasPermission(PERMISSIONS.productCategory.delete);
 
-  useEffect(() => setPage(1), [search, categoryFilter, typeFilter]);
-
-  const { data, isLoading } = useProducts({
-    page, pageSize: 10,
-    search: search || undefined,
+  const query = {
+    search: list.search || undefined,
     categoryId: categoryFilter || undefined,
     productType: typeFilter || undefined,
-  });
+    sortBy: list.sort?.by,
+    sortOrder: list.sort?.order,
+  };
+  const { data, isLoading, isFetching } = useProducts({ page: list.page, pageSize: list.pageSize, ...query });
   const deleteProduct = useDeleteProduct();
   const { data: categories = [] } = useProductCategories();
   const createCategory = useCreateProductCategory();
@@ -88,45 +115,110 @@ export function ProductsPage() {
     setDeleting(null);
   };
 
+  const rows = data?.data ?? [];
+  const categoryName = (id: string) => categories.find((c) => c.id === id)?.name ?? 'Category';
+
+  const chips: ActiveChip[] = [
+    ...(list.search ? [{ key: 'q', label: `“${list.search}”`, onRemove: () => list.setSearchInput('') }] : []),
+    ...(categoryFilter ? [{ key: 'category', label: categoryName(categoryFilter), onRemove: () => list.setFilter('categoryId', '') }] : []),
+    ...(typeFilter ? [{ key: 'type', label: statusLabel(typeFilter), onRemove: () => list.setFilter('productType', '') }] : []),
+  ];
+
   const columns: Column<Product>[] = [
-    { key: 'name', header: 'Name' },
-    { key: 'code', header: 'Code' },
-    { key: 'sku', header: 'SKU', render: (p) => p.sku ?? '-' },
-    { key: 'category', header: 'Category', render: (p) => p.category?.name ?? '-' },
-    { key: 'productType', header: 'Type', render: (p) => <Badge variant="secondary">{p.productType}</Badge> },
+    {
+      key: 'name',
+      header: 'Product',
+      sortKey: 'name',
+      render: (p) => (
+        <div className="flex min-w-[200px] items-center gap-3">
+          <ProductThumb p={p} />
+          <div className="min-w-0">
+            <div className="truncate font-medium">{p.name}</div>
+            <div className="truncate text-xs text-muted-foreground">
+              {p.code}{p.sku ? ` · SKU ${p.sku}` : ''}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    { key: 'category', header: 'Category', render: (p) => p.category?.name ?? <span className="text-muted-foreground">—</span> },
+    {
+      key: 'productType',
+      header: 'Type',
+      sortKey: 'productType',
+      render: (p) => <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs font-medium">{statusLabel(p.productType)}</span>,
+    },
+    {
+      key: 'costPrice',
+      header: 'Cost',
+      className: 'text-right',
+      sortKey: 'costPrice',
+      render: (p) => <span className="tabular-nums text-muted-foreground">{p.costPrice != null ? money(p.costPrice, currency) : '—'}</span>,
+    },
     {
       key: 'salesPrice',
       header: 'Sales price',
       className: 'text-right',
-      render: (p) => (p.salesPrice != null ? formatCurrency(Number(p.salesPrice)) : '-'),
+      sortKey: 'salesPrice',
+      render: (p) => <span className="font-semibold tabular-nums">{p.salesPrice != null ? money(p.salesPrice, currency) : '—'}</span>,
+    },
+    {
+      key: 'margin',
+      header: 'Margin',
+      className: 'text-right',
+      render: (p) => {
+        const m = marginPct(p);
+        if (m == null) return <span className="text-muted-foreground/50">—</span>;
+        const tone = m < 0 ? 'text-rose-600 dark:text-rose-400' : m < 20 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400';
+        return <span className={`text-xs font-medium tabular-nums ${tone}`}>{m.toFixed(1)}%</span>;
+      },
     },
     {
       key: 'isActive',
-      header: 'Active',
-      render: (p) => <Badge variant={p.isActive ? 'default' : 'secondary'}>{p.isActive ? 'Yes' : 'No'}</Badge>,
+      header: 'Status',
+      render: (p) => <StatusPill tone={p.isActive ? 'success' : 'neutral'}>{p.isActive ? 'Active' : 'Inactive'}</StatusPill>,
     },
-    ...((canEditProduct || canDeleteProduct) ? [{
-      key: 'actions' as const,
-      header: 'Actions',
+    {
+      key: 'actions',
+      header: '',
+      className: 'w-28 text-right',
       render: (p: Product) => (
-        <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-          <Button size="sm" variant="ghost" onClick={() => navigate(`/inventory/items/${p.id}`)}>
+        <div className="flex justify-end gap-0.5">
+          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(`/inventory/items/${p.id}`)} aria-label="View stock">
             <Eye className="h-4 w-4 text-primary/70" />
           </Button>
           {canEditProduct && (
-            <Button size="sm" variant="ghost" onClick={() => navigate(`/products/${p.id}/edit`)}>
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(`/products/${p.id}/edit`)} aria-label="Edit">
               <Edit className="h-4 w-4" />
             </Button>
           )}
           {canDeleteProduct && (
-            <Button size="sm" variant="ghost" onClick={() => setDeleting(p)}>
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setDeleting(p)} aria-label="Delete">
               <Trash2 className="h-4 w-4 text-destructive/70" />
             </Button>
           )}
         </div>
       ),
-    }] : []),
+    },
   ];
+
+  const exportColumns: ExportColumn<Product>[] = [
+    { header: 'Name', value: (p) => p.name },
+    { header: 'Code', value: (p) => p.code },
+    { header: 'SKU', value: (p) => p.sku ?? '' },
+    { header: 'Category', value: (p) => p.category?.name ?? '' },
+    { header: 'Type', value: (p) => statusLabel(p.productType) },
+    { header: 'Cost', value: (p) => (p.costPrice != null ? money(p.costPrice, currency) : ''), align: 'right' },
+    { header: 'Sales price', value: (p) => (p.salesPrice != null ? money(p.salesPrice, currency) : ''), align: 'right' },
+    { header: 'Margin %', value: (p) => marginPct(p)?.toFixed(1) ?? '', align: 'right' },
+    { header: 'Status', value: (p) => (p.isActive ? 'Active' : 'Inactive') },
+  ];
+
+  const fetchAll = () =>
+    fetchAllPages<Product>(async (page, pageSize) => {
+      const res = (await api.get<PaginatedResult<Product>>('/products', { params: { ...query, page, pageSize } })).data;
+      return { rows: res.data, totalPages: res.meta.totalPages };
+    }, { pageSize: 500 });
 
   const meta = data?.meta;
 
@@ -198,12 +290,7 @@ export function ProductsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Products</h1>
-          <p className="text-sm text-gray-500">Goods, services, fees and subscriptions.</p>
-        </div>
-      </div>
+      <ListPageHeader icon={Package} title="Products" description="Goods, services, fees and subscriptions." />
 
       <Tabs defaultValue="products" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
@@ -212,73 +299,67 @@ export function ProductsPage() {
         </TabsList>
 
         <TabsContent value="products" className="space-y-4">
-          {(canCreateProduct || canViewProducts) && (
-            <div className="flex items-center justify-between">
-              <div />
-              {canCreateProduct && (
-                <Button onClick={() => navigate('/products/new')}>
-                  <Plus className="h-4 w-4" /> New Product
-                </Button>
-              )}
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative max-w-sm flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <Input
-                className="pl-9 h-10 border-gray-200 rounded-lg focus:border-[#3b82f6] focus:ring-[#3b82f6]/20"
-                placeholder="Search products..."
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
-            </div>
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger className="w-44 h-10"><SelectValue placeholder="All categories" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">All categories</SelectItem>
-                {categories.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-40 h-10"><SelectValue placeholder="All types" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">All types</SelectItem>
-                {PRODUCT_TYPES.map((t) => (
-                  <SelectItem key={t} value={t}>{t}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
           {canViewProducts ? (
-            <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} getRowId={(p) => p.id} compact />
-          ) : (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">You do not have permission to view products.</p>
-            </div>
-          )}
+            <>
+              <ListToolbar chips={<FilterChips chips={chips} onClearAll={list.clearFilters} />}>
+                <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder="Search name, code or SKU…" />
+                <FilterSelect
+                  value={categoryFilter}
+                  onChange={(v) => list.setFilter('categoryId', v)}
+                  options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                  allLabel="All categories"
+                  className="w-[180px]"
+                />
+                <FilterSelect value={typeFilter} onChange={(v) => list.setFilter('productType', v)} options={TYPE_OPTIONS} allLabel="All types" />
+                <div className="ml-auto flex items-center gap-2">
+                  <ExportMenu
+                    basename="products"
+                    title="Products"
+                    subtitle={describeFilters(chips)}
+                    columns={exportColumns}
+                    pageRows={rows}
+                    total={meta?.total}
+                    fetchAll={fetchAll}
+                  />
+                  {canCreateProduct && (
+                    <Button size="sm" onClick={() => navigate('/products/new')}>
+                      <Plus className="mr-1 h-4 w-4" /> New Product
+                    </Button>
+                  )}
+                </div>
+              </ListToolbar>
 
-          {meta && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>{meta.total} record(s)</span>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                  Previous
-                </Button>
-                <span>Page {meta.page} of {meta.totalPages}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page >= meta.totalPages}
-                  onClick={() => setPage((p) => p + 1)}
-                >
-                  Next
-                </Button>
-              </div>
-            </div>
+              <ListCard>
+                <div className={isFetching && !isLoading ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+                  <DataTable
+                    columns={columns}
+                    data={rows}
+                    loading={isLoading}
+                    loadingRows={10}
+                    getRowId={(p) => p.id}
+                    onRowClick={canEditProduct ? (p) => navigate(`/products/${p.id}/edit`) : undefined}
+                    sort={list.sort}
+                    onSortChange={list.setSort}
+                    cellClassName="py-2 px-4"
+                    headerRowClassName="h-10"
+                    emptyMessage={chips.length ? 'No products match these filters.' : 'No products yet.'}
+                  />
+                </div>
+                {meta && (
+                  <DataTablePagination
+                    page={meta.page}
+                    pageSize={list.pageSize}
+                    total={meta.total}
+                    totalPages={meta.totalPages}
+                    onPageChange={list.setPage}
+                    onPageSizeChange={list.setPageSize}
+                    noun="product"
+                  />
+                )}
+              </ListCard>
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">You do not have permission to view products.</p>
           )}
 
           <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
@@ -408,10 +489,14 @@ export function ProductsPage() {
 
                 <div>
                   <Label className="text-sm font-medium">Parent Category</Label>
-                  <Select value={catParentId} onValueChange={setCatParentId} disabled={catSaving}>
+                  <Select
+                    value={catParentId || NO_PARENT}
+                    onValueChange={(v) => setCatParentId(v === NO_PARENT ? '' : v)}
+                    disabled={catSaving}
+                  >
                     <SelectTrigger className="w-full"><SelectValue placeholder="No parent (top level)" /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">No parent (top level)</SelectItem>
+                      <SelectItem value={NO_PARENT}>No parent (top level)</SelectItem>
                       {categories.filter(c => c.id !== categoryDialog.category?.id).map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                       ))}

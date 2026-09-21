@@ -1396,12 +1396,43 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
   public prismaSvc() { return this.prisma; }
   public tenantSvc() { return this.tenant; }
 
-  async listReceipts(page: number, pageSize: number, search?: string) {
+  async listReceipts(
+    page: number,
+    pageSize: number,
+    search?: string,
+    filters: { paymentMode?: string; settlementStatus?: string; dateFrom?: string; dateTo?: string } = {},
+  ) {
     const orgId = this.tenant.organizationId;
     const where: any = { organizationId: orgId };
     if (search?.trim()) {
       const q = search.trim();
-      where.invoiceNumber = { contains: q, mode: 'insensitive' as Prisma.QueryMode };
+      const partnerIds = (await this.prisma.client.partner.findMany({
+        where: { name: { contains: q, mode: 'insensitive' as Prisma.QueryMode } },
+        select: { id: true },
+        take: 500,
+      })).map((p: any) => p.id);
+      where.OR = [
+        { invoiceNumber: { contains: q, mode: 'insensitive' as Prisma.QueryMode } },
+        ...(partnerIds.length ? [{ partnerId: { in: partnerIds } }] : []),
+      ];
+    }
+    // Unknown enum values would make Prisma throw; ignore them instead.
+    if (filters.paymentMode && RECEIPT_PAYMENT_MODES.includes(filters.paymentMode)) where.paymentMode = filters.paymentMode;
+    if (filters.settlementStatus && RECEIPT_SETTLEMENT_STATUSES.includes(filters.settlementStatus)) {
+      where.settlementStatus = filters.settlementStatus;
+    }
+    const validDate = (v?: string) => !!v && !Number.isNaN(new Date(v).getTime());
+    if (!validDate(filters.dateFrom)) filters.dateFrom = undefined;
+    if (!validDate(filters.dateTo)) filters.dateTo = undefined;
+    if (filters.dateFrom || filters.dateTo) {
+      const issueDate: any = {};
+      if (filters.dateFrom) issueDate.gte = new Date(filters.dateFrom);
+      if (filters.dateTo) {
+        const end = new Date(filters.dateTo);
+        end.setHours(23, 59, 59, 999);
+        issueDate.lte = end;
+      }
+      where.issueDate = issueDate;
     }
     const [items, total] = await Promise.all([
       this.prisma.client.invoice.findMany({
@@ -1462,6 +1493,9 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
     return resolved;
   }
 }
+
+const RECEIPT_PAYMENT_MODES = ['cash', 'card', 'mobile_money', 'mixed', 'credit'];
+const RECEIPT_SETTLEMENT_STATUSES = ['unsettled', 'partially_settled', 'settled', 'written_off'];
 
 /* ============================== CONTROLLER ============================== */
 
@@ -1577,11 +1611,20 @@ export class PosReceiptsController {
 
   @Get()
   @RequirePermissions('pos:read')
-  async list(@Query('page') page?: string, @Query('pageSize') pageSize?: string, @Query('search') search?: string) {
+  async list(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+    @Query('paymentMode') paymentMode?: string,
+    @Query('settlementStatus') settlementStatus?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
     return this.svc.listReceipts(
       Number(page) || 1,
       Math.min(Number(pageSize) || 20, 100),
       search,
+      { paymentMode, settlementStatus, dateFrom, dateTo },
     );
   }
 

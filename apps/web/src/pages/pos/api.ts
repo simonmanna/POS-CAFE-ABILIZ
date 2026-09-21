@@ -659,7 +659,17 @@ export function useReprintReceipt() {
   });
 }
 
-export function useReceipts(params: { page?: number; pageSize?: number; search?: string }) {
+export interface ReceiptListParams {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  paymentMode?: string;
+  settlementStatus?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export function useReceipts(params: ReceiptListParams) {
   return useQuery({
     queryKey: ['receipts', params],
     queryFn: async () => (await api.get<PaginatedResult<Receipt>>('/pos/receipts', { params })).data,
