@@ -59,6 +59,19 @@ Incremental catalog download.
   `deletedAt` set is a tombstone and the client deletes it locally. A "deleted"
   MenuItem is really `isAvailable=false`, an ordinary update.
 - **`staff` includes the bcrypt `pinHash`** so cashiers can log in offline.
+- **Cash & inventory reference data** (the mobile till builds server-valid
+  ops from these):
+  - `paymentMethods`, `ledgerAccounts`, `expenseCategories`, `stockLocations`
+    are small config sets returned **in full on every pull** (the watermark is
+    ignored) so a device never holds a stale tender list or drawer balance.
+  - `ledgerAccounts` rows carry `roles` pre-evaluated with the server's own
+    rules: `drawer`, `cash_short_over`, `default_expense`, `float_source`,
+    `pay_in`, `pay_out`, `expense_payment`; cash-equivalent rows carry their
+    ledger `balance`. Revenue/receivable accounts are never sent.
+  - `expenseCategories` carry `accountId` — the expense account a drawer
+    pay-out for that category debits (resolved like `ExpensesService`).
+  - `stockLevels` (StockItem deltas) and `suppliers` (partners with
+    `isSupplier`) are ordinary `updatedAt` deltas.
 
 ## Push — `POST /sync/push`
 
@@ -82,8 +95,34 @@ The device drains its op queue in `deviceSeq` order.
 
 Op types: `cash_session.open|close|movement`, `sale.checkout`, `tab.settle`,
 `sale.refund`, `sale.void`, `reservation.create|seat|cancel|noShow`,
-`customer.upsert|delete`, `setting.set`. (Canonical list: `SYNC_OP_TYPES` in
-`dto/sync.dto.ts`.)
+`customer.upsert|delete`, `setting.set`, `stock.in|out|count`,
+`expense.create`. (Canonical list: `SYNC_OP_TYPES` in `dto/sync.dto.ts`.)
+
+Each op runs with the actor's **current role permissions** in the tenant
+context (the set a JWT for that user would carry), so service-level
+permission checks evaluate the cashier who did the work.
+
+- **`cash_session.*`** follow the web shift rules: `open` may not count below
+  the drawer ledger, and float added on top needs `openingSourceAccountId` +
+  `notes`; `movement` needs a `reason` and `counterpartAccountId` (adjustments:
+  the `cash_short_over` account), and a pay-out/adjustment needs
+  `approvedById` + `managerPin` of a `cash_session:cash_out` holder who is not
+  the shift's cashier; `close` carries `sessionId`, `closingAccounts` for every
+  shift-tracked tender (or `uncountedAccounts` with reasons), a
+  `varianceReason` for any difference and `approvedById` + `managerPin` when
+  a manager must approve. Open dead letters block every close.
+- **`sale.checkout` tenders** carry the configured tile's `accountId`; their
+  sum must equal the total — cash change travels as `amountTendered`.
+- **`stock.in` / `stock.out`** are the web's direct stock in/out: `locationId`,
+  `items`, `responsibleById`, `approvedById` and — unless the actor
+  self-approves holding `inventory_doc:approve` — the approver's `approverPin`.
+- **`stock.count`** opens (or resumes) a server spot count for the counted
+  products, enters `lines[].countedQty` and submits; variances need a
+  `reason`. An open draft that does not cover the products fails 409 rather
+  than being cancelled.
+- **`expense.create`** is `ExpensesService.create` (CREDIT, or CASH from a
+  safe/bank/wallet `accountId`). An expense paid from the till is not this op
+  — it is a `cash_session.movement` pay-out against the category's account.
 
 - **`reservation.*`** book/seat/cancel/no-show a table. `reservation.create`
   carries a client-minted `id` the server honours as the row id (like
@@ -98,7 +137,9 @@ Op types: `cash_session.open|close|movement`, `sale.checkout`, `tab.settle`,
   batch and the device hasn't seen the server id yet — the sale's `clientId`,
   which the push processor resolves the same way it resolves `cashSessionId`.
   Partial (line-level) refunds are online-only: the device never receives
-  server invoice-item ids.
+  server invoice-item ids. Both require a `reason` and the manager's
+  `overridePin` (a transaction-bound approval, re-verified on replay); goods
+  are restocked unless `stockDisposition` says otherwise.
 
 Each op runs through `IdempotencyService.executeWithKey(opId)` inside a
 per-op tenant context whose identity is `actorUserId`. Handlers are thin

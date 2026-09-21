@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SYNC_PULL_SCOPES, type SyncPullScope } from './dto/sync.dto';
+import { terminalPaymentMethods } from '../accounting/treasury/pos-payment-method.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -309,6 +310,34 @@ export class SyncPullService {
       case 'messages':
         // Handled by readMessagesPaged (seq cursor) — never reached via readScope.
         return [];
+      // ---- Cash & inventory reference data: full snapshots, `since` ignored ----
+      case 'paymentMethods':
+        return terminalPaymentMethods(c, this.tenant.organizationId);
+      case 'ledgerAccounts':
+        return this.readLedgerAccounts();
+      case 'expenseCategories':
+        return this.readExpenseCategories();
+      case 'stockLocations':
+        return c.inventoryLocation.findMany({
+          where: { organizationId: this.tenant.organizationId, isActive: true, deletedAt: null, type: { not: 'transit' } },
+          select: { id: true, code: true, name: true, type: true },
+          orderBy: { code: 'asc' },
+        });
+      // ---- Inventory deltas ----
+      case 'stockLevels':
+        return c.stockItem
+          .findMany({
+            where: { organizationId: this.tenant.organizationId, ...changed },
+            select: { id: true, productId: true, variantId: true, locationId: true, quantity: true, updatedAt: true },
+            orderBy: { updatedAt: 'asc' },
+          })
+          .then((rows: any[]) => rows.map((r) => ({ ...r, quantity: Number(r.quantity) })));
+      case 'suppliers':
+        return c.partner.findMany({
+          where: { organizationId: this.tenant.organizationId, ...changed, isSupplier: true },
+          select: { id: true, name: true, phone: true, notes: true, updatedAt: true, deletedAt: true },
+          orderBy: { updatedAt: 'asc' },
+        });
       case 'reservations':
         // Upcoming/active bookings for the floor. A rolling 24h floor bounds the
         // backfill; the device treats terminal statuses (cancelled/no_show/
@@ -333,5 +362,110 @@ export class SyncPullService {
       default:
         return [];
     }
+  }
+
+  /**
+   * Every account a device may book cash against, with the roles the till
+   * needs to pick the right one offline:
+   *   - `drawer`: a register's cash account (the device matches it to its register);
+   *   - `cash_short_over`: the only valid counterpart of a drawer adjustment;
+   *   - `float_source`: a safe/bank that may fund an opening float;
+   *   - `pay_in` / `pay_out`: the same eligibility `assertMovementCounterpart` enforces.
+   * Cash-equivalent rows carry their ledger balance so the device can pre-check
+   * the opening-float rule (count vs drawer ledger) and payout sufficiency.
+   */
+  private async readLedgerAccounts(): Promise<unknown[]> {
+    const c = this.prisma.client as any;
+    // Explicit organization filters on top of the tenancy extension: this data
+    // steers where a till books money, so it must never cross a tenant.
+    const organizationId = this.tenant.organizationId;
+    const [accounts, registers, mappings] = await Promise.all([
+      c.account.findMany({
+        where: { organizationId, isActive: true, deletedAt: null, isPostable: true },
+        select: {
+          id: true, code: true, name: true,
+          category: { select: { key: true, classification: true, isCashEquivalent: true } },
+        },
+        orderBy: { code: 'asc' },
+      }),
+      c.cashRegister.findMany({ where: { organizationId, deletedAt: null }, select: { defaultAccountId: true } }),
+      c.accountMapping.findMany({ where: { organizationId, key: { in: ['cash_short_over', 'default_expense'] } }, select: { key: true, accountId: true } }),
+    ]);
+    const drawers = new Set<string>(registers.map((r: any) => r.defaultAccountId));
+    const mappedRoles = new Map<string, string[]>();
+    for (const m of mappings as any[]) {
+      if (!m.accountId) continue;
+      mappedRoles.set(m.accountId, [...(mappedRoles.get(m.accountId) ?? []), m.key]);
+    }
+    const cashIds = accounts.filter((a: any) => a.category?.isCashEquivalent).map((a: any) => a.id);
+    const balances = cashIds.length
+      ? await c.journalLine.groupBy({
+          by: ['accountId'],
+          where: { organizationId, accountId: { in: cashIds }, entry: { status: { in: ['posted', 'reversed'] } } },
+          _sum: { baseDebit: true, baseCredit: true },
+        })
+      : [];
+    const balance = new Map<string, number>(
+      balances.map((b: any) => [b.accountId, Number(b._sum.baseDebit ?? 0) - Number(b._sum.baseCredit ?? 0)]),
+    );
+
+    const out: unknown[] = [];
+    for (const a of accounts as any[]) {
+      const key = a.category?.key ?? null;
+      const classification = a.category?.classification ?? null;
+      const cashEq = !!a.category?.isCashEquivalent;
+      const isDrawer = drawers.has(a.id);
+      const roles = [...(mappedRoles.get(a.id) ?? [])];
+      if (isDrawer) roles.push('drawer');
+      if (!isDrawer) {
+        if (cashEq && ['cash', 'petty_cash', 'bank'].includes(key)) roles.push('float_source');
+        if (cashEq || ['equity', 'liability'].includes(classification)) roles.push('pay_in');
+        if (cashEq || ['expense', 'liability', 'equity'].includes(classification)) roles.push('pay_out');
+        if (cashEq) roles.push('expense_payment');
+      }
+      // Revenue/receivable accounts are never valid for a device; skip rows with no role.
+      if (!roles.length) continue;
+      out.push({
+        id: a.id, code: a.code, name: a.name,
+        categoryKey: key, classification, isCashEquivalent: cashEq,
+        balance: cashEq ? (balance.get(a.id) ?? 0) : null,
+        roles,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Active expense categories with the GL account a drawer pay-out for them
+   * must debit — resolved exactly as ExpensesService does (category ledger,
+   * else the first postable expense account), so a till expense and a back-office
+   * expense of the same category hit the same account.
+   */
+  private async readExpenseCategories(): Promise<unknown[]> {
+    const c = this.prisma.client as any;
+    const organizationId = this.tenant.organizationId;
+    const [categories, validExpense, mapping, fallback] = await Promise.all([
+      c.expenseCategory.findMany({
+        where: { organizationId, isActive: true, deletedAt: null },
+        select: { id: true, name: true, ledgerAccountId: true },
+        orderBy: { name: 'asc' },
+      }),
+      c.account.findMany({
+        where: { organizationId, isPostable: true, isActive: true, category: { classification: 'expense' } },
+        select: { id: true },
+      }),
+      c.accountMapping.findFirst({ where: { organizationId, key: 'default_expense' }, select: { accountId: true } }),
+      c.account.findFirst({
+        where: { organizationId, category: { classification: 'expense' }, isPostable: true, isActive: true, deprecatedAt: null },
+        select: { id: true },
+        orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+      }),
+    ]);
+    const valid = new Set<string>(validExpense.map((a: any) => a.id));
+    const orgDefault = mapping?.accountId ?? fallback?.id ?? null;
+    return categories.map((cat: any) => ({
+      ...cat,
+      accountId: cat.ledgerAccountId && valid.has(cat.ledgerAccountId) ? cat.ledgerAccountId : orgDefault,
+    }));
   }
 }

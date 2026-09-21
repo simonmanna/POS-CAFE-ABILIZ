@@ -9,6 +9,9 @@ import { PosReservationsService } from '../pos/pos-reservations.service';
 import { CashSessionService } from '../accounting/treasury/cash-session.service';
 import { CashRegisterService } from '../accounting/treasury/cash-register.service';
 import { ProductService } from '../core/product/product.service';
+import { DirectStockService } from '../inventory/direct-stock.service';
+import { InventoryCountService } from '../inventory/inventory-count.service';
+import { ExpensesService } from '../expenses/expenses.service';
 import type { RequestDevice } from './device-token.guard';
 import type { SyncOpDto, SyncOpResult, SyncPushDto, SyncPushResult } from './dto/sync.dto';
 
@@ -42,6 +45,9 @@ export class SyncPushService {
     private readonly cashSessions: CashSessionService,
     private readonly cashRegisters: CashRegisterService,
     private readonly products: ProductService,
+    private readonly directStock: DirectStockService,
+    private readonly counts: InventoryCountService,
+    private readonly expenses: ExpensesService,
   ) {}
 
   async push(device: RequestDevice, dto: SyncPushDto): Promise<SyncPushResult> {
@@ -51,8 +57,8 @@ export class SyncPushService {
     const clientIdMap = new Map<string, string>();
     /** clientIds owned by ops that failed — dependents must fail too. */
     const failedClientIds = new Set<string>();
-    /** actorUserId → may act for this device's org. One lookup per actor. */
-    const actorOk = new Map<string, boolean>();
+    /** actorUserId → the actor's permissions (null = may not act). One lookup per actor. */
+    const actorOk = new Map<string, string[] | null>();
     let lastAppliedSeq = 0;
 
     for (const op of ops) {
@@ -85,9 +91,9 @@ export class SyncPushService {
   private async actorMayAct(
     device: RequestDevice,
     actorUserId: string,
-    cache: Map<string, boolean>,
-  ): Promise<boolean> {
-    if (!actorUserId) return false;
+    cache: Map<string, string[] | null>,
+  ): Promise<string[] | null> {
+    if (!actorUserId) return null;
     const cached = cache.get(actorUserId);
     if (cached !== undefined) return cached;
 
@@ -98,11 +104,15 @@ export class SyncPushService {
         isActive: true,
         deletedAt: null,
       },
-      select: { id: true },
+      select: { id: true, roles: { select: { permissions: true } } },
     });
-    const ok = !!user;
-    cache.set(actorUserId, ok);
-    return ok;
+    // The actor's current role permissions — the set a JWT for this user would
+    // carry — so service-level `tenant.has()` checks (expense:post,
+    // inventory_doc:approve self-approval, cash_session:correct) evaluate the
+    // cashier who did the work instead of failing closed on an empty set.
+    const permissions = user ? [...new Set(user.roles.flatMap((r: any) => r.permissions ?? []))] as string[] : null;
+    cache.set(actorUserId, permissions);
+    return permissions;
   }
 
   private async applyOp(
@@ -110,14 +120,15 @@ export class SyncPushService {
     op: SyncOpDto,
     clientIdMap: Map<string, string>,
     failedClientIds: Set<string>,
-    actorOk: Map<string, boolean>,
+    actorOk: Map<string, string[] | null>,
   ): Promise<SyncOpResult> {
     // The device asserts who did the work; the server has to verify it. Without
     // this, `actorUserId` was taken on trust and every write below — invoices,
     // GL postings, drawer movements, audit rows — was attributed to and
     // executed as an id nobody had checked for existence, organization or
     // active status. A terminated cashier's queued ops would still apply.
-    if (!(await this.actorMayAct(device, op.actorUserId, actorOk))) {
+    const permissions = await this.actorMayAct(device, op.actorUserId, actorOk);
+    if (!permissions) {
       const why = `Unknown or inactive actorUserId ${op.actorUserId} for this device's organization`;
       await this.deadLetter(device, op, why, 403);
       if (op.payload?.clientId) failedClientIds.add(String(op.payload.clientId));
@@ -139,7 +150,7 @@ export class SyncPushService {
       // Per-op identity: everything the handler writes (createdBy, audit,
       // drawer ownership) is attributed to the cashier who did it offline.
       const outcome = await this.tenant.run(
-        { organizationId: device.organizationId, userId: op.actorUserId },
+        { organizationId: device.organizationId, userId: op.actorUserId, permissions },
         () =>
           this.idempotency.executeWithKey({
             key: op.opId,
@@ -228,6 +239,8 @@ export class SyncPushService {
         const session = await this.cashSessions.open({
           cashRegisterId: payload.cashRegisterId,
           openingFloat: payload.openingFloat,
+          openingSourceAccountId: payload.openingSourceAccountId,
+          openingAccounts: payload.openingAccounts,
           notes: payload.notes,
           openingDenomination: payload.openingDenomination,
           occurredAt,
@@ -237,6 +250,12 @@ export class SyncPushService {
         return { id: session.id, mapping: { [String(payload.clientId ?? 'sessionId')]: session.id } };
       }
       case 'cash_session.close': {
+        // A device pushes its last sales and the close in one batch. Those
+        // sales' stock postings are queued for the async worker, and a pending
+        // job blocks the close — so run this shift's jobs now, exactly as the
+        // worker would. A job that genuinely fails stays pending and the close
+        // is refused as before.
+        if (payload.sessionId) await this.drainStockPostings(String(payload.sessionId));
         const closed = await this.cashSessions.close({
           closingCounted: payload.closingCounted,
           closingAccounts: payload.closingAccounts,
@@ -590,9 +609,98 @@ export class SyncPushService {
         });
         return { id: conversationId };
       }
+      // ───────────── Inventory — direct stock in/out and counts ─────────────
+      // Same services (so the same responsible/approver attribution, batch and
+      // expiry rules and GL postings) as the web forms. The approver proves the
+      // approval with their override PIN, or the actor self-approves while
+      // holding inventory_doc:approve.
+      case 'stock.in': {
+        const doc: any = await this.directStock.directIn({
+          locationId: payload.locationId,
+          responsibleById: payload.responsibleById ?? op.actorUserId,
+          approvedById: payload.approvedById,
+          approverPin: payload.approverPin,
+          items: payload.items,
+          notes: payload.notes,
+        });
+        return { id: doc?.id ?? null, mapping: { stockDocId: String(doc?.id ?? '') } };
+      }
+      case 'stock.out': {
+        const doc: any = await this.directStock.directOut({
+          locationId: payload.locationId,
+          responsibleById: payload.responsibleById ?? op.actorUserId,
+          approvedById: payload.approvedById,
+          approverPin: payload.approverPin,
+          items: payload.items,
+          notes: payload.notes,
+        });
+        return { id: doc?.id ?? null, mapping: { stockDocId: String(doc?.id ?? '') } };
+      }
+      case 'stock.count':
+        return this.applyStockCount(payload);
+      // ───────────── Expenses (not from the drawer) ─────────────
+      // A till expense paid from the drawer is a `cash_session.movement` pay_out
+      // against the category's expense account — drawers move only through their
+      // shift. This op covers credit expenses and cash paid from a safe, bank or
+      // mobile-money account.
+      case 'expense.create': {
+        const { clientId: _ec, ...dto } = payload;
+        const e: any = await this.expenses.create({ ...dto, expenseDate: dto.expenseDate ?? occurredAt } as any);
+        return { id: e?.id ?? null, mapping: { expenseId: String(e?.id ?? ''), expenseCode: String(e?.expenseCode ?? '') } };
+      }
       default:
         throw new HttpException(`Unsupported sync op type: ${op.type}`, 400);
     }
+  }
+
+  /** Process the not-yet-done stock-posting jobs of one shift's invoices. */
+  private async drainStockPostings(cashSessionId: string): Promise<void> {
+    const invoices = await this.prisma.client.invoice.findMany({ where: { cashSessionId }, select: { id: true } });
+    if (!invoices.length) return;
+    const jobs = await this.prisma.client.stockPostingJob.findMany({
+      where: { status: { not: 'done' }, invoiceId: { in: invoices.map((i: any) => i.id) } },
+      select: { id: true },
+    });
+    for (const job of jobs) {
+      await this.billing.processStockPostingJob(job.id).catch((e: unknown) =>
+        this.logger.warn(`stock posting ${job.id} before close failed: ${String(e)}`));
+    }
+  }
+
+  /**
+   * An offline count: open (or resume) a spot count scoped to the counted
+   * products, enter the device's figures and submit. The server recomputes
+   * system quantities and variances at submit, and a draft that someone else
+   * already started is never cancelled — the op fails 409 instead.
+   */
+  private async applyStockCount(payload: Record<string, any>): Promise<any> {
+    const lines: Array<{ productId: string; countedQty: number; reason?: string }> = Array.isArray(payload.lines) ? payload.lines : [];
+    if (!payload.locationId || !lines.length) throw new HttpException('stock.count requires locationId and lines', 400);
+    const productIds = [...new Set(lines.map((l) => String(l.productId)))];
+    const session: any = await this.counts.start({
+      locationId: payload.locationId,
+      countType: 'spot',
+      scopeProductIds: productIds,
+      notes: payload.notes,
+    } as any);
+    const lineByProduct = new Map<string, any>();
+    for (const l of session.lines ?? []) if (!l.variantId) lineByProduct.set(String(l.productId), l);
+    const missing = productIds.filter((id) => !lineByProduct.has(id));
+    if (missing.length) {
+      throw new HttpException(
+        `An open spot count on this location does not cover ${missing.length} counted product(s) — finish or cancel it in the back office, then retry`,
+        409,
+      );
+    }
+    await this.counts.saveDraft(session.id, {
+      lines: lines.map((l) => ({
+        lineId: lineByProduct.get(String(l.productId)).id,
+        countedQty: Number(l.countedQty),
+        reason: l.reason?.trim() || payload.reason?.trim() || 'Device count',
+      })),
+    } as any);
+    await this.counts.submit(session.id, {});
+    return { id: session.id, mapping: { countId: String(session.id), countCode: String(session.countCode ?? '') } };
   }
 
   /** A master-data op must carry the client-minted row id (== server id). */

@@ -55,6 +55,12 @@ export const SYNC_OP_TYPES = [
   // == server id, so a replayed op upserts the same row.
   'message.send',
   'message.markRead',
+  // Inventory + expenses authored on the device. Stock ops carry the same
+  // responsible/approver attribution (approver PIN) the web forms require.
+  'stock.in',
+  'stock.out',
+  'stock.count',
+  'expense.create',
 ] as const;
 export type SyncOpType = (typeof SYNC_OP_TYPES)[number];
 
@@ -122,5 +128,14 @@ export const SYNC_PULL_SCOPES = [
   // watermark); `messages` is high-volume append-only and uses a seq cursor.
   'conversations',
   'messages',
+  // Cash & inventory reference data. Small, config-shaped sets — returned in
+  // full on every pull (no updatedAt watermark) so a device never holds a stale
+  // drawer balance, tender list or on-hand figure.
+  'paymentMethods',
+  'ledgerAccounts',
+  'expenseCategories',
+  'stockLocations',
+  'stockLevels',
+  'suppliers',
 ] as const;
 export type SyncPullScope = (typeof SYNC_PULL_SCOPES)[number];
