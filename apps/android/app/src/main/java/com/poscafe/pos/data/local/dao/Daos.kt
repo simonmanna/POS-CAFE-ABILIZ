@@ -200,6 +200,9 @@ interface SaleDao {
 
     @Query("SELECT COUNT(*) FROM local_sales WHERE cashSessionLocalId = :sessionLocalId")
     suspend fun sessionCount(sessionLocalId: String): Int
+
+    @Query("SELECT * FROM local_sales WHERE cashSessionLocalId = :sessionLocalId")
+    suspend fun forSession(sessionLocalId: String): List<LocalSaleEntity>
 }
 
 @Dao
@@ -215,6 +218,9 @@ interface RefundDao {
     /** Sum of refunds/voids on a session — drawer cash that left for refunds. */
     @Query("SELECT COALESCE(SUM(amount), 0) FROM local_refunds WHERE cashSessionLocalId = :sessionLocalId")
     suspend fun sessionRefundTotal(sessionLocalId: String): Double
+
+    @Query("SELECT * FROM local_refunds WHERE cashSessionLocalId = :sessionLocalId")
+    suspend fun forSession(sessionLocalId: String): List<LocalRefundEntity>
 
     @Query("UPDATE local_refunds SET syncStatus = :status, serverInvoiceId = COALESCE(:serverInvoiceId, serverInvoiceId), lastError = :error WHERE id = :id")
     suspend fun markSync(id: String, status: String, serverInvoiceId: String?, error: String?)
@@ -236,8 +242,8 @@ interface CashSessionDao {
     @Query("SELECT * FROM local_cash_sessions WHERE id = :id")
     suspend fun byId(id: String): LocalCashSessionEntity?
 
-    @Query("UPDATE local_cash_sessions SET status = 'closed', closedAt = :closedAt, closingCounted = :counted, varianceReason = :reason WHERE id = :id")
-    suspend fun close(id: String, closedAt: Long, counted: Double, reason: String?)
+    @Query("UPDATE local_cash_sessions SET status = 'closed', closedAt = :closedAt, closingCounted = :counted, varianceReason = :reason, closingAccountsJson = :closingAccountsJson WHERE id = :id")
+    suspend fun close(id: String, closedAt: Long, counted: Double, reason: String?, closingAccountsJson: String? = null)
 
     @Query("UPDATE local_cash_sessions SET syncStatus = :status, serverId = :serverId WHERE id = :id")
     suspend fun markSync(id: String, status: String, serverId: String?)
@@ -273,6 +279,7 @@ interface SupplierDao {
 
     @Upsert suspend fun upsert(row: SupplierEntity)
     @Query("DELETE FROM suppliers WHERE id = :id") suspend fun delete(id: String)
+    @Query("SELECT * FROM suppliers WHERE id = :id") suspend fun byId(id: String): SupplierEntity?
 }
 
 @Dao
@@ -315,6 +322,9 @@ interface PurchaseDao {
 
     @Insert suspend fun insert(row: PurchaseEntity)
     @Insert suspend fun insertItems(rows: List<PurchaseItemEntity>)
+
+    @Query("UPDATE purchases SET syncStatus = :status WHERE id = :id")
+    suspend fun markSync(id: String, status: String)
 }
 
 @Dao
@@ -327,6 +337,9 @@ interface ExpenseDao {
 
     @Insert suspend fun insert(row: ExpenseEntity)
     @Query("DELETE FROM expenses WHERE id = :id") suspend fun delete(id: String)
+
+    @Query("UPDATE expenses SET syncStatus = :status, lastError = :error WHERE id = :id")
+    suspend fun markSync(id: String, status: String, error: String?)
 }
 
 @Dao
@@ -417,6 +430,9 @@ interface TabDao {
     @Query("SELECT tableId FROM local_tabs")
     fun openTableIds(): Flow<List<String>>
 
+    @Query("SELECT COUNT(*) FROM local_tabs")
+    suspend fun openCount(): Int
+
     @Upsert suspend fun upsert(tab: LocalTabEntity)
     @Query("DELETE FROM local_tabs WHERE tableId = :tableId") suspend fun delete(tableId: String)
 }
@@ -439,6 +455,12 @@ interface OpQueueDao {
 
     @Query("SELECT * FROM op_queue WHERE status = 'queued' AND type = :type")
     suspend fun queuedOfType(type: String): List<OpQueueEntity>
+
+    @Query("SELECT COUNT(*) FROM op_queue WHERE status = 'queued'")
+    suspend fun queuedNow(): Int
+
+    @Query("SELECT COUNT(*) FROM op_queue WHERE status = 'failed'")
+    suspend fun failedNow(): Int
 
     @Query("UPDATE op_queue SET status = :status, attempts = attempts + 1, lastError = :error WHERE opId = :opId")
     suspend fun mark(opId: String, status: String, error: String?)

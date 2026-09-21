@@ -30,6 +30,9 @@ import com.poscafe.pos.data.local.entity.MenuItemEntity
 import com.poscafe.pos.data.local.entity.ProductEntity
 import com.poscafe.pos.data.local.entity.SupplierEntity
 import com.poscafe.pos.data.repo.AuthRepository
+import com.poscafe.pos.data.repo.StockRepository
+import com.poscafe.pos.ui.components.ApprovalGate
+import com.poscafe.pos.ui.components.ApprovalPinDialog
 import com.poscafe.pos.ui.components.EmptyState
 import com.poscafe.pos.ui.components.StatusPill
 import com.poscafe.pos.ui.theme.LocalPosAccents
@@ -53,6 +56,7 @@ class StockViewModel @Inject constructor(
     settingsDao: SettingsDao,
     private val inventoryDao: InventoryDao,
     private val auth: AuthRepository,
+    private val stock: StockRepository,
 ) : ViewModel() {
     val items: StateFlow<List<MenuItemEntity>> =
         menuDao.allItemsIncludingUnavailable().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -60,8 +64,23 @@ class StockViewModel @Inject constructor(
         inventoryDao.stockLevels().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val products: StateFlow<List<ProductEntity>> =
         productDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    /** Local movement sums — also the trigger to refresh [productOnHand]. */
     val productLevels: StateFlow<List<InventoryDao.ProductStockLevel>> =
         inventoryDao.productStockLevels().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Server on-hand at this till's location + device movements since the last pull. */
+    var productOnHand by mutableStateOf<Map<String, Double>>(emptyMap()); private set
+    var locationName by mutableStateOf<String?>(null); private set
+    var error by mutableStateOf<String?>(null); private set
+    val approval = ApprovalGate(auth, StockRepository.APPROVE_PERMISSION)
+    val syncsStock: Boolean get() = stock.syncsStock
+
+    fun refreshOnHand() {
+        viewModelScope.launch {
+            productOnHand = stock.productOnHand()
+            locationName = stock.location()?.name
+        }
+    }
     val movements: StateFlow<List<InventoryMovementEntity>> =
         inventoryDao.recent(200).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val suppliers: StateFlow<List<SupplierEntity>> =
@@ -90,31 +109,26 @@ class StockViewModel @Inject constructor(
 
     /** Record a manual movement. qty is entered positive; the type sets the sign
      *  (purchase +, waste/transfer −, adjustment carries its own direction).
-     *  Product rows use menuItemId = "" + productId, matching sale movements. */
-    fun record(menuItemId: String, productId: String?, type: String, qty: Double, direction: Int, unitCost: Double?, supplierId: String?, reason: String?) {
-        viewModelScope.launch {
-            val signed = when (type) {
-                "purchase" -> qty
-                "waste", "transfer" -> -qty
-                else -> qty * direction
-            }
-            inventoryDao.insert(
-                InventoryMovementEntity(
-                    id = UUID.randomUUID().toString(),
-                    menuItemId = menuItemId,
-                    type = type,
-                    qtyDelta = signed,
-                    unitCost = unitCost,
-                    supplierId = supplierId,
-                    reason = reason?.takeIf { it.isNotBlank() },
-                    saleLocalId = null,
-                    actorUserId = auth.current?.userId,
-                    occurredAt = System.currentTimeMillis(),
-                    productId = productId,
-                ),
-            )
+     *  Product rows use menuItemId = "" + productId, matching sale movements, and
+     *  reach the server as stock in/out — which needs an approver. */
+    fun record(menuItemId: String, productId: String?, type: String, qty: Double, direction: Int, unitCost: Double?, supplierId: String?, reason: String?, onDone: () -> Unit) {
+        error = null
+        approval.request(
+            viewModelScope,
+            needed = productId != null && stock.syncsStock,
+            selfApproverId = stock.selfApproval()?.approverId,
+        ) { approverId, pin ->
+            runCatching {
+                stock.record(
+                    menuItemId, productId, type, qty, direction, unitCost, supplierId, reason,
+                    approval = approverId?.let { StockRepository.Approval(it, pin) },
+                )
+            }.onSuccess { refreshOnHand(); onDone() }
+                .onFailure { error = it.message }
         }
     }
+
+    fun submitPin(pin: String) = approval.submit(viewModelScope, pin)
 }
 
 /** One row in the Levels list — either a menu item or a retail product. */
@@ -138,7 +152,11 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
     val reorderByItem by vm.reorderByItem.collectAsStateWithLifecycle()
 
     val levelByItem = remember(levels) { levels.associate { it.menuItemId to it.onHand } }
-    val levelByProduct = remember(productLevels) { productLevels.associate { it.productId to it.onHand } }
+    LaunchedEffect(productLevels) { vm.refreshOnHand() }
+    // The server-synced figure when this device has one; the local movement sum otherwise.
+    val levelByProduct = remember(productLevels, vm.productOnHand) {
+        productLevels.associate { it.productId to it.onHand } + vm.productOnHand
+    }
     val itemNames = remember(items) { items.associate { it.id to it.name } }
     val productNames = remember(products) { products.associate { it.id to it.name } }
     var lowOnly by remember { mutableStateOf(false) }
@@ -176,6 +194,9 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     FilterChip(selected = lowOnly, onClick = { lowOnly = !lowOnly }, label = { Text("Low stock only") })
+                    vm.locationName?.let {
+                        Text("  @ $it", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     Spacer(Modifier.weight(1f))
                     Text("Tap an item for history / adjust", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -305,16 +326,27 @@ fun StockScreen(onBack: () -> Unit, vm: StockViewModel = hiltViewModel()) {
             name = row.name,
             onHand = row.onHand,
             suppliers = suppliers,
+            synced = row.isProduct && vm.syncsStock,
+            error = vm.error,
             onRecord = { type, qty, direction, cost, supplierId, reason ->
                 vm.record(
                     menuItemId = if (row.isProduct) "" else row.id,
                     productId = if (row.isProduct) row.id else null,
                     type = type, qty = qty, direction = direction,
                     unitCost = cost, supplierId = supplierId, reason = reason,
-                )
-                recordFor = null
+                ) { recordFor = null }
             },
             onDismiss = { recordFor = null },
+        )
+    }
+
+    if (vm.approval.prompting) {
+        ApprovalPinDialog(
+            title = "Approve stock movement",
+            message = "Stock movements post to the books immediately. A manager with stock-approval rights must approve.",
+            error = vm.approval.error,
+            onSubmit = vm::submitPin,
+            onDismiss = vm.approval::cancel,
         )
     }
 }
@@ -378,6 +410,8 @@ private fun RecordMovementDialog(
     name: String,
     onHand: Double,
     suppliers: List<SupplierEntity>,
+    synced: Boolean,
+    error: String?,
     onRecord: (type: String, qty: Double, direction: Int, unitCost: Double?, supplierId: String?, reason: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -411,7 +445,8 @@ private fun RecordMovementDialog(
                     TypeChip("Purchase", type == "purchase") { type = "purchase" }
                     TypeChip("Waste", type == "waste") { type = "waste" }
                     TypeChip("Adjust", type == "adjustment") { type = "adjustment" }
-                    TypeChip("Transfer", type == "transfer") { type = "transfer" }
+                    // Branch transfers go through the back office (goods in transit).
+                    if (!synced) TypeChip("Transfer", type == "transfer") { type = "transfer" }
                 }
                 OutlinedTextField(
                     value = qty, onValueChange = { qty = it.filter { c -> c.isDigit() || c == '.' } },
@@ -445,14 +480,23 @@ private fun RecordMovementDialog(
                 }
                 OutlinedTextField(
                     value = reason, onValueChange = { reason = it },
-                    label = { Text("Reason / note") },
+                    label = { Text(if (synced) "Reason (required)" else "Reason / note") },
                     shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth(),
                 )
+                if (synced) {
+                    val goesIn = type == "purchase" || (type == "adjustment" && direction == 1)
+                    Text(
+                        "Syncs to the server as a stock ${if (goesIn) "in" else "out"}.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
             Button(
-                enabled = qtyValue != null && qtyValue > 0,
+                enabled = qtyValue != null && qtyValue > 0 && (!synced || reason.isNotBlank()),
                 shape = MaterialTheme.shapes.medium,
                 onClick = {
                     onRecord(type, qtyValue ?: 0.0, direction, cost.toDoubleOrNull(), supplierId, reason)

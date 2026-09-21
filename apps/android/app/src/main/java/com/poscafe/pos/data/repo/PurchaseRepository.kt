@@ -16,10 +16,15 @@ import javax.inject.Singleton
  * per line all land in a single transaction — on-hand still derives purely
  * from movements, so a purchase can never leave stock and its audit trail out
  * of step.
+ *
+ * On an enrolled device the purchase's retail-product lines are also queued as
+ * one server `stock.in` (op id = purchase id), carrying the unit costs and the
+ * approver the server requires. Menu-item lines stay device-local.
  */
 @Singleton
 class PurchaseRepository @Inject constructor(
     private val db: PosDatabase,
+    private val stock: StockRepository,
 ) {
     data class Line(val menuItemId: String, val name: String, val quantity: Double, val unitCost: Double, val productId: String? = null)
 
@@ -29,8 +34,15 @@ class PurchaseRepository @Inject constructor(
         reference: String?,
         note: String?,
         lines: List<Line>,
+        approval: StockRepository.Approval? = null,
     ): PurchaseEntity {
         require(lines.isNotEmpty()) { "Add at least one item" }
+        val productLines = lines.filter { it.productId != null }
+        val syncs = stock.syncsStock && productLines.isNotEmpty()
+        if (syncs) {
+            requireNotNull(approval) { "An approver is required to receive stock" }
+            checkNotNull(stock.location()) { "Sync first — this device has no stock location" }
+        }
         val purchaseId = UUID.randomUUID().toString()
         val now = Instant.now().toEpochMilli()
         val total = lines.sumOf { it.quantity * it.unitCost }
@@ -45,6 +57,7 @@ class PurchaseRepository @Inject constructor(
             actorUserId = actorUserId,
             occurredAt = now,
             createdAt = now,
+            syncStatus = if (syncs) "queued" else "local",
         )
         val items = lines.map {
             PurchaseItemEntity(
@@ -79,6 +92,21 @@ class PurchaseRepository @Inject constructor(
             db.purchaseDao().insert(purchase)
             db.purchaseDao().insertItems(items)
             db.inventoryDao().insertAll(movements)
+        }
+        if (syncs) {
+            val supplier = supplierId?.let { db.supplierDao().byId(it)?.name }
+            val notes = listOfNotNull(
+                "Purchase",
+                supplier?.let { "from $it" },
+                purchase.reference?.let { "ref $it" },
+                purchase.note,
+            ).joinToString(" · ")
+            stock.receivePurchase(
+                purchaseId = purchaseId,
+                lines = productLines.map { Triple(it.productId!!, it.quantity, it.unitCost) },
+                notes = notes,
+                approval = approval!!,
+            )
         }
         return purchase
     }

@@ -107,7 +107,12 @@ class TerminalViewModel @Inject constructor(
     private val sessions: CashSessionRepository,
     private val printer: ReceiptPrinter,
     val config: DeviceConfig,
+    cashRefs: com.poscafe.pos.data.local.dao.CashInventoryDao,
 ) : ViewModel() {
+
+    /** The org's configured payment tiles (same as the web terminal); empty until synced. */
+    val paymentMethods: StateFlow<List<com.poscafe.pos.data.local.entity.PaymentMethodEntity>> =
+        cashRefs.paymentMethodsFlow().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val selectedCategory = MutableStateFlow<String?>(null)
     val categories: StateFlow<List<MenuCategoryEntity>> =
@@ -553,15 +558,20 @@ class TerminalViewModel @Inject constructor(
 
     // ---- cash session ----
 
-    var registers by mutableStateOf<List<CashRegisterEntity>>(emptyList()); private set
+    var opening by mutableStateOf<CashSessionRepository.OpeningOptions?>(null); private set
+    var openError by mutableStateOf<String?>(null); private set
 
-    fun loadRegisters() { viewModelScope.launch { registers = registerDao.all() } }
+    fun loadRegisters() {
+        openError = null
+        viewModelScope.launch { opening = sessions.openingOptions() }
+    }
 
-    fun openSession(registerId: String, float: Double) {
+    fun openSession(registerId: String, float: Double, sourceId: String?, notes: String?, onDone: () -> Unit) {
         val user = auth.current ?: return
         viewModelScope.launch {
-            runCatching { sessions.open(user.userId, registerId, float) }
-                .onFailure { error = it.message }
+            runCatching { sessions.open(user.userId, registerId, float, sourceId, notes) }
+                .onFailure { openError = it.message }
+                .onSuccess { openError = null; onDone() }
         }
     }
 }
@@ -714,12 +724,15 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
         }
     }
 
+    val paymentMethods by vm.paymentMethods.collectAsStateWithLifecycle()
+
     if (showCheckout) {
         CheckoutSheet(
             total = vm.totals.total,
             charging = vm.charging,
             error = vm.error,
             hasCustomer = selectedCustomer != null,
+            methods = paymentMethods,
             onDismiss = { showCheckout = false },
             onCharge = { tenders ->
                 vm.charge(tenders) { showCheckout = false }
@@ -741,6 +754,7 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
             charging = vm.charging,
             error = vm.error,
             hasCustomer = selectedCustomer != null,
+            methods = paymentMethods,
             onDismiss = { splitCheckout = false },
             onCharge = { tenders ->
                 vm.settleLines(splitSelection, tenders) { splitCheckout = false }
@@ -766,8 +780,11 @@ fun TerminalScreen(vm: TerminalViewModel, onMenu: (() -> Unit)? = null) {
 
     if (showOpenSession) {
         OpenSessionDialog(
-            registers = vm.registers,
-            onOpen = { registerId, float -> vm.openSession(registerId, float); showOpenSession = false },
+            options = vm.opening,
+            error = vm.openError,
+            onOpen = { registerId, float, sourceId, notes ->
+                vm.openSession(registerId, float, sourceId, notes) { showOpenSession = false }
+            },
             onDismiss = { showOpenSession = false },
         )
     }
@@ -1757,6 +1774,8 @@ private fun CheckoutSheet(
     charging: Boolean,
     error: String?,
     hasCustomer: Boolean,
+    /** Configured tiles; when empty the legacy fixed tiles are shown. */
+    methods: List<com.poscafe.pos.data.local.entity.PaymentMethodEntity>,
     onDismiss: () -> Unit,
     onCharge: (tenders: List<SaleRepository.Tender>) -> Unit,
 ) {
@@ -1768,6 +1787,11 @@ private fun CheckoutSheet(
     val remaining = (total - paid).coerceAtLeast(0.0)
 
     var method by remember { mutableStateOf("cash") }
+    // The configured tile picked (its receiving account travels with the tender).
+    val tiles = remember(methods, hasCustomer) { methods.filter { it.kind != "store_credit" || hasCustomer } }
+    var tileId by remember(tiles) { mutableStateOf(tiles.firstOrNull { it.kind == "cash" }?.id ?: tiles.firstOrNull()?.id) }
+    val tile = tiles.firstOrNull { it.id == tileId }
+    LaunchedEffect(tile) { tile?.let { method = it.kind } }
     var tendered by remember(remaining) { mutableStateOf("%.0f".format(remaining)) }
     var reference by remember { mutableStateOf("") }
     val pending = tendered.toDoubleOrNull() ?: 0.0
@@ -1817,7 +1841,11 @@ private fun CheckoutSheet(
                     Modifier.fillMaxWidth().padding(top = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(tenderLabel(leg.method), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                    Text(
+                        methods.firstOrNull { it.kind == leg.method && it.accountId == leg.accountId }?.label ?: tenderLabel(leg.method),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
                     Text(Money.format(leg.amount), style = MaterialTheme.typography.bodyMedium)
                     IconButton(onClick = { legs.removeAt(i) }) {
                         Icon(Icons.Outlined.DeleteOutline, "Remove", tint = MaterialTheme.colorScheme.error)
@@ -1829,6 +1857,17 @@ private fun CheckoutSheet(
                 Spacer(Modifier.height(16.dp))
                 Text(if (legs.isEmpty()) "Payment method" else "Add payment", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(10.dp))
+                if (tiles.isNotEmpty()) {
+                    tiles.chunked(3).forEachIndexed { rowIndex, row ->
+                        if (rowIndex > 0) Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            row.forEach { m ->
+                                PayMethodCard(m.label, kindIcon(m.kind), tileId == m.id, Modifier.weight(1f)) { tileId = m.id }
+                            }
+                            repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                } else {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PayMethodCard("Cash", Icons.Outlined.Payments, method == "cash", Modifier.weight(1f)) { method = "cash" }
                     PayMethodCard("Card", Icons.Outlined.CreditCard, method == "card", Modifier.weight(1f)) { method = "card" }
@@ -1843,6 +1882,7 @@ private fun CheckoutSheet(
                         Spacer(Modifier.weight(1f))
                     }
                     Spacer(Modifier.weight(1f))
+                }
                 }
 
                 Spacer(Modifier.height(16.dp))
@@ -1900,7 +1940,7 @@ private fun CheckoutSheet(
                     OutlinedTextField(
                         value = reference,
                         onValueChange = { reference = it },
-                        label = { Text("Reference (optional)") },
+                        label = { Text(if (tile?.requiresReference == true) "Reference (required)" else "Reference (optional)") },
                         shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -1927,16 +1967,33 @@ private fun CheckoutSheet(
                     if (covered && pending <= 0.0) {
                         onCharge(legs.toList())
                     } else if (pending > 0.0) {
-                        legs.add(SaleRepository.Tender(method, pending, reference.takeIf { it.isNotBlank() }))
+                        legs.add(
+                            SaleRepository.Tender(
+                                method,
+                                pending,
+                                reference.takeIf { it.isNotBlank() },
+                                accountId = tile?.accountId.takeIf { tile?.kind == method },
+                            ),
+                        )
                         reference = ""
                         if (legs.sumOf { it.amount } >= total - 0.01) onCharge(legs.toList())
                     }
                 },
-                enabled = !charging && (covered || pending > 0.0),
+                enabled = !charging && (covered || pending > 0.0) &&
+                    (covered || tile?.requiresReference != true || reference.isNotBlank()),
                 modifier = Modifier.fillMaxWidth(),
             )
         }
     }
+}
+
+private fun kindIcon(kind: String): ImageVector = when (kind) {
+    "cash" -> Icons.Outlined.Payments
+    "card" -> Icons.Outlined.CreditCard
+    "mobile_money" -> Icons.Outlined.Smartphone
+    "bank" -> Icons.Outlined.AccountBalance
+    "store_credit" -> Icons.Outlined.Loyalty
+    else -> Icons.Outlined.Payments
 }
 
 private fun tenderLabel(method: String): String = when (method) {
@@ -2194,63 +2251,3 @@ fun tableStatusColor(status: String): Color = when (status.lowercase()) {
     else -> MaterialTheme.colorScheme.outline
 }
 
-@Composable
-fun OpenSessionDialog(
-    registers: List<CashRegisterEntity>,
-    onOpen: (registerId: String, float: Double) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var registerId by remember(registers) { mutableStateOf(registers.firstOrNull()?.id) }
-    var float by remember { mutableStateOf("0") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = MaterialTheme.shapes.extraLarge,
-        title = { Text("Open cash session", style = MaterialTheme.typography.headlineSmall) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (registers.isEmpty()) {
-                    Text(
-                        "No cash registers synced to this device yet — pull from the server first.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                } else {
-                    Text("Register", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    registers.forEach { r ->
-                        Surface(
-                            onClick = { registerId = r.id },
-                            shape = MaterialTheme.shapes.medium,
-                            color = if (registerId == r.id) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f) else MaterialTheme.colorScheme.surface,
-                            border = BorderStroke(
-                                1.dp,
-                                if (registerId == r.id) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
-                            ),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                "${r.code}${r.name?.let { " — $it" } ?: ""}",
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(12.dp),
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = float,
-                        onValueChange = { float = it.filter { c -> c.isDigit() || c == '.' } },
-                        label = { Text("Opening float (UGX)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = registerId != null,
-                shape = MaterialTheme.shapes.medium,
-                onClick = { registerId?.let { onOpen(it, float.toDoubleOrNull() ?: 0.0) } },
-            ) { Text("Open session") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}

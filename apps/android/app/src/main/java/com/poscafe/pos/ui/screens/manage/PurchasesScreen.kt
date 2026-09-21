@@ -32,6 +32,9 @@ import com.poscafe.pos.data.local.entity.PurchaseEntity
 import com.poscafe.pos.data.local.entity.SupplierEntity
 import com.poscafe.pos.data.repo.AuthRepository
 import com.poscafe.pos.data.repo.PurchaseRepository
+import com.poscafe.pos.data.repo.StockRepository
+import com.poscafe.pos.ui.components.ApprovalGate
+import com.poscafe.pos.ui.components.ApprovalPinDialog
 import com.poscafe.pos.ui.components.EmptyState
 import com.poscafe.pos.ui.components.Money
 import com.poscafe.pos.ui.components.PrimaryButton
@@ -53,6 +56,7 @@ class PurchasesViewModel @Inject constructor(
     purchaseDao: PurchaseDao,
     private val purchases: PurchaseRepository,
     private val auth: AuthRepository,
+    private val stock: StockRepository,
 ) : ViewModel() {
     val items: StateFlow<List<MenuItemEntity>> =
         menuDao.allItemsIncludingUnavailable().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
@@ -65,13 +69,27 @@ class PurchasesViewModel @Inject constructor(
 
     var error by mutableStateOf<String?>(null); private set
 
+    val approval = ApprovalGate(auth, StockRepository.APPROVE_PERMISSION)
+
+    /** Retail-product lines post to the server as a stock-in, which needs an approver. */
     fun receive(supplierId: String?, reference: String?, note: String?, lines: List<PurchaseRepository.Line>, onDone: () -> Unit) {
-        viewModelScope.launch {
-            runCatching { purchases.receive(auth.current?.userId, supplierId, reference, note, lines) }
-                .onSuccess { error = null; onDone() }
+        error = null
+        approval.request(
+            viewModelScope,
+            needed = stock.syncsStock && lines.any { it.productId != null },
+            selfApproverId = stock.selfApproval()?.approverId,
+        ) { approverId, pin ->
+            runCatching {
+                purchases.receive(
+                    auth.current?.userId, supplierId, reference, note, lines,
+                    approval = approverId?.let { StockRepository.Approval(it, pin) },
+                )
+            }.onSuccess { onDone() }
                 .onFailure { error = it.message }
         }
     }
+
+    fun submitPin(pin: String) = approval.submit(viewModelScope, pin)
 }
 
 /** Purchasable stock target — a menu item or a retail product. */
@@ -162,6 +180,16 @@ fun PurchasesScreen(onBack: () -> Unit, vm: PurchasesViewModel = hiltViewModel()
                 vm.receive(supplierId, reference, note, lines) { building = false }
             },
             onDismiss = { building = false },
+        )
+    }
+
+    if (vm.approval.prompting) {
+        ApprovalPinDialog(
+            title = "Approve stock received",
+            message = "Received products post to stock and the books immediately. A manager with stock-approval rights must approve.",
+            error = vm.approval.error,
+            onSubmit = vm::submitPin,
+            onDismiss = vm.approval::cancel,
         )
     }
 }

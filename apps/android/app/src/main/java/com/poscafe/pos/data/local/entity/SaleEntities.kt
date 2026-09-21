@@ -50,6 +50,8 @@ data class LocalCashSessionEntity(
     val status: String, // open | closed
     val syncStatus: String, // queued | pushed | failed
     val serverId: String?,
+    /** accountId → counted balance of each shift-tracked tender at close. */
+    val closingAccountsJson: String? = null,
 )
 
 @Entity(tableName = "local_cash_movements")

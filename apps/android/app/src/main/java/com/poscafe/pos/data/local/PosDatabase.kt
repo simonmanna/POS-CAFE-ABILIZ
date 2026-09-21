@@ -48,8 +48,13 @@ import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
         ConversationEntity::class,
         MessageEntity::class,
         ConversationReadStateEntity::class,
+        PaymentMethodEntity::class,
+        LedgerAccountEntity::class,
+        ExpenseCategoryEntity::class,
+        StockLocationEntity::class,
+        StockLevelEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class PosDatabase : RoomDatabase() {
@@ -77,6 +82,7 @@ abstract class PosDatabase : RoomDatabase() {
     abstract fun conversationDao(): ConversationDao
     abstract fun messageDao(): MessageDao
     abstract fun conversationReadStateDao(): ConversationReadStateDao
+    abstract fun cashInventoryDao(): CashInventoryDao
 
     companion object {
         /** v1 → v2: additive only (customers, suppliers, inventory movements) —
@@ -256,6 +262,47 @@ abstract class PosDatabase : RoomDatabase() {
             }
         }
 
+        /** v11 → v12: server cash & inventory reference data (tender methods,
+         *  ledger accounts, expense categories, stock locations/levels) plus sync
+         *  bookkeeping on expenses/purchases. Additive — the till survives. */
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `payment_methods` (`id` TEXT NOT NULL, `code` TEXT NOT NULL, " +
+                        "`label` TEXT NOT NULL, `kind` TEXT NOT NULL, `accountId` TEXT, `accountName` TEXT, " +
+                        "`requiresReference` INTEGER NOT NULL, `trackInShift` INTEGER NOT NULL, " +
+                        "`sortOrder` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `ledger_accounts` (`id` TEXT NOT NULL, `code` TEXT NOT NULL, " +
+                        "`name` TEXT NOT NULL, `categoryKey` TEXT, `classification` TEXT, " +
+                        "`isCashEquivalent` INTEGER NOT NULL, `balance` REAL, `roles` TEXT NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `expense_categories` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, " +
+                        "`accountId` TEXT, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `stock_locations` (`id` TEXT NOT NULL, `code` TEXT NOT NULL, " +
+                        "`name` TEXT NOT NULL, `type` TEXT NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `stock_levels` (`id` TEXT NOT NULL, `productId` TEXT NOT NULL, " +
+                        "`variantId` TEXT, `locationId` TEXT NOT NULL, `quantity` REAL NOT NULL, " +
+                        "`updatedAt` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_stock_levels_productId` ON `stock_levels` (`productId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_stock_levels_locationId` ON `stock_levels` (`locationId`)")
+                db.execSQL("ALTER TABLE `cash_registers` ADD COLUMN `defaultAccountId` TEXT")
+                db.execSQL("ALTER TABLE `cash_registers` ADD COLUMN `locationId` TEXT")
+                db.execSQL("ALTER TABLE `local_cash_sessions` ADD COLUMN `closingAccountsJson` TEXT")
+                db.execSQL("ALTER TABLE `expenses` ADD COLUMN `categoryId` TEXT")
+                db.execSQL("ALTER TABLE `expenses` ADD COLUMN `syncStatus` TEXT NOT NULL DEFAULT 'local'")
+                db.execSQL("ALTER TABLE `expenses` ADD COLUMN `lastError` TEXT")
+                db.execSQL("ALTER TABLE `purchases` ADD COLUMN `syncStatus` TEXT NOT NULL DEFAULT 'local'")
+            }
+        }
+
         /** SQLCipher-encrypted. Passphrase stored in EncryptedSharedPreferences
          *  (Android Keystore-backed) — stolen device yields ciphertext only. */
         fun build(context: Context, passphrase: ByteArray): PosDatabase {
@@ -265,6 +312,7 @@ abstract class PosDatabase : RoomDatabase() {
                 .addMigrations(
                     MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
                     MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11,
+                    MIGRATION_11_12,
                 )
                 .fallbackToDestructiveMigration()
                 .build()

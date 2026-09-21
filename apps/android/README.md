@@ -84,8 +84,29 @@ accompaniment upcharges are already MAJOR.
 public internet must be HTTPS. The server URL is device config and can be
 changed at any time without reinstalling (`DynamicHostInterceptor`).
 
+## Cash & inventory sync
+
+The till pulls the org's tender tiles, ledger accounts (pre-classified by
+role), expense categories, stock locations and stock levels, and pushes ops
+the server's shift and stock rules accept (see the protocol doc):
+
+- **Shift**: open checks the float against the drawer ledger (extra float needs
+  a funding account + reason); cash in/out picks its counterpart account;
+  cash-outs need a manager PIN; close counts every shift-tracked wallet, asks
+  for a reason on any difference and a manager PIN when the server will.
+- **Terminal**: payment tiles come from the server; each tender carries its
+  receiving account; cash change is sent as `amountTendered`.
+- **Stock** (retail products): purchases, waste and adjustments sync as
+  `stock.in` / `stock.out` with an approver; physical counts sync as a server
+  spot count. On-hand shows the server figure plus unsynced local movements.
+- **Expenses**: from the drawer (a cash-out), from a safe/bank/wallet, or on
+  credit (`expense.create`).
+
+Managers holding the permission approve their own stock movements without a
+PIN; everyone else needs a manager PIN, verified on-device and again on replay.
+Menu-item stock stays device-local (the server tracks ingredients via recipes).
+
 ## Not built yet
 
-- Dine-in tab rounds (counter sales only so far)
 - Bluetooth SPP printing (TCP 9100 works; the transport seam is in place)
-- Refunds and inventory counts on-device
+- Branch stock transfers from the device (back office only)

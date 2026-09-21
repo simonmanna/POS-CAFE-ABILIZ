@@ -129,10 +129,22 @@ class AuthRepository @Inject constructor(
      * assertCanOverride requires. Runs on-device against the synced bcrypt
      * hashes; the server re-validates on replay (its authority is final).
      */
-    suspend fun verifyOverridePin(pin: String): Result<Override> = runCatching {
+    suspend fun verifyOverridePin(pin: String): Result<Override> = verifyPinFor(pin, "pos:override")
+
+    /** Does the signed-in cashier hold [permission] (as last synced)? */
+    fun currentHas(permission: String): Boolean = current?.permissions?.contains(permission) == true
+
+    /**
+     * Verify an approver's PIN for an action gated by [permission] — shift-close
+     * variances (`cash_session:approve_variance`), stock movements
+     * (`inventory_doc:approve`). Excludes the signed-in cashier when
+     * [excludeCurrent]: the server forbids approving your own work.
+     */
+    suspend fun verifyPinFor(pin: String, permission: String, excludeCurrent: Boolean = false): Result<Override> = runCatching {
         val managers = staffDao.all().filter { staff ->
-            staff.pinHash != null &&
-                "pos:override" in staff.permissions.split(',').map { it.trim() }
+            staff.isActive && staff.pinHash != null &&
+                !(excludeCurrent && staff.id == current?.userId) &&
+                permission in staff.permissions.split(',').map { it.trim() }
         }
         for (m in managers) {
             val ok = try {
@@ -142,7 +154,7 @@ class AuthRepository @Inject constructor(
             }
             if (ok) return@runCatching Result.success(Override(m.id, listOfNotNull(m.firstName, m.lastName).joinToString(" ")))
         }
-        Result.failure(IllegalArgumentException("PIN not recognised for a manager with override rights"))
+        Result.failure(IllegalArgumentException("PIN not recognised for a manager holding $permission"))
     }.fold({ it }, { failure -> Result.failure(failure) })
 
     companion object {

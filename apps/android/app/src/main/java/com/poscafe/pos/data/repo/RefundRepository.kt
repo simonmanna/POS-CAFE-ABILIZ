@@ -46,26 +46,29 @@ class RefundRepository @Inject constructor(
 
     /**
      * Full refund of a settled sale. [overrideById] is the manager who
-     * approved it (PIN-verified on-device); passing it lets the server attribute
-     * and re-validate the override via assertCanOverride.
+     * approved it (PIN-verified on-device). The server demands a
+     * transaction-bound approval, so the manager's [overridePin] travels with the
+     * op and is re-verified on replay (the queue lives in the SQLCipher DB).
      */
-    suspend fun refund(actorUserId: String, saleLocalId: String, reason: String?, overrideById: String?): LocalRefundEntity =
-        record(actorUserId, saleLocalId, type = "refund", reason = reason, overrideById = overrideById)
+    suspend fun refund(actorUserId: String, saleLocalId: String, reason: String, overrideById: String, overridePin: String): LocalRefundEntity =
+        record(actorUserId, saleLocalId, type = "refund", reason = reason, overrideById = overrideById, overridePin = overridePin)
 
     /**
      * Void = full refund with a mandatory manager override. [overrideById] is
      * the manager whose PIN was verified on-device.
      */
-    suspend fun void(actorUserId: String, saleLocalId: String, reason: String?, overrideById: String): LocalRefundEntity =
-        record(actorUserId, saleLocalId, type = "void", reason = reason, overrideById = overrideById)
+    suspend fun void(actorUserId: String, saleLocalId: String, reason: String, overrideById: String, overridePin: String): LocalRefundEntity =
+        record(actorUserId, saleLocalId, type = "void", reason = reason, overrideById = overrideById, overridePin = overridePin)
 
     private suspend fun record(
         actorUserId: String,
         saleLocalId: String,
         type: String,
-        reason: String?,
-        overrideById: String?,
+        reason: String,
+        overrideById: String,
+        overridePin: String,
     ): LocalRefundEntity {
+        require(reason.isNotBlank()) { "Enter a reason for the ${if (type == "void") "void" else "refund"}" }
         val sale = saleDao.byId(saleLocalId) ?: error("Sale not found")
         require(refundDao.forSale(saleLocalId).isEmpty()) { "Sale already refunded" }
 
@@ -130,9 +133,12 @@ class RefundRepository @Inject constructor(
                 occurredAt = now.toEpochMilli(),
                 payloadJson = buildJsonObject {
                     put("invoiceId", invoiceRef)
-                    reason?.let { put("reason", it) }
+                    put("reason", reason.trim())
                     cashSessionRef?.let { put("cashSessionId", it) }
-                    overrideById?.let { put("overrideById", it) }
+                    put("overrideById", overrideById)
+                    put("overridePin", overridePin)
+                    // Goods come back to the shelf — matches the on-device restock above.
+                    put("stockDisposition", "restock")
                 }.toString(),
                 status = "queued",
                 attempts = 0,

@@ -36,7 +36,11 @@ class SaleRepository @Inject constructor(
     private val inventoryDao: InventoryDao,
     private val config: DeviceConfig,
 ) {
-    data class Tender(val method: String, val amount: Double, val reference: String? = null)
+    /**
+     * One payment leg. [accountId] is the receiving account of the configured
+     * payment tile (null = cash drawer / the server's default mapping).
+     */
+    data class Tender(val method: String, val amount: Double, val reference: String? = null, val accountId: String? = null)
 
     data class CompletedSale(
         val localId: String,
@@ -61,6 +65,14 @@ class SaleRepository @Inject constructor(
         val totals = CartEngine.totals(lines, transactionDiscountPercent)
         val tenderSum = tenders.sumOf { it.amount }
         require(tenderSum >= totals.total - 0.01) { "Tendered $tenderSum < due ${totals.total}" }
+        require(tenders.none { it.method == "cash" } || cashSessionLocalId != null) {
+            "Open a cash session before taking cash"
+        }
+        // The server rejects tenders that sum past the amount due — change is
+        // carried separately as `amountTendered`. Trim the overpay off the cash
+        // legs (last first) so the legs settle exactly the total.
+        val applied = settleExactly(tenders, totals.total)
+        val cashHanded = if (tenderSum > totals.total + 0.005 && tenders.any { it.method == "cash" }) tenderSum else null
 
         val localId = UUID.randomUUID().toString()
         val occurredAt = Instant.now()
@@ -69,14 +81,16 @@ class SaleRepository @Inject constructor(
         val payload = buildJsonObject {
             put("lines", linesToJson(lines))
             put("tenders", buildJsonArray {
-                tenders.forEach { t ->
+                applied.forEach { t ->
                     add(buildJsonObject {
                         put("method", t.method)
                         put("amount", t.amount)
                         t.reference?.let { put("reference", it) }
+                        t.accountId?.let { put("accountId", it) }
                     })
                 }
             })
+            cashHanded?.let { put("amountTendered", it) }
             if (transactionDiscountPercent > 0) put("transactionDiscountPercent", transactionDiscountPercent)
             // clientId of the locally-opened session — the server resolves it
             // to the real session id created earlier in the same push batch.
@@ -146,6 +160,24 @@ class SaleRepository @Inject constructor(
         }
 
         return CompletedSale(localId, provisionalNumber, totals, occurredAt)
+    }
+
+    /** Legs that pay exactly [total]: any overpay (cash change) comes off the cash legs. */
+    private fun settleExactly(tenders: List<Tender>, total: Double): List<Tender> {
+        var over = tenders.sumOf { it.amount } - total
+        if (over <= 0.005) return tenders
+        require(tenders.any { it.method == "cash" }) { "Only cash can be overpaid — reduce the non-cash amount" }
+        val out = tenders.toMutableList()
+        for (i in out.indices.reversed()) {
+            if (over <= 0.005) break
+            val t = out[i]
+            if (t.method != "cash") continue
+            val cut = minOf(t.amount, over)
+            out[i] = t.copy(amount = t.amount - cut)
+            over -= cut
+        }
+        require(over <= 0.005) { "Only cash can be overpaid — reduce the non-cash amount" }
+        return out.filter { it.amount > 0.005 }
     }
 
     private fun linesToJson(lines: List<CartEngine.CartLine>): JsonArray = buildJsonArray {

@@ -42,45 +42,47 @@ class InventoryCountViewModel @Inject constructor(
     productDao: ProductDao,
     private val inventoryDao: InventoryDao,
     private val auth: AuthRepository,
+    private val stock: com.poscafe.pos.data.repo.StockRepository,
 ) : ViewModel() {
     val items = menuDao.allItemsIncludingUnavailable().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val products = productDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val levels = inventoryDao.stockLevels().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val productLevels = inventoryDao.productStockLevels().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
-    var posted by mutableStateOf(0); private set
+    var posted by mutableStateOf<Int?>(null); private set
+    var error by mutableStateOf<String?>(null); private set
 
-    /** Post one reconciling `adjustment` movement per changed row (never overwrites). */
-    fun postCount(entries: List<CountEntry>) {
+    /** Server on-hand at this till's location + device movements since the last pull. */
+    var productOnHand by mutableStateOf<Map<String, Double>>(emptyMap()); private set
+
+    fun refreshOnHand() {
+        viewModelScope.launch { productOnHand = stock.productOnHand() }
+    }
+
+    /**
+     * Post one reconciling `adjustment` movement per changed row (never
+     * overwrites); counted products also go to the server as a spot count.
+     */
+    fun postCount(entries: List<CountEntry>, reason: String) {
         viewModelScope.launch {
-            val actor = auth.current?.userId
-            val now = System.currentTimeMillis()
-            var n = 0
-            entries.forEach { e ->
-                val delta = e.counted - e.onHand
-                if (delta == 0.0) return@forEach
-                inventoryDao.insert(
-                    InventoryMovementEntity(
-                        id = UUID.randomUUID().toString(),
-                        menuItemId = if (e.isProduct) "" else e.id,
-                        productId = if (e.isProduct) e.id else null,
-                        type = "adjustment",
-                        qtyDelta = delta,
-                        unitCost = null,
-                        supplierId = null,
-                        reason = "Physical count",
-                        saleLocalId = null,
-                        actorUserId = actor,
-                        occurredAt = now,
-                    ),
+            runCatching {
+                stock.postCount(
+                    entries.map { e ->
+                        com.poscafe.pos.data.repo.StockRepository.CountLine(
+                            menuItemId = if (e.isProduct) null else e.id,
+                            productId = if (e.isProduct) e.id else null,
+                            onHand = e.onHand,
+                            counted = e.counted,
+                        )
+                    },
+                    reason,
                 )
-                n++
-            }
-            posted = n
+            }.onSuccess { posted = it; error = null; refreshOnHand() }
+                .onFailure { error = it.message }
         }
     }
 
-    fun clearPosted() { posted = 0 }
+    fun clearPosted() { posted = null }
 }
 
 @Composable
@@ -91,7 +93,10 @@ fun InventoryCountScreen(onBack: () -> Unit, vm: InventoryCountViewModel = hiltV
     val productLevels by vm.productLevels.collectAsStateWithLifecycle()
 
     val levelByItem = remember(levels) { levels.associate { it.menuItemId to it.onHand } }
-    val levelByProduct = remember(productLevels) { productLevels.associate { it.productId to it.onHand } }
+    LaunchedEffect(productLevels) { vm.refreshOnHand() }
+    val levelByProduct = remember(productLevels, vm.productOnHand) {
+        productLevels.associate { it.productId to it.onHand } + vm.productOnHand
+    }
     val rows = remember(items, products, levelByItem, levelByProduct) {
         items.map { CountRow(it.id, it.name, false, levelByItem[it.id] ?: 0.0) } +
             products.map { CountRow(it.id, it.name, true, levelByProduct[it.id] ?: 0.0) }
@@ -99,12 +104,13 @@ fun InventoryCountScreen(onBack: () -> Unit, vm: InventoryCountViewModel = hiltV
     // rowId → typed count
     val counts = remember { mutableStateMapOf<String, String>() }
     val enteredCount = counts.count { it.value.toDoubleOrNull() != null }
+    var reason by remember { mutableStateOf("") }
 
-    if (vm.posted > 0) {
+    vm.posted?.let { n ->
         AlertDialog(
             onDismissRequest = { vm.clearPosted(); counts.clear() },
             title = { Text("Count posted") },
-            text = { Text("${vm.posted} adjustment(s) recorded to reconcile stock.") },
+            text = { Text("$n adjustment(s) recorded to reconcile stock. Counted products sync to the server as a spot count.") },
             confirmButton = { Button(onClick = { vm.clearPosted(); counts.clear() }) { Text("Done") } },
         )
     }
@@ -119,6 +125,7 @@ fun InventoryCountScreen(onBack: () -> Unit, vm: InventoryCountViewModel = hiltV
                     val c = counts[rowKey(r)]?.toDoubleOrNull() ?: return@mapNotNull null
                     CountEntry(r.id, r.isProduct, r.onHand, c)
                 },
+                reason,
             )
         }) else null,
     ) { _ ->
@@ -135,12 +142,23 @@ fun InventoryCountScreen(onBack: () -> Unit, vm: InventoryCountViewModel = hiltV
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 88.dp, top = 4.dp),
             ) {
                 item("hint") {
-                    Text(
-                        "Enter the counted quantity for items you've physically checked. Blank rows are left untouched.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(vertical = 4.dp),
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            "Enter the counted quantity for items you've physically checked. Blank rows are left untouched.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 4.dp),
+                        )
+                        OutlinedTextField(
+                            value = reason,
+                            onValueChange = { reason = it },
+                            label = { Text("Reason for differences (e.g. breakage, theft)") },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                    }
                 }
                 items(rows, key = { rowKey(it) }) { r ->
                     val accents = LocalPosAccents.current

@@ -22,9 +22,13 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.poscafe.pos.data.local.dao.CashInventoryDao
+import com.poscafe.pos.data.local.dao.CashSessionDao
 import com.poscafe.pos.data.local.dao.ExpenseDao
 import com.poscafe.pos.data.local.dao.SupplierDao
+import com.poscafe.pos.data.local.entity.ExpenseCategoryEntity
 import com.poscafe.pos.data.local.entity.ExpenseEntity
+import com.poscafe.pos.data.local.entity.LedgerAccountEntity
 import com.poscafe.pos.data.local.entity.SupplierEntity
 import com.poscafe.pos.data.repo.AuthRepository
 import com.poscafe.pos.data.repo.ExpenseRepository
@@ -35,6 +39,7 @@ import com.poscafe.pos.ui.components.StatusPill
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -42,12 +47,15 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
+/** Used only until the server's expense categories have synced (or on standalone tills). */
 private val EXPENSE_CATEGORIES = listOf("Rent", "Utilities", "Salaries", "Supplies", "Transport", "Maintenance", "Marketing", "Other")
 
 @HiltViewModel
 class ExpensesViewModel @Inject constructor(
     expenseDao: ExpenseDao,
     supplierDao: SupplierDao,
+    cashSessionDao: CashSessionDao,
+    private val refs: CashInventoryDao,
     private val expenses: ExpenseRepository,
     private val auth: AuthRepository,
 ) : ViewModel() {
@@ -56,11 +64,38 @@ class ExpensesViewModel @Inject constructor(
     val suppliers: StateFlow<List<SupplierEntity>> =
         supplierDao.all().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    val categories: StateFlow<List<ExpenseCategoryEntity>> =
+        refs.expenseCategories().stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val sessionOpen: StateFlow<Boolean> =
+        cashSessionDao.openFlow().map { it != null }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    /** Safes, banks and wallets an expense may be paid from (never a register drawer). */
+    var payingAccounts by mutableStateOf<List<LedgerAccountEntity>>(emptyList()); private set
     var error by mutableStateOf<String?>(null); private set
 
-    fun record(category: String, description: String?, amount: Double, method: String, supplierId: String?, onDone: () -> Unit) {
+    fun loadAccounts() {
+        viewModelScope.launch { payingAccounts = refs.accounts().filter { it.has("expense_payment") } }
+    }
+
+    fun record(
+        categoryId: String?,
+        categoryName: String,
+        description: String?,
+        amount: Double,
+        source: ExpenseRepository.Source,
+        accountId: String?,
+        supplierId: String?,
+        managerPin: String?,
+        onDone: () -> Unit,
+    ) {
         viewModelScope.launch {
-            runCatching { expenses.record(auth.current?.userId, category, description, amount, method, supplierId) }
+            runCatching {
+                val approval = managerPin?.let { pin ->
+                    val mgr = auth.verifyPinFor(pin, "cash_session:cash_out", excludeCurrent = true).getOrThrow()
+                    com.poscafe.pos.data.repo.CashSessionRepository.Approval(mgr.userId, pin)
+                }
+                expenses.record(auth.current?.userId, categoryId, categoryName, description, amount, source, accountId, supplierId, approval)
+            }
                 .onSuccess { error = null; onDone() }
                 .onFailure { error = it.message }
         }
@@ -71,7 +106,10 @@ class ExpensesViewModel @Inject constructor(
 fun ExpensesScreen(onBack: () -> Unit, vm: ExpensesViewModel = hiltViewModel()) {
     val recent by vm.recent.collectAsStateWithLifecycle()
     val suppliers by vm.suppliers.collectAsStateWithLifecycle()
+    val categories by vm.categories.collectAsStateWithLifecycle()
+    val sessionOpen by vm.sessionOpen.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
+    LaunchedEffect(adding) { if (adding) vm.loadAccounts() }
 
     // Today's total for the header.
     val zone = ZoneId.systemDefault()
@@ -130,8 +168,8 @@ fun ExpensesScreen(onBack: () -> Unit, vm: ExpensesViewModel = hiltViewModel()) 
                                 )
                             }
                             StatusPill(
-                                e.paymentMethod.replace('_', ' '),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                if (e.syncStatus == "failed") "rejected" else e.paymentMethod.replace('_', ' '),
+                                color = if (e.syncStatus == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                                 container = MaterialTheme.colorScheme.surfaceContainerHigh,
                             )
                             Text(
@@ -149,9 +187,12 @@ fun ExpensesScreen(onBack: () -> Unit, vm: ExpensesViewModel = hiltViewModel()) 
     if (adding) {
         ExpenseEditorDialog(
             suppliers = suppliers,
+            categories = categories,
+            accounts = vm.payingAccounts,
+            sessionOpen = sessionOpen,
             error = vm.error,
-            onSave = { cat, desc, amount, method, supplierId ->
-                vm.record(cat, desc, amount, method, supplierId) { adding = false }
+            onSave = { catId, catName, desc, amount, source, accountId, supplierId, pin ->
+                vm.record(catId, catName, desc, amount, source, accountId, supplierId, pin) { adding = false }
             },
             onDismiss = { adding = false },
         )
@@ -161,16 +202,33 @@ fun ExpensesScreen(onBack: () -> Unit, vm: ExpensesViewModel = hiltViewModel()) 
 @Composable
 private fun ExpenseEditorDialog(
     suppliers: List<SupplierEntity>,
+    categories: List<ExpenseCategoryEntity>,
+    accounts: List<LedgerAccountEntity>,
+    sessionOpen: Boolean,
     error: String?,
-    onSave: (category: String, description: String?, amount: Double, method: String, supplierId: String?) -> Unit,
+    onSave: (
+        categoryId: String?, categoryName: String, description: String?, amount: Double,
+        source: ExpenseRepository.Source, accountId: String?, supplierId: String?, managerPin: String?,
+    ) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var category by remember { mutableStateOf(EXPENSE_CATEGORIES.first()) }
+    // Server categories (id + expense account) once synced; free text before that.
+    val options: List<Pair<String?, String>> =
+        if (categories.isNotEmpty()) categories.map { it.id to it.name } else EXPENSE_CATEGORIES.map { null to it }
+    var category by remember(options) { mutableStateOf(options.first()) }
     var description by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
-    var method by remember { mutableStateOf("cash") }
+    var source by remember {
+        mutableStateOf(if (sessionOpen) ExpenseRepository.Source.DRAWER else ExpenseRepository.Source.ACCOUNT)
+    }
+    var accountId by remember(accounts) { mutableStateOf(accounts.firstOrNull()?.id) }
     var supplierId by remember { mutableStateOf<String?>(null) }
+    var pin by remember { mutableStateOf("") }
     val amountValue = amount.toDoubleOrNull()
+    val drawer = source == ExpenseRepository.Source.DRAWER
+    val ready = amountValue != null && amountValue > 0 &&
+        (source != ExpenseRepository.Source.ACCOUNT || accountId != null) &&
+        (!drawer || pin.length >= 4)
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -184,8 +242,8 @@ private fun ExpenseEditorDialog(
             ) {
                 Text("Category", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    EXPENSE_CATEGORIES.forEach { c ->
-                        SmallChip(c, category == c) { category = c }
+                    options.forEach { c ->
+                        SmallChip(c.second, category == c) { category = c }
                     }
                 }
                 OutlinedTextField(
@@ -194,18 +252,44 @@ private fun ExpenseEditorDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Paid with", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Paid from", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    SmallChip("Cash", method == "cash") { method = "cash" }
-                    SmallChip("Bank", method == "bank") { method = "bank" }
-                    SmallChip("Mobile", method == "mobile_money") { method = "mobile_money" }
+                    if (sessionOpen) {
+                        SmallChip("Till drawer", source == ExpenseRepository.Source.DRAWER) { source = ExpenseRepository.Source.DRAWER }
+                    }
+                    SmallChip("Safe / bank", source == ExpenseRepository.Source.ACCOUNT) { source = ExpenseRepository.Source.ACCOUNT }
+                    SmallChip("On credit", source == ExpenseRepository.Source.CREDIT) { source = ExpenseRepository.Source.CREDIT }
                 }
-                if (method == "cash") {
-                    Text(
-                        "Cash expenses are recorded against the open drawer session.",
+                when (source) {
+                    ExpenseRepository.Source.DRAWER -> {
+                        Text(
+                            "Taken from the open drawer as a cash-out against this category's expense account.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        com.poscafe.pos.ui.screens.ManagerPinField(pin) { pin = it }
+                    }
+                    ExpenseRepository.Source.CREDIT -> Text(
+                        "Recorded as owed; it is approved and paid in the back office.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    ExpenseRepository.Source.ACCOUNT -> if (accounts.isEmpty()) {
+                        Text(
+                            "No payment accounts on this device yet — sync first.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    } else {
+                        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            accounts.forEach { a ->
+                                SmallChip(
+                                    a.name + (a.balance?.let { " (${Money.bare(it)})" } ?: ""),
+                                    accountId == a.id,
+                                ) { accountId = a.id }
+                            }
+                        }
+                    }
                 }
                 OutlinedTextField(
                     value = description, onValueChange = { description = it },
@@ -225,9 +309,11 @@ private fun ExpenseEditorDialog(
         },
         confirmButton = {
             Button(
-                enabled = amountValue != null && amountValue > 0,
+                enabled = ready,
                 shape = MaterialTheme.shapes.medium,
-                onClick = { onSave(category, description, amountValue ?: 0.0, method, supplierId) },
+                onClick = {
+                    onSave(category.first, category.second, description, amountValue ?: 0.0, source, accountId, supplierId, pin.takeIf { drawer })
+                },
             ) { Text("Record expense") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },

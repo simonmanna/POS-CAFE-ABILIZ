@@ -98,6 +98,8 @@ data class PurchaseEntity(
     val actorUserId: String?,
     val occurredAt: Long,
     val createdAt: Long,
+    /** local (standalone / no product lines) | queued | pushed | failed */
+    val syncStatus: String = "local",
 )
 
 @Entity(tableName = "purchase_items", indices = [Index("purchaseId")])
@@ -144,4 +146,9 @@ data class ExpenseEntity(
     val actorUserId: String?,
     val occurredAt: Long,
     val createdAt: Long,
+    /** Server expense category (null for device-only free-text categories). */
+    val categoryId: String? = null,
+    /** local | queued | pushed | failed — drawer expenses sync as a pay-out. */
+    val syncStatus: String = "local",
+    val lastError: String? = null,
 )

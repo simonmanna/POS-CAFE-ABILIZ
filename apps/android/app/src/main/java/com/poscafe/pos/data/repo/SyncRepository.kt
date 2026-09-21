@@ -49,6 +49,13 @@ class SyncRepository @Inject constructor(
         res.data["reservations"]?.let { applyReservations(it) }
         res.data["conversations"]?.let { applyConversations(it) }
         res.data["messages"]?.let { applyMessages(it) }
+        // Cash & inventory reference data (full snapshots, except stock/suppliers).
+        res.data["paymentMethods"]?.let { applyPaymentMethods(it) }
+        res.data["ledgerAccounts"]?.let { applyLedgerAccounts(it) }
+        res.data["expenseCategories"]?.let { applyExpenseCategories(it) }
+        res.data["stockLocations"]?.let { applyStockLocations(it) }
+        res.data["stockLevels"]?.let { applyStockLevels(it) }
+        res.data["suppliers"]?.let { applySuppliers(it) }
 
         db.syncStateDao().put(
             SyncStateEntity(
@@ -98,6 +105,9 @@ class SyncRepository @Inject constructor(
                     db.refundDao().markSync(result.opId, "failed", null, result.error)
                     // message.send opId == the message id; flip its bubble to failed.
                     db.messageDao().markState(result.opId, "failed", result.error)
+                    // Expense / purchase ops are keyed by their row id too.
+                    db.expenseDao().markSync(result.opId, "failed", result.error)
+                    db.purchaseDao().markSync(result.opId, "failed")
                 }
             }
         }
@@ -134,6 +144,10 @@ class SyncRepository @Inject constructor(
         // message.send applied — flip the optimistic bubble to 'sent'. The
         // authoritative seq arrives on the next pull (applyMessages).
         mapping?.get("messageId")?.let { db.messageDao().markState(it, "sent", null) }
+        // expense.create / a drawer pay-out for an expense, and a purchase's stock.in —
+        // all keyed by the local row id (== opId). No-ops for every other op.
+        db.expenseDao().markSync(opId, "pushed", null)
+        db.purchaseDao().markSync(opId, "pushed")
     }
 
     // ---------------------- pull-apply per scope ----------------------
@@ -351,6 +365,8 @@ class SyncRepository @Inject constructor(
                     name = row.str("name") ?: local?.name,
                     isActive = local?.isActive ?: true,
                     sortOrder = local?.sortOrder ?: 0,
+                    defaultAccountId = row.str("defaultAccountId") ?: local?.defaultAccountId,
+                    locationId = row.str("locationId") ?: local?.locationId,
                 )
             },
         )
@@ -630,6 +646,100 @@ class SyncRepository @Inject constructor(
         // Retention.
         mDao.pruneOlderThan(Instant.now().toEpochMilli() - 30L * 24 * 60 * 60 * 1000)
         for (cid in touched) mDao.trimConversation(cid, 500)
+    }
+
+    // ---------------------- cash & inventory reference data ----------------------
+
+    private suspend fun applyPaymentMethods(rows: List<JsonObject>) {
+        db.cashInventoryDao().replacePaymentMethods(
+            rows.mapNotNull { row ->
+                val id = row.str("id") ?: return@mapNotNull null
+                if (row.bool("isActive") == false) return@mapNotNull null
+                PaymentMethodEntity(
+                    id = id,
+                    code = row.str("code") ?: id,
+                    label = row.str("label") ?: row.str("kind") ?: "Tender",
+                    kind = row.str("kind") ?: "cash",
+                    accountId = row.str("accountId"),
+                    accountName = row.str("accountName"),
+                    requiresReference = row.bool("requiresReference") ?: false,
+                    trackInShift = row.bool("trackInShift") ?: false,
+                    sortOrder = row.int("sortOrder") ?: 0,
+                )
+            },
+        )
+    }
+
+    private suspend fun applyLedgerAccounts(rows: List<JsonObject>) {
+        db.cashInventoryDao().replaceAccounts(
+            rows.mapNotNull { row ->
+                val id = row.str("id") ?: return@mapNotNull null
+                LedgerAccountEntity(
+                    id = id,
+                    code = row.str("code") ?: "",
+                    name = row.str("name") ?: "",
+                    categoryKey = row.str("categoryKey"),
+                    classification = row.str("classification"),
+                    isCashEquivalent = row.bool("isCashEquivalent") ?: false,
+                    balance = row.num("balance"),
+                    roles = (row["roles"] as? JsonArray)
+                        ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                        ?.joinToString(",") ?: "",
+                )
+            },
+        )
+    }
+
+    private suspend fun applyExpenseCategories(rows: List<JsonObject>) {
+        db.cashInventoryDao().replaceExpenseCategories(
+            rows.mapNotNull { row ->
+                val id = row.str("id") ?: return@mapNotNull null
+                ExpenseCategoryEntity(id = id, name = row.str("name") ?: "", accountId = row.str("accountId"))
+            },
+        )
+    }
+
+    private suspend fun applyStockLocations(rows: List<JsonObject>) {
+        db.cashInventoryDao().replaceLocations(
+            rows.mapNotNull { row ->
+                val id = row.str("id") ?: return@mapNotNull null
+                StockLocationEntity(id = id, code = row.str("code") ?: "", name = row.str("name") ?: "", type = row.str("type") ?: "warehouse")
+            },
+        )
+    }
+
+    private suspend fun applyStockLevels(rows: List<JsonObject>) {
+        db.cashInventoryDao().upsertStockLevels(
+            rows.mapNotNull { row ->
+                val id = row.str("id") ?: return@mapNotNull null
+                StockLevelEntity(
+                    id = id,
+                    productId = row.str("productId") ?: return@mapNotNull null,
+                    variantId = row.str("variantId"),
+                    locationId = row.str("locationId") ?: return@mapNotNull null,
+                    quantity = row.num("quantity") ?: 0.0,
+                    updatedAt = parseEpoch(row.str("updatedAt")),
+                )
+            },
+        )
+    }
+
+    /** Server suppliers merge into the device supplier list (device-made ones stay). */
+    private suspend fun applySuppliers(rows: List<JsonObject>) {
+        val dao = db.supplierDao()
+        for (row in rows) {
+            val id = row.str("id") ?: continue
+            if (row.deleted()) { dao.delete(id); continue }
+            dao.upsert(
+                SupplierEntity(
+                    id = id,
+                    name = row.str("name") ?: "",
+                    phone = row.str("phone"),
+                    note = row.str("notes"),
+                    createdAt = dao.byId(id)?.createdAt ?: parseEpoch(row.str("updatedAt")),
+                ),
+            )
+        }
     }
 
     /** Like pendingIds but reads the id from any of the given payload keys in order. */

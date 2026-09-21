@@ -108,6 +108,10 @@ class OrdersViewModel @Inject constructor(
         val cashier = auth.current ?: return
         viewModelScope.launch {
             actionMessage = null
+            if (reason.isBlank()) {
+                actionMessage = "Enter a reason"
+                return@launch
+            }
             val mgr = auth.verifyOverridePin(pin)
             if (mgr.isFailure) {
                 actionMessage = mgr.exceptionOrNull()?.message ?: "PIN rejected"
@@ -116,9 +120,9 @@ class OrdersViewModel @Inject constructor(
             val override = mgr.getOrThrow()
             runCatching {
                 if (prompt.kind == "void") {
-                    refunds.void(cashier.userId, prompt.sale.id, reason.ifBlank { null }, override.userId)
+                    refunds.void(cashier.userId, prompt.sale.id, reason, override.userId, pin)
                 } else {
-                    refunds.refund(cashier.userId, prompt.sale.id, reason.ifBlank { null }, override.userId)
+                    refunds.refund(cashier.userId, prompt.sale.id, reason, override.userId, pin)
                 }
             }.onSuccess {
                 refundedSaleIds = refundedSaleIds + prompt.sale.id

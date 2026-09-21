@@ -134,6 +134,10 @@ data class CashRegisterEntity(
     /** Deactivated registers stay for history but drop out of the open-session picker. */
     val isActive: Boolean = true,
     val sortOrder: Int = 0,
+    /** The register's drawer cash account (server-owned; from the pull). */
+    val defaultAccountId: String? = null,
+    /** Inventory location this register sells from (server-owned). */
+    val locationId: String? = null,
 )
 
 /**

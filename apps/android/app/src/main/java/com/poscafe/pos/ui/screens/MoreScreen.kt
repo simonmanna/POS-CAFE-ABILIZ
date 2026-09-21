@@ -49,8 +49,12 @@ class MoreViewModel @Inject constructor(
     val failed = opQueue.failedCount().stateIn(viewModelScope, SharingStarted.Eagerly, 0)
 
     var xReport by mutableStateOf<CashSessionRepository.LocalXReport?>(null); private set
-    var registers by mutableStateOf<List<CashRegisterEntity>>(emptyList()); private set
+    var opening by mutableStateOf<CashSessionRepository.OpeningOptions?>(null); private set
+    var cashContext by mutableStateOf<CashSessionRepository.CashContext?>(null); private set
+    var closeBlocker by mutableStateOf<String?>(null); private set
     var error by mutableStateOf<String?>(null); private set
+    /** Error shown inside the open/close/movement dialog that is on screen. */
+    var dialogError by mutableStateOf<String?>(null); private set
 
     val cashier get() = auth.current
 
@@ -58,34 +62,59 @@ class MoreViewModel @Inject constructor(
         viewModelScope.launch { xReport = sessions.xReport() }
     }
 
-    fun loadRegisters() {
-        viewModelScope.launch { registers = registerDao.active() }
+    fun loadOpening() {
+        dialogError = null
+        viewModelScope.launch { opening = sessions.openingOptions() }
     }
 
-    fun openSession(registerId: String, float: Double) {
-        val user = auth.current ?: return
+    /** Refresh what the close / movement dialogs need (tenders, accounts, blockers). */
+    fun loadCashContext() {
+        dialogError = null
         viewModelScope.launch {
-            runCatching { sessions.open(user.userId, registerId, float) }
-                .onFailure { error = it.message }
-                .onSuccess { refreshXReport() }
+            cashContext = sessions.context(null)
+            closeBlocker = sessions.closeBlocker()
+            xReport = sessions.xReport()
         }
     }
 
-    fun closeSession(counted: Double, reason: String?) {
+    fun openSession(registerId: String, float: Double, sourceId: String?, notes: String?, onDone: () -> Unit) {
         val user = auth.current ?: return
         viewModelScope.launch {
-            runCatching { sessions.close(user.userId, counted, reason) }
-                .onFailure { error = it.message }
-                .onSuccess { xReport = null }
+            runCatching { sessions.open(user.userId, registerId, float, sourceId, notes) }
+                .onFailure { dialogError = it.message }
+                .onSuccess { dialogError = null; error = null; refreshXReport(); onDone() }
         }
     }
 
-    fun recordMovement(type: String, amount: Double, reason: String?) {
+    fun closeSession(req: CloseRequest, onDone: () -> Unit) {
         val user = auth.current ?: return
         viewModelScope.launch {
-            runCatching { sessions.recordMovement(user.userId, type, amount, reason) }
-                .onFailure { error = it.message }
-                .onSuccess { refreshXReport() }
+            runCatching {
+                // The approver is verified here against the synced PIN hashes and
+                // again by the server when the close replays.
+                val approval = req.managerPin?.let { pin ->
+                    val mgr = auth.verifyPinFor(pin, "cash_session:approve_variance", excludeCurrent = true).getOrThrow()
+                    CashSessionRepository.Approval(mgr.userId, pin)
+                }
+                sessions.close(user.userId, req.counted, req.varianceReason, req.closingAccounts, req.uncountedAccounts, approval)
+            }
+                .onFailure { dialogError = it.message }
+                .onSuccess { dialogError = null; error = null; xReport = null; onDone() }
+        }
+    }
+
+    fun recordMovement(type: String, amount: Double, reason: String, counterpartId: String?, managerPin: String?, onDone: () -> Unit) {
+        val user = auth.current ?: return
+        viewModelScope.launch {
+            runCatching {
+                val approval = managerPin?.let { pin ->
+                    val mgr = auth.verifyPinFor(pin, "cash_session:cash_out", excludeCurrent = true).getOrThrow()
+                    CashSessionRepository.Approval(mgr.userId, pin)
+                }
+                sessions.recordMovement(user.userId, type, amount, reason, counterpartId, approval)
+            }
+                .onFailure { dialogError = it.message }
+                .onSuccess { dialogError = null; refreshXReport(); onDone() }
         }
     }
 
@@ -169,9 +198,9 @@ fun MoreScreen(
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SecondaryButton("Cash in", { showMovement = "pay_in" }, Modifier.weight(1f), height = 48.dp)
-                        SecondaryButton("Cash out", { showMovement = "pay_out" }, Modifier.weight(1f), height = 48.dp)
-                        PrimaryButton("Close session", { vm.refreshXReport(); showClose = true }, Modifier.weight(1.2f), height = 48.dp)
+                        SecondaryButton("Cash in", { vm.loadCashContext(); showMovement = "pay_in" }, Modifier.weight(1f), height = 48.dp)
+                        SecondaryButton("Cash out", { vm.loadCashContext(); showMovement = "pay_out" }, Modifier.weight(1f), height = 48.dp)
+                        PrimaryButton("Close session", { vm.loadCashContext(); showClose = true }, Modifier.weight(1.2f), height = 48.dp)
                     }
                 } else {
                     Text(
@@ -179,7 +208,7 @@ fun MoreScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    PrimaryButton("Open session", { vm.loadRegisters(); showOpen = true }, Modifier.fillMaxWidth(), height = 48.dp)
+                    PrimaryButton("Open session", { vm.loadOpening(); showOpen = true }, Modifier.fillMaxWidth(), height = 48.dp)
                 }
                 vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
@@ -248,16 +277,20 @@ fun MoreScreen(
 
     if (showOpen) {
         OpenSessionDialog(
-            registers = vm.registers,
-            onOpen = { id, float -> vm.openSession(id, float); showOpen = false },
+            options = vm.opening,
+            error = vm.dialogError,
+            onOpen = { id, float, sourceId, notes -> vm.openSession(id, float, sourceId, notes) { showOpen = false } },
             onDismiss = { showOpen = false },
         )
     }
 
     if (showClose) {
         CloseSessionDialog(
-            expected = vm.xReport?.expectedCash,
-            onClose = { counted, reason -> vm.closeSession(counted, reason); showClose = false },
+            x = vm.xReport,
+            trackedTenders = vm.cashContext?.trackedTenders.orEmpty(),
+            blocker = vm.closeBlocker,
+            error = vm.dialogError,
+            onClose = { req -> vm.closeSession(req) { showClose = false } },
             onDismiss = { showClose = false },
         )
     }
@@ -265,7 +298,9 @@ fun MoreScreen(
     showMovement?.let { type ->
         MovementDialog(
             type = type,
-            onSave = { amount, reason -> vm.recordMovement(type, amount, reason); showMovement = null },
+            context = vm.cashContext,
+            error = vm.dialogError,
+            onSave = { amount, reason, counterpart, pin -> vm.recordMovement(type, amount, reason, counterpart, pin) { showMovement = null } },
             onDismiss = { showMovement = null },
         )
     }
@@ -343,109 +378,6 @@ private fun ChangePinDialog(
                 shape = MaterialTheme.shapes.medium,
                 onClick = { onSave(currentPin, newPin) },
             ) { Text("Change PIN") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun CloseSessionDialog(
-    expected: Double?,
-    onClose: (counted: Double, reason: String?) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var counted by remember { mutableStateOf("") }
-    var reason by remember { mutableStateOf("") }
-    val countedValue = counted.toDoubleOrNull()
-    val variance = if (countedValue != null && expected != null) countedValue - expected else null
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = MaterialTheme.shapes.extraLarge,
-        title = { Text("Close session", style = MaterialTheme.typography.headlineSmall) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                expected?.let { KVRow("Expected cash", Money.format(it)) }
-                OutlinedTextField(
-                    value = counted,
-                    onValueChange = { counted = it.filter { c -> c.isDigit() || c == '.' } },
-                    label = { Text("Counted cash (UGX)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                variance?.let {
-                    KVRow(
-                        "Variance",
-                        Money.format(it),
-                        valueColor = when {
-                            it == 0.0 -> MaterialTheme.colorScheme.primary
-                            else -> MaterialTheme.colorScheme.error
-                        },
-                    )
-                }
-                if (variance != null && variance != 0.0) {
-                    OutlinedTextField(
-                        value = reason,
-                        onValueChange = { reason = it },
-                        label = { Text("Variance reason") },
-                        shape = MaterialTheme.shapes.medium,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = countedValue != null,
-                shape = MaterialTheme.shapes.medium,
-                onClick = { onClose(countedValue ?: 0.0, reason.takeIf { it.isNotBlank() }) },
-            ) { Text("Close session") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-@Composable
-private fun MovementDialog(
-    type: String,
-    onSave: (amount: Double, reason: String?) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var amount by remember { mutableStateOf("") }
-    var reason by remember { mutableStateOf("") }
-    val amountValue = amount.toDoubleOrNull()
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        shape = MaterialTheme.shapes.extraLarge,
-        icon = { Icon(Icons.Outlined.SwapVert, null) },
-        title = { Text(if (type == "pay_in") "Cash in" else "Cash out", style = MaterialTheme.typography.headlineSmall) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    value = amount,
-                    onValueChange = { amount = it.filter { c -> c.isDigit() || c == '.' } },
-                    label = { Text("Amount (UGX)") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = reason,
-                    onValueChange = { reason = it },
-                    label = { Text("Reason") },
-                    shape = MaterialTheme.shapes.medium,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                enabled = amountValue != null && amountValue > 0,
-                shape = MaterialTheme.shapes.medium,
-                onClick = { onSave(amountValue ?: 0.0, reason.takeIf { it.isNotBlank() }) },
-            ) { Text("Record") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
     )
