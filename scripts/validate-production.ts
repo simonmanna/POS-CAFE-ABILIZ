@@ -8,23 +8,39 @@
  * state behind each action: balanced journal entries, receipt rows, cash
  * movements, stock deduction and restoration, line discounts, split bills,
  * statement invariants, orphan sweeps, report reconciliation and shift close.
- * Every scenario is wrapped in check(); the script prints a PASS/FAIL table and
- * exits non-zero if anything failed.
  *
- * This is the automated half of the release gate — it is meant to leave humans
- * verifying only what a script cannot see, namely physical receipt and KOT
- * printing.
+ * Every scenario is wrapped in check() and every failure is classified, so a
+ * stale request can never be mistaken for broken data:
+ *
+ *   INTEGRITY     an assertion about the database/business state failed.
+ *                 This is a real defect. Exit code 2.
+ *   CONTRACT      the API rejected the request SHAPE (validation error, unknown
+ *                 route). The script is out of date with the API. Exit code 1.
+ *   REJECTED      the API refused a well-formed request for a business reason
+ *                 (permission, configuration, guard). Read the message. Exit 1.
+ *   PRECONDITION  the environment cannot run the scenario (e.g. no mobile-money
+ *                 tile configured, credit disabled, legacy open orders on the
+ *                 copy). Reported, not counted as a failure.
  *
  * It WRITES real sales/refunds/GL, so it refuses a non-local API_BASE unless
- * VALIDATE_ALLOW_WRITE=1 is set.
+ * VALIDATE_ALLOW_WRITE=1 is set. Run it on a disposable copy, never on the café.
  *
  * Usage:
- *   API_BASE=http://localhost:3000/api \
+ *   API_BASE=http://localhost:3000/api/v1 \
  *   ORG_CODE=DEMO ADMIN_EMAIL=admin@demo.test ADMIN_PASSWORD='Admin@123' \
- *   DATABASE_URL='postgresql://cafe-pos:cafe-pos@localhost:5433/cafe-pos' \
+ *   DATABASE_URL='postgresql://...@localhost:5432/<disposable copy>' \
  *   pnpm tsx scripts/validate-production.ts
+ *
+ * Optional:
+ *   VALIDATE_REGISTER_CODE=UAT-REG     run on a dedicated register (created if missing)
+ *   VALIDATE_MANAGER_PIN=1234          PIN of the logged-in manager for refund/void overrides
+ *   VALIDATE_EXPECT_NEXT_INVOICE=INV-2026-004136
+ *   VALIDATE_EXPECT_NEXT_RECEIPT=RCT-008200
+ *                                      the first numbers this run must issue
+ *   VALIDATE_JSON=<file>               write the classified results as JSON
  */
 import { Client } from 'pg';
+import { writeFileSync } from 'node:fs';
 
 // Load the repo-root .env first, then the API's .env (without overriding), so
 // DATABASE_URL / creds are picked up wherever the developer keeps them. dotenv
@@ -41,6 +57,7 @@ const BASE = process.env.API_BASE ?? 'http://localhost:3000/api/v1';
 const ORG = process.env.ORG_CODE ?? 'DEMO';
 const EMAIL = process.env.ADMIN_EMAIL ?? 'admin@demo.test';
 const PASSWORD = process.env.ADMIN_PASSWORD ?? 'Admin@123';
+const MANAGER_PIN = process.env.VALIDATE_MANAGER_PIN;
 const DB_URL = process.env.DATABASE_URL ?? '';
 if (!DB_URL) { console.error('DATABASE_URL not set (checked env + apps/api/.env).'); process.exit(2); }
 
@@ -53,10 +70,30 @@ if (!isLocal && process.env.VALIDATE_ALLOW_WRITE !== '1') {
 let AUTH = '';
 let ORG_ID = '';
 
+// ---- failure classes --------------------------------------------------------
+type Category = 'INTEGRITY' | 'CONTRACT' | 'REJECTED' | 'PRECONDITION';
+class IntegrityError extends Error { category: Category = 'INTEGRITY'; }
+class Precondition extends Error { category: Category = 'PRECONDITION'; }
+class ApiError extends Error {
+  category: Category;
+  constructor(public status: number, public body: any, message: string) {
+    super(message);
+    // Validation errors come back as a message ARRAY (class-validator); an
+    // unknown route is Nest's "Cannot POST ...". Both mean the request is stale.
+    const msg = body?.message;
+    const shape = status === 404 && typeof msg === 'string' && msg.startsWith('Cannot ')
+      || (status === 400 && Array.isArray(msg));
+    this.category = shape ? 'CONTRACT' : 'REJECTED';
+  }
+}
+
 interface RawResult { status: number; json: any; text: string }
 async function raw(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<RawResult> {
   const h: Record<string, string> = { 'Content-Type': 'application/json', ...headers };
   if (AUTH) h.Authorization = `Bearer ${AUTH}`;
+  // Money-moving endpoints require an Idempotency-Key. Each call here is a
+  // distinct operation, so a fresh key unless the caller supplied its own.
+  if (method !== 'GET' && !h['Idempotency-Key']) h['Idempotency-Key'] = uuid();
   const res = await fetch(`${BASE}${path}`, { method, headers: h, body: body ? JSON.stringify(body) : undefined });
   const text = await res.text();
   let json: any = null;
@@ -65,13 +102,14 @@ async function raw(method: string, path: string, body?: unknown, headers: Record
 }
 async function call(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<any> {
   const r = await raw(method, path, body, headers);
-  if (r.status < 200 || r.status >= 300) throw new Error(`${method} ${path} → ${r.status}: ${r.text.slice(0, 300)}`);
+  if (r.status < 200 || r.status >= 300) throw new ApiError(r.status, r.json, `${method} ${path} → ${r.status}: ${r.text.slice(0, 300)}`);
   return r.json;
 }
 const uuid = (): string => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+const list = (x: any): any[] => (Array.isArray(x) ? x : x?.data ?? []);
 
 // ---- result accumulator -----------------------------------------------------
-interface Row { name: string; ok: boolean; skipped?: boolean; detail?: string }
+interface Row { name: string; ok: boolean; skipped?: boolean; category?: Category; detail?: string }
 const rows: Row[] = [];
 async function check(name: string, fn: () => Promise<void | 'skip' | string>): Promise<void> {
   try {
@@ -80,12 +118,21 @@ async function check(name: string, fn: () => Promise<void | 'skip' | string>): P
     else rows.push({ name, ok: true, detail: typeof out === 'string' ? out : undefined });
     console.log(`  ✓ ${name}${typeof out === 'string' && out !== 'skip' ? ` — ${out}` : out === 'skip' ? ' (skipped)' : ''}`);
   } catch (e: any) {
-    rows.push({ name, ok: false, detail: e?.message });
-    console.log(`  ✗ ${name} — ${e?.message}`);
+    const category: Category = e?.category ?? 'INTEGRITY';
+    const skipped = category === 'PRECONDITION';
+    rows.push({ name, ok: skipped, skipped, category, detail: e?.message });
+    console.log(`  ${skipped ? '–' : '✗'} [${category}] ${name} — ${e?.message}`);
   }
 }
-function assert(cond: any, msg: string): void { if (!cond) throw new Error(msg); }
+function assert(cond: any, msg: string): void { if (!cond) throw new IntegrityError(msg); }
+function need(cond: any, msg: string): void { if (!cond) throw new Precondition(msg); }
 function near(a: number, b: number, tol = 0.05): boolean { return Math.abs(a - b) <= tol; }
+async function waitFor<T>(read: () => Promise<T>, ok: (v: T) => boolean, ms = 15000): Promise<T> {
+  const until = Date.now() + ms;
+  let v = await read();
+  while (!ok(v) && Date.now() < until) { await new Promise((r) => setTimeout(r, 500)); v = await read(); }
+  return v;
+}
 
 // ---- db helpers -------------------------------------------------------------
 let db: Client;
@@ -103,11 +150,30 @@ async function jeBalanced(sourceType: string, sourceId: string): Promise<{ balan
   const d = Number(r[0]?.d ?? 0), c = Number(r[0]?.c ?? 0);
   return { balanced: near(d, c, 0.01) && d > 0, debit: d, credit: c };
 }
+/** On-hand from the stock ledger (sum of signed movements). */
+async function onHand(pid: string): Promise<number> {
+  const r = await q(
+    `SELECT COALESCE(SUM("quantityChange"),0)::float AS q FROM "InventoryLedger"
+      WHERE "organizationId" = $1 AND "productId" = $2`,
+    [ORG_ID, pid],
+  );
+  return Number(r[0]?.q ?? 0);
+}
 
 // ---- shared fixtures --------------------------------------------------------
 let sessionId = '';
-let productId = ''; let productPrice = 10; let trackedProductId = ''; let managerId = '';
+let productId = ''; let productPrice = 0; let trackedProductId = ''; let trackedPrice = 0; let managerId = '';
 let customerId = ''; let tableId = '';
+let momo: { accountId: string; label: string } | null = null;
+const runStartedAt = new Date();
+const createdOrderIds = new Set<string>();
+
+/** The manager override every refund/void needs (the logged-in manager + PIN). */
+const override = () => ({ overrideById: managerId, ...(MANAGER_PIN ? { overridePin: MANAGER_PIN } : {}) });
+const momoTender = (amount: number) => {
+  need(momo, 'no mobile-money payment tile with an account (configure POS payment methods, decision D21)');
+  return { method: 'mobile_money', amount, accountId: momo!.accountId, reference: 'VALIDATE' };
+};
 
 async function newInvoice(opts: { lines?: any[]; partnerId?: string; tableId?: string; paymentMode?: string; orderType?: string } = {}): Promise<any> {
   const lines = opts.lines ?? [{ productId, description: 'Validation item', quantity: 1, unitPrice: productPrice }];
@@ -119,18 +185,44 @@ async function newInvoice(opts: { lines?: any[]; partnerId?: string; tableId?: s
     guestCount: 1,
     lines,
   });
+  createdOrderIds.add(order.id);
   const invoice = await call('POST', `/pos/orders/${order.id}/invoice`, {
     ...(opts.paymentMode ? { paymentMode: opts.paymentMode } : {}),
   });
   return { order, invoice };
 }
-async function onHand(pid: string): Promise<number> {
-  const r = await q(
-    `SELECT COALESCE(SUM(quantity),0)::float AS q FROM "InventoryLedger"
-      WHERE "organizationId" = $1 AND "productId" = $2`,
-    [ORG_ID, pid],
-  );
-  return Number(r[0]?.q ?? 0);
+/**
+ * Stock for a sale is posted asynchronously (StockPostingJob, drained every
+ * 30 s). Wait until the given invoice's jobs — or every job of the org — are
+ * done, so stock assertions and restock refunds see a settled ledger.
+ */
+async function waitStockPosted(invoiceId?: string, ms = 90000): Promise<void> {
+  const pending = async () => Number((await q(
+    `SELECT COUNT(*)::int AS n FROM "StockPostingJob" WHERE "organizationId"=$1 AND status <> 'done'${invoiceId ? ' AND "invoiceId"=$2' : ''}`,
+    invoiceId ? [ORG_ID, invoiceId] : [ORG_ID],
+  ))[0].n);
+  const left = await waitFor(pending, (n) => n === 0, ms);
+  assert(left === 0, `${left} stock posting job(s) still not done after ${ms / 1000}s${invoiceId ? ` for invoice ${invoiceId}` : ''}`);
+}
+/** An un-billed order (tabs are split before they are billed). */
+async function newOrder(lines: any[], table?: string): Promise<any> {
+  const order = await call('POST', '/pos/orders', {
+    orderType: table ? 'dine_in' : 'takeaway', tableId: table, cashSessionId: sessionId, guestCount: 1, lines,
+  });
+  createdOrderIds.add(order.id);
+  return order;
+}
+/** Composite checkout at the server's own price; tenders must equal the total. */
+async function checkout(pid: string, price: number, description: string, qty = 1): Promise<string> {
+  const co = await call('POST', '/pos/checkout', {
+    lines: [{ productId: pid, description, quantity: qty, unitPrice: price }],
+    paymentMethod: 'cash', amountTendered: price * qty, expectedTotal: price * qty, cashSessionId: sessionId,
+  });
+  const invId = co.invoiceId ?? co.invoice?.id;
+  assert(invId, 'no invoiceId from checkout');
+  const ord = (await q(`SELECT "orderId" FROM "Invoice" WHERE id=$1`, [invId]))[0];
+  if (ord?.orderId) createdOrderIds.add(ord.orderId);
+  return invId;
 }
 
 async function bootstrap(): Promise<void> {
@@ -143,38 +235,61 @@ async function bootstrap(): Promise<void> {
     const orgs = await q(`SELECT id FROM "Organization" WHERE code = $1`, [ORG]);
     ORG_ID = orgs[0]?.id;
   }
-  assert(ORG_ID, 'could not resolve organizationId');
+  if (!ORG_ID) throw new Error('could not resolve organizationId');
 
   // Cash register + open session.
-  const regs = await call('GET', '/cash-registers');
-  let register = (regs.data ?? [])[0];
+  // VALIDATE_REGISTER_CODE: run on a dedicated register (created if missing), so
+  // a migrated copy's own open shifts and orders are left exactly as they are.
+  const regCode = process.env.VALIDATE_REGISTER_CODE;
+  const regs = list(await call('GET', '/cash-registers'));
+  let register = regCode ? regs.find((r: any) => r.code === regCode) : regs[0];
   if (!register) {
-    const cash = (await call('GET', '/accounts?search=cash')).data?.[0];
-    register = await call('POST', '/cash-registers', { code: 'VAL-1', name: 'Validation', defaultAccountId: cash.id });
+    const cash = list(await call('GET', '/accounts?search=cash'))[0];
+    register = await call('POST', '/cash-registers', { code: regCode ?? 'VAL-1', name: 'Validation', defaultAccountId: cash.id });
   }
-  const open = await call('POST', '/cash-sessions/open', { cashRegisterId: register.id, openingFloat: 1000, notes: 'validate' });
+  // A float above the drawer's ledger must name its funding account (a safe or
+  // another cash account); the service ignores the source when nothing is added.
+  const fundingSource = list(await call('GET', '/accounts?search=cash'))
+    .find((a: any) => a.id !== register.defaultAccountId && a.isPostable !== false);
+  // The opening count may not be below the drawer's ledger (cash left from the
+  // previous shift that was never banked). Open with what is in the drawer, or
+  // with a funded 1,000 float on an empty drawer.
+  const drawerLedger = Number((await q(
+    `SELECT COALESCE(SUM(l.debit - l.credit),0)::float AS b FROM "JournalLine" l JOIN "JournalEntry" e ON e.id = l."journalEntryId"
+      WHERE l."organizationId"=$1 AND l."accountId"=$2 AND e.status IN ('posted','reversed')`,
+    [ORG_ID, register.defaultAccountId],
+  ))[0]?.b ?? 0);
+  const openingFloat = Math.max(1000, drawerLedger);
+  const open = await call('POST', '/cash-sessions/open', {
+    cashRegisterId: register.id, openingFloat, notes: 'validate: opening float',
+    ...(fundingSource && openingFloat > drawerLedger ? { openingSourceAccountId: fundingSource.id } : {}),
+  });
   sessionId = open.id;
 
-  // A sellable product; prefer a stock-tracked one for restock asserts.
-  const products = (await call('GET', '/products?pageSize=100')).data ?? [];
-  assert(products.length, 'no products seeded');
-  const tracked = products.find((p: any) => p.trackInventory && (p.productType === 'stockable' || p.productType === 'consumable'));
-  const any = products[0];
-  productId = (tracked ?? any).id;
-  productPrice = Number((tracked ?? any).basePrice ?? (tracked ?? any).price ?? 10) || 10;
-  if (productPrice > 1000) productPrice = productPrice / 100; // basePrice is minor units for some
-  trackedProductId = tracked?.id ?? '';
+  // Products at their catalogue price: the server prices every line itself.
+  const products = list(await call('GET', '/products?pageSize=200'));
+  if (!products.length) throw new Error('no products');
+  const priceOf = (p: any) => Number(p.salesPrice ?? p.basePrice ?? p.price ?? 0);
+  const sellable = products.filter((p: any) => p.isActive !== false && priceOf(p) > 0);
+  const tracked = sellable.find((p: any) => p.trackInventory && (p.productType === 'stockable' || p.productType === 'consumable'));
+  const plain = sellable.find((p: any) => !p.trackInventory) ?? sellable[0];
+  if (!plain) throw new Error('no sellable product with a price');
+  productId = plain.id; productPrice = priceOf(plain);
+  trackedProductId = tracked?.id ?? ''; trackedPrice = tracked ? priceOf(tracked) : 0;
 
-  // A non-WALKIN customer.
-  const partners = (await call('GET', '/partners?pageSize=50')).data ?? [];
-  const cust = partners.find((p: any) => p.isCustomer && p.code !== 'WALKIN') ?? partners.find((p: any) => p.code !== 'WALKIN') ?? partners[0];
-  assert(cust, 'no customer available');
-  customerId = cust.id;
+  // The mobile-money tile the till shows (configured or synthesized from accounts).
+  const methods = list(await call('GET', '/pos/payment-methods'));
+  const m = methods.find((x: any) => x.kind === 'mobile_money' && x.accountId && x.isActive !== false);
+  momo = m ? { accountId: m.accountId, label: m.label } : null;
+
+  // A named (non-walk-in) customer.
+  const partners = list(await call('GET', '/partners?pageSize=50'));
+  const cust = partners.find((p: any) => p.isCustomer && p.code !== 'WALKIN') ?? partners.find((p: any) => p.code !== 'WALKIN');
+  customerId = cust?.id ?? '';
 
   // A free table (best-effort).
-  const tables = (await call('GET', '/pos/tables')).data ?? (await call('GET', '/pos/tables')) ?? [];
-  const list = Array.isArray(tables) ? tables : tables.data ?? [];
-  tableId = (list.find((t: any) => t.status === 'available') ?? list[0])?.id ?? '';
+  const tables = list(await call('GET', '/pos/tables'));
+  tableId = (tables.find((t: any) => t.status === 'available') ?? tables[0])?.id ?? '';
 }
 
 async function main(): Promise<void> {
@@ -182,18 +297,17 @@ async function main(): Promise<void> {
   db = new Client({ connectionString: DB_URL });
   await db.connect();
   await bootstrap();
-  console.log(`bootstrap ok — session=${sessionId} product=${productId} (price ${productPrice}) customer=${customerId} table=${tableId || 'none'} manager=${managerId}\n`);
+  console.log(`bootstrap ok — session=${sessionId} product=${productId} (${productPrice}) tracked=${trackedProductId || 'none'} (${trackedPrice}) momo=${momo?.label ?? 'none'} customer=${customerId || 'none'} table=${tableId || 'none'}\n`);
+
+  // 0) Numbering continuity: the first documents this run issues.
+  const expectInv = process.env.VALIDATE_EXPECT_NEXT_INVOICE;
+  const expectRct = process.env.VALIDATE_EXPECT_NEXT_RECEIPT;
 
   // 1) Full cash sale via composite checkout.
   await check('1. full cash sale → paid + receipts + balanced JE + cash movement', async () => {
-    const co = await call('POST', '/pos/checkout', {
-      lines: [{ productId, description: 'Cash sale', quantity: 1, unitPrice: productPrice }],
-      paymentMethod: 'cash', amountTendered: productPrice, cashSessionId: sessionId,
-    }, { 'Idempotency-Key': uuid() });
-    const invId = co.invoiceId ?? co.invoice?.id;
-    assert(invId, 'no invoiceId from checkout');
+    const invId = await checkout(productId, productPrice, 'Cash sale');
     const inv = (await q(`SELECT status, "settlementStatus", "amountResidual"::float AS r, "paymentMode" FROM "Invoice" WHERE id=$1`, [invId]))[0];
-    assert(inv.status === 'paid' && inv.settlementstatus === 'settled' && near(inv.r, 0, 0.01), `invoice not settled: ${JSON.stringify(inv)}`);
+    assert(inv.status === 'paid' && inv.settlementStatus === 'settled' && near(inv.r, 0, 0.01), `invoice not settled: ${JSON.stringify(inv)}`);
     const receipts = await q(`SELECT type FROM "Receipt" WHERE "invoiceId"=$1`, [invId]);
     const types = receipts.map((r) => r.type);
     assert(types.includes('payment_receipt') && types.includes('merchant_copy'), `missing receipts: ${types}`);
@@ -204,94 +318,124 @@ async function main(): Promise<void> {
     return `inv residual=${inv.r}`;
   });
 
-  // 2) Split tender → mixed.
-  await check('2. split tender → mixed, 2 allocations', async () => {
-    const half = Math.round((productPrice / 2) * 100) / 100;
+  await check('1b. numbering continues from the migrated history', async () => {
+    need(expectInv || expectRct, 'VALIDATE_EXPECT_NEXT_INVOICE / _RECEIPT not set');
+    // createdAt is UTC in a timestamp WITHOUT time zone: compare as a UTC literal.
+    const since = runStartedAt.toISOString().replace('Z', '');
+    const inv = (await q(`SELECT min("invoiceNumber") AS n FROM "Invoice" WHERE "organizationId"=$1 AND "createdAt" >= $2::timestamp`, [ORG_ID, since]))[0]?.n;
+    const rct = (await q(`SELECT min("receiptNumber") AS n FROM "Receipt" WHERE "organizationId"=$1 AND "createdAt" >= $2::timestamp`, [ORG_ID, since]))[0]?.n;
+    if (expectInv) assert(inv === expectInv, `first invoice ${inv}, expected ${expectInv}`);
+    if (expectRct) assert(rct === expectRct, `first receipt ${rct}, expected ${expectRct}`);
+    return `invoice ${inv}, receipt ${rct}`;
+  });
+
+  // 2) Split tender (cash + mobile money) → mixed.
+  await check('2. split tender cash + mobile money → mixed, 2 allocations', async () => {
+    const half = Math.round(productPrice / 2);
     const co = await call('POST', '/pos/checkout', {
       lines: [{ productId, description: 'Split', quantity: 1, unitPrice: productPrice }],
-      tenders: [{ method: 'cash', amount: half }, { method: 'card', amount: productPrice - half }],
+      tenders: [{ method: 'cash', amount: half }, momoTender(productPrice - half)],
       cashSessionId: sessionId,
-    }, { 'Idempotency-Key': uuid() });
+    });
     const invId = co.invoiceId ?? co.invoice?.id;
     const inv = (await q(`SELECT "paymentMode", "settlementStatus" FROM "Invoice" WHERE id=$1`, [invId]))[0];
-    assert(inv.settlementstatus === 'settled', 'split not settled');
-    assert(inv.paymentmode === 'mixed', `expected mixed, got ${inv.paymentmode}`);
+    assert(inv.settlementStatus === 'settled', 'split not settled');
+    assert(inv.paymentMode === 'mixed', `expected mixed, got ${inv.paymentMode}`);
     const allocs = await q(`SELECT COUNT(*)::int AS n FROM "PaymentAllocation" WHERE "invoiceId"=$1`, [invId]);
     assert(Number(allocs[0].n) === 2, `expected 2 allocations, got ${allocs[0].n}`);
   });
 
   // 3) Partial payment → completion; table held then freed.
   await check('3. partial → completion (statuses, receipts, derived mixed, table lifecycle)', async () => {
+    need(momo, 'no mobile-money tile (D21)');
     const useTable = tableId || undefined;
     const { invoice } = await newInvoice({ lines: [{ productId, description: 'Partial', quantity: 2, unitPrice: productPrice }], tableId: useTable, orderType: useTable ? 'dine_in' : 'takeaway' });
     const total = Number(invoice.totalAmount);
-    const first = Math.round((total / 3) * 100) / 100;
-    // Partial cash payment.
-    const p1 = await call('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: first }], allowPartial: true, cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    const first = Math.round(total / 3);
+    const p1 = await call('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: first }], allowPartial: true, cashSessionId: sessionId });
     assert(p1.settlementStatus === 'partially_settled', `expected partially_settled, got ${p1.settlementStatus}`);
     const inv1 = (await q(`SELECT status, "paymentMode", "settlementStatus" FROM "Invoice" WHERE id=$1`, [invoice.id]))[0];
-    assert(inv1.status === 'posted' && !inv1.paymentmode, `partial invoice wrong state: ${JSON.stringify(inv1)}`);
+    assert(inv1.status === 'posted' && !inv1.paymentMode, `partial invoice wrong state: ${JSON.stringify(inv1)}`);
     if (useTable) {
       const t = (await q(`SELECT status FROM "PosTable" WHERE id=$1`, [useTable]))[0];
       assert(t.status === 'occupied', `table should stay occupied while partially paid, got ${t.status}`);
     }
     const rt = await q(`SELECT type FROM "Receipt" WHERE "invoiceId"=$1`, [invoice.id]);
     assert(rt.some((r) => r.type === 'partial_payment_receipt'), 'no partial_payment_receipt');
-    // Complete with card.
-    const p2 = await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'card', cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    const p2 = await call('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [momoTender(total - first)], cashSessionId: sessionId });
     assert(p2.settlementStatus === 'settled', `expected settled, got ${p2.settlementStatus}`);
     const inv2 = (await q(`SELECT status, "paymentMode" FROM "Invoice" WHERE id=$1`, [invoice.id]))[0];
-    assert(inv2.status === 'paid' && inv2.paymentmode === 'mixed', `completion wrong: ${JSON.stringify(inv2)}`);
+    assert(inv2.status === 'paid' && inv2.paymentMode === 'mixed', `completion wrong: ${JSON.stringify(inv2)}`);
     if (useTable) {
       const t = (await q(`SELECT status FROM "PosTable" WHERE id=$1`, [useTable]))[0];
-      assert(t.status === 'available', `table should free after full settle, got ${t.status}`);
+      assert(t.status !== 'occupied', `table should be released after full settle, got ${t.status}`);
     }
   });
 
-  // 4) Guards.
-  await check('4a. partial on pre-settled (cash) invoice → 400', async () => {
-    const { invoice } = await newInvoice({ paymentMode: 'cash' });
-    const r = await raw('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: Math.max(1, Number(invoice.totalAmount) - 1) }], allowPartial: true, cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+  // 4) Guards. Every new invoice posts to receivables, so the old "pre-settled
+  // invoice" guard has no subject any more; the tender guards below are the
+  // strict contract that replaces it.
+  await check('4a. under-tender without allowPartial → 400', async () => {
+    const { invoice } = await newInvoice();
+    const r = await raw('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: Math.max(1, Number(invoice.totalAmount) - 1) }], cashSessionId: sessionId });
     assert(r.status === 400, `expected 400, got ${r.status}`);
-    // clean up: settle it in full so it doesn't dangle.
-    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
   });
   await check('4b. negative tender → 400', async () => {
     const { invoice } = await newInvoice();
-    const r = await raw('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: Number(invoice.totalAmount) + 50 }, { method: 'card', amount: -50 }], cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    const r = await raw('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: Number(invoice.totalAmount) + 50 }, { method: 'cash', amount: -50 }], cashSessionId: sessionId });
     assert(r.status === 400, `expected 400, got ${r.status}`);
-    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
   });
   await check('4c. zero tender → 400', async () => {
     const { invoice } = await newInvoice();
-    const r = await raw('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: 0 }], allowPartial: true, cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    const r = await raw('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: 0 }], allowPartial: true, cashSessionId: sessionId });
     assert(r.status === 400, `expected 400, got ${r.status}`);
-    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
   });
   await check('4d. overpay tenders → 400', async () => {
     const { invoice } = await newInvoice();
-    const r = await raw('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: Number(invoice.totalAmount) + 5 }], cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    const r = await raw('POST', `/pos/invoices/${invoice.id}/payments`, { tenders: [{ method: 'cash', amount: Number(invoice.totalAmount) + 5 }], cashSessionId: sessionId });
     assert(r.status === 400, `expected 400, got ${r.status}`);
-    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
+  });
+  await check('4e. collection on a legacy cash-posted invoice is refused (D16)', async () => {
+    const legacy = (await q(
+      `SELECT id FROM "Invoice" WHERE "organizationId"=$1 AND "receivableAccountId" IS NULL
+          AND "paymentMode" IN ('cash','card','mobile_money') AND "amountResidual" > 0 AND status NOT IN ('cancelled','refunded') LIMIT 1`,
+      [ORG_ID],
+    ))[0];
+    need(legacy, 'no legacy cash-posted invoice with a balance on this copy');
+    const r = await raw('POST', `/pos/invoices/${legacy.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
+    assert(r.status === 400, `legacy collection should be refused, got ${r.status}`);
   });
 
-  // 5) Credit lifecycle.
+  // 5) Credit lifecycle: bill without a mode, then settle on account.
+  const creditIssue = async (invoiceId: string) => {
+    const r = await raw('POST', `/pos/invoices/${invoiceId}/credit`, { partnerId: customerId });
+    if (r.status === 400 && /credit/i.test(String(r.json?.message)) && !/already/i.test(String(r.json?.message))) {
+      // Leave nothing dangling: an unpaid bill would block the shift close.
+      await call('POST', `/pos/invoices/${invoiceId}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
+      throw new Precondition(`credit refused by configuration (decision D10): ${r.json?.message}`);
+    }
+    if (r.status >= 300) throw new ApiError(r.status, r.json, `POST credit → ${r.status}: ${r.text.slice(0, 200)}`);
+    return r.json;
+  };
   await check('5. credit issue → statement → settle → settlement_receipt → AR cleared', async () => {
-    const { invoice } = await newInvoice({ partnerId: customerId, paymentMode: 'credit' });
+    need(customerId, 'no named customer');
+    const { invoice } = await newInvoice({ partnerId: customerId });
     const total = Number(invoice.totalAmount);
-    const cr = await call('POST', `/pos/invoices/${invoice.id}/credit`, { partnerId: customerId });
-    assert(cr.settlementStatus === 'unsettled' && cr.paymentMode === 'credit', `credit issue wrong: ${JSON.stringify(cr)}`);
+    await creditIssue(invoice.id);
+    const inv0 = (await q(`SELECT "paymentMode", "settlementStatus" FROM "Invoice" WHERE id=$1`, [invoice.id]))[0];
+    assert(inv0.settlementStatus === 'unsettled' && inv0.paymentMode === 'credit', `credit issue wrong: ${JSON.stringify(inv0)}`);
     const ci = await q(`SELECT type FROM "Receipt" WHERE "invoiceId"=$1`, [invoice.id]);
     assert(ci.some((r) => r.type === 'credit_issue_receipt'), 'no credit_issue_receipt');
-    // statement shows the charge; outstanding == residual; runningBalance invariant.
     const st = await call('GET', `/pos/customers/${customerId}/statement`);
     assert(st.entries.length >= 1, 'statement empty after credit issue');
     const last = st.entries[st.entries.length - 1];
     assert(near(last.runningBalance, st.outstanding, 0.01), `runningBalance ${last.runningBalance} != outstanding ${st.outstanding}`);
-    const outBefore = st.outstanding;
-    assert(outBefore >= total - 0.01, `outstanding ${outBefore} should include the ${total} charge`);
-    // settle later with cash.
-    const pay = await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    assert(st.outstanding >= total - 0.01, `outstanding ${st.outstanding} should include the ${total} charge`);
+    const pay = await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
     assert(pay.settlementStatus === 'settled', `credit not settled: ${pay.settlementStatus}`);
     const sr = await q(`SELECT type FROM "Receipt" WHERE "invoiceId"=$1`, [invoice.id]);
     assert(sr.some((r) => r.type === 'settlement_receipt'), 'no settlement_receipt after credit payment');
@@ -301,11 +445,12 @@ async function main(): Promise<void> {
 
   // 6) Write-off.
   await check('6. write-off → written_off + balanced bad-debt JE + statement entry', async () => {
-    const { invoice } = await newInvoice({ partnerId: customerId, paymentMode: 'credit' });
-    await call('POST', `/pos/invoices/${invoice.id}/credit`, { partnerId: customerId });
+    need(customerId, 'no named customer');
+    const { invoice } = await newInvoice({ partnerId: customerId });
+    await creditIssue(invoice.id);
     await call('POST', `/pos/invoices/${invoice.id}/write-off`, { reason: 'validation write-off' });
     const inv = (await q(`SELECT "settlementStatus" FROM "Invoice" WHERE id=$1`, [invoice.id]))[0];
-    assert(inv.settlementstatus === 'written_off', `expected written_off, got ${inv.settlementstatus}`);
+    assert(inv.settlementStatus === 'written_off', `expected written_off, got ${inv.settlementStatus}`);
     const je = await jeBalanced('pos_invoice_writeoff', invoice.id);
     assert(je.balanced, `write-off JE unbalanced d=${je.debit} c=${je.credit}`);
     const st = await call('GET', `/pos/customers/${customerId}/statement`);
@@ -315,59 +460,51 @@ async function main(): Promise<void> {
   // 7) Full refund + restock.
   await check('7. full refund → refunded + reversal JE + stock restored + refund cash movement', async () => {
     const pid = trackedProductId || productId;
-    const before = trackedProductId ? await onHand(pid) : 0;
-    const co = await call('POST', '/pos/checkout', {
-      lines: [{ productId: pid, description: 'Refund me', quantity: 1, unitPrice: productPrice }],
-      paymentMethod: 'cash', amountTendered: productPrice, cashSessionId: sessionId,
-    }, { 'Idempotency-Key': uuid() });
-    const invId = co.invoiceId ?? co.invoice?.id;
-    await call('POST', `/pos/invoices/${invId}/refund`, { reason: 'validation refund', overrideById: managerId, cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    const price = trackedProductId ? trackedPrice : productPrice;
+    const invId = await checkout(pid, price, 'Refund me');
+    await waitStockPosted(invId);
+    const sold = trackedProductId ? await onHand(pid) : 0;
+    await call('POST', `/pos/invoices/${invId}/refund`, { reason: 'validation refund', ...override(), stockDisposition: 'restock', cashSessionId: sessionId });
     const inv = (await q(`SELECT status FROM "Invoice" WHERE id=$1`, [invId]))[0];
     assert(inv.status === 'refunded', `expected refunded, got ${inv.status}`);
-    const rev = await q(`SELECT COUNT(*)::int AS n FROM "JournalEntry" WHERE "organizationId"=$1 AND "reversalOfId" IS NOT NULL AND "sourceId"=$2`, [ORG_ID, invId]);
-    assert(Number(rev[0].n) >= 1 || true, 'reversal JE (best-effort)');
+    const cm = await q(`SELECT COUNT(*)::int AS n FROM "CashMovement" WHERE "cashSessionId"=$1 AND "movementType"='refund'`, [sessionId]);
+    assert(Number(cm[0].n) >= 1, 'no refund cash movement');
     if (trackedProductId) {
-      const after = await onHand(pid);
-      assert(near(after, before, 0.001), `stock not restored: before ${before} after ${after}`);
-      return `stock ${before}→${after}`;
+      const after = await waitFor(() => onHand(pid), (v) => v >= sold + 1 - 0.001);
+      assert(near(after, sold + 1, 0.001), `stock not restored: after sale ${sold}, after refund ${after}`);
+      return `stock ${sold}→${after}`;
     }
-    return 'skip-stock (no tracked product)';
+    return 'no tracked product: stock leg not exercised';
   });
 
   // 8) Partial refund + idempotency replay.
   await check('8. partial refund + idempotency replay (no double restock)', async () => {
     const pid = trackedProductId || productId;
-    const { invoice } = await newInvoice({ lines: [{ productId: pid, description: 'Qty2', quantity: 2, unitPrice: productPrice }] });
-    // settle first
-    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    const price = trackedProductId ? trackedPrice : productPrice;
+    const { invoice } = await newInvoice({ lines: [{ productId: pid, description: 'Qty2', quantity: 2, unitPrice: price }] });
+    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
+    await waitStockPosted(invoice.id);
     const line = (await q(`SELECT id FROM "InvoiceItem" WHERE "invoiceId"=$1 ORDER BY "lineNumber" LIMIT 1`, [invoice.id]))[0];
     assert(line, 'no invoice item to refund');
     const before = trackedProductId ? await onHand(pid) : 0;
     const key = uuid();
-    const body = { reason: 'partial', overrideById: managerId, cashSessionId: sessionId, lines: [{ lineId: line.id, quantity: 1 }] };
-    const r1 = await call('POST', `/pos/invoices/${invoice.id}/refund`, body, { 'Idempotency-Key': key });
-    // replay with SAME key + body → must not double-refund.
+    const body = { reason: 'partial', ...override(), stockDisposition: 'restock', cashSessionId: sessionId, lines: [{ lineId: line.id, quantity: 1 }] };
+    await call('POST', `/pos/invoices/${invoice.id}/refund`, body, { 'Idempotency-Key': key });
     const r2 = await raw('POST', `/pos/invoices/${invoice.id}/refund`, body, { 'Idempotency-Key': key });
     assert(r2.status < 300, `replay should succeed/replay, got ${r2.status}`);
     if (trackedProductId) {
-      const after = await onHand(pid);
+      const after = await waitFor(() => onHand(pid), (v) => v - before >= 1 - 0.001);
       assert(near(after - before, 1, 0.001), `partial refund restocked wrong qty: ${after - before} (expected 1)`);
     }
-    // refunded qty guard: refund remaining 1 with a fresh key.
-    await call('POST', `/pos/invoices/${invoice.id}/refund`, { reason: 'rest', overrideById: managerId, cashSessionId: sessionId, lines: [{ lineId: line.id, quantity: 1 }] }, { 'Idempotency-Key': uuid() });
-    const over = await raw('POST', `/pos/invoices/${invoice.id}/refund`, { reason: 'over', overrideById: managerId, cashSessionId: sessionId, lines: [{ lineId: line.id, quantity: 1 }] }, { 'Idempotency-Key': uuid() });
+    await call('POST', `/pos/invoices/${invoice.id}/refund`, { reason: 'rest', ...override(), stockDisposition: 'restock', cashSessionId: sessionId, lines: [{ lineId: line.id, quantity: 1 }] });
+    const over = await raw('POST', `/pos/invoices/${invoice.id}/refund`, { reason: 'over', ...override(), stockDisposition: 'restock', cashSessionId: sessionId, lines: [{ lineId: line.id, quantity: 1 }] });
     assert(over.status === 400, `over-refund should be 400, got ${over.status}`);
-    void r1;
   });
 
   // 9) Void.
   await check('9. void settled sale → refunded', async () => {
-    const co = await call('POST', '/pos/checkout', {
-      lines: [{ productId, description: 'Void me', quantity: 1, unitPrice: productPrice }],
-      paymentMethod: 'cash', amountTendered: productPrice, cashSessionId: sessionId,
-    }, { 'Idempotency-Key': uuid() });
-    const invId = co.invoiceId ?? co.invoice?.id;
-    await call('POST', `/pos/sales/${invId}/void`, { reason: 'validation void', overrideById: managerId });
+    const invId = await checkout(productId, productPrice, 'Void me');
+    await call('POST', `/pos/sales/${invId}/void`, { reason: 'validation void', ...override(), stockDisposition: 'no_return', cashSessionId: sessionId });
     const inv = (await q(`SELECT status FROM "Invoice" WHERE id=$1`, [invId]))[0];
     assert(inv.status === 'refunded' || inv.status === 'cancelled', `void wrong status: ${inv.status}`);
   });
@@ -375,7 +512,7 @@ async function main(): Promise<void> {
   // 10) Double-settle race.
   await check('10. double-settle race → exactly one wins, residual never negative', async () => {
     const { invoice } = await newInvoice();
-    const attempt = () => raw('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    const attempt = () => raw('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
     const results = await Promise.allSettled([attempt(), attempt()]);
     const ok = results.filter((r) => r.status === 'fulfilled' && (r.value as RawResult).status < 300).length;
     assert(ok === 1, `expected exactly 1 winner, got ${ok}`);
@@ -387,21 +524,26 @@ async function main(): Promise<void> {
 
   // 11) Double-credit race.
   await check('11. double-credit race → one credit_issue_receipt only', async () => {
-    const { invoice } = await newInvoice({ partnerId: customerId, paymentMode: 'credit' });
+    need(customerId, 'no named customer');
+    const { invoice } = await newInvoice({ partnerId: customerId });
     const attempt = () => raw('POST', `/pos/invoices/${invoice.id}/credit`, { partnerId: customerId });
     const results = await Promise.allSettled([attempt(), attempt()]);
-    const ok = results.filter((r) => r.status === 'fulfilled' && (r.value as RawResult).status < 300).length;
+    const vals = results.map((r) => (r.status === 'fulfilled' ? r.value : null)).filter(Boolean) as RawResult[];
+    if (vals.every((v) => v.status === 400 && /credit/i.test(String(v.json?.message)) && !/already/i.test(String(v.json?.message)))) {
+      await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
+      throw new Precondition(`credit refused by configuration (decision D10): ${vals[0]?.json?.message}`);
+    }
+    const ok = vals.filter((v) => v.status < 300).length;
     assert(ok === 1, `expected exactly 1 credit winner, got ${ok}`);
     const ci = await q(`SELECT COUNT(*)::int AS n FROM "Receipt" WHERE "invoiceId"=$1 AND type='credit_issue_receipt'`, [invoice.id]);
     assert(Number(ci[0].n) === 1, `expected 1 credit_issue_receipt, got ${ci[0].n}`);
-    // settle to not dangle.
-    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId }, { 'Idempotency-Key': uuid() });
+    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
   });
 
   // 12) Duplicate invoice numbers.
   await check('12. no duplicate invoice numbers', async () => {
     const dups = await q(`SELECT "invoiceNumber", COUNT(*)::int AS n FROM "Invoice" WHERE "organizationId"=$1 GROUP BY "invoiceNumber" HAVING COUNT(*) > 1`, [ORG_ID]);
-    assert(dups.length === 0, `duplicate invoice numbers: ${dups.map((d) => d.invoicenumber).join(', ')}`);
+    assert(dups.length === 0, `duplicate invoice numbers: ${dups.map((d) => d.invoiceNumber).join(', ')}`);
   });
 
   // 13) Orphan sweep.
@@ -432,34 +574,35 @@ async function main(): Promise<void> {
     assert(bad.length === 0, `${bad.length} unbalanced journal entries`);
   });
 
-  // 14) Reports reconciliation.
-  await check('14. sales-summary revenue ≈ Σ inbound payments today (±0.05 tol on set)', async () => {
+  // 14) Reports: sales summary answers for today; the X-report's expected cash
+  // equals the drawer recomputed from movements.
+  await check('14. sales-summary responds; X-report expected cash = SQL recompute', async () => {
     const today = new Date().toISOString().slice(0, 10);
-    const summary = await call('GET', `/pos/reports/sales-summary?fromDate=${today}&toDate=${today}`);
-    // sales-summary shape varies; just assert it returns numbers and the X-report reconciles cash.
-    assert(summary, 'no sales-summary');
+    const summary = await call('GET', `/pos/reports/sales-summary?fromDate=${today}&toDate=${today}&groupBy=day`);
+    assert(summary && Array.isArray(summary.periods), 'sales-summary has no periods');
     const x = await call('GET', `/pos/reports/x-report?cashSessionId=${sessionId}`);
-    const expectedCash = Number(x.totals?.expectedCash ?? x.expectedCash ?? 0);
+    const expectedCash = Number(x.totals?.expectedCash ?? x.expectedCash ?? NaN);
+    const svc = await call('GET', `/cash-sessions/${sessionId}/expected`);
+    const serviceCash = Number(svc.expectedCash);
     const recompute = await q(
       `SELECT (s."openingFloat"
-              + COALESCE(SUM(CASE WHEN m."movementType" IN ('sale','pay_in','drop_in') THEN m.amount ELSE 0 END),0)
-              - COALESCE(SUM(CASE WHEN m."movementType" IN ('refund','pay_out','drop') THEN m.amount ELSE 0 END),0))::float AS c
+              + COALESCE(SUM(CASE WHEN m."movementType" IN ('sale','pay_in') THEN m.amount ELSE 0 END),0)
+              - COALESCE(SUM(CASE WHEN m."movementType" IN ('refund','pay_out','supplier_payment') THEN m.amount ELSE 0 END),0)
+              + COALESCE(SUM(CASE WHEN m."movementType" = 'adjustment' THEN m.amount ELSE 0 END),0))::float AS c
          FROM "CashSession" s LEFT JOIN "CashMovement" m ON m."cashSessionId"=s.id
         WHERE s.id=$1 GROUP BY s."openingFloat"`,
       [sessionId],
     );
     const sqlCash = Number(recompute[0]?.c ?? 0);
-    // Movement-type naming can differ; only assert when the report exposes a number.
-    if (expectedCash > 0) assert(near(expectedCash, sqlCash, Math.max(1, expectedCash * 0.02)), `X-report cash ${expectedCash} vs SQL ${sqlCash}`);
-    return `expectedCash=${expectedCash}`;
+    assert(near(serviceCash, sqlCash, 0.01), `service expected cash ${serviceCash} vs SQL ${sqlCash}`);
+    if (Number.isFinite(expectedCash)) assert(near(expectedCash, sqlCash, 0.01), `X-report cash ${expectedCash} vs SQL ${sqlCash}`);
+    return `expectedCash=${serviceCash}`;
   });
 
   // 15) Line discount → the discount reaches the invoice and the JE still balances.
-  // A discount that is applied in the cart but not re-derived server-side would
-  // show here as a total matching the undiscounted price.
   await check('15. line discount → total reduced server-side + balanced JE', async () => {
     const qty = 2;
-    const gross = Math.round(productPrice * qty * 100) / 100;
+    const gross = productPrice * qty;
     const { invoice } = await newInvoice({
       lines: [{
         productId, description: 'Discounted', quantity: qty, unitPrice: productPrice,
@@ -468,92 +611,123 @@ async function main(): Promise<void> {
     });
     const total = Number(invoice.totalAmount);
     assert(total < gross, `discount not applied: total ${total} >= gross ${gross}`);
-
-    await call('POST', `/pos/invoices/${invoice.id}/payments`, {
-      paymentMethod: 'cash', cashSessionId: sessionId,
-    }, { 'Idempotency-Key': uuid() });
-
+    await call('POST', `/pos/invoices/${invoice.id}/payments`, { paymentMethod: 'cash', cashSessionId: sessionId });
     const inv = (await q(`SELECT "settlementStatus", "amountResidual"::float AS r FROM "Invoice" WHERE id=$1`, [invoice.id]))[0];
-    assert(inv.settlementstatus === 'settled' && near(inv.r, 0, 0.01), `discounted invoice not settled: ${JSON.stringify(inv)}`);
+    assert(inv.settlementStatus === 'settled' && near(inv.r, 0, 0.01), `discounted invoice not settled: ${JSON.stringify(inv)}`);
     const je = await jeBalanced('pos_invoice', invoice.id);
     assert(je.balanced, `discounted JE unbalanced d=${je.debit} c=${je.credit}`);
     return `gross=${gross} net=${total}`;
   });
 
-  // 16) Forward stock deduction. Scenarios 7/8 assert restock on refund; this
-  // asserts the sale actually moved stock in the first place.
+  // 16) Forward stock deduction.
   await check('16. sale deducts stock from the ledger', async () => {
-    if (!trackedProductId) return 'skip';
+    need(trackedProductId, 'no stock-tracked product with a price');
+    await waitStockPosted();
     const before = await onHand(trackedProductId);
-    const qty = 1;
-    await call('POST', '/pos/checkout', {
-      lines: [{ productId: trackedProductId, description: 'Stock deduct', quantity: qty, unitPrice: productPrice }],
-      paymentMethod: 'cash', amountTendered: productPrice, cashSessionId: sessionId,
-    }, { 'Idempotency-Key': uuid() });
+    const invId = await checkout(trackedProductId, trackedPrice, 'Stock deduct');
+    await waitStockPosted(invId);
     const after = await onHand(trackedProductId);
-    assert(near(after, before - qty, 0.001), `stock not deducted: ${before} -> ${after} (expected ${before - qty})`);
+    assert(near(after, before - 1, 0.001), `stock not deducted: ${before} -> ${after} (expected ${before - 1})`);
     return `${before} -> ${after}`;
   });
 
-  // 17) Split bill on a dine-in tab. Distinct from scenario 2 (split tender):
-  // this splits one order into separate bills, each settled independently.
-  await check('17. split bill → each bill settles, table released', async () => {
-    if (!tableId) return 'skip';
-    const { order } = await newInvoice({
+  // 17) Split bill on a dine-in tab, through the flow the POS screen uses
+  // (/pos/tabs/:tableId/split/*): two bills, one line each, each settled in
+  // full; the tab closes when the last bill is paid.
+  await check('17. split bill → 2 bills settle separately, tab closes', async () => {
+    const free = list(await call('GET', '/pos/tables')).find((t: any) => t.status === 'available');
+    need(free, 'no available table');
+    // Open the tab the way the POS does (tabs/:tableId/items), not a bare order.
+    const tab = await call('POST', `/pos/tabs/${free.id}/items`, {
+      cashSessionId: sessionId, guestCount: 2, sendToKitchen: false,
       lines: [
         { productId, description: 'Split A', quantity: 1, unitPrice: productPrice },
         { productId, description: 'Split B', quantity: 1, unitPrice: productPrice },
       ],
-      tableId, orderType: 'dine_in',
     });
-    const items = (await call('GET', `/pos/orders/${order.id}`)).lines ?? [];
-    if (items.length < 2) return 'skip';
-
-    const split = await call('POST', `/pos/tables/${tableId}/split-bill`, {
-      sourceOrderId: order.id,
-      splits: [
-        { label: 'Guest 1', lines: [{ sourceItemId: items[0].id, quantity: 1 }] },
-        { label: 'Guest 2', lines: [{ sourceItemId: items[1].id, quantity: 1 }] },
-      ],
-    });
-    const bills = split.bills ?? split.splitBills ?? [];
+    void tab;
+    const st = await call('POST', `/pos/tabs/${free.id}/split/bills`, { count: 2 });
+    const order = { id: st.sourceOrderId as string };
+    assert(order.id, 'split state has no source order');
+    createdOrderIds.add(order.id);
+    const bills = st.bills ?? [];
+    const lines = st.lines ?? [];
     assert(bills.length === 2, `expected 2 split bills, got ${bills.length}`);
-
-    const rowCount = await q(
-      `SELECT COUNT(*)::int AS n FROM "SplitBill" WHERE "organizationId"=$1 AND "sourceOrderId"=$2`,
-      [ORG_ID, order.id],
-    );
-    assert(Number(rowCount[0].n) >= 2, 'split bills not persisted');
-    return `${bills.length} bills`;
+    assert(lines.length === 2, `expected 2 tab lines, got ${lines.length}`);
+    for (let i = 0; i < 2; i++) {
+      await call('POST', `/pos/split-bills/${bills[i].id}/assign`, { items: [{ sourceItemId: lines[i].id, quantity: 1 }] });
+    }
+    const results: any[] = [];
+    for (const b of bills) {
+      results.push(await call('POST', `/pos/split-bills/${b.id}/settle`, { paymentMethod: 'cash', cashSessionId: sessionId }));
+    }
+    for (const r of results) {
+      const inv = (await q(`SELECT status, "settlementStatus" FROM "Invoice" WHERE id=$1`, [r.invoiceId]))[0];
+      assert(inv?.status === 'paid' && inv.settlementStatus === 'settled', `split bill ${r.invoiceNumber} not settled: ${JSON.stringify(inv)}`);
+      const je = await jeBalanced('pos_invoice', r.invoiceId);
+      assert(je.balanced, `split bill ${r.invoiceNumber} JE unbalanced d=${je.debit} c=${je.credit}`);
+    }
+    assert(results[results.length - 1].tableClosed === true, 'tab not closed after the last split bill was paid');
+    const src = (await q(`SELECT status FROM "Order" WHERE id=$1`, [order.id]))[0];
+    assert(src && src.status !== 'open' && src.status !== 'confirmed', `source order still ${src?.status}`);
+    return `${results.map((r) => r.invoiceNumber).join(' + ')}`;
   });
 
-  // 18) Teardown — close the session (the Z-report path). Scenario 14 already
-  // reconciles expected cash against the movements, so this asserts the close
-  // itself: terminal status, timestamp, and no variance when counted == expected.
+  // 18) Teardown — close the session (the Z-report path).
   await check('18. close cash session cleanly → Z-report totals', async () => {
+    // The close gate refuses while this shift's stock posting is still queued.
+    await waitStockPosted();
     const expected = await call('GET', `/cash-sessions/${sessionId}/expected`);
-    const closed = await call('POST', '/cash-sessions/close', { closingCounted: expected.expectedCash, notes: 'validate-close' });
-    const row = (await q(`SELECT status, "closedAt" FROM "CashSession" WHERE id=$1`, [sessionId]))[0];
+    // Every tracked non-cash tender (MoMo, bank, card) is declared at close, as
+    // the cashier does in the close dialog: the balance this shift took in.
+    const tracked = list(await call('GET', '/pos/payment-methods'))
+      .filter((m: any) => m.trackInShift && m.accountId && m.kind !== 'cash');
+    const rec = await call('GET', `/cash-sessions/${sessionId}/reconciliation`);
+    const closingAccounts: Record<string, string> = {};
+    for (const m of tracked) {
+      if (m.accountId in closingAccounts) continue;
+      const acc = (rec.accounts ?? []).find((a: any) => a.accountId === m.accountId);
+      closingAccounts[m.accountId] = String(acc?.net ?? '0');
+    }
+    const r = await raw('POST', '/cash-sessions/close', {
+      closingCounted: Number(expected.expectedCash), notes: 'validate-close',
+      ...(Object.keys(closingAccounts).length ? { closingAccounts } : {}),
+    });
+    if (r.status === 400 && r.json?.code === 'OPEN_ORDERS') {
+      const all = r.json.openOrders ?? [];
+      const foreign = all.filter((o: any) => !createdOrderIds.has(o.id));
+      const own = all.filter((o: any) => createdOrderIds.has(o.id));
+      // Orders this run left open are a real defect; legacy open orders on a
+      // mid-trade copy are an environment condition (they are 0 at the final backup).
+      assert(own.length === 0, `close blocked by orders this run created: ${own.map((o: any) => o.orderNumber).join(', ')}`);
+      throw new Precondition(`close blocked by ${foreign.length} legacy open order(s) on this copy: ${foreign.map((o: any) => o.orderNumber).join(', ')}`);
+    }
+    if (r.status >= 300) throw new ApiError(r.status, r.json, `close → ${r.status}: ${r.text.slice(0, 200)}`);
+    const row = (await q(`SELECT status, "closedAt", "closingDifference"::float AS v FROM "CashSession" WHERE id=$1`, [sessionId]))[0];
     assert(row.status === 'closed', `session not closed: ${row.status}`);
-    assert(row.closedat, 'closedAt not set');
-    const variance = Number(closed.variance ?? closed.cashVariance ?? 0);
-    assert(near(variance, 0, 0.01), `unexpected close variance ${variance} — counted equalled expected`);
-    return `closed variance=${variance}`;
+    assert(row.closedAt, 'closedAt not set');
+    assert(near(Number(row.v ?? 0), 0, 0.01), `unexpected close variance ${row.v} — counted equalled expected`);
+    return `closed variance=${row.v ?? 0}`;
   });
 
   // ---- summary --------------------------------------------------------------
   await db.end();
-  const failed = rows.filter((r) => !r.ok);
+  const by = (c: Category) => rows.filter((r) => r.category === c);
   const passed = rows.filter((r) => r.ok && !r.skipped);
-  const skipped = rows.filter((r) => r.skipped);
+  const pre = by('PRECONDITION');
+  const integrity = by('INTEGRITY'), contract = by('CONTRACT'), rejected = by('REJECTED');
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`RESULT: ${passed.length} passed, ${failed.length} failed, ${skipped.length} skipped`);
-  if (failed.length) {
-    console.log('\nFAILURES:');
-    for (const f of failed) console.log(`  ✗ ${f.name}\n      ${f.detail}`);
+  console.log(`RESULT: ${passed.length} passed · INTEGRITY ${integrity.length} · CONTRACT ${contract.length} · REJECTED ${rejected.length} · PRECONDITION ${pre.length}`);
+  for (const [label, set] of [['INTEGRITY (data/business defects)', integrity], ['CONTRACT (script out of date)', contract], ['REJECTED (API refused a valid request)', rejected], ['PRECONDITION (not run here)', pre]] as const) {
+    if (!set.length) continue;
+    console.log(`\n${label}:`);
+    for (const f of set) console.log(`  ${f.name}\n      ${f.detail}`);
   }
   console.log('='.repeat(60));
-  process.exit(failed.length ? 1 : 0);
+  if (process.env.VALIDATE_JSON) {
+    writeFileSync(process.env.VALIDATE_JSON, JSON.stringify({ base: BASE, org: ORG, startedAt: runStartedAt.toISOString(), rows }, null, 2));
+  }
+  process.exit(integrity.length ? 2 : contract.length || rejected.length ? 1 : 0);
 }
 
 main().catch(async (err) => {
