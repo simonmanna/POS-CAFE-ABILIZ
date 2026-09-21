@@ -28,6 +28,9 @@ import { api } from '@/lib/api';
 import type { PosTable } from '@/features/tables/types';
 import { STATUS_META, fmtMoney, minutesBetween } from '@/features/tables/utils';
 
+// Release 2026-09-r2 finding F8. Re-enable once the endpoint is fixed.
+const TABLES_PAGE_SPLIT_ENABLED = false;
+
 interface Props {
   table: PosTable | null;
   onClose: () => void;
@@ -279,14 +282,18 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setSplitOpen(true)}
-              disabled={openOrders.length === 0}
-            >
-              <Scissors className="w-3 h-3 mr-1" /> Split bill
-            </Button>
+            {/* Hidden: POST /pos/tables/:id/split-bill returns 409 (the split tabs
+                violate the one-open-tab-per-table index). Split from the POS screen. */}
+            {TABLES_PAGE_SPLIT_ENABLED ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSplitOpen(true)}
+                disabled={openOrders.length === 0}
+              >
+                <Scissors className="w-3 h-3 mr-1" /> Split bill
+              </Button>
+            ) : null}
             <Button variant="outline" size="sm" onClick={() => onEdit(t)}>
               <Pencil className="w-3 h-3 mr-1" /> Edit
             </Button>
