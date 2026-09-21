@@ -1,0 +1,48 @@
+{
+  "_comment": "G0 answers for the cafe server. Copy to C:\\POS-BACKUPS\\cafe-config.json and fill EVERY value from discovery-<date>.txt and the cafe walk-through. cutover.ps1 and rollback.ps1 -Production read it. No passwords here: PGPASSWORD is set in the session.",
+
+  "pg": {
+    "host": "localhost",
+    "port": 5432,
+    "superuser": "postgres",
+    "bin": "C:\\Program Files\\PostgreSQL\\18\\bin"
+  },
+
+  "legacyDb": "POS-CAFE",
+  "targetDb": "cafe_pos_v2",
+  "baselineDb": "ref_baseline_20260727",
+  "appDbRole": "<role the API connects as - discovery section 2, e.g. postgres or cafe-pos>",
+
+  "oldInstall": "C:\\microsoft\\POS-CAFE",
+  "newInstall": "C:\\microsoft\\POS-CAFE-v2",
+  "releaseManifest": "C:\\POS-BACKUPS\\releases\\release-manifest-release-2026-09-r2.json",
+
+  "services": { "api": "pos-cafe-api", "web": "pos-cafe-web" },
+  "newServices": {
+    "pos-cafe-api": {
+      "AppDirectory": "C:\\microsoft\\POS-CAFE-v2\\apps\\api",
+      "Application": "C:\\Program Files\\nodejs\\node.exe",
+      "AppParameters": "--max-http-header-size=65536 dist/main.js"
+    },
+    "pos-cafe-web": {
+      "AppDirectory": "C:\\microsoft\\POS-CAFE-v2\\apps\\web"
+    }
+  },
+  "apiBase": "http://localhost:3000/api/v1",
+  "nginxReload": false,
+  "nginxExe": "C:\\Program Files\\nginx\\nginx.exe",
+
+  "uploadsDir": "<STORAGE_LOCAL_DIR of the OLD install - discovery>",
+  "configFiles": [
+    "C:\\microsoft\\POS-CAFE\\apps\\api\\.env",
+    "C:\\microsoft\\POS-CAFE\\apps\\web\\.env",
+    "C:\\Program Files\\nginx\\conf\\nginx.conf"
+  ],
+
+  "backupRoot": "C:\\POS-BACKUPS",
+  "offsiteDir": "<second physical disk or USB drive, e.g. E:\\POS-OFFSITE>",
+
+  "terminals": ["<TILL-1>", "<TILL-2>", "<KDS>", "<MANAGER-PC>"],
+
+  "rehearseApiPort": 3098
+}

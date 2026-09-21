@@ -1,0 +1,19 @@
+# Runtime state, not source. `upgrade.ps1` writes state.json as its resume
+# journal; committing it would make a fresh machine think steps already ran.
+state.json
+state.rolled-back-*.json
+
+# Raw `prisma migrate diff` output. It is the drafting input for
+# bridge-00-enums.sql / bridge-10-additive.sql / bridge-30-contract.sql, which
+# ARE committed. Keeping the draft out avoids ambiguity about which file is
+# authoritative. (This kit writes the draft to C:\POS-BACKUPS\work\ anyway.)
+draft.sql
+bridge-draft.sql
+
+# Fingerprints and preflight JSON are machine- and run-specific; the reports
+# that matter are summarised in REHEARSAL-1-REPORT.md.
+fingerprint-report.json
+*-before.json
+
+# MigrationReport.{json,md} are deliberately NOT ignored - they are the
+# deployment evidence for what the account mapping did, and belong in history.

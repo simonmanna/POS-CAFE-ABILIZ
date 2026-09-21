@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-09-17T19:50:21.522Z",
+  "mode": "apply",
+  "wireParents": false,
+  "accounts": 29,
+  "fromTemplate": 24,
+  "groups": 5,
+  "fromTypeMap": 0,
+  "alreadyCategorized": 0,
+  "unmapped": 0,
+  "needsReview": 0,
+  "unmappedAccounts": [],
+  "reviewAccounts": [],
+  "groupAccounts": [
+    {
+      "code": "1000",
+      "name": "Assets",
+      "oldType": "asset",
+      "source": "template-group"
+    },
+    {
+      "code": "2000",
+      "name": "Liabilities",
+      "oldType": "liability",
+      "source": "template-group"
+    },
+    {
+      "code": "3000",
+      "name": "Equity",
+      "oldType": "equity",
+      "source": "template-group"
+    },
+    {
+      "code": "4000",
+      "name": "Revenue",
+      "oldType": "revenue",
+      "source": "template-group"
+    },
+    {
+      "code": "5000",
+      "name": "Expenses",
+      "oldType": "expense",
+      "source": "template-group"
+    }
+  ],
+  "renamedByTemplate": [],
+  "warnings": [],
+  "durationMs": 90
+}

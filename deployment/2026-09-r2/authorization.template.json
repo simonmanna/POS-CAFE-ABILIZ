@@ -1,0 +1,55 @@
+{
+  "_comment": "Machine-readable twin of SIGNOFF.md. cutover.ps1 -Phase preflight refuses to continue unless every gate M0-G10 is PASS with a signer, a date and an evidence path, every owner decision is decided and signed, and kitHash/newCommit equal the M0 release manifest. Filled by the engineer, signed by the owner. Store at C:\\POS-BACKUPS\\authorization.json.",
+
+  "release": "2026-09-r2",
+  "newCommit": "<from release-manifest newCommit>",
+  "kitHash": "<from release-manifest kitHash>",
+  "releaseManifestSha256": "<sha256 printed by m0-release-freeze.ps1>",
+
+  "gates": {
+    "M0":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "C:\\POS-BACKUPS\\releases\\release-manifest-<tag>.json" },
+    "G0":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "C:\\POS-BACKUPS\\discovery\\discovery-<date>.txt" },
+    "G1":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "REHEARSAL-1-REPORT.md s1-2" },
+    "G2":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "C:\\POS-BACKUPS\\work\\<rehearsal run>\\run-summary.json" },
+    "G3":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "C:\\POS-BACKUPS\\work\\<rehearsal run>\\MigrationReport.md" },
+    "G4":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "C:\\POS-BACKUPS\\work\\<rehearsal run>\\fingerprint.json" },
+    "G5":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "UAT-CHECKLIST.md signed + uat-results.json" },
+    "G6":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "fingerprint.json money.perAccountMonth" },
+    "G7":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "fingerprint.json inventory + D5/D6 resolution" },
+    "G8":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "restore-test.txt + rollback-test.txt + post-write drill" },
+    "G9":  { "status": "OPEN", "signedBy": "", "date": "", "evidence": "DRESS-REHEARSAL.md signed" },
+    "G10": { "status": "OPEN", "signedBy": "", "date": "", "evidence": "this file + SIGNOFF.md signed" }
+  },
+
+  "signatures": {
+    "owner":             { "name": "", "date": "" },
+    "engineer":          { "name": "", "date": "" },
+    "rollbackAuthority": { "name": "", "date": "" }
+  },
+  "authorizedApprovers": ["<owner full name>", "<manager full name>"],
+  "maintenanceWindow": { "start": "<YYYY-MM-DD HH:MM local>", "end": "<YYYY-MM-DD HH:MM local>", "goNoGoDeadline": "<HH:MM - if not accepted by then: abort>" },
+
+  "approvedMapping": { "accounts": 29, "fromTemplate": 24, "groups": 5, "fromTypeMap": 0, "unmapped": 0, "needsReview": 0 },
+
+  "decisions": {
+    "D1_coaMapping":        { "value": "accept as reported",                        "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "wireParents":          { "value": true,                                        "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D3_kdsTickets":        { "value": "resolve in OLD system before final backup", "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D4_unreconciledShifts":{ "value": "",                                          "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D5_inventoryGl":       { "value": "owner-signed opening adjustment after go-live", "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D6_stockCount":        { "value": "",                                          "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D7_recipes":           { "value": "",                                          "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D8_stockPolicyWarn":   { "value": "accept; brief cashiers",                    "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D9_managerRole":       { "value": "",                                          "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D10_creditSales":      { "value": "disabled",                                  "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "databaseTimezone":     { "value": "UTC",                                       "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D12_adminPassword":    { "value": "changed in the app before go-live",         "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D13_backupDir":        { "value": "",                                          "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D14_featureFlags":     { "value": "all ENABLE_* false at cutover",             "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "rlsPosture":           { "value": "keep rehearsed role; RLS hardening is a separate, separately rehearsed change", "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D16_receivableless":   { "value": "",                                          "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D19_drawerLedger":     { "value": "<amount banked/transferred + destination, physical float>", "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D20_cashierRegisterRead": { "value": "",                                       "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" },
+    "D21_paymentMethods":   { "value": "configure", "providers": "MTN,Airtel",       "owner": "", "due": "", "evidence": "", "decidedBy": "", "date": "" }
+  }
+}

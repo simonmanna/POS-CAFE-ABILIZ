@@ -1,3 +1,11 @@
+> **SUPERSEDED — do not run.** Use `deployment/2026-09-r2/`, which is built and
+> rehearsed against the real café backup of 2026-09-17. This release is kept as
+> history. Four things here do not hold any more: the account backfill gives the
+> five group headers a category (a fresh install leaves them uncategorised), the
+> `history` step registers 5 migration names when production has 7 legacy rows,
+> the preflight queries tables a v1.5.0 database does not have, and `rollback.ps1`
+> restores over the upgraded database. See `../2026-09-r2/README.md` §8.
+
 # Release 2026-08-r1 — production upgrade
 
 Upgrades a café running the `v1.5.0`-era schema (198 models) to the current
