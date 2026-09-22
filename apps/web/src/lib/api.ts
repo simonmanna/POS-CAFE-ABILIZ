@@ -50,6 +50,21 @@ api.interceptors.request.use((config) => {
     config.headers = config.headers ?? {};
     config.headers['X-Pos-User'] = posToken;
   }
+  // Money-touching routes require an Idempotency-Key (retry can never charge
+  // twice). Callers that manage their own stable key — checkout, settle and
+  // the offline replay queue — set it first; everything else gets a fresh
+  // per-attempt key. crypto.randomUUID only exists in secure contexts, so
+  // fall back for LAN-over-http terminals.
+  const method = (config.method || '').toLowerCase();
+  if (['post', 'put', 'patch', 'delete'].includes(method)) {
+    config.headers = config.headers ?? {};
+    if (!config.headers['Idempotency-Key']) {
+      const uuid = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}-${Math.random().toString(36).slice(2, 10)}`;
+      config.headers['Idempotency-Key'] = uuid;
+    }
+  }
   return config;
 });
 
