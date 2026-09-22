@@ -74,6 +74,28 @@ export const SETTING_DEFINITIONS = {
     cascades: true,
     scopeLevels: ALL_LEVELS,
   },
+  'inventory.stockInApprovalNeeded': {
+    key: 'inventory.stockInApprovalNeeded',
+    group: 'inventory',
+    type: 'bool',
+    label: 'Stock In Approval Needed',
+    description:
+      'When on, a direct stock-in needs a named approver (with PIN unless self-approved). When off, it posts with attribution to the responsible staff only.',
+    default: true,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
+  'inventory.stockOutApprovalNeeded': {
+    key: 'inventory.stockOutApprovalNeeded',
+    group: 'inventory',
+    type: 'bool',
+    label: 'Stock Out Approval Needed',
+    description:
+      'When on, a direct stock-out needs a named approver (with PIN unless self-approved). When off, it posts with attribution to the responsible staff only.',
+    default: true,
+    cascades: false,
+    scopeLevels: ORG_ONLY,
+  },
   'inventory.atpMode': {
     key: 'inventory.atpMode',
     group: 'inventory',

@@ -20,7 +20,7 @@ class VerifyPinDto {
 }
 
 class VerifyOverrideDto {
-  @ApiProperty() @IsEmail() email!: string;
+  @ApiProperty({ required: false }) @IsOptional() @IsEmail() email?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() pin?: string;
   @ApiProperty({ required: false }) @IsOptional() @IsString() password?: string;
   @ApiProperty({ enum: ['discount', 'void', 'manual_refund'] })

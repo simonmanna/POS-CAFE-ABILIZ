@@ -3,6 +3,7 @@ import { dec, ZERO } from '../../kernel/common/money';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { SequenceService } from '../../kernel/sequence/sequence.service';
+import { SettingResolverService } from '../../kernel/settings/setting-resolver.service';
 import { StockService } from './stock.service';
 import { assertActiveStaff, assertDirectStockApproval } from './staff-attribution';
 import { DirectStockInDto, DirectStockOutDto } from './dto/direct-stock.dto';
@@ -14,6 +15,7 @@ export class DirectStockService {
     private readonly tenant: TenantContextService,
     private readonly seq: SequenceService,
     private readonly stock: StockService,
+    private readonly settings: SettingResolverService,
   ) {}
 
   private get org(): string {
@@ -21,13 +23,14 @@ export class DirectStockService {
   }
 
   /** Attribution ids are real org users AND the named approver provably approved. */
-  private async assertAttribution(dto: { responsibleById: string; approvedById: string; approverPin?: string }) {
+  private async assertAttribution(dto: { responsibleById: string; approvedById?: string; approverPin?: string }, approvalNeeded: boolean) {
     await assertActiveStaff(this.prisma.client, this.org, { responsibleById: dto.responsibleById, approvedById: dto.approvedById });
+    if (!approvalNeeded) return;
     await assertDirectStockApproval(this.prisma.client, {
       organizationId: this.org,
       actorUserId: this.tenant.userId,
       actorPermissions: this.tenant.permissions ?? [],
-      approvedById: dto.approvedById,
+      approvedById: dto.approvedById!,
       approverPin: dto.approverPin,
     });
   }
@@ -35,7 +38,8 @@ export class DirectStockService {
   async directIn(dto: DirectStockInDto) {
     const location = await this.prisma.client.inventoryLocation.findFirst({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundException('Location not found');
-    await this.assertAttribution(dto);
+    const approvalNeeded = await this.settings.resolveBool('inventory.stockInApprovalNeeded', { warehouseId: dto.locationId });
+    await this.assertAttribution(dto, approvalNeeded);
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.client.product.findMany({
@@ -108,7 +112,8 @@ export class DirectStockService {
   async directOut(dto: DirectStockOutDto) {
     const location = await this.prisma.client.inventoryLocation.findFirst({ where: { id: dto.locationId } });
     if (!location) throw new NotFoundException('Location not found');
-    await this.assertAttribution(dto);
+    const approvalNeeded = await this.settings.resolveBool('inventory.stockOutApprovalNeeded', { warehouseId: dto.locationId });
+    await this.assertAttribution(dto, approvalNeeded);
 
     const productIds = [...new Set(dto.items.map((i) => i.productId))];
     const products = await this.prisma.client.product.findMany({
@@ -124,6 +129,11 @@ export class DirectStockService {
     }
 
     const code = await this.seq.next('direct_stock_out', { prefix: 'DSO-', padding: 5 });
+
+    // Owner decision: with inventory.allowNegativeStock on, a direct stock-out
+    // simply proceeds (the migrated data is legitimately negative). The transfer
+    // loss paths keep their own requireAvailable semantics untouched.
+    const allowNegative = await this.settings.resolveBool('inventory.allowNegativeStock', { warehouseId: dto.locationId });
 
     // Availability is enforced by StockService.issue under the StockItem row
     // lock (`requireAvailable`), re-reading on-hand in BASE units after the lock
@@ -152,7 +162,7 @@ export class DirectStockService {
             batchNumber: item.batchNumber,
             sourceType: 'direct_stock_out',
             sourceId: code,
-            requireAvailable: true,
+            requireAvailable: !allowNegative,
             notes: item.notes ?? dto.notes ?? undefined,
             responsibleById: dto.responsibleById,
             approvedById: dto.approvedById,

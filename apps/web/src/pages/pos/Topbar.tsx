@@ -165,7 +165,6 @@ export const Topbar: React.FC<Props> = ({
         >
           <LayoutGrid className="h-4 w-4" />
           <span>{'Tables'}</span>
-          {activeTableLabel ? <span className="pos-active-dot" /> : null}
         </button>
         <span>{activeTableLabel}</span>
                   </>
@@ -195,10 +194,7 @@ export const Topbar: React.FC<Props> = ({
       >
         {shiftOpen ? <PowerCircle className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
         {shiftOpen ? (
-          <>
-            <span>Shift Close</span>
-            <span className="pos-active-dot" />
-          </>
+          <span>Shift Close</span>
         ) : (
           <span>Open Shift</span>
         )}

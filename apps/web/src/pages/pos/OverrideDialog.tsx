@@ -46,12 +46,16 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
 
   const submit = async () => {
     setErr(null);
-    if (!email) { setErr('Manager email is required'); return; }
-    if (!usePassword && !pin) { setErr('PIN is required'); return; }
-    if (usePassword && !password) { setErr('Password is required'); return; }
+    if (usePassword) {
+      if (!email) { setErr('Manager email is required for password verification'); return; }
+      if (!password) { setErr('Password is required'); return; }
+    } else if (!pin) {
+      setErr('PIN is required');
+      return;
+    }
     try {
       const res = await verify.mutateAsync({
-        email: email.trim().toLowerCase(),
+        email: usePassword ? email.trim().toLowerCase() : undefined,
         pin: !usePassword ? pin : undefined,
         password: usePassword ? password : undefined,
         overrideKind: kind,
@@ -75,16 +79,17 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
           </DialogDescription>
         </DialogHeader>
 
-        <div>
-          <Label>Manager email</Label>
-          <Input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="manager@cafe.com"
-            autoFocus
-          />
-        </div>
+        {usePassword && (
+          <div>
+            <Label>Manager email</Label>
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="manager@cafe.com"
+            />
+          </div>
+        )}
 
         {!usePassword ? (
           <div>
@@ -97,6 +102,7 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
               placeholder="••••"
               maxLength={8}
+              autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
             />
             <button

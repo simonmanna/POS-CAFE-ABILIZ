@@ -151,7 +151,7 @@ export function useCancelHold() {
 }
 
 export interface OverrideVerifyBody {
-  email: string;
+  email?: string;
   pin?: string;
   password?: string;
   overrideKind: 'discount' | 'void' | 'manual_refund';

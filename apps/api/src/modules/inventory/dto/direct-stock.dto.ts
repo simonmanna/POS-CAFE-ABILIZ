@@ -49,11 +49,13 @@ export class DirectStockInDto {
   @IsNotEmpty()
   responsibleById!: string;
 
-  /// Staff member who approved the stock-in. Required. When it is not the
-  /// authenticated caller, `approverPin` must prove the approval.
+  /// Staff member who approved the stock-in. Required while the org's
+  /// inventory.stockInApprovalNeeded setting is on (default); optional when it
+  /// is off. When it is not the authenticated caller, `approverPin` must prove
+  /// the approval.
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  approvedById!: string;
+  approvedById?: string;
 
   /// Approver's override PIN (or `password:<pw>`). Required unless the caller
   /// self-approves while holding inventory_doc:approve.
@@ -113,11 +115,13 @@ export class DirectStockOutDto {
   @IsNotEmpty()
   responsibleById!: string;
 
-  /// Staff member who approved the stock-out. Required. When it is not the
-  /// authenticated caller, `approverPin` must prove the approval.
+  /// Staff member who approved the stock-out. Required while the org's
+  /// inventory.stockOutApprovalNeeded setting is on (default); optional when it
+  /// is off. When it is not the authenticated caller, `approverPin` must prove
+  /// the approval.
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  approvedById!: string;
+  approvedById?: string;
 
   /// Approver's override PIN (or `password:<pw>`). Required unless the caller
   /// self-approves while holding inventory_doc:approve.

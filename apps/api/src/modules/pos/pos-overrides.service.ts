@@ -64,8 +64,8 @@ const OVERRIDE_MAX_FAILED_ATTEMPTS = 5;
 const OVERRIDE_LOCKOUT_MS = 10 * 60_000;
 
 export interface VerifyOverrideDto {
-  /** Manager's login email. Used to look up the manager in the cashier's org. */
-  email: string;
+  /** Manager's login email. Optional since PIN-only verification; required for password overrides. */
+  email?: string;
   /** Manager PIN (preferred, if the manager has set one). */
   pin?: string;
   /** Manager password (fallback if PIN is not set). */
@@ -136,9 +136,12 @@ export class PosOverridesService {
 
   /** Verify a manager's credentials and return their id if they can override. */
   async verify(dto: VerifyOverrideDto) {
-    if (!dto.email) throw new BadRequestException('email is required');
     if (!dto.pin && !dto.password) {
       throw new BadRequestException('pin or password is required');
+    }
+    if (!dto.email) {
+      if (dto.password) throw new BadRequestException('email is required to verify a manager password');
+      return this.verifyByPinOnly(dto.pin!, dto.overrideKind);
     }
     const organizationId = this.tenant.organizationId;
     const manager = await this.prisma.raw.user.findFirst({
@@ -189,6 +192,85 @@ export class PosOverridesService {
   }
 
   // ─── A-005: brute-force bookkeeping ────────────────────────────────────
+
+  /**
+   * PIN-only manager override (owner decision, 2026-09-23): the cashier enters
+   * just the manager's override PIN; the manager is identified by proving it
+   * against every active user holding pos:override for this kind. Candidates
+   * with the same PIN are rejected as ambiguous so the audit trail always
+   * names exactly one person. The same failure lock applies, counted against
+   * a shared per-organization sentinel so no single manager can be locked out
+   * by someone else's wrong attempts.
+   */
+  private static readonly PIN_ONLY_SENTINEL = 'pin-only-override';
+
+  private async verifyByPinOnly(pin: string, overrideKind: OverrideKind) {
+    const organizationId = this.tenant.organizationId;
+    const required = APPROVER_PERMISSION[overrideKind];
+    if (!required) throw new BadRequestException('Unknown override kind');
+    await this.assertPinOnlyNotLocked();
+    const candidates = await this.prisma.raw.user.findMany({
+      where: { organizationId, isActive: true, pinHash: { not: null } },
+      include: { roles: true },
+    });
+    const eligible = candidates.filter((u: any) => {
+      const perms = new Set((u.roles ?? []).flatMap((r: any) => r.permissions ?? []));
+      return perms.has('pos:override') && perms.has(required);
+    });
+    const matches: any[] = [];
+    for (const u of eligible) {
+      if (await this.password.compare(pin, u.pinHash as string)) matches.push(u);
+    }
+    if (matches.length === 0) {
+      await this.recordPinOnlyFailure();
+      throw new UnauthorizedException('Invalid override PIN');
+    }
+    if (matches.length > 1) {
+      throw new BadRequestException('Two managers share this PIN — enter the manager email to identify them');
+    }
+    const manager = matches[0];
+    await this.clearOverrideFailures({ id: manager.id, email: manager.email ?? '' });
+    await this.clearOverrideFailures({ id: manager.id, email: PosOverridesService.PIN_ONLY_SENTINEL });
+    await this.audit.record({
+      entity: 'User',
+      entityId: manager.id,
+      action: 'login' as any,
+      newValues: { overrideVerified: true, overrideKind, viaPinOnly: true },
+    });
+    this.events.publish(EVENTS.PosOverrideApproved, {
+      organizationId,
+      approverId: manager.id,
+      overrideKind,
+    });
+    return {
+      managerId: manager.id,
+      managerName: `${manager.firstName}${manager.lastName ? ' ' + manager.lastName : ''}`,
+      managerEmail: manager.email,
+      overrideKind,
+    };
+  }
+
+  private async assertPinOnlyNotLocked(): Promise<void> {
+    const since = new Date(Date.now() - OVERRIDE_LOCKOUT_MS);
+    const recent = await this.prisma.client.loginAttempt.count({
+      where: { organizationId: this.tenant.organizationId, email: PosOverridesService.PIN_ONLY_SENTINEL, success: false, createdAt: { gte: since }, reason: { in: ['override_pin_invalid', 'override_password_invalid'] } },
+    });
+    if (recent >= OVERRIDE_MAX_FAILED_ATTEMPTS) {
+      await this.audit.record({
+        entity: 'User', entityId: PosOverridesService.PIN_ONLY_SENTINEL, action: 'login' as any,
+        newValues: { overrideLocked: true, recentFailedAttempts: recent },
+      }).catch(() => undefined);
+      throw new UnauthorizedException('Manager overrides are temporarily locked after repeated failed attempts. Try again in a few minutes.');
+    }
+  }
+
+  private async recordPinOnlyFailure(): Promise<void> {
+    try {
+      await this.prisma.client.loginAttempt.create({
+        data: { organizationId: this.tenant.organizationId, email: PosOverridesService.PIN_ONLY_SENTINEL, success: false, reason: 'override_pin_invalid', createdAt: new Date() },
+      });
+    } catch { /* logging must never break the rejection */ }
+  }
 
   /** Refuse verifies while the manager's override credential is locked out. */
   private async assertOverrideNotLocked(managerId: string, email: string): Promise<void> {

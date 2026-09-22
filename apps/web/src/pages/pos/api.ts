@@ -723,7 +723,7 @@ export function useSendToKitchen() {
 
 export function useVerifyOverride() {
   return useMutation({
-    mutationFn: async (body: { email: string; pin?: string; password?: string; overrideKind: 'discount' | 'void' | 'manual_refund' }) =>
+    mutationFn: async (body: { email?: string; pin?: string; password?: string; overrideKind: 'discount' | 'void' | 'manual_refund' }) =>
       (await api.post('/pos/override/verify', body)).data,
   });
 }

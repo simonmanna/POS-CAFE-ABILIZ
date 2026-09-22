@@ -943,10 +943,12 @@ $r = [RawPrint]::Send($env:ESCPOS_PRINTER, $bytes)
 if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLine($r); exit 1 }
 `;
     const { execFile } = require('child_process');
+    const psExe = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const powershell = fs.existsSync(psExe) ? psExe : 'powershell.exe';
     try {
       await new Promise<void>((resolve, reject) => {
         execFile(
-          'powershell.exe',
+          powershell,
           ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
           { env: { ...process.env, TMP: tmpDir, TEMP: tmpDir, ESCPOS_FILE: tmp, ESCPOS_PRINTER: printerName }, timeout: 20000, windowsHide: true },
           (err: any, _stdout: string, stderr: string) => {

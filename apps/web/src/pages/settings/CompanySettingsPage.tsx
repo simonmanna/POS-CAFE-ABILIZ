@@ -909,6 +909,12 @@ export function CompanySettingsPage() {
                   )}
                 </CardContent>
               </Card>
+              <GroupCard
+                group="inventory"
+                title="Inventory Policy"
+                description="Allow Negative Stock, and whether direct stock in/out need an approver."
+                icon={<Boxes className="h-4 w-4 text-muted-foreground" />}
+              />
             </TabsContent>
 
             {/* ── Purchase ── */}

@@ -56,6 +56,15 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
   // with their override PIN; the server rejects a bare approver id.
   const myId = useAuthStore((s) => s.user?.id) ?? '';
 
+  const invSettings = useQuery<{ key: string; value: unknown }[]>({
+    queryKey: ['settings-effective', 'inventory'],
+    queryFn: async () => (await api.get('/settings/effective?group=inventory')).data,
+    staleTime: 60_000,
+  });
+  const settingOn = (key: string) => Boolean(invSettings.data?.find((s) => s.key === key)?.value);
+  const inApprovalNeeded = settingOn('inventory.stockInApprovalNeeded');
+  const outApprovalNeeded = settingOn('inventory.stockOutApprovalNeeded');
+
   /** Refresh every list a stock movement can change, plus the host page's own. */
   const invalidateAll = () => {
     for (const key of ['inventory-product-stock-levels', 'inventory-stats', 'inventory-ledger', ...invalidateKeys]) {
@@ -88,8 +97,8 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
       const res = await api.post('/inventory/direct-stock/in', {
         locationId: inLocId,
         responsibleById: inResponsibleId,
-        approvedById: inApprovedId,
-        ...(inApprovedId !== myId && inApproverPin ? { approverPin: inApproverPin } : {}),
+        approvedById: inApprovedId || undefined,
+        ...(inApprovedId && inApprovedId !== myId && inApproverPin ? { approverPin: inApproverPin } : {}),
         items,
         notes: inNotes || undefined,
       });
@@ -133,8 +142,8 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
       const res = await api.post('/inventory/direct-stock/out', {
         locationId: outLocId,
         responsibleById: outResponsibleId,
-        approvedById: outApprovedId,
-        ...(outApprovedId !== myId && outApproverPin ? { approverPin: outApproverPin } : {}),
+        approvedById: outApprovedId || undefined,
+        ...(outApprovedId && outApprovedId !== myId && outApproverPin ? { approverPin: outApproverPin } : {}),
         items,
         notes: outNotes || undefined,
       });
@@ -346,7 +355,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setInOpen(false)}>Cancel</Button>
-            <Button className="bg-[#3c8dbc] hover:bg-[#367fa9]" disabled={!inLocId || !inResponsibleId || !inApprovedId || (inApprovedId !== myId && !inApproverPin) || inFilledCount === 0 || directIn.isPending} onClick={() => directIn.mutate()}>
+            <Button className="bg-[#3c8dbc] hover:bg-[#367fa9]" disabled={!inLocId || !inResponsibleId || (inApprovalNeeded && !inApprovedId) || (inApprovalNeeded && inApprovedId !== myId && !inApproverPin) || inFilledCount === 0 || directIn.isPending} onClick={() => directIn.mutate()}>
               {directIn.isPending ? 'Processing…' : 'Complete Stock In'}
             </Button>
           </div>
@@ -508,7 +517,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           </div>
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setOutOpen(false)}>Cancel</Button>
-            <Button className="bg-rose-600 hover:bg-rose-700" disabled={!outLocId || !outResponsibleId || !outApprovedId || (outApprovedId !== myId && !outApproverPin) || outFilledCount === 0 || outMissingBatch > 0 || directOut.isPending} onClick={() => directOut.mutate()}>
+            <Button className="bg-rose-600 hover:bg-rose-700" disabled={!outLocId || !outResponsibleId || (outApprovalNeeded && !outApprovedId) || (outApprovalNeeded && outApprovedId !== myId && !outApproverPin) || outFilledCount === 0 || outMissingBatch > 0 || directOut.isPending} onClick={() => directOut.mutate()}>
               {directOut.isPending ? 'Processing…' : 'Complete Stock Out'}
             </Button>
           </div>
