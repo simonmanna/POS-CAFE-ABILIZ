@@ -75,9 +75,9 @@ class UpdateTableBody {
 }
 
 class StatusBody {
-  @ApiProperty({ enum: ['available','occupied','reserved','out_of_service','cleaning'] })
-  @IsIn(['available','occupied','reserved','out_of_service','cleaning'])
-  status!: 'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning';
+  @ApiProperty({ enum: ['available','occupied','reserved','out_of_service'] })
+  @IsIn(['available','occupied','reserved','out_of_service'])
+  status!: 'available' | 'occupied' | 'reserved' | 'out_of_service';
   @ApiProperty({ required: false }) @IsOptional() @IsString() reason?: string;
 }
 

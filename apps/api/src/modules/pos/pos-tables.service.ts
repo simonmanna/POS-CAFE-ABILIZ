@@ -62,7 +62,7 @@ export interface CreateTableDto {
 export interface UpdateTableDto extends Partial<CreateTableDto> {}
 
 export interface SetStatusDto {
-  status: 'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning';
+  status: 'available' | 'occupied' | 'reserved' | 'out_of_service';
   reason?: string;
 }
 
@@ -121,7 +121,7 @@ export class PosTablesService {
   async syncTableStatus(
     tableId: string,
     tx: any = this.prisma.client,
-  ): Promise<'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning'> {
+  ): Promise<'available' | 'occupied' | 'reserved' | 'out_of_service'> {
     // Delegates to the single item-derived invariant (shared with the Order and
     // Invoice services) so transfer / merge / split all free or occupy the table
     // from the same rule: OCCUPIED iff ≥1 active order item, else AVAILABLE.
@@ -403,7 +403,6 @@ export class PosTablesService {
       occupied: 0,
       reserved: 0,
       out_of_service: 0,
-      cleaning: 0,
     };
     for (const g of groups) {
       out.total += g._count._all;
@@ -603,7 +602,7 @@ export class PosTablesService {
   /**
    * Manual status flip. Used for "mark dirty → cleaned", "out of service",
    * etc. Lifecycle transitions that involve money (open a sale → OCCUPIED,
-   * payment posted → DIRTY) are driven by the sales flow, not this method.
+   * payment posted → available) are driven by the sales flow, not this method.
    */
   async setStatus(id: string, dto: SetStatusDto) {
     const organizationId = this.tenant.organizationId;
@@ -1362,7 +1361,7 @@ export class PosTablesService {
    * Close the open PosTableOrder(s) on a table after payment.
    * Table status auto-synced: no open orders → available, else occupied.
    */
-  async closeTableOrder(args: { tableId: string; orderId?: string }): Promise<{ closed: number; tableStatus: 'available' | 'occupied' | 'reserved' | 'out_of_service' | 'cleaning' }> {
+  async closeTableOrder(args: { tableId: string; orderId?: string }): Promise<{ closed: number; tableStatus: 'available' | 'occupied' | 'reserved' | 'out_of_service' }> {
     const organizationId = this.tenant.organizationId;
     return this.prisma.client.$transaction(async (tx: any) => {
       await tx.$queryRawUnsafe(
@@ -1379,12 +1378,7 @@ export class PosTablesService {
         data: { closedAt: new Date() },
       });
       // Sync status based on remaining open orders
-      let tableStatus = await this.syncTableStatus(args.tableId, tx);
-      // T2: After payment, set cleaning instead of available (unless overridden).
-      if (tableStatus === 'available' && existing.status === 'occupied') {
-        await tx.posTable.update({ where: { id: args.tableId }, data: { status: 'cleaning' } });
-        tableStatus = 'cleaning';
-      }
+      const tableStatus = await this.syncTableStatus(args.tableId, tx);
       return { closed: closed.count, tableStatus };
     });
   }

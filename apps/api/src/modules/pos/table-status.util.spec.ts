@@ -75,78 +75,41 @@ describe('recomputeTableStatus', () => {
 });
 
 /**
- * Audit F-06 — a settled table has to be bussed before the next party sits.
- *
- * The defect: the cleaning flip lived in PosTablesService.closeTableOrder, which
- * runs AFTER the payment transaction has already recomputed the table to
- * 'available'. Its `existing.status === 'occupied'` guard could therefore never
- * be true, and the whole cleaning workflow was dead code. The transition is only
- * observable inside the transaction that releases the table, so that is where
- * settlement now asks for it.
+ * No cleaning step: settlement frees a table straight to available, and a
+ * legacy 'cleaning' row is derived like any other status.
  */
-describe('recomputeTableStatus — dirtyOnRelease (F-06)', () => {
+describe('recomputeTableStatus — no cleaning state', () => {
   const makeTx = (tableStatus: string, activeItems: number) => ({
     posTable: { findFirst: jest.fn().mockResolvedValue({ id: 't1', status: tableStatus }), update: jest.fn() },
     orderItem: { count: jest.fn().mockResolvedValue(activeItems) },
   });
 
-  it('sends an occupied table to cleaning when settlement releases it', async () => {
-    const tx = makeTx('occupied', 0);
-    await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('cleaning');
-    expect(tx.posTable.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'cleaning' } });
-  });
-
-  it('frees it straight to available for an ordinary item edit', async () => {
+  it('frees a settled table straight to available', async () => {
     const tx = makeTx('occupied', 0);
     await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('available');
     expect(tx.posTable.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'available' } });
   });
 
-  it('leaves a still-occupied table occupied even on a settle', async () => {
+  it('keeps a table with live items occupied', async () => {
     const tx = makeTx('occupied', 2);
-    await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('occupied');
+    await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('occupied');
+    expect(tx.posTable.update).not.toHaveBeenCalled();
   });
 
-  it('does not dirty a table that was already free', async () => {
-    const tx = makeTx('available', 0);
-    await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('available');
-    expect(tx.posTable.update).not.toHaveBeenCalled();
+  it('heals a legacy cleaning table to available when empty', async () => {
+    const tx = makeTx('cleaning', 0);
+    await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('available');
+    expect(tx.posTable.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'available' } });
+  });
+
+  it('turns a legacy cleaning table occupied when a party is seated', async () => {
+    const tx = makeTx('cleaning', 3);
+    await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('occupied');
   });
 
   it('never overrides an admin hold', async () => {
-    const tx = makeTx('out_of_service', 0);
-    await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('out_of_service');
+    const tx = makeTx('out_of_service', 4);
+    await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('out_of_service');
     expect(tx.posTable.update).not.toHaveBeenCalled();
-  });
-
-  /**
-   * Audit#2 N-09 — `cleaning` used to short-circuit alongside the admin holds,
-   * so a dirty table stopped being derived entirely. Seat a party on it and it
-   * still read "cleaning" while holding a live order; mark it clean and it read
-   * "available" while holding one, and the host then hit a 409 opening a table
-   * the floor map showed as free.
-   */
-  describe('cleaning is derived, not an override (N-09)', () => {
-    it('goes occupied when a party is seated on a dirty table', async () => {
-      const tx = makeTx('cleaning', 3);
-      await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('occupied');
-      expect(tx.posTable.update).toHaveBeenCalledWith({ where: { id: 't1' }, data: { status: 'occupied' } });
-    });
-
-    it('stays dirty while it is empty', async () => {
-      const tx = makeTx('cleaning', 0);
-      await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('cleaning');
-      expect(tx.posTable.update).not.toHaveBeenCalled();
-    });
-
-    it('still stays dirty on a settle that leaves it empty', async () => {
-      const tx = makeTx('cleaning', 0);
-      await expect(recomputeTableStatus(tx as any, 't1', { dirtyOnRelease: true })).resolves.toBe('cleaning');
-    });
-
-    it('an admin hold still beats live items', async () => {
-      const tx = makeTx('out_of_service', 4);
-      await expect(recomputeTableStatus(tx as any, 't1')).resolves.toBe('out_of_service');
-    });
   });
 });

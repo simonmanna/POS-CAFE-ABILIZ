@@ -139,7 +139,7 @@ class CheckoutDto implements CheckoutInput {
   @ApiProperty({ required: false }) @IsOptional() @IsString() notes?: string;
   /** POS Tables (T1): if the sale is being rung on a table, its id. The
    *  server creates a PosTableOrder row and flips the table to OCCUPIED
-   *  inside the same transaction; on payment the table is auto-marked DIRTY. */
+   *  inside the same transaction; on payment the table is freed to available. */
   @ApiProperty({ required: false }) @IsOptional() @IsString() tableId?: string;
   /** POS Tables (T1): optional guest count shown on the table card. */
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() guestCount?: number;

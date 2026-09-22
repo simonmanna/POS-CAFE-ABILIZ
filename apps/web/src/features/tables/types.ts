@@ -7,8 +7,7 @@ export type PosTableStatus =
   | 'available'
   | 'occupied'
   | 'reserved'
-  | 'out_of_service'
-  | 'cleaning';
+  | 'out_of_service';
 
 export type PosTableShape = 'square' | 'rectangle' | 'circle';
 
@@ -122,7 +121,6 @@ export interface PosTableStats {
   occupied: number;
   reserved: number;
   out_of_service: number;
-  cleaning: number;
   occupancyPct: number;
 }
 

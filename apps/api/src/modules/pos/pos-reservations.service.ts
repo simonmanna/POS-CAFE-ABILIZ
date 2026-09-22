@@ -6,7 +6,7 @@
  *   pending  → seated (opens an empty Document + flips table to OCCUPIED)
  *   pending  → cancelled (frees the table back to AVAILABLE)
  *   pending  → no_show (cron after 30-minute grace window)
- *   seated   → completed (when the guest leaves; flips table to DIRTY)
+ *   seated   → completed (when the guest leaves; frees the table)
  *
  * The reservation worker (kernel/workers/reservation-worker.ts) handles
  * automatic PENDING → NO_SHOW after the start time + grace window.

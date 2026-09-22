@@ -132,7 +132,7 @@ const SEED = process.env.SIMULATION_SEED ?? '20260917';
     L1.cash = L1.cash.plus(b[0]); L1.revenueGross = L1.revenueGross.plus(total); L1.tax = L1.tax.plus(tax);
     consume(MENU.BURGER.recipe, 2); consume(MENU.ESPRESSO.recipe, 2);
     const t = await sim.db.posTable.findUniqueOrThrow({ where: { id: t15 } });
-    rec.rules.push({ rule: 'TABLE released after all splits paid', status: ['available', 'cleaning'].includes(t.status) ? 'PASS' : 'FAIL', actual: t.status });
+    rec.rules.push({ rule: 'TABLE released after all splits paid', status: (t.status === 'available') ? 'PASS' : 'FAIL', actual: t.status });
   });
 
   run('D2-L-015', 'Split one bill paid, then a new item added to the table: only unpaid remainder carries it', 'P0', async (rec) => {
@@ -156,7 +156,7 @@ const SEED = process.env.SIMULATION_SEED ?? '20260917';
     const r: any = await sim.as('cashier', () => splits.settleBill(rest.id, { cashSessionId: session.id, expectedTotal: Number(remaining.gross), tenders: [{ method: 'cash', amount: Number(remaining.gross) }] } as any));
     const i = await sim.db.invoice.findUniqueOrThrow({ where: { id: r.invoiceId } });
     const tt = await sim.db.posTable.findUniqueOrThrow({ where: { id: t } });
-    rec.rules.push({ rule: 'TABLE released after last split bill', status: ['available', 'cleaning'].includes(tt.status) ? 'PASS' : 'FAIL', actual: tt.status });
+    rec.rules.push({ rule: 'TABLE released after last split bill', status: (tt.status === 'available') ? 'PASS' : 'FAIL', actual: tt.status });
     rec.rules.push(compare('SPLIT remainder bill = unpaid items only', remaining.gross, i.totalAmount));
     const all = await sim.db.invoice.findMany({ where: { organizationId: sim.organizationId, orderId: tab.orderId! } });
     rec.notes.push(`invoices on order: ${all.length}`);

@@ -1530,18 +1530,17 @@ export class PosInvoiceService {
         data: { closedAt: new Date() },
       });
     }
-    // Settlement is the one release that leaves a table needing a wipe-down.
-    await this.freeTableIfEmpty(db, order.tableId, { dirtyOnRelease: true });
+    await this.freeTableIfEmpty(db, order.tableId);
     return { orderId: order.id, tableId: order.tableId };
   }
 
   private async freeTableIfEmpty(
-    db: any, tableId?: string | null, opts: { dirtyOnRelease?: boolean } = {},
+    db: any, tableId?: string | null,
   ): Promise<void> {
     // Derived from the active-item count: a table with a billed-but-unpaid
     // order (status 'completed', items intact) stays occupied; it frees only
     // once the settled order goes 'closed' and no active items remain.
-    await recomputeTableStatus(db, tableId, opts);
+    await recomputeTableStatus(db, tableId);
   }
 
   private async storeCreditAccountId(): Promise<string> {

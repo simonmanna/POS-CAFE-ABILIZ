@@ -240,7 +240,7 @@ export const TablesPage: React.FC = () => {
                 Tables
               </div>
               <div className="text-sm text-white/80 mt-0.5">
-                Manage seats, status, merge / transfer and cleaning — all in real time.
+                Manage seats, status, merge and transfer — all in real time.
               </div>
             </div>
           </div>
@@ -280,7 +280,7 @@ export const TablesPage: React.FC = () => {
       <div className="glass-card p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="section-title mr-2">Status</span>
-          {(['all', 'available', 'occupied', 'reserved', 'out_of_service', 'cleaning'] as const).map(
+          {(['all', 'available', 'occupied', 'reserved', 'out_of_service'] as const).map(
             (k) => (
               <button
                 key={k}
@@ -448,26 +448,15 @@ export const TablesPage: React.FC = () => {
                     >
                       <Pencil className="w-3 h-3 mr-1" /> Edit
                     </Button>
-                    {table.status === 'cleaning' ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[11px] lift-on-hover"
-                        onClick={() => setStatus.mutateAsync({ id: table.id, status: 'available', reason: 'cleaning-done' }).then(() => toast.success(`T${table.number} available`)).catch((e) => toast.error(e?.response?.data?.message ?? 'Failed'))}
-                      >
-                        <Sparkles className="w-3 h-3 mr-1" /> Mark Available
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-[11px] lift-on-hover"
-                        onClick={() => toggleOutOfService(table)}
-                      >
-                        <PowerOff className="w-3 h-3 mr-1" />
-                        {table.status === 'out_of_service' ? 'Reactivate' : 'OOS'}
-                      </Button>
-                    )}
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[11px] lift-on-hover"
+                      onClick={() => toggleOutOfService(table)}
+                    >
+                      <PowerOff className="w-3 h-3 mr-1" />
+                      {table.status === 'out_of_service' ? 'Reactivate' : 'OOS'}
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"

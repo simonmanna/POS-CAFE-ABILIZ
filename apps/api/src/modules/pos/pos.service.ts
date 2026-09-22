@@ -100,7 +100,7 @@ export interface CheckoutInput {
   /** POS Tables (T1): table the sale is being rung on. When set, the
    *  server creates a PosTableOrder row and flips the table to OCCUPIED
    *  in the same transaction. On payment completion, the table auto-flips
-   *  to DIRTY (needs cleaning). */
+   *  to available. */
   tableId?: string;
   /** POS Tables (T1): party size (display only on the table card). */
   guestCount?: number;
