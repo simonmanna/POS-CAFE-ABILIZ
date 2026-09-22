@@ -90,7 +90,7 @@ function DbExists([string]$db) { [int](Q 'postgres' "select count(*) from pg_dat
 function Connections([string]$db) { [int](Q 'postgres' "select count(*) from pg_stat_activity where datname = '$db' and pid <> pg_backend_pid()") }
 function Svc([string]$verb, [string]$name, [string[]]$more = @()) {
     if ($Rehearse) { Write-Host "  [rehearse] nssm $verb $name $($more -join ' ')" -ForegroundColor DarkYellow; return '' }
-    $out = & nssm $verb $name @more
+    $out = ((& nssm $verb $name @more) -join '') -replace "`0", ''
     if ($LASTEXITCODE -ne 0) { throw "nssm $verb $name failed" }
     return $out
 }
@@ -267,7 +267,7 @@ switch ($Phase) {
     Svc 'stop' $cfg.services.api | Out-Null
     if (-not $Rehearse) {
         foreach ($sv in $cfg.services.api, $cfg.services.web) {
-            $st = (& nssm status $sv) -join ''
+            $st = ((& nssm status $sv) -join '') -replace "`0", ''
             if ($st -notmatch 'SERVICE_STOPPED') { throw "service $sv is not stopped ($st)" }
         }
     }
