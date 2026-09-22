@@ -51,7 +51,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('react') || id.includes('scheduler')) return 'vendor-react';
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'vendor-react';
           if (id.includes('@tanstack')) return 'vendor-query';
           if (id.includes('recharts') || id.includes('d3-')) return 'vendor-charts';
           if (id.includes('jspdf') || id.includes('html2canvas') || id.includes('pdf')) return 'vendor-documents';

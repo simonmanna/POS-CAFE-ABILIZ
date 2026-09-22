@@ -296,6 +296,17 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     [trackedAccounts, recon, session, accountCounts],
   );
 
+  useEffect(() => {
+    setAccountCounts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const row of accountRows) {
+        if (!(row.accountId in next) && row.expected === 0) { next[row.accountId] = 0; changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [accountRows]);
+
   if (!session) return null;
 
   const submit = async () => {
@@ -312,7 +323,12 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     }
     // Every tracked wallet/bank account needs a closing observation, or an
     // explicit "not counted" with a reason — the server refuses silence.
-    const unchecked = accountRows.filter((row) => !(row.accountId in accountCounts) && !(uncounted[row.accountId] ?? '').trim());
+    const effectiveCounts: Record<string, number> = { ...accountCounts };
+    for (const row of accountRows) {
+      if (!(row.accountId in effectiveCounts) && row.expected === 0) effectiveCounts[row.accountId] = 0;
+    }
+    if (Object.keys(effectiveCounts).length !== Object.keys(accountCounts).length) setAccountCounts(effectiveCounts);
+    const unchecked = accountRows.filter((row) => !(row.accountId in effectiveCounts) && !(uncounted[row.accountId] ?? '').trim());
     if (unchecked.length) {
       setProblem({
         tone: 'error',
@@ -351,7 +367,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
         closingDenomination,
         // Only accounts the cashier actually confirmed; the server treats an
         // absent account as unchecked rather than as a zero balance.
-        closingAccounts: Object.keys(accountCounts).length ? accountCounts : undefined,
+        closingAccounts: Object.keys(effectiveCounts).length ? effectiveCounts : undefined,
         uncountedAccounts: Object.keys(uncountedAccounts).length ? uncountedAccounts : undefined,
         sessionId: session.id,
       });

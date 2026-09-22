@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { useShiftHandover, useExpectedCash } from './api';
 import { useUsers } from '@/features/staff/api';
 import { shiftTrackedAccounts, usePosPaymentMethods } from '@/features/pos/payment-accounts';
+import { useSessionReconciliation } from '@/features/pos/session-reconciliation';
 import { apiErrorMessage } from '@/lib/api-error';
 import type { CashSession } from './types';
 import { toast } from 'sonner';
@@ -44,6 +45,11 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
   const { data: users } = useUsers({ page: 1, pageSize: 100 });
   const { data: paymentMethods = [] } = usePosPaymentMethods();
   const trackedAccounts = useMemo(() => shiftTrackedAccounts(paymentMethods), [paymentMethods]);
+  const { data: recon } = useSessionReconciliation(open && session ? session.id : undefined, 20_000);
+  const expectedByAccount = useMemo(
+    () => new Map((recon?.accounts ?? []).map((a) => [a.accountId, Number(a.expected ?? 0)])),
+    [recon],
+  );
 
   useEffect(() => {
     if (open) {
@@ -87,7 +93,11 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
         uncountedAccounts[a.accountId] = uncounted[a.accountId].trim();
       } else {
         const v = accountCounts[a.accountId];
-        if (v == null || v.trim() === '' || !(Number(v) >= 0)) { setErr(`Enter what the provider shows for ${a.label}, or mark it not checked`); return; }
+        if (v == null || v.trim() === '' || !(Number(v) >= 0)) {
+          if (expectedByAccount.get(a.accountId) === 0) { closingAccounts[a.accountId] = 0; continue; }
+          setErr(`Enter what the provider shows for ${a.label}, or mark it not checked`);
+          return;
+        }
         closingAccounts[a.accountId] = Number(v);
       }
     }
