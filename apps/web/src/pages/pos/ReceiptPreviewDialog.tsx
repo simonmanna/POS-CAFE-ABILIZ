@@ -113,7 +113,7 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-[420px] p-0 overflow-hidden">
+      <DialogContent className="sm:max-w-[640px] p-0 overflow-hidden">
         <DialogHeader className="bg-gradient-to-r from-slate-700 to-slate-900 text-white p-4">
           <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
             <Printer className="h-4 w-4" /> Receipt {invoiceNumber ?? ''}
@@ -148,11 +148,11 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
           )}
         </div>
 
-        <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 flex gap-2 justify-between">
+        <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 flex flex-wrap gap-2 sm:justify-between">
           <Button variant="ghost" onClick={onClose}>
             <X className="h-4 w-4 mr-1" /> Close
           </Button>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             {onLogoff && (
               <Button variant="outline" onClick={onLogoff} title="Log off this POS terminal — back to staff PIN login" className="text-rose-700 border-rose-300 hover:bg-rose-50">
                 <LogOut className="h-4 w-4 mr-1" /> Log off
