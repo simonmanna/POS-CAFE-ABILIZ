@@ -26,7 +26,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useTable, useTables, useMergeTables, useTransferTable, useUnmergeTable, useSplitBill } from '@/features/tables/api';
 import { api } from '@/lib/api';
 import type { PosTable } from '@/features/tables/types';
-import { STATUS_META, fmtMoney, minutesBetween } from '@/features/tables/utils';
+import { statusMeta, fmtMoney, minutesBetween } from '@/features/tables/utils';
 
 // Release 2026-09-r2 finding F8. Re-enable once the endpoint is fixed.
 const TABLES_PAGE_SPLIT_ENABLED = false;
@@ -62,7 +62,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
 
   const t = fresh ?? table;
   if (!t) return null;
-  const meta = STATUS_META[t.status] ?? STATUS_META.available;
+  const meta = statusMeta(t.status);
   const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
   const total = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
 
@@ -147,7 +147,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
             <span
               className={`ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${meta.pill}`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${meta.pillDot}`} />
               {meta.label}
             </span>
           </DialogTitle>
@@ -244,7 +244,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                   <option key={ot.id} value={ot.id}>
                     T{ot.number} {ot.name} · {ot.seats} seats ·{' '}
                     {ot.zoneName ?? ot.zone} ·{' '}
-                     {(STATUS_META[ot.status] ?? STATUS_META.available).label}
+                     {statusMeta(ot.status).label}
                   </option>
                 ))}
                 {otherTables.length === 0 ? (

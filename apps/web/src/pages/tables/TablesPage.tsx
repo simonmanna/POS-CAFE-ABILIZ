@@ -59,7 +59,7 @@ import type {
   PosTableZone,
   UpdateTableInput,
 } from '@/features/tables/types';
-import { STATUS_META, fmtMoney, sortZones } from '@/features/tables/utils';
+import { STATUS_META, statusMeta, fmtMoney, sortZones } from '@/features/tables/utils';
 import { useAuthStore } from '@/stores/auth.store';
 import { TableDetailDialog } from './TableDetailDialog';
 
@@ -375,7 +375,7 @@ export const TablesPage: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1">
           {filtered.map((table) => {
-            const meta = STATUS_META[table.status] ?? STATUS_META.available;
+            const meta = statusMeta(table.status);
             const openOrders = (table.orders ?? []).filter((o) => !o.closedAt);
             const total = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
             return (
@@ -407,7 +407,7 @@ export const TablesPage: React.FC = () => {
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${meta.pill}`}
                     >
-                      <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
+                      <span className={`w-1.5 h-1.5 rounded-full ${meta.pillDot}`} />
                       {meta.label}
                     </span>
                   </div>

@@ -1,32 +1,42 @@
 import { useAuthStore } from '@/stores/auth.store';
 import type { PosTableStatus, PosTableZoneConfig } from './types';
 
-/** Tailwind-style colour palette mirroring the original POS picker. */
+/**
+ * Status palette. `card` is the full tile background + border; `pill` is the
+ * status badge and `pillDot` the dot inside it. Available and occupied use
+ * saturated tints and solid badges so a busy floor reads at a glance.
+ */
 export const STATUS_META: Record<
   PosTableStatus,
-  { label: string; bg: string; border: string; dot: string; text: string; pill: string }
+  { label: string; bg: string; border: string; card: string; dot: string; pillDot: string; text: string; pill: string }
 > = {
   available: {
     label: 'Available',
-    bg: 'bg-emerald-50',
-    border: 'border-emerald-300',
+    bg: 'bg-emerald-100',
+    border: 'border-emerald-400',
+    card: 'bg-emerald-100 border-emerald-500 border-l-[6px]',
     dot: 'bg-emerald-500',
-    text: 'text-emerald-700',
-    pill: 'bg-emerald-100 text-emerald-700 border-emerald-200',
+    pillDot: 'bg-white',
+    text: 'text-emerald-800',
+    pill: 'bg-emerald-600 text-white border-emerald-700 shadow-sm',
   },
   occupied: {
     label: 'Occupied',
-    bg: 'bg-orange-50',
-    border: 'border-orange-300',
+    bg: 'bg-orange-100',
+    border: 'border-orange-400',
+    card: 'bg-orange-100 border-orange-500 border-l-[6px]',
     dot: 'bg-orange-500',
-    text: 'text-orange-700',
-    pill: 'bg-orange-100 text-orange-700 border-orange-200',
+    pillDot: 'bg-white',
+    text: 'text-orange-800',
+    pill: 'bg-orange-500 text-white border-orange-600 shadow-sm',
   },
   reserved: {
     label: 'Reserved',
     bg: 'bg-blue-50',
     border: 'border-blue-300',
+    card: 'bg-blue-50 border-blue-300',
     dot: 'bg-blue-500',
+    pillDot: 'bg-blue-500',
     text: 'text-blue-700',
     pill: 'bg-blue-100 text-blue-700 border-blue-200',
   },
@@ -34,11 +44,22 @@ export const STATUS_META: Record<
     label: 'Out of Service',
     bg: 'bg-slate-100',
     border: 'border-slate-300',
+    card: 'bg-slate-100 border-slate-300',
     dot: 'bg-slate-400',
+    pillDot: 'bg-slate-400',
     text: 'text-slate-600',
     pill: 'bg-slate-200 text-slate-700 border-slate-300',
   },
 };
+
+/**
+ * Status styling for any table status. Falls back to Available for values the
+ * client no longer knows (e.g. a legacy 'cleaning' row not yet migrated), so a
+ * stale row can never crash a render.
+ */
+export function statusMeta(status: string | null | undefined) {
+  return STATUS_META[status as PosTableStatus] ?? STATUS_META.available;
+}
 
 /** Label for a zone key against the org's dynamic zone catalog (fallback: key). */
 export function zoneLabel(zones: PosTableZoneConfig[], key: string | null | undefined): string {

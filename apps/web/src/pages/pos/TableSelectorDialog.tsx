@@ -23,6 +23,7 @@ import {
 import type { PosTable, PosTableStatus } from '@/features/tables/types';
 import {
   STATUS_META,
+  statusMeta,
   zoneLabel,
   zoneRankMap,
   compareZoneKeys,
@@ -228,7 +229,7 @@ const TableCard: React.FC<{
   selected: boolean;
   onPick: () => void;
 }> = ({ table, selected, onPick }) => {
-  const meta = STATUS_META[table.status];
+  const meta = statusMeta(table.status);
   const openOrders = (table.orders ?? []).filter((o) => !o.closedAt);
   const total = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
 
@@ -237,21 +238,21 @@ const TableCard: React.FC<{
       onClick={onPick}
       className={`relative rounded-xl p-3 border cursor-pointer transition-all duration-200 
         shadow-sm hover:shadow-md hover:scale-[1.01]
-        ${table.status === 'available' ? 'bg-emerald-50 border-emerald-300 border-l-4' : table.status === 'occupied' ? 'bg-orange-50/80 border-orange-300' : table.status === 'reserved' ? 'bg-blue-50/30 border-blue-200' : table.status === 'out_of_service' ? 'bg-slate-100 border-slate-300' : 'bg-white border-slate-200'}
+        ${meta.card}
         ${selected ? 'ring-2 ring-indigo-500 ring-offset-2 shadow-md' : ''}
       `}
     >
       {/* Occupied top indicator */}
       {table.status === 'occupied' && (
-        <div className="absolute top-0 left-0 right-0 h-1.5 rounded-t-xl bg-orange-400" />
+        <div className="absolute top-0 left-0 right-0 h-1.5 rounded-t-xl bg-orange-500" />
       )}
 
       {/* Status badge top-right */}
       <span
         className={`absolute top-2 right-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border 
-          ${meta.pill} bg-white`}
+          ${meta.pill}`}
       >
-        <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
+        <span className={`w-2 h-2 rounded-full ${meta.pillDot}`} />
         {meta.label}
       </span>
 

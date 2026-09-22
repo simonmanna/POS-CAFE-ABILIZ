@@ -19,12 +19,11 @@ import { useAuthStore } from '@/stores/auth.store';
  *      with idempotency key. Backend creates invoice + payments + stock-out
  *      atomically; cart clears on success.
  *   5. Press Hold → POST /pos/holds → cart is parked, can be recalled later.
- *   6. Press Reports → /pos/reports (X/Z + hourly + top-items).
- *   7. Press Close shift → variance report + Z-report.
+ *   6. Press Shift Close (top bar, right, before Log off) → variance report
+ *      + Z-report. Reports live at /pos/reports, outside the top bar.
  *
  * Permissions-aware: if the cashier doesn't have pos:discount, the discount
- * buttons are hidden. If they don't have pos:reports, the Reports button is
- * hidden.
+ * buttons are hidden.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -59,7 +58,7 @@ import { CancelOrderDialog } from './CancelOrderDialog';
 import { ReprintDialog } from './ReprintDialog';
 import type { PosTable } from '@/features/tables/types';
 import {
-  STATUS_META,
+  statusMeta,
   zoneLabel as zoneLabelOf,
   zoneRankMap,
   compareZoneKeys,
@@ -1650,7 +1649,6 @@ const TerminalPage: React.FC = () => {
       <Topbar
         search={search}
         onSearch={setSearch}
-        onOpenReports={() => navigate('/pos/reports')}
         onOpenShift={() => setShowOpenShift(true)}
         onCloseShift={() => setShowCloseShift(true)}
         onOpenTableSelector={() => setShowTableSelector(true)}
@@ -1764,7 +1762,7 @@ const TerminalPage: React.FC = () => {
                       />
                       {zoneLabelOf(zones, zoneKey)} · {list.length} table{list.length === 1 ? '' : 's'}
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                       {list.map((t) => {
                         const openOrders = (t.orders ?? []).filter((o) => !o.closedAt);
                         const backendTotal = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
@@ -1772,27 +1770,27 @@ const TerminalPage: React.FC = () => {
                         const local = localCartTotal(t.id);
                         const combinedTotal = backendTotal + local;
                         const combinedCount = openOrders.length + (hasLocal ? 1 : 0);
-                        const meta = STATUS_META[t.status] ?? STATUS_META.available;
+                        const meta = statusMeta(t.status);
                         const statusLabel = t.status === 'occupied' ? 'Occupied' : t.status === 'out_of_service' ? 'Out of service' : t.status === 'reserved' ? 'Reserved' : 'Available';
                         return (
                           <button
                             key={t.id}
                             type="button"
                             onClick={() => handleTableClick(t)}
-                            className={`relative rounded-xl border p-5 text-left transition-all duration-200
-                              min-h-[140px] sm:min-h-[140px] flex flex-col
-                              hover:shadow-xl hover:-translate-y-1
-                              ${t.status === 'occupied' ? 'bg-orange-50/80 border-orange-300' : t.status === 'reserved' ? 'bg-blue-50/30 border-blue-200' : t.status === 'out_of_service' ? 'bg-slate-100 border-slate-300' : 'bg-emerald-50 border-emerald-300 border-l-4'}
+                            className={`relative rounded-xl border px-3 py-2.5 text-left transition-all duration-200
+                              flex flex-col
+                              hover:shadow-lg hover:-translate-y-0.5
+                              ${meta.card}
                             `}
                           >
                             {/* Occupied top indicator */}
                             {t.status === 'occupied' && (
-                              <div className="absolute top-0 left-0 right-0 h-1.5 rounded-t-xl bg-orange-400" />
+                              <div className="absolute top-0 left-0 right-0 h-1 rounded-t-xl bg-orange-500" />
                             )}
 
                             {/* Draft badge */}
                             {hasLocal && (
-                              <div className="absolute top-2 left-2 z-10">
+                              <div className="absolute top-2 right-2 z-10">
                                 <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
                                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
                                   Draft
@@ -1800,43 +1798,40 @@ const TerminalPage: React.FC = () => {
                               </div>
                             )}
 
-                            <div className="text-[24px] font-bold text-slate-800 leading-tight mb-1">
+                            <div className="text-lg font-bold text-slate-800 leading-tight truncate pr-12">
                               {t.name}
                             </div>
 
                             {/* Table number below name */}
-                            <div className="text-sm font-medium text-slate-400">
+                            <div className="text-xs font-medium text-slate-400">
                               T{t.number} · {t.seats} seats
                             </div>
 
                             {/* Who is serving this table. Distinct names, because
                                 a table can hold more than one open order and they
                                 need not belong to the same waiter. */}
-                            <div className="mb-auto mt-1 min-h-[16px]">
+                            {/* Server(s) + status on one line (zone is the group header) */}
+                            <div className="mt-1.5 flex items-center gap-2 min-h-[18px]">
                               {(() => {
                                 const servers = Array.from(new Set(
                                   openOrders.map((o) => o.waiterName).filter(Boolean) as string[],
                                 ));
                                 if (!servers.length) return null;
                                 return (
-                                  <div className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 truncate">
+                                  <div className="flex min-w-0 items-center gap-1 text-[11px] font-semibold text-indigo-600">
                                     <User className="w-3 h-3 shrink-0" />
                                     <span className="truncate">{servers.join(', ')}</span>
                                   </div>
                                 );
                               })()}
-                            </div>
-
-                            {/* Status only (zone is the group header) */}
-                            <div className="flex items-center justify-end mt-2">
-                              <span className={`text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${meta.pill}`}>
+                              <span className={`ml-auto shrink-0 text-[9px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${meta.pill}`}>
                                 {statusLabel}
                               </span>
                             </div>
 
                             {/* Order footer */}
                             {combinedCount > 0 ? (
-                              <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between">
+                              <div className="mt-2 pt-1.5 border-t border-slate-100 flex items-center justify-between">
                                 <span className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
                                   <Clock className="w-3 h-3" />
                                   {minutesBetween(openOrders[0]?.openedAt ?? new Date(), null)}m
@@ -1844,7 +1839,7 @@ const TerminalPage: React.FC = () => {
                                 <span className="text-[11px] font-bold text-slate-700">{fmtMoney(combinedTotal)}</span>
                               </div>
                             ) : (
-                              <div className="mt-3 pt-2.5 border-t border-slate-100 text-[11px] text-slate-400 font-medium">
+                              <div className="mt-2 pt-1.5 border-t border-slate-100 text-[11px] text-slate-400 font-medium">
                                 Tap to open
                               </div>
                             )}
