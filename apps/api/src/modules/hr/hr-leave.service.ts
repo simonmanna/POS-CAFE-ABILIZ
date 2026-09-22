@@ -350,7 +350,7 @@ export class HrLeaveService {
         },
       });
       // Stamp each covered day as ON_LEAVE in attendance.
-      let cursor = new Date(row.startDate);
+      const cursor = new Date(row.startDate);
       const end = new Date(row.endDate);
       while (cursor <= end) {
         await this.attendance.markLeaveDay(tx, row.employeeId, cursor, row.requestCode);

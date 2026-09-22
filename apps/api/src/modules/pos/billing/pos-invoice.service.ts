@@ -1416,7 +1416,7 @@ export class PosInvoiceService {
       throw new Error('Menu item is inventory-tracked but has no recipe (BOM); COGS was not relieved. Add a recipe or turn off inventory tracking for this item.');
     }
 
-    let failures = 0;
+    const failures = 0;
     for (const ing of recipe as any[]) {
       const qty = qtyMul(ing.quantity, effectiveLineQty);
       if (!(qty > 0)) continue;
