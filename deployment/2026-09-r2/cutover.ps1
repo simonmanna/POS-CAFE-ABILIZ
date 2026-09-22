@@ -91,6 +91,17 @@ function Connections([string]$db) { [int](Q 'postgres' "select count(*) from pg_
 function Svc([string]$verb, [string]$name, [string[]]$more = @()) {
     if ($Rehearse) { Write-Host "  [rehearse] nssm $verb $name $($more -join ' ')" -ForegroundColor DarkYellow; return '' }
     $out = ((& nssm $verb $name @more) -join '') -replace "`0", ''
+    if ($verb -eq 'start') {
+        # nssm's start control can return non-zero while the app is still
+        # booting (node takes 10-20s); the truth is the service state itself.
+        $deadline = (Get-Date).AddSeconds(90)
+        do {
+            Start-Sleep 3
+            $st = ((& nssm status $name) -join '') -replace "`0", ''
+        } while ($st -notmatch 'SERVICE_RUNNING' -and (Get-Date) -lt $deadline)
+        if ($st -notmatch 'SERVICE_RUNNING') { throw "service $name did not reach RUNNING ($st)" }
+        return $out
+    }
     if ($LASTEXITCODE -ne 0) { throw "nssm $verb $name failed" }
     return $out
 }
