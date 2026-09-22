@@ -687,7 +687,6 @@ const RetailTerminal: React.FC = () => {
       <Topbar
         search={search}
         onSearch={setSearch}
-        onOpenReports={() => navigate('/pos/reports')}
         onOpenShift={() => setShowOpenShift(true)}
         onCloseShift={() => setShowCloseShift(true)}
         staffName={user?.firstName}

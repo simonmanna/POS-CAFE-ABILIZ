@@ -4,7 +4,6 @@ import {
   Maximize2,
   Minimize2,
   LogOut,
-  BarChart3,
   PowerOff,
   User as UserIcon,
   LayoutGrid,
@@ -40,7 +39,6 @@ import { UserSwitcher } from './UserSwitcher';
 interface Props {
   search: string;
   onSearch: (v: string) => void;
-  onOpenReports: () => void;
   onOpenShift: () => void;
   onCloseShift: () => void;
   onOpenTableSelector?: () => void;
@@ -73,7 +71,6 @@ const initials = (name?: string) => {
 export const Topbar: React.FC<Props> = ({
   search,
   onSearch,
-  onOpenReports,
   onOpenShift,
   onCloseShift,
   onOpenTableSelector,
@@ -126,24 +123,6 @@ export const Topbar: React.FC<Props> = ({
         {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
       </button>
 
-      {/* Shift indicator pill */}
-      <button
-        type="button"
-        className={`pos-nav-btn ${shiftOpen ? 'pos-nav-btn--open' : 'pos-nav-btn--closed'}`}
-        onClick={shiftOpen ? onCloseShift : onOpenShift}
-        title={shiftOpen ? 'Close current shift' : 'Open shift to start selling'}
-      >
-        {shiftOpen ? <PowerCircle className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
-        {shiftOpen ? (
-          <>
-            <span>Shift Close</span>
-            <span className="pos-active-dot" />
-          </>
-        ) : (
-          <span>Open Shift</span>
-        )}
-      </button>
-
       {/* Orders (Odoo-style multi-order panel) */}
       {onOpenOrders && (
         <button
@@ -192,12 +171,6 @@ export const Topbar: React.FC<Props> = ({
                   </>
       )}
 
-      {/* Reports */}
-      <button type="button" className="pos-nav-btn" onClick={onOpenReports} title="X / Z reports + sales analytics">
-        <BarChart3 className="h-4 w-4" />
-        <span>Reports</span>
-      </button>
-
       {/* Search */}
       <div className="pos-searchbar-pro ml-2">
         <Search className="pos-search-icon h-4 w-4" />
@@ -212,6 +185,24 @@ export const Topbar: React.FC<Props> = ({
       </div>
 
       <div className="flex-1" />
+
+      {/* Shift open/close — right cluster, just before Log off */}
+      <button
+        type="button"
+        className={`pos-nav-btn mr-2 ${shiftOpen ? 'pos-nav-btn--open' : 'pos-nav-btn--closed'}`}
+        onClick={shiftOpen ? onCloseShift : onOpenShift}
+        title={shiftOpen ? 'Close current shift' : 'Open shift to start selling'}
+      >
+        {shiftOpen ? <PowerCircle className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
+        {shiftOpen ? (
+          <>
+            <span>Shift Close</span>
+            <span className="pos-active-dot" />
+          </>
+        ) : (
+          <span>Open Shift</span>
+        )}
+      </button>
 
       {/* Right-cluster extras (e.g. offline indicator) */}
       {rightExtras ? <div className="flex items-center mr-1">{rightExtras}</div> : null}
