@@ -93,6 +93,8 @@ export interface UserListParams {
   page: number;
   pageSize: number;
   search?: string;
+  /** true: linked to an HR employee; false: logins HR has not adopted yet. */
+  linked?: boolean;
 }
 
 export function useUsers(params: UserListParams) {
@@ -162,6 +164,30 @@ export function useResetUserPassword() {
     },
     onError: (e: any) =>
       notify.error('Failed to reset password', e?.response?.data?.message ?? e.message),
+  });
+}
+
+/** Manager sets or resets someone's POS PIN. Also refreshes HR's access view. */
+export function useSetUserPin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, pin }: { id: string; pin: string }) =>
+      (await api.post<UserSummary>(`/users/${id}/pin`, { pin })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staff', 'users'] });
+      qc.invalidateQueries({ queryKey: ['hr-access'] });
+    },
+  });
+}
+
+export function useClearUserPin() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => (await api.delete<UserSummary>(`/users/${id}/pin`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['staff', 'users'] });
+      qc.invalidateQueries({ queryKey: ['hr-access'] });
+    },
   });
 }
 

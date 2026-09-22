@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
+import { userMayOperatePos } from '../../kernel/auth/pos-eligibility';
 import { SYNC_PULL_SCOPES, type SyncPullScope } from './dto/sync.dto';
 import { terminalPaymentMethods } from '../accounting/treasury/pos-payment-method.service';
 
@@ -216,17 +217,26 @@ export class SyncPullService {
               deletedAt: true,
               updatedAt: true,
               roles: { select: { name: true, permissions: true } },
+              employee: { select: { employmentStatus: true, deletedAt: true } },
             },
             orderBy: { updatedAt: 'asc' },
           })
           .then((rows) =>
-            rows.map((u) => ({
-              ...u,
-              // Never ship a usable credential for an account that can no
-              // longer log in. A device that has not yet applied the tombstone
-              // still cannot authenticate the revoked PIN.
-              pinHash: u.isActive && !u.deletedAt ? u.pinHash : null,
-            })),
+            rows.map(({ employee, ...u }) => {
+              // Same rule as the online PIN screen (pos-eligibility.ts): a
+              // suspended or departed employee is off the tills even when
+              // their login was left enabled. HR lifecycle changes touch the
+              // User row, so this reaches devices on the next delta.
+              const allowed = userMayOperatePos({ ...u, employee });
+              return {
+                ...u,
+                isActive: allowed,
+                // Never ship a usable credential for an account that can no
+                // longer log in. A device that has not yet applied the
+                // tombstone still cannot authenticate the revoked PIN.
+                pinHash: allowed ? u.pinHash : null,
+              };
+            }),
           );
       case 'products':
         return c.product.findMany({

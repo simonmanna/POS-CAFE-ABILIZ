@@ -541,6 +541,8 @@ export function useHrEmployees(params: {
   positionId?: string;
   employmentType?: string;
   isActive?: string;
+  /** 'true': has a login; 'false': employees who cannot sign in anywhere. */
+  linked?: string;
   search?: string;
   page?: number;
   pageSize?: number;

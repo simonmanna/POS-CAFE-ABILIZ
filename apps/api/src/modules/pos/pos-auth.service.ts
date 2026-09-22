@@ -16,6 +16,7 @@ import { TenantContextService } from '../../kernel/tenancy/tenant-context.servic
 import { PasswordService } from '../../kernel/auth/password.service';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { JwtTokenService } from '../../kernel/auth/jwt-token.service';
+import { employmentBlocksPos, posEligibleUserWhere } from '../../kernel/auth/pos-eligibility';
 
 const MAX_FAILED_ATTEMPTS = 10;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 min
@@ -33,11 +34,14 @@ export class PosAuthService {
     private readonly events: EventBus,
   ) {}
 
-  /** List active staff in this org for POS PIN login. */
+  /**
+   * List active staff in this org for POS PIN login. Someone whose linked HR
+   * record is suspended or has ended is left off the tills (pos-eligibility.ts).
+   */
   async listStaff() {
     const organizationId = this.tenant.organizationId;
     const users = await this.prisma.client.user.findMany({
-      where: { organizationId, isActive: true, deletedAt: null },
+      where: { organizationId, isActive: true, deletedAt: null, ...posEligibleUserWhere },
       select: {
         id: true,
         firstName: true,
@@ -63,9 +67,12 @@ export class PosAuthService {
 
     const user = await this.prisma.raw.user.findFirst({
       where: { id: userId, organizationId, isActive: true, deletedAt: null },
-      include: { roles: true },
+      include: { roles: true, employee: { select: { employmentStatus: true, deletedAt: true } } },
     });
     if (!user) throw new NotFoundException('Staff not found');
+    if (employmentBlocksPos(user.employee)) {
+      throw new UnauthorizedException('Your employment is not active. Ask a manager.');
+    }
 
     // Check if account is temporarily locked
     if (user.lockedUntil && new Date() < user.lockedUntil) {
@@ -134,6 +141,22 @@ export class PosAuthService {
       permissions,
       posToken,
     };
+  }
+
+  /**
+   * The cashier left the terminal (Log off / switch user). Announced for HR to
+   * turn into an attendance clock-out; like the login event, nothing in POS
+   * depends on who is listening.
+   */
+  logoff(userId: string): { ok: true } {
+    const organizationId = this.tenant.organizationId;
+    this.events.publish(EVENTS.PosPinLogoff, {
+      userId,
+      organizationId,
+      at: new Date().toISOString(),
+      deviceId: null,
+    });
+    return { ok: true };
   }
 
   // ─── private helpers ──────────────────────────────────────────────────────

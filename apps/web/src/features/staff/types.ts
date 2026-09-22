@@ -23,6 +23,9 @@ export interface UserSummary {
   failedLoginCount: number;
   lockedUntil: string | null;
   mfaEnrolled: boolean;
+  /** Whether a POS PIN is set. The PIN itself never leaves the server. */
+  hasPin: boolean;
+  defaultBranchId: string | null;
   createdAt: string;
   updatedAt: string;
   roles: { id: string; name: string }[];

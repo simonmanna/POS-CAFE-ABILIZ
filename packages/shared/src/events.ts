@@ -101,6 +101,8 @@ export const EVENTS = {
   /// raise an attendance clock-in; POS itself neither knows nor cares that HR
   /// exists. See DomainEventMap for why this goes over the bus.
   PosPinLogin: 'pos.pin.login',
+  /// The cashier logged off the terminal. HR turns it into a clock-out.
+  PosPinLogoff: 'pos.pin.logoff',
   // POS Order → Invoice → Receipt domain (DDD split)
   PosOrderCreated: 'pos.order.created',
   PosOrderUpdated: 'pos.order.updated',
@@ -278,6 +280,7 @@ export interface DomainEventMap {
   'user.registered': EntityEventPayload;
   'user.logged_in': UserLoggedInPayload;
   'pos.pin.login': PosPinLoginPayload;
+  'pos.pin.logoff': PosPinLoginPayload;
   'journal.posted': JournalPostedPayload;
   'journal.reversed': JournalReversedPayload;
   'cash.received': TreasuryPayload;

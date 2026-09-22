@@ -1,6 +1,6 @@
 import axios, { AxiosError, type AxiosRequestConfig } from 'axios';
 import { useAuthStore } from '@/stores/auth.store';
-import { getPosToken } from '@/features/pos/pos-session';
+import { getPosToken, posSessionRevoked } from '@/features/pos/pos-session';
 import { notify } from '@/lib/notify';
 
 function getApiBaseUrl(): string {
@@ -77,6 +77,14 @@ api.interceptors.response.use(
   async (err: AxiosError) => {
     const status = err.response?.status;
     const original = err.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
+    // The cashier's POS token was revoked (disabled, deleted, or taken off the
+    // tills by HR). The back-office session is fine, so do NOT refresh or sign
+    // the terminal out: drop the cashier and return to the PIN screen.
+    if (status === 401 && err.response?.headers?.['x-pos-session'] === 'revoked') {
+      posSessionRevoked();
+      notify.error((err.response?.data as any)?.message || 'This cashier can no longer use the POS.');
+      throw err;
+    }
     if (status === 401 && original && !original._retry && !original.url?.includes('/auth/')) {
       original._retry = true;
       refreshing = refreshing ?? refresh();

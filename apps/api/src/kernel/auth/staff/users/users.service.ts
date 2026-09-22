@@ -26,6 +26,10 @@ export interface SafeUser {
   failedLoginCount: number;
   lockedUntil: Date | null;
   mfaEnrolled: boolean;
+  /** Whether a POS PIN is set. Boolean only; the hash never leaves the server. */
+  hasPin: boolean;
+  /** Home branch; follows HR transfers when the login is linked. */
+  defaultBranchId: string | null;
   createdAt: Date;
   updatedAt: Date;
   roles: { id: string; name: string }[];
@@ -58,6 +62,8 @@ function toSafe(u: any): SafeUser {
     failedLoginCount: u.failedLoginCount ?? 0,
     lockedUntil: u.lockedUntil ?? null,
     mfaEnrolled: !!u.mfaSecret,
+    hasPin: !!u.pinHash,
+    defaultBranchId: u.defaultBranchId ?? null,
     createdAt: u.createdAt,
     updatedAt: u.updatedAt,
     roles: (u.roles ?? []).map((r: Role) => ({ id: r.id, name: r.name })),
@@ -83,10 +89,13 @@ export class UsersService {
     private readonly password: PasswordService,
   ) {}
 
-  async list(query: { search?: string; page?: number; pageSize?: number }) {
+  async list(query: { search?: string; page?: number; pageSize?: number; linked?: boolean }) {
     const page = Math.max(1, query.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, query.pageSize ?? 25));
     const where: Record<string, unknown> = {};
+    // `linked=false` is the "logins HR has not adopted" worklist.
+    if (query.linked === true) where.employee = { isNot: null };
+    if (query.linked === false) where.employee = { is: null };
     if (query.search) {
       where.OR = [
         { email: { contains: query.search, mode: 'insensitive' } },
@@ -243,6 +252,15 @@ export class UsersService {
       if (resolvedRoles) {
         await tx.user.update({ where: { id }, data: { roles: { set: resolvedRoles.map((r) => ({ id: r.id })) } } });
       }
+      // One person, one name: a rename on the Staff screen carries onto the
+      // linked HR record (the reverse of HrOrgService.updateEmployee). Only
+      // the name travels; HR's contact email is not the sign-in email.
+      const names: Record<string, unknown> = {};
+      if (dto.firstName) names.firstName = dto.firstName;
+      if (dto.lastName !== undefined && dto.lastName !== null) names.lastName = dto.lastName || null;
+      if (Object.keys(names).length > 0) {
+        await tx.hrEmployee.updateMany({ where: { userId: id }, data: { ...names, updatedBy: actingUserId ?? null } });
+      }
       const after = await tx.user.findFirst({
         where: { id },
         include: {
@@ -295,6 +313,53 @@ export class UsersService {
       });
     });
     this.events.publish(EVENTS.UserPasswordReset, { id, organizationId: user.organizationId });
+  }
+
+  /**
+   * Set or reset someone's POS PIN, as a manager.
+   *
+   * The cashier's own "change PIN" needs the current PIN, so until now a new
+   * hire, or anyone who forgot theirs, could not be given one from the Staff
+   * or HR screens. The PIN is hashed like a password and never returned.
+   * Clears a PIN lockout, the same way a password reset clears a login one.
+   * The updatedAt bump also delivers the new hash to offline tills.
+   */
+  async setPin(id: string, pin: string): Promise<SafeUser> {
+    if (!/^\d{4,8}$/.test(pin)) throw new BadRequestException('PIN must be 4–8 digits');
+    const user = await this.prisma.client.user.findFirst({ where: { id } });
+    if (!user) throw new NotFoundException(`User ${id} not found`);
+    const pinHash = await this.password.hash(pin);
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.user.updateMany({
+        where: { id },
+        data: { pinHash, pinHashRounds: 10, failedLoginCount: 0, lockedUntil: null },
+      });
+      await this.audit.recordInTx(tx, {
+        entity: 'User',
+        entityId: id,
+        action: 'update',
+        newValues: { posPinSet: true, hadPin: !!user.pinHash, setBy: this.tenant.userId ?? null },
+      });
+    });
+    this.events.publish(EVENTS.UserUpdated, { id, organizationId: user.organizationId });
+    return this.findOne(id);
+  }
+
+  /** Remove someone's POS PIN, so they can no longer sign in at a till. */
+  async clearPin(id: string): Promise<SafeUser> {
+    const user = await this.prisma.client.user.findFirst({ where: { id } });
+    if (!user) throw new NotFoundException(`User ${id} not found`);
+    await this.prisma.client.$transaction(async (tx) => {
+      await tx.user.updateMany({ where: { id }, data: { pinHash: null, pinHashRounds: null } });
+      await this.audit.recordInTx(tx, {
+        entity: 'User',
+        entityId: id,
+        action: 'update',
+        newValues: { posPinCleared: true, setBy: this.tenant.userId ?? null },
+      });
+    });
+    this.events.publish(EVENTS.UserUpdated, { id, organizationId: user.organizationId });
+    return this.findOne(id);
   }
 
   async unlock(id: string): Promise<SafeUser> {

@@ -50,6 +50,14 @@ export class PosAuthController {
     return this.svc.pinLogin(dto.userId, dto.pin);
   }
 
+  /** Cashier signed off the terminal. HR records it as a clock-out. */
+  @Post('logoff')
+  @HttpCode(200)
+  @RequirePermissions('pos:read')
+  logoff(@CurrentUser() user: AuthUser) {
+    return this.svc.logoff(user.sub);
+  }
+
   @Post('change-pin')
   @HttpCode(200)
   @RequirePermissions('pos:read')

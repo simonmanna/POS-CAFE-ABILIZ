@@ -7,6 +7,7 @@ import {
   Lock,
   Unlock,
   Search,
+  Hash,
   Users as UsersIcon,
 } from 'lucide-react';
 import { PERMISSIONS } from '@erp/shared';
@@ -28,13 +29,18 @@ import { DataTable, type Column } from '@/components/data-table';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { useAuthStore } from '@/stores/auth.store';
 import {
+  useClearUserPin,
   useDeleteUser,
   useResetUserPassword,
+  useSetUserPin,
   useUnlockUser,
   useUsers,
 } from '@/features/staff/api';
 import type { UserSummary } from '@/features/staff/types';
 import { UserDialog } from './UserDialog';
+import { SetPinDialog } from './SetPinDialog';
+
+type LinkFilter = 'all' | 'linked' | 'unlinked';
 
 export function StaffPage() {
   const [page, setPage] = useState(1);
@@ -45,6 +51,8 @@ export function StaffPage() {
   const [deleting, setDeleting] = useState<UserSummary | null>(null);
   const [resetTarget, setResetTarget] = useState<UserSummary | null>(null);
   const [resetPassword, setResetPassword] = useState('');
+  const [pinTarget, setPinTarget] = useState<UserSummary | null>(null);
+  const [linkFilter, setLinkFilter] = useState<LinkFilter>('all');
 
   const auth = useAuthStore();
   const meId = auth.user?.id;
@@ -53,12 +61,19 @@ export function StaffPage() {
   const canUpdate = auth.hasPermission(PERMISSIONS.user.update);
   const canDelete = auth.hasPermission(PERMISSIONS.user.delete);
 
-  const users = useUsers({ page, pageSize: 10, search: search || undefined });
+  const users = useUsers({
+    page,
+    pageSize: 10,
+    search: search || undefined,
+    linked: linkFilter === 'all' ? undefined : linkFilter === 'linked',
+  });
   const deleteUser = useDeleteUser();
+  const setPin = useSetUserPin();
+  const clearPin = useClearUserPin();
   const resetUser = useResetUserPassword();
   const unlockUser = useUnlockUser();
 
-  useEffect(() => setPage(1), [search]);
+  useEffect(() => setPage(1), [search, linkFilter]);
 
   const openCreate = () => {
     setEditing(null);
@@ -171,6 +186,18 @@ export function StaffPage() {
       },
     },
     {
+      key: 'pin',
+      header: 'POS PIN',
+      render: (u) =>
+        u.hasPin ? (
+          <Badge variant="outline" className="text-[10px]">
+            Set
+          </Badge>
+        ) : (
+          <span className="text-xs text-muted-foreground">Not set</span>
+        ),
+    },
+    {
       key: 'mfa',
       header: 'MFA',
       render: (u) =>
@@ -195,7 +222,7 @@ export function StaffPage() {
     {
       key: 'actions',
       header: '',
-      className: 'w-44 text-right',
+      className: 'w-52 text-right',
       render: (u) => {
         const locked = u.lockedUntil && new Date(u.lockedUntil).getTime() > Date.now();
         return (
@@ -209,6 +236,17 @@ export function StaffPage() {
                 title="Unlock account"
               >
                 <Unlock className="h-4 w-4 text-amber-500" />
+              </Button>
+            )}
+            {canUpdate && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setPinTarget(u)}
+                aria-label={u.hasPin ? 'Reset POS PIN' : 'Set POS PIN'}
+                title={u.hasPin ? 'Reset POS PIN' : 'Set POS PIN'}
+              >
+                <Hash className="h-4 w-4" />
               </Button>
             )}
             {canUpdate && (
@@ -258,7 +296,7 @@ export function StaffPage() {
             <UsersIcon className="h-6 w-6" /> Staff
           </h1>
           <p className="text-sm text-muted-foreground">
-            Manage user accounts, role assignments, and password resets.
+            Manage user accounts, role assignments, passwords and POS PINs.
           </p>
         </div>
         {canCreate && (
@@ -268,8 +306,8 @@ export function StaffPage() {
         )}
       </div>
 
-      <Card className="p-3">
-        <div className="relative max-w-sm">
+      <Card className="flex flex-wrap items-center gap-3 p-3">
+        <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
@@ -277,6 +315,25 @@ export function StaffPage() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
+        </div>
+        {/* "Not linked to HR" is the worklist for keeping the two lists as one. */}
+        <div className="flex gap-1" role="group" aria-label="Filter by HR link">
+          {(
+            [
+              ['all', 'All'],
+              ['linked', 'Linked to HR'],
+              ['unlinked', 'Not linked'],
+            ] as [LinkFilter, string][]
+          ).map(([value, label]) => (
+            <Button
+              key={value}
+              size="sm"
+              variant={linkFilter === value ? 'default' : 'outline'}
+              onClick={() => setLinkFilter(value)}
+            >
+              {label}
+            </Button>
+          ))}
         </div>
       </Card>
 
@@ -313,6 +370,16 @@ export function StaffPage() {
       )}
 
       <UserDialog open={dialogOpen} onOpenChange={setDialogOpen} user={editing} />
+
+      <SetPinDialog
+        open={!!pinTarget}
+        onOpenChange={(open) => !open && setPinTarget(null)}
+        personName={pinTarget?.firstName ?? ''}
+        hasPin={!!pinTarget?.hasPin}
+        pending={setPin.isPending || clearPin.isPending}
+        onSave={(pin) => setPin.mutateAsync({ id: pinTarget!.id, pin })}
+        onClear={() => clearPin.mutateAsync(pinTarget!.id)}
+      />
 
       <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
         <DialogContent className="max-w-md">

@@ -18,6 +18,7 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { SetPinDto } from './dto/set-pin.dto';
 
 @ApiTags('staff')
 @Controller('users')
@@ -27,11 +28,12 @@ export class UsersController {
 
   @Get()
   @RequirePermissions(PERMISSIONS.user.read)
-  list(@Query() query: { search?: string; page?: string; pageSize?: string }) {
+  list(@Query() query: { search?: string; page?: string; pageSize?: string; linked?: string }) {
     return this.users.list({
       search: query.search,
       page: query.page ? Number(query.page) : undefined,
       pageSize: query.pageSize ? Number(query.pageSize) : undefined,
+      linked: query.linked === 'true' ? true : query.linked === 'false' ? false : undefined,
     });
   }
 
@@ -58,6 +60,21 @@ export class UsersController {
   @RequirePermissions(PERMISSIONS.user.update)
   resetPassword(@Param('id') id: string, @Body() dto: ResetPasswordDto) {
     return this.users.resetPassword(id, dto.newPassword);
+  }
+
+  /** Set or reset a POS PIN for someone (manager action; no current PIN needed). */
+  @Post(':id/pin')
+  @HttpCode(200)
+  @RequirePermissions(PERMISSIONS.user.update)
+  setPin(@Param('id') id: string, @Body() dto: SetPinDto) {
+    return this.users.setPin(id, dto.pin);
+  }
+
+  @Delete(':id/pin')
+  @HttpCode(200)
+  @RequirePermissions(PERMISSIONS.user.update)
+  clearPin(@Param('id') id: string) {
+    return this.users.clearPin(id);
   }
 
   @Post(':id/unlock')

@@ -32,8 +32,11 @@ const ACTIVE_STATUSES = ['ACTIVE', 'PROBATION', 'ON_LEAVE'];
  *      resolving on last year's receipts, which is the point.
  *   2. **Employment status is not authorization.** Disabling the login is a
  *      separate, explicit act that the caller has to ask for — the status
- *      change alone grants and revokes nothing. That keeps a single source of
- *      truth for access (roles on the User) instead of two that can disagree.
+ *      change alone grants no permission and leaves the back-office login as
+ *      it was. The one exception is the POS: a suspended or departed employee
+ *      cannot sign in at a till whatever their login state
+ *      (kernel/auth/pos-eligibility.ts), because a café cannot rely on
+ *      someone remembering to tick "disable login".
  *
  * `isActive` is kept in step with `employmentStatus` on every transition so the
  * dozens of pre-existing queries that filter on it keep behaving correctly
@@ -169,6 +172,16 @@ export class HrLifecycleService {
         },
       });
 
+      // Keep the login's home branch in step with where the person now works,
+      // so the POS and branch-scoped screens follow the transfer. Only the
+      // default moves; past transactions keep their own branch.
+      if (employee.userId && toBranchId !== employee.branchId) {
+        await tx.user.updateMany({
+          where: { id: employee.userId },
+          data: { defaultBranchId: toBranchId ?? null, updatedBy: actor },
+        });
+      }
+
       await tx.hrEmployeeTransfer.create({
         data: {
           organizationId: orgId,
@@ -283,6 +296,15 @@ export class HrLifecycleService {
             isActive: enable,
             reason: `Employee ${opts.toStatus.toLowerCase()}: ${opts.reason ?? 'no reason given'}`,
           },
+        });
+      } else if (employee.userId) {
+        // The login itself is untouched, but POS eligibility reads employment
+        // status (kernel/auth/pos-eligibility.ts). Bumping the User row's
+        // updatedAt puts it in the next offline staff delta, so a suspended
+        // cashier's PIN is withdrawn from Android tills too.
+        await tx.user.updateMany({
+          where: { id: employee.userId },
+          data: { updatedBy: actor },
         });
       }
 

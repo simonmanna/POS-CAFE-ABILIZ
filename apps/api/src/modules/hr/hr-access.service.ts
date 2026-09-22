@@ -24,8 +24,10 @@ import type { UpdateAccessDto } from './dto/hr-lifecycle.dto';
  * Three rules it exists to enforce:
  *
  *   1. **Authentication is not employment.** Linking never changes what a user
- *      can do — roles decide that. Employment status is not an authorization
- *      input, so an employee record cannot grant or revoke a permission.
+ *      can do — roles decide that, and an employee record cannot grant a
+ *      permission. The one thing employment does take away is the till: a
+ *      suspended or departed employee cannot sign in at a POS (see
+ *      kernel/auth/pos-eligibility.ts).
  *   2. **Both sides stay optional.** A POS user with no employee keeps working
  *      exactly as before; an employee with no user simply cannot log in.
  *   3. **Every link change is audited.** `assign` / `unassign` on the employee,
@@ -151,7 +153,7 @@ export class HrAccessService {
     // simply is not found — the caller learns nothing about other tenants.
     const user = await this.prisma.client.user.findFirst({
       where: { id: dto.userId },
-      select: { id: true, email: true },
+      select: { id: true, email: true, defaultBranchId: true },
     });
     if (!user) throw new NotFoundException('User account not found in this organization');
 
@@ -170,6 +172,15 @@ export class HrAccessService {
         where: { id: employeeId },
         data: { userId: dto.userId, updatedBy: actor },
       });
+      // A login with no home branch picks up the one HR has on file, so the
+      // POS scopes this person to where they actually work. An existing
+      // default is someone's deliberate choice and is left alone.
+      if (!user.defaultBranchId && employee.branchId) {
+        await tx.user.updateMany({
+          where: { id: dto.userId },
+          data: { defaultBranchId: employee.branchId, updatedBy: actor },
+        });
+      }
       await this.audit.recordInTx(tx, {
         entity: 'HrEmployee',
         entityId: employeeId,
@@ -285,7 +296,36 @@ export class HrAccessService {
     return this.getAccess(employeeId);
   }
 
+  /**
+   * Give the linked account a POS PIN, or reset a forgotten one.
+   *
+   * Delegates to UsersService.setPin, the same path the Staff screen uses, so
+   * hashing, lockout reset and audit are identical. The PIN is never returned.
+   */
+  async setPin(employeeId: string, pin: string) {
+    const userId = await this.linkedUserId(employeeId);
+    await this.users.setPin(userId, pin);
+    return this.getAccess(employeeId);
+  }
+
+  /** Take the linked account's PIN away. It can no longer sign in at a till. */
+  async clearPin(employeeId: string) {
+    const userId = await this.linkedUserId(employeeId);
+    await this.users.clearPin(userId);
+    return this.getAccess(employeeId);
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────
+
+  private async linkedUserId(employeeId: string): Promise<string> {
+    const employee = await this.findEmployee(employeeId);
+    if (!employee.userId) {
+      throw new BadRequestException(
+        'This employee has no linked user account. Link or provision one first.',
+      );
+    }
+    return employee.userId;
+  }
 
   private async findEmployee(employeeId: string) {
     const employee = await this.prisma.client.hrEmployee.findFirst({

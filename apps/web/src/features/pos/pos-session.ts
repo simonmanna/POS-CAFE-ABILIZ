@@ -23,6 +23,22 @@ export function getPosToken(): string | null {
   return posToken;
 }
 
+/**
+ * Called when the server refuses the cashier token because the cashier was
+ * disabled or taken off the tills (401 + `X-Pos-Session: revoked`). The POS
+ * auth store registers here, which keeps this module free of imports.
+ */
+let revokedHandler: (() => void) | null = null;
+
+export function onPosSessionRevoked(handler: () => void): void {
+  revokedHandler = handler;
+}
+
+export function posSessionRevoked(): void {
+  setPosToken(null);
+  revokedHandler?.();
+}
+
 export function setPosToken(token: string | null): void {
   posToken = token;
   try {

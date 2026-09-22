@@ -1,12 +1,15 @@
 import { useState } from 'react';
 import { KeyRound, Link2, Link2Off, ShieldCheck, UserPlus } from 'lucide-react';
 import {
+  useClearEmployeePin,
   useHrAccess,
   useHrLinkableUsers,
   useLinkUser,
   useProvisionUser,
+  useSetEmployeePin,
   useUnlinkUser,
 } from '@/features/hr/access-api';
+import { SetPinDialog } from '@/pages/staff/SetPinDialog';
 import { useRoles } from '@/features/staff/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -49,8 +52,11 @@ export function HrAccessPanel({
   const [linkOpen, setLinkOpen] = useState(false);
   const [provisionOpen, setProvisionOpen] = useState(false);
   const [unlinkOpen, setUnlinkOpen] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
 
   const unlink = useUnlinkUser();
+  const setPin = useSetEmployeePin();
+  const clearPin = useClearEmployeePin();
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Loading access…</p>;
 
@@ -118,6 +124,10 @@ export function HrAccessPanel({
               </dl>
 
               <div className="flex flex-wrap gap-2 border-t pt-4">
+                <Button size="sm" variant="outline" onClick={() => setPinOpen(true)}>
+                  <KeyRound className="mr-1.5 h-3.5 w-3.5" />
+                  {user.hasPin ? 'Reset POS PIN' : 'Set POS PIN'}
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -130,8 +140,9 @@ export function HrAccessPanel({
               </div>
 
               <p className="text-xs text-muted-foreground">
-                Roles decide what this person can do — employment status never grants or revokes a
-                permission. Change roles from the Staff screen.
+                Roles decide what this person can do. Employment status adds one rule on top: while
+                someone is suspended or has left, they cannot sign in at a POS till, even if their
+                login is still enabled. Change roles from the Staff screen.
               </p>
             </div>
           ) : (
@@ -166,6 +177,15 @@ export function HrAccessPanel({
         onOpenChange={setProvisionOpen}
         employeeId={employeeId}
         employeeName={employeeName}
+      />
+      <SetPinDialog
+        open={pinOpen}
+        onOpenChange={setPinOpen}
+        personName={employeeName}
+        hasPin={!!user?.hasPin}
+        pending={setPin.isPending || clearPin.isPending}
+        onSave={(pin) => setPin.mutateAsync({ employeeId, pin })}
+        onClear={() => clearPin.mutateAsync(employeeId)}
       />
 
       <Dialog open={unlinkOpen} onOpenChange={setUnlinkOpen}>

@@ -27,11 +27,12 @@ const EMP_TYPE_STYLE: Record<string, string> = {
 export function HrEmployeesPage() {
   const [search, setSearch] = useState('');
   const [departmentId, setDepartmentId] = useState('');
+  const [linked, setLinked] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any>(null);
   const [form, setForm] = useState<any>({ employmentType: 'FULL_TIME', payFrequency: 'MONTHLY' });
 
-  const { data } = useHrEmployees({ search: search || undefined, departmentId: departmentId || undefined, pageSize: 50 });
+  const { data } = useHrEmployees({ search: search || undefined, departmentId: departmentId || undefined, linked: linked || undefined, pageSize: 50 });
   const { data: depts } = useHrDepartments();
   const { data: positions } = useHrPositions();
   const create = useCreateHrEmployee();
@@ -102,6 +103,12 @@ export function HrEmployeesPage() {
           {(depts?.rows ?? []).map((d: any) => (
             <option key={d.id} value={d.id}>{d.name}</option>
           ))}
+        </select>
+        {/* "No login" is the worklist for keeping HR and POS users as one list. */}
+        <select value={linked} onChange={(e) => setLinked(e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm" aria-label="Filter by system login">
+          <option value="">Any login status</option>
+          <option value="true">Has a login</option>
+          <option value="false">No login</option>
         </select>
       </div>
 

@@ -278,6 +278,9 @@ export class HrOrgService {
     if (query.positionId) where.positionId = query.positionId;
     if (query.employmentType) where.employmentType = query.employmentType;
     if (query.isActive !== undefined) where.isActive = query.isActive === 'true';
+    // `linked=false` is the "employees with no login" worklist.
+    if (query.linked === 'true') where.userId = { not: null };
+    if (query.linked === 'false') where.userId = null;
     if (query.search) {
       const term = query.search;
       where.OR = [
@@ -468,6 +471,24 @@ export class HrOrgService {
         oldValues,
         newValues: data,
       });
+      // One person, one name: carry a rename onto the linked login so the PIN
+      // screen, receipts and the Staff list show what HR shows. Email is left
+      // alone on purpose — on the User it is the sign-in identity, and
+      // changing it belongs to the Staff screen, not to an HR edit.
+      if (row.userId && (data.firstName !== undefined || data.lastName !== undefined)) {
+        const names: Record<string, unknown> = {};
+        if (data.firstName !== undefined && data.firstName) names.firstName = data.firstName;
+        if (data.lastName !== undefined) names.lastName = data.lastName || null;
+        if (Object.keys(names).length > 0) {
+          await tx.user.updateMany({ where: { id: row.userId }, data: { ...names, updatedBy: userId } });
+          await this.audit.recordInTx(tx, {
+            entity: 'User',
+            entityId: row.userId,
+            action: 'update',
+            newValues: { ...names, via: 'hr-employee' },
+          });
+        }
+      }
       return redactEmployee(updated as any, this.canSeeCompensation());
     });
   }

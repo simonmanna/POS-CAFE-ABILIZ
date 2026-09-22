@@ -8,7 +8,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { api } from '@/lib/api';
-import { setPosToken } from './pos-session';
+import { onPosSessionRevoked, setPosToken } from './pos-session';
 
 export interface PosAuthUser {
   userId: string;
@@ -58,7 +58,18 @@ export const usePosAuthStore = create<PosAuthState>()(
         }
       },
 
-      logout: () => { setPosToken(null); set({ user: null, error: null }); },
+      logout: () => {
+        // Tell the server the cashier left, so HR can clock them out. Sent with
+        // the outgoing cashier's token explicitly, because the token is cleared
+        // below before the request goes out. Fire-and-forget: a failed call
+        // must never keep a cashier signed in.
+        const token = get().user?.posToken;
+        if (token) {
+          api.post('/pos/auth/logoff', {}, { headers: { 'X-Pos-User': token } }).catch(() => {});
+        }
+        setPosToken(null);
+        set({ user: null, error: null });
+      },
 
       hasPermission: (perm: string) => {
         const { user } = get();
@@ -73,3 +84,8 @@ export const usePosAuthStore = create<PosAuthState>()(
     },
   ),
 );
+
+// Server revoked the cashier token: back to the PIN screen. Clears the state
+// directly rather than via logout(), which would post a log-off with the very
+// token the server just refused.
+onPosSessionRevoked(() => usePosAuthStore.setState({ user: null, error: null }));

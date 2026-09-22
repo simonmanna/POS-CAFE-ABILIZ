@@ -17,6 +17,7 @@ import { GlobalExceptionFilter } from './kernel/filters/global-exception.filter'
 import { TenantContextService } from './kernel/tenancy/tenant-context.service';
 import { PrismaService } from './kernel/prisma/prisma.service';
 import { JwtTokenService, type AccessTokenPayload } from './kernel/auth/jwt-token.service';
+import { createPosSessionCheck, POS_SESSION_HEADER } from './kernel/auth/pos-session-check';
 import { validateEnv } from './kernel/config/env';
 import { requestIdMiddleware } from './kernel/observability/request-id.middleware';
 
@@ -118,7 +119,7 @@ async function bootstrap(): Promise<void> {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'Idempotency-Key', 'X-Device-Label', 'X-Pos-User', 'X-Device-Token'],
-    exposedHeaders: ['X-Request-Id', 'X-Total-Count'],
+    exposedHeaders: ['X-Request-Id', 'X-Total-Count', POS_SESSION_HEADER],
     maxAge: 86_400,
   });
 
@@ -130,7 +131,8 @@ async function bootstrap(): Promise<void> {
   const tenant = app.get(TenantContextService);
   const jwt = app.get(JwtTokenService);
   const prisma = app.get(PrismaService);
-  app.use((req: Request & { auth?: AccessTokenPayload; id?: string }, _res: Response, next: NextFunction) => {
+  const posUserStillAllowed = createPosSessionCheck(prisma as any);
+  app.use((req: Request & { auth?: AccessTokenPayload; id?: string }, res: Response, next: NextFunction) => {
     let token: string | undefined;
     const header = req.headers['authorization'];
     if (header?.startsWith('Bearer ')) {
@@ -153,6 +155,7 @@ async function bootstrap(): Promise<void> {
         // correct on a shared terminal. The bearer JWT still establishes the org
         // boundary and transport auth; the POS token only narrows the identity.
         let effective = payload;
+        let posUserId: string | null = null;
         const posHeaderRaw =
           req.headers['x-pos-user'] ?? (isEventStreamPath(req.path) ? req.query.pos_token : undefined);
         const posHeader = Array.isArray(posHeaderRaw) ? posHeaderRaw[0] : posHeaderRaw;
@@ -166,6 +169,7 @@ async function bootstrap(): Promise<void> {
                 email: pos.email,
                 permissions: pos.permissions,
               };
+              posUserId = pos.sub;
             }
             // org mismatch → ignore the POS token, fall back to the JWT identity.
           } catch {
@@ -173,15 +177,43 @@ async function bootstrap(): Promise<void> {
           }
         }
 
-        req.auth = effective;
-        return tenant.run(
-          {
-            organizationId: effective.organizationId,
-            userId: effective.sub,
-            permissions: effective.permissions,
-          },
-          () => next(),
-        );
+        const proceed = (identity: AccessTokenPayload) => {
+          req.auth = identity;
+          return tenant.run(
+            {
+              organizationId: identity.organizationId,
+              userId: identity.sub,
+              permissions: identity.permissions,
+            },
+            () => next(),
+          );
+        };
+
+        if (!posUserId) return proceed(effective);
+
+        // A validly signed POS token is not enough on its own: the cashier may
+        // have been disabled, deleted or taken off the tills by HR since it was
+        // minted. A revoked token is refused outright rather than silently
+        // downgraded to the bearer identity, because that would attribute the
+        // dismissed cashier's sale to whoever opened the terminal.
+        //
+        // The PIN screen is the exception: it has to work while a stale token is
+        // still sitting in the browser, so the next cashier can sign in.
+        const onPinScreen = /\/pos\/auth\/(pin-login|staff)$/.test(req.path);
+        void posUserStillAllowed(payload.organizationId, posUserId)
+          // Never let the check itself lock the tills: a failed lookup trusts
+          // the signed token, which is exactly the behaviour before this check.
+          .catch(() => true)
+          .then((allowed) => {
+            if (allowed) return proceed(effective);
+            if (onPinScreen) return proceed(payload);
+            res.setHeader(POS_SESSION_HEADER, 'revoked');
+            res.status(401).json({
+              statusCode: 401,
+              message: 'This cashier can no longer use the POS. Sign in with another PIN.',
+            });
+          });
+        return;
       } catch {
         // invalid token: continue unauthenticated, guards will reject if needed
       }

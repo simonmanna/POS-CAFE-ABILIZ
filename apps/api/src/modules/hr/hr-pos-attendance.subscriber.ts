@@ -11,7 +11,7 @@ import { HrAttendanceService } from './hr-attendance.service';
 const ACTIVE_STATUSES = ['ACTIVE', 'PROBATION', 'ON_LEAVE'];
 
 /**
- * Turns a POS PIN sign-in into an HR attendance clock-in.
+ * Turns POS PIN sign-ins and log-offs into HR attendance.
  *
  * This is the one place POS and HR meet, and it is deliberately a subscriber
  * rather than a call:
@@ -21,11 +21,9 @@ const ACTIVE_STATUSES = ['ACTIVE', 'PROBATION', 'ON_LEAVE'];
  *   - Attendance must never be able to fail, slow, or block a cashier's login.
  *     POS publishes and returns; this runs afterwards, off the request path.
  *
- * Scope, deliberately narrow (§13/§14 of the brief): a PIN sign-in raises a
- * clock-in and nothing else. It does not open a cash session, and a cash
- * session does not create attendance. A manager who clocks in without ever
- * touching a drawer still gets an attendance record; a cashier who opens a
- * second drawer mid-shift does not get a second clock-in.
+ * A sign-in raises a clock-in (first of the day wins); a log-off raises a
+ * clock-out (last of the day wins). Neither opens or closes a cash session.
+ * See HrAttendanceService.posSignIn / posSignOff for the day rules.
  *
  * A sign-in by someone with no linked employee is simply ignored — that is the
  * normal state for a POS user HR has not adopted yet, not an error.
@@ -43,12 +41,15 @@ export class HrPosAttendanceSubscriber implements OnModuleInit {
 
   onModuleInit(): void {
     this.events.subscribe(EVENTS.PosPinLogin, (p) =>
-      this.onPinLogin(p as PosPinLoginPayload),
+      this.handle(p as PosPinLoginPayload, 'in'),
     );
-    this.logger.log(`Subscribed to ${EVENTS.PosPinLogin} for attendance clock-in`);
+    this.events.subscribe(EVENTS.PosPinLogoff, (p) =>
+      this.handle(p as PosPinLoginPayload, 'out'),
+    );
+    this.logger.log(`Subscribed to ${EVENTS.PosPinLogin} / ${EVENTS.PosPinLogoff} for attendance`);
   }
 
-  private async onPinLogin(p: PosPinLoginPayload): Promise<void> {
+  private async handle(p: PosPinLoginPayload, direction: 'in' | 'out'): Promise<void> {
     // The outbox worker dispatches without a tenant scope, so the org comes
     // from the payload and the work runs inside an explicit tenant context.
     await this.tenant.run({ organizationId: p.organizationId, userId: p.userId }, async () => {
@@ -63,33 +64,18 @@ export class HrPosAttendanceSubscriber implements OnModuleInit {
         if (!employee) return;
         if (!ACTIVE_STATUSES.includes(employee.employmentStatus)) return;
 
-        const timestamp = p.at ? new Date(p.at) : new Date();
-
-        // Already clocked in today? Signing in again mid-shift (after a screen
-        // lock, a handover, or a second terminal) must not overwrite the real
-        // arrival time, so the first CHECK_IN of the day wins.
-        const day = new Date(timestamp);
-        day.setHours(0, 0, 0, 0);
-        const existing = await this.prisma.client.hrAttendance.findFirst({
-          where: { employeeId: employee.id, date: day },
-          select: { checkInAt: true },
-        });
-        if (existing?.checkInAt) return;
-
-        await this.attendance.clock({
-          employeeId: employee.id,
-          eventType: 'CHECK_IN',
-          timestamp,
-          method: 'PIN',
-          deviceId: p.deviceId ?? null,
-          note: 'Clocked in automatically at POS sign-in',
-        });
+        const at = p.at ? new Date(p.at) : new Date();
+        if (direction === 'in') {
+          await this.attendance.posSignIn(employee.id, at, p.deviceId ?? null);
+        } else {
+          await this.attendance.posSignOff(employee.id, at, p.deviceId ?? null);
+        }
       } catch (err) {
         // Never rethrow. Attendance bookkeeping is not permitted to turn into a
-        // failed or retried login, and the cashier is already on the terminal
-        // by the time this runs.
+        // failed or retried login, and the cashier has already moved on by the
+        // time this runs.
         this.logger.warn(
-          `Could not record POS clock-in for user ${p.userId}: ${err instanceof Error ? err.message : String(err)}`,
+          `Could not record POS clock-${direction} for user ${p.userId}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     });

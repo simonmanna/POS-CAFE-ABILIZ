@@ -1,13 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
+import { addDays, attendanceDay, hrTimezone } from './hr-dates';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-
-function dayStart(d: Date | string): Date {
-  const dt = typeof d === 'string' ? new Date(d) : d;
-  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
-}
 
 /**
  * HrReportsService — dashboard KPIs and the cross-vertical reports that pull
@@ -24,9 +20,9 @@ export class HrReportsService {
   /** Landing dashboard: headcount, today's attendance, open leave, last run. */
   async dashboard() {
     const orgId = this.tenant.organizationId;
-    const today = dayStart(new Date());
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    // Attendance days are org calendar days (see hr-dates.ts).
+    const today = attendanceDay(new Date(), await hrTimezone(this.prisma.client, orgId));
+    const tomorrow = addDays(today, 1);
 
     const [
       headcount,
@@ -169,10 +165,9 @@ export class HrReportsService {
   /** Attendance register for a date range — compact rows for export. */
   async attendanceRegister(query: any = {}) {
     const orgId = this.tenant.organizationId;
-    const from = dayStart(query.from ?? new Date());
-    from.setDate(from.getDate() - 6);
-    const to = dayStart(query.to ?? new Date());
-    to.setDate(to.getDate() + 1);
+    const tz = await hrTimezone(this.prisma.client, orgId);
+    const from = addDays(attendanceDay(query.from ?? new Date(), tz), -6);
+    const to = addDays(attendanceDay(query.to ?? new Date(), tz), 1);
     const rows = await this.prisma.client.hrAttendance.findMany({
       where: {
         organizationId: orgId,

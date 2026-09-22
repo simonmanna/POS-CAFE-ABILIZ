@@ -7,6 +7,7 @@ import { HrSelfService } from './hr-self.service';
 import { HrDocumentsService } from './hr-documents.service';
 import { HrAnalyticsService } from './hr-analytics.service';
 import { LinkUserDto, ProvisionUserDto } from './dto/hr-access.dto';
+import { SetPinDto } from '../../kernel/auth/staff/users/dto/set-pin.dto';
 import {
   ConfirmEmployeeDto,
   ReactivateEmployeeDto,
@@ -307,6 +308,19 @@ export class HrController {
   @RequirePermissions('hr:access', 'role:update')
   updateAccess(@Param('id') id: string, @Body() dto: UpdateAccessDto) {
     return this.access.updateAccess(id, dto);
+  }
+
+  /** Set or reset the linked account's POS PIN. Same power as the Staff screen's. */
+  @Post('employees/:id/access/pin')
+  @RequirePermissions('hr:access', 'user:update')
+  setPin(@Param('id') id: string, @Body() dto: SetPinDto) {
+    return this.access.setPin(id, dto.pin);
+  }
+
+  @Delete('employees/:id/access/pin')
+  @RequirePermissions('hr:access', 'user:update')
+  clearPin(@Param('id') id: string) {
+    return this.access.clearPin(id);
   }
 
   // ── Employment lifecycle ─────────────────────────────────────────────────

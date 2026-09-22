@@ -7,6 +7,7 @@ import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../kernel/audit/audit.service';
 import { writeAudited } from './hr-audit.util';
+import { addDays, attendanceDay, hrTimezone, minutesOfDay } from './hr-dates';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -17,12 +18,6 @@ const METHODS = ['PIN', 'RFID', 'QR', 'FACE', 'FINGERPRINT', 'MANUAL', 'APP'];
 function toMinutes(t: string): number {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + (m || 0);
-}
-
-/** ISO date string → org-local midnight (uses device-local midnight). */
-function dayStart(d: Date | string): Date {
-  const dt = typeof d === 'string' ? new Date(d) : d;
-  return new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
 }
 
 /**
@@ -41,6 +36,59 @@ export class HrAttendanceService {
     private readonly audit: AuditService,
   ) {}
 
+  /** The organisation's time zone; attendance days and shift times use it. */
+  private timeZone(): Promise<string> {
+    return hrTimezone(this.prisma.client, this.tenant.organizationId);
+  }
+
+  // ── POS sign-in / sign-off ───────────────────────────────────────────────
+
+  /**
+   * A PIN sign-in at a till. The first sign-in of the day is the arrival;
+   * signing in again after a screen lock, a handover or on a second terminal
+   * must not move it, so a day that already has a check-in is left alone.
+   */
+  async posSignIn(employeeId: string, at: Date, deviceId: string | null) {
+    const day = attendanceDay(at, await this.timeZone());
+    const existing = await this.prisma.client.hrAttendance.findFirst({
+      where: { employeeId, date: day },
+      select: { checkInAt: true },
+    });
+    if (existing?.checkInAt) return;
+    await this.clock({
+      employeeId,
+      eventType: 'CHECK_IN',
+      timestamp: at,
+      method: 'PIN',
+      deviceId,
+      note: 'Clocked in automatically at POS sign-in',
+    });
+  }
+
+  /**
+   * A log-off at a till. The LAST log-off of the day is the departure, so each
+   * one overwrites the previous check-out ("first in, last out"). A log-off
+   * with no check-in that day records nothing: without an arrival there is no
+   * shift to close, and inventing one would pay for hours nobody saw.
+   */
+  async posSignOff(employeeId: string, at: Date, deviceId: string | null) {
+    const day = attendanceDay(at, await this.timeZone());
+    const existing = await this.prisma.client.hrAttendance.findFirst({
+      where: { employeeId, date: day },
+      select: { checkInAt: true },
+    });
+    if (!existing?.checkInAt || existing.checkInAt > at) return;
+    await this.clock({
+      employeeId,
+      eventType: 'CHECK_OUT',
+      timestamp: at,
+      method: 'PIN',
+      deviceId,
+      force: true,
+      note: 'Clocked out automatically at POS log-off',
+    });
+  }
+
   // ── Clock events ─────────────────────────────────────────────────────────
 
   /** Register a clock event and replay it into the daily attendance row. */
@@ -58,6 +106,7 @@ export class HrAttendanceService {
       where: { id: dto.employeeId, organizationId: orgId },
     });
     if (!employee) throw new NotFoundException('Employee not found');
+    const tz = await this.timeZone();
 
     return this.prisma.client.$transaction(async (tx: any) => {
       const log = await tx.hrAttendanceLog.create({
@@ -77,7 +126,7 @@ export class HrAttendanceService {
       });
 
       // Find or create today's daily row (upsert by org+employee+date).
-      const date = dayStart(timestamp);
+      const date = attendanceDay(timestamp, tz);
       let attendance = await tx.hrAttendance.findUnique({
         where: {
           organizationId_employeeId_date: {
@@ -139,7 +188,7 @@ export class HrAttendanceService {
         include: { shift: true },
       });
 
-      await this.recompute(tx, updated.id);
+      await this.recompute(tx, updated.id, tz);
       await tx.hrAttendanceLog.update({
         where: { id: log.id },
         data: { attendanceId: updated.id },
@@ -149,7 +198,7 @@ export class HrAttendanceService {
   }
 
   /** Recompute worked/overtime/late/early-leave for a daily row. */
-  private async recompute(tx: any, attendanceId: string) {
+  private async recompute(tx: any, attendanceId: string, tz: string) {
     const row = await tx.hrAttendance.findUnique({ where: { id: attendanceId } });
     if (!row) return;
     const shift = row.shiftId
@@ -173,12 +222,12 @@ export class HrAttendanceService {
         const shiftEnd = toMinutes(shift.endTime);
         const shiftLength = shiftEnd > shiftStart ? shiftEnd - shiftStart : 24 * 60 - shiftStart + shiftEnd;
         const scheduleLen = Math.max(0, shiftLength - row.totalBreakMinutes);
-        const checkInMin = row.checkInAt.getHours() * 60 + row.checkInAt.getMinutes();
+        const checkInMin = minutesOfDay(row.checkInAt, tz);
         if (checkInMin > shiftStart + shift.graceMinutes) {
           lateMinutes = checkInMin - shiftStart;
           if (status === 'PRESENT') status = 'LATE';
         }
-        const checkOutMin = row.checkOutAt.getHours() * 60 + row.checkOutAt.getMinutes();
+        const checkOutMin = minutesOfDay(row.checkOutAt, tz);
         if (checkOutMin < shiftEnd - shift.graceMinutes) {
           earlyLeaveMinutes = shiftEnd - checkOutMin;
           if (status === 'PRESENT') status = 'EARLY_LEAVE';
@@ -216,7 +265,15 @@ export class HrAttendanceService {
     notes?: string,
   ): Promise<void> {
     const orgId = this.tenant.organizationId;
-    const dateStart = dayStart(date);
+    // Leave dates are calendar days, not instants: the leave service builds
+    // them from local Y/M/D, so read the same components back rather than
+    // re-reading the instant in the org's zone, which can shift it a day.
+    const ymd = [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0'),
+    ].join('-');
+    const dateStart = attendanceDay(ymd, 'UTC');
     const existing = await tx.hrAttendance.findUnique({
       where: {
         organizationId_employeeId_date: {
@@ -251,13 +308,10 @@ export class HrAttendanceService {
     const where: any = { organizationId: orgId };
     if (query.employeeId) where.employeeId = query.employeeId;
     if (query.status) where.status = query.status;
-    if (query.from) {
-      where.date = { ...(where.date ?? {}), gte: dayStart(query.from) };
-    }
-    if (query.to) {
-      const to = dayStart(query.to);
-      to.setDate(to.getDate() + 1);
-      where.date = { ...(where.date ?? {}), lt: to };
+    if (query.from || query.to) {
+      const tz = await this.timeZone();
+      if (query.from) where.date = { ...(where.date ?? {}), gte: attendanceDay(query.from, tz) };
+      if (query.to) where.date = { ...(where.date ?? {}), lt: addDays(attendanceDay(query.to, tz), 1) };
     }
     const [rows, total] = await Promise.all([
       this.prisma.client.hrAttendance.findMany({
@@ -312,10 +366,9 @@ export class HrAttendanceService {
   /** Attendance summary for a date range, one row per employee. */
   async summary(query: any = {}) {
     const orgId = this.tenant.organizationId;
-    const from = dayStart(query.from ?? new Date());
-    from.setDate(from.getDate() - 30);
-    const to = dayStart(query.to ?? new Date());
-    to.setDate(to.getDate() + 1);
+    const tz = await this.timeZone();
+    const from = addDays(attendanceDay(query.from ?? new Date(), tz), -30);
+    const to = addDays(attendanceDay(query.to ?? new Date(), tz), 1);
 
     const rows = await this.prisma.client.hrAttendance.groupBy({
       by: ['employeeId'],
@@ -363,7 +416,7 @@ export class HrAttendanceService {
     const userId = this.tenant.userId;
     if (!dto.employeeId || !dto.date)
       throw new BadRequestException('employeeId and date are required');
-    const date = dayStart(dto.date);
+    const date = attendanceDay(dto.date, await this.timeZone());
     const existing = await this.prisma.client.hrAttendance.findUnique({
       where: {
         organizationId_employeeId_date: {

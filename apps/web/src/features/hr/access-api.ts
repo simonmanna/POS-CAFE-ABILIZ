@@ -247,6 +247,26 @@ export function useUpdateAccess() {
   });
 }
 
+/** Set or reset the linked account's POS PIN (manager action). */
+export function useSetEmployeePin() {
+  const invalidate = useHrInvalidate();
+  return useMutation({
+    mutationFn: async ({ employeeId, pin }: { employeeId: string; pin: string }) =>
+      (await api.post<HrAccess>(`/hr/employees/${employeeId}/access/pin`, { pin })).data,
+    onSuccess: (_d, v) => invalidate(v.employeeId),
+  });
+}
+
+/** Remove the linked account's POS PIN. */
+export function useClearEmployeePin() {
+  const invalidate = useHrInvalidate();
+  return useMutation({
+    mutationFn: async (employeeId: string) =>
+      (await api.delete<HrAccess>(`/hr/employees/${employeeId}/access/pin`)).data,
+    onSuccess: (_d, employeeId) => invalidate(employeeId),
+  });
+}
+
 // ── Lifecycle ──────────────────────────────────────────────────────────────
 
 export function useStatusHistory(employeeId: string | undefined) {

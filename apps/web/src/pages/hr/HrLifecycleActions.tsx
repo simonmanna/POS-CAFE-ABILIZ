@@ -276,7 +276,12 @@ function SuspendDialog({
               onChange={(e) => setDisableAccount(e.target.checked)}
               disabled={!hasAccount}
             />
-            Disable their login while suspended
+            <span>
+              Disable their login while suspended
+              <span className="block text-xs text-muted-foreground">
+                Either way, they cannot sign in at a POS till until reactivated.
+              </span>
+            </span>
           </label>
         </div>
 
