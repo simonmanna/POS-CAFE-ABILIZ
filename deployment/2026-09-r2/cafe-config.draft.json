@@ -1,0 +1,53 @@
+{
+  "_comment": "DRAFT filled from the old install's apps/api/.env (2026-09-22). Verify every TODO from the 30-minute walk-through (nssm dump, nginx.conf, PostgreSQL bin path, node.exe path, terminals, USB offsite), then copy to C:\\POS-BACKUPS\\cafe-config.json. No passwords here: PGPASSWORD is set in the session.",
+
+  "pg": {
+    "host": "localhost",
+    "port": 5432,
+    "superuser": "postgres",
+    "bin": "TODO-verify-C:\\Program Files\\PostgreSQL\\<version>\\bin"
+  },
+
+  "legacyDb": "POS-CAFE",
+  "targetDb": "cafe_pos_v2",
+  "baselineDb": "ref_baseline_20260727",
+  "appDbRole": "postgres",
+  "_appDbRole_note": "from the old DATABASE_URL; it is a SUPERUSER, so the new .env must set RLS_ALLOW_SUPERUSER=true (keep-the-rehearsed-role posture, decision D15)",
+
+  "oldInstall": "C:\\microsoft\\POS-CAFE",
+  "newInstall": "C:\\microsoft\\POS-CAFE-2",
+  "releaseManifest": "C:\\POS-BACKUPS\\releases\\release-manifest-release-2026-09-r2.json",
+
+  "services": { "api": "pos-cafe-api", "web": "pos-cafe-web" },
+  "_services_note": "TODO verify with: nssm dump pos-cafe-api / nssm dump pos-cafe-web",
+  "newServices": {
+    "pos-cafe-api": {
+      "AppDirectory": "C:\\microsoft\\POS-CAFE-2\\apps\\api",
+      "Application": "TODO-verify-C:\\Program Files\\nodejs\\node.exe",
+      "AppParameters": "--max-http-header-size=65536 dist/main.js"
+    },
+    "pos-cafe-web": {
+      "AppDirectory": "C:\\microsoft\\POS-CAFE-2\\apps\\web"
+    }
+  },
+  "apiBase": "http://localhost:3000/api/v1",
+  "_apiBase_note": "old .env PORT=3000; terminals keep hitting the same origin",
+  "nginxReload": false,
+  "nginxExe": "TODO-C:\\Program Files\\nginx\\nginx.exe",
+
+  "uploadsDir": "C:\\microsoft\\POS-CAFE\\apps\\api\\var\\uploads",
+  "_uploadsDir_note": "old .env STORAGE_LOCAL_DIR=./var/uploads resolved against the old API working dir; the -Phase backup robocopies this into the final backup and -Phase switch restores it into the new install's STORAGE_LOCAL_DIR",
+
+  "configFiles": [
+    "C:\\microsoft\\POS-CAFE\\apps\\api\\.env",
+    "TODO-C:\\microsoft\\POS-CAFE\\apps\\web\\.env",
+    "TODO-C:\\Program Files\\nginx\\conf\\nginx.conf"
+  ],
+
+  "backupRoot": "C:\\POS-BACKUPS",
+  "offsiteDir": "TODO-USB-e.g.-E:\\POS-OFFSITE",
+
+  "terminals": ["TODO-TILL-1", "TODO-TILL-2", "TODO-KDS", "TODO-MANAGER-PC"],
+
+  "rehearseApiPort": 3098
+}

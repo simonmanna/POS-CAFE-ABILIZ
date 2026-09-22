@@ -21,9 +21,10 @@
     migrate    G12  fresh workspace from the final dump, the chain with the
                     APPROVED mapping (never prompts), numbering equal, promote,
                     timezone, app-role access
-    switch     G13  services -> new install, env checks, health/ready/startup,
-                    post-boot fingerprint 0 unexpected; records the rollback
-                    boundary
+    switch     G13  uploads restored into the new install's STORAGE_LOCAL_DIR
+                    (verified against the File table), services -> new install,
+                    env checks, health/ready/startup, post-boot fingerprint
+                    0 unexpected; records the rollback boundary
     accept     G13  terminals signed, controlled first transaction proves the
                     numbering and the posting chain, Day 0 reconciliation, GO
     abort           pre-write switch-back only (old services, legacy writable)
@@ -414,14 +415,60 @@ switch ($Phase) {
     if ($envText -notmatch 'NODE_ENV\s*=\s*"?production') { $f.Add('new .env NODE_ENV is not production') }
     if ($envText -notmatch 'BACKUP_DIR\s*=\s*"?[A-Za-z]:') { $f.Add('new .env BACKUP_DIR is not set (decision D13)') }
     if ($envText -match 'ENABLE_[A-Z_]+\s*=\s*"?true') { $f.Add('a feature flag ENABLE_* is true (decision D14: all false at cutover)') }
+    # Images: the new install needs its OWN storage dir (never inside the old
+    # install, never the live backup dir). Parsed here, used by the restore
+    # step below. Relative values resolve against apps\api, like the old .env.
+    $storageDir = $null
+    if ($envText -match '(?m)^\s*STORAGE_LOCAL_DIR\s*=\s*"?([^"\r\n]+?)"?\s*$') {
+        $storageDir = [Environment]::ExpandEnvironmentVariables($Matches[1].Trim())
+        if (-not [IO.Path]::IsPathRooted($storageDir)) { $storageDir = Join-Path (Join-Path $cfg.newInstall 'apps\api') $storageDir }
+        if ($cfg.oldInstall) {
+            $oldFull = [IO.Path]::GetFullPath($cfg.oldInstall).TrimEnd('\')
+            $storFull = [IO.Path]::GetFullPath($storageDir).TrimEnd('\')
+            if ($storFull.Equals($oldFull, [StringComparison]::OrdinalIgnoreCase) -or $storFull.StartsWith("$oldFull\", [StringComparison]::OrdinalIgnoreCase)) {
+                $f.Add("new .env STORAGE_LOCAL_DIR must not live inside the old install ($($cfg.oldInstall))")
+            }
+        }
+    } else { $f.Add('new .env STORAGE_LOCAL_DIR is not set - uploaded images cannot be served') }
     if ($f.Count -and -not $Rehearse) { $f | ForEach-Object { Write-Host "  FAIL $_" -ForegroundColor Red }; throw 'new install configuration is not ready' }
     $f | ForEach-Object { Write-Host "  [rehearse] would fail: $_" -ForegroundColor DarkYellow }
     $who = Confirm-Human 'start the NEW system on the migrated database'
 
+    # --- images: restore the final backup's uploads into the NEW storage dir ---
+    # Files are addressed by a relative storageKey under STORAGE_LOCAL_DIR, so
+    # a tree copy keeps every image valid. The File table has no hash column,
+    # so the copy is verified by: robocopy exit code, file count vs File rows,
+    # byte totals (copy integrity) and storageKey spot-checks (resolution).
+    # This gate must pass BEFORE the API starts; failure = do not start, abort,
+    # investigate, new run ID.
+    $storageDest = if ($Rehearse) { Join-Path $dir 'api-uploads' } else { $storageDir }
+    if (-not $storageDest) { throw 'no STORAGE_LOCAL_DIR for the new install - images cannot be restored. Fix the new .env, then start a NEW run ID.' }
+    $uploadsSrc = Join-Path $finalDir 'uploads'
+    if (-not (Test-Path $uploadsSrc)) { throw "final backup has no uploads folder: $uploadsSrc (the rehearsal config must set uploadsDir). Nothing was started." }
+    Write-Host '  Restoring uploaded images into the new storage dir...' -ForegroundColor Cyan
+    New-Item -ItemType Directory -Path $storageDest -Force | Out-Null
+    & robocopy $uploadsSrc $storageDest /E /COPY:DAT /R:1 /W:1 /NFL /NDL /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "uploads restore failed (robocopy exit $LASTEXITCODE) - the API must NOT start; investigate, then abort and use a new run ID" }
+    $srcFiles = @(Get-ChildItem $uploadsSrc -Recurse -File)
+    $dstFiles = @(Get-ChildItem $storageDest -Recurse -File)
+    $fileRows = [int](Q $targetDb 'select count(*) from "File"')
+    $srcBytes = [int64]($srcFiles | Measure-Object Length -Sum).Sum
+    $dstBytes = [int64]($dstFiles | Measure-Object Length -Sum).Sum
+    $samples = @(Q $targetDb 'select "storageKey" from "File" order by random() limit 5')
+    $missing = @($samples | Where-Object { -not (Test-Path (Join-Path $storageDest $_)) })
+    $up = [ordered]@{ source = $uploadsSrc; destination = $storageDest; sourceFiles = $srcFiles.Count; restoredFiles = $dstFiles.Count
+                      sourceBytes = $srcBytes; restoredBytes = $dstBytes; fileRows = $fileRows
+                      storageKeysChecked = $samples.Count; storageKeysMissing = @($missing) }
+    Write-Evidence $dir 'uploads-restore.json' $up | Out-Null
+    if ($dstFiles.Count -ne $fileRows) { throw "uploads restore: $($dstFiles.Count) file(s) on disk but the File table has $fileRows row(s) - reconcile BEFORE the API starts (never delete rows to make this pass; see uploads-restore.json)" }
+    if ($srcBytes -ne $dstBytes) { throw "uploads restore byte totals differ (source $srcBytes vs restored $dstBytes) - the copy is incomplete; the API must NOT start" }
+    if ($missing.Count) { throw "sampled storageKey(s) missing on disk: $($missing -join ', ') - the API must NOT start" }
+    Write-Host "  uploads restored: $($dstFiles.Count) file(s), $dstBytes byte(s); File rows: $fileRows - OK (uploads-restore.json)" -ForegroundColor Green
+
     $switchedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
     if ($Rehearse) {
         $apiDir = Join-Path $cfg.newInstall 'apps\api'
-        $vars = @{ DATABASE_URL = "$(Url $targetDb)?schema=public"; PORT = "$($cfg.rehearseApiPort)"; NODE_ENV = 'production'; RLS_ALLOW_SUPERUSER = 'true'; BACKUP_DIR = (Join-Path $dir 'api-backups') }
+        $vars = @{ DATABASE_URL = "$(Url $targetDb)?schema=public"; PORT = "$($cfg.rehearseApiPort)"; NODE_ENV = 'production'; RLS_ALLOW_SUPERUSER = 'true'; BACKUP_DIR = (Join-Path $dir 'api-backups'); STORAGE_LOCAL_DIR = $storageDest }
         $saved = @{}; foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
         try { $proc = Start-Process node -ArgumentList '--max-http-header-size=65536', 'dist/main.js' -WorkingDirectory $apiDir -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $dir 'new-api.log') -RedirectStandardError (Join-Path $dir 'new-api.err.log') }
         finally { foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
