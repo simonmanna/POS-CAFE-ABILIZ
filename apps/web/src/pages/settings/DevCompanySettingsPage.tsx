@@ -52,6 +52,7 @@ export function DevCompanySettingsPage() {
   const { data: posSettings, isLoading: posLoading } = usePosSettings();
   const updatePos = useUpdatePosSettings();
   const [posMode, setPosMode] = useState('cafe');
+  const [sharedDrawer, setSharedDrawer] = useState(false);
 
   const q = useQuery<DeveloperSettings>({
     queryKey: ['settings-developer'],
@@ -68,6 +69,7 @@ export function DevCompanySettingsPage() {
 
   useEffect(() => {
     if (posSettings?.posMode) setPosMode(posSettings.posMode);
+    setSharedDrawer(posSettings?.sharedDrawer === true);
   }, [posSettings]);
 
   const save = useMutation({
@@ -250,9 +252,18 @@ export function DevCompanySettingsPage() {
                       {POS_MODES.find((m) => m.value === posMode) && (
                         <p className="text-sm text-muted-foreground">{POS_MODES.find((m) => m.value === posMode)!.desc}</p>
                       )}
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="rounded"
+                          checked={sharedDrawer}
+                          onChange={(e) => setSharedDrawer(e.target.checked)}
+                        />
+                        Allow other cashiers on the register (shared drawer)
+                      </label>
                       <Button onClick={async () => {
                         try {
-                          await updatePos.mutateAsync({ posMode });
+                          await updatePos.mutateAsync({ posMode, sharedDrawer });
                           notify.success('POS settings saved');
                         } catch {
                           notify.error('Failed to save POS settings');

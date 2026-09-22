@@ -232,7 +232,7 @@ export function usePosSettings() {
 export function useUpdatePosSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { posMode?: string }) =>
+    mutationFn: async (data: { posMode?: string; sharedDrawer?: boolean }) =>
       (await api.patch('/pos/settings', data)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-settings'] }),
   });
