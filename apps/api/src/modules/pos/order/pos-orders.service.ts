@@ -536,10 +536,13 @@ export class PosOrdersService {
 
       const current = Number(row.quantity);
       const asked = dto.quantity == null ? current : Number(dto.quantity);
-      if (!Number.isFinite(asked) || asked <= 0 || asked > current + 0.000001) {
+      // A numpad-cleared line parks at quantity 0 with nothing left to take off
+      // — voiding it drops the parked row whole, whatever quantity the caller
+      // sent. The between-0-and-current check only applies to live lines.
+      if (current > 0 && (!Number.isFinite(asked) || asked <= 0 || asked > current + 0.000001)) {
         throw new BadRequestException(`Void quantity must be between 0 and ${current}`);
       }
-      const whole = asked >= current - 0.000001;
+      const whole = current <= 0 || asked >= current - 0.000001;
       const firedQty = Number(row.kitchenPrintedQty ?? 0);
 
       // Food the kitchen has already committed to is a manager's decision.
@@ -987,7 +990,15 @@ export class PosOrdersService {
 
     const lines: ResolvedLine[] = [];
     for (const l of inputLines) {
-      if (!Number.isFinite(Number(l.quantity)) || Number(l.quantity) <= 0) throw new BadRequestException('Sale quantities must be positive');
+      // A numpad-cleared line sits at quantity 0 on purpose (see OrderPanel): it
+      // stays visible until the cashier gives it a real quantity or voids it.
+      // It is a pending edit, not an error — accept it so quote/save keep
+      // working (it prices to nothing and never fires to the kitchen, since
+      // fireKitchen's delta against kitchenPrintedQty is 0). Only a malformed
+      // or negative quantity is refused.
+      const qty = Number(l.quantity);
+      if (!Number.isFinite(qty)) throw new BadRequestException('Sale quantity must be a number');
+      if (qty < 0) throw new BadRequestException('Sale quantities cannot be negative');
       if (l.comboId) {
         const combo = await this.modifiers.getCombo(l.comboId);
         if (!combo || !combo.items.length) throw new BadRequestException('This combo is unavailable or has no components');

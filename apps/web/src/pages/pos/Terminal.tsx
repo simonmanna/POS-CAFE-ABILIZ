@@ -38,6 +38,7 @@ import { AccompanimentPicker } from './AccompanimentPicker';
 import { CategoryStrip } from './CategoryStrip';
 import { MenuGrid } from './MenuGrid';
 import { OrderPanel } from './OrderPanel';
+import { PrintBlockedDialog } from './PrintBlockedDialog';
 import { PaymentDialog } from './PaymentDialog';
 import { DiscountDialog } from './DiscountDialog';
 import { LineDiscountDialog } from './LineDiscountDialog';
@@ -247,6 +248,9 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Discount reason (P4) ============== */
   const [showDiscountReason, setShowDiscountReason] = useState(false);
+
+  /* ============== Print gate: a 0-quantity line blocks every print ============== */
+  const [printBlocked, setPrintBlocked] = useState<{ kind: string; names: string } | null>(null);
 
   /* ============== Receipt preview (Sprint P3) ============== */
   const [showBillPreview, setShowBillPreview] = useState(false);
@@ -1503,8 +1507,25 @@ const TerminalPage: React.FC = () => {
     return null;
   };
 
+  /**
+   * Print gate — runs before every print action. A numpad-cleared line parked
+   * at quantity 0 is an unfinished edit: tell the cashier with a dialog and
+   * refuse the print (the cart is left untouched) until the quantity is set.
+   * Empty carts keep the existing toast. Returns true when printing may proceed.
+   */
+  const guardPrint = useCallback((kind: string) => {
+    const st = useCartStore.getState().lines;
+    if (st.length === 0) { toast.error('Cart is empty'); return false; }
+    const zero = st.filter((l) => !(l.quantity > 0));
+    if (zero.length) {
+      setPrintBlocked({ kind, names: zero.map((l) => l.name).join(', ') });
+      return false;
+    }
+    return true;
+  }, []);
+
   const onPrintBill = async () => {
-    if (!cartReadyToCommit(lines)) return;
+    if (!guardPrint('Bill')) return;
     try {
       await flushCurrentOrder();
       const saved = (await api.get(`/pos/tabs/${selectedTableId!}`)).data as any;
@@ -1520,7 +1541,7 @@ const TerminalPage: React.FC = () => {
 
   /* Print only items added since the last bill print. */
   const onPrintAdditionalBill = async () => {
-    if (!cartReadyToCommit(lines)) return;
+    if (!guardPrint('additional bill')) return;
     const openOrder = await resolveOpenOrder();
     if (!openOrder) { toast.error('No open order on this table'); return; }
     if (openOrder.billPrintCount === 0) {
@@ -1905,7 +1926,7 @@ const TerminalPage: React.FC = () => {
             onAddCustomer={() => setShowCustomer(true)}
             onAddDiscount={() => setShowDiscount(true)}
             onPrintKot={async () => {
-              if (!cartReadyToCommit(lines)) return;
+              if (!guardPrint('KOT')) return;
               if (!tableId) { toast.error('Select a table before printing a KOT'); return; }
               try {
                 // Match Bill: save first, then preview only the quantities not yet
@@ -1949,6 +1970,12 @@ const TerminalPage: React.FC = () => {
       </div>
 
       {/* Dialogs */}
+      <PrintBlockedDialog
+        open={!!printBlocked}
+        kind={printBlocked?.kind ?? ''}
+        names={printBlocked?.names ?? ''}
+        onClose={() => setPrintBlocked(null)}
+      />
       <ShiftOpenDialog
         open={showOpenShift}
         onClose={() => setShowOpenShift(false)}

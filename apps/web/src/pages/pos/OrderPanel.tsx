@@ -535,7 +535,7 @@ export const OrderPanel: React.FC<Props> = ({
 
         {tableId && onSettleTab ? (
           <button type="button" className="pos-action-btn-pro bg-emerald pos-pay" onClick={onSettleTab} disabled={cannotTransact} title={blockedReason ?? "Settle (pay) this table's order"}>
-            <CreditCard className="pos-action-icon" /> Settle Bill
+            <CreditCard className="pos-action-icon" /> Settle
           </button>
         ) : (
           <button type="button" className="pos-action-btn-pro bg-emerald pos-pay" onClick={onCharge} disabled={cannotTransact} title={blockedReason}>
