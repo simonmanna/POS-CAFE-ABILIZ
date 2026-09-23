@@ -190,6 +190,8 @@ class SaveTabDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => CheckoutLineDto)
   lines!: CheckoutLineDto[];
   @ApiProperty({ required: false }) @IsOptional() @IsString() partnerId?: string;
+  @ApiProperty({ required: false, description: 'True only when the client intends to START a new order on this table (first item on a freshly-opened table). A plain auto-save never sets it, so a stale persisted cart cannot resurrect a settled bill as a new order.' })
+  @IsOptional() @IsBoolean() newRound?: boolean;
   @ApiProperty({ required: false }) @IsOptional() @IsNumber() guestCount?: number;
   @ApiProperty({ required: false, description: 'H2: optimistic-lock token from the last tab read; rejects a stale overwrite (409).' })
   @IsOptional() @IsNumber() expectedVersion?: number;

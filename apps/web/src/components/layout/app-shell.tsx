@@ -599,7 +599,7 @@ export function AppShell() {
                 <button
                   type="button"
                   onClick={() => toggleSection(section.title as string)}
-                  className="press mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[11.5px] font-semibold uppercase tracking-[0.14em] hover:bg-white/[0.06]"
+                  className="press mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-[14px] font-bold uppercase tracking-[0.14em] hover:bg-white/[0.06]"
                   style={{ color: isOpen ? sb.sidebarActive : sb.sidebarMuted, marginBottom: 2 }}
                   aria-expanded={isOpen}
                 >

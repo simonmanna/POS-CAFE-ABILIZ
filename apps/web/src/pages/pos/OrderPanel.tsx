@@ -405,7 +405,6 @@ export const OrderPanel: React.FC<Props> = ({
             <span className="pos-amt text-emerald-600">−{fmt(txDisc)}</span>
           </div>
         ) : null}
-        {quotedTotal == null && <div className="text-xs text-amber-700">Estimated — waiting for server quote</div>}
         <div className="pos-totals-row big">
           <span>TOTAL</span>
           <span className="pos-amt">{fmt(total)}</span>

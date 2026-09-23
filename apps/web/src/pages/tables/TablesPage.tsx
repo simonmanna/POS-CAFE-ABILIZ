@@ -17,6 +17,8 @@ import {
   UtensilsCrossed,
   LayoutGrid,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Search,
   Map as MapIcon,
 } from 'lucide-react';
@@ -59,8 +61,9 @@ import type {
   PosTableZone,
   UpdateTableInput,
 } from '@/features/tables/types';
-import { STATUS_META, statusMeta, fmtMoney, sortZones } from '@/features/tables/utils';
+import { STATUS_META, statusMeta, fmtMoney, sortZones, zoneLabel, zoneRankMap, compareZoneKeys } from '@/features/tables/utils';
 import { useAuthStore } from '@/stores/auth.store';
+import { api } from '@/lib/api';
 import { TableDetailDialog } from './TableDetailDialog';
 
 type FormState = Omit<CreateTableInput, 'number'> & { number: string };
@@ -110,22 +113,69 @@ export const TablesPage: React.FC = () => {
     return map;
   }, [tables]);
 
-  const filtered = useMemo(() => {
-      const q = search.toLowerCase().trim();
-      // Sort tables by sortOrder ascending, ties broken by number
-      const sortedTables = [...tables].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.number - b.number);
-      let arr = filter === 'all' ? sortedTables : sortedTables.filter((t) => t.status === filter);
-      if (zoneFilter !== 'all') arr = arr.filter((t) => t.zone === zoneFilter);
+  /** Per-zone table ids in display order (sortOrder asc, ties by number). */
+  const zoneOrders = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const [zone, list] of zoneSections) {
+      map.set(zone, [...list].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.number - b.number).map((t) => t.id));
+    }
+    return map;
+  }, [zoneSections]);
+
+  /**
+   * Move a table one position within its zone (up = toward the front of the
+   * picker, down = toward the back). Persists the zone's renumbered sortOrder
+   * values, then refreshes the list.
+   */
+  async function moveTable(table: PosTable, dir: 'up' | 'down') {
+    const order = zoneOrders.get(table.zone) ?? [];
+    const idx = order.indexOf(table.id);
+    if (idx < 0) return;
+    const to = dir === 'up' ? idx - 1 : idx + 1;
+    if (to < 0 || to >= order.length) return;
+    const next = [...order];
+    const [movedId] = next.splice(idx, 1);
+    next.splice(to, 0, movedId);
+    const byId = new Map(tables.map((t) => [t.id, t] as const));
+    const changed = next
+      .map((id, i) => ({ table: byId.get(id), sortOrder: i }))
+      .filter((x): x is { table: PosTable; sortOrder: number } => !!x.table)
+      .filter((x) => (x.table.sortOrder ?? 0) !== x.sortOrder);
+    if (changed.length === 0) return;
+    try {
+      await Promise.all(
+        changed.map((x) => api.patch(`/pos/tables/${x.table.id}`, { sortOrder: x.sortOrder })),
+      );
+      toast.success(`T${movedId === table.id ? table.number : byId.get(movedId)?.number} moved ${dir === 'up' ? 'toward the front' : 'toward the back'}`);
+      refetch();
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message ?? 'Failed to reorder table');
+    }
+  }
+
+  /**
+   * Tables grouped per zone for rendering — one section with a header per
+   * zone, matching the POS terminal picker. Within a zone, tables follow the
+   * picker order (sortOrder asc, ties by number). Zone groups follow the
+   * zone catalog's View Order, so management and the terminal agree.
+   */
+  const grouped = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    const byZone = new Map<string, PosTable[]>();
+    for (const t of [...tables].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0) || a.number - b.number)) {
+      if (filter !== 'all' && t.status !== filter) continue;
+      if (zoneFilter !== 'all' && t.zone !== zoneFilter) continue;
       if (q) {
-        arr = arr.filter(
-          (t) =>
-            t.name.toLowerCase().includes(q) ||
-            String(t.number).includes(q) ||
-            (t.zoneName ?? t.zone).toLowerCase().includes(q),
-        );
+        const hay = `${t.name} ${t.number} ${t.zoneName ?? t.zone}`.toLowerCase();
+        if (!hay.includes(q)) continue;
       }
-      return arr;
-    }, [tables, filter, zoneFilter, search]);
+      const arr = byZone.get(t.zone) ?? [];
+      arr.push(t);
+      byZone.set(t.zone, arr);
+    }
+    const rank = zoneRankMap(zones);
+    return Array.from(byZone.entries()).sort((a, b) => compareZoneKeys(rank, a[0], b[0]));
+  }, [tables, filter, zoneFilter, search, zones]);
 
   function openCreate() {
     setForm({ ...EMPTY_FORM, number: String((tables.at(-1)?.number ?? 0) + 1) });
@@ -351,10 +401,10 @@ export const TablesPage: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Grid ── */}
+      {/* ── Zones ── */}
       {isLoading ? (
         <div className="text-slate-400 py-10 text-center">Loading tables…</div>
-      ) : filtered.length === 0 ? (
+      ) : grouped.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-slate-400">
             <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-50" />
@@ -373,8 +423,23 @@ export const TablesPage: React.FC = () => {
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1">
-          {filtered.map((table) => {
+        grouped.map(([zoneKey, list]) => {
+          const zMeta = zones.find((z) => z.key === zoneKey);
+          return (
+            <div key={zoneKey} className="space-y-1">
+              {/* Zone header — same pattern as the POS terminal picker */}
+              <div className="flex items-center gap-2 px-1 pt-4 pb-1 text-xs font-bold uppercase tracking-wider text-slate-500">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shadow-sm"
+                  style={{ background: zMeta?.color ?? '#cbd5e1' }}
+                />
+                {zoneLabel(zones, zoneKey)}
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
+                  {list.length} table{list.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1">
+                {list.map((table) => {
             const meta = statusMeta(table.status);
             const openOrders = (table.orders ?? []).filter((o) => !o.closedAt);
             const total = openOrders.reduce((s, o) => s + Number(o.order?.totalAmount ?? 0), 0);
@@ -465,14 +530,47 @@ export const TablesPage: React.FC = () => {
                     >
                       <Archive className="w-3 h-3 mr-1" /> Archive
                     </Button>
+                    {(() => {
+                      const order = zoneOrders.get(table.zone) ?? [];
+                      const zi = order.indexOf(table.id);
+                      const first = zi <= 0;
+                      const last = zi < 0 || zi >= order.length - 1;
+                      return (
+                        <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 w-7 p-0 lift-on-hover"
+                            disabled={first}
+                            title="Move up — toward the front of the picker"
+                            onClick={() => moveTable(table, 'up')}
+                          >
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 w-7 p-0 lift-on-hover"
+                            disabled={last}
+                            title="Move down — toward the back of the picker"
+                            onClick={() => moveTable(table, 'down')}
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </Button>
+                        </>
+                      );
+                    })()}
                   </div>
                 </CardContent>
                 {/* Decorative chevron on hover */}
                 <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground/30 opacity-0 group-hover:opacity-100 group-hover:translate-x-0 -translate-x-2 transition-all" />
               </Card>
             );
-          })}
-        </div>
+            })}
+              </div>
+            </div>
+          );
+        })
       )}
 
       {/* ── Create / Edit dialog (shared) ── */}

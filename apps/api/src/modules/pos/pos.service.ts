@@ -3,7 +3,7 @@ import { assertPricingAuthority, resolveDiscountAmountThreshold, resolveDiscount
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { randomUUID } from 'node:crypto';
 import { resolvePosStockLocation } from '../inventory/pos-stock-location';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../kernel/tenancy/tenant-context.service';
 import { AuditService } from '../../kernel/audit/audit.service';
@@ -697,6 +697,15 @@ export class PosService {
     cancelReason?: string;
     overrideById?: string;
     overridePin?: string;
+    /**
+     * Explicit client intent to START a new order on this table (first item on a
+     * freshly-opened table, or a new round on a table whose bill was just billed).
+     * A plain auto-save never sets it: if no open order exists, a save WITHOUT
+     * this flag is rejected instead of silently creating one. Without this guard
+     * a stale persisted cart (rehydrated on POS login after another terminal had
+     * settled the bill) resurrected the settled items as a brand-new order.
+     */
+    newRound?: boolean;
   }) {
     const existing = await this.orders.getOpenOrderForTable(input.tableId);
 
@@ -712,9 +721,9 @@ export class PosService {
       }
     }
     // NOTE: a billed order (invoiceId set) still HOLDS the table but is invisible
-    // to getOpenOrderForTable (which only returns the editable, un-billed tab). We
-    // deliberately allow adding here — `existing` is null, so saveTabItems falls
-    // through to createOrder(), which starts a NEW round/bill on the same table.
+    // to getOpenOrderForTable (which only returns the editable, un-billed tab).
+    // Starting a NEW round/bill on the same table is legitimate (table paid,
+    // orders more) — but only when the client explicitly says so (`newRound`).
     // The prior billed bill settles independently; the table frees once every
     // order on it is closed. createOrder's guard only blocks a second UN-billed
     // tab, so it won't fight this.
@@ -753,6 +762,11 @@ export class PosService {
         expectedVersion: input.expectedVersion,
       } as any);
     } else {
+      if (!input.newRound) {
+        throw new ConflictException(
+          'This table has no open order to save into — it may have been settled or cancelled on another terminal. Reload the table before selling.',
+        );
+      }
       order = await this.orders.createOrder({
         orderType: 'dine_in',
         ...input, lines,

@@ -295,7 +295,10 @@ export class PosTablesService {
           orderBy: [{ sortOrder: 'asc' }, { number: 'asc' }],
           include: {
         orders: {
-          where: { closedAt: null },
+          // A cancelled order is dead — never an open order on the floor.
+          // `closedAt` alone missed cancelled-but-unbilled orders because
+          // cancelling does not bill, so the tables page kept showing them.
+          where: { closedAt: null, order: { status: { not: 'cancelled' } } },
           include: {
             order: {
               select: {
@@ -350,6 +353,7 @@ export class PosTablesService {
       where: { id, organizationId },
       include: {
         orders: {
+          where: { order: { status: { not: 'cancelled' } } },
           orderBy: { openedAt: 'desc' },
           take: 50,
           include: {

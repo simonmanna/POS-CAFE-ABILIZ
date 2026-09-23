@@ -484,6 +484,13 @@ export class PosOrdersService {
         where: { id: orderId },
         data: { cancelReason: reason ?? null, version: { increment: 1 } },
       });
+      // Closing the sale also closes its seat on the table: without this the
+      // join row stayed open and cancelled-but-unbilled orders kept showing
+      // under the table's "open orders" on the tables page.
+      await tx.posTableOrder.updateMany({
+        where: { orderId, closedAt: null },
+        data: { closedAt: new Date() },
+      });
       await this.syncTableOnClose(tx, order.tableId);
       this.events.publish(EVENTS.PosOrderCancelled, { organizationId: orgId, orderId, reason });
       await this.audit.recordInTx(tx, { entity: 'Order', entityId: orderId, action: 'cancel', newValues: {

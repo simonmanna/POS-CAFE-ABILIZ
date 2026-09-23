@@ -105,6 +105,7 @@ describe('N-02 — whole-order cancellation policy', () => {
         order: { findFirst: jest.fn().mockResolvedValue(order), update: jest.fn().mockResolvedValue(order) },
         orderItem: { findMany: jest.fn().mockResolvedValue(items), count: jest.fn().mockResolvedValue(items.length) },
         posTable: { findFirst: jest.fn().mockResolvedValue({ id: 't1', status: 'occupied' }), update: jest.fn() },
+        posTableOrder: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
         $queryRawUnsafe: jest.fn().mockResolvedValue([]),
       };
       audit = { record: jest.fn().mockResolvedValue(undefined), recordInTx: jest.fn().mockResolvedValue(undefined) };
