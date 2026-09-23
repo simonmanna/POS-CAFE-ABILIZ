@@ -214,7 +214,6 @@ export class PosTablesController {
   }
 
   @Post(':id/split-bill')
-  @RequirePermissions('tables:split')
   splitBill(@Param('id') id: string, @Body() dto: SplitBillBody) {
     return this.svc.splitBill({
       tableId: id,

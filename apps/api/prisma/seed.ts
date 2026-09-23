@@ -746,6 +746,8 @@ async function main(): Promise<void> {
       'pos:read', 'pos:checkout', 'pos:hold', 'pos:discount', 'pos:void', 'pos:kds',
       // Cashiers run the house accounts in a cafe; waiters do not.
       'pos:credit',
+      // Splitting a bill is part of the everyday selling flow — every staff role gets it.
+      'tables:split',
       'cash_session:open', 'cash_session:read', 'cash_session:close',
       'tables:view', 'tables:transfer', 'tables:edit',
       'partner:read',
@@ -795,6 +797,8 @@ async function main(): Promise<void> {
       'inventory_doc:read', 'inventory_doc:create', 'inventory_doc:approve',
       'product:read', 'products.view', 'partner:read',
       'pos:read', 'pos:reports', 'pos:kds',
+      // Splitting a bill is part of the everyday selling flow — every staff role gets it.
+      'tables:split',
       // A-103: a floor supervisor must be able to void an in-flight sale line
       // (with manager-override approval still required for settled refunds).
       'pos:void',
@@ -832,7 +836,7 @@ async function main(): Promise<void> {
 
     // Kitchen / Chef — sees the Kitchen Display board and advances tickets, but
     // never prices, payments or reports. pos:read lets it load the station list.
-    const kitchenPerms = ['pos:read', 'pos:kds'];
+    const kitchenPerms = ['pos:read', 'pos:kds', 'tables:split'];
     await prisma.role.upsert({
       where: { organizationId_name: { organizationId: orgId, name: 'Kitchen' } },
       update: { permissions: kitchenPerms },

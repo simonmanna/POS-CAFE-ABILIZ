@@ -75,12 +75,10 @@ interface LineExtraFailure {
 export class PosInvoiceService {
   private readonly logger = new Logger('PosInvoiceService');
 
-  /** Trading date of a sale: its cash session's trading day, else derived from when it happened. */
-  private async saleTradingDate(tx: any, orgId: string, cashSessionId: string | null, at: Date): Promise<Date> {
-    if (cashSessionId) {
-      const session = await tx.cashSession?.findFirst({ where: { id: cashSessionId, organizationId: orgId }, select: { businessDate: true } });
-      if (session?.businessDate) return session.businessDate;
-    }
+  /** Trading date of a sale: always the sale's own trading day (06:00 local
+   * cutoff) — never inherited from the cash session. A shift opened yesterday
+   * and left open must not drag today's sales into yesterday's trading date. */
+  private async saleTradingDate(tx: any, orgId: string, _cashSessionId: string | null, at: Date): Promise<Date> {
     const timeZone = await orgTimezone({ client: tx }, orgId).catch(() => 'UTC');
     return tradingDate(at, timeZone);
   }
