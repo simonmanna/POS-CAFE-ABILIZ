@@ -592,6 +592,12 @@ export function useSaveTab() {
     // we read the currently-loaded tab's version from the cart store.
     mutationFn: async ({ tableId, expectedVersion, ...body }: {
       tableId: string; lines: CheckoutBody['lines']; partnerId?: string; guestCount?: number; expectedVersion?: number;
+      /** Fix F-RESURRECT: true only when the client intends to START a new order
+       *  on this table (cart not yet bound to a server order + the table was just
+       *  re-read as empty). A plain auto-save never sets it — the server rejects a
+       *  no-order save without it, so a stale persisted cart cannot resurrect a
+       *  settled bill as a new order. */
+      newRound?: boolean;
     }) => {
       const version = expectedVersion ?? useCartStore.getState().tabVersion;
       return (await api.post<TabDocument | null>(
