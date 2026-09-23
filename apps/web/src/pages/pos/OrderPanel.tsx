@@ -47,7 +47,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/stores/auth.store";
 
 export type OrderTypeOption = 'dine-in' | 'takeaway' | 'delivery';
@@ -109,6 +108,27 @@ const ORDER_TYPES: Array<{ key: 'dine-in' | 'takeaway' | 'delivery'; label: stri
 
 type NumMode = 'qty' | 'disc' | 'price';
 
+/** One tile in the More Actions card grid. */
+const MoreCard: React.FC<{
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  tone?: 'danger';
+  disabled?: boolean;
+  title?: string;
+  onClick: () => void;
+}> = ({ icon: Icon, label, tone, disabled, title, onClick }) => (
+  <button
+    type="button"
+    className={`pos-more-card${tone ? ` ${tone}` : ''}`}
+    disabled={disabled}
+    title={title ?? label}
+    onClick={onClick}
+  >
+    <Icon className="h-5 w-5" />
+    <span>{label}</span>
+  </button>
+);
+
 export const OrderPanel: React.FC<Props> = ({
   quotedTotal,
   customerName,
@@ -162,6 +182,7 @@ export const OrderPanel: React.FC<Props> = ({
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [mode, setMode] = useState<NumMode>('qty');
   const [editing, setEditing] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const bufferRef = useRef<string>('');
   const selectedLine = lines.find((l) => l.lineId === selectedLineId) ?? null;
 
@@ -400,66 +421,45 @@ export const OrderPanel: React.FC<Props> = ({
           <button type="button" className="pos-ctl-btn" disabled={noSel || !canDiscount} onClick={() => selectedLine && onLineDiscount(selectedLine)} title={canDiscount ? "Line discount on selected item" : "Requires discount permission"}>
             <Tag className="h-4 w-4" /><span>Disc</span>
           </button>
-          <Dialog>
+          <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
             <DialogTrigger asChild>
               <button type="button" className="pos-ctl-btn" disabled={noSel && empty} title="More actions">
                 <MoreHorizontal className="h-4 w-4" /><span>More</span>
               </button>
             </DialogTrigger>
-            <DialogContent className="max-w-sm">
+            <DialogContent className="max-w-lg">
               <DialogHeader>
                 <DialogTitle>More Actions</DialogTitle>
               </DialogHeader>
-              <div className="space-y-2 p-2">
+              <div className="grid grid-cols-2 gap-3 p-1">
                 {/* Line actions (require selection) */}
                 {!noSel && (
-                  <>
-                    <Button variant="outline" className="w-full justify-start" onClick={() => selectedLine && onNote(selectedLine)}>
-                      <StickyNote className="h-4 w-4 mr-2" /> Note
-                    </Button>
-                    {onVoidItem && (
-                      <Button variant="destructive" className="w-full justify-start" onClick={() => selectedLine && onVoidItem(selectedLine)}>
-                        <AlertTriangle className="h-4 w-4 mr-2" /> Void
-                      </Button>
-                    )}
-                    {onRemove && (
-                      <Button variant="destructive" className="w-full justify-start" onClick={() => selectedLine && onRemove(selectedLine)}>
-                        <Trash2 className="h-4 w-4 mr-2" /> Delete
-                      </Button>
-                    )}
-                  </>
+                  <MoreCard icon={StickyNote} label="Note" onClick={() => { setMoreOpen(false); if (selectedLine) onNote(selectedLine); }} />
+                )}
+                {!noSel && onVoidItem && (
+                  <MoreCard icon={AlertTriangle} label="Void" tone="danger" onClick={() => { setMoreOpen(false); if (selectedLine) onVoidItem(selectedLine); }} />
+                )}
+                {!noSel && onRemove && (
+                  <MoreCard icon={Trash2} label="Delete" tone="danger" onClick={() => { setMoreOpen(false); if (selectedLine) onRemove(selectedLine); }} />
                 )}
                 {/* Order-level actions */}
                 {!empty && (
                   <>
-                    <hr className="my-2 border-slate-200" />
-                    <Button variant="outline" className="w-full justify-start" disabled={!canDiscount} onClick={onAddDiscount} title={canDiscount ? "Order discount" : "Requires discount permission"}>
-                      <Percent className="h-4 w-4 mr-2" /> Discount %
-                    </Button>
+                    <MoreCard icon={Percent} label="Discount %" disabled={!canDiscount} title={canDiscount ? "Order discount" : "Requires discount permission"} onClick={() => { setMoreOpen(false); onAddDiscount(); }} />
                     {!hideCafeFeatures && onMoveItems && (
-                      <Button variant="outline" className="w-full justify-start" onClick={onMoveItems} title="Move items to another table">
-                        <ArrowLeftRight className="h-4 w-4 mr-2" /> Move
-                      </Button>
+                      <MoreCard icon={ArrowLeftRight} label="Move" title="Move items to another table" onClick={() => { setMoreOpen(false); onMoveItems(); }} />
                     )}
                     {!hideCafeFeatures && onSplit && (
-                      <Button variant="outline" className="w-full justify-start" onClick={onSplit} title="Split the bill">
-                        <SplitIcon className="h-4 w-4 mr-2" /> Split
-                      </Button>
+                      <MoreCard icon={SplitIcon} label="Split" title="Split the bill" onClick={() => { setMoreOpen(false); onSplit(); }} />
                     )}
                     {hideCafeFeatures && onHold && (
-                      <Button variant="outline" className="w-full justify-start" onClick={onHold} title="Park this order">
-                        <Pause className="h-4 w-4 mr-2" /> Hold
-                      </Button>
+                      <MoreCard icon={Pause} label="Hold" title="Park this order" onClick={() => { setMoreOpen(false); onHold(); }} />
                     )}
                     {hideCafeFeatures && onHeldOrders && (
-                      <Button variant="outline" className="w-full justify-start" onClick={onHeldOrders} title="Recall a parked order">
-                        <Pause className="h-4 w-4 mr-2" /> Held
-                      </Button>
+                      <MoreCard icon={Pause} label="Held" title="Recall a parked order" onClick={() => { setMoreOpen(false); onHeldOrders(); }} />
                     )}
                     {hideCafeFeatures && onHandover && (
-                      <Button variant="outline" className="w-full justify-start" onClick={onHandover} title="Hand over shift">
-                        <ArrowLeftRight className="h-4 w-4 mr-2" /> Handover
-                      </Button>
+                      <MoreCard icon={ArrowLeftRight} label="Handover" title="Hand over shift" onClick={() => { setMoreOpen(false); onHandover(); }} />
                     )}
                   </>
                 )}
