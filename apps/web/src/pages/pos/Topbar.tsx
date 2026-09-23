@@ -166,7 +166,7 @@ export const Topbar: React.FC<Props> = ({
           <LayoutGrid className="h-4 w-4" />
           <span>{'Tables'}</span>
         </button>
-        <span>{activeTableLabel}</span>
+        <span className="whitespace-nowrap font-semibold">{activeTableLabel}</span>
                   </>
       )}
 
