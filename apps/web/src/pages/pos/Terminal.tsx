@@ -1039,13 +1039,14 @@ const TerminalPage: React.FC = () => {
    * ordered, who took it off and why, and the kitchen board loses the ticket.
    * A line that has never been saved has no such history to keep: it is
    * dropped locally, exactly as it was typed. */
-  const voidLineOnServer = useCallback(async (lineId: string, reason: string) => {
+  const voidLineOnServer = useCallback(async (lineId: string, reason: string, kind: 'void' | 'delete' = 'void') => {
     const st = useCartStore.getState();
     const serverItemId = st.serverLineIds[lineId];
     const targetOrderId = st.orderId;
+    const done = kind === 'void' ? 'Voided successfully' : 'Deleted successfully';
     if (!serverItemId || !targetOrderId) {
       removeLine(lineId);
-      toast.success('Item removed');
+      toast.success(done);
       return;
     }
     const send = async (override?: { managerId: string; pin: string }) =>
@@ -1090,7 +1091,7 @@ const TerminalPage: React.FC = () => {
       adoptServerLines(source, serverLines);
       if (tableId) tabSyncSig.current = orderSig(serverLines);
       else orderSaveSig.current = orderSig(serverLines);
-      toast.success('Item voided');
+      toast.success(done);
     } catch (e: any) {
       toast.error(e?.response?.data?.message || e?.message || 'Could not void the item');
     }
@@ -1104,7 +1105,7 @@ const TerminalPage: React.FC = () => {
     const line = pendingRemoveLine;
     setShowPinConfirm(false);
     setPendingRemoveLine(null);
-    if (line) await voidLineOnServer(line.lineId, reason);
+    if (line) await voidLineOnServer(line.lineId, reason, 'delete');
   };
   const onLineDiscount = (line: CartLine) => setLineForDiscount(line);
   const onLineDiscountApply = (lineId: string, amount: number, type?: DiscountType, reason?: string) => {
@@ -1696,7 +1697,7 @@ const TerminalPage: React.FC = () => {
         orderType={orderTypeFromStore ?? 'dine-in'}
       />
 
-      <div className={tableView === 'grid' && !selectedTableId ? 'pos-body-pro pos-body-pro--tables' : 'pos-body-pro'}>
+      <div className={(tableView === 'grid' && !selectedTableId) || showOrders ? 'pos-body-pro pos-body-pro--tables' : 'pos-body-pro'}>
         {locked ? (
           <div className="pos-lock-overlay-pro">
             <div className="pos-lock-icon"><LockIcon className="h-10 w-10" /></div>

@@ -136,22 +136,24 @@ export const OfflineIndicator: React.FC = () => {
             : `Offline — ${pending.length} sale${pending.length === 1 ? '' : 's'} queued. Sales are stored locally and will sync when the network returns.`
         }
         className={
-          'pos-tbl-pill ' +
+          'pos-tbl-pill !px-2.5 !gap-1 ' +
           (online
             ? (pending.length > 0 ? '!bg-amber-500/20 !border-amber-400/50' : '!bg-emerald-500/20 !border-emerald-400/50')
             : '!bg-rose-500/20 !border-rose-400/50')
         }
       >
         {online ? (
-          pending.length > 0 ? <AlertTriangle className="h-3.5 w-3.5 text-amber-200" /> : <Wifi className="h-3.5 w-3.5 text-emerald-200" />
+          pending.length > 0 ? <AlertTriangle className="h-4 w-4 text-amber-200" /> : <Wifi className="h-4 w-4 text-emerald-200" />
         ) : (
-          <WifiOff className="h-3.5 w-3.5 text-rose-200" />
+          <WifiOff className="h-4 w-4 text-rose-200" />
         )}
-        <span className={online ? (pending.length > 0 ? 'text-amber-100' : 'text-emerald-100') : 'text-rose-100'}>
-          {online ? (pending.length > 0 ? `${pending.length} queued` : 'Online') : `Offline · ${pending.length} queued`}
-        </span>
-        {pending.length > 0 && online && !replaying ? (
-          <CloudUpload className="h-3 w-3 text-amber-200 ml-0.5" />
+        {pending.length > 0 ? (
+          <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-white/90 text-[10px] font-bold text-slate-900 leading-none">
+            {pending.length}
+          </span>
+        ) : null}
+        {online && pending.length > 0 && !replaying ? (
+          <CloudUpload className="h-3.5 w-3.5 text-amber-200" />
         ) : null}
       </button>
 
