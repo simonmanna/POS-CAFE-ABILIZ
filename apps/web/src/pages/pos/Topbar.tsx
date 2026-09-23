@@ -209,19 +209,11 @@ export const Topbar: React.FC<Props> = ({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="flex items-center gap-2 rounded-full px-1.5 py-1 outline-none transition-colors hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/40"
+              className="flex items-center gap-1.5 rounded-full px-2.5 py-1.5 outline-none transition-colors hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/40"
+              title={`${user.firstName ?? ''} ${user.lastName ?? ''}`.trim()}
             >
-              <span
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 text-sm font-semibold text-white"
-                aria-hidden="true"
-              >
-                {(user.firstName?.[0] ?? '').toUpperCase()}
-                {(user.lastName?.[0] ?? '').toUpperCase()}
-              </span>
-              <span className="hidden text-sm font-medium text-white sm:inline">
-                {user.firstName}
-              </span>
-              <ChevronDown className="hidden h-4 w-4 text-white/80 sm:inline" />
+              <UserIcon className="h-4 w-4 text-white/90" />
+              <ChevronDown className="h-4 w-4 text-white/80" />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">

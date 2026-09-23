@@ -617,4 +617,5 @@ export const MANAGER_PERMISSIONS: readonly string[] = [
   'expense:read', 'expense:create', 'expense:update', 'expense:post', 'expense:cancel', 'expense:approve',
   'partner:read', 'partners.view', 'products.view', 'product:read', 'menu.view', 'user:read',
   'tables:view', 'tables:transfer', 'tables:merge', 'tables:split', 'tables:edit',
+  'branch:read',
 ];

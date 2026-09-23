@@ -750,6 +750,9 @@ async function main(): Promise<void> {
       'tables:split',
       'cash_session:open', 'cash_session:read', 'cash_session:close',
       'tables:view', 'tables:transfer', 'tables:edit',
+      // The terminal's branch switcher lists GET /branches, which is gated on
+      // branch:read — without it every POS session logs a 403.
+      'branch:read',
       'partner:read',
       'partners.view',
       'products.view',
@@ -773,6 +776,9 @@ async function main(): Promise<void> {
       // pos:checkout; without it the Waiter role cannot ring anything in.
       'pos:checkout', 'pos:hold', 'pos:kds',
       'tables:view', 'tables:transfer', 'tables:merge', 'tables:split', 'tables:edit',
+      // The terminal's branch switcher lists GET /branches, which is gated on
+      // branch:read — without it every POS session logs a 403.
+      'branch:read',
       'partner:read',
       'partners.view',
       'products.view',

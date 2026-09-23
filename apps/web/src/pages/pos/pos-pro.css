@@ -170,9 +170,9 @@ body.pos-terminal-fullscreen .app-shell-header {
 
 .pos-searchbar-pro {
   position: relative;
-  flex: 0 1 340px;
-  max-width: 340px;
-  min-width: 200px;
+  flex: 0 1 272px;
+  max-width: 272px;
+  min-width: 160px;
 }
 .pos-searchbar-pro input {
   width: 100%;

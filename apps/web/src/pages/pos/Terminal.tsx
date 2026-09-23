@@ -569,6 +569,19 @@ const TerminalPage: React.FC = () => {
     // so the status is what tells them apart.
     const editable = view?.id && !['completed', 'closed', 'cancelled'].includes(String(view.status ?? ''));
     if (!editable) {
+      if (scope.tableId && !view) {
+        // F-RESURRECT: the table's tab is GONE — the bill was settled or
+        // cancelled on another terminal. Keeping the lines would push them
+        // straight into a brand-new order on the next auto-save (the exact bug
+        // that duplicated a settled bill). Clear the cart instead; the sale
+        // already exists on the server.
+        st.clear();
+        tabSyncSig.current = orderSig([]);
+        setSelectedTableId(null);
+        setTableView('grid');
+        toast.warning('That bill was settled or cancelled on another terminal. This cart was cleared.');
+        return true;
+      }
       // Settled, cancelled or billed elsewhere. Unbind so the next save opens a
       // fresh order rather than retrying against one that no longer accepts
       // edits — a sale is never blocked.
@@ -617,7 +630,9 @@ const TerminalPage: React.FC = () => {
       throw new Error('This order changed elsewhere and has been merged. Review it, then try again.');
     };
     if (st.tableId && sig !== tabSyncSig.current) {
-      const saved: any = await saveTab.mutateAsync({ tableId: st.tableId, lines: st.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: st.tabVersion })
+      // F-RESURRECT: an unbound cart saving into a table with no open order is a
+      // deliberate "start a new round" — say so, or the server now rejects it.
+      const saved: any = await saveTab.mutateAsync({ tableId: st.tableId, lines: st.lines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: st.tabVersion, newRound: st.orderId == null })
         .catch((e: any) => onConflict(e, { tableId: st.tableId }));
       if (useCartStore.getState().tableId === st.tableId) {
         useCartStore.getState().setTabVersion(saved.version);
@@ -708,11 +723,63 @@ const TerminalPage: React.FC = () => {
   /* ============== Mutations ============== */
   const checkout = useCheckout();
 
-  /* On mount, baseline the sync signature and default order type. */
+  /* On mount, baseline the sync signature and default order type.
+   *
+   * F-RESURRECT: a persisted cart rehydrated from localStorage may reference a
+   * table whose tab no longer exists — another terminal settled or cancelled
+   * the bill. A previous bug let the mount-time '__unsaved_draft__' baseline
+   * push that stale cart straight into a brand-new order (a duplicate of the
+   * already-settled sale). So before arming auto-save, re-read the table's tab:
+   *   - no open tab + cart bound to a server order → the sale is done; clear.
+   *   - no open tab + pure local draft (never saved) → keep it; its first save
+   *     carries `newRound` and the server creates the order.
+   *   - an open tab → reconcile the cart against it (merge + fresh token).
+   *   - the read fails (offline) → keep the cart; auto-save retries later. */
   useEffect(() => {
     const state = useCartStore.getState();
-    tabSyncSig.current = state.lines.length ? '__unsaved_draft__' : orderSig([]);
     if (!state.orderType) useCartStore.getState().setOrderType('dine-in');
+    if (!state.tableId) {
+      tabSyncSig.current = state.lines.length ? '__unsaved_draft__' : orderSig([]);
+      return;
+    }
+    let cancelled = false;
+    setPendingTableLoad(state.tableId);
+    tabSyncSig.current = '__loading__';
+    (async () => {
+      try {
+        const doc = (await api.get(`/pos/tabs/${state.tableId}`)).data as any;
+        if (cancelled || useCartStore.getState().tableId !== state.tableId) return;
+        const st = useCartStore.getState();
+        const serverLines = ((doc?.lines ?? []) as any[]).map(serverLineToCart);
+        if (!doc?.id) {
+          if (st.orderId) {
+            st.clear();
+            tabSyncSig.current = orderSig([]);
+            toast.warning("That table's bill was settled or cancelled on another terminal. This cart was cleared.");
+          } else {
+            tabSyncSig.current = st.lines.length ? '__unsaved_draft__' : orderSig([]);
+          }
+          return;
+        }
+        if (doc.id === st.orderId && orderSig(serverLines) === orderSig(st.lines)) {
+          // Cart matches the server exactly — adopt ids/version silently so the
+          // first auto-save doesn't fire just because the terminal reloaded.
+          st.setTabVersion(doc.version);
+          st.setOrderId(doc.id);
+          adoptServerLines(doc?.lines ?? [], serverLines);
+          tabSyncSig.current = orderSig(serverLines);
+          return;
+        }
+        await reconcileOrderConflict({ tableId: state.tableId });
+      } catch {
+        if (cancelled) return;
+        tabSyncSig.current = useCartStore.getState().lines.length ? '__unsaved_draft__' : orderSig([]);
+        return;
+      } finally {
+        if (!cancelled) setPendingTableLoad((cur) => (cur === state.tableId ? null : cur));
+      }
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -743,7 +810,7 @@ const TerminalPage: React.FC = () => {
           rearm = await reconcileOrderConflict({ tableId });
           return;
         }
-        const saved: any = await saveTab.mutateAsync({ tableId, lines: payloadLines, partnerId: customer?.id, expectedVersion: version });
+        const saved: any = await saveTab.mutateAsync({ tableId, lines: payloadLines, partnerId: customer?.id, expectedVersion: version, newRound: useCartStore.getState().orderId == null });
         if (useCartStore.getState().tableId === tableId) {
           useCartStore.getState().setTabVersion(saved?.version);
           useCartStore.getState().setOrderId(saved?.id);
@@ -852,15 +919,17 @@ const TerminalPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lines, orderId, tableId, transactionDiscountPercent, transactionDiscountType, transactionDiscountAmount, transactionDiscountReason, customer?.id, saveTick]);
 
-  /* New tableless order — the current one stays open in the Orders panel. */
-  const newTablelessOrder = useCallback(async () => {
+  /* New order from the Orders panel — cafe/restaurant flow: the cashier picks
+   * a table from the full-page floor grid first, exactly like after a PIN
+   * login. The previous order stays open in the panel. */
+  const newOrderSelectTable = useCallback(async () => {
     try { await flushCurrentOrder(); } catch (e: any) { toast.error(e?.response?.data?.message || e?.message); return; }
     clearCart();
     orderSaveSig.current = '';
     tabSyncSig.current = orderSig([]);
     setSelectedTableId(null);
-    setOrderType('takeaway');
-    setTableView('ordering');
+    setOrderType('dine-in');
+    setTableView('grid');
     setShowOrders(false);
   }, [flushCurrentOrder, clearCart, setOrderType]);
 
@@ -1192,7 +1261,7 @@ const TerminalPage: React.FC = () => {
     setTransferBusy(true);
     try {
       const currentLines = useCartStore.getState().lines;
-      const saved = await saveTab.mutateAsync({ tableId, lines: currentLines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: useCartStore.getState().tabVersion });
+      const saved = await saveTab.mutateAsync({ tableId, lines: currentLines.map(cartLineToPayload), partnerId: customer?.id, expectedVersion: useCartStore.getState().tabVersion, newRound: useCartStore.getState().orderId == null });
       tabSyncSig.current = orderSig(currentLines);
       const serverLines: any[] = (saved as any)?.lines ?? [];
       useCartStore.getState().setTabVersion((saved as any)?.version);
@@ -1657,7 +1726,21 @@ const TerminalPage: React.FC = () => {
       {/* POS PIN Login screen — shown until a cashier authenticates */}
       {showPosLogin && !posUser ? (
         <PosLoginScreen
-          onLoggedIn={() => { setShowPosLogin(false); refetchSession(); }}
+          onLoggedIn={() => {
+            setShowPosLogin(false);
+            // Cafe/restaurant flow: a PIN login always lands on the full-page
+            // tables list — a table must be picked before the menu/order panel
+            // is reachable. Drop any stale tableless draft carried over from a
+            // previous session so it can't block table switching.
+            useCartStore.setState({ operationPending: false });
+            clearCart();
+            orderSaveSig.current = '';
+            tabSyncSig.current = orderSig([]);
+            setSelectedTableId(null);
+            setOrderType('dine-in');
+            setTableView('grid');
+            refetchSession();
+          }}
           onBeforeSubmit={enterFullscreen}
           onExit={() => {
             setFullscreen(false);
@@ -1719,7 +1802,7 @@ const TerminalPage: React.FC = () => {
               open={showOrders}
               activeOrderId={orderId ?? undefined}
               onOpenOrder={openOrder}
-              onNewOrder={newTablelessOrder}
+              onNewOrder={newOrderSelectTable}
               onClose={() => setShowOrders(false)}
             />
           </div>
