@@ -438,7 +438,10 @@ export class PosOrdersService {
       await recomputeTableStatus(tx, order.tableId);
       return this.reload(tx, orderId);
     });
-
+    // The tables SSE stream keys off this event to refresh every terminal's
+    // table cards — without it, an appended round left the cards stale until
+    // the next poll.
+    this.events.publish(EVENTS.PosOrderUpdated, { organizationId: orgId, orderId, version: result.version });
     if (dto.sendToKitchen) {
       await this.fireKitchen(orderId).catch((e) => this.logger.warn(`addItems fire-kitchen failed: ${String(e?.message ?? e)}`));
     } else {

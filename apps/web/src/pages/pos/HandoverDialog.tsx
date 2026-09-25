@@ -125,8 +125,8 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-[480px]">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-[720px]">
+        <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <ArrowLeftRight className="h-4 w-4 text-indigo-600" /> Shift handover
           </DialogTitle>
@@ -136,24 +136,26 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-1">
-          <div className="flex justify-between text-sm">
-            <span className="text-slate-600">Expected cash</span>
-            <span className="font-mono font-bold">{fmt(expectedCash)}</span>
+        <div className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-1">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label>Counted cash (blind count, {orgCur()})</Label>
+              <Input
+                type="number"
+                value={counted}
+                onChange={(e) => setCounted(e.target.value)}
+                placeholder="0"
+                className="h-12 text-right font-mono text-xl font-bold"
+                autoFocus
+              />
+            </div>
+            <div className="flex flex-col justify-center space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-slate-600">Expected cash</span>
+                <span className="font-mono font-bold">{fmt(expectedCash)}</span>
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div>
-          <Label>Counted cash (blind count, {orgCur()})</Label>
-          <Input
-            type="number"
-            value={counted}
-            onChange={(e) => setCounted(e.target.value)}
-            placeholder="0"
-            className="text-right text-xl h-12 font-mono font-bold"
-            autoFocus
-          />
-        </div>
 
         {hasCount ? (
           <div
@@ -185,37 +187,34 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
           </div>
         ) : null}
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Incoming cashier</Label>
-            <select className={selectCls} value={incomingUserId} onChange={(e) => setIncomingUserId(e.target.value)}>
-              <option value="">Select…</option>
-              {staff.filter((u) => u.id !== currentUserId).map((u) => (
-                <option key={u.id} value={u.id}>{u.firstName}</option>
-              ))}
-            </select>
+          <div className="grid gap-3 sm:grid-cols-4">
+            <div>
+              <Label>Incoming cashier</Label>
+              <select className={selectCls} value={incomingUserId} onChange={(e) => setIncomingUserId(e.target.value)}>
+                <option value="">Select…</option>
+                {staff.filter((u) => u.id !== currentUserId).map((u) => (
+                  <option key={u.id} value={u.id}>{u.firstName}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Their PIN</Label>
+              <Input type="password" inputMode="numeric" value={incomingPin} onChange={(e) => setIncomingPin(e.target.value)} placeholder="••••" />
+            </div>
+            <div>
+              <Label>Approving manager</Label>
+              <select className={selectCls} value={approvedById} onChange={(e) => setApprovedById(e.target.value)}>
+                <option value="">Select…</option>
+                {staff.map((u) => (
+                  <option key={u.id} value={u.id}>{u.firstName}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Manager PIN</Label>
+              <Input type="password" inputMode="numeric" value={managerPin} onChange={(e) => setManagerPin(e.target.value)} placeholder="••••" />
+            </div>
           </div>
-          <div>
-            <Label>Their PIN</Label>
-            <Input type="password" inputMode="numeric" value={incomingPin} onChange={(e) => setIncomingPin(e.target.value)} placeholder="••••" />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Approving manager</Label>
-            <select className={selectCls} value={approvedById} onChange={(e) => setApprovedById(e.target.value)}>
-              <option value="">Select…</option>
-              {staff.map((u) => (
-                <option key={u.id} value={u.id}>{u.firstName}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <Label>Manager PIN</Label>
-            <Input type="password" inputMode="numeric" value={managerPin} onChange={(e) => setManagerPin(e.target.value)} placeholder="••••" />
-          </div>
-        </div>
 
         {trackedAccounts.length ? (
           <div className="space-y-2 rounded-lg border border-slate-200 p-3">
@@ -255,8 +254,9 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
         )}
 
         {err ? <p className="text-sm text-rose-600">{err}</p> : null}
+        </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t border-slate-200 pt-4">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button onClick={submit} disabled={handover.isPending} style={{ background: '#4f46e5' }}>
             {handover.isPending ? 'Handing over…' : 'Hand over register'}

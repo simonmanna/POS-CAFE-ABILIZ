@@ -103,6 +103,11 @@ export class PosTablesService {
       EVENTS.PosTableReservationCancelled,
       EVENTS.PosTableReservationNoShow,
       EVENTS.PosOrderCreated,
+      // Item saves (auto-save), appends and cancellations all change the card
+      // total — push a fresh snapshot so every terminal's cards stay in sync
+      // with the order detail instead of waiting for the 20s poll.
+      EVENTS.PosOrderUpdated,
+      EVENTS.PosOrderCancelled,
       EVENTS.PosOrderClosed,
       EVENTS.PosOrderInvoiced,
     ] as const;

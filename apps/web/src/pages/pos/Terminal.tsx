@@ -290,6 +290,10 @@ const TerminalPage: React.FC = () => {
   const tableCartsRef = useRef<Map<string, {
     lines: CartLine[];
     sentLineIds: string[];
+    /* local lineId → server OrderItem id. Lines present here are already on
+     * the server, so the table card must not add them again (that double-count
+     * made the card disagree with the order detail). */
+    serverLineIds: Record<string, string>;
     transactionDiscountPercent: number;
     transactionDiscountType: DiscountType;
     transactionDiscountAmount: number;
@@ -438,12 +442,14 @@ const TerminalPage: React.FC = () => {
   /* ============== Per-table cart persistence ============== */
   const saveCurrentTableCart = useCallback(() => {
     const key = selectedTableId ?? 'walk-in';
+    const st = useCartStore.getState();
     tableCartsRef.current.set(key, {
-      lines: useCartStore.getState().lines,
+      lines: st.lines,
       sentLineIds: Array.from(currentSentLineIds.current),
-      transactionDiscountPercent: useCartStore.getState().transactionDiscountPercent,
-      transactionDiscountType: useCartStore.getState().transactionDiscountType,
-      transactionDiscountAmount: useCartStore.getState().transactionDiscountAmount,
+      serverLineIds: { ...st.serverLineIds },
+      transactionDiscountPercent: st.transactionDiscountPercent,
+      transactionDiscountType: st.transactionDiscountType,
+      transactionDiscountAmount: st.transactionDiscountAmount,
     });
   }, [selectedTableId]);
 
@@ -451,13 +457,30 @@ const TerminalPage: React.FC = () => {
 
   const tableHasLocalCart = useCallback((tableId: string) => {
     const cart = tableCartsRef.current.get(tableId);
-    return !!(cart && cart.lines.length > 0);
+    return !!(cart && cart.lines.some((l) => !cart.serverLineIds[l.lineId]));
   }, []);
 
+  /* The card's "local" part covers ONLY lines that have never reached the
+   * server — the rest is already inside `order.totalAmount` and adding it
+   * again (the old behaviour, which stored the whole cart and never cleared
+   * it) is what made card sums drift from the order detail. The math mirrors
+   * the cart store's selectTotal so the preview matches what the cashier sees. */
   const localCartTotal = useCallback((tableId: string) => {
     const cart = tableCartsRef.current.get(tableId);
     if (!cart) return 0;
-    return cart.lines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0);
+    const unsaved = cart.lines.filter((l) => !cart.serverLineIds[l.lineId]);
+    if (!unsaved.length) return 0;
+    const sub = unsaved.reduce((s, l) => {
+      const lineTotal = l.quantity * l.unitPrice;
+      const discount = l.discountType === 'fixed_amount'
+        ? (l.discountAmount ?? 0)
+        : lineTotal * (l.discountPercent / 100);
+      return s + Math.max(0, lineTotal - discount);
+    }, 0);
+    const txDisc = cart.transactionDiscountType === 'fixed_amount'
+      ? Math.min(cart.transactionDiscountAmount, sub)
+      : sub * (cart.transactionDiscountPercent / 100);
+    return Math.max(0, sub - txDisc);
   }, []);
 
   /* M4 open-tab dine-in — server order is the source of truth per table. */
@@ -577,6 +600,10 @@ const TerminalPage: React.FC = () => {
         // already exists on the server.
         st.clear();
         tabSyncSig.current = orderSig([]);
+        // The tab is gone (settled elsewhere) — drop its draft snapshot so the
+        // card can't keep showing a total that no longer exists.
+        tableCartsRef.current.delete(scope.tableId);
+        tableCartsRef.current.delete('walk-in');
         setSelectedTableId(null);
         setTableView('grid');
         toast.warning('That bill was settled or cancelled on another terminal. This cart was cleared.');
@@ -690,6 +717,9 @@ const TerminalPage: React.FC = () => {
       previous.setOrderId(doc?.id);
       adoptServerLines(doc?.lines ?? [], next);
       tabSyncSig.current = orderSig(next);
+      // The server tab is now the source of truth for this table; drop any old
+      // snapshot so the card only ever adds genuinely unsaved lines.
+      tableCartsRef.current.delete(t.id);
       setSelectedTableId(t.id); setTableView('ordering'); enterFullscreen();
     } catch (e: any) { toast.error(e?.response?.data?.message || e?.message || 'Could not switch tables; current cart preserved'); }
     finally { setPendingTableLoad(null); }
@@ -716,7 +746,14 @@ const TerminalPage: React.FC = () => {
   const handleChangeOrderType = useCallback(async (type: 'dine-in' | 'takeaway' | 'delivery') => {
     try { await flushCurrentOrder(); }
     catch (e: any) { toast.error(e?.response?.data?.message || e?.message); return; }
-    if (useCartStore.getState().tableId) { clearCart(); tabSyncSig.current = orderSig([]); }
+    if (useCartStore.getState().tableId) {
+      const flushedTableId = useCartStore.getState().tableId as string;
+      clearCart(); tabSyncSig.current = orderSig([]);
+      // The tab was flushed above; its draft snapshot must not resurrect a
+      // phantom total on the card now that the cart is empty.
+      tableCartsRef.current.delete(flushedTableId);
+      tableCartsRef.current.delete('walk-in');
+    }
     setOrderType(type); setTableView(type === 'dine-in' ? 'grid' : 'ordering'); setSelectedTableId(null);
   }, [clearCart, setOrderType, flushCurrentOrder]);
 
@@ -1389,6 +1426,10 @@ const TerminalPage: React.FC = () => {
         setTableView('grid');
         refetchSession();
         currentSentLineIds.current.clear();
+        // The tab was just settled — its cached draft snapshot is dead weight
+        // and would keep pushing a ghost total onto the table card.
+        if (tableId) tableCartsRef.current.delete(tableId);
+        tableCartsRef.current.delete('walk-in');
       };
       try {
         await flushCurrentOrder();
@@ -2171,6 +2212,8 @@ const TerminalPage: React.FC = () => {
           tabSyncSig.current = '';
           clearCart();
           setCustomer(null);
+          if (tableId) tableCartsRef.current.delete(tableId);
+          tableCartsRef.current.delete('walk-in');
           setSelectedTableId(null);
           setTableView('grid');
           refetchSession();

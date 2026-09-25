@@ -398,6 +398,7 @@ export function useCheckout() {
       submitSaleOperation('/pos/checkout', body, _idemKey ?? uuid()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-holds'] });
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
       qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });
       qc.invalidateQueries({ queryKey: ['pos-reports'] });
       qc.invalidateQueries({ queryKey: ['pos-credit'] });
@@ -1003,7 +1004,10 @@ export function useSaveOrderItems() {
       orderId: string; lines: OrderLineBody[]; expectedVersion?: number;
       guestCount?: number; partnerId?: string; transactionDiscountPercent?: number;
     }) => (await api.put<Order>(`/pos/orders/${orderId}/items`, { ...draftPricing(useCartStore.getState()), partnerId: useCartStore.getState().customer?.id, ...body })).data,
-    onSuccess: (_d, v) => qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] }),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] });
+      qc.invalidateQueries({ queryKey: ['pos-tables'] });
+    },
   });
 }
 
