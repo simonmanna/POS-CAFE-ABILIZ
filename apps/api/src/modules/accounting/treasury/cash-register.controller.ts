@@ -48,6 +48,13 @@ export class CashRegisterController {
     return this.registers.findOne(id);
   }
 
+  /** Drawer GL balance — shown in the open-shift dialog so the cashier sees what the drawer holds before counting. */
+  @Get(':id/drawer-balance')
+  @RequirePermissions(PERMISSIONS.cashSession.open)
+  drawerBalance(@Param('id') id: string) {
+    return this.registers.drawerBalance(id);
+  }
+
   @Post()
   @RequirePermissions(PERMISSIONS.cashRegister.create)
   create(@Body() dto: CreateCashRegisterDto) {

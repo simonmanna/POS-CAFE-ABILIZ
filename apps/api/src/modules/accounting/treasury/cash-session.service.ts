@@ -32,6 +32,8 @@ export interface OpenSessionDto {
   openingFloat?: number | string;
   notes?: string;
   openingDenomination?: Record<string, number>;
+  /** When accepted, a count above/below the drawer ledger is auto-recorded as a cash-in / withdrawal. */
+  autoAdjust?: boolean;
   /** Offline-first: when the drawer was actually opened on the device. */
   occurredAt?: string;
 }
@@ -45,6 +47,8 @@ export interface CloseSessionDto {
   notes?: string;
   varianceReason?: string;
   varianceStatus?: string;
+  /** When accepted, a counted-short / counted-over difference is auto-recorded as a pay-out / pay-in movement. */
+  autoAdjustCash?: boolean;
   /** Manager who approves a large variance. Required over threshold. */
   approvedById?: string;
   approverEmail?: string;
@@ -208,13 +212,18 @@ export class CashSessionService {
       await tx.$queryRawUnsafe('SELECT id FROM "Account" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', drawer.id, organizationId);
       const ledger = await accountLedgerBalance(tx, organizationId, drawer.id);
       const funding = dec(dto.openingFloat ?? 0).minus(ledger);
-      if (funding.lt(0)) throw new BadRequestException('Opening count is below the drawer ledger. Reconcile the prior count or record the removal before opening');
-      if (funding.gt(0)) {
-        if (!dto.openingSourceAccountId || !dto.notes?.trim()) throw new BadRequestException('Choose the source of added float and enter its reason');
+      // Auto-adjust (cashier accepted in the dialog): a count below the drawer
+      // ledger is treated as a withdrawal and a count above it as owner cash-in —
+      // the difference is posted so the drawer ledger lands exactly on the count.
+      const clearingId = dto.autoAdjust ? await this.drawerAdjustmentClearing(tx, drawer.id) : null;
+      if (funding.lt(0) && !dto.autoAdjust) throw new BadRequestException('Opening count is below the drawer ledger. Reconcile the prior count or record the removal before opening');
+      if (funding.gt(0) && dto.openingSourceAccountId) {
         const source = await tx.account.findFirst({ where: { id: dto.openingSourceAccountId, organizationId, isActive: true, deletedAt: null }, include: { category: true } });
         if (!source || source.id === drawer.id || !['cash', 'petty_cash', 'bank'].includes(source.category?.key)) throw new BadRequestException('Choose a different cash safe or bank funding account');
         await tx.$queryRawUnsafe('SELECT id FROM "Account" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', source.id, organizationId);
         if (funding.gt(await accountLedgerBalance(tx, organizationId, source.id))) throw new BadRequestException('The funding account has insufficient recorded funds');
+      } else if (funding.gt(0) && !dto.autoAdjust) {
+        throw new BadRequestException('Choose the source of added float and enter its reason');
       }
       const occurredAt = resolveOccurredAt(dto.occurredAt);
       const businessDate = tradingDate(occurredAt ?? new Date(), await orgTimezone(this.prisma, organizationId));
@@ -236,12 +245,31 @@ export class CashSessionService {
         },
       });
 
-      if (funding.gt(0)) await this.posting.post({ journalCode: 'CASH', date: (occurredAt ?? new Date()).toISOString(), description: `Opening float: ${dto.notes}`, sourceType: 'cash_session_opening', sourceId: session.id, postingKey: `cash_session_opening:${session.id}`, lines: [{ accountId: drawer.id, debit: funding.toString() }, { accountId: dto.openingSourceAccountId!, credit: funding.toString() }] }, tx);
+      if (funding.gt(0)) {
+        if (dto.openingSourceAccountId) {
+          await this.posting.post({ journalCode: 'CASH', date: (occurredAt ?? new Date()).toISOString(), description: `Opening float: ${dto.notes}`, sourceType: 'cash_session_opening', sourceId: session.id, postingKey: `cash_session_opening:${session.id}`, lines: [{ accountId: drawer.id, debit: funding.toString() }, { accountId: dto.openingSourceAccountId!, credit: funding.toString() }] }, tx);
+        } else {
+          // Auto-adjust: the owner added money from outside the books.
+          await this.posting.post({ journalCode: 'CASH', date: (occurredAt ?? new Date()).toISOString(), description: 'Opening adjustment: cash added to the drawer (owner cash-in) to match the declared opening float', sourceType: 'cash_session_opening', sourceId: session.id, postingKey: `cash_session_opening:${session.id}`, lines: [{ accountId: drawer.id, debit: funding.toString() }, { accountId: clearingId!, credit: funding.toString() }] }, tx);
+        }
+      } else if (funding.lt(0)) {
+        // Auto-adjust: cash left the drawer before the shift started.
+        await this.posting.post({ journalCode: 'CASH', date: (occurredAt ?? new Date()).toISOString(), description: 'Opening adjustment: cash withdrawn from the drawer to match the declared opening float', sourceType: 'cash_session_opening', sourceId: session.id, postingKey: `cash_session_opening:${session.id}`, lines: [{ accountId: clearingId!, debit: funding.abs().toString() }, { accountId: drawer.id, credit: funding.abs().toString() }] }, tx);
+      }
       await this.audit.recordInTx(tx, {
         entity: 'CashSession',
         entityId: session.id,
         action: 'create',
-        newValues: { cashRegisterId: session.cashRegisterId, openingFloat: session.openingFloat.toString() },
+        newValues: {
+          cashRegisterId: session.cashRegisterId,
+          openingFloat: session.openingFloat.toString(),
+          ...(funding.isZero() ? {} : {
+            autoAdjusted: !!dto.autoAdjust,
+            drawerLedger: ledger.toString(),
+            adjustment: funding.abs().toString(),
+            adjustmentKind: funding.gt(0) ? 'cash_in' : 'withdrawal',
+          }),
+        },
       });
 
       this.events.publish('cash.session.opened', {
@@ -298,10 +326,22 @@ export class CashSessionService {
         closingAccounts: dto.closingAccounts,
         uncountedAccounts: dto.uncountedAccounts,
         varianceReason: dto.varianceReason,
+        autoAdjustCash: dto.autoAdjustCash,
         approval: opts.force
           ? { verifiedManagerId: actorId }
           : { approverId: dto.approvedById, approverEmail: dto.approverEmail, managerPin: dto.managerPin },
       });
+
+      // The cashier accepted the drawer difference: book it as a real cash
+      // movement (pay-out for a shortage, pay-in for a surplus), then recompute
+      // so the Z snapshot and the frozen totals agree with the counted cash.
+      if (closing.cashAutoAdjustment) {
+        await this.applyClosingCashAdjustment(tx, session, closing.cashAutoAdjustment);
+        closing.reconciliation = await reconcileSession(tx, organizationId, session);
+        closing.expected = await this.computeExpected(tx, session);
+        closing.difference = counted.minus(closing.expected);
+        closing.varianceStatus = null;
+      }
 
       const closedAt = resolveOccurredAt(dto.occurredAt) ?? new Date();
       const notes = opts.force ? `${session.notes ? session.notes + ' | ' : ''}Force-closed by manager: ${dto.notes!.trim()}` : (dto.notes ?? session.notes);
@@ -446,6 +486,7 @@ export class CashSessionService {
     closingAccounts?: Record<string, number>;
     uncountedAccounts?: Record<string, string>;
     varianceReason?: string;
+    autoAdjustCash?: boolean;
     approval: { verifiedManagerId: string } | { approverId?: string; approverEmail?: string; managerPin?: string };
   }) {
     const organizationId = this.tenant.organizationId;
@@ -537,7 +578,16 @@ export class CashSessionService {
     const difference = input.counted.minus(expected);
     let varianceStatus: string | null = null;
     let approvedById: string | null = manager?.id ?? null;
-    if (!difference.isZero()) {
+    // When the cashier accepted the difference in the dialog, it is booked as a
+    // real cash movement (short → withdrawal, over → cash-in) right after this
+    // validation returns — which re-balances the drawer, so no variance reason
+    // or manager sign-off is needed for the cash figure itself.
+    const cashAutoAdjustment = !difference.isZero() && input.autoAdjustCash
+      ? (difference.gt(0)
+        ? { direction: 'pay_in' as const, amount: difference }
+        : { direction: 'pay_out' as const, amount: difference.abs() })
+      : null;
+    if (!difference.isZero() && !cashAutoAdjustment) {
       if (!reason) throw new BadRequestException({ code: 'CASH_VARIANCE_REASON_REQUIRED', message: 'A variance reason is required when counted cash differs from expected' });
       const managerPresent = 'verifiedManagerId' in input.approval;
       if (managerPresent || difference.abs().greaterThanOrEqualTo(this.largeVarianceThreshold)) {
@@ -547,7 +597,7 @@ export class CashSessionService {
         varianceStatus = 'pending_review';
       }
     }
-    return { reconciliation, closingAccounts, expected, difference, reason, varianceStatus, approvedById };
+    return { reconciliation, closingAccounts, expected, difference, reason, varianceStatus, approvedById, cashAutoAdjustment };
   }
 
   /** Freeze the count, the Z snapshot and the over/short journal. */
@@ -1478,6 +1528,60 @@ export class CashSessionService {
     if (register?.defaultAccountId) return register.defaultAccountId;
     // Fall back to the org default cash account.
     return this.determination.mapped('default_cash', tx);
+  }
+
+  /**
+   * The cash-clearing account is the counterpart for automatic drawer
+   * adjustments (opening float differences and accepted closing variances).
+   */
+  private async drawerAdjustmentClearing(tx: any, drawerAccountId: string): Promise<string> {
+    let clearing: string;
+    try {
+      clearing = await this.determination.mapped('cash_clearing', tx);
+    } catch {
+      throw new BadRequestException('Configure the cash clearing account to allow automatic drawer adjustments');
+    }
+    if (clearing === drawerAccountId) throw new BadRequestException('Configure a cash clearing account different from the drawer');
+    return clearing;
+  }
+
+  /**
+   * Book the closing drawer difference the cashier accepted as a real cash
+   * movement: a shortage becomes a pay-out (withdrawal), a surplus a pay-in
+   * (cash added). The GL leg re-balances the drawer onto the counted amount.
+   */
+  private async applyClosingCashAdjustment(
+    tx: any,
+    session: any,
+    adj: { direction: 'pay_in' | 'pay_out'; amount: Prisma.Decimal },
+  ) {
+    const clearing = await this.drawerAdjustmentClearing(tx, await this.registerCashAccount(tx, session));
+    const reason = adj.direction === 'pay_in'
+      ? 'Closing adjustment: cash added to the drawer to match the counted amount'
+      : 'Closing adjustment: cash withdrawn from the drawer to match the counted amount';
+    const movement = await tx.cashMovement.create({
+      data: {
+        organizationId: this.tenant.organizationId,
+        cashSessionId: session.id,
+        movementType: adj.direction,
+        amount: adj.amount,
+        reason,
+        counterpartAccountId: clearing,
+        performedBy: this.tenant.userId ?? null,
+      },
+    });
+    await this.postMovementGl(tx, session, adj.direction, adj.amount, movement.id, reason, clearing);
+    await this.audit.recordInTx(tx, {
+      entity: 'CashMovement',
+      entityId: movement.id,
+      action: 'create',
+      newValues: {
+        cashSessionId: session.id,
+        movementType: adj.direction,
+        amount: adj.amount.toString(),
+        autoAdjustment: true,
+      },
+    });
   }
 
   private async postMovementGl(

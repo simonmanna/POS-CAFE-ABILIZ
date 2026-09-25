@@ -4,12 +4,12 @@ import { useAuthStore } from '@/stores/auth.store';
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 // Shift-open dialog. Cashier picks a register, enters opening float, opens session.
 import React, { useEffect, useState } from 'react';
-import { Power, Calculator } from 'lucide-react';
+import { Power, Calculator, ArrowDownToLine, ArrowUpFromLine } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useCashRegisters, useOpenShift } from './api';
+import { useCashRegisters, useDrawerBalance, useOpenShift } from './api';
 import { toast } from 'sonner';
 
 interface Props {
@@ -30,7 +30,13 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, pres
   const [openingSourceAccountId, setOpeningSourceAccountId] = useState('');
   const [accountCounts, setAccountCounts] = useState<Record<string, number>>({});
   const [err, setErr] = useState<string | null>(null);
+  /** When accepted, a count above/below the drawer is auto-recorded as cash-in / withdrawal. */
+  const [autoAdjust, setAutoAdjust] = useState(true);
   const openShift = useOpenShift();
+  const { data: drawer } = useDrawerBalance(registerId || undefined, open);
+  const drawerLedger = drawer ? Number(drawer.ledger) : null;
+  const floatNum = Number(openingFloat);
+  const drawerDiff = drawerLedger != null && Number.isFinite(floatNum) ? floatNum - drawerLedger : null;
 
   useEffect(() => {
     if (open) {
@@ -39,6 +45,7 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, pres
       setNotes('');
       setAccountCounts({});
       setErr(null);
+      setAutoAdjust(true);
     }
   }, [open, registers.length]);
 
@@ -54,6 +61,7 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, pres
         openingSourceAccountId: openingSourceAccountId || undefined,
         openingAccounts: accountCounts,
         notes: notes.trim() || undefined,
+        autoAdjust,
       });
       toast.success('Shift opened — you can now sell');
       onOpened();
@@ -119,7 +127,36 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, pres
               </button>
             ))}
           </div>
+          {drawerLedger != null ? (
+            <p className="mt-2 text-xs text-slate-500">
+              This drawer currently holds <span className="font-mono font-bold text-slate-700">{orgCur()} {drawerLedger.toLocaleString()}</span>.
+            </p>
+          ) : null}
         </div>
+
+        {drawerDiff != null && Math.abs(drawerDiff) > 0.005 && Number.isFinite(floatNum) ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">
+              {drawerDiff < 0 ? <ArrowDownToLine className="h-3.5 w-3.5" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
+              Drawer difference
+            </p>
+            <p className="mt-1 text-sm text-amber-900">
+              You are entering <span className="font-mono font-bold">{orgCur()} {floatNum.toLocaleString()}</span> —{' '}
+              {drawerDiff < 0
+                ? <>{orgCur()} {Math.abs(drawerDiff).toLocaleString()} <b>less</b> than the drawer. If accepted, this is recorded as a <b>withdrawal</b>.</>
+                : <>{orgCur()} {drawerDiff.toLocaleString()} <b>more</b> than the drawer. If accepted, this is recorded as a <b>cash-in</b> (owner adds money).</>}
+            </p>
+            <label className="mt-2 flex items-start gap-2 text-sm font-semibold text-amber-900 cursor-pointer">
+              <input type="checkbox" checked={autoAdjust} onChange={(e) => setAutoAdjust(e.target.checked)} className="mt-0.5" />
+              Accept — record the difference automatically
+            </label>
+            {!autoAdjust ? (
+              <p className="mt-1 text-xs text-amber-800">
+                Without accepting, the count must match the drawer{drawerDiff > 0 ? ' (and a funding source is required)' : ''}.
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         <div>
           <Label>Notes (optional)</Label>

@@ -238,6 +238,8 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
   const [showManager, setShowManager] = useState(false);
   const [approverEmail, setApproverEmail] = useState('');
   const [managerPin, setManagerPin] = useState('');
+  /** When accepted, a counted-short / counted-over drawer difference is booked as a withdrawal / cash-in movement. */
+  const [autoAdjustCash, setAutoAdjustCash] = useState(true);
   const [problem, setProblem] = useState<Decoded | null>(null);
   const [result, setResult] = useState<CashSession | null>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
@@ -259,6 +261,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       setUncounted({});
       setByDenom(false); setDenom({});
       setShowManager(false); setApproverEmail(''); setManagerPin('');
+      setAutoAdjustCash(true);
       setProblem(null); setResult(null);
     }
   }, [open]);
@@ -362,6 +365,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
         closingCounted: countedNum,
         notes: notes.trim() || undefined,
         varianceReason: varianceReason.trim() || undefined,
+        autoAdjustCash: autoAdjustCash && cashVariance != null && Math.abs(cashVariance) > 0.005 ? true : undefined,
         approverEmail: needsManager ? approverEmail.trim() || undefined : undefined,
         managerPin: needsManager ? managerPin.trim() || undefined : undefined,
         closingDenomination,
@@ -390,6 +394,10 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
   const variance = Number(result?.closingDifference ?? 0);
   const stepIndex = STEPS.findIndex((s) => s.key === step);
+  /* Live drawer difference on the confirm step (display only — the server
+   * recomputes authoritatively at close time). */
+  const expectedCash = recon ? Number(recon.report?.totals?.expectedCash ?? 0) : null;
+  const cashVariance = expectedCash != null && countedValid ? countedNum - expectedCash : null;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && (step === 'done' ? finish() : onClose())}>
@@ -740,9 +748,37 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                 </div>
               ) : null}
 
+              {cashVariance != null && Math.abs(cashVariance) > 0.005 ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">Drawer difference</p>
+                  <p className="mt-1 text-sm text-amber-900">
+                    You counted <span className="font-mono font-bold">{fmt(countedNum)}</span> —{' '}
+                    {cashVariance < 0
+                      ? <>{orgCur()} {plain(Math.abs(cashVariance))} <b>short</b>. If accepted, this is recorded as a <b>withdrawal</b>.</>
+                      : <>{orgCur()} {plain(cashVariance)} <b>over</b>. If accepted, this is recorded as a <b>cash-in</b>.</>}
+                  </p>
+                  <label className="mt-2 flex items-start gap-2 text-sm font-semibold text-amber-900 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoAdjustCash}
+                      onChange={(e) => setAutoAdjustCash(e.target.checked)}
+                      className="mt-0.5"
+                    />
+                    Accept — record the difference automatically and close without a variance review
+                  </label>
+                  {!autoAdjustCash ? (
+                    <p className="mt-1 text-xs text-amber-800">
+                      Without accepting, write below why the drawer does not balance (a manager is asked for a big difference).
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div>
                 <Label className="text-sm font-bold">
-                  If the drawer or a wallet doesn&apos;t balance, why?{' '}
+                  {autoAdjustCash && cashVariance != null && Math.abs(cashVariance) > 0.005
+                    ? 'Anything else worth noting?'
+                    : 'If the drawer or a wallet doesn\u2019t balance, why?'}{' '}
                   <span className="font-normal text-slate-400">(only needed if it does not balance)</span>
                 </Label>
                 <Textarea

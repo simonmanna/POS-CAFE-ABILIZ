@@ -113,6 +113,17 @@ export function useCashRegisters() {
   });
 }
 
+/** What the GL says is currently in a register's drawer — the figure the open-shift dialog compares against. */
+export function useDrawerBalance(registerId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ['cash-register-drawer-balance', registerId],
+    queryFn: async () => (await api.get<{ ledger: number }>(`/cash-registers/${registerId}/drawer-balance`)).data,
+    enabled: !!registerId && enabled,
+    staleTime: 10_000,
+    retry: false,
+  });
+}
+
 /** Returns the cashier's currently-open session (across all registers), if any. */
 export function useOpenSession() {
   const org = useAuthStore((s) => s.organization?.id);
@@ -148,7 +159,7 @@ export function useRegisterOpenSession(registerId?: string) {
 export function useOpenShift() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { openingSourceAccountId?: string; cashRegisterId: string; openingFloat?: number; notes?: string; openingAccounts?: Record<string, number> }) =>
+    mutationFn: async (body: { openingSourceAccountId?: string; cashRegisterId: string; openingFloat?: number; notes?: string; openingAccounts?: Record<string, number>; autoAdjust?: boolean }) =>
       submitCashOperation('/cash-sessions/open', body),
     onSuccess: (session: any) => { if (session?.cashRegisterId) localStorage.setItem(`pos-register:${useAuthStore.getState().organization?.id}`, session.cashRegisterId); qc.invalidateQueries({ queryKey: ['cash-session'] }); },
   });
@@ -165,6 +176,8 @@ export function useCloseShift() {
       notes?: string;
       varianceReason?: string;
       varianceStatus?: string;
+      /** Accepted drawer difference: auto-recorded as a pay-out / pay-in movement. */
+      autoAdjustCash?: boolean;
       approverEmail?: string;
       managerPin?: string;
       closingDenomination?: Record<string, number>;

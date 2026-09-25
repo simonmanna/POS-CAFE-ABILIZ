@@ -3,6 +3,7 @@ import type { CashRegister } from '@prisma/client';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { BaseCrudService, type CrudDelegate } from '../../../kernel/common/base-crud.service';
+import { accountLedgerBalance } from './session-reconciliation';
 
 @Injectable()
 export class CashRegisterService extends BaseCrudService<CashRegister> {
@@ -96,6 +97,19 @@ export class CashRegisterService extends BaseCrudService<CashRegister> {
       await tx.cashRegister.updateMany({ where: { id, organizationId: orgId }, data });
     });
     return this.findOne(id);
+  }
+
+  /**
+   * What the GL says is currently sitting in this register's drawer — the
+   * figure the open-shift dialog compares the cashier's count against.
+   */
+  async drawerBalance(id: string) {
+    const orgId = this.tenant.organizationId;
+    const register = await this.prisma.client.cashRegister.findFirst({ where: { id, organizationId: orgId, deletedAt: null } });
+    if (!register) throw new NotFoundException('Cash register not found');
+    if (!register.defaultAccountId) return { registerId: id, drawerAccountId: null, ledger: 0 };
+    const ledger = await accountLedgerBalance(this.prisma.client, orgId, register.defaultAccountId);
+    return { registerId: id, drawerAccountId: register.defaultAccountId, ledger };
   }
 
   async remove(id: string): Promise<void> {

@@ -24,6 +24,8 @@ class OpenSessionDto {
   @IsString() cashRegisterId!: string;
   @IsOptional() @IsNumber() @Min(0) openingFloat?: number;
   @IsOptional() @IsString() notes?: string;
+  /** When accepted, a count above/below the drawer ledger is auto-recorded as a cash-in / withdrawal instead of being refused. */
+  @IsOptional() @IsBoolean() autoAdjust?: boolean;
   /** Denomination breakdown captured at open: { "50000": 3, "20000": 5, ... }. */
   @IsOptional() @IsObject() openingDenomination?: Record<string, number>;
   /** Offline-first: when the drawer was actually opened on the device (ISO-8601). */
@@ -38,6 +40,8 @@ class CloseSessionDto {
   @IsNumber() @Min(0) closingCounted!: number;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsString() varianceReason?: string;
+  /** When accepted, a counted-short / counted-over drawer difference is auto-recorded as a pay-out / pay-in movement and the drawer balances. */
+  @IsOptional() @IsBoolean() autoAdjustCash?: boolean;
   @IsOptional() @IsString() @IsIn(['pending_review', 'approved', 'rejected']) varianceStatus?: string;
   /** Manager sign-off for a large variance. */
   @IsOptional() @IsString() approvedById?: string;
