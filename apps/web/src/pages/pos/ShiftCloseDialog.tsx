@@ -20,7 +20,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   PowerOff, AlertTriangle, Check, ShieldCheck, Calculator, RefreshCw,
-  CircleCheck, Info, ArrowLeft, ArrowRight, Loader2, Trash2,
+  CircleCheck, Info, ArrowLeft, ArrowRight, Loader2, Trash2, Printer,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useCloseShift } from './api';
+import { buildClosingStatementHtml, printClosingStatement } from './closing-statement';
 import {
   useSessionReconciliation, closeBlockers, blockerCount, tenderAccountRows,
 } from '@/features/pos/session-reconciliation';
@@ -391,6 +392,35 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     onClosed();
     onClose();
   };
+
+  /* Small receipt-size closing statement: opening float, total sales and the
+   * sales breakdown per payment mode — printed automatically when the shift
+   * closes, and again via the Print button on the done step. */
+  const printSummary = () => {
+    const report: any = recon?.report ?? {};
+    printClosingStatement(
+      buildClosingStatementHtml({
+        openingFloat: session.openingFloat,
+        openedAt: session.openedAt,
+        closedAt: (result as any)?.closedAt ?? new Date().toISOString(),
+        registerName: session.cashRegister?.name ?? report.cashSession?.registerName,
+        cashierName: report.cashSession?.cashierName ?? null,
+        totals: report.totals,
+        byMethod: report.byMethod,
+        counted: (result as any)?.closingCounted,
+        expected: (result as any)?.closingExpected,
+        difference: (result as any)?.closingDifference,
+      }),
+    );
+  };
+  const printedOnce = useRef(false);
+  useEffect(() => {
+    if (step === 'done' && result && !printedOnce.current) {
+      printedOnce.current = true;
+      printSummary();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, result]);
 
   const variance = Number(result?.closingDifference ?? 0);
   const stepIndex = STEPS.findIndex((s) => s.key === step);
@@ -925,13 +955,20 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                 {closeShift.isPending ? (
                   <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Closing…</>
                 ) : (
-                  'Close shift & print Z'
+                  'Close shift & print summary'
                 )}
               </Button>
             </>
           ) : null}
 
-          {step === 'done' ? <Button onClick={finish}>Done</Button> : null}
+          {step === 'done' ? (
+            <>
+              <Button variant="ghost" onClick={printSummary}>
+                <Printer className="mr-1 h-4 w-4" /> Print summary again
+              </Button>
+              <Button onClick={finish}>Done</Button>
+            </>
+          ) : null}
         </DialogFooter>
       </DialogContent>
     </Dialog>
