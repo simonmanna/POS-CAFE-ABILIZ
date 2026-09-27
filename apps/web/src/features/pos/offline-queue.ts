@@ -352,6 +352,92 @@ export async function discardFailed(idempotencyKey: string): Promise<void> {
   try { await idbDel(idempotencyKey, FAILED_STORE); } catch { /* noop */ }
 }
 
+/** One sale's replay. Idempotency makes a repeat safe — the server returns the
+ *  original response when the sale was already recorded, so a payment whose
+ *  response was lost years before it synced unblocks itself here.
+ *
+ *  Outcomes:
+ *   - ok        → recorded on the server (possibly long ago); removed from the queue
+ *   - rejected  → the server refused (4xx); parked in the failed store for review
+ *   - identity  → queued under a different sign-in/terminal; not attempted
+ *   - stuck     → network / 5xx / 408 / 429; still queued, attempt count bumped
+ */
+export type ReplayOutcome =
+  | { status: 'ok' }
+  | { status: 'rejected' }
+  | { status: 'identity' }
+  | { status: 'stuck'; sale: QueuedSale };
+
+export async function replaySale(sale: QueuedSale): Promise<ReplayOutcome> {
+  const identity = operationIdentity();
+  if (sale.organizationId !== identity.organizationId || sale.operatorId !== identity.operatorId || sale.terminalId !== identity.terminalId) {
+    return { status: 'identity' };
+  }
+  try {
+    const result = await api.post(sale.endpoint ?? '/pos/checkout', sale.payload, {
+      headers: { 'Idempotency-Key': sale.idempotencyKey },
+    });
+    await idbPut({ ...sale, response: result.data }, COMPLETED_STORE);
+    await removePending(sale.idempotencyKey);
+    return { status: 'ok' };
+  } catch (e: any) {
+    // Mark the attempt + the last error. If we're still offline (no
+    // response at all), keep it queued. If the server actively rejected
+    // it (4xx), park it in the failed-sales store: it must not poison the
+    // queue, but a rejected sale is money and must stay visible for review.
+    const status = e?.response?.status;
+    const next: QueuedSale = {
+      ...sale,
+      attempts: sale.attempts + 1,
+      lastError: e?.response?.data?.message || e?.message || 'unknown',
+    };
+    if (status && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 409 && status !== 408 && status !== 429) {
+      // 4xx other than 408 (timeout) / 429 (rate-limit) — park for review.
+      const failed: FailedSale = { ...next, failedAt: Date.now(), httpStatus: status, rejection: e?.response?.data };
+      await idbPut(failed, FAILED_STORE);
+      await removePending(sale.idempotencyKey);
+      return { status: 'rejected' };
+    }
+    // Network / 5xx / 408 / 429 — keep queued, update attempt count.
+    await idbPut(next);
+    return { status: 'stuck', sale: next };
+  }
+}
+
+/** Retry one rejected sale in place: moves it back to the pending queue and
+ *  syncs it immediately, returning the same outcome as a pending replay. */
+export async function retryAndSyncFailed(sale: FailedSale): Promise<ReplayOutcome> {
+  await retryFailed(sale.idempotencyKey);
+  const pending = (await listPending()).find((s) => s.idempotencyKey === sale.idempotencyKey);
+  if (!pending) return { status: 'rejected' };
+  return replaySale(pending);
+}
+
+/** Unresolved ops on this device that must be dealt with before a shift can
+ *  close: unsynced sales bound to the session, plus rejected sales whose
+ *  rejection was not marked safeToRetry (a rejection may be money). Without a
+ *  session id, only ops that name no session count. */
+export async function blockingOperationsForSession(
+  sessionId?: string,
+): Promise<Array<QueuedSale | FailedSale>> {
+  const [pending, failed] = await Promise.all([listPending(), listFailed()]);
+  return [...pending, ...failed].filter(
+    (op) => (sessionId ? op.payload?.cashSessionId === sessionId : op.payload?.cashSessionId == null)
+      && !(op as FailedSale).rejection?.safeToRetry,
+  );
+}
+
+/** Try to clear every unsynced op bound to a session, then report what still
+ *  blocks closing it. Rejected ops are left alone — they need a human decision. */
+export async function syncSessionOperations(sessionId?: string): Promise<Array<QueuedSale | FailedSale>> {
+  const blockers = await blockingOperationsForSession(sessionId);
+  for (const op of blockers) {
+    if ((op as FailedSale).failedAt) continue;
+    await replaySale(op as QueuedSale);
+  }
+  return blockingOperationsForSession(sessionId);
+}
+
 /** Replay every pending sale in order. Resolves when the queue is empty
  *  or all retries failed (returns the unresolved list). */
 export async function replayAll(onResult?: (sale: QueuedSale, result: 'ok' | 'error') => void): Promise<QueuedSale[]> {
@@ -363,41 +449,22 @@ export async function replayAll(onResult?: (sale: QueuedSale, result: 'ok' | 'er
   pending.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || a.createdAt - b.createdAt);
   const unresolved: QueuedSale[] = [];
   for (const sale of pending) {
-    try {
-      const identity = operationIdentity();
-      if (sale.organizationId !== identity.organizationId || sale.operatorId !== identity.operatorId || sale.terminalId !== identity.terminalId) {
+    const outcome = await replaySale(sale);
+    switch (outcome.status) {
+      case 'ok':
+        onResult?.(sale, 'ok');
+        break;
+      case 'rejected':
+        onResult?.(sale, 'error');
+        break;
+      case 'identity':
         unresolved.push({ ...sale, lastError: 'Sign in as the original operator to recover this operation' });
-        continue;
-      }
-      const result = await api.post(sale.endpoint ?? '/pos/checkout', sale.payload, {
-        headers: { 'Idempotency-Key': sale.idempotencyKey },
-      });
-      await idbPut({ ...sale, response: result.data }, COMPLETED_STORE);
-      await removePending(sale.idempotencyKey);
-      onResult?.(sale, 'ok');
-    } catch (e: any) {
-      // Mark the attempt + the last error. If we're still offline (no
-      // response at all), keep it queued. If the server actively rejected
-      // it (4xx), park it in the failed-sales store: it must not poison the
-      // queue, but a rejected sale is money and must stay visible for review.
-      const status = e?.response?.status;
-      const next: QueuedSale = {
-        ...sale,
-        attempts: sale.attempts + 1,
-        lastError: e?.response?.data?.message || e?.message || 'unknown',
-      };
-      if (status && status >= 400 && status < 500 && status !== 401 && status !== 403 && status !== 409 && status !== 408 && status !== 429) {
-        // 4xx other than 408 (timeout) / 429 (rate-limit) — park for review.
-        const failed: FailedSale = { ...next, failedAt: Date.now(), httpStatus: status, rejection: e?.response?.data };
-        await idbPut(failed, FAILED_STORE);
-        await removePending(sale.idempotencyKey);
         onResult?.(sale, 'error');
-      } else {
-        // Network / 5xx / 408 / 429 — keep queued, update attempt count.
-        await idbPut(next);
-        unresolved.push(next);
+        break;
+      case 'stuck':
+        unresolved.push(outcome.sale);
         onResult?.(sale, 'error');
-      }
+        break;
     }
   }
   return unresolved;

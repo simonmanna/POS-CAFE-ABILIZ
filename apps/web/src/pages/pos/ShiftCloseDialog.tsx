@@ -17,10 +17,10 @@
  * balance the provider actually shows is optional per account — blank means
  * "not checked", exactly as at shift open — and only then is a variance claimed.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   PowerOff, AlertTriangle, Check, ShieldCheck, Calculator, RefreshCw,
-  CircleCheck, Info, ArrowLeft, ArrowRight, Loader2, Trash2, Printer,
+  CircleCheck, Info, ArrowLeft, ArrowRight, Loader2, Trash2, Printer, CloudUpload,
 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -34,6 +34,10 @@ import { buildClosingStatementHtml, printClosingStatement } from './closing-stat
 import {
   useSessionReconciliation, closeBlockers, blockerCount, tenderAccountRows,
 } from '@/features/pos/session-reconciliation';
+import {
+  blockingOperationsForSession, replaySale, retryAndSyncFailed, discardFailed,
+  type QueuedSale, type FailedSale,
+} from '@/features/pos/offline-queue';
 import { shiftTrackedAccounts, usePosPaymentMethods } from '@/features/pos/payment-accounts';
 import { useAuthStore } from '@/stores/auth.store';
 import type { CashSession } from './types';
@@ -82,6 +86,119 @@ const Notice: React.FC<{ tone: Tone; title: string; children?: React.ReactNode }
       </p>
       {children ? <div className="mt-1 space-y-1 pl-6 text-[13px] leading-snug">{children}</div> : null}
     </div>
+  );
+};
+
+/* ------------------------------------------------- device-queue resolution */
+
+const opLabel = (op: QueuedSale | FailedSale): string => {
+  const ep: string = op.endpoint ?? '/pos/checkout';
+  if (/checkout$/.test(ep)) return 'Sale payment';
+  if (/settle$/.test(ep)) return 'Table settlement';
+  if (/refund$/.test(ep)) return 'Refund';
+  if (/items$/.test(ep)) return 'Kitchen round';
+  if (/payments$/.test(ep)) return 'Credit collection';
+  if (/write-off$/.test(ep)) return 'Write-off';
+  return ep.replace(/^\/+|\/+$/g, '') || 'Operation';
+};
+
+const opAmount = (op: QueuedSale | FailedSale): number | null => {
+  const tenders = op.payload?.tenders;
+  if (Array.isArray(tenders) && tenders.length > 0) {
+    return tenders.reduce((s: number, t: any) => s + (Number(t?.amount) || 0), 0);
+  }
+  for (const k of ['amount', 'grossAmount', 'totalAmount']) {
+    const n = Number(op.payload?.[k]);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+};
+
+/** One stuck payment with its resolve actions, rendered inside the check step. */
+const DeviceOpRow: React.FC<{
+  op: QueuedSale | FailedSale;
+  busy: boolean;
+  confirmingDiscard: boolean;
+  onStartDiscard: () => void;
+  onCancelDiscard: () => void;
+  onSync: () => void;
+  onRetry: () => void;
+  onDiscard: () => void;
+}> = ({ op, busy, confirmingDiscard, onStartDiscard, onCancelDiscard, onSync, onRetry, onDiscard }) => {
+  const failed = !!(op as FailedSale).failedAt;
+  const amount = opAmount(op);
+  return (
+    <li className="rounded border border-amber-200 bg-white/70 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-semibold">
+          {opLabel(op)}
+          {amount != null ? ` · ${orgCur()} ${Number(amount).toLocaleString()}` : ''}
+        </span>
+        <span className="text-[11px] text-slate-500">{new Date(op.createdAt).toLocaleTimeString()}</span>
+      </div>
+      {failed ? (
+        <p className="mt-0.5 text-[12px] text-rose-700 break-words">
+          {(op as FailedSale).httpStatus ? `HTTP ${(op as FailedSale).httpStatus} — ` : ''}
+          {(op as FailedSale).rejection?.message || (op as FailedSale).lastError || 'Rejected by the server'}
+        </p>
+      ) : op.lastError ? (
+        <p className="mt-0.5 text-[12px] text-slate-600 break-words">{op.lastError}</p>
+      ) : null}
+      <div className="mt-1.5 flex justify-end gap-2">
+        {failed ? (
+          <>
+            {confirmingDiscard ? (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onDiscard}
+                  className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
+                >
+                  <Trash2 className="h-3 w-3" /> Discard forever
+                </button>
+                <button
+                  type="button"
+                  onClick={onCancelDiscard}
+                  className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Keep
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onRetry}
+                  className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                >
+                  <RefreshCw className="h-3 w-3" /> Retry sync
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={onStartDiscard}
+                  className="rounded-md border border-rose-300 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                >
+                  Discard…
+                </button>
+              </>
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onSync}
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CloudUpload className="h-3 w-3" />}
+            Sync now
+          </button>
+        )}
+      </div>
+    </li>
   );
 };
 
@@ -186,7 +303,7 @@ export function decodeError(body: unknown): Decoded {
     return {
       tone: 'warn',
       title: 'This device still has payments waiting to sync',
-      detail: 'Open POS → Pending operations and finish or reject them, then close the shift.',
+      detail: 'The list below shows each one. Sync it, or retry/discard it if the server rejected it, then close the shift.',
       goTo: 'check',
     };
   }
@@ -194,7 +311,7 @@ export function decodeError(body: unknown): Decoded {
     return {
       tone: 'warn',
       title: 'An earlier drawer action never got a reply',
-      detail: 'Retry that one first with its original amount — POS → Pending operations has it.',
+      detail: 'Retry that one first with its original amount — the pending-operation notice at the top right has it.',
       goTo: 'check',
     };
   }
@@ -254,6 +371,70 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     10_000,
   );
 
+  /* Device-local payments bound to this shift: unsynced sales and rejected
+   * sales not marked safeToRetry. The server cannot see these — its
+   * reconciliation can read "all clear" while the close gate still refuses —
+   * so the check step surfaces them here and resolves them in place. */
+  const [deviceOps, setDeviceOps] = useState<Array<QueuedSale | FailedSale>>([]);
+  const [deviceOpsLoaded, setDeviceOpsLoaded] = useState(false);
+  const [busyOp, setBusyOp] = useState<string | null>(null);
+  const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null);
+  const sessionId = session?.id;
+  const refreshDeviceOps = useCallback(async () => {
+    if (!sessionId) return;
+    setDeviceOps(await blockingOperationsForSession(sessionId));
+    setDeviceOpsLoaded(true);
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (!open || step !== 'check' || !sessionId) return;
+    void refreshDeviceOps();
+    const id = setInterval(refreshDeviceOps, 5000);
+    return () => clearInterval(id);
+  }, [open, step, refreshDeviceOps, sessionId]);
+
+  const syncOne = async (op: QueuedSale) => {
+    setBusyOp(op.idempotencyKey);
+    try {
+      const outcome = await replaySale(op);
+      if (outcome.status === 'identity') toast.warning('This payment was queued under another sign-in. Sign in as that cashier to sync it.');
+      else if (outcome.status === 'ok') toast.success('Payment synced');
+      else if (outcome.status === 'rejected') toast.info('The server rejected it — review it in the list.');
+      else toast.error('Could not reach the server. The payment stays queued.');
+      await refreshDeviceOps();
+      void recheck();
+    } finally {
+      setBusyOp(null);
+    }
+  };
+
+  const retryOne = async (op: FailedSale) => {
+    setBusyOp(op.idempotencyKey);
+    try {
+      const outcome = await retryAndSyncFailed(op);
+      if (outcome.status === 'ok') toast.success('Payment synced');
+      else if (outcome.status === 'rejected') toast.info('The server rejected it again — see the reason in the list.');
+      else if (outcome.status === 'identity') toast.warning('This payment was queued under another sign-in. Sign in as that cashier to sync it.');
+      else toast.error('Could not reach the server. The payment stays queued.');
+      await refreshDeviceOps();
+      void recheck();
+    } finally {
+      setBusyOp(null);
+    }
+  };
+
+  const discardOne = async (op: FailedSale) => {
+    setBusyOp(op.idempotencyKey);
+    try {
+      await discardFailed(op.idempotencyKey);
+      toast.warning('Rejected payment discarded permanently');
+      await refreshDeviceOps();
+    } finally {
+      setBusyOp(null);
+      setConfirmDiscard(null);
+    }
+  };
+
   useEffect(() => {
     if (open) {
       setStep('check');
@@ -264,6 +445,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       setShowManager(false); setApproverEmail(''); setManagerPin('');
       setAutoAdjustCash(true);
       setProblem(null); setResult(null);
+      setDeviceOps([]); setDeviceOpsLoaded(false); setBusyOp(null); setConfirmDiscard(null);
     }
   }, [open]);
 
@@ -286,7 +468,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
   const blockers = closeBlockers(recon);
   const problemCount = blockerCount(blockers);
-  const ready = !!recon && blockers.length === 0;
+  const ready = !!recon && blockers.length === 0 && deviceOps.length === 0 && deviceOpsLoaded;
 
   // Per-account movement for every wallet/bank account this till collects into.
   const trackedAccounts = useMemo(() => shiftTrackedAccounts(paymentMethods), [paymentMethods]);
@@ -310,6 +492,18 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       return changed ? next : prev;
     });
   }, [accountRows]);
+
+  // Auto-print the closing statement once when the shift closes. These hooks
+  // must stay above the `!session` early return (Rules of Hooks); the print
+  // function is defined below, so it is reached through a ref.
+  const printedOnce = useRef(false);
+  const printSummaryRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (step === 'done' && result && !printedOnce.current) {
+      printedOnce.current = true;
+      printSummaryRef.current();
+    }
+  }, [step, result]);
 
   if (!session) return null;
 
@@ -383,7 +577,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       const decoded = decodeError(e?.response?.data ?? e?.message);
       setProblem(decoded);
       if (decoded.revealManager) setShowManager(true);
-      if (decoded.goTo === 'check') void recheck();
+      if (decoded.goTo === 'check') { void recheck(); void refreshDeviceOps(); }
       if (decoded.goTo) setStep(decoded.goTo);
     }
   };
@@ -413,14 +607,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       }),
     );
   };
-  const printedOnce = useRef(false);
-  useEffect(() => {
-    if (step === 'done' && result && !printedOnce.current) {
-      printedOnce.current = true;
-      printSummary();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, result]);
+  printSummaryRef.current = printSummary;
 
   const variance = Number(result?.closingDifference ?? 0);
   const stepIndex = STEPS.findIndex((s) => s.key === step);
@@ -530,6 +717,32 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                 </div>
               ) : null}
 
+              {/* Device-local payments bound to this shift — the server can't
+                  see these, so they surface and resolve right here. */}
+              {deviceOps.length ? (
+                <Notice tone="warn" title={`${deviceOps.length} payment${deviceOps.length === 1 ? '' : 's'} on this device still need${deviceOps.length === 1 ? 's' : ''} syncing`}>
+                  <p>
+                    These were taken at the till but not confirmed by the server. Sync each one before closing —
+                    a payment the server already recorded clears itself.
+                  </p>
+                  <ul className="mt-2 space-y-2">
+                    {deviceOps.map((op) => (
+                      <DeviceOpRow
+                        key={op.idempotencyKey}
+                        op={op}
+                        busy={busyOp === op.idempotencyKey}
+                        confirmingDiscard={confirmDiscard === op.idempotencyKey}
+                        onStartDiscard={() => setConfirmDiscard(op.idempotencyKey)}
+                        onCancelDiscard={() => setConfirmDiscard(null)}
+                        onSync={() => void syncOne(op as QueuedSale)}
+                        onRetry={() => void retryOne(op as FailedSale)}
+                        onDiscard={() => void discardOne(op as FailedSale)}
+                      />
+                    ))}
+                  </ul>
+                </Notice>
+              ) : null}
+
               {!recon ? (
                 <Notice tone="info" title="Checking this shift...">
                   <p>Looking for open orders, unpaid sales and stock still posting.</p>
@@ -539,7 +752,13 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   <p>Every order is settled and the books agree with the drawer. You can count now.</p>
                 </Notice>
               ) : (
-                <Notice tone="warn" title={`${problemCount} thing${problemCount === 1 ? '' : 's'} to sort out first`}>
+                <Notice tone="warn" title={`${problemCount + deviceOps.length} thing${problemCount + deviceOps.length === 1 ? '' : 's'} to sort out first`}>
+                  {deviceOps.length ? (
+                    <p className="mb-1">
+                      {deviceOps.length} payment{deviceOps.length === 1 ? '' : 's'} on this device still need{deviceOps.length === 1 ? 's' : ''} syncing —
+                      a payment the server already recorded clears itself on the next sync.
+                    </p>
+                  ) : null}
                   <ul className="space-y-2">
                     {blockers.map((b) => (
                       <li key={b.text}>
