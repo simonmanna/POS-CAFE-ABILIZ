@@ -1,4 +1,4 @@
-param(
+﻿param(
     [ValidateSet("full","web-only")]
     [string]$Mode = "full",
     # Skip the pre-flight pg_dump. Only for callers that already took one in the
@@ -8,7 +8,7 @@ param(
 
 $owner  = "simonmanna"
 $repo   = "POS-CAFE-ABILIZ"
-$posDir = "C:\microsoft\POS-CAFE"
+$posDir = "C:\microsoft\POS-CAFE-2"
 $nginx  = "C:\Program Files\nginx\nginx.exe"
 $versionFile = "$posDir\.version"
 $backupDir   = "$posDir\backups"
@@ -138,6 +138,12 @@ if ($LASTEXITCODE -ne 0) { throw "pnpm install failed" }
 Write-Host "4/10  pnpm shared:build..."
 pnpm --filter @erp/shared build
 if ($LASTEXITCODE -ne 0) { throw "shared build failed" }
+
+# 4b. Stop services — the running API locks the Prisma query engine DLL and
+# dist files, which makes prisma generate / api build fail with EPERM on Windows.
+Write-Host "4b/10 stopping services (running app locks the Prisma engine DLL)..."
+nssm stop pos-cafe-api | Out-Null
+nssm stop pos-cafe-web | Out-Null
 
 # 5. Generate Prisma client
 Write-Host "5/10  prisma generate..."
