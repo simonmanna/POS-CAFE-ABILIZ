@@ -30,8 +30,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useCloseShift } from './api';
-import type { ClosingStatementInput } from './closing-statement';
-import { ClosingStatementDialog } from './ClosingStatementDialog';
+import {
+  buildClosingStatementHtml, buildClosingStatementText, type ClosingStatementInput,
+} from './closing-statement';
+import { api } from '@/lib/api';
 import {
   useSessionReconciliation, closeBlockers, blockerCount, tenderAccountRows,
 } from '@/features/pos/session-reconciliation';
@@ -50,6 +52,10 @@ const plain = (n: number | string | null | undefined) => Number(n || 0).toLocale
 
 // Common UGX note/coin faces, largest first.
 const DENOMS = [50000, 20000, 10000, 5000, 2000, 1000, 500, 200, 100, 50];
+
+/** Screen-only height bounds for the closing-summary paper (px). */
+const PAPER_MIN_H = 320;
+const PAPER_MAX_H = 660;
 
 type Step = 'check' | 'count' | 'confirm' | 'done';
 
@@ -497,19 +503,90 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     });
   }, [accountRows]);
 
-  // Show the closing statement preview once when the shift closes — preview
-  // only, it prints when the cashier presses Print. These hooks must stay
-  // above the `!session` early return (Rules of Hooks); the builder is defined
-  // below, so it is reached through a ref.
+  /* The closing summary is built as soon as the shift closes and previewed on
+   * the done step — the same shape as the receipt / bill / KOT flow: the paper
+   * is shown, nothing is printed until the cashier asks for it. It lives INSIDE
+   * this dialog rather than in a second one, because a modal opened on top of a
+   * modal is the one thing a cashier standing at the till never sees.
+   *
+   * These hooks must stay above the `!session` early return (Rules of Hooks);
+   * the builder is defined below, so it is reached through a ref. */
   const [statement, setStatement] = useState<ClosingStatementInput | null>(null);
-  const previewedOnce = useRef(false);
+  const [printing, setPrinting] = useState(false);
+  const [printed, setPrinted] = useState(false);
+  const [paperH, setPaperH] = useState(PAPER_MIN_H);
+  const paperRef = useRef<HTMLIFrameElement>(null);
+  const builtOnce = useRef(false);
   const showSummaryRef = useRef<() => void>(() => {});
   useEffect(() => {
-    if (step === 'done' && result && !previewedOnce.current) {
-      previewedOnce.current = true;
+    if (step === 'done' && result && !builtOnce.current) {
+      builtOnce.current = true;
       showSummaryRef.current();
     }
   }, [step, result]);
+
+  /* Shrink the preview paper to the ticket's real height (receipt-preview
+   * pattern) — a fixed box either clips a long statement or floats in space. */
+  const fitPaper = useCallback(() => {
+    const doc = paperRef.current?.contentDocument;
+    if (!doc?.body) return;
+    const h = Math.ceil(doc.body.scrollHeight) + 2;
+    if (h > 0) setPaperH(Math.min(PAPER_MAX_H, Math.max(PAPER_MIN_H, h)));
+  }, []);
+
+  /* Build the ticket once per statement so the "Printed" stamp on screen is the
+   * one that goes on the paper. */
+  const paper = useMemo(
+    () => (statement
+      ? { text: buildClosingStatementText(statement), html: buildClosingStatementHtml(statement) }
+      : null),
+    [statement],
+  );
+
+  const printSummary = useCallback(async () => {
+    if (!paper || !sessionId) return;
+    setPrinting(true);
+    try {
+      const r = await api.post<{ ok: boolean; backend: string; message?: string }>(
+        '/pos/receipts/print-closing-statement',
+        { sessionId, text: paper.text },
+      );
+      if (r.data.ok) {
+        setPrinted(true);
+        toast.success(r.data.backend === 'console' ? r.data.message ?? 'Logged (no printer)' : 'Closing summary sent to printer');
+      } else {
+        toast.warning(r.data.message ?? 'Printer error');
+      }
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Print failed');
+    } finally {
+      setPrinting(false);
+    }
+  }, [paper, sessionId]);
+
+  /* Closing the dialog ends that run. The component stays mounted between
+   * shifts, so anything left behind — the finished done step, its figures, the
+   * summary paper, a typed count, a manager's PIN — would be presented as
+   * belonging to the NEXT shift being closed. Wipe it on the way out. */
+  useEffect(() => {
+    if (open) return;
+    setStep('check');
+    setResult(null);
+    setProblem(null);
+    setCounted('');
+    setNotes('');
+    setVarianceReason('');
+    setByDenom(false);
+    setDenom({});
+    setShowManager(false);
+    setApproverEmail('');
+    setManagerPin('');
+    setStatement(null);
+    setPrinted(false);
+    setPrinting(false);
+    setPaperH(PAPER_MIN_H);
+    builtOnce.current = false;
+  }, [open]);
 
   if (!session) return null;
 
@@ -594,8 +671,8 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
   };
 
   /* Small receipt-size closing statement: opening float, total sales and the
-   * sales breakdown per payment mode — previewed when the shift closes and
-   * again via the button on the done step; printed only on demand. */
+   * sales breakdown per payment mode — previewed on the done step as soon as
+   * the shift closes; printed only when the cashier asks. */
   const showSummary = () => {
     const report: any = recon?.report ?? {};
     setStatement({
@@ -1151,6 +1228,41 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   <p>Cash on hand matched the books exactly.</p>
                 </Notice>
               ) : null}
+
+              {/* Closing summary — shown, not printed. The cashier decides. */}
+              {paper ? (
+                <div className="rounded-xl border border-slate-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
+                    <p className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                      <Printer className="h-4 w-4 text-slate-500" /> Print the closing summary?
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {printed ? (
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-600">Printed</span>
+                      ) : null}
+                      <Button
+                        size="sm"
+                        onClick={printSummary}
+                        disabled={printing}
+                        style={{ background: '#16a34a' }}
+                      >
+                        <Printer className="mr-1 h-4 w-4" />
+                        {printing ? 'Sending…' : printed ? 'Print again' : 'Print summary'}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="flex justify-center bg-slate-200 p-4">
+                    <iframe
+                      ref={paperRef}
+                      srcDoc={paper.html}
+                      title="Closing summary preview"
+                      className="bg-white shadow-md"
+                      style={{ width: 340, height: paperH }}
+                      onLoad={fitPaper}
+                    />
+                  </div>
+                </div>
+              ) : null}
             </>
           ) : null}
         </div>
@@ -1194,22 +1306,18 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
           {step === 'done' ? (
             <>
-              <Button variant="ghost" onClick={showSummary}>
-                <Printer className="mr-1 h-4 w-4" /> Closing statement
-              </Button>
-              <Button onClick={finish}>Done</Button>
+              {/* The summary builds itself on this step; this is the retry path
+                  for the rare case where it did not. */}
+              {!paper ? (
+                <Button variant="ghost" onClick={showSummary}>
+                  <Printer className="mr-1 h-4 w-4" /> Closing summary
+                </Button>
+              ) : null}
+              <Button onClick={finish}>{printed ? 'Done' : 'Done — skip printing'}</Button>
             </>
           ) : null}
         </DialogFooter>
       </DialogContent>
-      {statement ? (
-        <ClosingStatementDialog
-          open
-          sessionId={session.id}
-          statement={statement}
-          onClose={() => setStatement(null)}
-        />
-      ) : null}
     </Dialog>
   );
 };
