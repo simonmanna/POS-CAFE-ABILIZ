@@ -30,7 +30,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useCloseShift } from './api';
-import { buildClosingStatementHtml, printClosingStatement } from './closing-statement';
+import type { ClosingStatementInput } from './closing-statement';
+import { ClosingStatementDialog } from './ClosingStatementDialog';
 import {
   useSessionReconciliation, closeBlockers, blockerCount, tenderAccountRows,
 } from '@/features/pos/session-reconciliation';
@@ -493,15 +494,17 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     });
   }, [accountRows]);
 
-  // Auto-print the closing statement once when the shift closes. These hooks
-  // must stay above the `!session` early return (Rules of Hooks); the print
-  // function is defined below, so it is reached through a ref.
-  const printedOnce = useRef(false);
-  const printSummaryRef = useRef<() => void>(() => {});
+  // Show the closing statement preview once when the shift closes — preview
+  // only, it prints when the cashier presses Print. These hooks must stay
+  // above the `!session` early return (Rules of Hooks); the builder is defined
+  // below, so it is reached through a ref.
+  const [statement, setStatement] = useState<ClosingStatementInput | null>(null);
+  const previewedOnce = useRef(false);
+  const showSummaryRef = useRef<() => void>(() => {});
   useEffect(() => {
-    if (step === 'done' && result && !printedOnce.current) {
-      printedOnce.current = true;
-      printSummaryRef.current();
+    if (step === 'done' && result && !previewedOnce.current) {
+      previewedOnce.current = true;
+      showSummaryRef.current();
     }
   }, [step, result]);
 
@@ -588,26 +591,24 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
   };
 
   /* Small receipt-size closing statement: opening float, total sales and the
-   * sales breakdown per payment mode — printed automatically when the shift
-   * closes, and again via the Print button on the done step. */
-  const printSummary = () => {
+   * sales breakdown per payment mode — previewed when the shift closes and
+   * again via the button on the done step; printed only on demand. */
+  const showSummary = () => {
     const report: any = recon?.report ?? {};
-    printClosingStatement(
-      buildClosingStatementHtml({
-        openingFloat: session.openingFloat,
-        openedAt: session.openedAt,
-        closedAt: (result as any)?.closedAt ?? new Date().toISOString(),
-        registerName: session.cashRegister?.name ?? report.cashSession?.registerName,
-        cashierName: report.cashSession?.cashierName ?? null,
-        totals: report.totals,
-        byMethod: report.byMethod,
-        counted: (result as any)?.closingCounted,
-        expected: (result as any)?.closingExpected,
-        difference: (result as any)?.closingDifference,
-      }),
-    );
+    setStatement({
+      openingFloat: session.openingFloat,
+      openedAt: session.openedAt,
+      closedAt: (result as any)?.closedAt ?? new Date().toISOString(),
+      registerName: session.cashRegister?.name ?? report.cashSession?.registerName,
+      cashierName: report.cashSession?.cashierName ?? null,
+      totals: report.totals,
+      byMethod: report.byMethod,
+      counted: (result as any)?.closingCounted,
+      expected: (result as any)?.closingExpected,
+      difference: (result as any)?.closingDifference,
+    });
   };
-  printSummaryRef.current = printSummary;
+  showSummaryRef.current = showSummary;
 
   const variance = Number(result?.closingDifference ?? 0);
   const stepIndex = STEPS.findIndex((s) => s.key === step);
@@ -618,7 +619,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && (step === 'done' ? finish() : onClose())}>
-      <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[620px]">
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(1000px,96vw)]">
         <DialogHeader className="border-b border-slate-100 px-6 pb-4 pt-6">
           <DialogTitle className="flex items-center gap-2">
             <PowerOff className="h-4 w-4 text-rose-600" />
@@ -667,8 +668,13 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Sales this shift</p>
                 <p className="font-mono text-sm font-bold text-slate-900">
-                  {recon ? plain(recon.report?.totals?.saleCount) : '—'}
+                  {recon ? fmt(recon.report?.totals?.salesTotal) : '—'}
                 </p>
+                {recon ? (
+                  <p className="text-[10px] text-slate-500">
+                    {plain(recon.report?.totals?.saleCount)} sale{Number(recon.report?.totals?.saleCount) === 1 ? '' : 's'} · all payment methods
+                  </p>
+                ) : null}
               </div>
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Open since</p>
@@ -778,6 +784,15 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   </ul>
                 </Notice>
               )}
+
+              {recon?.pendingPostings ? (
+                <Notice tone="info" title={`${recon.pendingPostings} stock deduction${recon.pendingPostings === 1 ? '' : 's'} still posting`}>
+                  <p>
+                    This does not stop you closing — your sales and money are final. Stock catches up on its own;
+                    anything that cannot post shows on the Posting Monitor for a manager.
+                  </p>
+                </Notice>
+              ) : null}
 
               <button
                 type="button"
@@ -899,37 +914,36 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-[10px] uppercase tracking-wide text-slate-400">
-                        <th className="px-3 py-1.5 text-left font-bold">Account</th>
-                        <th className="px-2 py-1.5 text-right font-bold">Opening</th>
-                        <th className="px-2 py-1.5 text-right font-bold">Received</th>
-                        <th className="px-2 py-1.5 text-right font-bold">Refunds</th>
-                        <th className="px-2 py-1.5 text-right font-bold">Expected</th>
-                        <th className="px-2 py-1.5 text-right font-bold">Provider shows</th>
-                        <th className="px-3 py-1.5 text-right font-bold">Variance</th>
+                        <th className="px-3 py-1 text-left font-bold">Account</th>
+                        <th className="px-2 py-1 text-right font-bold">Opening</th>
+                        <th className="px-2 py-1 text-right font-bold">Received</th>
+                        <th className="px-2 py-1 text-right font-bold">Refunds</th>
+                        <th className="px-2 py-1 text-right font-bold">Expected</th>
+                        <th className="px-2 py-1 text-right font-bold">Provider shows</th>
+                        <th className="px-3 py-1 text-right font-bold">Variance</th>
                       </tr>
                     </thead>
                     <tbody>
                       {accountRows.map((row) => (
                         <tr key={row.accountId} className="border-t border-slate-100">
-                          <td className="px-3 py-1.5">
-                            <span className="font-semibold text-slate-700">{row.label}</span>
-                            <span className="block text-[10px] text-slate-400">
-                              {row.accountName}{row.accountCode ? ` · ${row.accountCode}` : ''}
-                              {row.openingKnown ? '' : ' · no opening balance recorded'}
-                            </span>
-                          </td>
-                          <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-500">{plain(row.opening)}</td>
-                          <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-700">{plain(row.received)}</td>
-                          <td className="px-2 py-1.5 text-right font-mono tabular-nums text-slate-500">{plain(row.refunds)}</td>
                           <td
-                            className="px-2 py-1.5 text-right font-mono tabular-nums font-bold text-slate-900"
+                            className="whitespace-nowrap px-3 py-1 font-semibold text-slate-700"
+                            title={row.openingKnown ? undefined : 'No opening balance recorded'}
+                          >
+                            {row.accountName || row.label}
+                          </td>
+                          <td className="px-2 py-1 text-right font-mono tabular-nums text-slate-500">{plain(row.opening)}</td>
+                          <td className="px-2 py-1 text-right font-mono tabular-nums text-slate-700">{plain(row.received)}</td>
+                          <td className="px-2 py-1 text-right font-mono tabular-nums text-slate-500">{plain(row.refunds)}</td>
+                          <td
+                            className="px-2 py-1 text-right font-mono tabular-nums font-bold text-slate-900"
                             title={`Opening ${plain(row.opening)} + received ${plain(row.received)} − refunds ${plain(row.refunds)}${row.otherMovements ? ` ${row.otherMovements > 0 ? '+' : '−'} settlements/transfers ${plain(Math.abs(row.otherMovements))}` : ''}`}
                           >
                             {plain(row.expected)}
                           </td>
-                          <td className="px-2 py-1.5 text-right">
+                          <td className="px-2 py-1 text-right">
                             {row.accountId in uncounted ? (
-                              <div className="flex flex-col items-end gap-1">
+                              <div className="flex items-center justify-end gap-2">
                                 <input
                                   aria-label={`Why ${row.label} was not counted`}
                                   className="w-36 rounded border border-amber-300 bg-amber-50 p-1 text-xs"
@@ -939,14 +953,14 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                                 />
                                 <button
                                   type="button"
-                                  className="text-[10px] font-semibold text-slate-500 hover:text-slate-900"
+                                  className="whitespace-nowrap text-[10px] font-semibold text-slate-500 hover:text-slate-900"
                                   onClick={() => setUncounted((u) => { const next = { ...u }; delete next[row.accountId]; return next; })}
                                 >
                                   Enter balance instead
                                 </button>
                               </div>
                             ) : (
-                              <div className="flex flex-col items-end gap-1">
+                              <div className="flex items-center justify-end gap-2">
                                 <input
                                   aria-label={`Closing balance ${row.label}`}
                                   type="number"
@@ -964,7 +978,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                                 />
                                 <button
                                   type="button"
-                                  className="text-[10px] font-semibold text-slate-500 hover:text-slate-900"
+                                  className="whitespace-nowrap text-[10px] font-semibold text-slate-500 hover:text-slate-900"
                                   onClick={() => {
                                     setAccountCounts((c) => { const next = { ...c }; delete next[row.accountId]; return next; });
                                     setUncounted((u) => ({ ...u, [row.accountId]: '' }));
@@ -976,7 +990,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                               </div>
                             )}
                           </td>
-                          <td className="px-3 py-1.5 text-right font-mono tabular-nums font-bold">
+                          <td className="px-3 py-1 text-right font-mono tabular-nums font-bold">
                             {row.variance == null ? (
                               <span className="text-slate-300">—</span>
                             ) : Math.abs(row.variance) < 0.005 ? (
@@ -989,7 +1003,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                       ))}
                     </tbody>
                   </table>
-                  <p className="px-3 py-1.5 text-[11px] text-slate-500">
+                  <p className="px-3 py-1 text-[11px] text-slate-500">
                     Enter what each provider shows. If you cannot check an account, choose "Could not check",
                     give the reason and get a manager to approve. Money still sitting with a provider is swept
                     to the bank separately, under Money &amp; Accounts → Settlements.
@@ -1174,7 +1188,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                 {closeShift.isPending ? (
                   <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Closing…</>
                 ) : (
-                  'Close shift & print summary'
+                  'Close shift'
                 )}
               </Button>
             </>
@@ -1182,14 +1196,22 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
           {step === 'done' ? (
             <>
-              <Button variant="ghost" onClick={printSummary}>
-                <Printer className="mr-1 h-4 w-4" /> Print summary again
+              <Button variant="ghost" onClick={showSummary}>
+                <Printer className="mr-1 h-4 w-4" /> Closing statement
               </Button>
               <Button onClick={finish}>Done</Button>
             </>
           ) : null}
         </DialogFooter>
       </DialogContent>
+      {statement ? (
+        <ClosingStatementDialog
+          open
+          sessionId={session.id}
+          statement={statement}
+          onClose={() => setStatement(null)}
+        />
+      ) : null}
     </Dialog>
   );
 };

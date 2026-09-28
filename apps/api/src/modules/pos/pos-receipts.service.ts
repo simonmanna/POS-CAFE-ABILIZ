@@ -15,6 +15,7 @@
  *   POST /pos/receipts/:invoiceId/print-additional-bill       → print additional bill
  *   POST /pos/receipts/:invoiceId/reprint-bill                → reprint bill
  *   POST /pos/receipts/:invoiceId/print-kot                   → print kitchen ticket
+ *   POST  /pos/receipts/print-closing-statement              → closing statement to thermal printer
  *   PATCH /pos/receipts/:invoiceId/settings/receipt          → save receipt settings
  */
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -23,7 +24,7 @@ import {
   Param, Patch, Post, Query, Res,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
-import { IsString } from 'class-validator';
+import { IsString, IsUUID, MaxLength } from 'class-validator';
 import type { Response } from 'express';
 import PDFDocument = require('pdfkit');
 import { Injectable, Logger, Module } from '@nestjs/common';
@@ -70,6 +71,16 @@ const toPrinterAscii = (s: string) =>
 class ReprintDto {
   @IsString()
   reason!: string;
+}
+
+class ClosingStatementPrintDto {
+  @IsUUID()
+  sessionId!: string;
+
+  /** The 44-column ticket rendered by the terminal (same text as its preview). */
+  @IsString()
+  @MaxLength(8000)
+  text!: string;
 }
 
 /* ============================== SERVICE ============================== */
@@ -1033,6 +1044,38 @@ if ($r -like 'OK*') { Write-Output $r; exit 0 } else { [Console]::Error.WriteLin
   }
 
   /** Print a pre-payment bill (ESC/POS). */
+  /**
+   * Print the cash register closing statement summary on the receipt printer.
+   * Only on demand (the cashier presses Print in the preview) — never
+   * automatically at shift close. The session must belong to this tenant and
+   * be closed; the ticket text is the one the terminal previewed.
+   */
+  async printClosingStatement(sessionId: string, text: string): Promise<{ ok: boolean; backend: string; message?: string }> {
+    const session = await this.prisma.client.cashSession.findFirst({
+      where: { id: sessionId, organizationId: this.tenant.organizationId },
+      select: { status: true },
+    });
+    if (!session) throw new NotFoundException('Cash session not found');
+    if (session.status === 'open') throw new BadRequestException('The shift is still open; close it before printing the closing statement.');
+
+    const target = await this.resolvePrintTarget();
+    if (target.kind === 'none') {
+      this.logger.warn(`[POS] No printer configured; closing statement:\n${text}`);
+      return { ok: true, backend: 'console', message: 'No printer configured; closing statement logged to server console.' };
+    }
+    try {
+      await this.sendRaw(target, Buffer.concat([
+        Buffer.from(toPrinterAscii(text) + '\n', 'ascii'),
+        await this.feedBuffer(),
+        Buffer.from([0x1d, 0x56, 0x00]),
+      ]));
+      return { ok: true, backend: target.backend };
+    } catch (e: any) {
+      this.logger.warn(`[POS] Printer unreachable; closing statement not printed: ${e?.message}`);
+      return { ok: false, backend: target.backend, message: e?.message ?? 'printer error' };
+    }
+  }
+
   async printBill(invoiceId: string, userId?: string, isReprint = false): Promise<{ ok: boolean; backend: string; message?: string }> {
     if (!isReprint) {
       const inv = await this.prisma.client.invoice.findFirst({
@@ -1508,6 +1551,12 @@ export class PosReceiptsController {
   private readonly logger = new Logger(PosReceiptsController.name);
 
   constructor(private readonly svc: PosReceiptsService) {}
+
+  @Post('print-closing-statement')
+  @RequirePermissions('pos:checkout')
+  async printClosingStatement(@Body() dto: ClosingStatementPrintDto) {
+    return this.svc.printClosingStatement(dto.sessionId, dto.text);
+  }
 
   @Get(':invoiceId/pdf')
   @RequirePermissions('pos:read')

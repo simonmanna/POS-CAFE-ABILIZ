@@ -592,7 +592,35 @@ export function AppShell() {
                       (i) => flagEnabled(i.flag) && (!i.permission || hasPermission(i.permission)),
                     );
           if (items.length === 0) return null;
-          const isOpen = collapsed || !section.title || expanded[section.title];
+          const isOpen = !section.title || (!collapsed && expanded[section.title]);
+          // Collapsed rail: one icon per section, not every item — the full
+          // list ran far down the page. Clicking it opens the sidebar on that section.
+          if (collapsed && section.title) {
+            const SectionIcon = section.icon ?? items[0].icon;
+            const title = section.title;
+            const active = items.some((i) => i.to !== '/' && location.pathname.startsWith(i.to));
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  persistExpanded({ ...expanded, [title]: true });
+                  setSidebarCollapsed(false);
+                }}
+                className={cn('sb-link press relative flex w-full items-center justify-center rounded-lg px-2 py-2', active && 'is-active')}
+                title={sectionTitle(title, t)}
+                aria-label={sectionTitle(title, t)}
+              >
+                {active && (
+                  <span
+                    className="sb-active-bar absolute left-0 top-1/2 h-6 w-[3px] rounded-r-full"
+                    style={{ background: sb.sidebarActiveBar, boxShadow: `0 0 10px ${sb.sidebarActiveBar}` }}
+                  />
+                )}
+                <SectionIcon className="sb-link-icon h-4 w-4 shrink-0" style={{ width: 16, height: 16 }} />
+              </button>
+            );
+          }
           return (
             <div key={idx} className="space-y-0">
               {section.title && !collapsed ? (
@@ -609,12 +637,6 @@ export function AppShell() {
                     className={cn('h-3.5 w-3.5 shrink-0 opacity-70 transition-transform duration-200 ease-out', !isOpen && '-rotate-90')}
                   />
                 </button>
-              ) : section.title && collapsed ? (
-                <div
-                  className="mx-2 my-1 border-t"
-                  style={{ borderColor: sb.sidebarBorder }}
-                  aria-hidden
-                />
               ) : null}
               {isOpen &&
                 items.map((item, i) => {

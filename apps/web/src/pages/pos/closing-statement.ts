@@ -1,10 +1,10 @@
 import { useAuthStore } from '@/stores/auth.store';
 
 /**
- * Cash Register Closing Statement Summary — printed right after a shift close.
- * Same receipt-size mechanism the bill / KOT tickets use: a 44-column
- * monospace text ticket wrapped in the 72mm thermal envelope and printed
- * through a hidden iframe, so `window.print()` never pulls in the app UI.
+ * Cash Register Closing Statement Summary — previewed after a shift close.
+ * Same 44-column monospace ticket the bill / KOT use: the HTML wraps it in the
+ * 72mm paper for the on-screen preview, and the text is what
+ * POST /pos/receipts/print-closing-statement sends to the thermal printer.
  */
 const W = 44;
 
@@ -103,26 +103,4 @@ export function buildClosingStatementHtml(p: ClosingStatementInput): string {
     document.head.appendChild(s);
   };
 </script></body></html>`;
-}
-
-/** Print the summary on receipt paper through a hidden iframe (KOT/bill pattern). */
-export function printClosingStatement(html: string): void {
-  const frame = document.createElement('iframe');
-  frame.style.position = 'fixed';
-  frame.style.right = '0';
-  frame.style.bottom = '0';
-  frame.style.width = '0';
-  frame.style.height = '0';
-  frame.style.border = '0';
-  frame.srcdoc = html;
-  frame.onload = () => {
-    try {
-      frame.contentWindow?.focus();
-      frame.contentWindow?.print();
-    } catch {
-      /* the preview stays available via the Print button */
-    }
-    setTimeout(() => frame.remove(), 1500);
-  };
-  document.body.appendChild(frame);
 }
