@@ -496,9 +496,17 @@ export interface OfflineQueueState {
  *   4. Auto-replay on a 15s timer whenever online && pending.length > 0 (previously replay fired only on
  *      the browser online event — which never fires without internet, so queued sales were stuck in IndexedDB forever).
  *
+ * With `monitor: false` (connection mode "offline" — a local-only install
+ * where the API and database run on this PC) none of the connectivity work
+ * runs: no health polling, no online/offline listeners, no auto-replay timers.
+ * `online` is always true and only the cheap pending-count poll remains, so a
+ * payment interrupted by a stopped service can still be retried by hand.
+ *
  * Returns the live state for the badge + indicator.
  */
-export function useOfflineQueue(): Omit<OfflineQueueState, 'failed'> & { replay: () => Promise<void> } {
+export function useOfflineQueue(
+  { monitor = true }: { monitor?: boolean } = {},
+): Omit<OfflineQueueState, 'failed'> & { replay: () => Promise<void> } {
   const [online, setOnline] = useState<boolean>(true); // start optimistic; health check will correct
   const [pending, setPending] = useState<QueuedSale[]>([]);
   const [replaying, setReplaying] = useState(false);
@@ -530,8 +538,14 @@ export function useOfflineQueue(): Omit<OfflineQueueState, 'failed'> & { replay:
     replayRef.current = replay;
   }, [replay]);
 
+  // Local-only mode: nothing to monitor, the server is this PC.
+  useEffect(() => {
+    if (!monitor) setOnline(true);
+  }, [monitor]);
+
   // Wire up online/offline listeners as fast-path hints only
   useEffect(() => {
+    if (!monitor) return;
     const onOnline = () => checkHealth();
     const onOffline = () => checkHealth();
     window.addEventListener('online', onOnline);
@@ -540,10 +554,11 @@ export function useOfflineQueue(): Omit<OfflineQueueState, 'failed'> & { replay:
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
     };
-  }, [checkHealth]);
+  }, [checkHealth, monitor]);
 
   // Poll server health every 10s
   useEffect(() => {
+    if (!monitor) return;
     let cancelled = false;
     const check = async () => {
       const reachable = await checkHealth();
@@ -557,7 +572,7 @@ export function useOfflineQueue(): Omit<OfflineQueueState, 'failed'> & { replay:
       cancelled = true;
       if (healthCheckRef.current) clearInterval(healthCheckRef.current);
     };
-  }, [checkHealth, pending.length]);
+  }, [checkHealth, pending.length, monitor]);
 
   // Poll the queue.
   useEffect(() => {
@@ -573,7 +588,7 @@ export function useOfflineQueue(): Omit<OfflineQueueState, 'failed'> & { replay:
 
   // Auto-replay timer: every 15s when online and pending > 0
   useEffect(() => {
-    if (online && pending.length > 0) {
+    if (monitor && online && pending.length > 0) {
       replayTimerRef.current = window.setInterval(() => {
         if (online) replayRef.current?.(); // online captured in closure; re-check inside replay()
       }, 15_000);
@@ -581,22 +596,27 @@ export function useOfflineQueue(): Omit<OfflineQueueState, 'failed'> & { replay:
     return () => {
       if (replayTimerRef.current) clearInterval(replayTimerRef.current);
     };
-  }, [online, pending.length]);
+  }, [online, pending.length, monitor]);
 
   // Replay the moment the till window comes back into focus / becomes
   // visible — a queued payment should not sit behind the next timer tick
   // after the cashier returns to the register.
   useEffect(() => {
+    if (!monitor) return;
     const attempt = async () => {
       const reachable = await checkHealth();
       if (reachable) replayRef.current?.(); // replayAll is a no-op on an empty queue
     };
-    window.addEventListener('focus', attempt);
-    document.addEventListener('visibilitychange', () => {
+    const onVisible = () => {
       if (document.visibilityState === 'visible') void attempt();
-    });
-    return () => window.removeEventListener('focus', attempt);
-  }, [checkHealth]);
+    };
+    window.addEventListener('focus', attempt);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', attempt);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [checkHealth, monitor]);
 
   return { online, pending, replaying, replay };
 }

@@ -1292,6 +1292,9 @@ export class PosService {
     const config = (mod?.config as Record<string, unknown>) ?? { posMode: 'cafe' };
     return {
       ...config,
+      // Local-only install by default: every service and the database live on
+      // the till PC, so there is no connection to watch unless an admin says so.
+      connectionMode: config.connectionMode === 'online' ? 'online' : 'offline',
       discountApproval: {
         tier1: resolveDiscountThreshold((org?.settings as any)?.discountApproval?.tier1),
       },
@@ -1299,7 +1302,7 @@ export class PosService {
   }
 
   /** Update POS module config (posMode, sharedDrawer, etc). */
-  async updatePosSettings(dto: { posMode?: string; sharedDrawer?: boolean }): Promise<Record<string, unknown>> {
+  async updatePosSettings(dto: { posMode?: string; sharedDrawer?: boolean; connectionMode?: 'offline' | 'online' }): Promise<Record<string, unknown>> {
     const existing = await this.prisma.client.organizationModule.findUnique({
       where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: 'pos' } },
     });

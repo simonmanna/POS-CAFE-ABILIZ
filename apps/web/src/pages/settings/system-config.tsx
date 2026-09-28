@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Save, Loader2, SlidersHorizontal, Landmark } from 'lucide-react';
+import { Save, Loader2, SlidersHorizontal, Landmark, Network } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { api } from '@/lib/api';
+import { usePosSettings, useUpdatePosSettings } from '@/features/pos/api';
 import { notify } from '@/lib/notify';
 
 /**
@@ -178,9 +179,84 @@ export function GroupCard({
   );
 }
 
+const CONNECTION_MODES = {
+  offline: 'Everything (database, services, POS) runs on this PC. The POS never checks for a network or internet connection and shows no online icon.',
+  online: 'The POS monitors its connection to the server, shows an online/offline icon on the selling terminal, and syncs queued sales when the connection returns.',
+} as const;
+
+type ConnectionMode = keyof typeof CONNECTION_MODES;
+
+/** Online/offline system mode. Stored in the POS module config, served to the
+ *  terminal by GET /pos/settings (cashiers can read it; setting:read not needed). */
+function ConnectionModeCard() {
+  const { data, isLoading } = usePosSettings();
+  const update = useUpdatePosSettings();
+  const [mode, setMode] = useState<ConnectionMode>('offline');
+
+  useEffect(() => {
+    if (data) setMode(data.connectionMode === 'online' ? 'online' : 'offline');
+  }, [data]);
+
+  const saved: ConnectionMode = data?.connectionMode === 'online' ? 'online' : 'offline';
+
+  const save = async () => {
+    try {
+      await update.mutateAsync({ connectionMode: mode });
+      notify.success(`System set to ${mode}`);
+    } catch (e: any) {
+      notify.error(e?.response?.data?.message ?? 'Failed to save connection mode');
+    }
+  };
+
+  return (
+    <Card className="lg:col-span-2">
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Network className="h-4 w-4 text-muted-foreground" />
+          <div>
+            <CardTitle>System Connection Mode</CardTitle>
+            <CardDescription>Is this system online (networked) or offline (runs only on this PC)?</CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-16 w-full" />
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-muted-foreground sm:max-w-md">{CONNECTION_MODES[mode]}</p>
+              <div className="w-full shrink-0 sm:w-64">
+                <Select value={mode} onValueChange={(v) => setMode(v as ConnectionMode)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="offline">Offline (this PC only)</SelectItem>
+                    <SelectItem value="online">Online (check connection)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <Button onClick={save} disabled={mode === saved || update.isPending}>
+              {update.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="mr-2 h-4 w-4" />
+              )}
+              Save
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SystemConfigSection() {
   return (
     <>
+      <ConnectionModeCard />
       <GroupCard
         group="inventory"
         title="Inventory Configuration"

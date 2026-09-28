@@ -222,6 +222,8 @@ export function usePosSettings() {
     queryFn: async () => (await api.get<{
       posMode?: string;
       sharedDrawer?: boolean;
+      /** offline = local-only install, no connectivity checks; online = monitor the server link. */
+      connectionMode?: 'offline' | 'online';
       /** F-03: the ONE discount-approval threshold. Never hardcode it again. */
       discountApproval?: { tier1: number; tier1Amount?: number };
     }>('/pos/settings')).data,
@@ -232,7 +234,7 @@ export function usePosSettings() {
 export function useUpdatePosSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { posMode?: string; sharedDrawer?: boolean }) =>
+    mutationFn: async (data: { posMode?: string; sharedDrawer?: boolean; connectionMode?: 'offline' | 'online' }) =>
       (await api.patch('/pos/settings', data)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['pos-settings'] }),
   });

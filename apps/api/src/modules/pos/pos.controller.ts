@@ -237,6 +237,10 @@ class UpdatePosSettingsDto {
   @ApiProperty({ required: false, description: 'One till shared by several servers. Off by default: a collection must land in the drawer of the cashier who counts it.' })
   @IsOptional() @IsBoolean()
   sharedDrawer?: boolean;
+
+  @ApiProperty({ required: false, enum: ['offline', 'online'], description: 'offline = everything runs on this PC; the terminal never checks connectivity. online = the terminal monitors the server connection and shows its status.' })
+  @IsOptional() @IsString() @IsIn(['offline', 'online'])
+  connectionMode?: 'offline' | 'online';
 }
 
 class OperationApprovalDto {

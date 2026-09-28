@@ -10,6 +10,7 @@
 import React from 'react';
 import { Wifi, WifiOff, CloudUpload, AlertTriangle, RotateCcw, Trash2 } from 'lucide-react';
 import { useOfflineQueue, useFailedSales, type FailedSale } from '@/features/pos/offline-queue';
+import { usePosSettings } from '@/features/pos/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 
@@ -109,12 +110,21 @@ const FailedSaleRow: React.FC<{
 };
 
 export const OfflineIndicator: React.FC = () => {
-  const { online, pending, replaying, replay } = useOfflineQueue();
+  // Connection mode "offline" (the default) = local-only install: the API and
+  // database run on this PC, so there is no connection to check or display.
+  const { data: posSettings } = usePosSettings();
+  const monitor = posSettings?.connectionMode === 'online';
+  const { online, pending, replaying, replay } = useOfflineQueue({ monitor });
   const { failed, retry, discard } = useFailedSales();
   const [reviewOpen, setReviewOpen] = React.useState(false);
 
   const onClick = () => {
     if (pending.length === 0) return;
+    if (!monitor) {
+      toast.info(`Saving ${pending.length} unsaved payment${pending.length === 1 ? '' : 's'}…`);
+      replay();
+      return;
+    }
     if (!online) {
       toast.warning(`Offline — ${pending.length} sale${pending.length === 1 ? '' : 's'} queued. They will sync when the network returns.`);
       return;
@@ -125,6 +135,24 @@ export const OfflineIndicator: React.FC = () => {
 
   return (
     <>
+      {!monitor ? (
+        // Local-only: no online icon. Surface only a payment the local service
+        // did not confirm (e.g. it was restarting), so the cashier can retry it.
+        pending.length > 0 && (
+          <button
+            type="button"
+            onClick={onClick}
+            disabled={replaying}
+            title={`${pending.length} payment${pending.length === 1 ? '' : 's'} not yet saved. Click to retry.`}
+            className="pos-tbl-pill !px-2.5 !gap-1 !bg-amber-500/20 !border-amber-400/50"
+          >
+            <AlertTriangle className="h-4 w-4 text-amber-200" />
+            <span className="inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-white/90 text-[10px] font-bold text-slate-900 leading-none">
+              {pending.length}
+            </span>
+          </button>
+        )
+      ) : (
       <button
         type="button"
         onClick={onClick}
@@ -156,6 +184,7 @@ export const OfflineIndicator: React.FC = () => {
           <CloudUpload className="h-3.5 w-3.5 text-amber-200" />
         ) : null}
       </button>
+      )}
 
       {failed.length > 0 && (
         <button
