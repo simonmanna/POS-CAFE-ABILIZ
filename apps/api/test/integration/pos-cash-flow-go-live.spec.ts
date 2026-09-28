@@ -209,7 +209,9 @@ const isolated = !!process.env.DATABASE_URL && /^\/pos_stage1_\d+$/.test(new URL
       await expect(cash.close({ sessionId: session.id, closingCounted: 106 })).rejects.toThrow(/Airtel Money/);
       await expect(cash.close({ sessionId: session.id, closingCounted: 106, uncountedAccounts: { [ids.airtel]: 'Phone offline' } })).rejects.toThrow(/manager approval/);
       as(users.cashier2);
-      await expect(cash.close({ sessionId: session.id, closingCounted: 106, closingAccounts: { [ids.airtel]: 100 } })).rejects.toThrow(/Only the session cashier/);
+      // Another cashier may close this shift; what they cannot do is skip the
+      // tracked-tender observation, exactly as its owner cannot.
+      await expect(cash.close({ sessionId: session.id, closingCounted: 106 })).rejects.toThrow(/Airtel Money/);
       await expect(cash.close({ sessionId: session.id, closingCounted: 106, closingAccounts: { [ids.airtel]: 100 }, notes: 'left' }, { force: true })).rejects.toThrow(/approve_variance/);
       as(users.cashier);
       const closed: any = await cash.close({ sessionId: session.id, closingCounted: 106, uncountedAccounts: { [ids.airtel]: 'Phone offline' }, approverEmail: 'manager@golive.test', managerPin: '4321' });

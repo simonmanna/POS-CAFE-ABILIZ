@@ -57,8 +57,9 @@ export const ForceCloseCard: React.FC<{ session: CashSession; onDone: () => void
         <div className="text-sm text-amber-900">
           <p className="flex items-center gap-2 font-semibold"><ShieldAlert className="h-4 w-4" /> This register is open under another cashier</p>
           <p className="text-amber-800">
-            Open since {session.openedAt ? new Date(session.openedAt).toLocaleString() : '—'}. Only that cashier can close it normally
-            (or hand it over). If they have left, a manager can force-close it with a blind count.
+            Open since {session.openedAt ? new Date(session.openedAt).toLocaleString() : '—'}. You can close it with the ordinary
+            count above — the shift records who closed it. Force-close is the blind-count route: you count without seeing the
+            expected figure and become the approver of any variance.
           </p>
         </div>
         {canForce && (

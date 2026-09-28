@@ -224,6 +224,16 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
         </>
       ) : someoneElsesShift ? (
         <>
+          {/* A colleague's open shift is closable from here with the ordinary
+              count — the server records who closed whose. Force-close stays for
+              the blind-count route when the count cannot be trusted to the
+              closer (it makes them the variance approver of record). */}
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" className="border-rose-300 text-rose-700" onClick={() => setShowCloseShift(true)}>
+              <LogOut className="h-4 w-4 mr-1" /> Close register
+            </Button>
+          </div>
+          <PaymentAccountsPanel session={someoneElsesShift} registerId={registerId} />
           <ForceCloseCard session={someoneElsesShift} onDone={handleSessionChange} />
           <CashDrawerAudit sessionId={someoneElsesShift.id} />
         </>
@@ -261,7 +271,7 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
       />
       <CloseShiftDialog
         open={showCloseShift}
-        session={thisSession}
+        session={thisSession ?? someoneElsesShift}
         onClose={() => setShowCloseShift(false)}
         onClosed={handleSessionChange}
       />

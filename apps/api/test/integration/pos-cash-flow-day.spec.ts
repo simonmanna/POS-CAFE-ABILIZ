@@ -241,7 +241,9 @@ const isolated = !!process.env.DATABASE_URL && /^\/pos_stage1_\d+$/.test(new URL
       expect(Number(m[0].amount)).toBe(Number(p.amount) - Number(p.withholdingAmount));
     }
 
-    await expect(as('manager', () => cash.close({ sessionId: day1.id, closingCounted: expected, closingAccounts: { [ids.airtel]: 200 } }))).rejects.toThrow(/Only the session cashier/);
+    // A colleague is no longer refused this shift on identity alone — the close
+    // rules still apply to them (here: the tracked wallet must be observed).
+    await expect(as('manager', () => cash.close({ sessionId: day1.id, closingCounted: expected }))).rejects.toThrow(/Airtel Money/);
     const closed: any = await as('cashier', () => cash.close({ sessionId: day1.id, closingCounted: expected, closingDenomination: { '50': 2, '5': 1, '1': 1 }, closingAccounts: { [ids.airtel]: 200 } }));
     expect(closed.status).toBe('closed');
     const z: any = (await db.posReportSnapshot.findFirstOrThrow({ where: { cashSessionId: day1.id } })).reportData;

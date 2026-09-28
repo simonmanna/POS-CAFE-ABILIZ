@@ -303,10 +303,12 @@ export class CashSessionService {
   }
 
   /**
-   * Close the caller's own shift. A manager may force-close another cashier's
-   * abandoned shift (`force`), with a blind count and a reason; the manager is
-   * then the approver. Both paths run the exact same closing validation as a
-   * handover, so no door into a closed shift is weaker than another.
+   * Close a shift. Anyone holding `cash_session:close` may close any open shift
+   * on the register, not only their own — the note records who closed whose.
+   * A manager may instead force-close an abandoned shift (`force`) with a blind
+   * count and a reason, and is then the approver of record. All paths run the
+   * exact same closing validation as a handover, so no door into a closed shift
+   * is weaker than another.
    */
   async close(dto: CloseSessionDto, opts: { force?: boolean } = {}) {
     const organizationId = this.tenant.organizationId;
@@ -331,9 +333,20 @@ export class CashSessionService {
       if (!found) throw new NotFoundException('No open cash session');
       if (opts.force) {
         if (found.userId === actorId) throw new ForbiddenException('Close your own shift normally; force-close is for another cashier\'s shift');
-      } else if (found.userId !== actorId) {
-        throw new ForbiddenException('Only the session cashier can close this shift; a manager can force-close it');
       }
+      // A shift is NOT refused to a colleague. Holding `cash_session:close` is
+      // the authority to close a drawer on this floor, whoever opened it — the
+      // cashier who took the money has often already gone home, and making the
+      // till un-closable until someone walks through a second, separate
+      // force-close screen only ever produced shifts left open overnight.
+      //
+      // What protects the books is unchanged and enforced below: the count is
+      // validated against what the server recorded, open orders still block,
+      // and a variance or an unchecked wallet still needs an approver who is not
+      // the session's cashier. Every close names its actor in the audit log, and
+      // closing someone else's shift also says so on the session notes, so the
+      // Z-report reads as what it is.
+      const onBehalf = !opts.force && found.userId !== actorId;
       const session = await this.lockOpenSession(tx, found.id);
 
       // A-012: unsynced device operations NEVER block the close. The count is
@@ -371,7 +384,10 @@ export class CashSessionService {
       }
 
       const closedAt = resolveOccurredAt(dto.occurredAt) ?? new Date();
-      const notes = opts.force ? `${session.notes ? session.notes + ' | ' : ''}Force-closed by manager: ${dto.notes!.trim()}` : (dto.notes ?? session.notes);
+      const closedForNote = onBehalf ? await this.closedOnBehalfNote(tx, actorId, session.userId) : null;
+      const notes = opts.force
+        ? `${session.notes ? session.notes + ' | ' : ''}Force-closed by manager: ${dto.notes!.trim()}`
+        : ([dto.notes ?? session.notes, closedForNote].filter(Boolean).join(' | ') || null);
       await this.finishClosing(tx, session, closing, {
         counted, closedAt, notes, closingDenomination: dto.closingDenomination,
         audit: { kind: opts.force ? 'force_close' : 'close', actorId },
@@ -500,6 +516,22 @@ export class CashSessionService {
       await recordBusinessOutcome(tx, result, true);
       return result;
     });
+  }
+
+  /** "Closed by A on behalf of B" — stamped on the session when the closer is
+   * not the cashier who opened it, so the Z-report says who sealed the drawer. */
+  private async closedOnBehalfNote(tx: any, actorId: string, cashierId: string | null): Promise<string> {
+    const organizationId = this.tenant.organizationId;
+    const name = async (id: string | null) => {
+      if (!id) return 'unknown';
+      const u = await tx.user.findFirst({
+        where: { id, organizationId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      if (!u) return 'unknown';
+      return [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email;
+    };
+    return `Closed by ${await name(actorId)} on behalf of ${await name(cashierId)}`;
   }
 
   /**
