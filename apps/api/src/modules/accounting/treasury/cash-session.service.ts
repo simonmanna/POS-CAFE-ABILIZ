@@ -336,12 +336,16 @@ export class CashSessionService {
       }
       const session = await this.lockOpenSession(tx, found.id);
 
-      // A-012: the client-asserted pendingSyncCount stays, but the SERVER also
-      // counts unresolved offline ops in this org.
-      if ((dto.pendingSyncCount ?? 0) > 0) throw new BadRequestException('Sync or resolve pending device operations before closing');
+      // A-012: unsynced device operations NEVER block the close. The count is
+      // checked against what the server has recorded; a device queue syncs
+      // under any sign-in after the fact, and dead letters are a manager's
+      // follow-up (they may belong to another terminal entirely). Record the
+      // state and let the cashier seal the shift.
       const openDeadLetters = await tx.syncOpDeadLetter.count({ where: { organizationId, status: 'open' } });
-      if (openDeadLetters > 0) {
-        throw new BadRequestException(`${openDeadLetters} unresolved offline operation(s) must be synced or resolved before closing this shift`);
+      if ((dto.pendingSyncCount ?? 0) > 0 || openDeadLetters > 0) {
+        this.logger.warn(
+          `Closing shift ${session.id} with ${dto.pendingSyncCount ?? 0} client-reported pending sync(s) and ${openDeadLetters} open dead-letter operation(s)`,
+        );
       }
 
       const closing = await this.validateClosing(tx, session, {

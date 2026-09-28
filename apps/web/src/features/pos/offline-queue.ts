@@ -356,11 +356,20 @@ export async function discardFailed(idempotencyKey: string): Promise<void> {
  *  original response when the sale was already recorded, so a payment whose
  *  response was lost years before it synced unblocks itself here.
  *
- *  Outcomes:
+ * Outcomes:
  *   - ok        → recorded on the server (possibly long ago); removed from the queue
  *   - rejected  → the server refused (4xx); parked in the failed store for review
- *   - identity  → queued under a different sign-in/terminal; not attempted
+ *   - identity  → queued under a different organization; not attempted
  *   - stuck     → network / 5xx / 408 / 429; still queued, attempt count bumped
+ *
+ * Any signed-in user of the queueing organization may sync (the admin, a
+ * supervisor taking over, another cashier on the same terminal): the replay
+ * sends the ORIGINAL payload under the ORIGINAL Idempotency-Key, which the
+ * server keys by (organizationId, key) — so a sale it already recorded
+ * returns the original response instead of charging twice. Only a
+ * cross-organization queue is never replayed. The server keeps its own
+ * guards (drawer-session ownership, pricing authority) for sales it has not
+ * recorded yet, and their rejections surface in the failed list for review.
  */
 export type ReplayOutcome =
   | { status: 'ok' }
@@ -370,7 +379,7 @@ export type ReplayOutcome =
 
 export async function replaySale(sale: QueuedSale): Promise<ReplayOutcome> {
   const identity = operationIdentity();
-  if (sale.organizationId !== identity.organizationId || sale.operatorId !== identity.operatorId || sale.terminalId !== identity.terminalId) {
+  if (sale.organizationId !== identity.organizationId) {
     return { status: 'identity' };
   }
   try {
@@ -458,7 +467,7 @@ export async function replayAll(onResult?: (sale: QueuedSale, result: 'ok' | 'er
         onResult?.(sale, 'error');
         break;
       case 'identity':
-        unresolved.push({ ...sale, lastError: 'Sign in as the original operator to recover this operation' });
+        unresolved.push({ ...sale, lastError: 'Queued under a different organization — it cannot be synced from this sign-in' });
         onResult?.(sale, 'error');
         break;
       case 'stuck':
@@ -573,6 +582,21 @@ export function useOfflineQueue(): Omit<OfflineQueueState, 'failed'> & { replay:
       if (replayTimerRef.current) clearInterval(replayTimerRef.current);
     };
   }, [online, pending.length]);
+
+  // Replay the moment the till window comes back into focus / becomes
+  // visible — a queued payment should not sit behind the next timer tick
+  // after the cashier returns to the register.
+  useEffect(() => {
+    const attempt = async () => {
+      const reachable = await checkHealth();
+      if (reachable) replayRef.current?.(); // replayAll is a no-op on an empty queue
+    };
+    window.addEventListener('focus', attempt);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void attempt();
+    });
+    return () => window.removeEventListener('focus', attempt);
+  }, [checkHealth]);
 
   return { online, pending, replaying, replay };
 }

@@ -398,7 +398,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     setBusyOp(op.idempotencyKey);
     try {
       const outcome = await replaySale(op);
-      if (outcome.status === 'identity') toast.warning('This payment was queued under another sign-in. Sign in as that cashier to sync it.');
+      if (outcome.status === 'identity') toast.warning('This payment was queued under a different organization — it cannot be synced from this sign-in.');
       else if (outcome.status === 'ok') toast.success('Payment synced');
       else if (outcome.status === 'rejected') toast.info('The server rejected it — review it in the list.');
       else toast.error('Could not reach the server. The payment stays queued.');
@@ -415,7 +415,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       const outcome = await retryAndSyncFailed(op);
       if (outcome.status === 'ok') toast.success('Payment synced');
       else if (outcome.status === 'rejected') toast.info('The server rejected it again — see the reason in the list.');
-      else if (outcome.status === 'identity') toast.warning('This payment was queued under another sign-in. Sign in as that cashier to sync it.');
+      else if (outcome.status === 'identity') toast.warning('This payment was queued under a different organization — it cannot be synced from this sign-in.');
       else toast.error('Could not reach the server. The payment stays queued.');
       await refreshDeviceOps();
       void recheck();
@@ -469,7 +469,10 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
   const blockers = closeBlockers(recon);
   const problemCount = blockerCount(blockers);
-  const ready = !!recon && blockers.length === 0 && deviceOps.length === 0 && deviceOpsLoaded;
+  // Unsynced device payments do NOT gate the close — the count is verified
+  // against the server's books. They surface for a best-effort sync below and
+  // keep retrying on their own after the shift is sealed.
+  const ready = !!recon && blockers.length === 0 && deviceOpsLoaded;
 
   // Per-account movement for every wallet/bank account this till collects into.
   const trackedAccounts = useMemo(() => shiftTrackedAccounts(paymentMethods), [paymentMethods]);
@@ -723,13 +726,14 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                 </div>
               ) : null}
 
-              {/* Device-local payments bound to this shift — the server can't
-                  see these, so they surface and resolve right here. */}
+              {/* Device-local payments bound to this shift — informational
+                  only: they sync under any sign-in and never block closing. */}
               {deviceOps.length ? (
                 <Notice tone="warn" title={`${deviceOps.length} payment${deviceOps.length === 1 ? '' : 's'} on this device still need${deviceOps.length === 1 ? 's' : ''} syncing`}>
                   <p>
-                    These were taken at the till but not confirmed by the server. Sync each one before closing —
-                    a payment the server already recorded clears itself.
+                    These were taken at the till but not confirmed by the server. They sync under any sign-in —
+                    a payment the server already recorded clears itself. This does not stop you closing the shift;
+                    anything still queued keeps syncing after the shift is sealed.
                   </p>
                   <ul className="mt-2 space-y-2">
                     {deviceOps.map((op) => (
@@ -758,13 +762,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   <p>Every order is settled and the books agree with the drawer. You can count now.</p>
                 </Notice>
               ) : (
-                <Notice tone="warn" title={`${problemCount + deviceOps.length} thing${problemCount + deviceOps.length === 1 ? '' : 's'} to sort out first`}>
-                  {deviceOps.length ? (
-                    <p className="mb-1">
-                      {deviceOps.length} payment{deviceOps.length === 1 ? '' : 's'} on this device still need{deviceOps.length === 1 ? 's' : ''} syncing —
-                      a payment the server already recorded clears itself on the next sync.
-                    </p>
-                  ) : null}
+                <Notice tone="warn" title={`${problemCount} thing${problemCount === 1 ? '' : 's'} to sort out first`}>
                   <ul className="space-y-2">
                     {blockers.map((b) => (
                       <li key={b.text}>

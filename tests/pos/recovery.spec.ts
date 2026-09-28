@@ -130,6 +130,19 @@ describe('POS write-ahead recovery', () => {
     expect(await q.listPending()).toHaveLength(1);
   });
 
+  it('lets any user of the queueing organization sync a payment, not just the original cashier', async () => {
+    const q = await import('../../apps/web/src/features/pos/offline-queue');
+    await q.enqueueSale({ tenders: [{ method: 'cash', amount: 10 }] }, { idempotencyKey: 'shift-sale' });
+    // A different operator on the same organization (admin taking over the till).
+    mocks.auth.state = { organization: { id: 'org-a' }, user: { id: 'admin-a' } };
+    mocks.post.mockResolvedValue({ data: { invoiceId: 'shift-invoice', total: 10 } });
+    const unresolved = await q.replayAll();
+    expect(unresolved).toHaveLength(0);
+    expect(mocks.post).toHaveBeenCalledTimes(1);
+    expect(mocks.post.mock.calls[0][2].headers['Idempotency-Key']).toBe('shift-sale');
+    expect(await q.listPending()).toHaveLength(0);
+  });
+
   it('locks a pending cart and persists no manager credential', async () => {
     const { useCartStore } = await import('../../apps/web/src/features/pos/cart.store');
     useCartStore.getState().addLine({ name: 'Tea', productId: 'tea', quantity: 1, unitPrice: 10 } as any);

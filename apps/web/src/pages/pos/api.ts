@@ -3,7 +3,7 @@ import { draftPricing } from '@/features/pos/cart-payload';
 import { submitCashOperation } from '@/features/pos/cash-operation';
 import { useAuthStore } from '@/stores/auth.store';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
-import { submitEntitySaleOperation, submitSaleOperation, syncSessionOperations, type QueuedSale, type FailedSale } from '@/features/pos/offline-queue';
+import { submitEntitySaleOperation, submitSaleOperation, syncSessionOperations } from '@/features/pos/offline-queue';
 /**
  * POS terminal — API client.
  *
@@ -183,15 +183,13 @@ export function useCloseShift() {
       closingDenomination?: Record<string, number>;
       sessionId?: string;
     }) => {
-      // Try to clear this session's unsynced device payments first: the replay
-      // is idempotent, so a payment the server already recorded (its response
-      // was lost) unblocks itself instead of stopping the close.
-      const stillBlocking = await syncSessionOperations(body.sessionId);
-      if (stillBlocking.length) {
-        const err: any = new Error('Resolve pending or rejected payments on this device before closing');
-        err.pendingOps = stillBlocking as Array<QueuedSale | FailedSale>;
-        throw err;
-      }
+      // Best-effort: try to clear this session's unsynced device payments
+      // first — the replay is idempotent and works under any sign-in, so a
+      // payment the server already recorded (its response was lost) clears
+      // itself. Whatever is still queued NEVER blocks the close: the count is
+      // checked against the server's books, and the queue keeps syncing
+      // after the shift is sealed.
+      await syncSessionOperations(body.sessionId);
       return submitCashOperation('/cash-sessions/close', { ...body, pendingSyncCount: 0 });
     },
     onSuccess: () => {

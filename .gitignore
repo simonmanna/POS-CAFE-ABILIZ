@@ -65,3 +65,6 @@ __pycache__/
 # One-off local ops scripts (hardcoded demo data)
 apps/api/scripts/cancel-orders.ts
 apps/api/scripts/verify-cancel.ts
+
+# Local runtime artifact written by scripts/update-pos.ps1
+.rollback-sha
