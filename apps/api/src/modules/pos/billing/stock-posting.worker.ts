@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../kernel/prisma/prisma.service';
 import { TenantContextService } from '../../../kernel/tenancy/tenant-context.service';
 import { PosInvoiceService } from './pos-invoice.service';
+import { CashSessionService } from '../../accounting/treasury/cash-session.service';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -16,7 +17,7 @@ import { PosInvoiceService } from './pos-invoice.service';
  * `PosInvoiceService.processStockPostingJob`.
  */
 @Injectable()
-export class StockPostingWorker {
+export class StockPostingWorker implements OnModuleInit {
   private readonly logger = new Logger('StockPostingWorker');
   private readonly batchSize = Number(process.env.STOCK_POSTING_BATCH ?? '20');
   private readonly staleClaimMs = 60_000;
@@ -27,7 +28,34 @@ export class StockPostingWorker {
     private readonly prisma: PrismaService,
     private readonly tenant: TenantContextService,
     private readonly billing: PosInvoiceService,
+    @Optional() private readonly cashSessions?: CashSessionService,
   ) {}
+
+  onModuleInit(): void {
+    this.cashSessions?.registerStockPostingDrainer((id) => this.drainSession(id));
+  }
+
+  /**
+   * Post one shift's due jobs right now, in the caller's tenant scope — the
+   * close screen calls this so a cashier never waits for the 30 s tick. Only
+   * due jobs: one already in retry backoff is failing for a reason a retry
+   * every poll would not fix, and it no longer blocks the close anyway.
+   */
+  async drainSession(cashSessionId: string): Promise<void> {
+    const jobs = await this.prisma.client.stockPostingJob.findMany({
+      where: {
+        status: 'pending',
+        nextRetryAt: { lte: new Date() },
+        invoiceId: { in: (await this.prisma.client.invoice.findMany({ where: { cashSessionId }, select: { id: true } })).map((i: any) => i.id) },
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const job of jobs) {
+      await this.billing.processStockPostingJob(job.id).catch((err: unknown) =>
+        this.logger.warn(`stock job ${job.id} (shift ${cashSessionId}) failed: ${String(err)}`));
+    }
+  }
 
   @Cron(CronExpression.EVERY_30_SECONDS, { name: 'stock-posting-drain' })
   async drain(): Promise<void> {

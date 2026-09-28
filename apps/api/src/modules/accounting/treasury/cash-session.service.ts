@@ -176,6 +176,25 @@ export class CashSessionService {
     this.largeVarianceThreshold = dec(Number.isFinite(raw) && raw > 0 ? raw : 20000);
   }
 
+  /**
+   * Stock posting lives in the POS module, which depends on this one, so it
+   * registers itself here instead of being injected (no module cycle).
+   */
+  private stockPostingDrainer?: (cashSessionId: string) => Promise<void>;
+  registerStockPostingDrainer(fn: (cashSessionId: string) => Promise<void>) { this.stockPostingDrainer = fn; }
+
+  /**
+   * Post this shift's queued stock deductions now instead of waiting for the
+   * worker's next tick, so the close screen reflects them immediately.
+   * Best-effort: stock is not cash, and a line that cannot be deducted stays
+   * on the Posting Monitor — it never holds the drawer hostage.
+   */
+  private async drainStockPostings(cashSessionId?: string | null): Promise<void> {
+    if (!cashSessionId || !this.stockPostingDrainer) return;
+    await this.stockPostingDrainer(cashSessionId).catch((e: unknown) =>
+      this.logger.warn(`stock posting drain for session ${cashSessionId} failed: ${String(e)}`));
+  }
+
   /** Open a new session. Fails if there is already an open session for this register. */
   async open(dto: OpenSessionDto) {
     const organizationId = this.tenant.organizationId;
@@ -301,6 +320,10 @@ export class CashSessionService {
       if (!dto.notes?.trim()) throw new BadRequestException('A reason is required to force-close a shift');
     }
 
+    await this.drainStockPostings(dto.sessionId ?? (await this.prisma.client.cashSession.findFirst({
+      where: { organizationId, userId: actorId, status: 'open' }, select: { id: true },
+    }))?.id);
+
     return this.prisma.client.$transaction(async (tx: any) => {
       const found = dto.sessionId
         ? await tx.cashSession.findFirst({ where: { id: dto.sessionId, organizationId } })
@@ -390,6 +413,9 @@ export class CashSessionService {
     const opening = dto.openingFloat != null ? dec(dto.openingFloat) : counted;
     if (!opening.eq(counted)) throw new BadRequestException('Handover must carry the counted physical cash; record float changes as a separate movement');
     if (!dto.approvedById) throw new BadRequestException('A manager must approve the handover');
+    await this.drainStockPostings((await this.prisma.client.cashSession.findFirst({
+      where: { organizationId, cashRegisterId: dto.cashRegisterId, status: 'open' }, select: { id: true },
+    }))?.id);
 
     return this.prisma.client.$transaction(async (tx: any) => {
       await tx.$queryRawUnsafe('SELECT id FROM "CashRegister" WHERE id = $1 AND "organizationId" = $2 FOR UPDATE', dto.cashRegisterId, organizationId);
@@ -503,7 +529,12 @@ export class CashSessionService {
         reconciliation,
       });
     }
-    if (reconciliation.pendingPayments || reconciliation.pendingPostings || reconciliation.issues.length) {
+    // Stock postings are deliberately NOT a blocker: the sale and its money are
+    // final, and a deduction that cannot post (bad recipe, no warehouse) is a
+    // stock problem tracked on the Posting Monitor. Blocking here left cashiers
+    // unable to close for as long as a job sat in retry backoff — or forever
+    // once it was exhausted.
+    if (reconciliation.pendingPayments || reconciliation.issues.length) {
       throw new BadRequestException({ code: 'RECONCILIATION_ISSUES', message: 'Resolve unsettled orders, payments and posting differences before closing', reconciliation });
     }
     let manager: any = null;
@@ -1398,6 +1429,7 @@ export class CashSessionService {
   }
 
   async reconciliation(sessionId: string) {
+    await this.drainStockPostings(sessionId);
     return this.prisma.client.$transaction(async (tx: any) => {
       const session = await tx.cashSession.findFirst({ where: { id: sessionId, organizationId: this.tenant.organizationId } });
       if (!session) throw new NotFoundException('Session not found');

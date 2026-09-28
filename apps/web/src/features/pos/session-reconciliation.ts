@@ -104,12 +104,9 @@ export function closeBlockers(recon?: SessionReconciliationData): BlockerGroup[]
       hint: 'Take the balance, or move it to the customer’s house account.',
     });
   }
-  if (recon.pendingPostings) {
-    out.push({
-      text: `${recon.pendingPostings} stock posting${s(recon.pendingPostings)} still running`,
-      hint: 'These normally finish in a few seconds — check again shortly.',
-    });
-  }
+  // Stock postings are not listed: they never block the close (the server posts
+  // this shift's due jobs on every check, and anything left is a stock matter
+  // for the Posting Monitor, not the drawer).
   const issues = recon.issues ?? [];
   if (issues.length) {
     out.push({
