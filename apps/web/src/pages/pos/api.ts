@@ -1101,8 +1101,12 @@ export function useVoidOrderItem() {
 export function useCancelOrder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ orderId, reason }: { orderId: string; reason?: string }) =>
-      (await api.post(`/pos/orders/${orderId}/cancel`, { reason })).data,
+    /* `overrideById` / `overridePin` carry a manager's approval — the server
+     * demands one once the kitchen already holds food on this order. */
+    mutationFn: async ({ orderId, reason, overrideById, overridePin }: {
+      orderId: string; reason?: string; overrideById?: string; overridePin?: string;
+    }) =>
+      (await api.post(`/pos/orders/${orderId}/cancel`, { reason, overrideById, overridePin })).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pos-tables'] });
       qc.invalidateQueries({ queryKey: ['pos-orders', 'open'] });

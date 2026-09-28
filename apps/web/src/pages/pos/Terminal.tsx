@@ -52,6 +52,7 @@ import { ReceiptPreview, type ReceiptLine } from './ReceiptPreview';
 import { ReceiptPreviewDialog } from './ReceiptPreviewDialog';
 import { TableSelectorDialog } from './TableSelectorDialog';
 import { MoveItemsDialog } from './MoveItemsDialog';
+import { MergeTablesDialog } from './MergeTablesDialog';
 import { SplitBillDialog } from './SplitBillDialog';
 
 import { VoidItemDialog } from './VoidItemDialog';
@@ -66,7 +67,7 @@ import {
   fmtMoney,
   minutesBetween,
 } from '@/features/tables/utils';
-import { useTables, useTransferItems, usePosTablesStream, useTableZones } from '@/features/tables/api';
+import { useTables, useTransferItems, useMergeTables, usePosTablesStream, useTableZones } from '@/features/tables/api';
 
 import {
   useOpenSession,
@@ -224,6 +225,13 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Move Items ============== */
   const [showMoveItems, setShowMoveItems] = useState(false);
+
+  /* ============== Merge tables ============== */
+  const [showMergeTables, setShowMergeTables] = useState(false);
+  const [mergeBusy, setMergeBusy] = useState(false);
+
+  /* ============== Void the whole order ============== */
+  const [showVoidOrder, setShowVoidOrder] = useState(false);
 
   /* ============== Split Bill ============== */
   const [showSplit, setShowSplit] = useState(false);
@@ -492,6 +500,7 @@ const TerminalPage: React.FC = () => {
   const printAdditionalBill = usePrintAdditionalBill();
   const reprintReceipt = useReprintReceipt();
   const transferItemsMut = useTransferItems();
+  const mergeTablesMut = useMergeTables();
   const createOrderMut = useCreateOrder();
   /* Odoo-style multi-order (Orders panel) — tableless walk-in/takeaway/delivery
    * orders persist as open Orders and are resumable; dine-in keeps its table tab. */
@@ -1326,6 +1335,95 @@ const TerminalPage: React.FC = () => {
     }
   }, [tableId, saveTab, customer?.id, transferItemsMut, tables, loadTableOrder]);
 
+  /* Merge Tables — fold the picked tables' open tabs into the table being served.
+   *
+   * The whole act belongs to the server (one transaction per source: items move,
+   * kitchen tickets follow, the emptied order is superseded, the source table is
+   * freed and left pointing at this one). Our job is only to make sure this
+   * table's typed-but-unsaved lines are on the server FIRST — otherwise the next
+   * auto-save would push them with a version token the merge has already
+   * superseded — and to re-read the tab afterwards so the cashier sees the
+   * combined order rather than their half of it. */
+  const doMergeTables = useCallback(async (sourceIds: string[]) => {
+    if (!tableId || sourceIds.length === 0) return;
+    setMergeBusy(true);
+    try {
+      await flushCurrentOrder();
+      const mergedLabels: string[] = [];
+      for (const sourceId of sourceIds) {
+        await mergeTablesMut.mutateAsync({ sourceId, targetId: tableId });
+        const src = tables.find((t) => t.id === sourceId);
+        mergedLabels.push(`T${src?.number ?? '?'}`);
+      }
+      setShowMergeTables(false);
+      setPendingTableLoad(tableId);
+      tabSyncSig.current = '__loading__';
+      await loadTableOrder(tableId);
+      toast.success(`Merged ${mergedLabels.join(', ')} into ${activeTableLabel ?? 'this table'}`);
+    } catch (e: any) {
+      // A partial run is still a real result — some tables may already have been
+      // folded in — so re-read the tab before surfacing the failure.
+      if (tableId) { try { await loadTableOrder(tableId); } catch { /* the message below is what matters */ } }
+      toast.error(e?.response?.data?.message || e?.message || 'Merge failed');
+    } finally {
+      setMergeBusy(false);
+    }
+  }, [tableId, flushCurrentOrder, mergeTablesMut, tables, loadTableOrder, activeTableLabel]);
+
+  /* Void the WHOLE order — every open order sitting on this table is cancelled,
+   * which takes its items off the kitchen board, records the waste of anything
+   * already fired, closes the table's seat on it and (the status being derived
+   * from live items) frees the table. Lines that never reached the server have
+   * no history to keep, so an unsaved cart is simply dropped.
+   *
+   * Reason + the operator's own PIN are collected up front by the caller, and a
+   * manager's approval is asked for only if the server demands one — which it
+   * does once the kitchen already holds food on the order. */
+  const doVoidOrder = useCallback(async (reason: string) => {
+    const st = useCartStore.getState();
+    const openOrderIds = Array.from(new Set([
+      st.orderId ?? null,
+      ...(selectedTable?.orders ?? []).filter((o) => !o.closedAt).map((o) => o.orderId),
+    ].filter((x): x is string => !!x)));
+    const freedLabel = activeTableLabel;
+    const finish = (message: string) => {
+      tabSyncSig.current = '';
+      orderSaveSig.current = '';
+      clearCart();
+      setCustomer(null);
+      if (tableId) tableCartsRef.current.delete(tableId);
+      tableCartsRef.current.delete('walk-in');
+      currentSentLineIds.current.clear();
+      if (tableId) { setSelectedTableId(null); setTableView('grid'); }
+      toast.success(message);
+    };
+    try {
+      if (openOrderIds.length === 0) {
+        finish('Order voided');
+        return;
+      }
+      let approval: { managerId: string; pin: string } | null = null;
+      for (const orderId of openOrderIds) {
+        const send = () => cancelOrderMut.mutateAsync({
+          orderId, reason,
+          overrideById: approval?.managerId, overridePin: approval?.pin,
+        });
+        try {
+          await send();
+        } catch (e: any) {
+          const msg = e?.response?.data?.message || '';
+          if (e?.response?.status !== 403 || !/manager approval/i.test(msg)) throw e;
+          approval = await requestOverride('void');
+          if (!approval) { toast.error('Manager approval cancelled — the order is still open'); return; }
+          await send();
+        }
+      }
+      finish(freedLabel ? `Order voided — ${freedLabel} is free` : 'Order voided');
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || e?.message || 'Could not void the order');
+    }
+  }, [selectedTable, activeTableLabel, tableId, cancelOrderMut, requestOverride, clearCart, setCustomer]);
+
   /* Credit / charge-to-account sale.
    *
    * This is the SAME settle the cashier does for cash — only the settle mode
@@ -2088,7 +2186,9 @@ const TerminalPage: React.FC = () => {
               }
             }}
             onVoidItem={canVoidItem ? (line) => setVoidLine(line) : undefined}
+            onVoidOrder={canVoidItem ? () => setShowVoidOrder(true) : undefined}
             onMoveItems={() => setShowMoveItems(true)}
+            onMergeTables={tableId ? () => setShowMergeTables(true) : undefined}
             onSettleTab={tableId ? handleSettleTab : undefined}
           />
         )}
@@ -2187,6 +2287,31 @@ const TerminalPage: React.FC = () => {
         onClose={() => setVoidLine(null)}
         onConfirm={(lineId, reason) => voidLineOnServer(lineId, reason)}
       />
+
+      {/* Void the whole order — reason + the operator's PIN, then every open
+          order on this table is cancelled and the table frees up. */}
+      <PinConfirmDialog
+        open={showVoidOrder}
+        title="Void this order"
+        description={activeTableLabel
+          ? `Give a reason and your PIN to void every item on ${activeTableLabel}. The table is freed.`
+          : 'Give a reason and your PIN to void this whole order.'}
+        reasonLabel="Reason for voiding the order"
+        onClose={() => setShowVoidOrder(false)}
+        onVerified={async (reason) => { setShowVoidOrder(false); await doVoidOrder(reason); }}
+      />
+
+      {/* Merge Tables — join other tables' open tabs onto this one */}
+      {tableId ? (
+        <MergeTablesDialog
+          open={showMergeTables}
+          onClose={() => setShowMergeTables(false)}
+          targetId={tableId}
+          targetLabel={activeTableLabel}
+          onConfirm={doMergeTables}
+          busy={mergeBusy}
+        />
+      ) : null}
 
       {/* Move Items — 2-step wizard */}
       {tableId ? (

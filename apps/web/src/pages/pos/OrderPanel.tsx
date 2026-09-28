@@ -4,7 +4,8 @@
 //   • header      — item count + order-type + customer + clear
 //   • order lines — tap a line to SELECT it (highlighted); no per-line steppers
 //   • totals      — subtotal / discount / total
-//   • control row — Customer · Disc · More (dialog: Note, Void, Delete, Discount %, Move, Split, Hold, Held, Handover)
+//   • control row — Customer · Disc · More (dialog: Note, Void Item, Delete,
+//     Void Order, Discount %, Merge, Move, Split, Hold, Held, Handover)
 //   • numpad      — 1-9 0 . ⌫ + Qty / % / Price mode selectors + ±
 //   • primary     — Bill · KOT · Pay
 //
@@ -30,6 +31,8 @@ import {
   Percent,
   Delete as BackspaceIcon,
   MoreHorizontal,
+  Merge as MergeIcon,
+  Ban,
   User,
 } from "lucide-react";
 import {
@@ -71,7 +74,11 @@ interface Props {
   onAddDiscount: () => void;
   onPrintKot: () => void;
   onVoidItem?: (line: CartLine) => void;
+  /** Void the WHOLE order on this table — every line goes, the table frees up. */
+  onVoidOrder?: () => void;
   onMoveItems?: () => void;
+  /** Dine-in: fold one or more other tables' open tabs into this table. */
+  onMergeTables?: () => void;
   /** Dine-in: settle (pay) the table's order. */
   onSettleTab?: () => void;
   billAlreadyPrinted?: boolean;
@@ -145,7 +152,9 @@ export const OrderPanel: React.FC<Props> = ({
   onAddDiscount,
   onPrintKot,
   onVoidItem,
+  onVoidOrder,
   onMoveItems,
+  onMergeTables,
   onSettleTab,
   billAlreadyPrinted = false,
   onPrintAdditionalBill,
@@ -422,7 +431,9 @@ export const OrderPanel: React.FC<Props> = ({
           </button>
           <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
             <DialogTrigger asChild>
-              <button type="button" className="pos-ctl-btn" disabled={noSel && empty} title="More actions">
+              {/* Merge works on an empty table too (the items arrive from the
+                  other table), so it must not be locked behind a non-empty cart. */}
+              <button type="button" className="pos-ctl-btn" disabled={noSel && empty && !onMergeTables} title="More actions">
                 <MoreHorizontal className="h-4 w-4" /><span>More</span>
               </button>
             </DialogTrigger>
@@ -436,14 +447,22 @@ export const OrderPanel: React.FC<Props> = ({
                   <MoreCard icon={StickyNote} label="Note" onClick={() => { setMoreOpen(false); if (selectedLine) onNote(selectedLine); }} />
                 )}
                 {!noSel && onVoidItem && (
-                  <MoreCard icon={AlertTriangle} label="Void" tone="danger" onClick={() => { setMoreOpen(false); if (selectedLine) onVoidItem(selectedLine); }} />
+                  <MoreCard icon={AlertTriangle} label="Void Item" tone="danger" title="Void the selected item" onClick={() => { setMoreOpen(false); if (selectedLine) onVoidItem(selectedLine); }} />
                 )}
                 {!noSel && onRemove && (
                   <MoreCard icon={Trash2} label="Delete" tone="danger" onClick={() => { setMoreOpen(false); if (selectedLine) onRemove(selectedLine); }} />
                 )}
+                {/* Merge — the one action that is useful on an EMPTY table, since
+                    the items come in from the tables being folded in. */}
+                {!hideCafeFeatures && onMergeTables && (
+                  <MoreCard icon={MergeIcon} label="Merge Tables" title="Join other tables onto this one" onClick={() => { setMoreOpen(false); onMergeTables(); }} />
+                )}
                 {/* Order-level actions */}
                 {!empty && (
                   <>
+                    {onVoidOrder && (
+                      <MoreCard icon={Ban} label="Void" tone="danger" title="Void the whole order and free this table" onClick={() => { setMoreOpen(false); onVoidOrder(); }} />
+                    )}
                     <MoreCard icon={Percent} label="Discount %" disabled={!canDiscount} title={canDiscount ? "Order discount" : "Requires discount permission"} onClick={() => { setMoreOpen(false); onAddDiscount(); }} />
                     {!hideCafeFeatures && onMoveItems && (
                       <MoreCard icon={ArrowLeftRight} label="Move" title="Move items to another table" onClick={() => { setMoreOpen(false); onMoveItems(); }} />
