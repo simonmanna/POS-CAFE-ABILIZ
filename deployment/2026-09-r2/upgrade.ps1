@@ -258,6 +258,9 @@ Invoke-Step $state 'equivalence' {
 Invoke-Step $state 'history' {
     $before = & $psql -h $DbHost -p $Port -U $User -w -X -A -t -d $TargetDb -c 'select count(*) from "_prisma_migrations"'
     Push-Location (Join-Path $repoRoot 'apps\api')
+    # Prisma writes warnings to stderr; a redirected Windows PowerShell 5.1 run
+    # turns them into terminating errors (F6). Exit codes decide instead.
+    $ErrorActionPreference = 'Continue'
     try {
         $env:DATABASE_URL = "$targetUrl`?schema=public"
         foreach ($m in @('20260727120000_squashed_baseline', '20260727120001_rls_and_triggers')) {
@@ -273,6 +276,7 @@ Invoke-Step $state 'history' {
 # 12. The real migrations, with their own backfills, gates and triggers.
 Invoke-Step $state 'deploy' {
     Push-Location (Join-Path $repoRoot 'apps\api')
+    $ErrorActionPreference = 'Continue'   # F6, see 'history'
     try {
         $env:DATABASE_URL = "$targetUrl`?schema=public"
         & pnpm exec prisma migrate deploy | Out-File (Join-Path $WorkDir "migrate-deploy.log") -Encoding utf8
@@ -283,6 +287,7 @@ Invoke-Step $state 'deploy' {
 # 13. The database must now equal schema.prisma exactly.
 Invoke-Step $state 'drift' {
     Push-Location (Join-Path $repoRoot 'apps\api')
+    $ErrorActionPreference = 'Continue'   # F6, see 'history'
     try {
         & pnpm exec prisma migrate diff --from-url "$targetUrl`?schema=public" --to-schema-datamodel ./prisma/schema.prisma --exit-code | Out-Null
         if ($LASTEXITCODE -ne 0) { throw 'SCHEMA DRIFT: the database does not match schema.prisma.' }

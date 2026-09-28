@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS legacy_archive.account_mapping AS
 
 -- PosTable.customZone is dropped by 20260804120000; zone becomes text.
 CREATE TABLE IF NOT EXISTS legacy_archive.pos_table AS
-  SELECT "id", "organizationId", "name", "zone"::text AS "zone", "customZone"
+  SELECT "id", "organizationId", "name", "zone"::text AS "zone", "customZone",
+         "status"::text AS "status"
     FROM public."PosTable";
 
 -- Order.status is remapped by 20260805120100.

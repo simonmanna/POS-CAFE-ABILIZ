@@ -21,6 +21,8 @@ against its sidecar before each run). The live café was never touched.
 | **cutover-2026-09-18-r4** | 09-18 | Job 2 `-Rehearse` | **PASS, all six phases** | below |
 | **rehearsal-2026-09-18-r6** | 09-18 | G2 + UAT, **final kit** (D21, audit fixes) | **PASS** | [round 2](#round-2-final-kit-2026-09-18) |
 | **cutover-2026-09-18-r5** | 09-18 | Job 2 `-Rehearse`, **final kit** | **PASS, all six phases**; validator 20/20 on the promoted target | [round 2](#round-2-final-kit-2026-09-18) |
+| cutover-2026-09-22-r1 | 09-22 | Job 2 `-Rehearse`, **Sept 22 backup** | migrate failed → **abort PASS** | launched with `*>&1` again (the r4 trap). Kit now hardened (K9). The abort drill returned the stand-in writable |
+| **cutover-2026-09-22-r2** | 09-22 | Job 2 `-Rehearse`, **Sept 22 backup**, HEAD `f8e58c8` | **PASS preflight → switch**; accept pending the controlled sale | [round 3](#round-3-sept-22-production-backup-2026-09-22) |
 
 ## rehearsal-2026-09-18-r5 (G2)
 
@@ -158,3 +160,44 @@ pay-in 450,000 + direct invoice postings 24,000 (+9,000 reversed pair); **0
 credits ever**. 54 counted shifts show **99,232,000** leaving the drawer, and
 none of it was booked. 311,000 of the ledger is mobile money. The owner matches
 each shift row to bank slips or drawings, then signs the SIGNOFF worksheet.
+
+## Round 3: Sept 22 production backup (2026-09-22)
+
+Source: `old-production-database\backup-Sep-22-Production` (pg_dump 18.4,
+custom format, SHA-256 `d1a9804f…e2ba`), restored into the writable stand-in
+`cafe_rollback_test_r1`. Code: HEAD `f8e58c8`, 8 commits after
+`release-2026-09-r2`, including migration `20260922090000_pos_table_no_cleaning`.
+Evidence: `C:\POS-BACKUPS\local-live\cutover\cutover-2026-09-22-r2\`
+
+| Phase | Result |
+|---|---|
+| stand-in quiet state | 0 open shifts, 0 open orders, 0 parked carts; **22 KDS tickets `new`** (D3: the same tickets as Sept 17, oldest 2026-07-08), served by `rehearse-simulate-eod.sql` |
+| preflight | technical PASS; governance gaps listed |
+| freeze / backup | final dump hashed, offsite copy verified, restored to `cafe_final_ref_20260922_r2`, counts equal; posted debit = credit = **219,314,000.000000** |
+| migrate | 17/17 steps; mapping = approved (29 accounts); equivalence 2,539 columns / 649 indexes / 1,872 constraints match; **81** migrations applied; 0 drift; fingerprint **0 unexpected**; 9/9 transformation proofs; D21 9 changes; promoted to `cafe_pos_v2`, timezone UTC |
+| switch | API health/ready/startup 200; post-boot fingerprint 0 unexpected (Account 29→31, AccountMapping 20→23, Permission 192→654 allowlisted) |
+
+Expected next numbers from the final backup: `INV-2026-004513`, `RCT-008954`,
+`PAY-2026-004728`, `SALES/2026/04516`, `CASH/2026/04726`, all `OK`.
+
+Data: 4,432 closed and 356 cancelled orders; 127 products flip silent → warn;
+0 tables in `cleaning`; release preflight lists the known tenant conditions
+(stale unreconciled sessions, stock-ledger drift, inventory GL variance: D4/D5/D6).
+
+### Kit changes (round 3)
+
+| # | Change | Why |
+|---|---|---|
+| K7 | `archive.sql` keeps `PosTable.status`; `fingerprint.ts` allowlists it and proves `pos_table_status` (only cleaning → available) | `20260922090000` rewrites table status. A final backup taken while any table is `cleaning` would otherwise fail G4 during the cutover window |
+| K8 | the final reference is `cafe_final_ref_<date>_r<n>` | one name per day made a same-day retry after `abort` collide with the kept forensic copy, so preflight would refuse |
+| K9 | the Prisma steps in `upgrade.ps1` run with `ErrorActionPreference = 'Continue'` and are decided by exit codes | the third run lost to a Prisma stderr warning under redirection (r3, r4, cutover r1) |
+| K10 | `rehearse-simulate-eod.sql` is part of the kit (stand-in only, guarded: serves KDS tickets, refuses while shifts/orders/carts are open) | round 1's `simulate-eod.sql` was never kept |
+
+### New findings (round 3)
+
+| # | Finding | Action |
+|---|---|---|
+| F12 | The release is 8 commits past `release-2026-09-r2`, one of them a migration | redo M0: new tag (e.g. `release-2026-09-r3`), fresh G2 and UAT on that build |
+| F13 | The same 22 KDS tickets are still `new` on Sept 22 (2026-07-08 → 2026-09-09) | D3: bump/serve them in the OLD KDS before the final backup |
+| F14 | This workstation has one disk; the "offsite" copy landed on C: (4.4 GB free) | production `offsiteDir` must be a second physical disk or USB drive |
+| F15 | The local go-live needs the API's DB role decided: the rehearsed posture is `postgres` + `RLS_ALLOW_SUPERUSER=true`; `cafe-pos` is not a superuser and has no grants on `cafe_pos_v2` | decision `rlsPosture` (runbook §11) |

@@ -16,7 +16,7 @@
                     stop old services, 0 connections, legacy DB read-only
     backup     G11  final dump + globals + uploads + config + service settings,
                     SHA-256 manifest, offsite copy verified, dump restores into
-                    cafe_final_ref_<date>, counts equal, next numbers, pre-migration
+                    cafe_final_ref_<date>_r<n>, counts equal, next numbers, pre-migration
                     fingerprint
     migrate    G12  fresh workspace from the final dump, the chain with the
                     APPROVED mapping (never prompts), numbering equal, promote,
@@ -64,10 +64,11 @@ $pg   = $cfg.pg
 $psql = Join-Path $pg.bin 'psql.exe'; $pgDump = Join-Path $pg.bin 'pg_dump.exe'
 $pgDumpAll = Join-Path $pg.bin 'pg_dumpall.exe'; $pgRestore = Join-Path $pg.bin 'pg_restore.exe'
 $createdb = Join-Path $pg.bin 'createdb.exe'
-$runDate    = ($RunId -replace '^cutover-(\d{4})-(\d{2})-(\d{2})-r\d+$', '$1$2$3')
+$runTag     = ($RunId -replace '^cutover-(\d{4})-(\d{2})-(\d{2})-(r\d+)$', '$1$2$3_$4')
 $legacyDb   = $cfg.legacyDb
 $workspace  = 'cafe_migration_r1'          # the approved Job 1 workspace name, unchanged guard
-$finalRefDb = "cafe_final_ref_$runDate"
+# Per run: a same-day retry after abort must not collide with the kept forensic copy.
+$finalRefDb = "cafe_final_ref_$runTag"
 $targetDb   = $cfg.targetDb
 $evRoot     = Join-Path $cfg.backupRoot 'cutover'
 $dir        = Join-Path $evRoot $RunId

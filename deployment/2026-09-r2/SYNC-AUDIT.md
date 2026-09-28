@@ -21,7 +21,7 @@ OLD POS trading ──► end of day: shifts closed, orders/KDS 0, offline queue
                        POS-CAFE set read-only  ← the last legacy write happened before this
                          │
                    final.dump (+ globals, uploads, config, service settings)
-                   SHA-256 manifest, offsite copy, test restore → cafe_final_ref_<date>
+                   SHA-256 manifest, offsite copy, test restore → cafe_final_ref_<date>_r<n>
                          │
                    G12 restore into a fresh workspace → bridge → backfill → equivalence
                        → 80 migrations → drift 0 → fingerprint A/B vs the final ref

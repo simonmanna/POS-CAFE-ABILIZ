@@ -41,6 +41,7 @@ apps/api/backup/
 # Café production dumps. These carry live business data plus password and PIN
 # hashes; they live in C:\POS-BACKUPS\<date>\, never in the repository.
 deployed-backup-database/
+old-production-database/
 *.dump
 *.dump.sha256
 

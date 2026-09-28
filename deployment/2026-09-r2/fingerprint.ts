@@ -80,7 +80,8 @@ const ALLOWLIST: Record<string, Allow> = {
   Product: { columns: ['stockPolicy', 'station', 'updatedAt'], reason: '20260908000000 silent->warn; station enum->text (legacy_archive.product_policy)' },
   Role: { columns: ['permissions', 'updatedAt'], reason: 'permission migrations 20260907130000 / 20260910010000 / 20260913100100 / 20260914000200 / 20260914000600' },
   Organization: { columns: ['settings', 'updatedAt'], reason: '20260907130000 credit.allowUnlimited (legacy_archive.organization_settings)' },
-  PosTable: { columns: ['zone', 'customZone', 'updatedAt'], reason: '20260804120000 zone enum->text + PosTableZone rows (legacy_archive.pos_table)' },
+  PosTable: { columns: ['zone', 'customZone', 'status', 'updatedAt'],
+              reason: '20260804120000 zone enum->text + PosTableZone rows; 20260922090000 cleaning->available (legacy_archive.pos_table)' },
   Setting: { columns: ['updatedAt'], reason: 'scopeType/scopeId added by the squashed baseline' },
   KitchenTicket: { columns: ['status', 'station', 'updatedAt'], reason: '20260803140000 station enum->text' },
   Payment: { columns: ['cashSessionId', 'updatedAt'], reason: '20260903000000 unambiguous drawer-session backfill' },
@@ -508,6 +509,17 @@ async function proveTransformations(db: Client, findings: Finding[]): Promise<Re
   );
   const z = zones.rows[0];
   check('pos_table_zones', z.lost === '0', `unchanged=${z.unchanged} repointed=${z.repointed} lost=${z.lost}`);
+
+  // 20260922090000 - the only permitted status change is cleaning -> available.
+  const ts = await db.query<{ unchanged: string; cleaned: string; other: string }>(
+    `select count(*) filter (where t.status::text = a.status)::text as unchanged,
+            count(*) filter (where a.status = 'cleaning' and t.status::text = 'available')::text as cleaned,
+            count(*) filter (where t.status::text <> a.status
+                               and not (a.status = 'cleaning' and t.status::text = 'available'))::text as other
+       from legacy_archive.pos_table a join "PosTable" t on t.id = a.id`,
+  );
+  const s = ts.rows[0];
+  check('pos_table_status', s.other === '0', `unchanged=${s.unchanged} cleaning->available=${s.cleaned} other=${s.other}`);
 
   // D11 - businessDate is added but never backfilled; reports fall back to
   // issueDate, so a non-null value on a legacy invoice would be a rewrite.

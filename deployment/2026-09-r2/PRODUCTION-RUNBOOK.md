@@ -11,6 +11,8 @@ and cutover process that people can execute and sign.
 | Number continuity | 🟢 proven under use | first new invoice `INV-2026-004136`, receipt `RCT-008200` (Sept 17 data) |
 | Automated regression | 🟢 | POS suite 690/690 (r6); `validate-production.ts` up to date: 20 pass, 0 defects on the cutover target |
 | Cutover automation (Job 2) | 🟢 rehearsed | all six phases against disposable clones |
+| Sept 22 production backup | 🟢 through `switch` | `cutover-2026-09-22-r2`: 81 migrations, fingerprint 0 unexpected, next `INV-2026-004513` / `RCT-008954` ([REHEARSAL-LOG](REHEARSAL-LOG.md#round-3-sept-22-production-backup-2026-09-22)) |
+| M0 on the current build | 🔴 | 8 commits (one migration) after `release-2026-09-r2`: new tag + fresh G2/UAT (F12) |
 | Data synchronization audit | 🟢 | [SYNC-AUDIT.md](SYNC-AUDIT.md) |
 | G0 café discovery | 🔴 | needs the café machine |
 | **D19 legacy cash balance** | 🔴 **critical** | evidence report ready (`d19-cash-evidence.sql`); needs the owner's evidence and signature |
