@@ -241,6 +241,10 @@ class UpdatePosSettingsDto {
   @ApiProperty({ required: false, enum: ['offline', 'online'], description: 'offline = everything runs on this PC; the terminal never checks connectivity. online = the terminal monitors the server connection and shows its status.' })
   @IsOptional() @IsString() @IsIn(['offline', 'online'])
   connectionMode?: 'offline' | 'online';
+
+  @ApiProperty({ required: false, description: 'Show the expected closing amounts to the cashier while a shift is being closed or handed over. Off = blind close: the cashier counts first and only sees the figures once the count is committed.' })
+  @IsOptional() @IsBoolean()
+  showClosingAmounts?: boolean;
 }
 
 class OperationApprovalDto {

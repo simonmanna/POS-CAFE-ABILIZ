@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useShiftHandover, useExpectedCash } from './api';
+import { usePosSettings } from '@/features/pos/api';
 import { useUsers } from '@/features/staff/api';
 import { shiftTrackedAccounts, usePosPaymentMethods } from '@/features/pos/payment-accounts';
 import { useSessionReconciliation } from '@/features/pos/session-reconciliation';
@@ -42,6 +43,7 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
 
   const handover = useShiftHandover();
   const { data: expected } = useExpectedCash(open && session ? session.id : undefined);
+  const { data: posSettings } = usePosSettings();
   const { data: users } = useUsers({ page: 1, pageSize: 100 });
   const { data: paymentMethods = [] } = usePosPaymentMethods();
   const trackedAccounts = useMemo(() => shiftTrackedAccounts(paymentMethods), [paymentMethods]);
@@ -70,6 +72,9 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
   if (!session) return null;
 
   const expectedCash = Number(expected?.expectedCash ?? session.openingFloat ?? 0);
+  /* POS Settings → "Closing amounts visible to the cashier": off hides the
+   * expected figure here too, so the handover count is blind. */
+  const showClosingAmounts = posSettings?.showClosingAmounts !== false;
   const countedNum = Number(counted);
   const hasCount = Number.isFinite(countedNum) && countedNum >= 0;
   const variance = hasCount ? countedNum - expectedCash : 0;
@@ -149,12 +154,14 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
                 autoFocus
               />
             </div>
-            <div className="flex flex-col justify-center space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-slate-600">Expected cash</span>
-                <span className="font-mono font-bold">{fmt(expectedCash)}</span>
+            {showClosingAmounts ? (
+              <div className="flex flex-col justify-center space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-600">Expected cash</span>
+                  <span className="font-mono font-bold">{fmt(expectedCash)}</span>
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
 
         {hasCount ? (

@@ -5,7 +5,10 @@
  * and every wallet/bank account figure are shown up front, so the cashier knows
  * what the shift should finish with before sealing it. The count is therefore a
  * verification against a known target rather than a blind guess; the drawer
- * difference is still only revealed once the count is committed. What changed is
+ * difference is still only revealed once the count is committed. POS Settings →
+ * "Closing amounts visible to the cashier" turns that disclosure off: the
+ * expected figures disappear from the check and confirm steps and the close
+ * becomes blind, while the difference after the count stays visible. What changed is
  * everything around that rule — readiness problems are explained in plain
  * language before the count starts, the numpad shows its own arithmetic, and
  * every server refusal is translated into a sentence that says what to do next
@@ -42,6 +45,7 @@ import {
   type QueuedSale, type FailedSale,
 } from '@/features/pos/offline-queue';
 import { shiftTrackedAccounts, usePosPaymentMethods } from '@/features/pos/payment-accounts';
+import { usePosSettings } from '@/features/pos/api';
 import { useAuthStore } from '@/stores/auth.store';
 import type { CashSession } from './types';
 import { toast } from 'sonner';
@@ -695,6 +699,11 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
   /* Live drawer difference on the confirm step (display only — the server
    * recomputes authoritatively at close time). */
   const expectedCash = recon ? Number(recon.report?.totals?.expectedCash ?? 0) : null;
+  /* POS Settings → "Closing amounts visible to the cashier". On (default) the
+   * expected figures are shown before the count; off makes the close blind —
+   * the cashier counts first and only learns the difference afterwards. */
+  const { data: posSettings } = usePosSettings();
+  const showClosingAmounts = posSettings?.showClosingAmounts !== false;
   const cashVariance = expectedCash != null && countedValid ? countedNum - expectedCash : null;
 
   return (
@@ -778,8 +787,9 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
               {/* Closing amounts — shown up front so the cashier can see what the
                   shift should finish with before anything is sealed. The drawer
                   expected figure is exposed here by design, so the count is a
-                  verification against a known target rather than a blind guess. */}
-              {recon ? (
+                  verification against a known target rather than a blind guess.
+                  POS Settings can turn this off for a blind close. */}
+              {recon && showClosingAmounts ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
                     Closing amounts
@@ -884,12 +894,21 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
           {/* ---------------------------------------------------------- count */}
           {step === 'count' ? (
             <>
-              <Notice tone="info" title="Count to the expected figures">
-                <p>
-                  The expected closing amounts were shown on the previous screen. Count what is actually
-                  there and enter it — the difference is shown when you confirm.
-                </p>
-              </Notice>
+              {showClosingAmounts ? (
+                <Notice tone="info" title="Count to the expected figures">
+                  <p>
+                    The expected closing amounts were shown on the previous screen. Count what is actually
+                    there and enter it — the difference is shown when you confirm.
+                  </p>
+                </Notice>
+              ) : (
+                <Notice tone="info" title="Blind count">
+                  <p>
+                    The expected closing amounts are not shown on this terminal. Count what is actually
+                    there and enter it — the difference is shown when you confirm.
+                  </p>
+                </Notice>
+              )}
 
               <div className="flex items-center justify-between">
                 <Label className="text-sm font-bold">Cash in the drawer ({orgCur()})</Label>
@@ -993,7 +1012,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                         <th className="px-2 py-1 text-right font-bold">Opening</th>
                         <th className="px-2 py-1 text-right font-bold">Received</th>
                         <th className="px-2 py-1 text-right font-bold">Refunds</th>
-                        <th className="px-2 py-1 text-right font-bold">Expected</th>
+                        {showClosingAmounts ? <th className="px-2 py-1 text-right font-bold">Expected</th> : null}
                         <th className="px-2 py-1 text-right font-bold">Provider shows</th>
                         <th className="px-3 py-1 text-right font-bold">Variance</th>
                       </tr>
@@ -1010,12 +1029,14 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                           <td className="px-2 py-1 text-right font-mono tabular-nums text-slate-500">{plain(row.opening)}</td>
                           <td className="px-2 py-1 text-right font-mono tabular-nums text-slate-700">{plain(row.received)}</td>
                           <td className="px-2 py-1 text-right font-mono tabular-nums text-slate-500">{plain(row.refunds)}</td>
-                          <td
-                            className="px-2 py-1 text-right font-mono tabular-nums font-bold text-slate-900"
-                            title={`Opening ${plain(row.opening)} + received ${plain(row.received)} − refunds ${plain(row.refunds)}${row.otherMovements ? ` ${row.otherMovements > 0 ? '+' : '−'} settlements/transfers ${plain(Math.abs(row.otherMovements))}` : ''}`}
-                          >
-                            {plain(row.expected)}
-                          </td>
+                          {showClosingAmounts ? (
+                            <td
+                              className="px-2 py-1 text-right font-mono tabular-nums font-bold text-slate-900"
+                              title={`Opening ${plain(row.opening)} + received ${plain(row.received)} − refunds ${plain(row.refunds)}${row.otherMovements ? ` ${row.otherMovements > 0 ? '+' : '−'} settlements/transfers ${plain(Math.abs(row.otherMovements))}` : ''}`}
+                            >
+                              {plain(row.expected)}
+                            </td>
+                          ) : null}
                           <td className="px-2 py-1 text-right">
                             {row.accountId in uncounted ? (
                               <div className="flex items-center justify-end gap-2">

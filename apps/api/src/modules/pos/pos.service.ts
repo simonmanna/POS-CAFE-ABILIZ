@@ -1295,6 +1295,10 @@ export class PosService {
       // Local-only install by default: every service and the database live on
       // the till PC, so there is no connection to watch unless an admin says so.
       connectionMode: config.connectionMode === 'online' ? 'online' : 'offline',
+      // Closing amounts are visible by default (the count verifies a known
+      // target). Turn it off for a blind close: the cashier counts first and
+      // the expected figures appear only after the count is committed.
+      showClosingAmounts: config.showClosingAmounts !== false,
       discountApproval: {
         tier1: resolveDiscountThreshold((org?.settings as any)?.discountApproval?.tier1),
       },
@@ -1302,7 +1306,7 @@ export class PosService {
   }
 
   /** Update POS module config (posMode, sharedDrawer, etc). */
-  async updatePosSettings(dto: { posMode?: string; sharedDrawer?: boolean; connectionMode?: 'offline' | 'online' }): Promise<Record<string, unknown>> {
+  async updatePosSettings(dto: { posMode?: string; sharedDrawer?: boolean; connectionMode?: 'offline' | 'online'; showClosingAmounts?: boolean }): Promise<Record<string, unknown>> {
     const existing = await this.prisma.client.organizationModule.findUnique({
       where: { organizationId_moduleName: { organizationId: this.tenant.organizationId, moduleName: 'pos' } },
     });

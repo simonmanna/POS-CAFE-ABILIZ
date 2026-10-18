@@ -17,15 +17,17 @@ export function PosSettingsPage() {
   const update = useUpdatePosSettings();
   const [posMode, setPosMode] = useState('cafe');
   const [sharedDrawer, setSharedDrawer] = useState(false);
+  const [showClosingAmounts, setShowClosingAmounts] = useState(true);
 
   useEffect(() => {
     if (settings?.posMode) setPosMode(settings.posMode);
     setSharedDrawer(settings?.sharedDrawer === true);
+    setShowClosingAmounts(settings?.showClosingAmounts !== false);
   }, [settings]);
 
   const handleSave = async () => {
     try {
-      await update.mutateAsync({ posMode, sharedDrawer });
+      await update.mutateAsync({ posMode, sharedDrawer, showClosingAmounts });
       notify.success('POS settings saved');
     } catch {
       notify.error('Failed to save POS settings');
@@ -88,6 +90,30 @@ export function PosSettingsPage() {
                 onChange={(e) => setSharedDrawer(e.target.checked)}
               />
               Allow other cashiers on this register (shared drawer)
+            </label>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Closing amounts visible to the cashier</CardTitle>
+            <CardDescription>
+              When on, the shift-close and handover dialogs show the expected
+              drawer cash and every wallet/bank figure before the count — the
+              count verifies a known target. When off the close is blind: the
+              cashier counts first and the expected figures and variance appear
+              only once the count is committed. Managers always see the figures
+              on the Cash Register page.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                className="rounded"
+                checked={showClosingAmounts}
+                onChange={(e) => setShowClosingAmounts(e.target.checked)}
+              />
+              Show the expected closing amounts while closing a shift
             </label>
           </CardContent>
         </Card>
