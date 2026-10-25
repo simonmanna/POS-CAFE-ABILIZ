@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { HrAccessPanel } from './HrAccessPanel';
 import { HrLifecycleActions } from './HrLifecycleActions';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string | null | undefined) =>
   n === null || n === undefined ? '—' : `Rp ${Number(n).toLocaleString('id-ID')}`;
@@ -94,8 +95,8 @@ export function HrEmployeeDetailPage() {
   const { data: documents } = useHrDocuments(id ? { employeeId: id } : {});
   const { data: trainings } = useEnrolments(id ? { employeeId: id } : {});
 
-  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
-  if (!emp) return <div className="p-6 text-sm text-muted-foreground">Employee not found.</div>;
+  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">{tx('Loading…')}</div>;
+  if (!emp) return <div className="p-6 text-sm text-muted-foreground">{tx('Employee not found.')}</div>;
 
   const e = emp as any;
   const fullName = [e.firstName, e.middleName, e.lastName].filter(Boolean).join(' ');
@@ -107,7 +108,7 @@ export function HrEmployeeDetailPage() {
       {/* Breadcrumb */}
       <div className="flex items-center gap-1 text-sm text-muted-foreground">
         <Link to="/hr/employees" className="hover:underline">
-          Employees
+          {tx('Employees')}
         </Link>
         <ChevronRight className="h-3.5 w-3.5" />
         <span className="text-foreground">{e.employeeCode}</span>
@@ -141,7 +142,7 @@ export function HrEmployeeDetailPage() {
                   {access.user?.posAccess ? 'POS access' : 'Back office'}
                 </Badge>
               ) : (
-                <Badge className="bg-muted text-muted-foreground">No login</Badge>
+                <Badge className="bg-muted text-muted-foreground">{tx('No login')}</Badge>
               )}
             </div>
           </div>
@@ -153,63 +154,62 @@ export function HrEmployeeDetailPage() {
       {/* A former employee stays fully readable — their history is the point. */}
       {ended && (
         <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm text-rose-900">
-          <strong>Former employee.</strong> {status === 'RESIGNED' ? 'Resigned' : 'Terminated'} on{' '}
+          <strong>{tx('Former employee.')}</strong> {status === 'RESIGNED' ? 'Resigned' : 'Terminated'} on{' '}
           {date(e.terminationDate)}
-          {e.terminationReason ? ` — ${e.terminationReason}` : ''}. Their past orders, invoices,
-          payments and cash sessions are unchanged and still resolve to them.
+          {e.terminationReason ? ` — ${e.terminationReason}` : ''}{tx('. Their past orders, invoices, payments and cash sessions are unchanged and still resolve to them.')}
         </div>
       )}
       {status === 'SUSPENDED' && (
         <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-2.5 text-sm text-orange-900">
-          <strong>Suspended</strong> since {date(e.suspendedAt)}
-          {e.suspensionReason ? ` — ${e.suspensionReason}` : ''}. Employment continues.
+          <strong>{tx('Suspended')}</strong> {tx('since')} {date(e.suspendedAt)}
+          {e.suspensionReason ? ` — ${e.suspensionReason}` : ''}{tx('. Employment continues.')}
         </div>
       )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="employment">Employment</TabsTrigger>
-          <TabsTrigger value="access">Access</TabsTrigger>
-          <TabsTrigger value="leave">Leave</TabsTrigger>
-          <TabsTrigger value="payroll">Payroll</TabsTrigger>
-          <TabsTrigger value="documents">Documents</TabsTrigger>
-          <TabsTrigger value="training">Training</TabsTrigger>
-          <TabsTrigger value="activity">Activity</TabsTrigger>
+          <TabsTrigger value="overview">{tx('Overview')}</TabsTrigger>
+          <TabsTrigger value="employment">{tx('Employment')}</TabsTrigger>
+          <TabsTrigger value="access">{tx('Access')}</TabsTrigger>
+          <TabsTrigger value="leave">{tx('Leave')}</TabsTrigger>
+          <TabsTrigger value="payroll">{tx('Payroll')}</TabsTrigger>
+          <TabsTrigger value="documents">{tx('Documents')}</TabsTrigger>
+          <TabsTrigger value="training">{tx('Training')}</TabsTrigger>
+          <TabsTrigger value="activity">{tx('Activity')}</TabsTrigger>
         </TabsList>
 
         {/* ── Overview ─────────────────────────────────────────────────── */}
         <TabsContent value="overview" className="mt-4 grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Personal</CardTitle>
+              <CardTitle className="text-base">{tx('Personal')}</CardTitle>
             </CardHeader>
             <CardContent>
               <dl>
-                <InfoRow label="Employee code" value={e.employeeCode} />
-                <InfoRow label="Preferred name" value={e.preferredName} />
-                <InfoRow label="Email" value={e.email} />
-                <InfoRow label="Phone" value={e.phone} />
-                <InfoRow label="Address" value={e.address} />
-                <InfoRow label="Nationality" value={e.nationality} />
-                <InfoRow label="Date of birth" value={date(e.dateOfBirth)} />
+                <InfoRow label={tx('Employee code')} value={e.employeeCode} />
+                <InfoRow label={tx('Preferred name')} value={e.preferredName} />
+                <InfoRow label={tx('Email')} value={e.email} />
+                <InfoRow label={tx('Phone')} value={e.phone} />
+                <InfoRow label={tx('Address')} value={e.address} />
+                <InfoRow label={tx('Nationality')} value={e.nationality} />
+                <InfoRow label={tx('Date of birth')} value={date(e.dateOfBirth)} />
               </dl>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Emergency contact</CardTitle>
+              <CardTitle className="text-base">{tx('Emergency contact')}</CardTitle>
             </CardHeader>
             <CardContent>
               <dl>
-                <InfoRow label="Name" value={e.emergencyContactName} />
-                <InfoRow label="Phone" value={e.emergencyContactPhone} />
-                <InfoRow label="Relationship" value={e.emergencyContactRelation} />
+                <InfoRow label={tx('Name')} value={e.emergencyContactName} />
+                <InfoRow label={tx('Phone')} value={e.emergencyContactPhone} />
+                <InfoRow label={tx('Relationship')} value={e.emergencyContactRelation} />
               </dl>
               {!e.emergencyContactName && (
                 <p className="pt-3 text-xs text-muted-foreground">
-                  No emergency contact recorded.
+                  {tx('No emergency contact recorded.')}
                 </p>
               )}
             </CardContent>
@@ -220,56 +220,56 @@ export function HrEmployeeDetailPage() {
         <TabsContent value="employment" className="mt-4 grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Placement</CardTitle>
+              <CardTitle className="text-base">{tx('Placement')}</CardTitle>
             </CardHeader>
             <CardContent>
               <dl>
-                <InfoRow label="Department" value={e.department?.name} />
-                <InfoRow label="Position" value={e.position?.name} />
-                <InfoRow label="Branch" value={e.branch?.name} />
+                <InfoRow label={tx('Department')} value={e.department?.name} />
+                <InfoRow label={tx('Position')} value={e.position?.name} />
+                <InfoRow label={tx('Branch')} value={e.branch?.name} />
                 <InfoRow
-                  label="Supervisor"
+                  label={tx('Supervisor')}
                   value={
                     e.supervisor
                       ? `${e.supervisor.firstName}${e.supervisor.lastName ? ' ' + e.supervisor.lastName : ''}`
                       : null
                   }
                 />
-                <InfoRow label="Hire date" value={date(e.hireDate)} />
-                <InfoRow label="Probation ends" value={date(e.probationEndDate)} />
-                <InfoRow label="Confirmed" value={date(e.confirmedAt)} />
-                <InfoRow label="Contract ends" value={date(e.contractEndDate)} />
+                <InfoRow label={tx('Hire date')} value={date(e.hireDate)} />
+                <InfoRow label={tx('Probation ends')} value={date(e.probationEndDate)} />
+                <InfoRow label={tx('Confirmed')} value={date(e.confirmedAt)} />
+                <InfoRow label={tx('Contract ends')} value={date(e.contractEndDate)} />
               </dl>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Compensation</CardTitle>
+              <CardTitle className="text-base">{tx('Compensation')}</CardTitle>
             </CardHeader>
             <CardContent>
               {'baseSalary' in e ? (
                 <dl>
-                  <InfoRow label="Base salary" value={fmt(e.baseSalary)} />
-                  <InfoRow label="Pay frequency" value={String(e.payFrequency).replace(/_/g, ' ')} />
-                  <InfoRow label="Hourly rate" value={fmt(e.hourlyRate)} />
-                  <InfoRow label="Bank" value={e.bankName} />
-                  <InfoRow label="Account number" value={e.bankAccountNumber} />
+                  <InfoRow label={tx('Base salary')} value={fmt(e.baseSalary)} />
+                  <InfoRow label={tx('Pay frequency')} value={String(e.payFrequency).replace(/_/g, ' ')} />
+                  <InfoRow label={tx('Hourly rate')} value={fmt(e.hourlyRate)} />
+                  <InfoRow label={tx('Bank')} value={e.bankName} />
+                  <InfoRow label={tx('Account number')} value={e.bankAccountNumber} />
                   <InfoRow
-                    label="Mobile money"
+                    label={tx('Mobile money')}
                     value={
                       e.mobileMoneyNumber
                         ? `${e.mobileMoneyProvider ?? ''} ${e.mobileMoneyNumber}`.trim()
                         : null
                     }
                   />
-                  <InfoRow label="Tax number" value={e.taxNumber} />
+                  <InfoRow label={tx('Tax number')} value={e.taxNumber} />
                 </dl>
               ) : (
                 // The server omits these fields entirely without hr:compensation,
                 // so their absence is the signal — not a null value.
                 <Empty>
-                  Pay, bank and tax details need the <code>hr:compensation</code> permission.
+                  {tx('Pay, bank and tax details need the')} <code>hr:compensation</code> {tx('permission.')}
                 </Empty>
               )}
             </CardContent>
@@ -285,18 +285,18 @@ export function HrEmployeeDetailPage() {
         <TabsContent value="leave" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Leave balances</CardTitle>
+              <CardTitle className="text-base">{tx('Leave balances')}</CardTitle>
             </CardHeader>
             <CardContent>
               {e.leaveBalances?.length ? (
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                      <th className="py-2">Type</th>
-                      <th className="py-2 text-right">Accrued</th>
-                      <th className="py-2 text-right">Adjusted</th>
-                      <th className="py-2 text-right">Used</th>
-                      <th className="py-2 text-right">Available</th>
+                      <th className="py-2">{tx('Type')}</th>
+                      <th className="py-2 text-right">{tx('Accrued')}</th>
+                      <th className="py-2 text-right">{tx('Adjusted')}</th>
+                      <th className="py-2 text-right">{tx('Used')}</th>
+                      <th className="py-2 text-right">{tx('Available')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -314,7 +314,7 @@ export function HrEmployeeDetailPage() {
                   </tbody>
                 </table>
               ) : (
-                <Empty>No leave balances yet.</Empty>
+                <Empty>{tx('No leave balances yet.')}</Empty>
               )}
             </CardContent>
           </Card>
@@ -324,7 +324,7 @@ export function HrEmployeeDetailPage() {
         <TabsContent value="payroll" className="mt-4 grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Salary advances</CardTitle>
+              <CardTitle className="text-base">{tx('Salary advances')}</CardTitle>
             </CardHeader>
             <CardContent>
               {e.salaryAdvances?.length ? (
@@ -337,14 +337,14 @@ export function HrEmployeeDetailPage() {
                   ))}
                 </ul>
               ) : (
-                <Empty>No advances.</Empty>
+                <Empty>{tx('No advances.')}</Empty>
               )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Loans</CardTitle>
+              <CardTitle className="text-base">{tx('Loans')}</CardTitle>
             </CardHeader>
             <CardContent>
               {e.loans?.length ? (
@@ -353,14 +353,14 @@ export function HrEmployeeDetailPage() {
                     <li key={l.id} className="flex items-center justify-between border-b pb-2 last:border-0">
                       <span className="text-sm">
                         {fmt(l.principal)}{' '}
-                        <span className="text-muted-foreground">· balance {fmt(l.balance)}</span>
+                        <span className="text-muted-foreground">{tx('· balance')} {fmt(l.balance)}</span>
                       </span>
                       <Badge className={LOAN_STATUS[l.status] ?? 'bg-muted'}>{l.status}</Badge>
                     </li>
                   ))}
                 </ul>
               ) : (
-                <Empty>No loans.</Empty>
+                <Empty>{tx('No loans.')}</Empty>
               )}
             </CardContent>
           </Card>
@@ -370,17 +370,17 @@ export function HrEmployeeDetailPage() {
         <TabsContent value="documents" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Documents</CardTitle>
+              <CardTitle className="text-base">{tx('Documents')}</CardTitle>
             </CardHeader>
             <CardContent>
               {documents?.rows?.length ? (
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                      <th className="py-2">Title</th>
-                      <th className="py-2">Type</th>
-                      <th className="py-2">Issued</th>
-                      <th className="py-2">Expires</th>
+                      <th className="py-2">{tx('Title')}</th>
+                      <th className="py-2">{tx('Type')}</th>
+                      <th className="py-2">{tx('Issued')}</th>
+                      <th className="py-2">{tx('Expires')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -402,7 +402,7 @@ export function HrEmployeeDetailPage() {
                 </table>
               ) : (
                 <Empty>
-                  No documents recorded. Add them from the Documents screen (needs{' '}
+                  {tx('No documents recorded. Add them from the Documents screen (needs')}{' '}
                   <code>hr:document</code>).
                 </Empty>
               )}
@@ -414,7 +414,7 @@ export function HrEmployeeDetailPage() {
         <TabsContent value="training" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Training</CardTitle>
+              <CardTitle className="text-base">{tx('Training')}</CardTitle>
             </CardHeader>
             <CardContent>
               {trainings?.rows?.length ? (
@@ -432,7 +432,7 @@ export function HrEmployeeDetailPage() {
                   ))}
                 </ul>
               ) : (
-                <Empty>Not enrolled on any training.</Empty>
+                <Empty>{tx('Not enrolled on any training.')}</Empty>
               )}
             </CardContent>
           </Card>
@@ -442,7 +442,7 @@ export function HrEmployeeDetailPage() {
         <TabsContent value="activity" className="mt-4 space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">POS activity (last 30 days)</CardTitle>
+              <CardTitle className="text-base">{tx('POS activity (last 30 days)')}</CardTitle>
             </CardHeader>
             <CardContent>
               {posActivity?.linked ? (
@@ -474,7 +474,7 @@ export function HrEmployeeDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Employment history</CardTitle>
+              <CardTitle className="text-base">{tx('Employment history')}</CardTitle>
             </CardHeader>
             <CardContent>
               {history?.rows?.length ? (
@@ -499,14 +499,14 @@ export function HrEmployeeDetailPage() {
                   ))}
                 </ol>
               ) : (
-                <Empty>No status changes recorded.</Empty>
+                <Empty>{tx('No status changes recorded.')}</Empty>
               )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Transfers</CardTitle>
+              <CardTitle className="text-base">{tx('Transfers')}</CardTitle>
             </CardHeader>
             <CardContent>
               {transfers?.rows?.length ? (
@@ -519,7 +519,7 @@ export function HrEmployeeDetailPage() {
                   ))}
                 </ol>
               ) : (
-                <Empty>Never transferred.</Empty>
+                <Empty>{tx('Never transferred.')}</Empty>
               )}
             </CardContent>
           </Card>

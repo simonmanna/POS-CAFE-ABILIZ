@@ -14,6 +14,7 @@ import {
   type Account, type AccountTreeNode,
 } from '@/features/accounting/api';
 import { useAuthStore } from '@/stores/auth.store';
+import { tx } from '@/lib/i18n/tx';
 
 /**
  * Sections come from each account's category (`reportSection`) — the same source
@@ -161,9 +162,9 @@ export function ChartOfAccountsPage() {
     <div className="space-y-0">
       {/* ── Header ── */}
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold">Chart of Accounts</h1>
+        <h1 className="text-2xl font-semibold">{tx('Chart of Accounts')}</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          {totalAccounts} accounts · grouped by financial statement section
+          {totalAccounts} {tx('accounts · grouped by financial statement section')}
         </p>
       </div>
 
@@ -175,14 +176,14 @@ export function ChartOfAccountsPage() {
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search accounts..."
+              placeholder={tx('Search accounts...')}
               className="pl-9 h-9 text-sm"
             />
           </div>
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
             <SelectTrigger className="h-9 w-56 text-sm"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL}>All Categories</SelectItem>
+              <SelectItem value={ALL}>{tx('All Categories')}</SelectItem>
               {(categories.data ?? []).map((c) => (
                 <SelectItem key={c.id} value={c.key}>
                   {c.name} ({c.accountCount ?? 0})
@@ -193,11 +194,11 @@ export function ChartOfAccountsPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => navigate('/accounts/categories')}>
-            Categories
+            {tx('Categories')}
           </Button>
           {canCreate && (
             <Button size="sm" onClick={() => navigate('/accounts/new')}>
-              <Plus className="h-4 w-4 mr-1" /> New
+              <Plus className="h-4 w-4 mr-1" /> {tx('New')}
             </Button>
           )}
         </div>
@@ -209,11 +210,11 @@ export function ChartOfAccountsPage() {
       ) : totalAccounts === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
           <FolderOpen className="h-12 w-12 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No accounts yet</p>
-          <p className="text-sm">Create your first account to start building your chart of accounts.</p>
+          <p className="font-medium">{tx('No accounts yet')}</p>
+          <p className="text-sm">{tx('Create your first account to start building your chart of accounts.')}</p>
           {canCreate && (
             <Button className="mt-4" size="sm" onClick={() => navigate('/accounts/new')}>
-              <Plus className="h-4 w-4 mr-1" /> New Account
+              <Plus className="h-4 w-4 mr-1" /> {tx('New Account')}
             </Button>
           )}
         </div>
@@ -221,10 +222,10 @@ export function ChartOfAccountsPage() {
         <div className="rounded-lg border bg-white overflow-hidden">
           {/* Column headers */}
           <div className="grid grid-cols-12 gap-0 border-b bg-muted/30 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            <div className="col-span-5 px-4 py-2.5">Code</div>
-            <div className="col-span-4 px-4 py-2.5">Name</div>
-            <div className="col-span-2 px-4 py-2.5 text-center">Category</div>
-            <div className="col-span-1 px-2 py-2.5 text-right">Action</div>
+            <div className="col-span-5 px-4 py-2.5">{tx('Code')}</div>
+            <div className="col-span-4 px-4 py-2.5">{tx('Name')}</div>
+            <div className="col-span-2 px-4 py-2.5 text-center">{tx('Category')}</div>
+            <div className="col-span-1 px-2 py-2.5 text-right">{tx('Action')}</div>
           </div>
 
           {SECTION_ORDER.filter((s) => sectioned[s]?.length).map((section) => (
@@ -270,21 +271,21 @@ export function ChartOfAccountsPage() {
                   <div className="col-span-4 px-3 py-2 flex items-center gap-2">
                     <span className={`text-sm ${a.isGroup ? 'font-semibold' : ''}`}>{a.name}</span>
                     {!a.isActive && (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Inactive</Badge>
+                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tx('Inactive')}</Badge>
                     )}
                     {a.deprecatedAt && (
                       <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-orange-300 text-orange-700">
-                        Deprecated
+                        {tx('Deprecated')}
                       </Badge>
                     )}
                     {a.isGroup && (
                       <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal text-muted-foreground">
-                        Group
+                        {tx('Group')}
                       </Badge>
                     )}
                     {a.isControlAccount && (
                       <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-sky-300 text-sky-700">
-                        Control
+                        {tx('Control')}
                       </Badge>
                     )}
                   </div>
@@ -303,7 +304,7 @@ export function ChartOfAccountsPage() {
                       size="icon"
                       className="h-7 w-7"
                       onClick={() => navigate(`/accounts/${a.id}`)}
-                      title="View account details"
+                      title={tx('View account details')}
                     >
                       <Eye className="h-3.5 w-3.5" />
                     </Button>

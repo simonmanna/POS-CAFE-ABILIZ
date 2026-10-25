@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { useTables } from '@/features/tables/api';
 import { fmtMoney } from '@/features/tables/utils';
 import type { PosTable } from '@/features/tables/types';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -75,27 +76,26 @@ export const MergeTablesDialog: React.FC<Props> = ({
         <DialogHeader className="bg-gradient-to-r from-indigo-500 to-indigo-700 text-white p-4">
           <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
             <MergeIcon className="h-4 w-4" />
-            Merge Tables into {targetLabel ?? 'this table'}
+            {tx('Merge Tables into')} {targetLabel ?? 'this table'}
           </DialogTitle>
         </DialogHeader>
 
         <div className="p-4 space-y-3">
           <p className="text-xs text-slate-500">
-            Pick the tables to join. Their open items move onto {targetLabel ?? 'this table'} and
-            the picked tables are freed.
+            {tx('Pick the tables to join. Their open items move onto')} {targetLabel ?? 'this table'} {tx('and the picked tables are freed.')}
           </p>
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search table…"
+            placeholder={tx('Search table…')}
             className="h-9 text-sm"
           />
 
           <div className="space-y-2 max-h-[46vh] overflow-y-auto">
             {isLoading ? (
-              <div className="text-center text-slate-400 py-8">Loading tables…</div>
+              <div className="text-center text-slate-400 py-8">{tx('Loading tables…')}</div>
             ) : candidates.length === 0 ? (
-              <div className="text-center text-slate-400 py-8">No eligible tables</div>
+              <div className="text-center text-slate-400 py-8">{tx('No eligible tables')}</div>
             ) : (
               candidates.map((t) => {
                 const checked = sel.includes(t.id);
@@ -128,11 +128,11 @@ export const MergeTablesDialog: React.FC<Props> = ({
                         <>
                           <div className="text-sm font-bold text-amber-700 tabular-nums">{fmtMoney(tabTotal(t))}</div>
                           <div className="text-[10px] text-slate-400">
-                            {tabs.length} open {tabs.length === 1 ? 'order' : 'orders'}
+                            {tabs.length} {tx('open')} {tabs.length === 1 ? 'order' : 'orders'}
                           </div>
                         </>
                       ) : (
-                        <div className="text-[10px] font-bold uppercase text-emerald-600">Empty</div>
+                        <div className="text-[10px] font-bold uppercase text-emerald-600">{tx('Empty')}</div>
                       )}
                     </div>
                   </button>
@@ -149,7 +149,7 @@ export const MergeTablesDialog: React.FC<Props> = ({
               : `${sel.length} table${sel.length === 1 ? '' : 's'} · +${movingSeats} seats · ${fmtMoney(movingTotal)}`}
           </div>
           <Button variant="ghost" onClick={onClose} disabled={busy}>
-            <X className="h-4 w-4 mr-1" /> Cancel
+            <X className="h-4 w-4 mr-1" /> {tx('Cancel')}
           </Button>
           <Button
             onClick={confirm}

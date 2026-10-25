@@ -23,6 +23,7 @@ import {
   type StockTransfer,
 } from '@/features/inventory/transfers-api';
 import { useAuthStore } from '@/stores/auth.store';
+import { tx } from '@/lib/i18n/tx';
 
 interface Location { id: string; code: string; name: string; type?: string }
 interface Product { id: string; code: string; name: string }
@@ -167,32 +168,32 @@ export function StockTransfersPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Stock Transfers</h1>
-          <p className="text-sm text-muted-foreground">Move stock between locations — immediately on the same premises, or via dispatch and receipt between branches</p>
+          <h1 className="text-2xl font-semibold">{tx('Stock Transfers')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Move stock between locations — immediately on the same premises, or via dispatch and receipt between branches')}</p>
         </div>
         {canCreate && (
           <Button onClick={() => setShowForm(true)}>
-            <Plus className="mr-2 h-4 w-4" />New Transfer
+            <Plus className="mr-2 h-4 w-4" />{tx('New Transfer')}
           </Button>
         )}
       </div>
 
       {isLoading && <Skeleton className="h-48 w-full" />}
       {transfers && transfers.length === 0 && (
-        <Card><CardContent className="p-8 text-center text-muted-foreground">No transfers yet. Click "New Transfer" to create one.</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-muted-foreground">{tx('No transfers yet. Click "New Transfer" to create one.')}</CardContent></Card>
       )}
       {transfers && transfers.length > 0 && (
         <div className="rounded-md border overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th scope="col" className="px-3 py-2 text-left font-medium">Transfer #</th>
-                <th className="px-3 py-2 text-left font-medium">Date</th>
-                <th className="px-3 py-2 text-left font-medium">From → To</th>
-                <th className="px-3 py-2 text-left font-medium">Mode</th>
-                <th className="px-3 py-2 text-right font-medium">Items</th>
-                <th className="px-3 py-2 text-left font-medium">Status</th>
-                <th className="px-3 py-2 text-left font-medium">Notes</th>
+                <th scope="col" className="px-3 py-2 text-left font-medium">{tx('Transfer #')}</th>
+                <th className="px-3 py-2 text-left font-medium">{tx('Date')}</th>
+                <th className="px-3 py-2 text-left font-medium">{tx('From → To')}</th>
+                <th className="px-3 py-2 text-left font-medium">{tx('Mode')}</th>
+                <th className="px-3 py-2 text-right font-medium">{tx('Items')}</th>
+                <th className="px-3 py-2 text-left font-medium">{tx('Status')}</th>
+                <th className="px-3 py-2 text-left font-medium">{tx('Notes')}</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -229,23 +230,23 @@ export function StockTransfersPage() {
                       )}
                       {(tr.status === 'pending' || (tr.status === 'approved' && tr.mode === 'transit')) && canApprove && (
                         <Button size="sm" variant="ghost" aria-label={`Cancel ${tr.transferCode}`} onClick={() => cancelTransfer.mutate(tr.id)} disabled={cancelTransfer.isPending}>
-                          <X className="mr-1 h-3.5 w-3.5" />Cancel
+                          <X className="mr-1 h-3.5 w-3.5" />{tx('Cancel')}
                         </Button>
                       )}
                       {(tr.status === 'in_transit' || tr.status === 'partially_received') && canMove && (
                         <Button size="sm" variant="outline" onClick={() => openReceive(tr)}>
-                          <PackageCheck className="mr-1 h-3.5 w-3.5" />Receive
+                          <PackageCheck className="mr-1 h-3.5 w-3.5" />{tx('Receive')}
                         </Button>
                       )}
                       {(tr.status === 'in_transit' || tr.status === 'partially_received') && canApprove && (
                         <Button size="sm" variant="ghost" onClick={() => setRecalling({ id: tr.id, code: tr.transferCode })} disabled={recallTransfer.isPending}>
-                          <CornerUpLeft className="mr-1 h-3.5 w-3.5" />Recall
+                          <CornerUpLeft className="mr-1 h-3.5 w-3.5" />{tx('Recall')}
                         </Button>
                       )}
                       {tr.status === 'completed' && canApprove && (
-                        <Button size="sm" variant="ghost" title="Reverse posted transfer"
+                        <Button size="sm" variant="ghost" title={tx('Reverse posted transfer')}
                           onClick={() => setReversing({ id: tr.id, code: tr.transferCode })} disabled={reverseTransfer.isPending}>
-                          <Undo2 className="mr-1 h-3.5 w-3.5" />Reverse
+                          <Undo2 className="mr-1 h-3.5 w-3.5" />{tx('Reverse')}
                         </Button>
                       )}
                       </div>
@@ -260,10 +261,10 @@ export function StockTransfersPage() {
 
       <Dialog open={showForm} onOpenChange={setShowForm}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>New Stock Transfer</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('New Stock Transfer')}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <fieldset>
-              <legend className="text-sm font-medium">Transfer type</legend>
+              <legend className="text-sm font-medium">{tx('Transfer type')}</legend>
               <div className="mt-1 grid gap-2 sm:grid-cols-2">
                 {([
                   ['immediate', 'Immediate', 'Same premises. Stock moves the moment it is approved.'],
@@ -278,9 +279,9 @@ export function StockTransfersPage() {
             </fieldset>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-sm font-medium">From Location</label>
+                <label className="text-sm font-medium">{tx('From Location')}</label>
                 <Select value={fromLocId} onValueChange={setFromLocId}>
-                  <SelectTrigger><SelectValue placeholder="Select source" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={tx('Select source')} /></SelectTrigger>
                   <SelectContent>
                     {pickableLocations.map((l) => (
                       <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
@@ -289,9 +290,9 @@ export function StockTransfersPage() {
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium">To Location</label>
+                <label className="text-sm font-medium">{tx('To Location')}</label>
                 <Select value={toLocId} onValueChange={setToLocId}>
-                  <SelectTrigger><SelectValue placeholder="Select destination" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={tx('Select destination')} /></SelectTrigger>
                   <SelectContent>
                     {pickableLocations.map((l) => (
                       <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
@@ -302,46 +303,46 @@ export function StockTransfersPage() {
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-sm font-medium">Responsible Person <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium">{tx('Responsible Person')} <span className="text-destructive">*</span></label>
                 <SearchableSelect
                   value={responsibleId}
                   onValueChange={setResponsibleId}
                   options={staffOptions}
-                  placeholder="Select staff…"
+                  placeholder={tx('Select staff…')}
                   searchPlaceholder="Search staff…"
-                  emptyText="No staff match"
+                  emptyText={tx('No staff match')}
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Approved By <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium">{tx('Approved By')} <span className="text-destructive">*</span></label>
                 <SearchableSelect
                   value={approvedId}
                   onValueChange={setApprovedId}
                   options={staffOptions}
-                  placeholder="Select staff…"
+                  placeholder={tx('Select staff…')}
                   searchPlaceholder="Search staff…"
-                  emptyText="No staff match"
+                  emptyText={tx('No staff match')}
                 />
               </div>
             </div>
             {fromLocId && toLocId && fromLocId === toLocId && (
-              <p className="text-sm text-destructive">Source and destination must be different</p>
+              <p className="text-sm text-destructive">{tx('Source and destination must be different')}</p>
             )}
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Items</label>
+                <label className="text-sm font-medium">{tx('Items')}</label>
                 <Button size="sm" variant="outline" onClick={() => setLines([...lines, { productId: '', productName: '', quantity: 1, distStrategy: 'FEFO' }])}>
-                  <Plus className="mr-1 h-3 w-3" />Add Item
+                  <Plus className="mr-1 h-3 w-3" />{tx('Add Item')}
                 </Button>
               </div>
               <div className="rounded-md border overflow-x-auto">
                 <table className="w-full min-w-[420px] text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">
-                      <th className="px-2 py-1 text-left font-medium">Product</th>
-                      <th className="px-2 py-1 text-right font-medium">Quantity</th>
-                      <th className="px-2 py-1 font-medium">Strategy</th>
+                      <th className="px-2 py-1 text-left font-medium">{tx('Product')}</th>
+                      <th className="px-2 py-1 text-right font-medium">{tx('Quantity')}</th>
+                      <th className="px-2 py-1 font-medium">{tx('Strategy')}</th>
                       <th className="w-8"></th>
                     </tr>
                   </thead>
@@ -354,7 +355,7 @@ export function StockTransfersPage() {
                             value={ln.productId}
                             onChange={(e) => pickProduct(idx, e.target.value)}
                           >
-                            <option value="">Select product…</option>
+                            <option value="">{tx('Select product…')}</option>
                             {products.data?.map((p) => (
                               <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
                             ))}
@@ -381,7 +382,7 @@ export function StockTransfersPage() {
                             <SelectContent>
                               <SelectItem value="FEFO">FEFO</SelectItem>
                               <SelectItem value="FIFO">FIFO</SelectItem>
-                              <SelectItem value="MANUAL">Manual</SelectItem>
+                              <SelectItem value="MANUAL">{tx('Manual')}</SelectItem>
                             </SelectContent>
                           </Select>
                         </td>
@@ -398,12 +399,12 @@ export function StockTransfersPage() {
             </div>
 
             <div>
-              <label className="text-sm font-medium">Notes</label>
-              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional transfer notes" rows={2} />
+              <label className="text-sm font-medium">{tx('Notes')}</label>
+              <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={tx('Optional transfer notes')} rows={2} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowForm(false)}>{tx('Cancel')}</Button>
             <Button onClick={handleSubmit} disabled={!canSubmit}>
               <Save className="mr-2 h-4 w-4" />{createTransfer.isPending ? 'Creating…' : 'Create Transfer'}
             </Button>
@@ -415,8 +416,8 @@ export function StockTransfersPage() {
         open={!!reversing}
         onOpenChange={(o) => { if (!o) setReversing(null); }}
         title={`Reverse ${reversing?.code ?? ''}`}
-        description={<p>Moves the transferred quantities back to the source location today. It fails if the destination no longer holds them.</p>}
-        confirmLabel="Reverse transfer"
+        description={<p>{tx('Moves the transferred quantities back to the source location today. It fails if the destination no longer holds them.')}</p>}
+        confirmLabel={tx('Reverse transfer')}
         pendingLabel="Reversing…"
         destructive
         pending={reverseTransfer.isPending}
@@ -427,8 +428,8 @@ export function StockTransfersPage() {
         open={!!recalling}
         onOpenChange={(o) => { if (!o) setRecalling(null); }}
         title={`Recall ${recalling?.code ?? ''}`}
-        description={<p>Returns everything still in transit to the source location. Quantities already received, damaged or short are not affected.</p>}
-        confirmLabel="Recall to source"
+        description={<p>{tx('Returns everything still in transit to the source location. Quantities already received, damaged or short are not affected.')}</p>}
+        confirmLabel={tx('Recall to source')}
         pendingLabel="Recalling…"
         destructive
         pending={recallTransfer.isPending}
@@ -437,7 +438,7 @@ export function StockTransfersPage() {
 
       <Dialog open={!!receiving} onOpenChange={(o) => { if (!o) setReceiving(null); }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Receive {receiving?.code}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Receive')} {receiving?.code}</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground">
             Split what is still in transit into what arrived in good condition, what arrived damaged (written off as waste) and what never arrived (written off as a loss). Anything left blank stays in transit for a later receipt.
           </p>
@@ -445,11 +446,11 @@ export function StockTransfersPage() {
             <table className="w-full min-w-[520px] text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th scope="col" className="px-2 py-1 text-left font-medium">Product</th>
-                  <th scope="col" className="px-2 py-1 text-right font-medium">In transit</th>
-                  <th scope="col" className="px-2 py-1 text-right font-medium">Received</th>
-                  <th scope="col" className="px-2 py-1 text-right font-medium">Damaged</th>
-                  <th scope="col" className="px-2 py-1 text-right font-medium">Short</th>
+                  <th scope="col" className="px-2 py-1 text-left font-medium">{tx('Product')}</th>
+                  <th scope="col" className="px-2 py-1 text-right font-medium">{tx('In transit')}</th>
+                  <th scope="col" className="px-2 py-1 text-right font-medium">{tx('Received')}</th>
+                  <th scope="col" className="px-2 py-1 text-right font-medium">{tx('Damaged')}</th>
+                  <th scope="col" className="px-2 py-1 text-right font-medium">{tx('Short')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -461,7 +462,7 @@ export function StockTransfersPage() {
                     <tr key={r.itemId} className="border-b">
                       <td className="px-2 py-1">
                         {r.productName}
-                        {over && <span role="alert" className="block text-xs text-destructive">More than is in transit</span>}
+                        {over && <span role="alert" className="block text-xs text-destructive">{tx('More than is in transit')}</span>}
                       </td>
                       <td className="px-2 py-1 text-right font-mono tabular-nums">{r.open}</td>
                       {(['received', 'damaged', 'short'] as const).map((field) => (
@@ -483,11 +484,11 @@ export function StockTransfersPage() {
             </table>
           </div>
           <div>
-            <label className="text-sm font-medium" htmlFor="receive-notes">Notes</label>
-            <Textarea id="receive-notes" value={receiveNotes} onChange={(e) => setReceiveNotes(e.target.value)} placeholder="Delivery note, driver, condition…" rows={2} />
+            <label className="text-sm font-medium" htmlFor="receive-notes">{tx('Notes')}</label>
+            <Textarea id="receive-notes" value={receiveNotes} onChange={(e) => setReceiveNotes(e.target.value)} placeholder={tx('Delivery note, driver, condition…')} rows={2} />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReceiving(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setReceiving(null)}>{tx('Cancel')}</Button>
             <Button
               disabled={receiveInvalid || receiveEmpty || receiveTransfer.isPending}
               onClick={() => receiving && receiveTransfer.mutate(

@@ -3,6 +3,7 @@ import { TrendingUp, BarChart3, Boxes } from 'lucide-react';
 import { useRentalUtilization, useRentalRevenue, useRentalFleet } from '@/features/rental/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { date } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -38,17 +39,17 @@ export function RentalReportsPage() {
   return (
     <div className="space-y-4 p-6">
       <div>
-        <h1 className="text-xl font-semibold">Rental Reports</h1>
-        <p className="text-sm text-muted-foreground">Utilisation, revenue and fleet status.</p>
+        <h1 className="text-xl font-semibold">{tx('Rental Reports')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('Utilisation, revenue and fleet status.')}</p>
       </div>
 
       <div className="flex items-center gap-2">
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          From
+          {tx('From')}
           <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm" />
         </label>
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
-          To
+          {tx('To')}
           <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm" />
         </label>
       </div>
@@ -56,7 +57,7 @@ export function RentalReportsPage() {
       <div className="grid grid-cols-3 gap-4">
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="flex items-center gap-2 text-sm"><TrendingUp className="h-4 w-4" /> Revenue</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-sm"><TrendingUp className="h-4 w-4" /> {tx('Revenue')}</CardTitle>
           </CardHeader>
           <CardContent className="pt-5">
             <p className="text-2xl font-semibold">{fmt((revenue as any)?.total ?? (revenue as any)?.rentalIncome ?? 0)}</p>
@@ -65,36 +66,36 @@ export function RentalReportsPage() {
         </Card>
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="flex items-center gap-2 text-sm"><BarChart3 className="h-4 w-4" /> Utilisation</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-sm"><BarChart3 className="h-4 w-4" /> {tx('Utilisation')}</CardTitle>
           </CardHeader>
           <CardContent className="pt-5">
             <p className="text-2xl font-semibold">{(utilization as any)?.rate != null ? `${Math.round(Number((utilization as any).rate) * 100)}%` : '—'}</p>
-            <p className="text-xs text-muted-foreground">{utilizationRows.length} active line(s)</p>
+            <p className="text-xs text-muted-foreground">{utilizationRows.length} {tx('active line(s)')}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="flex items-center gap-2 text-sm"><Boxes className="h-4 w-4" /> Fleet</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-sm"><Boxes className="h-4 w-4" /> {tx('Fleet')}</CardTitle>
           </CardHeader>
           <CardContent className="pt-5">
             <p className="text-2xl font-semibold">{fleetRows.length}</p>
-            <p className="text-xs text-muted-foreground">{fleetRows.filter((u: any) => u.status === 'rented').length} rented</p>
+            <p className="text-xs text-muted-foreground">{fleetRows.filter((u: any) => u.status === 'rented').length} {tx('rented')}</p>
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">Utilisation by product</CardTitle>
+          <CardTitle className="text-sm">{tx('Utilisation by product')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {utilizationRows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No active rentals in this window.</p>}
+            {utilizationRows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No active rentals in this window.')}</p>}
             {utilizationRows.map((u: any, i: number) => (
               <div key={i} className="flex items-center justify-between px-4 py-3">
                 <div>
                   <p className="text-sm font-medium">{u.product?.name ?? u.productId?.slice(0, 8)}</p>
-                  <p className="text-xs text-muted-foreground">{u.quantity ?? 1} unit(s) · {u.ratePeriod ?? 'day'}</p>
+                  <p className="text-xs text-muted-foreground">{u.quantity ?? 1} {tx('unit(s) ·')} {u.ratePeriod ?? 'day'}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-medium">{fmt(u.lineTotal ?? u.unitRate ?? 0)}</p>
@@ -108,11 +109,11 @@ export function RentalReportsPage() {
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">Fleet status</CardTitle>
+          <CardTitle className="text-sm">{tx('Fleet status')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {fleetRows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No units.</p>}
+            {fleetRows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No units.')}</p>}
             {fleetRows.map((u: any) => (
               <div key={u.id} className="flex items-center justify-between px-4 py-3">
                 <div>

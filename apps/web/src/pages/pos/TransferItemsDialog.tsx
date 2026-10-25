@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useTables } from '@/features/tables/api';
 import type { PosTable } from '@/features/tables/types';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -67,7 +68,7 @@ export const TransferItemsDialog: React.FC<Props> = ({
       <DialogContent className="sm:max-w-[560px] p-0 overflow-hidden">
         <DialogHeader className="bg-gradient-to-r from-pink-500 to-pink-700 text-white p-4">
           <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
-            <ArrowRightLeft className="h-4 w-4" /> Transfer {itemCount} item{itemCount === 1 ? '' : 's'} — Move To
+            <ArrowRightLeft className="h-4 w-4" /> {tx('Transfer')} {itemCount} {tx('item')}{itemCount === 1 ? '' : 's'} {tx('— Move To')}
           </DialogTitle>
         </DialogHeader>
 
@@ -75,14 +76,14 @@ export const TransferItemsDialog: React.FC<Props> = ({
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search table…"
+            placeholder={tx('Search table…')}
             className="h-9 text-sm"
           />
           <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[44vh] overflow-y-auto">
             {isLoading ? (
-              <div className="col-span-full text-center text-slate-400 py-8">Loading tables…</div>
+              <div className="col-span-full text-center text-slate-400 py-8">{tx('Loading tables…')}</div>
             ) : candidates.length === 0 ? (
-              <div className="col-span-full text-center text-slate-400 py-8">No eligible tables</div>
+              <div className="col-span-full text-center text-slate-400 py-8">{tx('No eligible tables')}</div>
             ) : (
               candidates.map((t) => (
                 <button
@@ -111,7 +112,7 @@ export const TransferItemsDialog: React.FC<Props> = ({
 
         <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 gap-2">
           <Button variant="ghost" onClick={onClose}>
-            <X className="h-4 w-4 mr-1" /> Cancel
+            <X className="h-4 w-4 mr-1" /> {tx('Cancel')}
           </Button>
           <Button
             onClick={confirm}

@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { TaskCard } from './task-card';
 import type { Task, TaskStatus } from '../types';
 import type { ColumnDef } from './column-config';
+import { tx } from '@/lib/i18n/tx';
 
 interface KanbanColumnProps {
   column: ColumnDef;
@@ -49,7 +50,7 @@ export function KanbanColumn({ column, tasks, onTaskClick, onQuickStatus, busyTa
         >
           {tasks.length === 0 ? (
             <div className="flex items-center justify-center py-8 text-xs text-muted-foreground/50">
-              Drop tasks here
+              {tx('Drop tasks here')}
             </div>
           ) : (
             tasks.map((task) => (

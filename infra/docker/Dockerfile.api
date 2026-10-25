@@ -26,7 +26,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 RUN corepack enable && \
     addgroup -S cafe-pos && adduser -S cafe-pos -G cafe-pos && \
-    apk add --no-cache tini
+    apk add --no-cache tini postgresql16-client
 # Ship the ALREADY-BUILT artifacts from the build stage rather than reinstalling
 # and rebuilding at runtime. The previous runtime stage ran
 # `pnpm install --prod ... && pnpm --filter @erp/shared build`, but TypeScript is
@@ -43,10 +43,11 @@ COPY --from=build /app/apps/api/package.json apps/api/package.json
 COPY --from=build /app/apps/api/dist apps/api/dist
 COPY --from=build /app/apps/api/prisma apps/api/prisma
 COPY --from=build /app/apps/api/node_modules apps/api/node_modules
-RUN mkdir -p /app/var/uploads && chown -R cafe-pos:cafe-pos /app
+RUN mkdir -p /app/var/uploads /app/var/backups && chown -R cafe-pos:cafe-pos /app
 USER cafe-pos
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD wget -qO- http://localhost:3000/api/v1/health/live || exit 1
+    CMD wget -qO- http://127.0.0.1:3000/api/v1/health/live || exit 1
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["node", "apps/api/dist/main.js"]
+# Same header limit as `pnpm start:prod`: admin access tokens exceed Node's 16k default.
+CMD ["node", "--max-http-header-size=65536", "apps/api/dist/main.js"]

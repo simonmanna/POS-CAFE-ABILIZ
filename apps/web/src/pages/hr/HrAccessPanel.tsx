@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/dialog';
 import { notify } from '@/lib/notify';
 import { apiErrorMessage } from '@/lib/api-error';
+import { tx } from '@/lib/i18n/tx';
 
 const dateTime = (d: string | null | undefined) =>
   d ? new Date(d).toLocaleString('id-ID') : 'Never';
@@ -58,7 +59,7 @@ export function HrAccessPanel({
   const setPin = useSetEmployeePin();
   const clearPin = useClearEmployeePin();
 
-  if (isLoading) return <p className="text-sm text-muted-foreground">Loading access…</p>;
+  if (isLoading) return <p className="text-sm text-muted-foreground">{tx('Loading access…')}</p>;
 
   const user = access?.user;
 
@@ -66,11 +67,11 @@ export function HrAccessPanel({
     <div className="space-y-4">
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">System access</CardTitle>
+          <CardTitle className="text-base">{tx('System access')}</CardTitle>
           {access?.linked ? (
-            <Badge className="bg-emerald-100 text-emerald-800">Linked</Badge>
+            <Badge className="bg-emerald-100 text-emerald-800">{tx('Linked')}</Badge>
           ) : (
-            <Badge className="bg-muted text-muted-foreground">Not linked</Badge>
+            <Badge className="bg-muted text-muted-foreground">{tx('Not linked')}</Badge>
           )}
         </CardHeader>
 
@@ -78,24 +79,24 @@ export function HrAccessPanel({
           {access?.linked && user ? (
             <div className="space-y-4">
               <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-                <Row label="Username" value={user.email} />
+                <Row label={tx('Username')} value={user.email} />
                 <Row
-                  label="Account"
+                  label={tx('Account')}
                   value={
                     user.isActive ? (
-                      <span className="text-emerald-700">Active</span>
+                      <span className="text-emerald-700">{tx('Active')}</span>
                     ) : (
-                      <span className="text-rose-700">Disabled</span>
+                      <span className="text-rose-700">{tx('Disabled')}</span>
                     )
                   }
                 />
-                <Row label="Roles" value={user.roles.map((r) => r.name).join(', ') || 'None'} />
+                <Row label={tx('Roles')} value={user.roles.map((r) => r.name).join(', ') || 'None'} />
                 <Row
-                  label="POS access"
+                  label={tx('POS access')}
                   value={
                     user.posAccess ? (
                       <span className="inline-flex items-center gap-1 text-emerald-700">
-                        <ShieldCheck className="h-3.5 w-3.5" /> Yes
+                        <ShieldCheck className="h-3.5 w-3.5" /> {tx('Yes')}
                       </span>
                     ) : (
                       'No'
@@ -103,21 +104,21 @@ export function HrAccessPanel({
                   }
                 />
                 <Row
-                  label="POS PIN"
+                  label={tx('POS PIN')}
                   value={
                     user.hasPin ? (
                       <span className="inline-flex items-center gap-1">
-                        <KeyRound className="h-3.5 w-3.5" /> Set
+                        <KeyRound className="h-3.5 w-3.5" /> {tx('Set')}
                       </span>
                     ) : (
                       'Not set'
                     )
                   }
                 />
-                <Row label="Last login" value={dateTime(user.lastLoginAt)} />
+                <Row label={tx('Last login')} value={dateTime(user.lastLoginAt)} />
                 {user.lockedUntil && (
                   <Row
-                    label="Locked until"
+                    label={tx('Locked until')}
                     value={<span className="text-rose-700">{dateTime(user.lockedUntil)}</span>}
                   />
                 )}
@@ -135,7 +136,7 @@ export function HrAccessPanel({
                   disabled={unlink.isPending}
                 >
                   <Link2Off className="mr-1.5 h-3.5 w-3.5" />
-                  Unlink account
+                  {tx('Unlink account')}
                 </Button>
               </div>
 
@@ -148,17 +149,16 @@ export function HrAccessPanel({
           ) : (
             <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                {employeeName} has no login. They exist in HR but cannot sign in to the back office
-                or the POS.
+                {employeeName} {tx('has no login. They exist in HR but cannot sign in to the back office or the POS.')}
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button size="sm" onClick={() => setLinkOpen(true)}>
                   <Link2 className="mr-1.5 h-3.5 w-3.5" />
-                  Link existing account
+                  {tx('Link existing account')}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setProvisionOpen(true)}>
                   <UserPlus className="mr-1.5 h-3.5 w-3.5" />
-                  Create account
+                  {tx('Create account')}
                 </Button>
               </div>
             </div>
@@ -191,9 +191,9 @@ export function HrAccessPanel({
       <Dialog open={unlinkOpen} onOpenChange={setUnlinkOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Unlink account?</DialogTitle>
+            <DialogTitle>{tx('Unlink account?')}</DialogTitle>
             <DialogDescription>
-              This detaches the login from {employeeName}. The account itself is not disabled or
+              {tx('This detaches the login from')} {employeeName}. The account itself is not disabled or
               deleted, and their past orders, invoices and cash sessions are untouched — those keep
               resolving to the same person. To stop someone signing in, terminate or suspend them
               instead.
@@ -201,13 +201,13 @@ export function HrAccessPanel({
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setUnlinkOpen(false)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               onClick={async () => {
                 try {
                   await unlink.mutateAsync(employeeId);
-                  notify.success('Account unlinked');
+                  notify.success(tx('Account unlinked'));
                   setUnlinkOpen(false);
                 } catch (err) {
                   notify.error(apiErrorMessage(err, 'Could not unlink the account'));
@@ -215,7 +215,7 @@ export function HrAccessPanel({
               }}
               disabled={unlink.isPending}
             >
-              Unlink
+              {tx('Unlink')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -253,24 +253,23 @@ function LinkDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Link an account to {employeeName}</DialogTitle>
+          <DialogTitle>{tx('Link an account to')} {employeeName}</DialogTitle>
           <DialogDescription>
-            Only accounts that are not already attached to another employee are listed, so one login
-            can never back two people.
+            {tx('Only accounts that are not already attached to another employee are listed, so one login can never back two people.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           <Input
-            placeholder="Search by name or email…"
+            placeholder={tx('Search by name or email…')}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
           <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-1">
-            {isLoading && <p className="p-3 text-sm text-muted-foreground">Loading…</p>}
+            {isLoading && <p className="p-3 text-sm text-muted-foreground">{tx('Loading…')}</p>}
             {!isLoading && !data?.rows?.length && (
               <p className="p-3 text-sm text-muted-foreground">
-                No unlinked accounts. Every active login already belongs to an employee.
+                {tx('No unlinked accounts. Every active login already belongs to an employee.')}
               </p>
             )}
             {data?.rows?.map((u) => (
@@ -298,7 +297,7 @@ function LinkDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             disabled={!selected || link.isPending}
@@ -306,7 +305,7 @@ function LinkDialog({
               if (!selected) return;
               try {
                 await link.mutateAsync({ employeeId, userId: selected });
-                notify.success('Account linked');
+                notify.success(tx('Account linked'));
                 onOpenChange(false);
                 setSelected(null);
               } catch (err) {
@@ -314,7 +313,7 @@ function LinkDialog({
               }
             }}
           >
-            Link account
+            {tx('Link account')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -351,39 +350,38 @@ function ProvisionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Create a login for {employeeName}</DialogTitle>
+          <DialogTitle>{tx('Create a login for')} {employeeName}</DialogTitle>
           <DialogDescription>
-            Creates the account through the same path as the Staff screen and links it. Roles decide
-            POS access — pick a POS role if this person works a till.
+            {tx('Creates the account through the same path as the Staff screen and links it. Roles decide POS access — pick a POS role if this person works a till.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>Email</Label>
+            <Label>{tx('Email')}</Label>
             <Input value={form.email} onChange={(e) => set('email', e.target.value)} />
           </div>
           <div className="grid gap-1.5">
-            <Label>Temporary password</Label>
+            <Label>{tx('Temporary password')}</Label>
             <Input
               type="password"
               value={form.password}
               onChange={(e) => set('password', e.target.value)}
             />
-            <p className="text-xs text-muted-foreground">At least 10 characters.</p>
+            <p className="text-xs text-muted-foreground">{tx('At least 10 characters.')}</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>First name</Label>
+              <Label>{tx('First name')}</Label>
               <Input value={form.firstName} onChange={(e) => set('firstName', e.target.value)} />
             </div>
             <div className="grid gap-1.5">
-              <Label>Last name</Label>
+              <Label>{tx('Last name')}</Label>
               <Input value={form.lastName} onChange={(e) => set('lastName', e.target.value)} />
             </div>
           </div>
           <div className="grid gap-1.5">
-            <Label>Roles</Label>
+            <Label>{tx('Roles')}</Label>
             <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
               {roleRows.map((r: any) => (
                 <label key={r.id} className="flex items-center gap-2 text-sm">
@@ -403,7 +401,7 @@ function ProvisionDialog({
                 </label>
               ))}
               {roleRows.length === 0 && (
-                <p className="text-sm text-muted-foreground">No roles available.</p>
+                <p className="text-sm text-muted-foreground">{tx('No roles available.')}</p>
               )}
             </div>
           </div>
@@ -411,7 +409,7 @@ function ProvisionDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             disabled={
@@ -431,14 +429,14 @@ function ProvisionDialog({
                   lastName: form.lastName || undefined,
                   roleIds: form.roleIds,
                 });
-                notify.success('Account created and linked');
+                notify.success(tx('Account created and linked'));
                 onOpenChange(false);
               } catch (err) {
                 notify.error(apiErrorMessage(err, 'Could not create the account'));
               }
             }}
           >
-            Create and link
+            {tx('Create and link')}
           </Button>
         </DialogFooter>
       </DialogContent>

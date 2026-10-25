@@ -25,6 +25,7 @@ import {
   useCreateJournal, useDeleteJournal, useJournal, useJournals, useUpdateJournal,
   useAccounts,
 } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 const JOURNAL_TYPES = [
   'general', 'sales', 'purchase', 'cash', 'bank', 'adjustment', 'opening', 'closing',
@@ -93,10 +94,10 @@ export function JournalEditPage() {
       };
       if (isNew) {
         await createJournal.mutateAsync(payload);
-        notify.success('Journal created');
+        notify.success(tx('Journal created'));
       } else {
         await updateJournal.mutateAsync({ id: id!, ...payload });
-        notify.success('Journal updated');
+        notify.success(tx('Journal updated'));
       }
       navigate('/journals');
     } catch (err: any) {
@@ -110,7 +111,7 @@ export function JournalEditPage() {
     if (!id) return;
     try {
       await deleteJournal.mutateAsync(id);
-      notify.success('Journal deleted');
+      notify.success(tx('Journal deleted'));
       navigate('/journals');
     } catch (err: any) {
       notify.error(err?.response?.data?.message ?? 'Delete failed');
@@ -145,7 +146,7 @@ export function JournalEditPage() {
       {/* Breadcrumb */}
       <div className="px-6 py-4 border-b bg-white shadow-sm">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3">
-          <button onClick={() => navigate('/journals')} className="hover:text-primary transition-colors font-medium">Journals</button>
+          <button onClick={() => navigate('/journals')} className="hover:text-primary transition-colors font-medium">{tx('Journals')}</button>
           <ChevronRight className="h-3 w-3" />
           <span className="font-semibold">{isNew ? 'New Journal' : journalDetail?.name}</span>
         </div>
@@ -175,11 +176,11 @@ export function JournalEditPage() {
           <div className="flex items-center gap-2 flex-shrink-0">
             {!isNew && (
               <Button variant="outline" size="sm" className="text-destructive border-destructive/40 hover:bg-destructive/10" onClick={() => setDeleteConfirm(true)}>
-                <Trash2 className="h-4 w-4 mr-1" /> Delete
+                <Trash2 className="h-4 w-4 mr-1" /> {tx('Delete')}
               </Button>
             )}
             <Button variant="outline" size="sm" onClick={() => navigate('/journals')}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button size="sm" onClick={handleSubmit} disabled={saving}>
               <Save className="h-4 w-4 mr-1.5" />
@@ -195,22 +196,22 @@ export function JournalEditPage() {
           {/* Basic Info */}
           <Card>
             <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Journal Information</CardTitle>
+              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Journal Information')}</CardTitle>
             </CardHeader>
             <CardContent className="px-5 py-4 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="code" className="text-sm font-medium">Code *</Label>
+                  <Label htmlFor="code" className="text-sm font-medium">{tx('Code *')}</Label>
                   <Input
                     id="code"
-                    placeholder="e.g. SJ, PJ, GEN"
+                    placeholder={tx('e.g. SJ, PJ, GEN')}
                     value={code}
                     onChange={(e) => { setCode(e.target.value); if (errors.code) setErrors((prev) => ({ ...prev, code: '' })); }}
                   />
                   {errors.code && <p className="text-sm text-destructive flex items-center gap-1"><AlertCircle className="h-3 w-3" />{errors.code}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Type</Label>
+                  <Label className="text-sm font-medium">{tx('Type')}</Label>
                   <Select value={journalType} onValueChange={setJournalType}>
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -222,10 +223,10 @@ export function JournalEditPage() {
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="name" className="text-sm font-medium">Name *</Label>
+                <Label htmlFor="name" className="text-sm font-medium">{tx('Name *')}</Label>
                 <Input
                   id="name"
-                  placeholder="e.g. Sales Journal"
+                  placeholder={tx('e.g. Sales Journal')}
                   value={name}
                   onChange={(e) => { setName(e.target.value); if (errors.name) setErrors((prev) => ({ ...prev, name: '' })); }}
                 />
@@ -237,29 +238,29 @@ export function JournalEditPage() {
           {/* Default Accounts */}
           <Card>
             <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Default Accounts</CardTitle>
+              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Default Accounts')}</CardTitle>
             </CardHeader>
             <CardContent className="px-5 py-4 space-y-4">
               <p className="text-[11px] text-muted-foreground">
-                Optional default accounts used when auto-posting entries to this journal.
+                {tx('Optional default accounts used when auto-posting entries to this journal.')}
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Default Debit Account</Label>
+                  <Label className="text-sm font-medium">{tx('Default Debit Account')}</Label>
                   <Select value={defaultDebitAccountId} onValueChange={setDefaultDebitAccountId}>
-                    <SelectTrigger><SelectValue placeholder="Not set" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={tx('Not set')} /></SelectTrigger>
                     <SelectContent className="max-h-64">
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="">{tx('None')}</SelectItem>
                       {accountSelectOptions}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Default Credit Account</Label>
+                  <Label className="text-sm font-medium">{tx('Default Credit Account')}</Label>
                   <Select value={defaultCreditAccountId} onValueChange={setDefaultCreditAccountId}>
-                    <SelectTrigger><SelectValue placeholder="Not set" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={tx('Not set')} /></SelectTrigger>
                     <SelectContent className="max-h-64">
-                      <SelectItem value="">None</SelectItem>
+                      <SelectItem value="">{tx('None')}</SelectItem>
                       {accountSelectOptions}
                     </SelectContent>
                   </Select>
@@ -276,18 +277,18 @@ export function JournalEditPage() {
             <CardContent className="px-5 py-4 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
-                  <Label className="text-sm font-medium">Sequence Prefix</Label>
+                  <Label className="text-sm font-medium">{tx('Sequence Prefix')}</Label>
                   <Input
-                    placeholder="e.g. SJ- (auto-numbers: SJ-0001)"
+                    placeholder={tx('e.g. SJ- (auto-numbers: SJ-0001)')}
                     value={sequencePrefix}
                     onChange={(e) => setSequencePrefix(e.target.value)}
                   />
-                  <p className="text-[10px] text-muted-foreground">Leave empty to use a system-generated number</p>
+                  <p className="text-[10px] text-muted-foreground">{tx('Leave empty to use a system-generated number')}</p>
                 </div>
                 <div className="space-y-1.5 flex flex-col justify-end">
                   <label className="flex items-center gap-2 text-sm cursor-pointer pt-6">
                     <input type="checkbox" className="rounded" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-                    Active — entries can be posted to this journal
+                    {tx('Active — entries can be posted to this journal')}
                   </label>
                 </div>
               </div>
@@ -296,7 +297,7 @@ export function JournalEditPage() {
 
           {/* Bottom actions */}
           <div className="flex items-center justify-between pb-8">
-            <Button type="button" variant="outline" onClick={() => navigate('/journals')}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => navigate('/journals')}>{tx('Cancel')}</Button>
             <Button onClick={handleSubmit} disabled={saving}>
               <Save className="h-4 w-4 mr-1.5" />
               {saving ? 'Saving…' : 'Save Journal'}
@@ -309,19 +310,19 @@ export function JournalEditPage() {
       <AlertDialog open={deleteConfirm} onOpenChange={(o) => !o && setDeleteConfirm(false)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Journal?</AlertDialogTitle>
+            <AlertDialogTitle>{tx('Delete Journal?')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {journalDetail?.name} ({journalDetail?.code}) will be permanently deleted. This action cannot be undone.
+              {journalDetail?.name} ({journalDetail?.code}{tx(') will be permanently deleted. This action cannot be undone.')}
               {journalDetail?._count?.entries && journalDetail._count.entries > 0 && (
                 <span className="block mt-2 text-amber-600 font-semibold">
-                  This journal has {journalDetail._count.entries} entries. Delete all entries first or deactivate the journal instead.
+                  {tx('This journal has')} {journalDetail._count.entries} {tx('entries. Delete all entries first or deactivate the journal instead.')}
                 </span>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+            <AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">{tx('Delete')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

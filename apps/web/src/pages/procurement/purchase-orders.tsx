@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { money, date } from '@/lib/format';
 import type { PaginatedResult } from '@erp/shared';
+import { tx } from '@/lib/i18n/tx';
 
 interface PurchaseOrder {
   id: string;
@@ -80,7 +81,7 @@ export function PurchaseOrdersPage() {
     mutationFn: async (id: string) =>
       (await api.post(`/procurement/purchase-orders/${id}/cancel`, { reason: '' })).data,
     onSuccess: () => {
-      notify.success('Purchase cancelled');
+      notify.success(tx('Purchase cancelled'));
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
@@ -157,7 +158,7 @@ export function PurchaseOrdersPage() {
               }}
             >
               <Truck className="mr-1 h-3 w-3" />
-              Receive
+              {tx('Receive')}
             </Button>
           )}
           {po.status === 'received' && po.paymentType === 'credit' && po.paymentStatus !== 'paid' && (
@@ -207,7 +208,7 @@ export function PurchaseOrdersPage() {
         <Button asChild>
           <Link to="/procurement/purchase-orders/new">
             <Plus className="mr-2 h-4 w-4" />
-            New Purchase
+            {tx('New Purchase')}
           </Link>
         </Button>
       </div>
@@ -217,7 +218,7 @@ export function PurchaseOrdersPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search orders..."
+            placeholder={tx('Search orders...')}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
@@ -228,12 +229,12 @@ export function PurchaseOrdersPage() {
           onValueChange={(v) => { setPaymentType(v); setPage(1); }}
         >
           <SelectTrigger className="w-[130px]">
-            <SelectValue placeholder="All types" />
+            <SelectValue placeholder={tx('All types')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All types</SelectItem>
-            <SelectItem value="cash">Cash</SelectItem>
-            <SelectItem value="credit">Credit</SelectItem>
+            <SelectItem value="all">{tx('All types')}</SelectItem>
+            <SelectItem value="cash">{tx('Cash')}</SelectItem>
+            <SelectItem value="credit">{tx('Credit')}</SelectItem>
           </SelectContent>
         </Select>
 
@@ -242,13 +243,13 @@ export function PurchaseOrdersPage() {
           onValueChange={(v) => { setPaymentStatus(v); setPage(1); }}
         >
           <SelectTrigger className="w-[150px]">
-            <SelectValue placeholder="All payments" />
+            <SelectValue placeholder={tx('All payments')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All payments</SelectItem>
-            <SelectItem value="not_paid">Unpaid</SelectItem>
-            <SelectItem value="partial">Partial</SelectItem>
-            <SelectItem value="paid">Paid</SelectItem>
+            <SelectItem value="all">{tx('All payments')}</SelectItem>
+            <SelectItem value="not_paid">{tx('Unpaid')}</SelectItem>
+            <SelectItem value="partial">{tx('Partial')}</SelectItem>
+            <SelectItem value="paid">{tx('Paid')}</SelectItem>
           </SelectContent>
         </Select>
 
@@ -278,7 +279,7 @@ export function PurchaseOrdersPage() {
           <span>
             {t('procurement.purchaseOrders.noData')}{' '}
             <Link to="/procurement/purchase-orders/new" className="text-primary underline">
-              Create one
+              {tx('Create one')}
             </Link>
             .
           </span>
@@ -287,13 +288,13 @@ export function PurchaseOrdersPage() {
 
       {meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} order(s)</span>
+          <span>{meta.total} {tx('order(s)')}</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {tx('Previous')}
             </Button>
             <span>
-              Page {meta.page} of {meta.totalPages}
+              {tx('Page')} {meta.page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -301,7 +302,7 @@ export function PurchaseOrdersPage() {
               disabled={page >= meta.totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>

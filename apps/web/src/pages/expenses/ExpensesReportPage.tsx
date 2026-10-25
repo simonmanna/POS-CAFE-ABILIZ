@@ -28,6 +28,7 @@ import {
 import { expensesApi } from "@/lib/api/expenses";
 import type { Expense, ExpenseStats } from "@/types/expenses";
 import { money, date } from "@/lib/format";
+import { tx } from '@/lib/i18n/tx';
 
 interface ExpenseCategory {
   id: string;
@@ -269,11 +270,11 @@ export default function ExpensesReportPage() {
             to="/expenses"
             className="text-sm text-slate-500 hover:text-slate-700 inline-flex items-center gap-1"
           >
-            <ChevronLeft className="w-4 h-4" /> Back to Expenses
+            <ChevronLeft className="w-4 h-4" /> {tx('Back to Expenses')}
           </Link>
-          <h1 className="text-2xl font-bold text-slate-800 mt-1">Expense Reports</h1>
+          <h1 className="text-2xl font-bold text-slate-800 mt-1">{tx('Expense Reports')}</h1>
           <p className="text-sm text-slate-500">
-            Filter, summarize, and export your expense history.
+            {tx('Filter, summarize, and export your expense history.')}
           </p>
         </div>
         <Button
@@ -286,14 +287,14 @@ export default function ExpensesReportPage() {
           ) : (
             <Download className="w-4 h-4 mr-1.5" />
           )}
-          Export CSV
+          {tx('Export CSV')}
         </Button>
       </div>
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-2.5 flex flex-wrap items-end gap-2">
         <div>
-          <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">From</label>
+          <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">{tx('From')}</label>
           <Input
             type="date"
             value={dateFrom}
@@ -302,7 +303,7 @@ export default function ExpensesReportPage() {
           />
         </div>
         <div>
-          <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">To</label>
+          <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">{tx('To')}</label>
           <Input
             type="date"
             value={dateTo}
@@ -311,13 +312,13 @@ export default function ExpensesReportPage() {
           />
         </div>
         <div>
-          <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">Category</label>
+          <label className="block text-[11px] font-bold uppercase text-slate-500 mb-1">{tx('Category')}</label>
           <Select value={categoryId} onValueChange={setCategoryId}>
             <SelectTrigger className="w-52 text-sm">
-              <SelectValue placeholder="All categories" />
+              <SelectValue placeholder={tx('All categories')} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">All categories</SelectItem>
+              <SelectItem value="">{tx('All categories')}</SelectItem>
               {categories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.icon ? `${c.icon} ` : ""}{c.name}
@@ -331,28 +332,28 @@ export default function ExpensesReportPage() {
       {/* Stat cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
         <StatCard
-          label="Total Expenses"
+          label={tx('Total Expenses')}
           value={stats ? money(stats.grandTotal) : "—"}
           sub={`${stats?.count ?? 0} entries`}
           icon={Receipt}
           color="blue"
         />
         <StatCard
-          label="Total Paid"
+          label={tx('Total Paid')}
           value={stats ? money(stats.totalPaid) : "—"}
           sub={`${stats?.totalPaidCount ?? 0} paid`}
           icon={Banknote}
           color="emerald"
         />
         <StatCard
-          label="Total Unpaid"
+          label={tx('Total Unpaid')}
           value={stats ? money(stats.totalUnpaid) : "—"}
           sub={`${stats?.totalUnpaidCount ?? 0} unpaid`}
           icon={Clock}
           color="amber"
         />
         <StatCard
-          label="Partially Paid"
+          label={tx('Partially Paid')}
           value={stats ? money(stats.totalPartiallyPaid) : "—"}
           sub={`${stats?.totalPartiallyPaidCount ?? 0} partial`}
           icon={TrendingUp}
@@ -366,14 +367,14 @@ export default function ExpensesReportPage() {
           columns={columns}
           data={rows}
           loading={loading}
-          emptyMessage="No expenses match the selected filters."
+          emptyMessage={tx('No expenses match the selected filters.')}
           getRowId={(r) => r.id}
         />
 
         {/* Pagination */}
         <div className="flex items-center justify-between px-3 py-2.5 border-t border-slate-100">
           <p className="text-sm text-slate-500">
-            Showing {total === 0 ? 0 : (page - 1) * 20 + 1}–
+            {tx('Showing')} {total === 0 ? 0 : (page - 1) * 20 + 1}–
             {Math.min(page * 20, total)} of {total}
           </p>
           <div className="flex items-center gap-1">

@@ -7,6 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { formatBytes } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 interface FileRecord {
   id: string;
@@ -42,7 +43,7 @@ export function FilesPage() {
       return (await api.post('/files/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })).data;
     },
     onSuccess: () => {
-      notify.success('Uploaded');
+      notify.success(tx('Uploaded'));
       qc.invalidateQueries({ queryKey: ['files'] });
       list.refetch();
     },
@@ -51,7 +52,7 @@ export function FilesPage() {
   const remove = useMutation({
     mutationFn: async (id: string) => await api.delete(`/files/${id}`),
     onSuccess: () => {
-      notify.success('Removed');
+      notify.success(tx('Removed'));
       list.refetch();
     },
   });
@@ -59,36 +60,36 @@ export function FilesPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Files</h1>
-        <p className="text-sm text-muted-foreground">Upload and manage attachments</p>
+        <h1 className="text-2xl font-semibold">{tx('Files')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('Upload and manage attachments')}</p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Upload</CardTitle>
-          <CardDescription>Attach a file to a record (e.g. Partner, Expense)</CardDescription>
+          <CardTitle>{tx('Upload')}</CardTitle>
+          <CardDescription>{tx('Attach a file to a record (e.g. Partner, Expense)')}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-end gap-2">
           <div>
-            <label className="text-xs">Owner type</label>
+            <label className="text-xs">{tx('Owner type')}</label>
             <select
               value={ownerType}
               onChange={(e) => setOwnerType(e.target.value)}
               className="mt-1 block rounded border bg-background px-2 py-1 text-sm"
             >
-              <option value="partner">Partner</option>
-              <option value="expense">Expense</option>
-              <option value="product">Product</option>
-              <option value="invoice">Invoice</option>
-              <option value="payment">Payment</option>
+              <option value="partner">{tx('Partner')}</option>
+              <option value="expense">{tx('Expense')}</option>
+              <option value="product">{tx('Product')}</option>
+              <option value="invoice">{tx('Invoice')}</option>
+              <option value="payment">{tx('Payment')}</option>
             </select>
           </div>
           <div className="min-w-[200px] flex-1">
-            <label className="text-xs">Owner ID</label>
+            <label className="text-xs">{tx('Owner ID')}</label>
             <input
               value={ownerId}
               onChange={(e) => setOwnerId(e.target.value)}
-              placeholder="uuid"
+              placeholder={tx('uuid')}
               className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
             />
           </div>
@@ -113,7 +114,7 @@ export function FilesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Stored files</CardTitle>
+          <CardTitle>{tx('Stored files')}</CardTitle>
           <Button size="sm" variant="outline" onClick={() => list.refetch()}>
             {list.isFetching ? 'Loading…' : 'List files'}
           </Button>
@@ -121,7 +122,7 @@ export function FilesPage() {
         <CardContent>
           {list.isLoading && <Skeleton className="h-16 w-full" />}
           {list.data && list.data.length === 0 && (
-            <p className="text-sm text-muted-foreground">No files for this owner.</p>
+            <p className="text-sm text-muted-foreground">{tx('No files for this owner.')}</p>
           )}
           {list.data?.map((f) => (
             <div key={f.id} className="flex items-center justify-between border-b py-2 last:border-b-0">
@@ -140,7 +141,7 @@ export function FilesPage() {
                       const { data } = await api.post<{ url: string }>(`/files/${f.id}/signed-url`);
                       window.open(data.url, '_blank');
                     } catch {
-                      notify.error('Could not generate URL');
+                      notify.error(tx('Could not generate URL'));
                     }
                   }}
                 >

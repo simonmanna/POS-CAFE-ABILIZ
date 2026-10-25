@@ -20,6 +20,7 @@ import {
 } from '@/features/beverage/api';
 import { bevConfigFromProduct, computeLine, type BevConfig, type Confidence } from '@/features/beverage/math';
 import { useScale } from '@/features/beverage/use-scale';
+import { tx } from '@/lib/i18n/tx';
 
 interface Location { id: string; code: string; name: string }
 type LineEdit = { sealed: string; readings: { g: string; bottleNumber: string }[]; reason: string };
@@ -144,7 +145,7 @@ export function BottleCountPage() {
     if (!session) return;
     saveDraft.mutate(
       { id: session.id, body: buildPayload() },
-      { onSuccess: (s) => { loadSession(s); notify.success('Draft saved'); }, onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Save failed') },
+      { onSuccess: (s) => { loadSession(s); notify.success(tx('Draft saved')); }, onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Save failed') },
     );
   };
 
@@ -186,19 +187,19 @@ export function BottleCountPage() {
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Scale className="h-6 w-6" /> Bottle Count
+          <Scale className="h-6 w-6" /> {tx('Bottle Count')}
         </h1>
         <p className="text-sm text-muted-foreground">
-          Weigh open bottles — the system converts grams → remaining ml, compares to sold, and posts only the variance as an audited adjustment.
+          {tx('Weigh open bottles — the system converts grams → remaining ml, compares to sold, and posts only the variance as an audited adjustment.')}
         </p>
       </div>
 
       <div className="flex gap-1 border-b pb-2">
         <Button size="sm" variant={tab === 'count' ? 'default' : 'outline'} onClick={() => setTab('count')}>
-          <Scale className="mr-1 h-3 w-3" /> Count
+          <Scale className="mr-1 h-3 w-3" /> {tx('Count')}
         </Button>
         <Button size="sm" variant={tab === 'history' ? 'default' : 'outline'} onClick={() => setTab('history')}>
-          <History className="mr-1 h-3 w-3" /> History
+          <History className="mr-1 h-3 w-3" /> {tx('History')}
         </Button>
       </div>
 
@@ -207,9 +208,9 @@ export function BottleCountPage() {
           <CardContent className="p-6 space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
-                <label className="text-sm font-medium">Location</label>
+                <label className="text-sm font-medium">{tx('Location')}</label>
                 <Select value={locationId} onValueChange={setLocationId}>
-                  <SelectTrigger><SelectValue placeholder="Active warehouse (default)" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={tx('Active warehouse (default)')} /></SelectTrigger>
                   <SelectContent>
                     {locations.data?.map((l) => (
                       <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
@@ -218,12 +219,12 @@ export function BottleCountPage() {
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium">Count Type</label>
+                <label className="text-sm font-medium">{tx('Count Type')}</label>
                 <Select value={countType} onValueChange={(v) => setCountType(v as 'opening' | 'closing')}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="opening">Opening (start of shift)</SelectItem>
-                    <SelectItem value="closing">Closing (end of shift)</SelectItem>
+                    <SelectItem value="opening">{tx('Opening (start of shift)')}</SelectItem>
+                    <SelectItem value="closing">{tx('Closing (end of shift)')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -235,7 +236,7 @@ export function BottleCountPage() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Only digital-weight (bar alcohol) products are counted. Leave location blank to use the active warehouse (where POS sales deduct stock).
+              {tx('Only digital-weight (bar alcohol) products are counted. Leave location blank to use the active warehouse (where POS sales deduct stock).')}
             </p>
           </CardContent>
         </Card>
@@ -248,12 +249,12 @@ export function BottleCountPage() {
               <span className="text-sm font-medium truncate max-w-[280px]">{session.name ?? session.countCode}</span>
               <Badge variant="outline" className="shrink-0">{session.countCode}</Badge>
               <span className="text-sm text-muted-foreground">
-                {countedTotal} of {rows.length} weighed · {flagged.length} flagged
+                {countedTotal} of {rows.length} {tx('weighed ·')} {flagged.length} {tx('flagged')}
               </span>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" variant="ghost" onClick={() => session && cancel.mutate(session.id, { onSuccess: () => { setSession(null); setEdits({}); notify.success('Count cancelled'); } })}>
-                <XCircle className="mr-1 h-4 w-4" /> Cancel
+              <Button size="sm" variant="ghost" onClick={() => session && cancel.mutate(session.id, { onSuccess: () => { setSession(null); setEdits({}); notify.success(tx('Count cancelled')); } })}>
+                <XCircle className="mr-1 h-4 w-4" /> {tx('Cancel')}
               </Button>
               <Button size="sm" variant="outline" onClick={doSave} disabled={busy}>
                 <Save className="mr-1 h-4 w-4" /> {saveDraft.isPending ? 'Saving…' : 'Save Draft'}
@@ -266,7 +267,7 @@ export function BottleCountPage() {
 
           <div className="relative w-64">
             <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input className="pl-8" placeholder="Search bottle…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            <Input className="pl-8" placeholder={tx('Search bottle…')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
 
           <div className="space-y-2">
@@ -280,17 +281,17 @@ export function BottleCountPage() {
                       <div className="min-w-[160px]">
                         <div className="font-medium">{ln.productName}</div>
                         <div className="text-xs text-muted-foreground">
-                          System {num(ln.systemMl).toFixed(0)} ml
+                          {tx('System')} {num(ln.systemMl).toFixed(0)} ml
                           {cfg ? ` · pour ${cfg.standardPourMl || '—'} ml · tol ±${cfg.toleranceG} g` : ' · not configured'}
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-4">
                         <div className="text-center">
-                          <div className="text-[11px] text-muted-foreground">Counted</div>
+                          <div className="text-[11px] text-muted-foreground">{tx('Counted')}</div>
                           <div className="font-mono font-semibold">{counted ? `${countedMl!.toFixed(0)} ml` : '—'}</div>
                         </div>
                         <div className="text-center">
-                          <div className="text-[11px] text-muted-foreground">Variance</div>
+                          <div className="text-[11px] text-muted-foreground">{tx('Variance')}</div>
                           <div className={`font-mono font-semibold ${counted ? VAR_COLOR[confidence] : 'text-muted-foreground'}`}>
                             {counted ? `${varianceG > 0 ? '+' : ''}${varianceG.toFixed(1)} g` : '—'}
                           </div>
@@ -304,18 +305,18 @@ export function BottleCountPage() {
 
                     <div className="mt-3 grid gap-3 sm:grid-cols-[110px_1fr]">
                       <div>
-                        <label className="text-xs text-muted-foreground">Sealed (full)</label>
+                        <label className="text-xs text-muted-foreground">{tx('Sealed (full)')}</label>
                         <Input type="number" inputMode="numeric" min="0" className="h-9" placeholder="0" value={ed.sealed} onChange={(e) => setEdit(ln.id, { sealed: e.target.value })} />
                       </div>
                       <div>
-                        <label className="text-xs text-muted-foreground">Open bottles — weigh each (g)</label>
+                        <label className="text-xs text-muted-foreground">{tx('Open bottles — weigh each (g)')}</label>
                         <div className="space-y-1.5">
                           {ed.readings.map((r, i) => (
                             <div key={i} className="flex items-center gap-2">
                               <Input
                                 type="number" inputMode="decimal" min="0"
                                 className="h-9 w-32 text-right font-mono"
-                                placeholder="grams"
+                                placeholder={tx('grams')}
                                 value={r.g}
                                 onChange={(e) => setReading(ln.id, i, { g: e.target.value })}
                               />
@@ -324,7 +325,7 @@ export function BottleCountPage() {
                               </span>
                               <Input
                                 className="h-9 w-28"
-                                placeholder="bottle #"
+                                placeholder={tx('bottle #')}
                                 value={r.bottleNumber}
                                 onChange={(e) => setReading(ln.id, i, { bottleNumber: e.target.value })}
                               />
@@ -334,7 +335,7 @@ export function BottleCountPage() {
                             </div>
                           ))}
                           <Button type="button" size="sm" variant="outline" onClick={() => addReading(ln.id)}>
-                            <Plus className="mr-1 h-3 w-3" /> Add open bottle
+                            <Plus className="mr-1 h-3 w-3" /> {tx('Add open bottle')}
                           </Button>
                         </div>
                       </div>
@@ -342,10 +343,10 @@ export function BottleCountPage() {
 
                     {counted && confidence !== 'GOOD' && (
                       <div className="mt-3">
-                        <label className="text-xs text-muted-foreground">Reason (required)</label>
+                        <label className="text-xs text-muted-foreground">{tx('Reason (required)')}</label>
                         <Input
                           className={needReason ? 'border-destructive focus-visible:ring-destructive' : ''}
-                          placeholder="Explain the variance…"
+                          placeholder={tx('Explain the variance…')}
                           value={ed.reason}
                           onChange={(e) => setEdit(ln.id, { reason: e.target.value })}
                         />
@@ -356,7 +357,7 @@ export function BottleCountPage() {
               );
             })}
             {filtered.length === 0 && (
-              <Card><CardContent className="p-8 text-center text-muted-foreground">No bottles match the filter</CardContent></Card>
+              <Card><CardContent className="p-8 text-center text-muted-foreground">{tx('No bottles match the filter')}</CardContent></Card>
             )}
           </div>
         </div>
@@ -370,12 +371,12 @@ export function BottleCountPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="px-3 py-2 text-left">Code</th>
-                    <th className="px-3 py-2 text-left">Type</th>
-                    <th className="px-3 py-2 text-left">Status</th>
-                    <th className="px-3 py-2 text-right">Bottles</th>
-                    <th className="px-3 py-2 text-left">Started</th>
-                    <th className="px-3 py-2 text-left">Submitted</th>
+                    <th className="px-3 py-2 text-left">{tx('Code')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Type')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Status')}</th>
+                    <th className="px-3 py-2 text-right">{tx('Bottles')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Started')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Submitted')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -395,7 +396,7 @@ export function BottleCountPage() {
               </table>
             </div>
           ) : (
-            !history.isLoading && <Card><CardContent className="p-8 text-center text-muted-foreground">No bottle counts yet</CardContent></Card>
+            !history.isLoading && <Card><CardContent className="p-8 text-center text-muted-foreground">{tx('No bottle counts yet')}</CardContent></Card>
           )}
         </div>
       )}
@@ -403,26 +404,26 @@ export function BottleCountPage() {
       {/* Manager approval — required when a line is over tolerance or impossible. */}
       <Dialog open={approvalOpen} onOpenChange={setApprovalOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" /> Manager approval</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><ShieldCheck className="h-5 w-5" /> {tx('Manager approval')}</DialogTitle></DialogHeader>
           <div className="space-y-3 pt-2">
             <p className="text-sm text-muted-foreground">
-              This count has {flagged.length} flagged line(s) over tolerance. A manager (not the person who counted) must approve.
+              {tx('This count has')} {flagged.length} {tx('flagged line(s) over tolerance. A manager (not the person who counted) must approve.')}
             </p>
             <div>
-              <label className="text-sm font-medium">Manager email</label>
-              <Input type="email" value={approverEmail} onChange={(e) => setApproverEmail(e.target.value)} placeholder="manager@bar.com" />
+              <label className="text-sm font-medium">{tx('Manager email')}</label>
+              <Input type="email" value={approverEmail} onChange={(e) => setApproverEmail(e.target.value)} placeholder={tx('manager@bar.com')} />
             </div>
             <div>
-              <label className="text-sm font-medium">Manager PIN <span className="text-muted-foreground font-normal">(if set)</span></label>
+              <label className="text-sm font-medium">{tx('Manager PIN')} <span className="text-muted-foreground font-normal">{tx('(if set)')}</span></label>
               <Input type="password" value={managerPin} onChange={(e) => setManagerPin(e.target.value)} placeholder="••••" />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setApprovalOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setApprovalOpen(false)}>{tx('Cancel')}</Button>
               <Button
                 disabled={!approverEmail.trim() || busy}
                 onClick={() => doSubmit({ approverEmail: approverEmail.trim(), managerPin: managerPin.trim() || undefined })}
               >
-                <CheckCircle2 className="mr-1 h-4 w-4" /> Approve & Submit
+                <CheckCircle2 className="mr-1 h-4 w-4" /> {tx('Approve & Submit')}
               </Button>
             </div>
           </div>

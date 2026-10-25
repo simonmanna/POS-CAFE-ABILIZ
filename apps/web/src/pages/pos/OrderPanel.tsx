@@ -51,6 +51,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useAuthStore } from "@/stores/auth.store";
+import { tx } from '@/lib/i18n/tx';
 
 export type OrderTypeOption = 'dine-in' | 'takeaway' | 'delivery';
 
@@ -321,7 +322,7 @@ export const OrderPanel: React.FC<Props> = ({
           </div>
         </div>
         {customerName ? (
-          <div className="pos-ord-customer ml-2 cursor-pointer" onClick={onCustomerProfile} title="View customer profile">
+          <div className="pos-ord-customer ml-2 cursor-pointer" onClick={onCustomerProfile} title={tx('View customer profile')}>
             <User className="h-3 w-3" />
             {customerName}
           </div>
@@ -332,7 +333,7 @@ export const OrderPanel: React.FC<Props> = ({
               className="text-[13px] font-bold cursor-pointer appearance-none bg-white/15 text-white rounded-md px-2 py-1 pr-5 border border-white/20"
               value={orderType}
               onChange={(e) => onChangeOrderType(e.target.value as OrderTypeOption)}
-              title="Order type"
+              title={tx('Order type')}
               style={{ backgroundImage: 'url("data:image/svg+xml,%3csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3e%3cpath fill=%27%23fff%27 d=%27M5 6l3 3 3-3%27/%3e%3c/svg%3e")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 4px center', backgroundSize: '10px' }}
             >
               {ORDER_TYPES.map((ot) => (
@@ -405,12 +406,12 @@ export const OrderPanel: React.FC<Props> = ({
       {/* Totals */}
       <div className="pos-order-totals">
         <div className="pos-totals-row">
-          <span>Subtotal</span>
+          <span>{tx('Subtotal')}</span>
           <span className="pos-amt">{fmt(subtotal)}</span>
         </div>
         {transactionDiscountPercent > 0 ? (
           <div className="pos-totals-row">
-            <span>Discount ({transactionDiscountPercent}%)</span>
+            <span>{tx('Discount (')}{transactionDiscountPercent}%)</span>
             <span className="pos-amt text-emerald-600">−{fmt(txDisc)}</span>
           </div>
         ) : null}
@@ -423,61 +424,61 @@ export const OrderPanel: React.FC<Props> = ({
       {/* Control rows — act on the selected line / order */}
       <div className="pos-ctl-rows">
         <div className="pos-ctl-row">
-          <button type="button" className="pos-ctl-btn" onClick={onAddCustomer} title="Customer">
-            <User className="h-4 w-4" /><span>Customer</span>
+          <button type="button" className="pos-ctl-btn" onClick={onAddCustomer} title={tx('Customer')}>
+            <User className="h-4 w-4" /><span>{tx('Customer')}</span>
           </button>
           <button type="button" className="pos-ctl-btn" disabled={noSel || !canDiscount} onClick={() => selectedLine && onLineDiscount(selectedLine)} title={canDiscount ? "Line discount on selected item" : "Requires discount permission"}>
-            <Tag className="h-4 w-4" /><span>Disc</span>
+            <Tag className="h-4 w-4" /><span>{tx('Disc')}</span>
           </button>
           <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
             <DialogTrigger asChild>
               {/* Merge works on an empty table too (the items arrive from the
                   other table), so it must not be locked behind a non-empty cart. */}
-              <button type="button" className="pos-ctl-btn" disabled={noSel && empty && !onMergeTables} title="More actions">
-                <MoreHorizontal className="h-4 w-4" /><span>More</span>
+              <button type="button" className="pos-ctl-btn" disabled={noSel && empty && !onMergeTables} title={tx('More actions')}>
+                <MoreHorizontal className="h-4 w-4" /><span>{tx('More')}</span>
               </button>
             </DialogTrigger>
             <DialogContent className="max-w-lg">
               <DialogHeader>
-                <DialogTitle>More Actions</DialogTitle>
+                <DialogTitle>{tx('More Actions')}</DialogTitle>
               </DialogHeader>
               <div className="grid grid-cols-2 gap-3 p-1">
                 {/* Line actions (require selection) */}
                 {!noSel && (
-                  <MoreCard icon={StickyNote} label="Note" onClick={() => { setMoreOpen(false); if (selectedLine) onNote(selectedLine); }} />
+                  <MoreCard icon={StickyNote} label={tx('Note')} onClick={() => { setMoreOpen(false); if (selectedLine) onNote(selectedLine); }} />
                 )}
                 {!noSel && onVoidItem && (
-                  <MoreCard icon={AlertTriangle} label="Void Item" tone="danger" title="Void the selected item" onClick={() => { setMoreOpen(false); if (selectedLine) onVoidItem(selectedLine); }} />
+                  <MoreCard icon={AlertTriangle} label={tx('Void Item')} tone="danger" title={tx('Void the selected item')} onClick={() => { setMoreOpen(false); if (selectedLine) onVoidItem(selectedLine); }} />
                 )}
                 {!noSel && onRemove && (
-                  <MoreCard icon={Trash2} label="Delete" tone="danger" onClick={() => { setMoreOpen(false); if (selectedLine) onRemove(selectedLine); }} />
+                  <MoreCard icon={Trash2} label={tx('Delete')} tone="danger" onClick={() => { setMoreOpen(false); if (selectedLine) onRemove(selectedLine); }} />
                 )}
                 {/* Merge — the one action that is useful on an EMPTY table, since
                     the items come in from the tables being folded in. */}
                 {!hideCafeFeatures && onMergeTables && (
-                  <MoreCard icon={MergeIcon} label="Merge Tables" title="Join other tables onto this one" onClick={() => { setMoreOpen(false); onMergeTables(); }} />
+                  <MoreCard icon={MergeIcon} label={tx('Merge Tables')} title={tx('Join other tables onto this one')} onClick={() => { setMoreOpen(false); onMergeTables(); }} />
                 )}
                 {/* Order-level actions */}
                 {!empty && (
                   <>
                     {onVoidOrder && (
-                      <MoreCard icon={Ban} label="Void" tone="danger" title="Void the whole order and free this table" onClick={() => { setMoreOpen(false); onVoidOrder(); }} />
+                      <MoreCard icon={Ban} label={tx('Void')} tone="danger" title={tx('Void the whole order and free this table')} onClick={() => { setMoreOpen(false); onVoidOrder(); }} />
                     )}
-                    <MoreCard icon={Percent} label="Discount %" disabled={!canDiscount} title={canDiscount ? "Order discount" : "Requires discount permission"} onClick={() => { setMoreOpen(false); onAddDiscount(); }} />
+                    <MoreCard icon={Percent} label={tx('Discount %')} disabled={!canDiscount} title={canDiscount ? "Order discount" : "Requires discount permission"} onClick={() => { setMoreOpen(false); onAddDiscount(); }} />
                     {!hideCafeFeatures && onMoveItems && (
-                      <MoreCard icon={ArrowLeftRight} label="Move" title="Move items to another table" onClick={() => { setMoreOpen(false); onMoveItems(); }} />
+                      <MoreCard icon={ArrowLeftRight} label={tx('Move')} title={tx('Move items to another table')} onClick={() => { setMoreOpen(false); onMoveItems(); }} />
                     )}
                     {!hideCafeFeatures && onSplit && (
-                      <MoreCard icon={SplitIcon} label="Split" title="Split the bill" onClick={() => { setMoreOpen(false); onSplit(); }} />
+                      <MoreCard icon={SplitIcon} label={tx('Split')} title={tx('Split the bill')} onClick={() => { setMoreOpen(false); onSplit(); }} />
                     )}
                     {hideCafeFeatures && onHold && (
-                      <MoreCard icon={Pause} label="Hold" title="Park this order" onClick={() => { setMoreOpen(false); onHold(); }} />
+                      <MoreCard icon={Pause} label={tx('Hold')} title={tx('Park this order')} onClick={() => { setMoreOpen(false); onHold(); }} />
                     )}
                     {hideCafeFeatures && onHeldOrders && (
-                      <MoreCard icon={Pause} label="Held" title="Recall a parked order" onClick={() => { setMoreOpen(false); onHeldOrders(); }} />
+                      <MoreCard icon={Pause} label={tx('Held')} title={tx('Recall a parked order')} onClick={() => { setMoreOpen(false); onHeldOrders(); }} />
                     )}
                     {hideCafeFeatures && onHandover && (
-                      <MoreCard icon={ArrowLeftRight} label="Handover" title="Hand over shift" onClick={() => { setMoreOpen(false); onHandover(); }} />
+                      <MoreCard icon={ArrowLeftRight} label={tx('Handover')} title={tx('Hand over shift')} onClick={() => { setMoreOpen(false); onHandover(); }} />
                     )}
                   </>
                 )}
@@ -491,8 +492,8 @@ export const OrderPanel: React.FC<Props> = ({
           <button type="button" className="pos-numkey" disabled={noSel} onClick={() => pressDigit('1')}>1</button>
           <button type="button" className="pos-numkey" disabled={noSel} onClick={() => pressDigit('2')}>2</button>
           <button type="button" className="pos-numkey" disabled={noSel} onClick={() => pressDigit('3')}>3</button>
-          <button type="button" className={"pos-numkey mode" + (mode === 'qty' ? ' active' : '')} disabled={noSel} onClick={() => pickMode('qty')} title="Edit quantity">
-            <span className="pos-numkey-lbl">Qty</span>
+          <button type="button" className={"pos-numkey mode" + (mode === 'qty' ? ' active' : '')} disabled={noSel} onClick={() => pickMode('qty')} title={tx('Edit quantity')}>
+            <span className="pos-numkey-lbl">{tx('Qty')}</span>
             <span className="pos-numkey-val">{modeValue('qty')}</span>
           </button>
 
@@ -508,14 +509,14 @@ export const OrderPanel: React.FC<Props> = ({
           <button type="button" className="pos-numkey" disabled={noSel} onClick={() => pressDigit('8')}>8</button>
           <button type="button" className="pos-numkey" disabled={noSel} onClick={() => pressDigit('9')}>9</button>
           <button type="button" className={"pos-numkey mode" + (mode === 'price' ? ' active' : '')} disabled={noSel || !canOverridePrice} onClick={() => pickMode('price')} title={canOverridePrice ? "Edit unit price" : "Requires price-override permission"}>
-            <span className="pos-numkey-lbl">Price</span>
+            <span className="pos-numkey-lbl">{tx('Price')}</span>
             <span className="pos-numkey-val">{modeValue('price')}</span>
           </button>
 
-          <button type="button" className="pos-numkey op" disabled={noSel || mode === 'qty'} onClick={pressSign} title="Toggle sign">±</button>
+          <button type="button" className="pos-numkey op" disabled={noSel || mode === 'qty'} onClick={pressSign} title={tx('Toggle sign')}>±</button>
           <button type="button" className="pos-numkey" disabled={noSel} onClick={() => pressDigit('0')}>0</button>
           <button type="button" className="pos-numkey op" disabled={noSel} onClick={pressDot}>.</button>
-          <button type="button" className="pos-numkey back" disabled={noSel} onClick={pressBackspace} title="Backspace">
+          <button type="button" className="pos-numkey back" disabled={noSel} onClick={pressBackspace} title={tx('Backspace')}>
             <BackspaceIcon className="h-5 w-5" />
           </button>
         </div>
@@ -525,8 +526,7 @@ export const OrderPanel: React.FC<Props> = ({
         <div className="flex items-center gap-2 px-3 py-2 text-[11px] font-semibold text-rose-700 bg-rose-50 border-t border-rose-200">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">
-            {zeroQtyLines.length === 1 ? '1 line has' : `${zeroQtyLines.length} lines have`} no quantity.
-            Set a quantity or void {zeroQtyLines.length === 1 ? 'it' : 'them'} to continue.
+            {zeroQtyLines.length === 1 ? '1 line has' : `${zeroQtyLines.length} lines have`} {tx('no quantity. Set a quantity or void')} {zeroQtyLines.length === 1 ? 'it' : 'them'} {tx('to continue.')}
           </span>
         </div>
       ) : null}
@@ -553,11 +553,11 @@ export const OrderPanel: React.FC<Props> = ({
 
         {tableId && onSettleTab ? (
           <button type="button" className="pos-action-btn-pro bg-emerald pos-pay" onClick={onSettleTab} disabled={cannotTransact} title={blockedReason ?? "Settle (pay) this table's order"}>
-            <CreditCard className="pos-action-icon" /> Settle
+            <CreditCard className="pos-action-icon" /> {tx('Settle')}
           </button>
         ) : (
           <button type="button" className="pos-action-btn-pro bg-emerald pos-pay" onClick={onCharge} disabled={cannotTransact} title={blockedReason}>
-            <CreditCard className="pos-action-icon" /> Pay <span className="pos-kbd">F2</span>
+            <CreditCard className="pos-action-icon" /> {tx('Pay')} <span className="pos-kbd">F2</span>
           </button>
         )}
       </div>

@@ -30,6 +30,7 @@ import {
   usePostExpense,
   useVoidExpense,
 } from '@/features/invoicing/api';
+import { tx } from '@/lib/i18n/tx';
 
 const selectClass = 'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm';
 
@@ -56,7 +57,7 @@ export function ExpenseDetailPage() {
   const [method, setMethod] = useState('cash');
 
   if (isLoading || !bill) {
-    return <div className="text-sm text-muted-foreground">Loading...</div>;
+    return <div className="text-sm text-muted-foreground">{tx('Loading...')}</div>;
   }
 
   const isDraft = bill.status === 'draft';
@@ -97,20 +98,20 @@ export function ExpenseDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2 print:hidden">
           <Button variant="outline" onClick={() => navigate('/expenses')}>
-            Back
+            {tx('Back')}
           </Button>
           <Button variant="outline" onClick={() => window.print()}>
-            Print
+            {tx('Print')}
           </Button>
           {isDraft && has(PERMISSIONS.expense.post) && (
             <Button onClick={() => postExpense.mutate(bill.id)} disabled={postExpense.isPending}>
-              Post
+              {tx('Post')}
             </Button>
           )}
-          {canPay && has(PERMISSIONS.payment.create) && <Button onClick={openPay}>Pay supplier</Button>}
+          {canPay && has(PERMISSIONS.payment.create) && <Button onClick={openPay}>{tx('Pay supplier')}</Button>}
           {bill.status !== 'cancelled' && has(PERMISSIONS.expense.cancel) && (
             <Button variant="outline" onClick={() => voidExpense.mutate(bill.id)} disabled={voidExpense.isPending}>
-              Void
+              {tx('Void')}
             </Button>
           )}
         </div>
@@ -121,12 +122,12 @@ export function ExpenseDetailPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Unit price</TableHead>
-                <TableHead className="text-right">Net</TableHead>
-                <TableHead className="text-right">Tax</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                <TableHead>{tx('Description')}</TableHead>
+                <TableHead className="text-right">{tx('Qty')}</TableHead>
+                <TableHead className="text-right">{tx('Unit price')}</TableHead>
+                <TableHead className="text-right">{tx('Net')}</TableHead>
+                <TableHead className="text-right">{tx('Tax')}</TableHead>
+                <TableHead className="text-right">{tx('Total')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -145,11 +146,11 @@ export function ExpenseDetailPage() {
 
           <div className="mt-4 flex justify-end">
             <div className="w-64 space-y-1 text-sm">
-              <SummaryRow label="Subtotal" value={money(bill.subtotal)} />
-              <SummaryRow label="Tax" value={money(bill.taxAmount)} />
-              <SummaryRow label="Total" value={money(bill.totalAmount)} bold />
-              <SummaryRow label="Paid" value={money(bill.amountPaid)} />
-              <SummaryRow label="Balance due" value={money(bill.amountResidual)} bold />
+              <SummaryRow label={tx('Subtotal')} value={money(bill.subtotal)} />
+              <SummaryRow label={tx('Tax')} value={money(bill.taxAmount)} />
+              <SummaryRow label={tx('Total')} value={money(bill.totalAmount)} bold />
+              <SummaryRow label={tx('Paid')} value={money(bill.amountPaid)} />
+              <SummaryRow label={tx('Balance due')} value={money(bill.amountResidual)} bold />
             </div>
           </div>
         </CardContent>
@@ -158,12 +159,12 @@ export function ExpenseDetailPage() {
       <Dialog open={payOpen} onOpenChange={setPayOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Pay supplier</DialogTitle>
-            <DialogDescription>Record a payment for {bill.documentNumber}.</DialogDescription>
+            <DialogTitle>{tx('Pay supplier')}</DialogTitle>
+            <DialogDescription>{tx('Record a payment for')} {bill.documentNumber}.</DialogDescription>
           </DialogHeader>
           <form onSubmit={submitPayment} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="amount">Amount</Label>
+              <Label htmlFor="amount">{tx('Amount')}</Label>
               <Input
                 id="amount"
                 type="number"
@@ -174,12 +175,12 @@ export function ExpenseDetailPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="method">Method</Label>
+              <Label htmlFor="method">{tx('Method')}</Label>
               <select id="method" className={selectClass} value={method} onChange={(e) => setMethod(e.target.value)}>
-                <option value="cash">Cash</option>
-                <option value="bank">Bank</option>
-                <option value="mobile_money">Mobile Money</option>
-                <option value="cheque">Cheque</option>
+                <option value="cash">{tx('Cash')}</option>
+                <option value="bank">{tx('Bank')}</option>
+                <option value="mobile_money">{tx('Mobile Money')}</option>
+                <option value="cheque">{tx('Cheque')}</option>
               </select>
             </div>
             <DialogFooter>

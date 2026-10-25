@@ -26,6 +26,7 @@ import { DataTable, type Column } from '@/components/data-table';
 import { notify, apiMessage } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
 import { api } from '@/lib/api';
+import { tx } from '@/lib/i18n/tx';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -178,7 +179,7 @@ export function InventoryPostingRulesPage() {
         literalAccountId: editSource === 'literal' ? editLitAccount || undefined : undefined,
         isActive: editIsActive,
       });
-      notify.success('Rule updated');
+      notify.success(tx('Rule updated'));
       setEditOpen(false);
       fetchData();
     } catch (err: any) {
@@ -187,7 +188,7 @@ export function InventoryPostingRulesPage() {
   };
 
   const createRule = async () => {
-    if (!createMt) { notify.error('Select a movement type'); return; }
+    if (!createMt) { notify.error(tx('Select a movement type')); return; }
     try {
       await api.post('/inventory/posting-rules', {
         movementType: createMt,
@@ -196,7 +197,7 @@ export function InventoryPostingRulesPage() {
         accountSource: createSource,
         accountMappingKey: createSource === 'account_mapping' ? createMappingKey : undefined,
       });
-      notify.success('Rule created');
+      notify.success(tx('Rule created'));
       setCreateOpen(false);
       setCreateMt('');
       fetchData();
@@ -209,7 +210,7 @@ export function InventoryPostingRulesPage() {
     if (!deleting) return;
     try {
       await api.delete(`/inventory/posting-rules/${deleting.id}`);
-      notify.success('Rule removed');
+      notify.success(tx('Rule removed'));
       setDeleting(null);
       fetchData();
     } catch (err: any) {
@@ -254,9 +255,9 @@ export function InventoryPostingRulesPage() {
           return <span className="text-xs">{acct ? `${acct.code} — ${acct.name}` : r.literalAccountId}</span>;
         }
         if (r.accountSource === 'category_field')
-          return <span className="text-xs text-muted-foreground">Category: {r.accountMappingKey}</span>;
+          return <span className="text-xs text-muted-foreground">{tx('Category:')} {r.accountMappingKey}</span>;
         if (r.accountSource === 'product_field')
-          return <span className="text-xs text-muted-foreground">Product: {r.accountMappingKey}</span>;
+          return <span className="text-xs text-muted-foreground">{tx('Product:')} {r.accountMappingKey}</span>;
         return '—';
       },
     },
@@ -264,9 +265,9 @@ export function InventoryPostingRulesPage() {
       key: 'scope',
       header: 'Scope',
       render: (r) => {
-        if (r.productId) return <Badge variant="outline">Product</Badge>;
-        if (r.categoryId) return <Badge variant="outline">Category</Badge>;
-        return <Badge variant="secondary">Default</Badge>;
+        if (r.productId) return <Badge variant="outline">{tx('Product')}</Badge>;
+        if (r.categoryId) return <Badge variant="outline">{tx('Category')}</Badge>;
+        return <Badge variant="secondary">{tx('Default')}</Badge>;
       },
     },
     {
@@ -301,8 +302,8 @@ export function InventoryPostingRulesPage() {
   if (!canRead) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-semibold">Inventory Posting Rules</h1>
-        <p className="text-sm text-muted-foreground">You do not have permission to view posting rules.</p>
+        <h1 className="text-2xl font-semibold">{tx('Inventory Posting Rules')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('You do not have permission to view posting rules.')}</p>
       </div>
     );
   }
@@ -311,9 +312,9 @@ export function InventoryPostingRulesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Inventory Posting Rules</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Inventory Posting Rules')}</h1>
           <p className="text-sm text-gray-500">
-            Configure which accounts are debited/credited per inventory movement type.
+            {tx('Configure which accounts are debited/credited per inventory movement type.')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -325,7 +326,7 @@ export function InventoryPostingRulesPage() {
           )}
           {canCreate && (
             <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" /> Add Rule
+              <Plus className="h-4 w-4 mr-1" /> {tx('Add Rule')}
             </Button>
           )}
         </div>
@@ -334,10 +335,10 @@ export function InventoryPostingRulesPage() {
       <div className="flex flex-wrap items-center gap-2">
         <Select value={filterMt} onValueChange={setFilterMt}>
           <SelectTrigger className="w-[240px]">
-            <SelectValue placeholder="All movement types" />
+            <SelectValue placeholder={tx('All movement types')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_MOVEMENT_TYPES}>All movement types</SelectItem>
+            <SelectItem value={ALL_MOVEMENT_TYPES}>{tx('All movement types')}</SelectItem>
             {movementTypes.map((mt) => (
               <SelectItem key={mt.code} value={mt.code}>{mt.label}</SelectItem>
             ))}
@@ -346,18 +347,18 @@ export function InventoryPostingRulesPage() {
       </div>
 
       {loading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
+        <p className="text-sm text-muted-foreground">{tx('Loading...')}</p>
       ) : (
         <DataTable columns={columns} data={rules} />
       )}
 
       <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 space-y-2">
-        <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Resolution Chain</p>
+        <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">{tx('Resolution Chain')}</p>
         <ol className="text-xs text-blue-800 space-y-1 list-decimal list-inside">
-          <li><strong>Product override</strong> — rule with productId set (configured per product)</li>
-          <li><strong>Category default</strong> — rule with categoryId set (configured per category)</li>
-          <li><strong>Movement type default</strong> — org-wide rule (no productId/categoryId)</li>
-          <li><strong>Account Mapping</strong> — fallback at Accounting &gt; Account Mapping</li>
+          <li><strong>{tx('Product override')}</strong> {tx('— rule with productId set (configured per product)')}</li>
+          <li><strong>{tx('Category default')}</strong> {tx('— rule with categoryId set (configured per category)')}</li>
+          <li><strong>{tx('Movement type default')}</strong> {tx('— org-wide rule (no productId/categoryId)')}</li>
+          <li><strong>{tx('Account Mapping')}</strong> — fallback at Accounting &gt; Account Mapping</li>
         </ol>
       </div>
 
@@ -365,14 +366,14 @@ export function InventoryPostingRulesPage() {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Edit Posting Rule</DialogTitle>
+            <DialogTitle>{tx('Edit Posting Rule')}</DialogTitle>
             <DialogDescription>
-              {editRule?.movementType} — Line {editRule?.lineIndex} ({editRule?.debitOrCredit?.toUpperCase()})
+              {editRule?.movementType} {tx('— Line')} {editRule?.lineIndex} ({editRule?.debitOrCredit?.toUpperCase()})
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Account Source</Label>
+              <Label>{tx('Account Source')}</Label>
               <Select value={editSource} onValueChange={setEditSource}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -385,7 +386,7 @@ export function InventoryPostingRulesPage() {
 
             {editSource === 'account_mapping' && (
               <div className="space-y-2">
-                <Label>Account Mapping Key</Label>
+                <Label>{tx('Account Mapping Key')}</Label>
                 <Select value={editMappingKey} onValueChange={setEditMappingKey}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -394,15 +395,15 @@ export function InventoryPostingRulesPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Account determined by {editMappingKey} in Account Mapping.</p>
+                <p className="text-xs text-muted-foreground">{tx('Account determined by')} {editMappingKey} {tx('in Account Mapping.')}</p>
               </div>
             )}
 
             {editSource === 'literal' && (
               <div className="space-y-2">
-                <Label>Account</Label>
+                <Label>{tx('Account')}</Label>
                 <Select value={editLitAccount} onValueChange={setEditLitAccount}>
-                  <SelectTrigger><SelectValue placeholder="Select an account..." /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={tx('Select an account...')} /></SelectTrigger>
                   <SelectContent>
                     {accounts.map((a) => (
                       <SelectItem key={a.id} value={a.id}>{a.code} — {a.name}</SelectItem>
@@ -419,12 +420,12 @@ export function InventoryPostingRulesPage() {
                 checked={editIsActive}
                 onChange={(e) => setEditIsActive(e.target.checked)}
               />
-              Active
+              {tx('Active')}
             </label>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>Cancel</Button>
-            <Button onClick={saveEdit}>Save</Button>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>{tx('Cancel')}</Button>
+            <Button onClick={saveEdit}>{tx('Save')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -433,16 +434,16 @@ export function InventoryPostingRulesPage() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Posting Rule</DialogTitle>
+            <DialogTitle>{tx('Add Posting Rule')}</DialogTitle>
             <DialogDescription>
-              Create a new movement-type default rule. Product/category overrides can be set from the product page.
+              {tx('Create a new movement-type default rule. Product/category overrides can be set from the product page.')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Movement Type</Label>
+              <Label>{tx('Movement Type')}</Label>
               <Select value={createMt} onValueChange={setCreateMt}>
-                <SelectTrigger><SelectValue placeholder="Select..." /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={tx('Select...')} /></SelectTrigger>
                 <SelectContent>
                   {movementTypes.map((mt) => (
                     <SelectItem key={mt.code} value={mt.code}>{mt.label}</SelectItem>
@@ -453,23 +454,23 @@ export function InventoryPostingRulesPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Line Index</Label>
+                <Label>{tx('Line Index')}</Label>
                 <Input type="number" min={0} value={createLineIdx} onChange={(e) => setCreateLineIdx(Number(e.target.value))} />
               </div>
               <div className="space-y-2">
-                <Label>Side</Label>
+                <Label>{tx('Side')}</Label>
                 <Select value={createDoc} onValueChange={(v) => setCreateDoc(v as 'debit' | 'credit')}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="debit">Debit</SelectItem>
-                    <SelectItem value="credit">Credit</SelectItem>
+                    <SelectItem value="debit">{tx('Debit')}</SelectItem>
+                    <SelectItem value="credit">{tx('Credit')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label>Account Source</Label>
+              <Label>{tx('Account Source')}</Label>
               <Select value={createSource} onValueChange={setCreateSource}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -482,7 +483,7 @@ export function InventoryPostingRulesPage() {
 
             {createSource === 'account_mapping' && (
               <div className="space-y-2">
-                <Label>Account Mapping Key</Label>
+                <Label>{tx('Account Mapping Key')}</Label>
                 <Select value={createMappingKey} onValueChange={setCreateMappingKey}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -495,8 +496,8 @@ export function InventoryPostingRulesPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>Cancel</Button>
-            <Button onClick={createRule}>Create</Button>
+            <Button variant="outline" onClick={() => setCreateOpen(false)}>{tx('Cancel')}</Button>
+            <Button onClick={createRule}>{tx('Create')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -505,15 +506,14 @@ export function InventoryPostingRulesPage() {
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Posting Rule?</AlertDialogTitle>
+            <AlertDialogTitle>{tx('Delete Posting Rule?')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Remove the {deleting?.movementType} line {deleting?.lineIndex} ({deleting?.debitOrCredit?.toUpperCase()}) rule?
-              The next resolution level (category or org default) will apply.
+              {tx('Remove the')} {deleting?.movementType} {tx('line')} {deleting?.lineIndex} ({deleting?.debitOrCredit?.toUpperCase()}{tx(') rule? The next resolution level (category or org default) will apply.')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+            <AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">{tx('Delete')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

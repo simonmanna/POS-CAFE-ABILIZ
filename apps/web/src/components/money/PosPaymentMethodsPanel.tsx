@@ -25,6 +25,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { LoadError } from './money-ui';
+import { tx } from '@/lib/i18n/tx';
 
 const KINDS = ['cash', 'mobile_money', 'card', 'bank'] as const;
 type Kind = typeof KINDS[number];
@@ -99,7 +100,7 @@ export function PosPaymentMethodsPanel() {
       isActive: form.isActive,
       sortOrder: Number(form.sortOrder) || 0,
     };
-    if (!body.label) { toast.error('A cashier-facing label is required'); return; }
+    if (!body.label) { toast.error(tx('A cashier-facing label is required')); return; }
     setSaving(true);
     try {
       if (editing) await update.mutateAsync({ id: editing.id, ...body });
@@ -129,25 +130,24 @@ export function PosPaymentMethodsPanel() {
     <section className="space-y-3">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <p className="max-w-2xl text-sm text-muted-foreground">
-          Each tile the cashier sees in the Charge dialog, and the account its money lands in.
-          The cashier never picks an account — these links decide it.
+          {tx('Each tile the cashier sees in the Charge dialog, and the account its money lands in. The cashier never picks an account — these links decide it.')}
         </p>
         {canCreate ? (
           <Button onClick={openCreate} className="min-h-[44px] w-full sm:w-auto">
-            <Plus className="mr-1 h-4 w-4" aria-hidden /> Add payment method
+            <Plus className="mr-1 h-4 w-4" aria-hidden /> {tx('Add payment method')}
           </Button>
         ) : null}
       </div>
       {readOnly ? (
         <p className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
           <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-          You can view these links. Ask an administrator to add, change or remove payment methods.
+          {tx('You can view these links. Ask an administrator to add, change or remove payment methods.')}
         </p>
       ) : null}
 
       {isLoading ? (
         <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+          <Loader2 className="h-4 w-4 animate-spin" /> {tx('Loading…')}
         </div>
       ) : isError ? (
         <LoadError message="Payment methods could not be loaded." onRetry={() => refetch()} retrying={isFetching} />
@@ -164,7 +164,7 @@ export function PosPaymentMethodsPanel() {
                     <span className="block font-medium text-foreground">{m.label}</span>
                     <span className="block text-xs text-muted-foreground">{KIND_LABEL[m.kind] ?? m.kind}{m.provider ? ` · ${m.provider}` : ''} · {m.code}</span>
                   </span>
-                  <ArrowRight className="h-4 w-4 text-muted-foreground" aria-label="goes to" />
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" aria-label={tx('goes to')} />
                   <span className={connected ? 'text-foreground' : 'font-medium text-destructive'}>
                     {m.kind === 'cash'
                       ? 'Drawer of the register taking the sale'
@@ -180,13 +180,13 @@ export function PosPaymentMethodsPanel() {
                   <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
                     {m.isActive ? 'Shown at till' : 'Hidden at till'}
                   </span>
-                  {m.requiresReference ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">Asks for reference</span> : null}
-                  {m.trackInShift ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">Counted at shift close</span> : null}
+                  {m.requiresReference ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">{tx('Asks for reference')}</span> : null}
+                  {m.trackInShift ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px]">{tx('Counted at shift close')}</span> : null}
                   {canUpdate || canDelete ? (
                     <span className="ml-auto flex gap-2 md:ml-0">
                       {canUpdate ? (
                         <Button variant="outline" className="min-h-[44px]" onClick={() => openEdit(m)} aria-label={`Edit ${m.label}`}>
-                          <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden /> Edit
+                          <Pencil className="mr-1 h-3.5 w-3.5" aria-hidden /> {tx('Edit')}
                         </Button>
                       ) : null}
                       {canDelete ? (
@@ -202,8 +202,7 @@ export function PosPaymentMethodsPanel() {
           })}
           {!methods.length ? (
             <li className="p-4 text-sm text-muted-foreground">
-              Nothing configured yet — the terminal is falling back to whatever cash, wallet and
-              bank accounts exist.{canCreate ? ' Add methods here to control the tiles the cashier sees.' : ''}
+              {tx('Nothing configured yet — the terminal is falling back to whatever cash, wallet and bank accounts exist.')}{canCreate ? ' Add methods here to control the tiles the cashier sees.' : ''}
             </li>
           ) : null}
         </ul>
@@ -212,18 +211,16 @@ export function PosPaymentMethodsPanel() {
       <AlertDialog open={!!retiring} onOpenChange={(v) => { if (!v && !remove.isPending) setRetiring(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove {retiring?.label} from the terminal?</AlertDialogTitle>
+            <AlertDialogTitle>{tx('Remove')} {retiring?.label} {tx('from the terminal?')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Cashiers will no longer see the {retiring?.label} tile in the Charge dialog. Payments already
-              taken with it stay in the books and in {retiring?.accountName ?? 'their account'}. To pause it
-              without removing it, edit the method and turn off “Show in the terminal” instead.
+              {tx('Cashiers will no longer see the')} {retiring?.label} {tx('tile in the Charge dialog. Payments already taken with it stay in the books and in')} {retiring?.accountName ?? 'their account'}{tx('. To pause it without removing it, edit the method and turn off “Show in the terminal” instead.')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="min-h-[44px]" disabled={remove.isPending}>Keep it</AlertDialogCancel>
+            <AlertDialogCancel className="min-h-[44px]" disabled={remove.isPending}>{tx('Keep it')}</AlertDialogCancel>
             <Button variant="destructive" className="min-h-[44px]" onClick={retire} disabled={remove.isPending}>
               {remove.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" aria-hidden /> : null}
-              Remove method
+              {tx('Remove method')}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -238,9 +235,9 @@ export function PosPaymentMethodsPanel() {
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label>Kind</Label>
+                <Label>{tx('Kind')}</Label>
                 <select
-                  aria-label="Kind"
+                  aria-label={tx('Kind')}
                   className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm"
                   value={form.kind}
                   onChange={(e) => setForm({ ...form, kind: e.target.value as Kind, accountId: '' })}
@@ -248,33 +245,33 @@ export function PosPaymentMethodsPanel() {
                   {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
                 </select>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Decides the journal and the drawer rules. Stored on every payment.
+                  {tx('Decides the journal and the drawer rules. Stored on every payment.')}
                 </p>
               </div>
               <div>
-                <Label>Provider / brand</Label>
+                <Label>{tx('Provider / brand')}</Label>
                 <Input
                   value={form.provider}
                   placeholder="MTN"
                   onChange={(e) => setForm({ ...form, provider: e.target.value })}
                 />
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Shown as the second-step pill when a kind has several methods.
+                  {tx('Shown as the second-step pill when a kind has several methods.')}
                 </p>
               </div>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <Label>Label the cashier sees</Label>
+                <Label>{tx('Label the cashier sees')}</Label>
                 <Input
                   value={form.label}
-                  placeholder="MTN MoMo"
+                  placeholder={tx('MTN MoMo')}
                   onChange={(e) => setForm({ ...form, label: e.target.value })}
                 />
               </div>
               <div>
-                <Label>Code</Label>
+                <Label>{tx('Code')}</Label>
                 <Input
                   value={form.code}
                   placeholder={slug(form.label) || 'momo_mtn'}
@@ -285,25 +282,25 @@ export function PosPaymentMethodsPanel() {
 
             {form.kind === 'cash' ? (
               <p className="rounded border bg-muted/50 p-3 text-xs text-muted-foreground">
-                Cash always books to the register's own drawer account, so there is nothing to bind here.
+                {tx('Cash always books to the register\'s own drawer account, so there is nothing to bind here.')}
               </p>
             ) : (
               <div>
-                <Label>Receiving account</Label>
+                <Label>{tx('Receiving account')}</Label>
                 <select
-                  aria-label="Receiving account"
+                  aria-label={tx('Receiving account')}
                   className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm"
                   value={form.accountId}
                   onChange={(e) => setForm({ ...form, accountId: e.target.value })}
                 >
-                  <option value="">Choose account</option>
+                  <option value="">{tx('Choose account')}</option>
                   {eligibleAccounts.map((a: any) => (
                     <option key={a.id} value={a.id}>{a.name} · {a.code}</option>
                   ))}
                 </select>
                 {!eligibleAccounts.length ? (
                   <p className="mt-1 text-[11px] text-amber-700">
-                    No {KIND_LABEL[form.kind].toLowerCase()} account exists yet. Add one under Money &amp; Accounts → Accounts first.
+                    {tx('No')} {KIND_LABEL[form.kind].toLowerCase()} account exists yet. Add one under Money &amp; Accounts → Accounts first.
                     {form.kind === 'card' ? ' A card method must use the account mapped as card_clearing.' : ''}
                   </p>
                 ) : null}
@@ -317,7 +314,7 @@ export function PosPaymentMethodsPanel() {
                   checked={form.requiresReference}
                   onChange={(e) => setForm({ ...form, requiresReference: e.target.checked })}
                 />
-                Require a transaction id (prompts only — never blocks a sale)
+                {tx('Require a transaction id (prompts only — never blocks a sale)')}
               </label>
               {form.kind !== 'cash' ? (
                 <label className="flex min-h-[44px] items-center gap-2">
@@ -326,7 +323,7 @@ export function PosPaymentMethodsPanel() {
                     checked={form.trackInShift}
                     onChange={(e) => setForm({ ...form, trackInShift: e.target.checked })}
                   />
-                  Count at shift open/close
+                  {tx('Count at shift open/close')}
                 </label>
               ) : null}
               <label className="flex min-h-[44px] items-center gap-2">
@@ -335,13 +332,13 @@ export function PosPaymentMethodsPanel() {
                   checked={form.isActive}
                   onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
                 />
-                Show in the terminal
+                {tx('Show in the terminal')}
               </label>
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setDialogOpen(false)}>{tx('Cancel')}</Button>
             <Button onClick={save} disabled={saving}>
               {saving ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
               {editing ? 'Save changes' : 'Add method'}

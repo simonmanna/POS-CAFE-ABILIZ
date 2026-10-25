@@ -13,6 +13,7 @@ import { fetchAllPages, type ExportColumn } from '@/lib/export-list';
 import { money, date, useOrgCurrency } from '@/lib/format';
 import { useReceipts } from '@/pages/pos/api';
 import type { Receipt } from '@/pages/pos/types';
+import { tx } from '@/lib/i18n/tx';
 
 const methodLabel: Record<string, string> = {
   cash: 'Cash',
@@ -72,7 +73,7 @@ export function ReceiptsPage() {
       header: 'Receipt #',
       render: (r) => <span className="font-medium text-primary">{r.documentNumber}</span>,
     },
-    { key: 'partner', header: 'Customer', render: (r) => r.partner?.name ?? <span className="text-muted-foreground">Walk-in</span> },
+    { key: 'partner', header: 'Customer', render: (r) => r.partner?.name ?? <span className="text-muted-foreground">{tx('Walk-in')}</span> },
     { key: 'issueDate', header: 'Date', render: (r) => <span className="whitespace-nowrap text-muted-foreground">{date(r.issueDate)}</span> },
     { key: 'itemCount', header: 'Items', className: 'text-right', render: (r) => <span className="tabular-nums text-muted-foreground">{r.itemCount}</span> },
     {
@@ -95,7 +96,7 @@ export function ReceiptsPage() {
       header: '',
       className: 'w-12 text-right',
       render: (r) => (
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/pos/receipts/${r.id}`)} aria-label="View receipt">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/pos/receipts/${r.id}`)} aria-label={tx('View receipt')}>
           <Eye className="h-4 w-4" />
         </Button>
       ),
@@ -122,12 +123,12 @@ export function ReceiptsPage() {
     <div className="space-y-4">
       <ListPageHeader
         icon={ReceiptText}
-        title="Receipts"
-        description="POS transaction receipts. Click a row to view its full detail."
+        title={tx('Receipts')}
+        description={tx('POS transaction receipts. Click a row to view its full detail.')}
         actions={
           <ExportMenu
             basename="receipts"
-            title="Receipts"
+            title={tx('Receipts')}
             subtitle={describeFilters(chips)}
             columns={exportColumns}
             pageRows={rows}
@@ -139,7 +140,7 @@ export function ReceiptsPage() {
       />
 
       <ListToolbar chips={<FilterChips chips={chips} onClearAll={list.clearFilters} />}>
-        <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder="Search receipt # or customer…" />
+        <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder={tx('Search receipt # or customer…')} />
         <FilterSelect value={paymentMode} onChange={(v) => list.setFilter('paymentMode', v)} options={toOptions(methodLabel)} allLabel="All methods" />
         <FilterSelect value={settlementStatus} onChange={(v) => list.setFilter('settlementStatus', v)} options={toOptions(settlementLabel)} allLabel="All settlements" />
         <DateRangeFilter from={dateFrom} to={dateTo} onChange={(f, t) => list.setFilters({ dateFrom: f, dateTo: t })} />

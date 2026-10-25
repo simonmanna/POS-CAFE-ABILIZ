@@ -10,6 +10,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { MOVE_TYPES } from './shared';
+import { tx } from '@/lib/i18n/tx';
 
 // ---------------------------------------------------------------------------
 // Date presets — always LOCAL calendar days (the API interprets them the same way)
@@ -248,7 +249,7 @@ function MoveTypePicker({ value, onChange }: { value: string[]; onChange: (v: st
           ))}
         </div>
         {value.length > 0 && (
-          <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => onChange([])}>Clear selection</Button>
+          <Button variant="ghost" size="sm" className="mt-2 w-full" onClick={() => onChange([])}>{tx('Clear selection')}</Button>
         )}
       </PopoverContent>
     </Popover>
@@ -292,7 +293,7 @@ export function FilterBar({ show, ctl, extra }: { show: FilterKey[]; ctl: Return
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
         {has('date') && (
           <>
-            <Field label="Period">
+            <Field label={tx('Period')}>
               <select
                 className="h-9 w-full rounded-md border bg-background px-2 text-sm"
                 value={f.preset}
@@ -305,58 +306,58 @@ export function FilterBar({ show, ctl, extra }: { show: FilterKey[]; ctl: Return
                 {DATE_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
               </select>
             </Field>
-            <Field label="From">
+            <Field label={tx('From')}>
               <Input type="date" value={f.start} max={f.end || undefined} onChange={(e) => set({ preset: 'custom', start: e.target.value, end: f.end })} />
             </Field>
-            <Field label="To">
+            <Field label={tx('To')}>
               <Input type="date" value={f.end} min={f.start || undefined} onChange={(e) => set({ preset: 'custom', start: f.start, end: e.target.value })} />
             </Field>
           </>
         )}
         {has('location') && (
-          <Field label="Location">
-            <SearchableSelect value={f.locationId} onValueChange={(v) => set({ locationId: v })} options={locationOpts} placeholder="All locations" searchPlaceholder="Search locations…" />
+          <Field label={tx('Location')}>
+            <SearchableSelect value={f.locationId} onValueChange={(v) => set({ locationId: v })} options={locationOpts} placeholder={tx('All locations')} searchPlaceholder="Search locations…" />
           </Field>
         )}
         {has('category') && (
-          <Field label="Category (incl. sub-categories)">
-            <SearchableSelect value={f.categoryId} onValueChange={(v) => set({ categoryId: v })} options={categoryOpts} placeholder="All categories" searchPlaceholder="Search categories…" />
+          <Field label={tx('Category (incl. sub-categories)')}>
+            <SearchableSelect value={f.categoryId} onValueChange={(v) => set({ categoryId: v })} options={categoryOpts} placeholder={tx('All categories')} searchPlaceholder="Search categories…" />
           </Field>
         )}
         {has('product') && (
-          <Field label="Item">
-            <SearchableSelect value={f.productId} onValueChange={(v) => set({ productId: v })} options={productOpts} placeholder="All items" searchPlaceholder="Search items…" />
+          <Field label={tx('Item')}>
+            <SearchableSelect value={f.productId} onValueChange={(v) => set({ productId: v })} options={productOpts} placeholder={tx('All items')} searchPlaceholder="Search items…" />
           </Field>
         )}
         {has('search') && (
-          <Field label="Search code / name / SKU / barcode">
+          <Field label={tx('Search code / name / SKU / barcode')}>
             <div className="relative">
               <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input className="pl-8" value={searchDraft} placeholder="Type to filter…" onChange={(e) => setSearchDraft(e.target.value)} />
+              <Input className="pl-8" value={searchDraft} placeholder={tx('Type to filter…')} onChange={(e) => setSearchDraft(e.target.value)} />
             </div>
           </Field>
         )}
         {has('moveTypes') && (
-          <Field label="Movement types">
+          <Field label={tx('Movement types')}>
             <MoveTypePicker value={f.moveTypes} onChange={(v) => set({ moveTypes: v })} />
           </Field>
         )}
         {has('status') && (
-          <Field label="Stock status">
+          <Field label={tx('Stock status')}>
             <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={f.status} onChange={(e) => set({ status: e.target.value })}>
-              <option value="all">All with stock</option>
-              <option value="in_stock">In stock</option>
-              <option value="low">Low stock</option>
-              <option value="below_par">At / below par</option>
-              <option value="out">Out of stock</option>
-              <option value="negative">Negative stock</option>
+              <option value="all">{tx('All with stock')}</option>
+              <option value="in_stock">{tx('In stock')}</option>
+              <option value="low">{tx('Low stock')}</option>
+              <option value="below_par">{tx('At / below par')}</option>
+              <option value="out">{tx('Out of stock')}</option>
+              <option value="negative">{tx('Negative stock')}</option>
             </select>
           </Field>
         )}
         {has('days') && (
-          <Field label="Expiring within">
+          <Field label={tx('Expiring within')}>
             <select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={f.days} onChange={(e) => set({ days: e.target.value })}>
-              {['7', '14', '30', '60', '90', '180', '365'].map((d) => <option key={d} value={d}>{d} days</option>)}
+              {['7', '14', '30', '60', '90', '180', '365'].map((d) => <option key={d} value={d}>{d} {tx('days')}</option>)}
             </select>
           </Field>
         )}
@@ -364,10 +365,10 @@ export function FilterBar({ show, ctl, extra }: { show: FilterKey[]; ctl: Return
       </div>
 
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-        {has('detailed') && <Toggle checked={f.detailed} onChange={(v) => set({ detailed: v })} label="Breakdown by movement group" />}
-        {has('idle') && <Toggle checked={f.includeIdle} onChange={(v) => set({ includeIdle: v })} label="Include items with no stock / movement" />}
-        {has('transfers') && <Toggle checked={f.excludeTransfers} onChange={(v) => set({ excludeTransfers: v })} label="Exclude internal transfers" />}
-        {has('zero') && f.status === 'all' && <Toggle checked={f.includeZero} onChange={(v) => set({ includeZero: v })} label="Include zero-stock items" />}
+        {has('detailed') && <Toggle checked={f.detailed} onChange={(v) => set({ detailed: v })} label={tx('Breakdown by movement group')} />}
+        {has('idle') && <Toggle checked={f.includeIdle} onChange={(v) => set({ includeIdle: v })} label={tx('Include items with no stock / movement')} />}
+        {has('transfers') && <Toggle checked={f.excludeTransfers} onChange={(v) => set({ excludeTransfers: v })} label={tx('Exclude internal transfers')} />}
+        {has('zero') && f.status === 'all' && <Toggle checked={f.includeZero} onChange={(v) => set({ includeZero: v })} label={tx('Include zero-stock items')} />}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {chips.map((c) => (
             <span key={c.label} className="inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs">
@@ -376,7 +377,7 @@ export function FilterBar({ show, ctl, extra }: { show: FilterKey[]; ctl: Return
             </span>
           ))}
           <Button variant="ghost" size="sm" onClick={() => { setSearchDraft(''); reset(); }}>
-            <RotateCcw className="mr-1 h-3 w-3" />Reset filters
+            <RotateCcw className="mr-1 h-3 w-3" />{tx('Reset filters')}
           </Button>
         </div>
       </div>

@@ -9,6 +9,7 @@ import {
   type CommunicationChannel,
 } from '@/features/communication/api';
 import { useChannelStatusStream, type ChannelStatusEvent } from '@/features/communication/sse';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUS_COLOR: Record<string, string> = {
   connected: 'bg-green-500',
@@ -77,10 +78,10 @@ export default function CommunicationChannelsPage() {
       <header className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Radio className="h-5 w-5 text-indigo-500" />
-          <h1 className="text-xl font-semibold">Communication channels</h1>
+          <h1 className="text-xl font-semibold">{tx('Communication channels')}</h1>
         </div>
         <button className="btn-secondary inline-flex items-center gap-1" onClick={() => refetch()}>
-          <RefreshCw className="h-4 w-4" /> Refresh
+          <RefreshCw className="h-4 w-4" /> {tx('Refresh')}
         </button>
       </header>
 
@@ -88,17 +89,17 @@ export default function CommunicationChannelsPage() {
       <div className="rounded-lg border bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
         <div className="grid gap-2 sm:grid-cols-3">
           <select className="input" value={form.providerId} onChange={(e) => setForm({ ...form, providerId: e.target.value })}>
-            <option value="whatsapp">WhatsApp</option>
-            <option value="telegram">Telegram</option>
+            <option value="whatsapp">{tx('WhatsApp')}</option>
+            <option value="telegram">{tx('Telegram')}</option>
           </select>
           <input
             className="input"
-            placeholder="Channel name (e.g. WhatsApp Support)"
+            placeholder={tx('Channel name (e.g. WhatsApp Support)')}
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
           <button className="btn-primary inline-flex items-center justify-center gap-1" onClick={submitCreate} disabled={create.isPending}>
-            <Plus className="h-4 w-4" /> Add
+            <Plus className="h-4 w-4" /> {tx('Add')}
           </button>
           <input
             className="input font-mono text-xs sm:col-span-3"
@@ -125,12 +126,12 @@ export default function CommunicationChannelsPage() {
                 </div>
                 <div className="text-xs text-gray-500">
                   {c.status}
-                  {!c.providerEnabled && <span className="ml-2 text-red-500">provider disabled on server</span>}
+                  {!c.providerEnabled && <span className="ml-2 text-red-500">{tx('provider disabled on server')}</span>}
                   {c.providerId === 'whatsapp' && c.health && !c.health.ownedByThisProcess && c.status === 'connected' && (
-                    <span className="ml-2 text-amber-600">no worker owns this session</span>
+                    <span className="ml-2 text-amber-600">{tx('no worker owns this session')}</span>
                   )}
                   {c.lastError && <span className="ml-2 text-red-500">· {c.lastError}</span>}
-                  {c.dailySentCount > 0 && <span className="ml-2">· {c.dailySentCount} sent today</span>}
+                  {c.dailySentCount > 0 && <span className="ml-2">· {c.dailySentCount} {tx('sent today')}</span>}
                 </div>
               </div>
             </div>
@@ -140,14 +141,14 @@ export default function CommunicationChannelsPage() {
                   className="btn-secondary inline-flex items-center gap-1"
                   onClick={() => disconnect.mutate({ id: c.id, logout: c.providerId === 'whatsapp' })}
                 >
-                  <Plug className="h-4 w-4" /> Disconnect
+                  <Plug className="h-4 w-4" /> {tx('Disconnect')}
                 </button>
               ) : (
                 <button className="btn-primary inline-flex items-center gap-1" onClick={() => startConnect(c)}>
-                  <PlugZap className="h-4 w-4" /> Connect
+                  <PlugZap className="h-4 w-4" /> {tx('Connect')}
                 </button>
               )}
-              <button className="text-red-500 hover:text-red-700" onClick={() => del.mutate(c.id)} title="Remove">
+              <button className="text-red-500 hover:text-red-700" onClick={() => del.mutate(c.id)} title={tx('Remove')}>
                 <Trash2 className="h-4 w-4" />
               </button>
             </div>
@@ -155,7 +156,7 @@ export default function CommunicationChannelsPage() {
         ))}
         {channels.length === 0 && (
           <li className="rounded-lg border border-dashed px-4 py-8 text-center text-sm text-gray-400 dark:border-gray-700">
-            No channels yet. Add a WhatsApp or Telegram channel above.
+            {tx('No channels yet. Add a WhatsApp or Telegram channel above.')}
           </li>
         )}
       </ul>
@@ -167,16 +168,16 @@ export default function CommunicationChannelsPage() {
             <button className="absolute right-3 top-3 text-gray-400" onClick={() => setQr(null)}>
               <X className="h-5 w-5" />
             </button>
-            <h3 className="mb-3 font-semibold">Link WhatsApp</h3>
+            <h3 className="mb-3 font-semibold">{tx('Link WhatsApp')}</h3>
             {qr.png ? (
-              <img src={qr.png} alt="WhatsApp pairing QR" className="mx-auto h-64 w-64" />
+              <img src={qr.png} alt={tx('WhatsApp pairing QR')} className="mx-auto h-64 w-64" />
             ) : (
               <div className="flex h-64 w-64 items-center justify-center text-sm text-gray-400">
-                Waiting for QR… ({qr.status})
+                {tx('Waiting for QR… (')}{qr.status})
               </div>
             )}
             <p className="mt-3 max-w-xs text-xs text-gray-500">
-              WhatsApp → Settings → Linked devices → Link a device, then scan this code. It refreshes automatically.
+              {tx('WhatsApp → Settings → Linked devices → Link a device, then scan this code. It refreshes automatically.')}
             </p>
           </div>
         </div>

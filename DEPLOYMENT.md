@@ -95,9 +95,12 @@ Set `OUTBOX_POLL_MS=2000` and run at least 2 replicas.
 
 ## Backups
 
-A nightly `pg_dump` is the minimum. Enable point-in-time recovery (PITR) on
-the Postgres cluster for safety against accidental writes. Test the restore
-process quarterly.
+The API backs itself up (database, images, `.env`) on a schedule, encrypts,
+checksums, copies to a second destination and restore-tests every scheduled
+backup. Setup checklist, monitoring and the recovery procedures (including
+`scripts/restore-backup.cjs`) are in [docs/backup-recovery.md](docs/backup-recovery.md).
+Enable point-in-time recovery (PITR) on the Postgres cluster for safety against
+accidental writes. Run the restore drill quarterly.
 
 **Lock capacity.** `pg_dump` takes one lock per table, index and sequence in a
 single transaction. Document numbering creates one sequence per tenant and

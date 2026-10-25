@@ -10,6 +10,7 @@ import { money, useOrgCurrency } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@erp/shared';
 import { Button } from '@/components/ui/button';
+import { tx } from '@/lib/i18n/tx';
 
 // ───────────────────────────── Amounts ─────────────────────────────
 
@@ -46,7 +47,7 @@ export function MoneyAmount({
   return (
     <span className={cn('tabular-nums whitespace-nowrap', muted && 'text-muted-foreground', className)}>
       {text}
-      {!code ? <span className="ml-1 text-[10px] font-normal text-amber-700">(currency unavailable)</span> : null}
+      {!code ? <span className="ml-1 text-[10px] font-normal text-amber-700">{tx('(currency unavailable)')}</span> : null}
     </span>
   );
 }
@@ -213,7 +214,7 @@ const SECTION_TABS = [
 export function MoneySectionNav() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
   return (
-    <nav aria-label="Money & Accounts sections" className="-mx-1 overflow-x-auto">
+    <nav aria-label={tx('Money & Accounts sections')} className="-mx-1 overflow-x-auto">
       <div className="flex min-w-max gap-1 border-b px-1">
         {SECTION_TABS.filter((t) => hasPermission(t.permission)).map((t) => (
           <NavLink
@@ -260,11 +261,11 @@ export function LoadError({ message, onRetry, retrying }: { message: string; onR
 
 export function Pager({ page, totalPages, onChange, summary }: { page: number; totalPages: number; onChange: (p: number) => void; summary?: ReactNode }) {
   return (
-    <nav aria-label="Pagination" className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+    <nav aria-label={tx('Pagination')} className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
       <span className="text-muted-foreground">{summary ?? `Page ${page} of ${totalPages}`}</span>
       <div className="grid grid-cols-2 gap-2 sm:flex">
-        <Button variant="outline" className="min-h-[44px]" disabled={page <= 1} onClick={() => onChange(page - 1)}><ChevronLeft className="mr-1 h-4 w-4" aria-hidden /> Previous</Button>
-        <Button variant="outline" className="min-h-[44px]" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>Next <ChevronRight className="ml-1 h-4 w-4" aria-hidden /></Button>
+        <Button variant="outline" className="min-h-[44px]" disabled={page <= 1} onClick={() => onChange(page - 1)}><ChevronLeft className="mr-1 h-4 w-4" aria-hidden /> {tx('Previous')}</Button>
+        <Button variant="outline" className="min-h-[44px]" disabled={page >= totalPages} onClick={() => onChange(page + 1)}>{tx('Next')} <ChevronRight className="ml-1 h-4 w-4" aria-hidden /></Button>
       </div>
     </nav>
   );

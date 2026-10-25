@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { locationsApi, type InventoryLocation } from "@/lib/api/locations";
+import { tx } from '@/lib/i18n/tx';
 
 const LOCATION_TYPES = [
   { value: "warehouse", label: "Warehouse" },
@@ -97,29 +98,29 @@ function LocationDialog({
 
           <div>
             <label className="text-xs font-bold uppercase text-gray-500">
-              Code
+              {tx('Code')}
             </label>
             <Input
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="e.g. WH-MAIN"
+              placeholder={tx('e.g. WH-MAIN')}
             />
           </div>
 
           <div>
             <label className="text-xs font-bold uppercase text-gray-500">
-              Name
+              {tx('Name')}
             </label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Main Warehouse"
+              placeholder={tx('e.g. Main Warehouse')}
             />
           </div>
 
           <div>
             <label className="text-xs font-bold uppercase text-gray-500">
-              Type
+              {tx('Type')}
             </label>
             <Select value={type} onValueChange={setType}>
               <SelectTrigger>
@@ -138,9 +139,9 @@ function LocationDialog({
           {isEdit && (
             <label className="flex items-center justify-between rounded border px-3 py-2 cursor-pointer">
               <div>
-                <p className="text-sm font-medium">Active</p>
+                <p className="text-sm font-medium">{tx('Active')}</p>
                 <p className="text-[11px] text-slate-500">
-                  Disabled locations are hidden from stock operations.
+                  {tx('Disabled locations are hidden from stock operations.')}
                 </p>
               </div>
               <input
@@ -155,7 +156,7 @@ function LocationDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button onClick={save} disabled={saving}>
             {saving && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
@@ -224,17 +225,17 @@ export default function LocationsPage() {
             to="/inventory"
             className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1"
           >
-            <ChevronLeft className="w-4 h-4" /> Back to Inventory
+            <ChevronLeft className="w-4 h-4" /> {tx('Back to Inventory')}
           </Link>
           <h1 className="text-xl font-bold text-slate-800 mt-1">
-            Inventory Locations
+            {tx('Inventory Locations')}
           </h1>
           <p className="text-sm text-slate-500">
-            Manage warehouses, stores, and storage locations.
+            {tx('Manage warehouses, stores, and storage locations.')}
           </p>
         </div>
         <Button onClick={() => setDialog({ open: true })}>
-          <Plus className="w-4 h-4 mr-1" /> New Location
+          <Plus className="w-4 h-4 mr-1" /> {tx('New Location')}
         </Button>
       </div>
 
@@ -253,11 +254,11 @@ export default function LocationsPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
               <tr>
-                <th className="text-left px-4 py-2 font-semibold">Code</th>
-                <th className="text-left px-4 py-2 font-semibold">Name</th>
-                <th className="text-left px-4 py-2 font-semibold">Type</th>
-                <th className="text-center px-4 py-2 font-semibold">Status</th>
-                <th className="text-right px-4 py-2 font-semibold">Actions</th>
+                <th className="text-left px-4 py-2 font-semibold">{tx('Code')}</th>
+                <th className="text-left px-4 py-2 font-semibold">{tx('Name')}</th>
+                <th className="text-left px-4 py-2 font-semibold">{tx('Type')}</th>
+                <th className="text-center px-4 py-2 font-semibold">{tx('Status')}</th>
+                <th className="text-right px-4 py-2 font-semibold">{tx('Actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -293,14 +294,14 @@ export default function LocationsPage() {
                     <button
                       onClick={() => setDialog({ open: true, location: loc })}
                       className="p-1.5 text-slate-500 hover:text-[#3c8dbc]"
-                      title="Edit"
+                      title={tx('Edit')}
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => remove(loc)}
                       className="p-1.5 text-slate-500 hover:text-red-600"
-                      title="Delete"
+                      title={tx('Delete')}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -313,7 +314,7 @@ export default function LocationsPage() {
                     colSpan={5}
                     className="px-4 py-10 text-center text-slate-400"
                   >
-                    No locations yet.
+                    {tx('No locations yet.')}
                   </td>
                 </tr>
               )}

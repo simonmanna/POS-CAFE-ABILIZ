@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface PO {
   id: string; orderNumber: string; status: string;
@@ -63,7 +64,7 @@ export function PurchaseOrderReceivePage() {
       if (res?.approvalRequired) {
         notify.success(`Receipt ${res.grn?.receiptNumber ?? ''} saved as a draft — awaiting goods-receipt approval before stock is posted`);
       } else {
-        notify.success('Stock received successfully');
+        notify.success(tx('Stock received successfully'));
       }
       qc.invalidateQueries({ queryKey: ['purchase-order', id] });
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
@@ -73,14 +74,14 @@ export function PurchaseOrderReceivePage() {
   });
 
   if (po.isLoading) return <Skeleton className="h-96 w-full" />;
-  if (po.error || !po.data) return <Card><CardContent className="p-8 text-center text-destructive">Not found</CardContent></Card>;
+  if (po.error || !po.data) return <Card><CardContent className="p-8 text-center text-destructive">{tx('Not found')}</CardContent></Card>;
 
   const data = po.data;
   if (data.status !== 'active' && data.status !== 'partially_received') {
     return (
       <Card><CardContent className="p-8 text-center">
-        This PO is {data.status}. Only active or partially received orders can be received.
-        <div className="mt-4"><Button onClick={() => navigate(-1)}>Go back</Button></div>
+        {tx('This PO is')} {data.status}{tx('. Only active or partially received orders can be received.')}
+        <div className="mt-4"><Button onClick={() => navigate(-1)}>{tx('Go back')}</Button></div>
       </CardContent></Card>
     );
   }
@@ -101,34 +102,34 @@ export function PurchaseOrderReceivePage() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-2xl font-semibold">Receive Stock</h1>
+          <h1 className="text-2xl font-semibold">{tx('Receive Stock')}</h1>
           <p className="text-sm text-muted-foreground">{data.orderNumber}</p>
         </div>
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Warehouse & notes</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{tx('Warehouse & notes')}</CardTitle></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div>
-            <label className="text-sm font-medium">Warehouse</label>
+            <label className="text-sm font-medium">{tx('Warehouse')}</label>
             <select
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value)}
               className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
             >
-              <option value="">Select…</option>
+              <option value="">{tx('Select…')}</option>
               {warehouses.data?.map((w) => (
                 <option key={w.id} value={w.id}>{w.code} — {w.name}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium">Notes</label>
+            <label className="text-sm font-medium">{tx('Notes')}</label>
             <Input
               className="mt-1"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional"
+              placeholder={tx('Optional')}
             />
           </div>
         </CardContent>
@@ -137,9 +138,9 @@ export function PurchaseOrderReceivePage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Items to receive</CardTitle>
+            <CardTitle>{tx('Items to receive')}</CardTitle>
             <Button size="sm" variant="outline" onClick={autoFillAll}>
-              Receive all remaining
+              {tx('Receive all remaining')}
             </Button>
           </div>
         </CardHeader>
@@ -147,11 +148,11 @@ export function PurchaseOrderReceivePage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left">Item</th>
-                <th className="px-3 py-2 text-right">Ordered</th>
-                <th className="px-3 py-2 text-right">Received</th>
-                <th className="px-3 py-2 text-right">Remaining</th>
-                <th className="px-3 py-2 text-right">Receiving</th>
+                <th className="px-3 py-2 text-left">{tx('Item')}</th>
+                <th className="px-3 py-2 text-right">{tx('Ordered')}</th>
+                <th className="px-3 py-2 text-right">{tx('Received')}</th>
+                <th className="px-3 py-2 text-right">{tx('Remaining')}</th>
+                <th className="px-3 py-2 text-right">{tx('Receiving')}</th>
               </tr>
             </thead>
             <tbody>
@@ -200,7 +201,7 @@ export function PurchaseOrderReceivePage() {
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
+        <Button variant="outline" onClick={() => navigate(-1)}>{tx('Cancel')}</Button>
         <Button
           onClick={() => receiveMut.mutate()}
           disabled={!warehouseId || !Object.values(receivedQtys).some((v) => v > 0) || receiveMut.isPending}

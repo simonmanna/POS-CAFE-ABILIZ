@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { useVoidSale } from '@/features/pos/api';
 import { OverrideDialog } from './OverrideDialog';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -56,7 +57,7 @@ export const CancelOrderDialog: React.FC<Props> = ({
       // 409 = the identical void is already in flight (server-side idempotency
       // lock). Not an error — the first request will complete.
       if (e?.response?.status === 409) {
-        toast.info('This cancellation is already being processed.');
+        toast.info(tx('This cancellation is already being processed.'));
         return;
       }
       if (e?.response?.data?.safeToRetry) idemKeyRef.current = crypto.randomUUID();
@@ -75,41 +76,41 @@ export const CancelOrderDialog: React.FC<Props> = ({
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-rose-600">
-              <Ban className="w-4 h-4" /> Refund sale
+              <Ban className="w-4 h-4" /> {tx('Refund sale')}
             </DialogTitle>
             <DialogDescription>
-              Refund <strong>{invoiceNumber}</strong>. This requires a manager override.
+              {tx('Refund')} <strong>{invoiceNumber}</strong>{tx('. This requires a manager override.')}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-3">
             <div className="text-xs text-slate-500">
-              A reason is required. This action is logged for audit.
+              {tx('A reason is required. This action is logged for audit.')}
             </div>
-            <label className="block text-sm">Returned goods
+            <label className="block text-sm">{tx('Returned goods')}
               <select className="w-full border rounded p-2" value={stockDisposition} onChange={(e) => setStockDisposition(e.target.value as typeof stockDisposition)}>
-                <option value="no_return">No stock returned / record separately</option>
-                <option value="waste">Prepared, consumed or wasted</option>
-                <option value="restock">Restock saleable retail goods</option>
+                <option value="no_return">{tx('No stock returned / record separately')}</option>
+                <option value="waste">{tx('Prepared, consumed or wasted')}</option>
+                <option value="restock">{tx('Restock saleable retail goods')}</option>
               </select>
             </label>
             <textarea
               autoFocus
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Customer request, duplicate order…"
+              placeholder={tx('e.g. Customer request, duplicate order…')}
               className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm resize-none h-20"
             />
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
+            <Button variant="outline" onClick={onClose}>{tx('Cancel')}</Button>
             <Button
               variant="destructive"
               disabled={!reason.trim() || voidSale.isPending}
               onClick={() => setShowOverride(true)}
             >
-              <Lock className="w-4 h-4 mr-1" /> Refund sale
+              <Lock className="w-4 h-4 mr-1" /> {tx('Refund sale')}
             </Button>
           </DialogFooter>
         </DialogContent>

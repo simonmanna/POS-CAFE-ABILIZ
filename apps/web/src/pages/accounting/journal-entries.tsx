@@ -15,6 +15,7 @@ import {
   useJournalEntries, useJournals,
   type JournalEntryRow,
 } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   posted: 'default',
@@ -104,12 +105,12 @@ export function JournalEntriesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Journal Entries</h1>
-          <p className="text-sm text-gray-500">Every posting — from invoices, payments, inventory adjustments and manual entries.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Journal Entries')}</h1>
+          <p className="text-sm text-gray-500">{tx('Every posting — from invoices, payments, inventory adjustments and manual entries.')}</p>
         </div>
         {hasPermission(PERMISSIONS.journalEntry.post) && (
           <Button onClick={() => navigate('/journal-entries/new')}>
-            <Plus className="h-4 w-4" /> New Entry
+            <Plus className="h-4 w-4" /> {tx('New Entry')}
           </Button>
         )}
       </div>
@@ -119,9 +120,9 @@ export function JournalEntriesPage() {
         {/* Journal */}
         <div className="min-w-[180px]">
           <Select value={filterJournalCode} onValueChange={(v) => setFilter('journalCode', v === '_all' ? '' : v)}>
-            <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="All Journals" /></SelectTrigger>
+            <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={tx('All Journals')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="_all">All Journals</SelectItem>
+              <SelectItem value="_all">{tx('All Journals')}</SelectItem>
               {journals.map((j) => (
                 <SelectItem key={j.id} value={j.code}>{j.code} — {j.name}</SelectItem>
               ))}
@@ -132,12 +133,12 @@ export function JournalEntriesPage() {
         {/* Status */}
         <div className="min-w-[130px]">
           <Select value={filterStatus} onValueChange={(v) => setFilter('status', v === '_all' ? '' : v)}>
-            <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="All Statuses" /></SelectTrigger>
+            <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={tx('All Statuses')} /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="_all">All Statuses</SelectItem>
-              <SelectItem value="draft">Draft</SelectItem>
-              <SelectItem value="posted">Posted</SelectItem>
-              <SelectItem value="reversed">Reversed</SelectItem>
+              <SelectItem value="_all">{tx('All Statuses')}</SelectItem>
+              <SelectItem value="draft">{tx('Draft')}</SelectItem>
+              <SelectItem value="posted">{tx('Posted')}</SelectItem>
+              <SelectItem value="reversed">{tx('Reversed')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -149,7 +150,7 @@ export function JournalEntriesPage() {
             value={filterFrom}
             onChange={(e) => setFilter('from', e.target.value)}
             className="h-9 text-xs"
-            placeholder="From date"
+            placeholder={tx('From date')}
           />
         </div>
 
@@ -160,7 +161,7 @@ export function JournalEntriesPage() {
             value={filterTo}
             onChange={(e) => setFilter('to', e.target.value)}
             className="h-9 text-xs"
-            placeholder="To date"
+            placeholder={tx('To date')}
           />
         </div>
 
@@ -168,7 +169,7 @@ export function JournalEntriesPage() {
         <div className="flex-1 min-w-[200px] relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
-            placeholder="Search entry number / description..."
+            placeholder={tx('Search entry number / description...')}
             value={filterSearch}
             onChange={(e) => setFilter('search', e.target.value)}
             className="h-9 pl-8 text-xs"
@@ -177,7 +178,7 @@ export function JournalEntriesPage() {
 
         {hasActiveFilters && (
           <Button variant="ghost" size="sm" onClick={clearFilters} className="h-9 text-xs gap-1">
-            <X className="h-3 w-3" /> Clear
+            <X className="h-3 w-3" /> {tx('Clear')}
           </Button>
         )}
       </div>
@@ -187,13 +188,13 @@ export function JournalEntriesPage() {
 
       {meta && entries.length > 0 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{entries.length} of {meta.total} entries</span>
+          <span>{entries.length} of {meta.total} {tx('entries')}</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {tx('Previous')}
             </Button>
             <span className="text-xs font-medium">
-              Page {meta.page} of {meta.totalPages}
+              {tx('Page')} {meta.page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -201,7 +202,7 @@ export function JournalEntriesPage() {
               disabled={page >= meta.totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>

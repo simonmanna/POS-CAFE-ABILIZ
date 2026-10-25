@@ -9,6 +9,7 @@
 import React from 'react';
 import { LogOut } from 'lucide-react';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   /** Called after the POS user is cleared — terminals refresh their state. */
@@ -28,11 +29,11 @@ export const PosLogoffButton: React.FC<Props> = ({ onLoggedOff }) => {
     <button
       type="button"
       onClick={handleLogoff}
-      title="Log off this POS session — orders are saved and can be resumed later. Another staff member can sign in."
+      title={tx('Log off this POS session — orders are saved and can be resumed later. Another staff member can sign in.')}
       className="pos-nav-btn pos-nav-btn--logoff"
     >
       <LogOut className="h-4 w-4" />
-      <span>Log off</span>
+      <span>{tx('Log off')}</span>
     </button>
   );
 };

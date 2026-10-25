@@ -15,6 +15,7 @@ import { notify } from '@/lib/notify';
 import { useBoms, useCreateProductionOrder, useProductionOrders } from '@/features/manufacturing/api';
 import { useLocationOptions } from '@/features/manufacturing/options';
 import type { ProductionOrderStatus } from '@/features/manufacturing/types';
+import { tx } from '@/lib/i18n/tx';
 
 export const ORDER_STATUS_VARIANT: Record<ProductionOrderStatus, 'default' | 'secondary' | 'outline' | 'destructive'> = {
   draft: 'secondary',
@@ -47,7 +48,7 @@ export function ProductionOrdersPage() {
 
   const submit = async () => {
     if (!bomId) {
-      notify.error('Pick an active BOM.');
+      notify.error(tx('Pick an active BOM.'));
       return;
     }
     try {
@@ -63,7 +64,7 @@ export function ProductionOrdersPage() {
       setLocationId('');
       navigate(`/manufacturing/orders/${order.id}`);
     } catch (e: any) {
-      notify.error('Could not create order', e?.response?.data?.message ?? e?.message);
+      notify.error(tx('Could not create order'), e?.response?.data?.message ?? e?.message);
     }
   };
 
@@ -71,34 +72,34 @@ export function ProductionOrdersPage() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Production Orders</h1>
-          <p className="text-sm text-muted-foreground">Consume raw materials into WIP, receive finished goods out.</p>
+          <h1 className="text-2xl font-semibold">{tx('Production Orders')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Consume raw materials into WIP, receive finished goods out.')}</p>
         </div>
         {canCreate && (
           <Button onClick={() => setOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" /> New Order
+            <Plus className="mr-2 h-4 w-4" /> {tx('New Order')}
           </Button>
         )}
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Orders</CardTitle>
+          <CardTitle>{tx('Orders')}</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="text-sm text-muted-foreground">{tx('Loading…')}</p>
           ) : !orders?.length ? (
-            <p className="text-sm text-muted-foreground">No production orders yet.</p>
+            <p className="text-sm text-muted-foreground">{tx('No production orders yet.')}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Order</TableHead>
-                  <TableHead className="text-right">Planned</TableHead>
-                  <TableHead className="text-right">Produced</TableHead>
-                  <TableHead className="text-right">Unit cost</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{tx('Order')}</TableHead>
+                  <TableHead className="text-right">{tx('Planned')}</TableHead>
+                  <TableHead className="text-right">{tx('Produced')}</TableHead>
+                  <TableHead className="text-right">{tx('Unit cost')}</TableHead>
+                  <TableHead>{tx('Status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -120,28 +121,28 @@ export function ProductionOrdersPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New Production Order</DialogTitle>
+            <DialogTitle>{tx('New Production Order')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1">
-              <Label>Recipe (active BOM)</Label>
+              <Label>{tx('Recipe (active BOM)')}</Label>
               <Select value={bomId} onValueChange={setBomId}>
-                <SelectTrigger><SelectValue placeholder="Select a recipe…" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={tx('Select a recipe…')} /></SelectTrigger>
                 <SelectContent>
                   {(activeBoms ?? []).map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{b.code} · {b.name} (makes {Number(b.outputQuantity)})</SelectItem>
+                    <SelectItem key={b.id} value={b.id}>{b.code} · {b.name} {tx('(makes')} {Number(b.outputQuantity)})</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-1">
-              <Label>Runs (× batch size)</Label>
+              <Label>{tx('Runs (× batch size)')}</Label>
               <Input type="number" value={runs} onChange={(e) => setRuns(e.target.value)} />
             </div>
             <div className="space-y-1">
-              <Label>Production location (optional — defaults to the BOM's)</Label>
+              <Label>{tx('Production location (optional — defaults to the BOM\'s)')}</Label>
               <Select value={locationId} onValueChange={setLocationId}>
-                <SelectTrigger><SelectValue placeholder="Default" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={tx('Default')} /></SelectTrigger>
                 <SelectContent>
                   {productionLocations.map((l) => (
                     <SelectItem key={l.id} value={l.id}>{l.name} ({l.type})</SelectItem>
@@ -151,8 +152,8 @@ export function ProductionOrdersPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={submit} disabled={createOrder.isPending}>Create</Button>
+            <Button variant="outline" onClick={() => setOpen(false)}>{tx('Cancel')}</Button>
+            <Button onClick={submit} disabled={createOrder.isPending}>{tx('Create')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

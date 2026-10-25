@@ -14,6 +14,7 @@ import { notify } from '@/lib/notify';
 import { useActivateBom, useBoms, useCreateBom } from '@/features/manufacturing/api';
 import { useProductOptions } from '@/features/manufacturing/options';
 import type { Bom, BomStatus } from '@/features/manufacturing/types';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUS_VARIANT: Record<BomStatus, 'default' | 'secondary' | 'outline'> = {
   draft: 'secondary',
@@ -61,7 +62,7 @@ export function BomsPage() {
       .filter((l) => l.componentProductId && Number(l.quantity) > 0)
       .map((l) => ({ componentProductId: l.componentProductId, quantity: Number(l.quantity) }));
     if (!name || !outputProductId || !(Number(outputQuantity) > 0) || cleanLines.length === 0) {
-      notify.error('Name, output product, a positive batch size, and at least one ingredient are required.');
+      notify.error(tx('Name, output product, a positive batch size, and at least one ingredient are required.'));
       return;
     }
     try {
@@ -72,11 +73,11 @@ export function BomsPage() {
         expectedYieldPct: Number(expectedYieldPct),
         lines: cleanLines,
       });
-      notify.success('BOM created as a draft. Activate it to use in production.');
+      notify.success(tx('BOM created as a draft. Activate it to use in production.'));
       setOpen(false);
       reset();
     } catch (e: any) {
-      notify.error('Could not create BOM', e?.response?.data?.message ?? e?.message);
+      notify.error(tx('Could not create BOM'), e?.response?.data?.message ?? e?.message);
     }
   };
 
@@ -85,7 +86,7 @@ export function BomsPage() {
       await activateBom.mutateAsync(bom.id);
       notify.success(`BOM ${bom.code} activated.`);
     } catch (e: any) {
-      notify.error('Could not activate BOM', e?.response?.data?.message ?? e?.message);
+      notify.error(tx('Could not activate BOM'), e?.response?.data?.message ?? e?.message);
     }
   };
 
@@ -93,36 +94,36 @@ export function BomsPage() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Bills of Materials</h1>
-          <p className="text-sm text-muted-foreground">Recipes keyed on the finished product. Activate a draft to produce against it.</p>
+          <h1 className="text-2xl font-semibold">{tx('Bills of Materials')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Recipes keyed on the finished product. Activate a draft to produce against it.')}</p>
         </div>
         {canCreate && (
           <Button onClick={() => setOpen(true)}>
-            <Plus className="mr-2 h-4 w-4" /> New BOM
+            <Plus className="mr-2 h-4 w-4" /> {tx('New BOM')}
           </Button>
         )}
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Recipes</CardTitle>
+          <CardTitle>{tx('Recipes')}</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="text-sm text-muted-foreground">{tx('Loading…')}</p>
           ) : !boms?.length ? (
-            <p className="text-sm text-muted-foreground">No BOMs yet.</p>
+            <p className="text-sm text-muted-foreground">{tx('No BOMs yet.')}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Output</TableHead>
-                  <TableHead className="text-right">Batch</TableHead>
-                  <TableHead className="text-center">Ver</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{tx('Code')}</TableHead>
+                  <TableHead>{tx('Name')}</TableHead>
+                  <TableHead>{tx('Output')}</TableHead>
+                  <TableHead className="text-right">{tx('Batch')}</TableHead>
+                  <TableHead className="text-center">{tx('Ver')}</TableHead>
+                  <TableHead>{tx('Status')}</TableHead>
+                  <TableHead className="text-right">{tx('Actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -135,12 +136,12 @@ export function BomsPage() {
                     <TableCell className="text-center">{b.version}</TableCell>
                     <TableCell>
                       <Badge variant={STATUS_VARIANT[b.status]}>{b.status}</Badge>
-                      {b.isDefault && <Badge variant="outline" className="ml-1">default</Badge>}
+                      {b.isDefault && <Badge variant="outline" className="ml-1">{tx('default')}</Badge>}
                     </TableCell>
                     <TableCell className="text-right">
                       {canActivate && b.status === 'draft' && (
                         <Button size="sm" variant="outline" onClick={() => activate(b)}>
-                          <CheckCircle2 className="mr-1 h-3 w-3" /> Activate
+                          <CheckCircle2 className="mr-1 h-3 w-3" /> {tx('Activate')}
                         </Button>
                       )}
                     </TableCell>
@@ -155,18 +156,18 @@ export function BomsPage() {
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) reset(); }}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>New BOM</DialogTitle>
+            <DialogTitle>{tx('New BOM')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1">
-                <Label>Name</Label>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Chocolate Cake" />
+                <Label>{tx('Name')}</Label>
+                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={tx('Chocolate Cake')} />
               </div>
               <div className="space-y-1">
-                <Label>Output product</Label>
+                <Label>{tx('Output product')}</Label>
                 <Select value={outputProductId} onValueChange={setOutputProductId}>
-                  <SelectTrigger><SelectValue placeholder="Select…" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={tx('Select…')} /></SelectTrigger>
                   <SelectContent>
                     {(products ?? []).map((p) => (
                       <SelectItem key={p.id} value={p.id}>{p.code} · {p.name}</SelectItem>
@@ -175,26 +176,26 @@ export function BomsPage() {
                 </Select>
               </div>
               <div className="space-y-1">
-                <Label>Batch size (units made per run)</Label>
+                <Label>{tx('Batch size (units made per run)')}</Label>
                 <Input type="number" value={outputQuantity} onChange={(e) => setOutputQuantity(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <Label>Expected yield %</Label>
+                <Label>{tx('Expected yield %')}</Label>
                 <Input type="number" value={expectedYieldPct} onChange={(e) => setExpectedYieldPct(e.target.value)} />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Ingredients (per batch)</Label>
+                <Label>{tx('Ingredients (per batch)')}</Label>
                 <Button size="sm" variant="outline" onClick={() => setLines((l) => [...l, { componentProductId: '', quantity: '' }])}>
-                  <Plus className="mr-1 h-3 w-3" /> Add
+                  <Plus className="mr-1 h-3 w-3" /> {tx('Add')}
                 </Button>
               </div>
               {lines.map((line, i) => (
                 <div key={i} className="flex items-center gap-2">
                   <Select value={line.componentProductId} onValueChange={(v) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, componentProductId: v } : l)))}>
-                    <SelectTrigger className="flex-1"><SelectValue placeholder="Ingredient…" /></SelectTrigger>
+                    <SelectTrigger className="flex-1"><SelectValue placeholder={tx('Ingredient…')} /></SelectTrigger>
                     <SelectContent>
                       {(products ?? []).map((p) => (
                         <SelectItem key={p.id} value={p.id}>{p.code} · {p.name}</SelectItem>
@@ -204,7 +205,7 @@ export function BomsPage() {
                   <Input
                     type="number"
                     className="w-28"
-                    placeholder="Qty"
+                    placeholder={tx('Qty')}
                     value={line.quantity}
                     onChange={(e) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, quantity: e.target.value } : l)))}
                   />
@@ -216,8 +217,8 @@ export function BomsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setOpen(false); reset(); }}>Cancel</Button>
-            <Button onClick={submit} disabled={createBom.isPending}>Create draft</Button>
+            <Button variant="outline" onClick={() => { setOpen(false); reset(); }}>{tx('Cancel')}</Button>
+            <Button onClick={submit} disabled={createBom.isPending}>{tx('Create draft')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

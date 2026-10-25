@@ -15,6 +15,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Coffee, ShoppingBag, Trash2, Check, Loader2, MapPin, Receipt, Sparkles } from 'lucide-react';
 import './pos-pro.css';
+import { tx } from '@/lib/i18n/tx';
 
 interface ProductFE {
   id: string; name: string; description?: string | null; price: number;
@@ -151,12 +152,12 @@ export const DigitalMenuPage: React.FC = () => {
       <div className="min-h-screen bg-rose-50 flex items-center justify-center p-6">
         <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm text-center">
           <div className="text-5xl mb-3">⚠️</div>
-          <h1 className="text-xl font-bold text-rose-700">Menu unavailable</h1>
+          <h1 className="text-xl font-bold text-rose-700">{tx('Menu unavailable')}</h1>
           <p className="text-sm text-slate-600 mt-2">{catalogError}</p>
           <button
             onClick={() => window.location.href = '/'}
             className="mt-4 px-4 py-2 bg-slate-100 rounded-lg text-sm font-semibold"
-          >Back</button>
+          >{tx('Back')}</button>
         </div>
       </div>
     );
@@ -178,7 +179,7 @@ export const DigitalMenuPage: React.FC = () => {
         <div className="max-w-md mx-auto p-5">
           <div className="text-center mb-6">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-bold">
-              <Check className="h-3 w-3" /> Order received
+              <Check className="h-3 w-3" /> {tx('Order received')}
             </div>
             <h1 className="text-3xl font-extrabold mt-3">#{orderNumber}</h1>
             <p className="text-sm text-slate-500 mt-1">at {catalog.orgName}{catalog.session.tableNumber ? ` · Table ${catalog.session.tableNumber}` : ''}</p>
@@ -194,7 +195,7 @@ export const DigitalMenuPage: React.FC = () => {
                   <div className="text-2xl">{s.emoji}</div>
                   <div className="flex-1">
                     <div className="font-bold text-sm">{s.label}</div>
-                    {current ? <div className="text-[11px] text-emerald-700 font-semibold">in progress</div> : null}
+                    {current ? <div className="text-[11px] text-emerald-700 font-semibold">{tx('in progress')}</div> : null}
                   </div>
                   {reached ? <Check className="h-5 w-5 text-emerald-600" /> : null}
                 </div>
@@ -203,16 +204,16 @@ export const DigitalMenuPage: React.FC = () => {
           </div>
 
           <div className="rounded-2xl bg-white border border-slate-200 p-4 text-sm">
-            <div className="flex justify-between font-bold"><span>Total</span><span>{fmt(cartTotal)}</span></div>
+            <div className="flex justify-between font-bold"><span>{tx('Total')}</span><span>{fmt(cartTotal)}</span></div>
             <div className="text-xs text-slate-500 mt-1">
-              Payment: {paymentMethod.replace('_', ' ')}{paymentRef ? ` · ${paymentRef}` : ''}
+              {tx('Payment:')} {paymentMethod.replace('_', ' ')}{paymentRef ? ` · ${paymentRef}` : ''}
             </div>
           </div>
 
           <button
             onClick={() => { setOrderId(null); setCart([]); setCustomerName(''); setCustomerPhone(''); setPaymentRef(''); }}
             className="mt-6 w-full py-3 rounded-xl bg-slate-900 text-white font-bold"
-          >New order</button>
+          >{tx('New order')}</button>
         </div>
       </div>
     );
@@ -224,15 +225,15 @@ export const DigitalMenuPage: React.FC = () => {
       <div className="min-h-screen bg-slate-50">
         <div className="max-w-md mx-auto p-4">
           <div className="flex items-center justify-between mb-4">
-            <button onClick={() => setShowCart(false)} className="text-sm text-slate-600">← Back</button>
-            <h1 className="text-lg font-bold">Your order</h1>
+            <button onClick={() => setShowCart(false)} className="text-sm text-slate-600">{tx('← Back')}</button>
+            <h1 className="text-lg font-bold">{tx('Your order')}</h1>
             <div className="w-12" />
           </div>
 
           {cart.length === 0 ? (
             <div className="text-center py-12 text-slate-500">
               <ShoppingBag className="h-10 w-10 mx-auto mb-2 opacity-50" />
-              <p>Your cart is empty.</p>
+              <p>{tx('Your cart is empty.')}</p>
             </div>
           ) : (
             <>
@@ -241,7 +242,7 @@ export const DigitalMenuPage: React.FC = () => {
                   <div key={idx} className="bg-white rounded-xl p-3 flex items-center gap-3 shadow-sm">
                     <div className="flex-1">
                       <div className="font-bold text-sm">{l.productName}</div>
-                      <div className="text-xs text-slate-500">{fmt(l.unitPrice)} each</div>
+                      <div className="text-xs text-slate-500">{fmt(l.unitPrice)} {tx('each')}</div>
                     </div>
                     <div className="flex items-center gap-1">
                       <button onClick={() => updateQty(idx, l.quantity - 1)} className="w-7 h-7 rounded-full bg-slate-100">−</button>
@@ -258,13 +259,13 @@ export const DigitalMenuPage: React.FC = () => {
                 <input
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Your name *"
+                  placeholder={tx('Your name *')}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 />
                 <input
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="Phone (for loyalty points)"
+                  placeholder={tx('Phone (for loyalty points)')}
                   inputMode="tel"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 />
@@ -273,9 +274,9 @@ export const DigitalMenuPage: React.FC = () => {
                   onChange={(e) => setOrderType(e.target.value as any)}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
                 >
-                  <option value="dine_in">🍽️ Dine in</option>
-                  <option value="takeaway">🥡 Takeaway</option>
-                  <option value="pickup">🛍️ Pickup</option>
+                  <option value="dine_in">{tx('🍽️ Dine in')}</option>
+                  <option value="takeaway">{tx('🥡 Takeaway')}</option>
+                  <option value="pickup">{tx('🛍️ Pickup')}</option>
                 </select>
                 <div className="grid grid-cols-3 gap-1.5 pt-1">
                   {(['mobile_money', 'card', 'cash_on_pickup'] as const).map((m) => (
@@ -292,14 +293,14 @@ export const DigitalMenuPage: React.FC = () => {
                   <input
                     value={paymentRef}
                     onChange={(e) => setPaymentRef(e.target.value)}
-                    placeholder="MoMo reference (e.g. MTN-12345)"
+                    placeholder={tx('MoMo reference (e.g. MTN-12345)')}
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono"
                   />
                 ) : null}
               </div>
 
               <div className="bg-slate-900 text-white rounded-xl p-3 mb-4 flex items-center justify-between">
-                <span className="font-bold">Total</span>
+                <span className="font-bold">{tx('Total')}</span>
                 <span className="font-mono text-2xl font-extrabold">{fmt(cartTotal)}</span>
               </div>
 
@@ -334,11 +335,11 @@ export const DigitalMenuPage: React.FC = () => {
             <Coffee className="h-4 w-4" />
             {catalog.orgName}
           </div>
-          <h1 className="text-3xl font-extrabold mt-1">Menu</h1>
+          <h1 className="text-3xl font-extrabold mt-1">{tx('Menu')}</h1>
           <div className="flex items-center gap-1.5 text-sm opacity-90 mt-1">
             <MapPin className="h-3 w-3" />
             {catalog.branchName}
-            {catalog.session.tableNumber ? <span>· Table {catalog.session.tableNumber}</span> : null}
+            {catalog.session.tableNumber ? <span>{tx('· Table')} {catalog.session.tableNumber}</span> : null}
           </div>
         </div>
       </div>
@@ -348,7 +349,7 @@ export const DigitalMenuPage: React.FC = () => {
         {catalog.combos.length > 0 ? (
           <div>
             <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1">
-              <Sparkles className="h-3 w-3" /> Combos
+              <Sparkles className="h-3 w-3" /> {tx('Combos')}
             </h2>
             <div className="space-y-2">
               {catalog.combos.map((c) => (
@@ -377,7 +378,7 @@ export const DigitalMenuPage: React.FC = () => {
             onClick={() => setActiveCategory(null)}
             className={'px-3 py-1.5 rounded-full text-sm font-bold whitespace-nowrap ' + (activeCategory === null ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-700')}
           >
-            All
+            {tx('All')}
           </button>
           {catalog.categories.map((c) => (
             <button
@@ -406,7 +407,7 @@ export const DigitalMenuPage: React.FC = () => {
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-sm truncate">{p.name}</div>
                 {p.description ? <div className="text-xs text-slate-500 line-clamp-2">{p.description}</div> : null}
-                {!p.inStock ? <div className="text-[10px] text-rose-600 font-bold uppercase">Out of stock</div> : null}
+                {!p.inStock ? <div className="text-[10px] text-rose-600 font-bold uppercase">{tx('Out of stock')}</div> : null}
               </div>
               <div className="font-mono font-bold text-emerald-700">{fmt(p.price)}</div>
             </button>
@@ -424,7 +425,7 @@ export const DigitalMenuPage: React.FC = () => {
             >
               <span className="flex items-center gap-2">
                 <ShoppingBag className="h-4 w-4" />
-                View cart ({cart.reduce((s, l) => s + l.quantity, 0)})
+                {tx('View cart (')}{cart.reduce((s, l) => s + l.quantity, 0)})
               </span>
               <span className="font-mono">{fmt(cartTotal)}</span>
             </button>

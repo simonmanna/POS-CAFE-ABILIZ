@@ -14,6 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useTaskDashboard, useTaskAssignees } from '../api';
+import { tx } from '@/lib/i18n/tx';
 
 interface KpiCardProps {
   title: string;
@@ -61,19 +62,19 @@ export function TaskDashboard() {
     );
   }
 
-  if (!dash) return <div className="text-muted-foreground">No dashboard data</div>;
+  if (!dash) return <div className="text-muted-foreground">{tx('No dashboard data')}</div>;
 
   return (
     <div className="space-y-6">
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-        <KpiCard title="Today's Tasks" value={dash.todayTotal} icon={ClipboardList} color="#3b82f6" bgColor="#eff6ff" />
-        <KpiCard title="Completed Today" value={dash.todayCompleted} icon={CheckCircle2} color="#10b981" bgColor="#ecfdf5" />
-        <KpiCard title="Pending" value={dash.pending} icon={Clock} color="#f59e0b" bgColor="#fffbeb" />
-        <KpiCard title="In Progress" value={dash.inProgress} icon={TrendingUp} color="#6366f1" bgColor="#eef2ff" />
-        <KpiCard title="Overdue" value={dash.overdue} icon={AlertTriangle} color="#ef4444" bgColor="#fef2f2" />
-        <KpiCard title="Due Today" value={dash.dueToday} icon={Calendar} color="#8b5cf6" bgColor="#f5f3ff" />
-        <KpiCard title="Recurring Today" value={dash.recurringToday} icon={RotateCcw} color="#06b6d4" bgColor="#ecfeff" />
-        <KpiCard title="Verification Pending" value={dash.verificationPending} icon={ShieldCheck} color="#f97316" bgColor="#fff7ed" />
+        <KpiCard title={tx('Today\'s Tasks')} value={dash.todayTotal} icon={ClipboardList} color="#3b82f6" bgColor="#eff6ff" />
+        <KpiCard title={tx('Completed Today')} value={dash.todayCompleted} icon={CheckCircle2} color="#10b981" bgColor="#ecfdf5" />
+        <KpiCard title={tx('Pending')} value={dash.pending} icon={Clock} color="#f59e0b" bgColor="#fffbeb" />
+        <KpiCard title={tx('In Progress')} value={dash.inProgress} icon={TrendingUp} color="#6366f1" bgColor="#eef2ff" />
+        <KpiCard title={tx('Overdue')} value={dash.overdue} icon={AlertTriangle} color="#ef4444" bgColor="#fef2f2" />
+        <KpiCard title={tx('Due Today')} value={dash.dueToday} icon={Calendar} color="#8b5cf6" bgColor="#f5f3ff" />
+        <KpiCard title={tx('Recurring Today')} value={dash.recurringToday} icon={RotateCcw} color="#06b6d4" bgColor="#ecfeff" />
+        <KpiCard title={tx('Verification Pending')} value={dash.verificationPending} icon={ShieldCheck} color="#f97316" bgColor="#fff7ed" />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -81,7 +82,7 @@ export function TaskDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-emerald-500" />
-              Completion Rate
+              {tx('Completion Rate')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -99,14 +100,14 @@ export function TaskDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Timer className="h-4 w-4 text-blue-500" />
-              Avg Completion Time
+              {tx('Avg Completion Time')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold text-blue-600">
               {dash.avgCompletionMinutes}m
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Minutes per task</p>
+            <p className="text-xs text-muted-foreground mt-1">{tx('Minutes per task')}</p>
           </CardContent>
         </Card>
 
@@ -114,12 +115,12 @@ export function TaskDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
               <Users className="h-4 w-4 text-purple-500" />
-              Top Employees
+              {tx('Top Employees')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             {dash.topEmployees.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No data yet</p>
+              <p className="text-sm text-muted-foreground">{tx('No data yet')}</p>
             ) : (
               <div className="space-y-2">
                 {dash.topEmployees.slice(0, 5).map((emp, i) => (
@@ -128,7 +129,7 @@ export function TaskDashboard() {
                       <span className="text-muted-foreground mr-1.5">#{i + 1}</span>
                       {nameOf(emp.assignedToId)}
                     </span>
-                    <span className="font-medium shrink-0 ml-2">{emp.completedCount} done</span>
+                    <span className="font-medium shrink-0 ml-2">{emp.completedCount} {tx('done')}</span>
                   </div>
                 ))}
               </div>

@@ -50,6 +50,35 @@ export class SettingsService {
   }
 
   /**
+   * Server-wide value (organizationId NULL), for settings that belong to the
+   * install rather than a tenant — e.g. backups, which dump every tenant.
+   * Falls back to the newest organization-level row: such keys used to be
+   * written through `set()` while being read back at boot with no tenant, so
+   * they silently reverted to defaults on every restart.
+   */
+  async getServerWide(key: string) {
+    return (
+      (await this.prisma.raw.setting.findFirst({ where: { organizationId: null, scopeType: 'organization', scopeId: '', key } }))
+      ?? this.prisma.raw.setting.findFirst({ where: { scopeType: 'organization', scopeId: '', key }, orderBy: { updatedAt: 'desc' } })
+    );
+  }
+
+  async setServerWide(key: string, value: unknown) {
+    const where = { organizationId: null, scopeType: 'organization', scopeId: '', key };
+    const existing = await this.prisma.raw.setting.findFirst({ where });
+    const row = existing
+      ? await this.prisma.raw.setting.update({ where: { id: existing.id }, data: { value: value as Prisma.InputJsonValue } })
+      : await this.prisma.raw.setting.create({ data: { ...where, scope: 'organization', value: value as Prisma.InputJsonValue } });
+    await this.audit.record({
+      entity: 'Setting',
+      entityId: row.id,
+      action: 'update',
+      newValues: { key, scopeType: 'server', value },
+    });
+    return row;
+  }
+
+  /**
    * Write a setting at a given scope (organization by default). Registered keys
    * are validated + coerced against the registry; unregistered legacy keys are
    * stored as-is but only at organization level.

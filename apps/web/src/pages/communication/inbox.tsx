@@ -11,6 +11,7 @@ import {
 } from '@/features/communication/api';
 import { useCommunicationStream } from '@/features/communication/sse';
 import type { ConversationSummary } from '@/features/communication/types';
+import { tx } from '@/lib/i18n/tx';
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -74,19 +75,19 @@ export default function CommunicationInboxPage() {
       <aside className="flex w-80 shrink-0 flex-col border-r border-border">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2 font-semibold">
-            <MessagesSquare className="h-4 w-4" /> Inbox
+            <MessagesSquare className="h-4 w-4" /> {tx('Inbox')}
           </div>
           <button
             onClick={() => setShowNew(true)}
             className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs text-primary-foreground hover:opacity-90"
           >
-            <Plus className="h-3.5 w-3.5" /> New
+            <Plus className="h-3.5 w-3.5" /> {tx('New')}
           </button>
         </div>
         <div className="flex-1 overflow-y-auto">
-          {isLoading && <div className="p-4 text-sm text-muted-foreground">Loading…</div>}
+          {isLoading && <div className="p-4 text-sm text-muted-foreground">{tx('Loading…')}</div>}
           {!isLoading && conversations.length === 0 && (
-            <div className="p-4 text-sm text-muted-foreground">No conversations yet. Start one with “New”.</div>
+            <div className="p-4 text-sm text-muted-foreground">{tx('No conversations yet. Start one with “New”.')}</div>
           )}
           {conversations.map((c) => {
             const Icon = KIND_ICON[c.kind] ?? UserIcon;
@@ -129,7 +130,7 @@ export default function CommunicationInboxPage() {
       <section className="flex min-w-0 flex-1 flex-col">
         {!active ? (
           <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-            Select a conversation
+            {tx('Select a conversation')}
           </div>
         ) : (
           <>
@@ -153,7 +154,7 @@ export default function CommunicationInboxPage() {
                 );
               })}
               {messages.length === 0 && (
-                <div className="pt-8 text-center text-sm text-muted-foreground">No messages yet — say hello.</div>
+                <div className="pt-8 text-center text-sm text-muted-foreground">{tx('No messages yet — say hello.')}</div>
               )}
             </div>
             <div className="flex items-end gap-2 border-t border-border p-3">
@@ -167,7 +168,7 @@ export default function CommunicationInboxPage() {
                   }
                 }}
                 rows={1}
-                placeholder="Type a message…  (Enter to send, Shift+Enter for newline)"
+                placeholder={tx('Type a message…  (Enter to send, Shift+Enter for newline)')}
                 className="max-h-32 flex-1 resize-none rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
               />
               <button
@@ -218,7 +219,7 @@ function NewConversationModal({ onClose, onCreated }: { onClose: () => void; onC
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="w-full max-w-md rounded-xl bg-background p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-semibold">New conversation</h2>
+          <h2 className="font-semibold">{tx('New conversation')}</h2>
           <button onClick={onClose}><X className="h-4 w-4" /></button>
         </div>
 
@@ -243,7 +244,7 @@ function NewConversationModal({ onClose, onCreated }: { onClose: () => void; onC
           className="mb-3 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
         />
 
-        <div className="mb-1 text-xs font-medium text-muted-foreground">Participants</div>
+        <div className="mb-1 text-xs font-medium text-muted-foreground">{tx('Participants')}</div>
         <div className="mb-4 max-h-48 overflow-y-auto rounded-lg border border-border">
           {(users?.data ?? [])
             .filter((u) => u.id !== me?.id)

@@ -18,6 +18,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@erp/shared';
+import { tx } from '@/lib/i18n/tx';
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; variant: 'default' | 'secondary' | 'outline' | 'destructive' }> = {
@@ -75,8 +76,8 @@ export function ExpensesPage() {
     return (
       <div className="space-y-4 p-6">
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-6 text-center">
-          <h1 className="text-2xl font-semibold text-destructive">Access Denied</h1>
-          <p className="mt-2 text-sm text-muted-foreground">You do not have permission to view expenses.</p>
+          <h1 className="text-2xl font-semibold text-destructive">{tx('Access Denied')}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{tx('You do not have permission to view expenses.')}</p>
         </div>
       </div>
     );
@@ -86,12 +87,12 @@ export function ExpensesPage() {
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Expenses</h1>
-          <p className="text-sm text-gray-500">Manage vendor bills and expenses</p>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Expenses')}</h1>
+          <p className="text-sm text-gray-500">{tx('Manage vendor bills and expenses')}</p>
         </div>
         {canCreate && (
           <Button asChild className="gap-2 bg-[#0066aa] hover:bg-[#005599] text-white">
-            <Link to="/expenses/new"><Plus className="h-4 w-4" /> New Expense</Link>
+            <Link to="/expenses/new"><Plus className="h-4 w-4" /> {tx('New Expense')}</Link>
           </Button>
         )}
       </div>
@@ -101,7 +102,7 @@ export function ExpensesPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <Input
             className="pl-9 h-10 border-gray-200"
-            placeholder="Search expenses..."
+            placeholder={tx('Search expenses...')}
             onChange={(e) => handleSearch(e.target.value)}
           />
           {search && (
@@ -120,12 +121,12 @@ export function ExpensesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Code</TableHead>
-                <TableHead>Supplier</TableHead>
-                <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="w-[180px]">Actions</TableHead>
+                <TableHead>{tx('Code')}</TableHead>
+                <TableHead>{tx('Supplier')}</TableHead>
+                <TableHead className="text-right">{tx('Amount')}</TableHead>
+                <TableHead>{tx('Date')}</TableHead>
+                <TableHead>{tx('Status')}</TableHead>
+                <TableHead className="w-[180px]">{tx('Actions')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -138,7 +139,7 @@ export function ExpensesPage() {
               ) : (data?.data ?? []).length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
-                    No expenses found.
+                    {tx('No expenses found.')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -154,16 +155,16 @@ export function ExpensesPage() {
                     <TableCell>
                       <div className="flex items-center gap-1">
                         <Button variant="ghost" size="sm" asChild>
-                          <Link to={`/expenses/${exp.id}`}>View</Link>
+                          <Link to={`/expenses/${exp.id}`}>{tx('View')}</Link>
                         </Button>
                         {exp.status === 'draft' && canPost && (
                           <Button variant="ghost" size="sm" className="text-green-600" onClick={() => handlePost(exp.id)} disabled={postExpense.isPending}>
-                            Post
+                            {tx('Post')}
                           </Button>
                         )}
                         {exp.status === 'posted' && Number(exp.amountPaid) <= 0 && canVoid && (
                           <Button variant="ghost" size="sm" className="text-red-600" onClick={() => handleVoid(exp.id)} disabled={voidExpense.isPending}>
-                            Void
+                            {tx('Void')}
                           </Button>
                         )}
                       </div>
@@ -178,7 +179,7 @@ export function ExpensesPage() {
 
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>
-          Showing {(data?.data?.length ?? 0) === 0 ? 0 : (page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}
+          {tx('Showing')} {(data?.data?.length ?? 0) === 0 ? 0 : (page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}
         </span>
         <div className="flex items-center gap-1">
           <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>

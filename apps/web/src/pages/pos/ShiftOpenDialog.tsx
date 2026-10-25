@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCashRegisters, useDrawerBalance, useOpenShift } from './api';
 import { toast } from 'sonner';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   preselectedRegisterId?: string;
@@ -63,7 +64,7 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, pres
         notes: notes.trim() || undefined,
         autoAdjust,
       });
-      toast.success('Shift opened — you can now sell');
+      toast.success(tx('Shift opened — you can now sell'));
       onOpened();
       onClose();
     } catch (e: any) {
@@ -76,18 +77,18 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, pres
       <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Power className="h-4 w-4 text-emerald-600" /> Open shift
+            <Power className="h-4 w-4 text-emerald-600" /> {tx('Open shift')}
           </DialogTitle>
           <DialogDescription>
-            Pick the cash register you're working on today and count the opening float.
+            {tx('Pick the cash register you\'re working on today and count the opening float.')}
           </DialogDescription>
         </DialogHeader>
 
         <div>
-          <Label>Cash register</Label>
+          <Label>{tx('Cash register')}</Label>
           {registers.length === 0 ? (
             <div className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded px-3 py-2 mt-1">
-              No active cash registers. Ask a manager to create one under Accounting → Cash Registers.
+              {tx('No active cash registers. Ask a manager to create one under Accounting → Cash Registers.')}
             </div>
           ) : (
             <select
@@ -106,7 +107,7 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, pres
 
         <div>
           <Label className="flex items-center gap-1 mb-2">
-            <Calculator className="h-3 w-3" /> Opening float ({orgCur()})
+            <Calculator className="h-3 w-3" /> {tx('Opening float (')}{orgCur()})
           </Label>
           <Input
             type="number"
@@ -129,7 +130,7 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, pres
           </div>
           {drawerLedger != null ? (
             <p className="mt-2 text-xs text-slate-500">
-              This drawer currently holds <span className="font-mono font-bold text-slate-700">{orgCur()} {drawerLedger.toLocaleString()}</span>.
+              {tx('This drawer currently holds')} <span className="font-mono font-bold text-slate-700">{orgCur()} {drawerLedger.toLocaleString()}</span>.
             </p>
           ) : null}
         </div>
@@ -138,47 +139,47 @@ export const ShiftOpenDialog: React.FC<Props> = ({ open, onClose, onOpened, pres
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
             <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700">
               {drawerDiff < 0 ? <ArrowDownToLine className="h-3.5 w-3.5" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
-              Drawer difference
+              {tx('Drawer difference')}
             </p>
             <p className="mt-1 text-sm text-amber-900">
-              You are entering <span className="font-mono font-bold">{orgCur()} {floatNum.toLocaleString()}</span> —{' '}
+              {tx('You are entering')} <span className="font-mono font-bold">{orgCur()} {floatNum.toLocaleString()}</span> —{' '}
               {drawerDiff < 0
-                ? <>{orgCur()} {Math.abs(drawerDiff).toLocaleString()} <b>less</b> than the drawer. If accepted, this is recorded as a <b>withdrawal</b>.</>
-                : <>{orgCur()} {drawerDiff.toLocaleString()} <b>more</b> than the drawer. If accepted, this is recorded as a <b>cash-in</b> (owner adds money).</>}
+                ? <>{orgCur()} {Math.abs(drawerDiff).toLocaleString()} <b>{tx('less')}</b> {tx('than the drawer. If accepted, this is recorded as a')} <b>{tx('withdrawal')}</b>.</>
+                : <>{orgCur()} {drawerDiff.toLocaleString()} <b>{tx('more')}</b> {tx('than the drawer. If accepted, this is recorded as a')} <b>{tx('cash-in')}</b> {tx('(owner adds money).')}</>}
             </p>
             <label className="mt-2 flex items-start gap-2 text-sm font-semibold text-amber-900 cursor-pointer">
               <input type="checkbox" checked={autoAdjust} onChange={(e) => setAutoAdjust(e.target.checked)} className="mt-0.5" />
-              Accept — record the difference automatically
+              {tx('Accept — record the difference automatically')}
             </label>
             {!autoAdjust ? (
               <p className="mt-1 text-xs text-amber-800">
-                Without accepting, the count must match the drawer{drawerDiff > 0 ? ' (and a funding source is required)' : ''}.
+                {tx('Without accepting, the count must match the drawer')}{drawerDiff > 0 ? ' (and a funding source is required)' : ''}.
               </p>
             ) : null}
           </div>
         ) : null}
 
         <div>
-          <Label>Notes (optional)</Label>
+          <Label>{tx('Notes (optional)')}</Label>
           <Input
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. Morning shift"
+            placeholder={tx('e.g. Morning shift')}
           />
         </div>
 
         {err ? <p className="text-sm text-rose-600">{err}</p> : null}
 
-        <label className="text-sm">Source of additional float (when adding money)
+        <label className="text-sm">{tx('Source of additional float (when adding money)')}
           <select className="w-full border rounded p-2" value={openingSourceAccountId} onChange={(e) => setOpeningSourceAccountId(e.target.value)}>
-            <option value="">Use cash already recorded in this drawer</option>
+            <option value="">{tx('Use cash already recorded in this drawer')}</option>
             {fundingAccounts.filter((a) => ['cash', 'petty_cash', 'bank'].includes(a.accountType)).map((a) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
           </select>
-          <span className="text-xs text-slate-500">Adding float transfers funds from this account. Enter its reason in Notes.</span>
+          <span className="text-xs text-slate-500">{tx('Adding float transfers funds from this account. Enter its reason in Notes.')}</span>
         </label>
         <FinancialAccountCounts stage="opening" value={accountCounts} onChange={setAccountCounts} />
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{tx('Cancel')}</Button>
           <Button
             onClick={submit}
             disabled={openShift.isPending || registers.length === 0}

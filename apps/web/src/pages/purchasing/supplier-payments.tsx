@@ -24,6 +24,7 @@ import { useAccounts } from '@/features/accounting/api';
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@erp/shared';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   posted: 'default',
@@ -78,7 +79,7 @@ export function SupplierPaymentsPage() {
         reference: values.reference || undefined,
         accountId: values.accountId,
       });
-      notify.success('Payment recorded successfully');
+      notify.success(tx('Payment recorded successfully'));
       setOpen(false);
       form.reset({
         partnerId: '',
@@ -119,14 +120,14 @@ export function SupplierPaymentsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Supplier Payments</h1>
+          <h1 className="text-2xl font-semibold">{tx('Supplier Payments')}</h1>
           <p className="text-sm text-muted-foreground">
-            Record payments to suppliers. You can also pay from an expense detail.
+            {tx('Record payments to suppliers. You can also pay from an expense detail.')}
           </p>
         </div>
         {canCreate && (
           <Button onClick={() => setOpen(true)} className="gap-2 bg-[#0066aa] hover:bg-[#005599] text-white">
-            <Plus className="h-4 w-4" /> Record Payment
+            <Plus className="h-4 w-4" /> {tx('Record Payment')}
           </Button>
         )}
       </div>
@@ -135,7 +136,7 @@ export function SupplierPaymentsPage() {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
-          placeholder="Search payments..."
+          placeholder={tx('Search payments...')}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -145,13 +146,13 @@ export function SupplierPaymentsPage() {
 
       {meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} payment(s)</span>
+          <span>{meta.total} {tx('payment(s)')}</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {tx('Previous')}
             </Button>
             <span>
-              Page {meta.page} of {meta.totalPages}
+              {tx('Page')} {meta.page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -159,7 +160,7 @@ export function SupplierPaymentsPage() {
               disabled={page >= meta.totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>
@@ -168,48 +169,48 @@ export function SupplierPaymentsPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>Record Supplier Payment</DialogTitle>
+            <DialogTitle>{tx('Record Supplier Payment')}</DialogTitle>
           </DialogHeader>
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="space-y-2">
-              <Label>Supplier</Label>
+              <Label>{tx('Supplier')}</Label>
               <Select value={form.watch('partnerId')} onValueChange={(v) => form.setValue('partnerId', v)}>
-                <SelectTrigger><SelectValue placeholder="Select supplier" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={tx('Select supplier')} /></SelectTrigger>
                 <SelectContent>
                   {supplierList.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {form.formState.errors.partnerId && <p className="text-xs text-destructive">Supplier is required</p>}
+              {form.formState.errors.partnerId && <p className="text-xs text-destructive">{tx('Supplier is required')}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Date</Label>
+                <Label>{tx('Date')}</Label>
                 <Input type="date" {...form.register('paymentDate', { required: true })} />
               </div>
               <div className="space-y-2">
-                <Label>Amount</Label>
+                <Label>{tx('Amount')}</Label>
                 <Input type="number" step="any" {...form.register('amount', { required: true, min: 0.01 })} />
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Method</Label>
+              <Label>{tx('Method')}</Label>
               <Select value={form.watch('paymentMethod')} onValueChange={(v) => form.setValue('paymentMethod', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="bank">Bank Transfer</SelectItem>
-                  <SelectItem value="cheque">Cheque</SelectItem>
-                  <SelectItem value="mobile_money">Mobile Money</SelectItem>
-                  <SelectItem value="credit_card">Credit Card</SelectItem>
+                  <SelectItem value="cash">{tx('Cash')}</SelectItem>
+                  <SelectItem value="bank">{tx('Bank Transfer')}</SelectItem>
+                  <SelectItem value="cheque">{tx('Cheque')}</SelectItem>
+                  <SelectItem value="mobile_money">{tx('Mobile Money')}</SelectItem>
+                  <SelectItem value="credit_card">{tx('Credit Card')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Account</Label>
+              <Label>{tx('Account')}</Label>
               <Select value={form.watch('accountId')} onValueChange={(v) => form.setValue('accountId', v)}>
-                <SelectTrigger><SelectValue placeholder="Select account" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={tx('Select account')} /></SelectTrigger>
                 <SelectContent>
                   {accountList.map((a) => (
                     <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
@@ -218,15 +219,15 @@ export function SupplierPaymentsPage() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Reference (optional)</Label>
+              <Label>{tx('Reference (optional)')}</Label>
               <Input {...form.register('reference')} />
             </div>
             <div className="space-y-2">
-              <Label>Notes (optional)</Label>
+              <Label>{tx('Notes (optional)')}</Label>
               <Textarea {...form.register('notes')} />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>{tx('Cancel')}</Button>
               <Button type="submit" disabled={createPayment.isPending}>
                 {createPayment.isPending ? 'Saving...' : 'Save payment'}
               </Button>

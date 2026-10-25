@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useVerifyPin } from './api';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -88,7 +89,7 @@ export const PinConfirmDialog: React.FC<Props> = ({
 
           <div className="space-y-2">
             <Label className="flex items-center gap-1">
-              <KeyRound className="h-3 w-3" /> Your PIN (4–8 digits)
+              <KeyRound className="h-3 w-3" /> {tx('Your PIN (4–8 digits)')}
             </Label>
             <Input
               type="password"
@@ -107,7 +108,7 @@ export const PinConfirmDialog: React.FC<Props> = ({
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={busy}>
-            <X className="h-4 w-4 mr-1" /> Cancel
+            <X className="h-4 w-4 mr-1" /> {tx('Cancel')}
           </Button>
           <Button onClick={submit} disabled={blocked} style={{ background: '#f59e0b' }}>
             {busy || verify.isPending ? 'Verifying…' : 'Confirm'}

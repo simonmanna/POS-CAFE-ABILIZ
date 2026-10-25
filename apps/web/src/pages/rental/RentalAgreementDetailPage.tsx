@@ -19,6 +19,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { date } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -78,9 +79,9 @@ export function RentalAgreementDetailPage() {
     return (
       <div className="space-y-4 p-6">
         <button onClick={() => navigate('/rental/agreements')} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" /> Agreements
+          <ArrowLeft className="h-4 w-4" /> {tx('Agreements')}
         </button>
-        <p className="text-sm text-muted-foreground">Loading agreement…</p>
+        <p className="text-sm text-muted-foreground">{tx('Loading agreement…')}</p>
       </div>
     );
   }
@@ -89,9 +90,9 @@ export function RentalAgreementDetailPage() {
     <div className="space-y-4 p-6">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-        <button onClick={() => navigate('/rental/agreements')} className="hover:text-foreground">Rentals</button>
+        <button onClick={() => navigate('/rental/agreements')} className="hover:text-foreground">{tx('Rentals')}</button>
         <span>/</span>
-        <span>Agreements</span>
+        <span>{tx('Agreements')}</span>
         <span>/</span>
         <span className="text-foreground">{agreement.agreementNumber}</span>
       </nav>
@@ -106,24 +107,24 @@ export function RentalAgreementDetailPage() {
               <Badge variant="outline" className={STATUS_STYLES[agreement.status] ?? ''}>{agreement.status}</Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              {date(agreement.startAt)} → {date(agreement.dueAt)} · Partner {agreement.partnerId.slice(0, 8)}…
+              {date(agreement.startAt)} → {date(agreement.dueAt)} {tx('· Partner')} {agreement.partnerId.slice(0, 8)}…
             </p>
           </div>
         </div>
         <div className="flex gap-2">
           {agreement.status === 'pending_approval' && (
             <Button size="sm" onClick={() => run(() => confirm.mutateAsync(agreement.id), 'Agreement confirmed')}>
-              <CheckCircle2 className="h-4 w-4" /> Confirm
+              <CheckCircle2 className="h-4 w-4" /> {tx('Confirm')}
             </Button>
           )}
           {agreement.status === 'confirmed' && (
             <Button size="sm" onClick={() => run(() => checkout.mutateAsync({ id: agreement.id }), 'Checked out')}>
-              <Layers className="h-4 w-4" /> Checkout
+              <Layers className="h-4 w-4" /> {tx('Checkout')}
             </Button>
           )}
           {(agreement.status === 'draft' || agreement.status === 'confirmed') && (
             <Button size="sm" variant="destructive" onClick={() => run(() => cancel.mutateAsync(agreement.id), 'Agreement cancelled')}>
-              <X className="h-4 w-4" /> Cancel
+              <X className="h-4 w-4" /> {tx('Cancel')}
             </Button>
           )}
         </div>
@@ -131,25 +132,25 @@ export function RentalAgreementDetailPage() {
 
       <Tabs defaultValue="lines">
         <TabsList>
-          <TabsTrigger value="lines">Lines</TabsTrigger>
-          <TabsTrigger value="deposit">Deposit</TabsTrigger>
-          <TabsTrigger value="returns">Returns ({returns.length})</TabsTrigger>
-          <TabsTrigger value="summary">Summary</TabsTrigger>
+          <TabsTrigger value="lines">{tx('Lines')}</TabsTrigger>
+          <TabsTrigger value="deposit">{tx('Deposit')}</TabsTrigger>
+          <TabsTrigger value="returns">{tx('Returns (')}{returns.length})</TabsTrigger>
+          <TabsTrigger value="summary">{tx('Summary')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="lines" className="space-y-4">
           <Card>
             <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-sm">Rental lines</CardTitle>
+              <CardTitle className="text-sm">{tx('Rental lines')}</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y">
-                {lines.length === 0 && <p className="p-6 text-sm text-muted-foreground">No lines.</p>}
+                {lines.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No lines.')}</p>}
                 {lines.map((l) => (
                   <div key={l.id} className="flex items-center justify-between px-4 py-3">
                     <div>
                       <p className="text-sm font-medium">{l.product?.name ?? l.productId.slice(0, 8)}</p>
-                      <p className="text-xs text-muted-foreground">Qty {l.quantity} · {l.ratePeriod} · due {date(l.dueAt)}</p>
+                      <p className="text-xs text-muted-foreground">{tx('Qty')} {l.quantity} · {l.ratePeriod} {tx('· due')} {date(l.dueAt)}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-medium">{fmt(l.lineTotal)}</span>
@@ -157,9 +158,9 @@ export function RentalAgreementDetailPage() {
                         <button
                           className="rounded border px-2 py-1 text-xs hover:bg-muted"
                           onClick={() => { setExtendLineId(l.id); setExtendFor(''); }}
-                          title="Extend due date"
+                          title={tx('Extend due date')}
                         >
-                          Extend
+                          {tx('Extend')}
                         </button>
                         <button
                           className="rounded border px-2 py-1 text-xs hover:bg-muted"
@@ -167,9 +168,9 @@ export function RentalAgreementDetailPage() {
                             const to = window.prompt('Swap to unit ID (leave empty to pick first available):', '');
                             run(() => swapUnit.mutateAsync({ agreementId: agreement.id, lineId: l.id, toUnitId: to ?? '' }), 'Unit swapped');
                           }}
-                          title="Swap unit"
+                          title={tx('Swap unit')}
                         >
-                          Swap
+                          {tx('Swap')}
                         </button>
                       </div>
                     </div>
@@ -182,11 +183,11 @@ export function RentalAgreementDetailPage() {
           {extendLineId && (
             <Card>
               <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-                <CardTitle className="text-sm">Extend line</CardTitle>
+                <CardTitle className="text-sm">{tx('Extend line')}</CardTitle>
               </CardHeader>
               <CardContent className="flex items-end gap-2 p-4">
                 <label className="flex-1">
-                  <span className="mb-1 block text-xs font-medium text-muted-foreground">New due date</span>
+                  <span className="mb-1 block text-xs font-medium text-muted-foreground">{tx('New due date')}</span>
                   <input type="date" value={extendFor} onChange={(e) => setExtendFor(e.target.value)} className="w-full rounded-md border bg-card px-3 py-2 text-sm" />
                 </label>
                 <Button
@@ -197,7 +198,7 @@ export function RentalAgreementDetailPage() {
                   )}
                   disabled={!extendFor}
                 >
-                  Apply
+                  {tx('Apply')}
                 </Button>
               </CardContent>
             </Card>
@@ -207,46 +208,46 @@ export function RentalAgreementDetailPage() {
         <TabsContent value="deposit" className="space-y-4">
           <Card>
             <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-sm">Deposit ledger</CardTitle>
+              <CardTitle className="text-sm">{tx('Deposit ledger')}</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <dl className="grid grid-cols-2 gap-4 p-4 lg:grid-cols-4">
                 <div className="rounded-lg border p-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Collected</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Collected')}</dt>
                   <dd className="mt-1 text-lg font-semibold">{fmt(deposit?.totalCollected ?? 0)}</dd>
                 </div>
                 <div className="rounded-lg border p-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Applied</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Applied')}</dt>
                   <dd className="mt-1 text-lg font-semibold">{fmt(deposit?.totalApplied ?? 0)}</dd>
                 </div>
                 <div className="rounded-lg border p-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Refunded</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Refunded')}</dt>
                   <dd className="mt-1 text-lg font-semibold">{fmt(deposit?.totalRefunded ?? 0)}</dd>
                 </div>
                 <div className="rounded-lg border p-3">
-                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Forfeited</dt>
+                  <dt className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Forfeited')}</dt>
                   <dd className="mt-1 text-lg font-semibold">{fmt(deposit?.totalForfeited ?? 0)}</dd>
                 </div>
               </dl>
               <div className="flex gap-2 px-4 pb-4">
                 <Button size="sm" variant="outline" onClick={() => setCollectOpen((v) => !v)}>
-                  <Plus className="h-4 w-4" /> Collect
+                  <Plus className="h-4 w-4" /> {tx('Collect')}
                 </Button>
                 <Button size="sm" variant="outline" onClick={() => setRefundOpen((v) => !v)}>
-                  <Banknote className="h-4 w-4" /> Refund
+                  <Banknote className="h-4 w-4" /> {tx('Refund')}
                 </Button>
               </div>
               {collectOpen && (
                 <div className="flex items-end gap-2 border-t px-4 py-3">
                   <input
                     type="number"
-                    placeholder="Amount"
+                    placeholder={tx('Amount')}
                     value={collectAmt}
                     onChange={(e) => setCollectAmt(e.target.value)}
                     className="w-40 rounded-md border bg-card px-3 py-2 text-sm"
                   />
                   <Button size="sm" onClick={() => run(() => collect.mutateAsync({ agreementId: agreement.id, method: 'cash', amount: Number(collectAmt) }), 'Deposit collected')}>
-                    Collect
+                    {tx('Collect')}
                   </Button>
                 </div>
               )}
@@ -254,13 +255,13 @@ export function RentalAgreementDetailPage() {
                 <div className="flex items-end gap-2 border-t px-4 py-3">
                   <input
                     type="number"
-                    placeholder="Amount"
+                    placeholder={tx('Amount')}
                     value={refundAmt}
                     onChange={(e) => setRefundAmt(e.target.value)}
                     className="w-40 rounded-md border bg-card px-3 py-2 text-sm"
                   />
                   <Button size="sm" onClick={() => run(() => refund.mutateAsync({ agreementId: agreement.id, method: 'cash', amount: Number(refundAmt) }), 'Deposit refunded')}>
-                    Refund
+                    {tx('Refund')}
                   </Button>
                 </div>
               )}
@@ -271,16 +272,16 @@ export function RentalAgreementDetailPage() {
         <TabsContent value="returns">
           <Card>
             <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-sm">Returns for this agreement</CardTitle>
+              <CardTitle className="text-sm">{tx('Returns for this agreement')}</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y">
-                {returns.length === 0 && <p className="p-6 text-sm text-muted-foreground">No returns recorded.</p>}
+                {returns.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No returns recorded.')}</p>}
                 {returns.map((r) => (
                   <div key={r.id} className="flex items-center justify-between px-4 py-3">
                     <div>
                       <p className="text-sm font-medium">{r.returnNumber}</p>
-                      <p className="text-xs text-muted-foreground">{date(r.receivedAt)} · {r.lines.length} line(s)</p>
+                      <p className="text-xs text-muted-foreground">{date(r.receivedAt)} · {r.lines.length} {tx('line(s)')}</p>
                     </div>
                     <Badge variant="outline">{r.lines.every((l) => l.isMissing) ? 'missing' : r.lines.some((l) => l.damages.length > 0) ? 'damaged' : 'ok'}</Badge>
                   </div>
@@ -293,19 +294,19 @@ export function RentalAgreementDetailPage() {
         <TabsContent value="summary">
           <Card>
             <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-sm">Agreement summary</CardTitle>
+              <CardTitle className="text-sm">{tx('Agreement summary')}</CardTitle>
             </CardHeader>
             <CardContent>
               <dl className="divide-y">
-                <InfoRow label="Number" value={agreement.agreementNumber} />
-                <InfoRow label="Status" value={<Badge variant="outline" className={STATUS_STYLES[agreement.status] ?? ''}>{agreement.status}</Badge>} />
-                <InfoRow label="Start" value={date(agreement.startAt)} />
-                <InfoRow label="Due" value={date(agreement.dueAt)} />
-                <InfoRow label="Fees total" value={fmt(agreement.lines?.reduce((s, l) => s + Number(l.lineTotal), 0) ?? 0)} />
-                <InfoRow label="Late fees" value={fmt(agreement.lateFeeTotal ?? 0)} />
-                <InfoRow label="Damage charges" value={fmt(agreement.damageTotal ?? 0)} />
-                <InfoRow label="Deposit applied" value={fmt(agreement.depositApplied ?? 0)} />
-                <InfoRow label="Settlement" value={fmt(agreement.settlementTotal ?? 0)} />
+                <InfoRow label={tx('Number')} value={agreement.agreementNumber} />
+                <InfoRow label={tx('Status')} value={<Badge variant="outline" className={STATUS_STYLES[agreement.status] ?? ''}>{agreement.status}</Badge>} />
+                <InfoRow label={tx('Start')} value={date(agreement.startAt)} />
+                <InfoRow label={tx('Due')} value={date(agreement.dueAt)} />
+                <InfoRow label={tx('Fees total')} value={fmt(agreement.lines?.reduce((s, l) => s + Number(l.lineTotal), 0) ?? 0)} />
+                <InfoRow label={tx('Late fees')} value={fmt(agreement.lateFeeTotal ?? 0)} />
+                <InfoRow label={tx('Damage charges')} value={fmt(agreement.damageTotal ?? 0)} />
+                <InfoRow label={tx('Deposit applied')} value={fmt(agreement.depositApplied ?? 0)} />
+                <InfoRow label={tx('Settlement')} value={fmt(agreement.settlementTotal ?? 0)} />
               </dl>
             </CardContent>
           </Card>

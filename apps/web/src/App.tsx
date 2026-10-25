@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { useAppLanguage } from '@/lib/i18n/use-app-language';
 import { ProtectedRoute } from '@/components/protected-route';
 import { AppShell } from '@/components/layout/app-shell';
 import { LoginPage } from '@/pages/login';
@@ -54,6 +55,7 @@ import { MoneySettlementsPage } from '@/pages/money/MoneySettlementsPage';
 import { PaymentMethodsSettingsPage } from '@/pages/settings/PaymentMethodsSettingsPage';
 import { RegistersSettingsPage } from '@/pages/settings/RegistersSettingsPage';
 import { RequirePermission } from '@/components/require-permission';
+import { RequireReport } from '@/components/require-report';
 import { PERMISSIONS } from '@erp/shared';
 import { AccountMappingsPage } from '@/pages/accounting/account-mappings';
 import { AccountCategoriesPage } from '@/pages/accounting/account-categories';
@@ -181,6 +183,7 @@ import ReservationsPage from '@/pages/tables/ReservationsPage';
 import TableReportsPage from '@/pages/tables/TableReportsPage';
 import ZonesPage from '@/pages/tables/ZonesPage';
 import ReportCenterPage from '@/pages/reports/ReportCenterPage';
+import { ReportPermissionsPage } from '@/pages/settings/ReportPermissionsPage';
 import { StaffPage } from '@/pages/staff/StaffPage';
 import { RolesPage } from '@/pages/staff/RolesPage';
 import { RoleEditPage } from '@/pages/staff/RoleEditPage';
@@ -188,8 +191,10 @@ import { TasksPage } from '@/pages/tasks/TasksPage';
 import { TaskEditPage } from '@/pages/tasks/TaskEditPage';
 
 export function App() {
+  // Remount the whole tree when the language changes so tx() re-evaluates.
+  const lang = useAppLanguage();
   return (
-    <Routes>
+    <Routes key={lang}>
       <Route path="/login" element={<LoginPage />} />
       {/* Digital Menu — customer-facing public route (no auth, no shell). */}
       <Route path="/menu/:branchId/:tableId" element={<DigitalMenuPage />} />
@@ -206,12 +211,12 @@ export function App() {
           {/* KDS station configuration (admin, inside the shell). */}
           <Route path="/pos/kitchen-stations" element={<KitchenStationsPage />} />
           {/* KDS kitchen performance reports + live dashboard. */}
-          <Route path="/pos/kds-reports" element={<KdsReportsPage />} />
+          <Route path="/pos/kds-reports" element={<RequireReport reportId="pos.kds"><KdsReportsPage /></RequireReport>} />
           {/* POS Cash Register Management */}
           <Route path="/pos/cash-registers" element={<RequirePermission permission={PERMISSIONS.cashSession.read}><CashRegistersPage /></RequirePermission>} />
           <Route path="/tables" element={<TablesPage />} />
           <Route path="/tables/reservations" element={<ReservationsPage />} />
-          <Route path="/tables/reports" element={<TableReportsPage />} />
+          <Route path="/tables/reports" element={<RequireReport reportId="pos.tables"><TableReportsPage /></RequireReport>} />
           {/* Zone (dining area) catalog — View Order drives POS table grouping. */}
           <Route path="/tables/zones" element={<ZonesPage />} />
           <Route path="/staff" element={<StaffPage />} />
@@ -252,9 +257,9 @@ export function App() {
           <Route path="/pos/receivables" element={<ReceivablesPage />} />
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/expenses/categories" element={<ExpenseCategoriesPage />} />
-          <Route path="/expenses/reports" element={<ExpensesReportPage />} />
+          <Route path="/expenses/reports" element={<RequireReport reportId="expenses.reports"><ExpensesReportPage /></RequireReport>} />
           <Route path="/supplier-payments" element={<SupplierPaymentsPage />} />
-          <Route path="/ar-aging" element={<ArAgingPage />} />
+          <Route path="/ar-aging" element={<RequireReport reportId="sales.ar-aging"><ArAgingPage /></RequireReport>} />
           <Route path="/accounts" element={<ChartOfAccountsPage />} />
           <Route path="/accounts/new" element={<AccountDetailPage />} />
           {/* Static segments must stay ahead of /accounts/:id. */}
@@ -267,7 +272,7 @@ export function App() {
           <Route path="/accounts/cash-accounts/settlements" element={<RequirePermission permission={PERMISSIONS.cashSession.reconcile}><MoneySettlementsPage /></RequirePermission>} />
           <Route path="/accounts/cash-accounts/transactions" element={<Navigate to="/accounts/cash-accounts/activity" replace />} />
           <Route path="/accounts/cash-accounts/:id" element={<RequirePermission permission={PERMISSIONS.account.read}><MoneyAccountDetailPage /></RequirePermission>} />
-          <Route path="/cash-flow/report" element={<RequirePermission permission={PERMISSIONS.account.read}><CashFlowReportPage /></RequirePermission>} />
+          <Route path="/cash-flow/report" element={<RequireReport reportId="money.reports"><RequirePermission permission={PERMISSIONS.account.read}><CashFlowReportPage /></RequirePermission></RequireReport>} />
           <Route path="/accounts/cash-registers" element={<Navigate to="/settings/registers" replace />} />
           <Route path="/settings/registers" element={<RequirePermission permission={PERMISSIONS.cashRegister.read}><RegistersSettingsPage /></RequirePermission>} />
           <Route path="/settings/payment-methods" element={<RequirePermission permission={PERMISSIONS.account.read}><PaymentMethodsSettingsPage /></RequirePermission>} />
@@ -280,14 +285,14 @@ export function App() {
           <Route path="/journal-entries" element={<JournalEntriesPage />} />
           <Route path="/journal-entries/new" element={<JournalEntryCreatePage />} />
           <Route path="/journal-entries/:id" element={<JournalEntryDetailPage />} />
-          <Route path="/trial-balance" element={<TrialBalancePage />} />
-          <Route path="/general-ledger" element={<GeneralLedgerPage />} />
-          <Route path="/accounting-detailed-report" element={<DetailedAccountingReportPage />} />
-          <Route path="/profit-and-loss" element={<ProfitAndLossPage />} />
-          <Route path="/cash-flow" element={<RequirePermission permission={PERMISSIONS.report.accounting}><CashFlowPage /></RequirePermission>} />
+          <Route path="/trial-balance" element={<RequireReport reportId="accounting.trial-balance"><TrialBalancePage /></RequireReport>} />
+          <Route path="/general-ledger" element={<RequireReport reportId="accounting.general-ledger"><GeneralLedgerPage /></RequireReport>} />
+          <Route path="/accounting-detailed-report" element={<RequireReport reportId="accounting.detailed"><DetailedAccountingReportPage /></RequireReport>} />
+          <Route path="/profit-and-loss" element={<RequireReport reportId="accounting.profit-and-loss"><ProfitAndLossPage /></RequireReport>} />
+          <Route path="/cash-flow" element={<RequireReport reportId="accounting.cash-flow-statement"><RequirePermission permission={PERMISSIONS.report.accounting}><CashFlowPage /></RequirePermission></RequireReport>} />
           <Route path="/accounts/ledger/:id" element={<AccountLedgerPage />} />
-          <Route path="/tieout" element={<TieOutPage />} />
-          <Route path="/pos-gl-reconciliation" element={<PosGlReconciliationPage />} />
+          <Route path="/tieout" element={<RequireReport reportId="accounting.tieout"><TieOutPage /></RequireReport>} />
+          <Route path="/pos-gl-reconciliation" element={<RequireReport reportId="accounting.pos-gl-recon"><PosGlReconciliationPage /></RequireReport>} />
           <Route path="/audit-log" element={<AuditLogPage />} />
           <Route path="/fiscal-periods" element={<FiscalPeriodsPage />} />
           <Route path="/taxes" element={<TaxesPage />} />
@@ -295,11 +300,11 @@ export function App() {
           <Route path="/accounts/fiscal-positions" element={<FiscalPositionsPage />} />
           <Route path="/cost-centers" element={<CostCentersPage />} />
           <Route path="/currency" element={<CurrencyPage />} />
-          <Route path="/inventory-valuation" element={<InventoryValuationPage />} />
-          <Route path="/inventory-gl-tieout" element={<InventoryGlTieOutPage />} />
+          <Route path="/inventory-valuation" element={<RequireReport reportId="accounting.inventory-valuation"><InventoryValuationPage /></RequireReport>} />
+          <Route path="/inventory-gl-tieout" element={<RequireReport reportId="accounting.inventory-gl-tieout"><InventoryGlTieOutPage /></RequireReport>} />
           <Route path="/year-end-close" element={<YearEndClosePage />} />
-          <Route path="/balance-sheet" element={<BalanceSheetPage />} />
-          <Route path="/reports" element={<ReportCenterPage />} />
+          <Route path="/balance-sheet" element={<RequireReport reportId="accounting.balance-sheet"><BalanceSheetPage /></RequireReport>} />
+          <Route path="/reports" element={<RequireReport reportId="accounting.report-center"><ReportCenterPage /></RequireReport>} />
           <Route path="/approvals" element={<ApprovalsPage />} />
           <Route path="/approval-workflows" element={<ApprovalWorkflowsPage />} />
           <Route path="/approval-policies" element={<ApprovalPoliciesPage />} />
@@ -312,6 +317,7 @@ export function App() {
           <Route path="/settings/company" element={<CompanySettingsPage />} />
           <Route path="/settings/receipt" element={<ReceiptSettingsPage />} />
           <Route path="/settings/backup" element={<BackupPage />} />
+          <Route path="/settings/report-permissions" element={<RequirePermission permission={PERMISSIONS.role.read}><ReportPermissionsPage /></RequirePermission>} />
           <Route path="/settings/devices" element={<DevicesPage />} />
           <Route path="/settings/devices/rejected" element={<DeadLettersPage />} />
           <Route path="/inventory/posting-monitor" element={<PostingMonitorPage />} />
@@ -323,7 +329,7 @@ export function App() {
           <Route path="/manufacturing" element={<ProductionDashboardPage />} />
           <Route path="/manufacturing/boms" element={<BomsPage />} />
           <Route path="/manufacturing/planning" element={<ManufacturingPlanningPage />} />
-          <Route path="/manufacturing/reports" element={<ManufacturingReportsPage />} />
+          <Route path="/manufacturing/reports" element={<RequireReport reportId="manufacturing.reports"><ManufacturingReportsPage /></RequireReport>} />
           <Route path="/manufacturing/resources" element={<ManufacturingResourcesPage />} />
           <Route path="/manufacturing/orders" element={<ProductionOrdersPage />} />
           <Route path="/manufacturing/orders/:id" element={<ProductionOrderDetailPage />} />
@@ -333,7 +339,7 @@ export function App() {
           <Route path="/inventory/adjustments" element={<StockAdjustmentsPage />} />
           <Route path="/inventory/waste" element={<WastePage />} />
           <Route path="/inventory/transfers" element={<StockTransfersPage />} />
-          <Route path="/inventory/reports" element={<InventoryReportsPage />} />
+          <Route path="/inventory/reports" element={<RequireReport reportId="inventory.reports"><InventoryReportsPage /></RequireReport>} />
           <Route path="/inventory/count" element={<InventoryCountPage />} />
           <Route path="/beverage" element={<BeverageDashboardPage />} />
           <Route path="/beverage/count" element={<BottleCountPage />} />
@@ -345,7 +351,7 @@ export function App() {
           <Route path="/rental/units" element={<RentalUnitsPage />} />
           <Route path="/rental/catalog" element={<RentalCatalogPage />} />
           <Route path="/rental/returns" element={<RentalReturnsPage />} />
-          <Route path="/rental/reports" element={<RentalReportsPage />} />
+          <Route path="/rental/reports" element={<RequireReport reportId="rental.reports"><RentalReportsPage /></RequireReport>} />
           {/* Repair & Maintenance — static segments before /repair/orders/:id */}
           <Route path="/repair" element={<RepairDashboardPage />} />
           <Route path="/repair/orders" element={<RepairOrdersPage />} />
@@ -356,7 +362,7 @@ export function App() {
           <Route path="/repair/labour" element={<RepairLabourPage />} />
           <Route path="/repair/warranties" element={<RepairWarrantiesPage />} />
           <Route path="/repair/contracts" element={<RepairContractsPage />} />
-          <Route path="/repair/reports" element={<RepairReportsPage />} />
+          <Route path="/repair/reports" element={<RequireReport reportId="repair.reports"><RepairReportsPage /></RequireReport>} />
 
           {/* Workforce Management (HR) — static segments before /hr/employees/:id */}
           <Route path="/hr" element={<HrDashboardPage />} />
@@ -380,7 +386,7 @@ export function App() {
           <Route path="/hr/payroll/settings" element={<HrPayrollSettingsPage />} />
           <Route path="/hr/payslips" element={<HrPayslipsPage />} />
           <Route path="/hr/advances-loans" element={<HrAdvancesLoansPage />} />
-          <Route path="/hr/reports" element={<HrReportsPage />} />
+          <Route path="/hr/reports" element={<RequireReport reportId="hr.reports"><HrReportsPage /></RequireReport>} />
           <Route path="/inventory/ledger" element={<StockLedgerPage />} />
           <Route path="/inventory/ledger/:id" element={<StockMovementDetailPage />} />
           <Route path="/inventory/locations" element={<LocationsPage />} />

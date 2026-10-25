@@ -9,6 +9,7 @@ import {
   useUpsertRule,
   useUpsertTemplate,
 } from '@/features/communication/api';
+import { tx } from '@/lib/i18n/tx';
 
 /**
  * Phase 2 admin surface — event-driven messaging. Author templates ({{payload}}
@@ -60,36 +61,36 @@ export default function CommunicationRulesPage() {
     <div className="mx-auto max-w-5xl space-y-8 p-6">
       <header className="flex items-center gap-2">
         <Zap className="h-5 w-5 text-amber-500" />
-        <h1 className="text-xl font-semibold">Event-driven messaging</h1>
+        <h1 className="text-xl font-semibold">{tx('Event-driven messaging')}</h1>
       </header>
 
       {/* Templates */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Templates</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">{tx('Templates')}</h2>
         <div className="rounded-lg border bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
           <div className="grid gap-2 sm:grid-cols-2">
             <input
               className="input"
-              placeholder="Template key (e.g. low_stock_alert)"
+              placeholder={tx('Template key (e.g. low_stock_alert)')}
               value={tpl.key}
               onChange={(e) => setTpl({ ...tpl, key: e.target.value })}
             />
             <input
               className="input"
-              placeholder="Provider (blank = internal)"
+              placeholder={tx('Provider (blank = internal)')}
               value={tpl.providerId}
               onChange={(e) => setTpl({ ...tpl, providerId: e.target.value })}
             />
             <input
               className="input sm:col-span-2"
-              placeholder="Subject (optional)"
+              placeholder={tx('Subject (optional)')}
               value={tpl.subject}
               onChange={(e) => setTpl({ ...tpl, subject: e.target.value })}
             />
             <textarea
               className="input sm:col-span-2 font-mono text-sm"
               rows={3}
-              placeholder="Body — use {{dotted.path}} placeholders, e.g. Stock low: {{productName}} ({{quantity}})"
+              placeholder={tx('Body — use {{dotted.path}} placeholders, e.g. Stock low: {{productName}} ({{quantity}})')}
               value={tpl.body}
               onChange={(e) => setTpl({ ...tpl, body: e.target.value })}
             />
@@ -99,7 +100,7 @@ export default function CommunicationRulesPage() {
             onClick={saveTemplate}
             disabled={upsertTemplate.isPending}
           >
-            <Plus className="h-4 w-4" /> Save template
+            <Plus className="h-4 w-4" /> {tx('Save template')}
           </button>
         </div>
         <ul className="divide-y rounded-lg border dark:divide-gray-700 dark:border-gray-700">
@@ -108,18 +109,18 @@ export default function CommunicationRulesPage() {
               <span className="font-mono">
                 {t.key} <span className="text-gray-400">v{t.version}</span>
                 {t.providerId && <span className="ml-2 rounded bg-gray-100 px-1 text-xs dark:bg-gray-700">{t.providerId}</span>}
-                {!t.active && <span className="ml-2 text-xs text-gray-400">(inactive)</span>}
+                {!t.active && <span className="ml-2 text-xs text-gray-400">{tx('(inactive)')}</span>}
               </span>
               <span className="max-w-md truncate text-gray-500">{t.body}</span>
             </li>
           ))}
-          {templates.length === 0 && <li className="px-4 py-3 text-sm text-gray-400">No templates yet.</li>}
+          {templates.length === 0 && <li className="px-4 py-3 text-sm text-gray-400">{tx('No templates yet.')}</li>}
         </ul>
       </section>
 
       {/* Rules */}
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">Rules</h2>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-500">{tx('Rules')}</h2>
         <div className="rounded-lg border bg-white p-4 dark:border-gray-700 dark:bg-gray-800">
           <div className="grid gap-2 sm:grid-cols-2">
             <select
@@ -127,7 +128,7 @@ export default function CommunicationRulesPage() {
               value={rule.eventName}
               onChange={(e) => setRule({ ...rule, eventName: e.target.value })}
             >
-              <option value="">Select event…</option>
+              <option value="">{tx('Select event…')}</option>
               {events.map((ev) => (
                 <option key={ev} value={ev}>
                   {ev}
@@ -136,13 +137,13 @@ export default function CommunicationRulesPage() {
             </select>
             <input
               className="input"
-              placeholder="Template key"
+              placeholder={tx('Template key')}
               value={rule.templateKey}
               onChange={(e) => setRule({ ...rule, templateKey: e.target.value })}
             />
             <input
               className="input"
-              placeholder="Recipient (permission:… | role:… | user:path | partner:path)"
+              placeholder={tx('Recipient (permission:… | role:… | user:path | partner:path)')}
               value={rule.recipientResolver}
               onChange={(e) => setRule({ ...rule, recipientResolver: e.target.value })}
             />
@@ -151,13 +152,13 @@ export default function CommunicationRulesPage() {
               value={rule.channelSelector}
               onChange={(e) => setRule({ ...rule, channelSelector: e.target.value })}
             >
-              <option value="internal">internal (in-app alert)</option>
-              <option value="whatsapp">whatsapp</option>
-              <option value="telegram">telegram</option>
+              <option value="internal">{tx('internal (in-app alert)')}</option>
+              <option value="whatsapp">{tx('whatsapp')}</option>
+              <option value="telegram">{tx('telegram')}</option>
             </select>
             <input
               className="input sm:col-span-2 font-mono text-sm"
-              placeholder='Condition JSON (optional), e.g. {"total":{"$gte":100}}'
+              placeholder={tx('Condition JSON (optional), e.g. {"total":{"$gte":100}}')}
               value={rule.condition}
               onChange={(e) => setRule({ ...rule, condition: e.target.value })}
             />
@@ -167,7 +168,7 @@ export default function CommunicationRulesPage() {
             onClick={saveRule}
             disabled={upsertRule.isPending}
           >
-            <Plus className="h-4 w-4" /> Save rule
+            <Plus className="h-4 w-4" /> {tx('Save rule')}
           </button>
         </div>
         <ul className="divide-y rounded-lg border dark:divide-gray-700 dark:border-gray-700">
@@ -187,7 +188,7 @@ export default function CommunicationRulesPage() {
                     checked={r.enabled}
                     onChange={(e) => toggleRule.mutate({ id: r.id, enabled: e.target.checked })}
                   />
-                  enabled
+                  {tx('enabled')}
                 </label>
                 <button className="text-red-500 hover:text-red-700" onClick={() => deleteRule.mutate(r.id)}>
                   <Trash2 className="h-4 w-4" />
@@ -195,7 +196,7 @@ export default function CommunicationRulesPage() {
               </div>
             </li>
           ))}
-          {rules.length === 0 && <li className="px-4 py-3 text-sm text-gray-400">No rules yet.</li>}
+          {rules.length === 0 && <li className="px-4 py-3 text-sm text-gray-400">{tx('No rules yet.')}</li>}
         </ul>
       </section>
     </div>

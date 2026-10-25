@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { notify } from '@/lib/notify';
 import { apiErrorMessage } from '@/lib/api-error';
+import { tx } from '@/lib/i18n/tx';
 
 const DOCUMENT_TYPES = [
   'CONTRACT',
@@ -61,14 +62,14 @@ export function HrDocumentsPage() {
     <div className="space-y-4 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Employee documents</h1>
+          <h1 className="text-xl font-semibold">{tx('Employee documents')}</h1>
           <p className="text-sm text-muted-foreground">
-            Contracts, identity documents, permits and certificates.
+            {tx('Contracts, identity documents, permits and certificates.')}
           </p>
         </div>
         <Button size="sm" onClick={() => setOpen(true)}>
           <Plus className="mr-1.5 h-4 w-4" />
-          Add document
+          {tx('Add document')}
         </Button>
       </div>
 
@@ -77,7 +78,7 @@ export function HrDocumentsPage() {
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base text-amber-900">
               <AlertTriangle className="h-4 w-4" />
-              Expiring within 60 days ({expiring.rows.length})
+              {tx('Expiring within 60 days (')}{expiring.rows.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -108,13 +109,13 @@ export function HrDocumentsPage() {
 
       <Card>
         <CardHeader className="flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">All documents</CardTitle>
+          <CardTitle className="text-base">{tx('All documents')}</CardTitle>
           <select
             className="h-9 rounded-md border bg-background px-3 text-sm"
             value={employeeId}
             onChange={(e) => setEmployeeId(e.target.value)}
           >
-            <option value="">All employees</option>
+            <option value="">{tx('All employees')}</option>
             {(employees?.rows ?? []).map((e: any) => (
               <option key={e.id} value={e.id}>
                 {e.firstName} {e.lastName ?? ''} ({e.employeeCode})
@@ -127,12 +128,12 @@ export function HrDocumentsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                  <th className="py-2">Employee</th>
-                  <th className="py-2">Title</th>
-                  <th className="py-2">Type</th>
-                  <th className="py-2">Number</th>
-                  <th className="py-2">Issued</th>
-                  <th className="py-2">Expires</th>
+                  <th className="py-2">{tx('Employee')}</th>
+                  <th className="py-2">{tx('Title')}</th>
+                  <th className="py-2">{tx('Type')}</th>
+                  <th className="py-2">{tx('Number')}</th>
+                  <th className="py-2">{tx('Issued')}</th>
+                  <th className="py-2">{tx('Expires')}</th>
                   <th className="py-2" />
                 </tr>
               </thead>
@@ -169,7 +170,7 @@ export function HrDocumentsPage() {
                           onClick={async () => {
                             try {
                               await remove.mutateAsync(d.id);
-                              notify.success('Document removed');
+                              notify.success(tx('Document removed'));
                             } catch (err) {
                               notify.error(apiErrorMessage(err, 'Could not remove the document'));
                             }
@@ -184,7 +185,7 @@ export function HrDocumentsPage() {
               </tbody>
             </table>
           ) : (
-            <p className="py-8 text-center text-sm text-muted-foreground">No documents recorded.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">{tx('No documents recorded.')}</p>
           )}
         </CardContent>
       </Card>
@@ -219,7 +220,7 @@ function AddDocumentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add a document</DialogTitle>
+          <DialogTitle>{tx('Add a document')}</DialogTitle>
           <DialogDescription>
             Records the paperwork and its expiry. Upload the file itself from the employee&apos;s
             file area — this is the HR metadata.
@@ -228,13 +229,13 @@ function AddDocumentDialog({
 
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>Employee</Label>
+            <Label>{tx('Employee')}</Label>
             <select
               className="h-9 rounded-md border bg-background px-3 text-sm"
               value={form.employeeId}
               onChange={(e) => set('employeeId', e.target.value)}
             >
-              <option value="">Select…</option>
+              <option value="">{tx('Select…')}</option>
               {employees.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.firstName} {e.lastName ?? ''} ({e.employeeCode})
@@ -243,12 +244,12 @@ function AddDocumentDialog({
             </select>
           </div>
           <div className="grid gap-1.5">
-            <Label>Title</Label>
+            <Label>{tx('Title')}</Label>
             <Input value={form.title} onChange={(e) => set('title', e.target.value)} />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Type</Label>
+              <Label>{tx('Type')}</Label>
               <select
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 value={form.documentType}
@@ -262,7 +263,7 @@ function AddDocumentDialog({
               </select>
             </div>
             <div className="grid gap-1.5">
-              <Label>Document number</Label>
+              <Label>{tx('Document number')}</Label>
               <Input
                 value={form.documentNumber}
                 onChange={(e) => set('documentNumber', e.target.value)}
@@ -271,7 +272,7 @@ function AddDocumentDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Issued</Label>
+              <Label>{tx('Issued')}</Label>
               <Input
                 type="date"
                 value={form.issuedAt}
@@ -279,7 +280,7 @@ function AddDocumentDialog({
               />
             </div>
             <div className="grid gap-1.5">
-              <Label>Expires</Label>
+              <Label>{tx('Expires')}</Label>
               <Input
                 type="date"
                 value={form.expiresAt}
@@ -288,14 +289,14 @@ function AddDocumentDialog({
             </div>
           </div>
           <div className="grid gap-1.5">
-            <Label>Notes</Label>
+            <Label>{tx('Notes')}</Label>
             <Textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} rows={2} />
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             disabled={create.isPending || !form.employeeId || !form.title}
@@ -310,14 +311,14 @@ function AddDocumentDialog({
                   expiresAt: form.expiresAt || undefined,
                   notes: form.notes || undefined,
                 } as any);
-                notify.success('Document added');
+                notify.success(tx('Document added'));
                 onOpenChange(false);
               } catch (err) {
                 notify.error(apiErrorMessage(err, 'Could not add the document'));
               }
             }}
           >
-            Add
+            {tx('Add')}
           </Button>
         </DialogFooter>
       </DialogContent>

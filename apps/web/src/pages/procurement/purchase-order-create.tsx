@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface Partner { id: string; name: string; code: string }
 interface Product { id: string; name: string; code: string; salesPrice?: number; costPrice?: number; taxId?: string }
@@ -88,54 +89,54 @@ export function PurchaseOrderCreatePage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">New Purchase</h1>
+      <h1 className="text-2xl font-semibold">{tx('New Purchase')}</h1>
 
       <Card>
         <CardHeader>
-          <CardTitle>Supplier & details</CardTitle>
+          <CardTitle>{tx('Supplier & details')}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div>
-            <label className="text-sm font-medium">Supplier</label>
+            <label className="text-sm font-medium">{tx('Supplier')}</label>
             <select
               value={partnerId}
               onChange={(e) => setPartnerId(e.target.value)}
               className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
             >
-              <option value="">Select supplier…</option>
+              <option value="">{tx('Select supplier…')}</option>
               {partners.data?.map((p) => (
                 <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium">Description / notes</label>
+            <label className="text-sm font-medium">{tx('Description / notes')}</label>
             <Input
               className="mt-1"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional"
+              placeholder={tx('Optional')}
             />
           </div>
           <div>
-            <label className="text-sm font-medium">Payment type</label>
+            <label className="text-sm font-medium">{tx('Payment type')}</label>
             <select
               value={paymentType}
               onChange={(e) => setPaymentType(e.target.value as 'cash' | 'credit')}
               className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
             >
-              <option value="cash">Cash — auto-pay on receive</option>
-              <option value="credit">Credit — pay later</option>
+              <option value="cash">{tx('Cash — auto-pay on receive')}</option>
+              <option value="credit">{tx('Credit — pay later')}</option>
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium">Warehouse</label>
+            <label className="text-sm font-medium">{tx('Warehouse')}</label>
             <select
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value)}
               className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
             >
-              <option value="">Select warehouse…</option>
+              <option value="">{tx('Select warehouse…')}</option>
               {warehouses.data?.map((w) => (
                 <option key={w.id} value={w.id}>{w.code} — {w.name}</option>
               ))}
@@ -148,19 +149,19 @@ export function PurchaseOrderCreatePage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle>Products</CardTitle>
-              <CardDescription>Fill products purchased</CardDescription>
+              <CardTitle>{tx('Products')}</CardTitle>
+              <CardDescription>{tx('Fill products purchased')}</CardDescription>
             </div>
-            <Button size="sm" variant="outline" onClick={addLine}><Plus className="mr-2 h-3 w-3" />Add item</Button>
+            <Button size="sm" variant="outline" onClick={addLine}><Plus className="mr-2 h-3 w-3" />{tx('Add item')}</Button>
           </div>
         </CardHeader>
         <CardContent>
           <div className="grid gap-2 md:grid-cols-12 items-center text-xs text-muted-foreground font-medium px-1 pb-1 border-b mb-1">
-            <div className="md:col-span-4">Product</div>
-            <div className="md:col-span-4">Description</div>
-            <div className="md:col-span-1 text-right">Qty</div>
-            <div className="md:col-span-2 text-right">Unit Price</div>
-            <div className="md:col-span-1 text-right">Total</div>
+            <div className="md:col-span-4">{tx('Product')}</div>
+            <div className="md:col-span-4">{tx('Description')}</div>
+            <div className="md:col-span-1 text-right">{tx('Qty')}</div>
+            <div className="md:col-span-2 text-right">{tx('Unit Price')}</div>
+            <div className="md:col-span-1 text-right">{tx('Total')}</div>
           </div>
           <div className="space-y-2">
             {lines.map((ln, idx) => (
@@ -171,9 +172,9 @@ export function PurchaseOrderCreatePage() {
                     onChange={(e) => pickProduct(idx, e.target.value)}
                     defaultValue=""
                   >
-                    <option value="">Pick product (optional)…</option>
+                    <option value="">{tx('Pick product (optional)…')}</option>
                     {products.isLoading ? (
-                      <option>Loading…</option>
+                      <option>{tx('Loading…')}</option>
                     ) : (
                       products.data?.map((p) => (
                         <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
@@ -183,7 +184,7 @@ export function PurchaseOrderCreatePage() {
                 </div>
                 <div className="md:col-span-4">
                   <Input
-                    placeholder="Description"
+                    placeholder={tx('Description')}
                     value={ln.description}
                     onChange={(e) => {
                       const next = [...lines];
@@ -222,7 +223,7 @@ export function PurchaseOrderCreatePage() {
                   {(ln.quantity * ln.unitPrice).toFixed(2)}
                 </div>
                 <div className="md:col-span-0">
-                  <Button size="icon" variant="ghost" onClick={() => removeLine(idx)} aria-label="Remove line">
+                  <Button size="icon" variant="ghost" onClick={() => removeLine(idx)} aria-label={tx('Remove line')}>
                     <Trash2 className="h-3 w-3 text-destructive" />
                   </Button>
                 </div>
@@ -230,14 +231,14 @@ export function PurchaseOrderCreatePage() {
             ))}
           </div>
           <div className="mt-4 flex items-center justify-between border-t pt-3">
-            <span className="text-sm font-medium">Total</span>
+            <span className="text-sm font-medium">{tx('Total')}</span>
             <span className="text-lg font-bold tabular-nums">{total.toFixed(2)}</span>
           </div>
         </CardContent>
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
+        <Button variant="outline" onClick={() => navigate(-1)}>{tx('Cancel')}</Button>
         <Button
           onClick={() => create.mutate()}
           disabled={!partnerId || !warehouseId || lines.length === 0 || create.isPending}

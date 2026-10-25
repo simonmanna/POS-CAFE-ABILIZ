@@ -6,6 +6,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { tx } from '@/lib/i18n/tx';
 
 export function RepairLabourPage() {
   const { data } = useRepairLabourTypes();
@@ -57,10 +58,10 @@ export function RepairLabourPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Labour Catalog</h1>
-          <p className="text-sm text-muted-foreground">Standard labour charges used on repair quotations.</p>
+          <h1 className="text-xl font-semibold">{tx('Labour Catalog')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Standard labour charges used on repair quotations.')}</p>
         </div>
-        <Button onClick={openCreate}><Plus className="h-4 w-4" /> New labour type</Button>
+        <Button onClick={openCreate}><Plus className="h-4 w-4" /> {tx('New labour type')}</Button>
       </div>
 
       {showForm && (
@@ -69,15 +70,15 @@ export function RepairLabourPage() {
             <CardTitle className="text-sm">{editing ? `Edit ${editing.name}` : 'New labour type'}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-4">
-            <Input placeholder="Code (LBR-DIAG)" value={form.code} onChange={(e) => set('code', e.target.value)} />
-            <Input placeholder="Name (Diagnostic check)" value={form.name} onChange={(e) => set('name', e.target.value)} />
-            <Input type="number" placeholder="Price (Rp)" value={form.price} onChange={(e) => set('price', e.target.value)} />
-            <Input type="number" placeholder="Duration (min)" value={form.durationMinutes} onChange={(e) => set('durationMinutes', e.target.value)} />
-            <Input className="sm:col-span-2" placeholder="Billing product ID (service product)" value={form.productId} onChange={(e) => set('productId', e.target.value)} />
-            <Input className="sm:col-span-2" placeholder="Description" value={form.description} onChange={(e) => set('description', e.target.value)} />
+            <Input placeholder={tx('Code (LBR-DIAG)')} value={form.code} onChange={(e) => set('code', e.target.value)} />
+            <Input placeholder={tx('Name (Diagnostic check)')} value={form.name} onChange={(e) => set('name', e.target.value)} />
+            <Input type="number" placeholder={tx('Price (Rp)')} value={form.price} onChange={(e) => set('price', e.target.value)} />
+            <Input type="number" placeholder={tx('Duration (min)')} value={form.durationMinutes} onChange={(e) => set('durationMinutes', e.target.value)} />
+            <Input className="sm:col-span-2" placeholder={tx('Billing product ID (service product)')} value={form.productId} onChange={(e) => set('productId', e.target.value)} />
+            <Input className="sm:col-span-2" placeholder={tx('Description')} value={form.description} onChange={(e) => set('description', e.target.value)} />
             <div className="flex items-end gap-2">
-              <Button onClick={submit} disabled={create.isPending || update.isPending}>Save</Button>
-              <Button variant="ghost" onClick={() => setShowForm(false)}>Cancel</Button>
+              <Button onClick={submit} disabled={create.isPending || update.isPending}>{tx('Save')}</Button>
+              <Button variant="ghost" onClick={() => setShowForm(false)}>{tx('Cancel')}</Button>
             </div>
             {error && <p className="text-sm text-red-600 sm:col-span-4">{error}</p>}
           </CardContent>
@@ -86,11 +87,11 @@ export function RepairLabourPage() {
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} labour types</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('labour types')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No labour types yet.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No labour types yet.')}</p>}
             {rows.map((t: any) => (
               <div key={t.id} className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -103,9 +104,9 @@ export function RepairLabourPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">Rp {Number(t.price ?? 0).toLocaleString('id-ID')}</span>
-                  <Button size="sm" variant="outline" onClick={() => openEdit(t)}>Edit</Button>
-                  <Button size="sm" variant="ghost" onClick={() => del.mutateAsync(t.id)}>Delete</Button>
+                  <span className="text-sm font-medium">{tx('Rp')} {Number(t.price ?? 0).toLocaleString('id-ID')}</span>
+                  <Button size="sm" variant="outline" onClick={() => openEdit(t)}>{tx('Edit')}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => del.mutateAsync(t.id)}>{tx('Delete')}</Button>
                 </div>
               </div>
             ))}

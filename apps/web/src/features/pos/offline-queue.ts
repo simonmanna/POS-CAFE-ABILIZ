@@ -147,7 +147,7 @@ async function idbClear(store: string = STORE): Promise<void> {
  * Uses a bare fetch to the /health endpoint with a short timeout to avoid
  * the axios interceptor's "Network error" toast spam + token-refresh flow.
  */
-async function checkServerOnline(): Promise<boolean> {
+export async function checkServerOnline(): Promise<boolean> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3000);

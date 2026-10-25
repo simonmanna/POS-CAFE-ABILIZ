@@ -22,6 +22,7 @@ import { dateTime } from '@/lib/format';
 import {
   type StockLevel, fetchAllStockLevels, fmtQty, apiErrorMessage as errMsg,
 } from '@/features/inventory/stock-levels';
+import { tx } from '@/lib/i18n/tx';
 
 interface Location { id: string; code: string; name: string }
 
@@ -224,22 +225,22 @@ export function StockAdjustmentsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Stock Adjustments</h1>
-          <p className="text-sm text-muted-foreground">Correct stock levels, record damages, cycle counts</p>
+          <h1 className="text-2xl font-semibold">{tx('Stock Adjustments')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Correct stock levels, record damages, cycle counts')}</p>
         </div>
         <div className="flex items-center gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="completed">Posted</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-              <SelectItem value="reversed">Reversed</SelectItem>
+              <SelectItem value="all">{tx('All statuses')}</SelectItem>
+              <SelectItem value="pending">{tx('Pending')}</SelectItem>
+              <SelectItem value="completed">{tx('Posted')}</SelectItem>
+              <SelectItem value="cancelled">{tx('Cancelled')}</SelectItem>
+              <SelectItem value="reversed">{tx('Reversed')}</SelectItem>
             </SelectContent>
           </Select>
           <Button onClick={() => { resetForm(); setShowForm(true); }}>
-            <Plus className="mr-2 h-4 w-4" />New Adjustment
+            <Plus className="mr-2 h-4 w-4" />{tx('New Adjustment')}
           </Button>
         </div>
       </div>
@@ -249,22 +250,22 @@ export function StockAdjustmentsPage() {
         <Card><CardContent className="p-8 text-center text-destructive">{errMsg(adjustments.error, 'Failed to load adjustments')}</CardContent></Card>
       )}
       {adjustments.data && adjustments.data.length === 0 && (
-        <Card><CardContent className="p-8 text-center text-muted-foreground">No adjustments yet. Click "New Adjustment" to create one.</CardContent></Card>
+        <Card><CardContent className="p-8 text-center text-muted-foreground">{tx('No adjustments yet. Click "New Adjustment" to create one.')}</CardContent></Card>
       )}
       {adjustments.data && adjustments.data.length > 0 && (
         <div className="overflow-x-auto rounded-md border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/50">
-                <th className="px-3 py-2 text-left">Adj #</th>
-                <th className="px-3 py-2 text-left">Date</th>
-                <th className="px-3 py-2 text-left">Location</th>
-                <th className="px-3 py-2 text-left">Reason</th>
-                <th className="px-3 py-2 text-right">Items</th>
-                <th className="px-3 py-2 text-right">Net Diff</th>
-                <th className="px-3 py-2 text-left">Status</th>
-                <th className="px-3 py-2 text-left">Notes</th>
-                <th className="px-3 py-2 text-right">Actions</th>
+                <th className="px-3 py-2 text-left">{tx('Adj #')}</th>
+                <th className="px-3 py-2 text-left">{tx('Date')}</th>
+                <th className="px-3 py-2 text-left">{tx('Location')}</th>
+                <th className="px-3 py-2 text-left">{tx('Reason')}</th>
+                <th className="px-3 py-2 text-right">{tx('Items')}</th>
+                <th className="px-3 py-2 text-right">{tx('Net Diff')}</th>
+                <th className="px-3 py-2 text-left">{tx('Status')}</th>
+                <th className="px-3 py-2 text-left">{tx('Notes')}</th>
+                <th className="px-3 py-2 text-right">{tx('Actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -288,16 +289,16 @@ export function StockAdjustmentsPage() {
                     <td className="px-3 py-2 max-w-48 truncate text-muted-foreground">{adj.notes ?? '—'}</td>
                     <td className="px-3 py-2">
                       <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => setViewing(adj)}>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" title={tx('View')} onClick={() => setViewing(adj)}>
                           <Eye className="h-4 w-4" />
                         </Button>
                         {isPending(adj.status) && (
                           <>
-                            <Button size="icon" variant="ghost" className="h-7 w-7" title="Approve & post"
+                            <Button size="icon" variant="ghost" className="h-7 w-7" title={tx('Approve & post')}
                               disabled={approve.isPending} onClick={() => approve.mutate({ id: adj.id })}>
                               <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-7 w-7" title="Cancel"
+                            <Button size="icon" variant="ghost" className="h-7 w-7" title={tx('Cancel')}
                               disabled={cancel.isPending}
                               onClick={() => { if (window.confirm(`Cancel ${adj.adjCode}?`)) cancel.mutate(adj.id); }}>
                               <XCircle className="h-4 w-4 text-destructive" />
@@ -305,7 +306,7 @@ export function StockAdjustmentsPage() {
                           </>
                         )}
                         {adj.status === 'completed' && (
-                          <Button size="icon" variant="ghost" className="h-7 w-7" title="Reverse posted adjustment"
+                          <Button size="icon" variant="ghost" className="h-7 w-7" title={tx('Reverse posted adjustment')}
                             disabled={reverse.isPending} onClick={() => setReversing(adj)}>
                             <Undo2 className="h-4 w-4 text-slate-600" />
                           </Button>
@@ -323,13 +324,13 @@ export function StockAdjustmentsPage() {
       {/* Create Adjustment Dialog */}
       <Dialog open={showForm} onOpenChange={(o) => { if (!create.isPending) setShowForm(o); }}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>New Stock Adjustment</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('New Stock Adjustment')}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-sm font-medium">Location <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium">{tx('Location')} <span className="text-destructive">*</span></label>
                 <Select value={locationId} onValueChange={setLocationId}>
-                  <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={tx('Select location')} /></SelectTrigger>
                   <SelectContent>
                     {locations.data?.map((l) => (
                       <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
@@ -338,7 +339,7 @@ export function StockAdjustmentsPage() {
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium">Reason</label>
+                <label className="text-sm font-medium">{tx('Reason')}</label>
                 <Select value={reason} onValueChange={setReason}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -352,46 +353,46 @@ export function StockAdjustmentsPage() {
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-sm font-medium">Responsible Person <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium">{tx('Responsible Person')} <span className="text-destructive">*</span></label>
                 <SearchableSelect
                   value={responsibleId}
                   onValueChange={setResponsibleId}
                   options={staffOptions}
-                  placeholder="Select staff…"
+                  placeholder={tx('Select staff…')}
                   searchPlaceholder="Search staff…"
-                  emptyText="No staff match"
+                  emptyText={tx('No staff match')}
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Approved By <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium">{tx('Approved By')} <span className="text-destructive">*</span></label>
                 <SearchableSelect
                   value={approvedId}
                   onValueChange={setApprovedId}
                   options={staffOptions}
-                  placeholder="Select staff…"
+                  placeholder={tx('Select staff…')}
                   searchPlaceholder="Search staff…"
-                  emptyText="No staff match"
+                  emptyText={tx('No staff match')}
                 />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Items</label>
+                <label className="text-sm font-medium">{tx('Items')}</label>
                 <div className="flex gap-2">
                   <Button size="sm" variant="ghost" disabled={!locationId || stockLevels.isFetching}
-                    onClick={() => stockLevels.refetch()} title="Reload system quantities">
-                    <RefreshCw className={`mr-1 h-3 w-3 ${stockLevels.isFetching ? 'animate-spin' : ''}`} />Refresh
+                    onClick={() => stockLevels.refetch()} title={tx('Reload system quantities')}>
+                    <RefreshCw className={`mr-1 h-3 w-3 ${stockLevels.isFetching ? 'animate-spin' : ''}`} />{tx('Refresh')}
                   </Button>
                   <Button size="sm" variant="outline" disabled={!locationId} onClick={() => setLines((p) => [...p, blankLine()])}>
-                    <Plus className="mr-1 h-3 w-3" />Add Item
+                    <Plus className="mr-1 h-3 w-3" />{tx('Add Item')}
                   </Button>
                 </div>
               </div>
 
               {!locationId ? (
                 <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  Select a location first — system quantities are per location.
+                  {tx('Select a location first — system quantities are per location.')}
                 </div>
               ) : stockLevels.isError ? (
                 <div className="rounded-md border p-6 text-center text-sm text-destructive">
@@ -402,10 +403,10 @@ export function StockAdjustmentsPage() {
                   <table className="w-full min-w-[560px] text-sm">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="px-2 py-1.5 text-left">Product</th>
-                        <th className="w-28 px-2 py-1.5 text-right">System</th>
-                        <th className="w-32 px-2 py-1.5 text-right">Actual</th>
-                        <th className="w-24 px-2 py-1.5 text-right">Diff</th>
+                        <th className="px-2 py-1.5 text-left">{tx('Product')}</th>
+                        <th className="w-28 px-2 py-1.5 text-right">{tx('System')}</th>
+                        <th className="w-32 px-2 py-1.5 text-right">{tx('Actual')}</th>
+                        <th className="w-24 px-2 py-1.5 text-right">{tx('Diff')}</th>
                         <th className="w-8"></th>
                       </tr>
                     </thead>
@@ -426,10 +427,10 @@ export function StockAdjustmentsPage() {
                                 options={productOptions}
                                 placeholder={stockLevels.isLoading ? 'Loading products…' : 'Select product…'}
                                 searchPlaceholder="Search products…"
-                                emptyText="No products match"
+                                emptyText={tx('No products match')}
                                 disabled={stockLevels.isLoading}
                               />
-                              {dup && <p className="mt-1 text-xs text-destructive">Product already on another line</p>}
+                              {dup && <p className="mt-1 text-xs text-destructive">{tx('Product already on another line')}</p>}
                             </td>
                             <td className="px-2 py-1.5 text-right font-mono tabular-nums text-muted-foreground">
                               {ln.productId
@@ -463,18 +464,18 @@ export function StockAdjustmentsPage() {
                   </table>
                 </div>
               )}
-              {invalidActual && <p className="text-xs text-destructive">Every selected product needs a counted quantity of 0 or more.</p>}
+              {invalidActual && <p className="text-xs text-destructive">{tx('Every selected product needs a counted quantity of 0 or more.')}</p>}
             </div>
 
             <div>
-              <label className="text-sm font-medium">Notes</label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional adjustment notes" />
+              <label className="text-sm font-medium">{tx('Notes')}</label>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={tx('Optional adjustment notes')} />
             </div>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" disabled={create.isPending} onClick={() => setShowForm(false)}>Cancel</Button>
+            <Button variant="outline" disabled={create.isPending} onClick={() => setShowForm(false)}>{tx('Cancel')}</Button>
             <Button variant="secondary" disabled={!canSubmit || create.isPending} onClick={() => create.mutate(false)}>
-              <Save className="mr-2 h-4 w-4" />Save as Pending
+              <Save className="mr-2 h-4 w-4" />{tx('Save as Pending')}
             </Button>
             <Button disabled={!canSubmit || create.isPending} onClick={() => create.mutate(true)}>
               <CheckCircle2 className="mr-2 h-4 w-4" />{create.isPending ? 'Saving…' : 'Post Adjustment'}
@@ -490,24 +491,24 @@ export function StockAdjustmentsPage() {
             <>
               <DialogHeader><DialogTitle>{viewing.adjCode}</DialogTitle></DialogHeader>
               <div className="grid grid-cols-2 gap-2 text-sm">
-                <div><span className="text-muted-foreground">Location: </span>{viewing.location ? `${viewing.location.code} — ${viewing.location.name}` : '—'}</div>
-                <div><span className="text-muted-foreground">Reason: </span>{REASON_LABELS[viewing.reason] ?? viewing.reason}</div>
-                <div><span className="text-muted-foreground">Created: </span>{dateTime(viewing.createdAt)}</div>
-                <div><span className="text-muted-foreground">Status: </span>{STATUS_LABELS[viewing.status] ?? viewing.status}</div>
-                {viewing.postedAt && <div><span className="text-muted-foreground">Posted: </span>{dateTime(viewing.postedAt)}</div>}
-                {viewing.notes && <div className="col-span-2"><span className="text-muted-foreground">Notes: </span>{viewing.notes}</div>}
+                <div><span className="text-muted-foreground">{tx('Location:')} </span>{viewing.location ? `${viewing.location.code} — ${viewing.location.name}` : '—'}</div>
+                <div><span className="text-muted-foreground">{tx('Reason:')} </span>{REASON_LABELS[viewing.reason] ?? viewing.reason}</div>
+                <div><span className="text-muted-foreground">{tx('Created:')} </span>{dateTime(viewing.createdAt)}</div>
+                <div><span className="text-muted-foreground">{tx('Status:')} </span>{STATUS_LABELS[viewing.status] ?? viewing.status}</div>
+                {viewing.postedAt && <div><span className="text-muted-foreground">{tx('Posted:')} </span>{dateTime(viewing.postedAt)}</div>}
+                {viewing.notes && <div className="col-span-2"><span className="text-muted-foreground">{tx('Notes:')} </span>{viewing.notes}</div>}
                 {viewing.reversedAt && (
-                  <div className="col-span-2"><span className="text-muted-foreground">Reversed: </span>{dateTime(viewing.reversedAt)}{viewing.reversalReason ? ` — ${viewing.reversalReason}` : ''}</div>
+                  <div className="col-span-2"><span className="text-muted-foreground">{tx('Reversed:')} </span>{dateTime(viewing.reversedAt)}{viewing.reversalReason ? ` — ${viewing.reversalReason}` : ''}</div>
                 )}
               </div>
               <div className="overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/50">
-                      <th className="px-2 py-1.5 text-left">Product</th>
-                      <th className="px-2 py-1.5 text-right">System</th>
-                      <th className="px-2 py-1.5 text-right">Actual</th>
-                      <th className="px-2 py-1.5 text-right">Diff</th>
+                      <th className="px-2 py-1.5 text-left">{tx('Product')}</th>
+                      <th className="px-2 py-1.5 text-right">{tx('System')}</th>
+                      <th className="px-2 py-1.5 text-right">{tx('Actual')}</th>
+                      <th className="px-2 py-1.5 text-right">{tx('Diff')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -529,7 +530,7 @@ export function StockAdjustmentsPage() {
               </div>
               {isPending(viewing.status) && (
                 <p className="text-xs text-muted-foreground">
-                  System figures are a snapshot from when this was saved. Posting counts each product to its Actual quantity at the current on-hand.
+                  {tx('System figures are a snapshot from when this was saved. Posting counts each product to its Actual quantity at the current on-hand.')}
                 </p>
               )}
               <DialogFooter className="gap-2">
@@ -537,7 +538,7 @@ export function StockAdjustmentsPage() {
                   <>
                     <Button variant="outline" disabled={cancel.isPending}
                       onClick={() => { if (window.confirm(`Cancel ${viewing.adjCode}?`)) cancel.mutate(viewing.id); }}>
-                      <XCircle className="mr-2 h-4 w-4" />Cancel Adjustment
+                      <XCircle className="mr-2 h-4 w-4" />{tx('Cancel Adjustment')}
                     </Button>
                     <Button disabled={approve.isPending} onClick={() => approve.mutate({ id: viewing.id })}>
                       <CheckCircle2 className="mr-2 h-4 w-4" />{approve.isPending ? 'Posting…' : 'Approve & Post'}
@@ -546,7 +547,7 @@ export function StockAdjustmentsPage() {
                 )}
                 {viewing.status === 'completed' && (
                   <Button variant="outline" onClick={() => setReversing(viewing)}>
-                    <Undo2 className="mr-2 h-4 w-4" />Reverse
+                    <Undo2 className="mr-2 h-4 w-4" />{tx('Reverse')}
                   </Button>
                 )}
               </DialogFooter>
@@ -561,20 +562,20 @@ export function StockAdjustmentsPage() {
         title={`Stock moved since ${drift?.code ?? 'this adjustment'} was created`}
         description={
           <>
-            <p>Sales or receipts changed these quantities after the count was entered. Posting now sets them to the counted figures and books the difference as variance.</p>
+            <p>{tx('Sales or receipts changed these quantities after the count was entered. Posting now sets them to the counted figures and books the difference as variance.')}</p>
             {drift && drift.lines.length > 0 && (
               <ul className="list-disc space-y-0.5 pl-5 text-xs">
                 {drift.lines.slice(0, 8).map((l) => <li key={l}>{l}</li>)}
-                {drift.lines.length > 8 && <li>…and {drift.lines.length - 8} more</li>}
+                {drift.lines.length > 8 && <li>{tx('…and')} {drift.lines.length - 8} {tx('more')}</li>}
               </ul>
             )}
-            <p>Safer: cancel it and create a fresh adjustment. Or post anyway with a reason.</p>
+            <p>{tx('Safer: cancel it and create a fresh adjustment. Or post anyway with a reason.')}</p>
           </>
         }
-        confirmLabel="Post anyway"
+        confirmLabel={tx('Post anyway')}
         pendingLabel="Posting…"
         pending={approve.isPending}
-        placeholder="e.g. Recounted the shelf after the sales — counted figures are correct"
+        placeholder={tx('e.g. Recounted the shelf after the sales — counted figures are correct')}
         onConfirm={(reason) => drift && approve.mutate({ id: drift.id, forceReason: reason })}
       />
 
@@ -582,8 +583,8 @@ export function StockAdjustmentsPage() {
         open={!!reversing}
         onOpenChange={(o) => { if (!o) setReversing(null); }}
         title={`Reverse ${reversing?.adjCode ?? ''}`}
-        description={<p>Posts the opposite stock movement and journal entries today. The original stays on record, marked reversed.</p>}
-        confirmLabel="Reverse adjustment"
+        description={<p>{tx('Posts the opposite stock movement and journal entries today. The original stays on record, marked reversed.')}</p>}
+        confirmLabel={tx('Reverse adjustment')}
         pendingLabel="Reversing…"
         destructive
         pending={reverse.isPending}

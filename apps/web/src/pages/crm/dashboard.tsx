@@ -12,6 +12,7 @@ import {
   useCrmPipeline, useCrmWinRate, useCrmForecast, useCrmTopCustomers, useCrmUpcomingTasks,
   useCrmDeals, useCompleteActivity, STAGE_META,
 } from '@/features/crm/api';
+import { tx } from '@/lib/i18n/tx';
 
 function KpiCard({ icon: Icon, label, value, sub, accent }: {
   icon: React.ComponentType<{ className?: string }>;
@@ -69,11 +70,11 @@ export function CrmDashboardPage() {
     <div className="space-y-6 px-2 md:px-4 py-3 mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">CRM Dashboard</h1>
-          <p className="text-sm text-muted-foreground">Pipeline health, forecast and follow-ups at a glance.</p>
+          <h1 className="text-2xl font-bold">{tx('CRM Dashboard')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Pipeline health, forecast and follow-ups at a glance.')}</p>
         </div>
         <Button onClick={() => navigate('/crm/deals')}>
-          <Handshake className="mr-1.5 h-4 w-4" /> Open Deals Pipeline
+          <Handshake className="mr-1.5 h-4 w-4" /> {tx('Open Deals Pipeline')}
         </Button>
       </div>
 
@@ -81,28 +82,28 @@ export function CrmDashboardPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           icon={Wallet}
-          label="Open pipeline"
+          label={tx('Open pipeline')}
           value={money(pipeline?.openPipelineValue, 'IDR')}
           sub={`${totalOpen} open deals`}
           accent="bg-indigo-100 text-indigo-700"
         />
         <KpiCard
           icon={TrendingUp}
-          label="Weighted value"
+          label={tx('Weighted value')}
           value={money(pipeline?.weightedValue, 'IDR')}
           sub="probability-weighted"
           accent="bg-violet-100 text-violet-700"
         />
         <KpiCard
           icon={Trophy}
-          label="Win rate"
+          label={tx('Win rate')}
           value={winRate ? `${Math.round(winRate.rate * 100)}%` : '-'}
           sub={winRate ? `${winRate.won} won · ${winRate.lost} lost` : undefined}
           accent="bg-emerald-100 text-emerald-700"
         />
         <KpiCard
           icon={CalendarCheck2}
-          label="Upcoming tasks"
+          label={tx('Upcoming tasks')}
           value={String(upcoming?.length ?? 0)}
           sub="due soonest first"
           accent="bg-amber-100 text-amber-700"
@@ -114,7 +115,7 @@ export function CrmDashboardPage() {
         <Card>
           <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg">
             <CardTitle className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              <PieChart className="h-4 w-4" /> Stage distribution
+              <PieChart className="h-4 w-4" /> {tx('Stage distribution')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 px-5 py-4">
@@ -126,7 +127,7 @@ export function CrmDashboardPage() {
                     {STAGE_META[s.stage].label}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {s.count} deal{s.count === 1 ? '' : 's'} · {money(s.totalAmount, 'IDR')}
+                    {s.count} {tx('deal')}{s.count === 1 ? '' : 's'} · {money(s.totalAmount, 'IDR')}
                   </span>
                 </div>
                 <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-muted">
@@ -138,7 +139,7 @@ export function CrmDashboardPage() {
               </div>
             ))}
             {pipeline?.stages.every((s) => s.count === 0) && (
-              <p className="py-6 text-center text-sm text-muted-foreground">No open deals yet — create your first deal.</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">{tx('No open deals yet — create your first deal.')}</p>
             )}
           </CardContent>
         </Card>
@@ -147,7 +148,7 @@ export function CrmDashboardPage() {
         <Card>
           <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg">
             <CardTitle className="flex items-center gap-1.5 text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              <TrendingUp className="h-4 w-4" /> Forecast — expected close
+              <TrendingUp className="h-4 w-4" /> {tx('Forecast — expected close')}
             </CardTitle>
           </CardHeader>
           <CardContent className="px-5 py-4">
@@ -167,7 +168,7 @@ export function CrmDashboardPage() {
               ))}
             </div>
             {(forecast ?? []).length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">No expected-close dates set yet.</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">{tx('No expected-close dates set yet.')}</p>
             )}
           </CardContent>
         </Card>
@@ -177,14 +178,14 @@ export function CrmDashboardPage() {
         {/* Top customers */}
         <Card>
           <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg flex flex-row items-center justify-between">
-            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Top customers by open value</CardTitle>
+            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Top customers by open value')}</CardTitle>
             <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => navigate('/crm/deals')}>
-              View pipeline →
+              {tx('View pipeline →')}
             </Button>
           </CardHeader>
           <CardContent className="px-5 py-4">
             {(topCustomers ?? []).length === 0 ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">No data yet.</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">{tx('No data yet.')}</p>
             ) : (
               <ul className="space-y-3">
                 {topCustomers?.map((c, i) => (
@@ -195,7 +196,7 @@ export function CrmDashboardPage() {
                         <button className="block max-w-[220px] truncate text-sm font-medium hover:text-primary hover:underline" onClick={() => navigate(`/customers/${c.partnerId}`)}>
                           {c.name}
                         </button>
-                        <span className="text-xs text-muted-foreground">{c.dealCount} open deal{c.dealCount === 1 ? '' : 's'}</span>
+                        <span className="text-xs text-muted-foreground">{c.dealCount} {tx('open deal')}{c.dealCount === 1 ? '' : 's'}</span>
                       </div>
                     </div>
                     <span className="text-sm font-bold">{money(c.dealValue, 'IDR')}</span>
@@ -210,11 +211,11 @@ export function CrmDashboardPage() {
         <div className="space-y-6">
           <Card>
             <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Upcoming tasks</CardTitle>
+              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Upcoming tasks')}</CardTitle>
             </CardHeader>
             <CardContent className="px-5 py-4">
               {(upcoming ?? []).length === 0 ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">All clear — no open tasks.</p>
+                <p className="py-4 text-center text-sm text-muted-foreground">{tx('All clear — no open tasks.')}</p>
               ) : (
                 <ul className="space-y-2">
                   {upcoming?.slice(0, 5).map((t) => (
@@ -227,7 +228,7 @@ export function CrmDashboardPage() {
                         </p>
                       </div>
                       <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]" onClick={() => completeActivity.mutate(t.id)}>
-                        <Check className="mr-1 h-3 w-3" /> Done
+                        <Check className="mr-1 h-3 w-3" /> {tx('Done')}
                       </Button>
                     </li>
                   ))}
@@ -238,14 +239,14 @@ export function CrmDashboardPage() {
 
           <Card>
             <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg flex flex-row items-center justify-between">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Recently updated deals</CardTitle>
+              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Recently updated deals')}</CardTitle>
               <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => navigate('/crm/deals')}>
-                All deals →
+                {tx('All deals →')}
               </Button>
             </CardHeader>
             <CardContent className="px-5 py-4">
               {(recent?.data ?? []).length === 0 ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">No deals yet.</p>
+                <p className="py-4 text-center text-sm text-muted-foreground">{tx('No deals yet.')}</p>
               ) : (
                 <ul className="space-y-2">
                   {recent?.data.slice(0, 5).map((d) => (

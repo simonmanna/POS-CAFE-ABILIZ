@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -31,15 +32,15 @@ export const PrintBlockedDialog: React.FC<Props> = ({ open, kind, names, onClose
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <Printer className="h-4 w-4 text-rose-600" />
-          Cannot print {kind}
+          {tx('Cannot print')} {kind}
         </DialogTitle>
         <DialogDescription>
-          An item on this order has no quantity, so there is nothing valid to print. Set a quantity (or void the line) and try again.
+          {tx('An item on this order has no quantity, so there is nothing valid to print. Set a quantity (or void the line) and try again.')}
         </DialogDescription>
       </DialogHeader>
       {names ? (
         <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
-          Set a quantity for: {names}
+          {tx('Set a quantity for:')} {names}
         </div>
       ) : null}
       <DialogFooter>

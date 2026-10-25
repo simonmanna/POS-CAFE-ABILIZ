@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCustomers, useCreateCustomer } from './api';
 import type { Customer } from './types';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -45,8 +46,8 @@ export const CustomerDialog: React.FC<Props> = ({ open, onClose, onPick }) => {
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-[750px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><User className="h-4 w-4" /> Attach customer</DialogTitle>
-          <DialogDescription>Search an existing customer or create a new one on the fly.</DialogDescription>
+          <DialogTitle className="flex items-center gap-2"><User className="h-4 w-4" /> {tx('Attach customer')}</DialogTitle>
+          <DialogDescription>{tx('Search an existing customer or create a new one on the fly.')}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2">
@@ -56,13 +57,13 @@ export const CustomerDialog: React.FC<Props> = ({ open, onClose, onPick }) => {
               autoFocus
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search by name or phone…"
+              placeholder={tx('Search by name or phone…')}
               className="pl-8"
             />
           </div>
           <div className="border rounded-lg max-h-[180px] overflow-y-auto">
             {list.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-4">No customers found</p>
+              <p className="text-xs text-slate-400 text-center py-4">{tx('No customers found')}</p>
             ) : (
               list.map((c: any) => (
                 <button
@@ -86,29 +87,29 @@ export const CustomerDialog: React.FC<Props> = ({ open, onClose, onPick }) => {
 
         <div className="border-t border-slate-200 pt-3">
           <p className="text-xs uppercase tracking-wider text-slate-500 font-bold mb-2 flex items-center gap-1">
-            <UserPlus className="h-3 w-3" /> Create new
+            <UserPlus className="h-3 w-3" /> {tx('Create new')}
           </p>
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label>Name *</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Walk-in" />
+              <Label>{tx('Name *')}</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={tx('Walk-in')} />
             </div>
             <div>
-              <Label>Phone</Label>
+              <Label>{tx('Phone')}</Label>
               <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0700…" />
             </div>
             <div className="col-span-2">
-              <Label>Email</Label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="optional" />
+              <Label>{tx('Email')}</Label>
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder={tx('optional')} />
             </div>
           </div>
           {err ? <p className="text-xs text-rose-600 mt-1">{err}</p> : null}
         </div>
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{tx('Cancel')}</Button>
           <Button onClick={createAndAttach} disabled={busy || !name.trim()}>
-            <UserPlus className="h-4 w-4 mr-1" /> Create & attach
+            <UserPlus className="h-4 w-4 mr-1" /> {tx('Create & attach')}
           </Button>
         </DialogFooter>
       </DialogContent>

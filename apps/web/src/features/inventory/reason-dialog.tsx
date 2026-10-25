@@ -4,6 +4,7 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog';
+import { tx } from '@/lib/i18n/tx';
 
 interface ReasonDialogProps {
   open: boolean;
@@ -39,7 +40,7 @@ export function ReasonDialog({
         </DialogHeader>
         <div className="space-y-1.5">
           <label className="text-sm font-medium" htmlFor="reason-dialog-text">
-            Reason <span className="text-destructive">*</span>
+            {tx('Reason')} <span className="text-destructive">*</span>
           </label>
           <Textarea
             id="reason-dialog-text"
@@ -51,7 +52,7 @@ export function ReasonDialog({
           />
         </div>
         <DialogFooter className="gap-2">
-          <Button variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>Back</Button>
+          <Button variant="outline" disabled={pending} onClick={() => onOpenChange(false)}>{tx('Back')}</Button>
           <Button
             variant={destructive ? 'destructive' : 'default'}
             disabled={!trimmed || pending}

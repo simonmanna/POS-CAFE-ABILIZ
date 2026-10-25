@@ -19,6 +19,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { date, money } from '@/lib/format';
 import { useAccounts, useGeneralLedger } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 const PAGE_SIZE = 50;
 
@@ -52,9 +53,9 @@ export function GeneralLedgerPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">General Ledger</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('General Ledger')}</h1>
           <p className="text-sm text-gray-500">
-            Every journal line — chronologically sorted, with debit and credit details per account.
+            {tx('Every journal line — chronologically sorted, with debit and credit details per account.')}
           </p>
         </div>
       </div>
@@ -62,21 +63,21 @@ export function GeneralLedgerPage() {
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3 p-3 bg-white border rounded-lg shadow-sm">
         <div className="space-y-1 min-w-[150px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">From</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('From')}</Label>
           <Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1); }}
             className="h-9 text-xs" />
         </div>
         <div className="space-y-1 min-w-[150px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">To</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('To')}</Label>
           <Input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1); }}
             className="h-9 text-xs" />
         </div>
         <div className="space-y-1 min-w-[200px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Account</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Account')}</Label>
           <Select value={filterAccountId} onValueChange={(v) => { setFilterAccountId(v === '_all' ? '' : v); setPage(1); }}>
-            <SelectTrigger className="h-9 text-xs"><SelectValue placeholder="All Accounts" /></SelectTrigger>
+            <SelectTrigger className="h-9 text-xs"><SelectValue placeholder={tx('All Accounts')} /></SelectTrigger>
             <SelectContent className="max-h-64">
-              <SelectItem value="_all">All Accounts</SelectItem>
+              <SelectItem value="_all">{tx('All Accounts')}</SelectItem>
               {accounts.map((a) => (
                 <SelectItem key={a.id} value={a.id}>{a.code} — {a.name}</SelectItem>
               ))}
@@ -86,12 +87,12 @@ export function GeneralLedgerPage() {
         {(from || to || filterAccountId) && (
           <Button variant="ghost" size="sm" onClick={() => { setFrom(''); setTo(''); setFilterAccountId(''); setPage(1); }}
             className="h-9 text-xs gap-1">
-            <X className="h-3 w-3" /> Clear
+            <X className="h-3 w-3" /> {tx('Clear')}
           </Button>
         )}
         <div className="flex-1 text-right text-xs text-muted-foreground">
           {meta && (
-            <span>{filteredRows.length} of {meta.total} line{meta.total !== 1 ? 's' : ''}</span>
+            <span>{filteredRows.length} of {meta.total} {tx('line')}{meta.total !== 1 ? 's' : ''}</span>
           )}
         </div>
       </div>
@@ -100,11 +101,11 @@ export function GeneralLedgerPage() {
       <Card>
         <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg flex-row items-center justify-between">
           <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-            General Ledger Lines
+            {tx('General Ledger Lines')}
           </CardTitle>
           {!isLoading && meta && (
             <p className="text-[10px] font-medium text-muted-foreground">
-              Page {page} of {meta.totalPages}
+              {tx('Page')} {page} of {meta.totalPages}
             </p>
           )}
         </CardHeader>
@@ -112,12 +113,12 @@ export function GeneralLedgerPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">Date</TableHead>
-                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">Entry #</TableHead>
-                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">Account</TableHead>
-                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">Description</TableHead>
-                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right">Debit</TableHead>
-                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right">Credit</TableHead>
+                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">{tx('Date')}</TableHead>
+                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">{tx('Entry #')}</TableHead>
+                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">{tx('Account')}</TableHead>
+                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">{tx('Description')}</TableHead>
+                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right">{tx('Debit')}</TableHead>
+                <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right">{tx('Credit')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -134,8 +135,8 @@ export function GeneralLedgerPage() {
                   <TableCell colSpan={6} className="text-center py-12 text-muted-foreground">
                     <div className="flex flex-col items-center gap-1">
                       <ArrowUpDown className="h-8 w-8 opacity-30" />
-                      <p className="font-medium text-sm">No ledger entries found</p>
-                      <p className="text-xs">Try adjusting the date range or account filter</p>
+                      <p className="font-medium text-sm">{tx('No ledger entries found')}</p>
+                      <p className="text-xs">{tx('Try adjusting the date range or account filter')}</p>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -174,7 +175,7 @@ export function GeneralLedgerPage() {
               {/* Totals row */}
               {!isLoading && filteredRows.length > 0 && (
                 <TableRow className="font-bold bg-muted/10 border-t-2">
-                  <TableCell colSpan={4} className="text-xs">Page Totals</TableCell>
+                  <TableCell colSpan={4} className="text-xs">{tx('Page Totals')}</TableCell>
                   <TableCell className="text-right text-xs text-emerald-600">{money(totalDebit)}</TableCell>
                   <TableCell className="text-right text-xs">{money(totalCredit)}</TableCell>
                 </TableRow>
@@ -187,16 +188,16 @@ export function GeneralLedgerPage() {
       {/* Pagination */}
       {meta && meta.totalPages > 1 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} total lines</span>
+          <span>{meta.total} {tx('total lines')}</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {tx('Previous')}
             </Button>
             <span className="text-xs font-medium">
-              Page {meta.page} of {meta.totalPages}
+              {tx('Page')} {meta.page} of {meta.totalPages}
             </span>
             <Button variant="outline" size="sm" disabled={page >= meta.totalPages} onClick={() => setPage((p) => p + 1)}>
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>

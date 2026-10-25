@@ -5,6 +5,7 @@ import { useRepairJobs } from '@/features/repair/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { date } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUS_FILTERS = [
   { value: '', label: 'All' },
@@ -32,8 +33,8 @@ export function RepairJobsPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Work Orders</h1>
-          <p className="text-sm text-muted-foreground">Workshop jobs across all repair orders.</p>
+          <h1 className="text-xl font-semibold">{tx('Work Orders')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Workshop jobs across all repair orders.')}</p>
         </div>
       </div>
 
@@ -47,11 +48,11 @@ export function RepairJobsPage() {
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} work orders</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('work orders')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No work orders match the filter.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No work orders match the filter.')}</p>}
             {rows.map((j: any) => (
               <Link key={j.id} to={`/repair/orders/${j.repairOrderId}`} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <div className="flex items-center gap-3">

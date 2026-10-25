@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
 import { Users, Clock, CalendarCheck, CalendarX2, Wallet, Building2 } from 'lucide-react';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -29,9 +30,9 @@ export function HrDashboardPage() {
   return (
     <div className="space-y-4 p-6">
       <div>
-        <h1 className="text-xl font-semibold">Workforce Management</h1>
+        <h1 className="text-xl font-semibold">{tx('Workforce Management')}</h1>
         <p className="text-sm text-muted-foreground">
-          Employees, attendance, timesheets, leave and payroll in one place.
+          {tx('Employees, attendance, timesheets, leave and payroll in one place.')}
         </p>
       </div>
 
@@ -50,7 +51,7 @@ export function HrDashboardPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="text-sm">Today's attendance</CardTitle>
+            <CardTitle className="text-sm">{tx('Today\'s attendance')}</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <div className="grid grid-cols-2 divide-x divide-y sm:grid-cols-4">
@@ -71,12 +72,12 @@ export function HrDashboardPage() {
 
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="text-sm">Latest payroll run</CardTitle>
+            <CardTitle className="text-sm">{tx('Latest payroll run')}</CardTitle>
           </CardHeader>
           <CardContent className="p-4">
-            {isLoading && <p className="text-sm text-muted-foreground">Loading…</p>}
+            {isLoading && <p className="text-sm text-muted-foreground">{tx('Loading…')}</p>}
             {!isLoading && !data?.lastRun && (
-              <p className="text-sm text-muted-foreground">No payroll runs yet.</p>
+              <p className="text-sm text-muted-foreground">{tx('No payroll runs yet.')}</p>
             )}
             {data?.lastRun && (
               <div className="space-y-2">
@@ -90,15 +91,15 @@ export function HrDashboardPage() {
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-md bg-muted/30 p-2">
-                    <p className="text-xs text-muted-foreground">Gross</p>
+                    <p className="text-xs text-muted-foreground">{tx('Gross')}</p>
                     <p className="text-sm font-semibold">{fmt(data.lastRun.totalGross)}</p>
                   </div>
                   <div className="rounded-md bg-muted/30 p-2">
-                    <p className="text-xs text-muted-foreground">Deductions</p>
+                    <p className="text-xs text-muted-foreground">{tx('Deductions')}</p>
                     <p className="text-sm font-semibold">{fmt(data.lastRun.totalDeductions)}</p>
                   </div>
                   <div className="rounded-md bg-muted/30 p-2">
-                    <p className="text-xs text-muted-foreground">Net</p>
+                    <p className="text-xs text-muted-foreground">{tx('Net')}</p>
                     <p className="text-sm font-semibold">{fmt(data.lastRun.totalNet)}</p>
                   </div>
                 </div>

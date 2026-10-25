@@ -5,6 +5,7 @@ import { Coffee, X, Check, Minus, Plus, ArrowLeft } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useMenuItemBundle, type ModifierGroupFE } from './pos-features-api';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -246,7 +247,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
             <StepDots current={2} total={3} />
           </div>
           <DialogDescription>
-            <span className="text-amber-600 font-semibold text-xs uppercase tracking-wide">Step 3 of 3</span> — Add-ons, modifiers & notes
+            <span className="text-amber-600 font-semibold text-xs uppercase tracking-wide">{tx('Step 3 of 3')}</span> {tx('— Add-ons, modifiers & notes')}
           </DialogDescription>
         </DialogHeader>
 
@@ -254,27 +255,27 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
           <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
             {/* Line quantity */}
             <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-2">
-              <span className="text-sm font-bold text-slate-700">Quantity</span>
+              <span className="text-sm font-bold text-slate-700">{tx('Quantity')}</span>
               <div className="flex items-center gap-3">
-                <button type="button" aria-label="decrease quantity" onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="w-9 h-9 rounded-md border border-slate-300 font-bold text-xl leading-none hover:bg-slate-50 transition-colors">−</button>
+                <button type="button" aria-label={tx('decrease quantity')} onClick={() => setQuantity((q) => Math.max(1, q - 1))} className="w-9 h-9 rounded-md border border-slate-300 font-bold text-xl leading-none hover:bg-slate-50 transition-colors">−</button>
                 <span className="w-8 text-center font-mono font-bold text-lg">{quantity}</span>
-                <button type="button" aria-label="increase quantity" onClick={() => setQuantity((q) => q + 1)} className="w-9 h-9 rounded-md border border-slate-300 font-bold text-xl leading-none hover:bg-slate-50 transition-colors">+</button>
+                <button type="button" aria-label={tx('increase quantity')} onClick={() => setQuantity((q) => q + 1)} className="w-9 h-9 rounded-md border border-slate-300 font-bold text-xl leading-none hover:bg-slate-50 transition-colors">+</button>
               </div>
             </div>
 
             {bundle.groups.length === 0 ? (
               <div className="text-sm text-slate-500 italic text-center py-4">
-                No options for this product.
+                {tx('No options for this product.')}
               </div>
             ) : (
               <>
                 {hasAddOns && (
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">Add-ons</div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">{tx('Add-ons')}</div>
                 )}
                 {bundle.groups.filter((g) => g.groupType === 'ADD_ON').map(renderGroup)}
 
                 {hasModifiers && (
-                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1 pt-2">Modifiers</div>
+                  <div className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1 pt-2">{tx('Modifiers')}</div>
                 )}
                 {bundle.groups.filter((g) => g.groupType === 'MODIFIER').map(renderGroup)}
               </>
@@ -282,11 +283,11 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
 
             {/* Kitchen note */}
             <div>
-              <div className="text-xs font-semibold text-slate-500 mb-1">Note for kitchen</div>
+              <div className="text-xs font-semibold text-slate-500 mb-1">{tx('Note for kitchen')}</div>
               <input
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                placeholder="e.g. extra hot, no sugar"
+                placeholder={tx('e.g. extra hot, no sugar')}
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400"
               />
             </div>
@@ -294,7 +295,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
             {/* Combined price (base + extras) */}
             <div className="rounded-lg bg-slate-900 text-white px-3 py-3 flex items-center justify-between">
               <span className="text-sm font-semibold">
-                Item price
+                {tx('Item price')}
                 {quantity > 1 ? ` (×${quantity} @ ${fmt(effectiveBasePrice + extraPrice)} each)` : ''}
               </span>
               <span className="font-mono font-bold text-lg">{fmt((effectiveBasePrice + extraPrice) * quantity)}</span>
@@ -302,7 +303,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
 
             {validation.missing.length > 0 ? (
               <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded px-2 py-1">
-                Required: {validation.missing.join(', ')}
+                {tx('Required:')} {validation.missing.join(', ')}
               </div>
             ) : null}
           </div>
@@ -312,11 +313,11 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
           <div className="flex gap-2">
             {onBack && (
               <Button variant="ghost" onClick={onBack}>
-                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+                <ArrowLeft className="h-4 w-4 mr-1" /> {tx('Back')}
               </Button>
             )}
             <Button variant="ghost" onClick={onClose}>
-              <X className="h-4 w-4 mr-1" /> Cancel
+              <X className="h-4 w-4 mr-1" /> {tx('Cancel')}
             </Button>
           </div>
           <Button
@@ -352,7 +353,7 @@ export const AddOnsDialog: React.FC<Props> = ({ open, productId, basePrice, onCl
             disabled={!bundle || !validation.ok}
             style={{ background: '#16a34a' }}
           >
-            <Check className="h-4 w-4 mr-1" /> Add to cart
+            <Check className="h-4 w-4 mr-1" /> {tx('Add to cart')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -95,7 +95,7 @@ import {
 import { OrdersListPanel } from './OrdersListPanel';
 import { useMenuItemsAvailable } from '@/features/menu/api';
 import { useMenuItemBundle, useCombos } from './pos-features-api';
-import { api, resolveAssetUrl } from '@/lib/api';
+import { api, resolveAssetUrl, serverUnreachable, noteServerReachable } from '@/lib/api';
 import { useCartStore, selectSubtotal, selectTotal } from '@/features/pos/cart.store';
 import type { CartLine, DiscountType, PaymentTender } from '@/features/pos/types';
 import { cartReadyToCommit } from '@/features/pos/cart-guard';
@@ -103,12 +103,14 @@ import type { Customer, SettleMode } from './types';
 
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import { usePosSettings } from '@/features/pos/api';
+import { checkServerOnline, replayAll } from '@/features/pos/offline-queue';
 import { useScannerDebounce } from './scanner-debounce';
 import PosLoginScreen from './PosLoginScreen';
 import RetailTerminal from './RetailTerminal';
 import RentalTerminal from './RentalTerminal';
 
 import './pos-pro.css';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `${useAuthStore.getState().organization?.currencyCode ?? 'IDR'} ${Number(n || 0).toLocaleString()}`;
 
@@ -588,7 +590,7 @@ const TerminalPage: React.FC = () => {
           ? (await api.get(`/pos/orders/${scope.orderId}/resume`)).data
           : null;
     } catch {
-      toast.error('Could not re-read this order. Your cart is preserved — try again.');
+      toast.error(tx('Could not re-read this order. Your cart is preserved — try again.'));
       return false;
     }
     // A table/order switch while we were fetching makes this answer stale.
@@ -615,7 +617,7 @@ const TerminalPage: React.FC = () => {
         tableCartsRef.current.delete('walk-in');
         setSelectedTableId(null);
         setTableView('grid');
-        toast.warning('That bill was settled or cancelled on another terminal. This cart was cleared.');
+        toast.warning(tx('That bill was settled or cancelled on another terminal. This cart was cleared.'));
         return true;
       }
       // Settled, cancelled or billed elsewhere. Unbind so the next save opens a
@@ -626,7 +628,7 @@ const TerminalPage: React.FC = () => {
       st.setServerLineIds({});
       tabSyncSig.current = '__unsaved_draft__';
       orderSaveSig.current = '';
-      toast.warning('That order was closed elsewhere. Your items are kept and will start a new order.');
+      toast.warning(tx('That order was closed elsewhere. Your items are kept and will start a new order.'));
       return true;
     }
 
@@ -649,8 +651,19 @@ const TerminalPage: React.FC = () => {
   }, [adoptServerLines]);
 
   /* Flush the current order (table OR tableless) before switching away. */
-  const flushCurrentOrder = useCallback(async () => {
+  const flushCurrentOrder = useCallback(async (opts: { requireServer?: boolean } = {}) => {
     if (useCartStore.getState().operationPending) throw new Error('Resolve the pending payment before changing orders');
+    /* No connection: there is nothing to flush. The cart lives on this device
+     * (persisted) and is pushed the moment the API answers again, so refusing
+     * every button here is what made the terminal unusable without a server —
+     * a cashier pressing anything got "Wait for the current order save to
+     * finish" for as long as the outage lasted. Only the actions that genuinely
+     * need the server (printing, splitting, moving/merging tables, switching to
+     * another order) are refused, and they say why. */
+    if (serverUnreachable()) {
+      if (opts.requireServer) throw new Error('No connection to the server — this action needs it. The order is safe on this device.');
+      return;
+    }
     if (saveInFlight.current || saveTab.isPending || saveOrderItems.isPending) throw new Error('Wait for the current order save to finish');
     if (pendingOrderCreate.current) throw new Error('Wait for the new order to finish saving');
     const st = useCartStore.getState();
@@ -716,7 +729,9 @@ const TerminalPage: React.FC = () => {
     const previous = useCartStore.getState();
     if (previous.tableId === t.id) { setSelectedTableId(t.id); setTableView('ordering'); return; }
     try {
-      await flushCurrentOrder();
+      // Switching reads the other table's order off the server and replaces the
+      // cart, so an unsaved offline cart must not be dropped into that gap.
+      await flushCurrentOrder({ requireServer: true });
       const switchingSignature = orderSig(useCartStore.getState().lines);
       setPendingTableLoad(t.id);
       const doc = (await api.get(`/pos/tabs/${t.id}`)).data as any;
@@ -801,7 +816,7 @@ const TerminalPage: React.FC = () => {
           if (st.orderId) {
             st.clear();
             tabSyncSig.current = orderSig([]);
-            toast.warning("That table's bill was settled or cancelled on another terminal. This cart was cleared.");
+            toast.warning(tx('That table\'s bill was settled or cancelled on another terminal. This cart was cleared.'));
           } else {
             tabSyncSig.current = st.lines.length ? '__unsaved_draft__' : orderSig([]);
           }
@@ -840,6 +855,10 @@ const TerminalPage: React.FC = () => {
 
     const h = setTimeout(async () => {
       if (useCartStore.getState().operationPending) return;
+      /* No server: do not spend a timeout per keystroke discovering that again.
+       * The cart is persisted on this device and the reconnect watcher below
+       * pushes it as soon as the API answers. */
+      if (serverUnreachable()) return;
       // One save at a time, decided at fire time — see `saveInFlight`.
       if (saveInFlight.current) { setSaveTick((n) => n + 1); return; }
       saveInFlight.current = true;
@@ -869,7 +888,7 @@ const TerminalPage: React.FC = () => {
         if (e?.response?.status !== 409) {
           toast.error(e?.response?.data?.message || 'Order save failed; your cart is preserved');
         } else if ((conflictStreak.current += 1) > 3) {
-          toast.error('This order keeps changing on another device. Reopen the table before charging.');
+          toast.error(tx('This order keeps changing on another device. Reopen the table before charging.'));
         } else {
           rearm = await reconcileOrderConflict({ tableId });
         }
@@ -886,6 +905,26 @@ const TerminalPage: React.FC = () => {
   const locked = !sessionLoading && !session && !sessionFetching;
   const orderTypeFromStore = useCartStore((s) => s.orderType);
 
+  /* ── Reconnect watcher ────────────────────────────────────────────────────
+   * While the API is unreachable the auto-saves stand down, so something has to
+   * notice when it comes back. A cheap 3s probe (no auth, no toast) runs every
+   * 8s ONLY while a request has recently failed; the moment it answers, the
+   * failure is cleared and both auto-saves are re-armed, pushing whatever the
+   * cashier rang up during the outage. */
+  useEffect(() => {
+    const id = setInterval(async () => {
+      if (!serverUnreachable()) return;
+      if (await checkServerOnline()) {
+        noteServerReachable();
+        setSaveTick((n) => n + 1);
+        // Push anything the outage queued. In local-only connection mode the
+        // queue hook does no monitoring of its own, so nothing else would.
+        replayAll().catch(() => { /* the next tick tries again */ });
+      }
+    }, 8000);
+    return () => clearInterval(id);
+  }, []);
+
   /* ── Odoo-style tableless multi-order (takeaway / delivery walk-ins) ──────
    * Dine-in persists via the table tab above. For a tableless order we mirror it:
    * auto-create an open Order on the first item so it's resumable from the Orders
@@ -894,6 +933,7 @@ const TerminalPage: React.FC = () => {
   useEffect(() => {
     if (locked || tableId || orderId || pendingOrderCreate.current) return;
     if (lines.length === 0 || orderTypeFromStore === 'dine-in') return;
+    if (serverUnreachable()) return; // the local cart still settles via checkout
     pendingOrderCreate.current = true;
     const creatingSignature = orderSig(useCartStore.getState().lines);
     createOrderMut.mutateAsync({
@@ -922,9 +962,10 @@ const TerminalPage: React.FC = () => {
     const t = setTimeout(async () => {
       const st = useCartStore.getState();
       if (st.orderId !== orderId || st.tableId || st.operationPending) return;
+      if (serverUnreachable()) return; // see the tab auto-save above
       if (saveInFlight.current) { setSaveTick((n) => n + 1); return; }
       if (st.lines.length === 0) {
-        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { toast.error('Could not save the empty order'); return; }
+        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { toast.error(tx('Could not save the empty order')); return; }
         if (useCartStore.getState().orderId === orderId) { setOrderId(undefined); useCartStore.getState().setTabVersion(undefined); }
         orderSaveSig.current = '';
         return;
@@ -952,7 +993,7 @@ const TerminalPage: React.FC = () => {
           // cashier found out at the till.
           toast.error(e?.response?.data?.message || 'Order save failed; your cart is preserved');
         } else if ((conflictStreak.current += 1) > 3) {
-          toast.error('This order keeps changing on another device. Reopen it from the Orders panel before charging.');
+          toast.error(tx('This order keeps changing on another device. Reopen it from the Orders panel before charging.'));
         } else {
           rearm = await reconcileOrderConflict({ orderId });
         }
@@ -969,7 +1010,8 @@ const TerminalPage: React.FC = () => {
    * a table from the full-page floor grid first, exactly like after a PIN
    * login. The previous order stays open in the panel. */
   const newOrderSelectTable = useCallback(async () => {
-    try { await flushCurrentOrder(); } catch (e: any) { toast.error(e?.response?.data?.message || e?.message); return; }
+    // Starting a fresh order abandons this cart, so it must really be saved.
+    try { await flushCurrentOrder({ requireServer: true }); } catch (e: any) { toast.error(e?.response?.data?.message || e?.message); return; }
     clearCart();
     orderSaveSig.current = '';
     tabSyncSig.current = orderSig([]);
@@ -985,7 +1027,8 @@ const TerminalPage: React.FC = () => {
     setShowOrders(false);
     if (useCartStore.getState().orderId === id) return;
     try {
-      await flushCurrentOrder();
+      // Resuming another order replaces the cart from the server.
+      await flushCurrentOrder({ requireServer: true });
       const switchingSignature = orderSig(useCartStore.getState().lines);
       const view: any = await resumeOrderMut.mutateAsync(id);
       if (orderSig(useCartStore.getState().lines) !== switchingSignature) throw new Error('The cart changed while opening the order. Your changes are preserved.');
@@ -1125,7 +1168,7 @@ const TerminalPage: React.FC = () => {
       });
       setSearch('');
     } catch {
-      if (seq === scanSeq.current) toast.error('Could not look that code up — check the connection and try again');
+      if (seq === scanSeq.current) toast.error(tx('Could not look that code up — check the connection and try again'));
     }
   }, [products, onPickProduct, locked]);
   useScannerDebounce(search, onScan);
@@ -1179,7 +1222,7 @@ const TerminalPage: React.FC = () => {
         const msg = e?.response?.data?.message || '';
         if (e?.response?.status !== 403 || !/manager approval/i.test(msg)) throw e;
         const approval = await requestOverride('void');
-        if (!approval) { toast.error('Manager approval cancelled — the item is still on the order'); return; }
+        if (!approval) { toast.error(tx('Manager approval cancelled — the item is still on the order')); return; }
         view = await send(approval);
       }
       // Re-read so the cart matches the order the server now holds (quantities,
@@ -1228,7 +1271,7 @@ const TerminalPage: React.FC = () => {
     if (amount > 0) {
       toast.success(type === 'fixed_amount' ? `Line discount ${fmt(amount)} applied` : `Line discount ${amount}% applied`);
     } else {
-      toast.success('Line discount cleared');
+      toast.success(tx('Line discount cleared'));
     }
   };
   const onLineNote = (line: CartLine) => {
@@ -1256,7 +1299,7 @@ const TerminalPage: React.FC = () => {
     if (needsOverride) {
       requestOverride('discount').then((result) => {
         if (!result) {
-          toast.error('Manager override cancelled');
+          toast.error(tx('Manager override cancelled'));
           return;
         }
         setTransactionDiscount(amount, type);
@@ -1273,15 +1316,19 @@ const TerminalPage: React.FC = () => {
 
   /* ============== Charge (payment) ============== */
   const onCharge = () => {
-    if (!saleQuote.data || saleQuote.isFetching || saleQuote.isError) { toast.error('Wait for the server price quote before charging'); return; }
-    if (pendingOrderCreate.current) { toast.info('Saving the new order; try again shortly'); return; }
+    /* The server price quote is required whenever the server can be asked. With
+     * no connection there is nothing to wait for: the cart's own total stands in,
+     * the sale is queued, and the server re-prices it on replay. Demanding the
+     * quote offline meant the till could take no money at all. */
+    if (!serverUnreachable() && (!saleQuote.data || saleQuote.isFetching || saleQuote.isError)) { toast.error(tx('Wait for the server price quote before charging')); return; }
+    if (pendingOrderCreate.current) { toast.info(tx('Saving the new order; try again shortly')); return; }
     if (!cartReadyToCommit(lines)) return;
     setShowPayment(true);
   };
 
   /* Settle (pay) the table's order. Flush any pending edit, then open payment. */
   const handleSettleTab = async () => {
-    if (!tableId) { toast.error('Nothing to settle'); return; }
+    if (!tableId) { toast.error(tx('Nothing to settle')); return; }
     if (!cartReadyToCommit(lines)) return;
     try {
       if (splitActive) {
@@ -1304,6 +1351,9 @@ const TerminalPage: React.FC = () => {
   /* Move Items — invoked by MoveItemsDialog after step 2 (destination + selection). */
   const doMoveItems = useCallback(async (targetId: string, selection: Array<{ lineId: string; quantity: number }>) => {
     if (!tableId || !selection.length) return;
+    // Both tables' orders are rewritten by the server; there is no local form of
+    // this, so say so rather than failing inside the save.
+    if (serverUnreachable()) { toast.error(tx('No connection to the server — moving items between tables needs it.')); return; }
     setTransferBusy(true);
     try {
       const currentLines = useCartStore.getState().lines;
@@ -1319,7 +1369,7 @@ const TerminalPage: React.FC = () => {
           return srv ? { lineId: srv.id as string, quantity: s.quantity } : null;
         })
         .filter((x): x is { lineId: string; quantity: number } => x != null);
-      if (items.length === 0) { toast.error('Could not match the selected items to the saved order'); return; }
+      if (items.length === 0) { toast.error(tx('Could not match the selected items to the saved order')); return; }
       const res = await transferItemsMut.mutateAsync({ sourceId: tableId, targetId, items });
       const moved = ((res as any)?.movedSummary ?? []).reduce((s: number, i: any) => s + Number(i.quantity), 0);
       const dest = tables.find((t) => t.id === targetId);
@@ -1348,7 +1398,7 @@ const TerminalPage: React.FC = () => {
     if (!tableId || sourceIds.length === 0) return;
     setMergeBusy(true);
     try {
-      await flushCurrentOrder();
+      await flushCurrentOrder({ requireServer: true });
       const mergedLabels: string[] = [];
       for (const sourceId of sourceIds) {
         await mergeTablesMut.mutateAsync({ sourceId, targetId: tableId });
@@ -1414,7 +1464,7 @@ const TerminalPage: React.FC = () => {
           const msg = e?.response?.data?.message || '';
           if (e?.response?.status !== 403 || !/manager approval/i.test(msg)) throw e;
           approval = await requestOverride('void');
-          if (!approval) { toast.error('Manager approval cancelled — the order is still open'); return; }
+          if (!approval) { toast.error(tx('Manager approval cancelled — the order is still open')); return; }
           await send();
         }
       }
@@ -1432,7 +1482,7 @@ const TerminalPage: React.FC = () => {
    * checkout). It used to build a second Order of its own, which left the
    * original one open, kept the table busy and skipped the idempotency key. */
   const onCreditSale = async () => {
-    if (!customer?.id) { toast.error('Select a customer to charge on account'); return; }
+    if (!customer?.id) { toast.error(tx('Select a customer to charge on account')); return; }
     if (!cartReadyToCommit(lines)) return;
     await onSettle({ tenders: [], transactionDiscountPercent: 0, settleMode: 'credit' });
   };
@@ -1459,12 +1509,12 @@ const TerminalPage: React.FC = () => {
    * either release the customer unpaid or take the money a second time. */
   const notifySettleFailure = useCallback((e: any) => {
     if (!e?.response) {
-      toast.warning('Saved — this sale posts as soon as the connection returns. Do not ring it again.');
+      toast.warning(tx('Saved — this sale posts as soon as the connection returns. Do not ring it again.'));
       return;
     }
     const status = Number(e.response.status);
     if (status >= 500 || status === 408) {
-      toast.warning('Payment not confirmed. Recover the original attempt before starting another sale.');
+      toast.warning(tx('Payment not confirmed. Recover the original attempt before starting another sale.'));
       return;
     }
     // A genuine 4xx: nothing committed and the cart is intact, so the message
@@ -1481,7 +1531,7 @@ const TerminalPage: React.FC = () => {
   ): Promise<boolean> => {
     if (/discount reason is required/i.test(msg)) {
       const reason = await requestDiscountReason();
-      if (!reason) { toast.error('A discount reason is required to complete this sale'); return false; }
+      if (!reason) { toast.error(tx('A discount reason is required to complete this sale')); return false; }
       useCartStore.setState({ transactionDiscountReason: reason });
       await retry(input);
       return true;
@@ -1495,8 +1545,36 @@ const TerminalPage: React.FC = () => {
     return false;
   }, [requestDiscountReason, requestOverride]);
 
+  /* A settle whose request never reached the server (no response at all) is
+   * already safe: `submitSaleOperation` wrote the operation envelope to IndexedDB
+   * BEFORE the first attempt, so it replays under its own idempotency key the
+   * moment the API answers. What used to happen next was the problem — the error
+   * was rethrown with `operationPending` still raised, which locks the cart
+   * store, so a single offline sale took the till out of service for the rest of
+   * the outage. Finish the sale here instead: release the drawer, show the
+   * receipt marked as sync-pending, and serve the next customer. */
+  const finishUnreachableSale = (finish: () => void, receipt: {
+    total: number; discountPercent: number; discountAmount?: number;
+  }) => {
+    // setState, not the store action: the guarded setter refuses every write
+    // while a payment is pending, which is exactly the flag being cleared.
+    useCartStore.setState({ operationPending: false });
+    setLastCompleted({
+      lines: cartToReceiptLines(useCartStore.getState().lines),
+      total: receipt.total,
+      discountPercent: receipt.discountPercent,
+      discountAmount: receipt.discountAmount ?? 0,
+      orderTypeLabel: orderTypeLabel ?? undefined,
+      tableLabel: activeTableLabel ?? undefined,
+      customerName: customer?.name,
+    });
+    finish();
+  };
+
   const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; amountTendered?: number; overrideById?: string; overridePin?: string; settleMode?: SettleMode }) => {
-    if (!saleQuote.data || saleQuote.isError || saleQuote.isFetching) throw new Error('A current server price quote is required before payment');
+    // Offline the quote cannot be had; the cart total stands in and the queued
+    // sale is re-priced by the server on replay (see onCharge).
+    if (!serverUnreachable() && (!saleQuote.data || saleQuote.isError || saleQuote.isFetching)) throw new Error('A current server price quote is required before payment');
     const isCredit = input.settleMode === 'credit';
     /* Credit collects nothing, so there is no change to announce — say who now
      * owes what instead. */
@@ -1568,7 +1646,8 @@ const TerminalPage: React.FC = () => {
         const msg = e?.response?.data?.message || e?.message || 'Settle failed';
         if (await recoverFromPricingRejection(msg, input, onSettle)) return;
         notifySettleFailure(e);
-        if (e?.response && Number(e.response.status) < 500) toast.error(msg);
+        if (!e?.response) { finishUnreachableSale(finishSettle, { total, discountPercent: effectiveTxPct }); return; }
+        if (Number(e.response.status) < 500) toast.error(msg);
         throw e;
       }
       return;
@@ -1617,7 +1696,11 @@ const TerminalPage: React.FC = () => {
         const msg = e?.response?.data?.message || e?.message || 'Settle failed';
         if (await recoverFromPricingRejection(msg, input, onSettle)) return;
         notifySettleFailure(e);
-        if (e?.response && Number(e.response.status) < 500) toast.error(msg);
+        if (!e?.response) {
+          finishUnreachableSale(() => { clearCart(); setCustomer(null); setShowPayment(false); }, { total, discountPercent: effectiveTxPct });
+          return;
+        }
+        if (Number(e.response.status) < 500) toast.error(msg);
         throw e;
       }
       return;
@@ -1693,7 +1776,14 @@ const TerminalPage: React.FC = () => {
       const msg = e?.response?.data?.message || e?.message || 'Checkout failed';
       if (await recoverFromPricingRejection(msg, input, onSettle)) return;
       notifySettleFailure(e);
-      if (e?.response && Number(e.response.status) < 500) toast.error(msg);
+      if (!e?.response) {
+        finishUnreachableSale(() => {
+          clearCart(); setCustomer(null); setShowPayment(false);
+          if (tableId) { tabSyncSig.current = ''; tableCartsRef.current.delete(tableId); setSelectedTableId(null); setTableView('grid'); }
+        }, { total, discountPercent: effectiveTxPct });
+        return;
+      }
+      if (Number(e.response.status) < 500) toast.error(msg);
       throw e;
     }
   };
@@ -1724,7 +1814,7 @@ const TerminalPage: React.FC = () => {
    */
   const guardPrint = useCallback((kind: string) => {
     const st = useCartStore.getState().lines;
-    if (st.length === 0) { toast.error('Cart is empty'); return false; }
+    if (st.length === 0) { toast.error(tx('Cart is empty')); return false; }
     const zero = st.filter((l) => !(l.quantity > 0));
     if (zero.length) {
       setPrintBlocked({ kind, names: zero.map((l) => l.name).join(', ') });
@@ -1736,9 +1826,10 @@ const TerminalPage: React.FC = () => {
   const onPrintBill = async () => {
     if (!guardPrint('Bill')) return;
     try {
-      await flushCurrentOrder();
+      // The bill is numbered, claimed and printed by the server.
+      await flushCurrentOrder({ requireServer: true });
       const saved = (await api.get(`/pos/tabs/${selectedTableId!}`)).data as any;
-      if (!saved?.id) { toast.error('No open order on this table'); return; }
+      if (!saved?.id) { toast.error(tx('No open order on this table')); return; }
       try {
         await printBill.mutateAsync({ invoiceId: saved.id });
       } catch { /* non-fatal — print failure shouldn't block preview */ }
@@ -1752,13 +1843,13 @@ const TerminalPage: React.FC = () => {
   const onPrintAdditionalBill = async () => {
     if (!guardPrint('additional bill')) return;
     const openOrder = await resolveOpenOrder();
-    if (!openOrder) { toast.error('No open order on this table'); return; }
+    if (!openOrder) { toast.error(tx('No open order on this table')); return; }
     if (openOrder.billPrintCount === 0) {
-      toast.error('Print the initial bill first before printing an additional bill.');
+      toast.error(tx('Print the initial bill first before printing an additional bill.'));
       return;
     }
     try {
-      await flushCurrentOrder();
+      await flushCurrentOrder({ requireServer: true });
       const refreshed = (await api.get(`/pos/tabs/${selectedTableId!}`)).data as any;
       const serverLines = (refreshed?.lines ?? []) as any[];
       const matched = serverLines
@@ -1769,7 +1860,7 @@ const TerminalPage: React.FC = () => {
         .filter((line: any) => line.quantity > 0.000001)
         .map(serverLineToCart);
       if (matched.length === 0) {
-        toast.info('No new items to bill since the last print.');
+        toast.info(tx('No new items to bill since the last print.'));
         return;
       }
       const additionalSubtotal = matched.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0);
@@ -1792,7 +1883,7 @@ const TerminalPage: React.FC = () => {
    * the split references those ids. Walk-in sales fall back to multi-tender. */
   const onSplit = async () => {
     if (!tableId) {
-      toast.info('Split bill is for dine-in tables. For counter sales, add multiple tenders at payment.');
+      toast.info(tx('Split bill is for dine-in tables. For counter sales, add multiple tenders at payment.'));
       setShowPayment(true);
       return;
     }
@@ -1802,7 +1893,7 @@ const TerminalPage: React.FC = () => {
       if (st?.splitActive) {
         if (orderSig(useCartStore.getState().lines) !== tabSyncSig.current) throw new Error('Unsaved changes must be resolved before reopening the split.');
       } else {
-        await flushCurrentOrder();
+        await flushCurrentOrder({ requireServer: true });
       }
       setShowSplit(true);
     } catch (e: any) {
@@ -1923,15 +2014,15 @@ const TerminalPage: React.FC = () => {
         {locked ? (
           <div className="pos-lock-overlay-pro">
             <div className="pos-lock-icon"><LockIcon className="h-10 w-10" /></div>
-            <div className="pos-lock-title">Open your shift to start selling</div>
-            <div className="pos-lock-sub">Pick a cash register, count your opening float, then tap "Open shift".</div>
+            <div className="pos-lock-title">{tx('Open your shift to start selling')}</div>
+            <div className="pos-lock-sub">{tx('Pick a cash register, count your opening float, then tap "Open shift".')}</div>
             <button
               type="button"
               onClick={() => setShowOpenShift(true)}
               className="pos-action-btn-pro bg-emerald h-12 px-6"
               style={{ width: 'auto', paddingLeft: 24, paddingRight: 24, minHeight: 48 }}
             >
-              <Coffee className="pos-action-icon" /> Open shift
+              <Coffee className="pos-action-icon" /> {tx('Open shift')}
             </button>
           </div>
         ) : showOrders ? (
@@ -1952,26 +2043,26 @@ const TerminalPage: React.FC = () => {
               {/* Minimal header */}
               <div className="flex items-end justify-between px-6 pt-5 pb-2">
                 <div>
-                  <h2 className="text-base font-bold text-slate-700">Tables</h2>
+                  <h2 className="text-base font-bold text-slate-700">{tx('Tables')}</h2>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    {tables.length} tables · {tables.filter(t => t.status === 'occupied').length} occupied
+                    {tables.length} {tx('tables ·')} {tables.filter(t => t.status === 'occupied').length} {tx('occupied')}
                   </p>
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto px-6 pb-6">
                 {tablesLoading ? (
-                  <div className="text-center text-slate-400 py-12">Loading tables...</div>
+                  <div className="text-center text-slate-400 py-12">{tx('Loading tables...')}</div>
                 ) : tables.length === 0 ? (
                   <div className="text-center text-slate-400 py-12">
                     <LayoutGrid className="h-10 w-10 mx-auto mb-3 opacity-50" />
-                    <p className="font-semibold">No tables configured</p>
-                    <p className="text-xs mt-1">Create tables in the Tables admin page first.</p>
+                    <p className="font-semibold">{tx('No tables configured')}</p>
+                    <p className="text-xs mt-1">{tx('Create tables in the Tables admin page first.')}</p>
                   </div>
                 ) : zones.filter((z) => z.active).length === 0 ? (
                   <div className="text-center text-slate-400 py-12">
                     <LayoutGrid className="h-10 w-10 mx-auto mb-3 opacity-50" />
-                    <p className="font-semibold">No active zones</p>
-                    <p className="text-xs mt-1">All zones are Inactive — activate one in Table Zones management.</p>
+                    <p className="font-semibold">{tx('No active zones')}</p>
+                    <p className="text-xs mt-1">{tx('All zones are Inactive — activate one in Table Zones management.')}</p>
                   </div>
                 ) : (() => {
                   // Only active zones surface in the selling terminal — an
@@ -2004,7 +2095,7 @@ const TerminalPage: React.FC = () => {
                         className="w-2.5 h-2.5 rounded-full"
                         style={{ background: zMeta?.color ?? '#cbd5e1' }}
                       />
-                      {zoneLabelOf(zones, zoneKey)} · {list.length} table{list.length === 1 ? '' : 's'}
+                      {zoneLabelOf(zones, zoneKey)} · {list.length} {tx('table')}{list.length === 1 ? '' : 's'}
                     </div>
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                       {list.map((t) => {
@@ -2037,7 +2128,7 @@ const TerminalPage: React.FC = () => {
                               <div className="absolute top-2 right-2 z-10">
                                 <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
                                   <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
-                                  Draft
+                                  {tx('Draft')}
                                 </span>
                               </div>
                             )}
@@ -2048,7 +2139,7 @@ const TerminalPage: React.FC = () => {
 
                             {/* Table number below name */}
                             <div className="text-xs font-medium text-slate-400">
-                              T{t.number} · {t.seats} seats
+                              T{t.number} · {t.seats} {tx('seats')}
                             </div>
 
                             {/* Who is serving this table. Distinct names, because
@@ -2084,7 +2175,7 @@ const TerminalPage: React.FC = () => {
                               </div>
                             ) : (
                               <div className="mt-2 pt-1.5 border-t border-slate-100 text-[11px] text-slate-400 font-medium">
-                                Tap to open
+                                {tx('Tap to open')}
                               </div>
                             )}
                           </button>
@@ -2150,13 +2241,13 @@ const TerminalPage: React.FC = () => {
             onAddDiscount={() => setShowDiscount(true)}
             onPrintKot={async () => {
               if (!guardPrint('KOT')) return;
-              if (!tableId) { toast.error('Select a table before printing a KOT'); return; }
+              if (!tableId) { toast.error(tx('Select a table before printing a KOT')); return; }
               try {
                 // Match Bill: save first, then preview only the quantities not yet
                 // on a paper KOT (kotPrintedQty). This is NOT kitchenPrintedQty —
                 // auto-send stamps that on every save when an item has a KDS
                 // station, which made the very first KOT read "nothing new".
-                await flushCurrentOrder();
+                await flushCurrentOrder({ requireServer: true });
                 const saved = await api.get(`/pos/tabs/${tableId}`).then((r: any) => r.data);
                 const unprinted = ((saved?.lines ?? []) as any[])
                   .filter((line: any) => !!line.productId || !!line.menuItemId || !!line.comboId)
@@ -2166,14 +2257,14 @@ const TerminalPage: React.FC = () => {
                   }))
                   .filter((line: any) => line.quantity > 0.000001)
                   .map(serverLineToCart);
-                if (unprinted.length === 0) { toast.info('No new items to print on the KOT'); return; }
-                if (!saved?.id) { toast.error('No open order on this table'); return; }
+                if (unprinted.length === 0) { toast.info(tx('No new items to print on the KOT')); return; }
+                if (!saved?.id) { toast.error(tx('No open order on this table')); return; }
                 // Like the Bill: pressing KOT prints and claims immediately, so
                 // closing the preview can never leave these items "unprinted"
                 // and repeat them on the next KOT. The server decides the delta
                 // under the order lock; the preview just shows what went out.
                 const result: any = await printKot.mutateAsync({ invoiceId: saved.id });
-                if (result?.printedCount === 0) { toast.info('No new items to print on the KOT'); return; }
+                if (result?.printedCount === 0) { toast.info(tx('No new items to print on the KOT')); return; }
                 if (result?.ok === false && result?.message) toast.error(`KOT printer: ${result.message}`);
                 // Put anything not yet on the KDS board there too; its own paper
                 // step finds nothing left to print.
@@ -2270,7 +2361,7 @@ const TerminalPage: React.FC = () => {
       />
       <PinConfirmDialog
         open={showPinConfirm}
-        title="Delete item"
+        title={tx('Delete item')}
         description={pendingRemoveLine
           ? `Give a reason and your PIN to take "${pendingRemoveLine.name}" off this order.`
           : 'Give a reason and your PIN to take this item off the order.'}
@@ -2292,7 +2383,7 @@ const TerminalPage: React.FC = () => {
           order on this table is cancelled and the table frees up. */}
       <PinConfirmDialog
         open={showVoidOrder}
-        title="Void this order"
+        title={tx('Void this order')}
         description={activeTableLabel
           ? `Give a reason and your PIN to void every item on ${activeTableLabel}. The table is freed.`
           : 'Give a reason and your PIN to void this whole order.'}
@@ -2359,7 +2450,7 @@ const TerminalPage: React.FC = () => {
         open={showBillPreview}
         onClose={() => setShowBillPreview(false)}
         type="bill"
-        title="Bill Receipt"
+        title={tx('Bill Receipt')}
         lines={cartToReceiptLines(lines)}
         total={total}
         discountPercent={transactionDiscountPercent || undefined}
@@ -2393,7 +2484,7 @@ const TerminalPage: React.FC = () => {
         onClose={() => setShowAdditionalBillPreview(false)}
         type="bill"
         title={`Additional Bill #${additionalBillCopy}`}
-        subtitle="ADDITIONAL BILL"
+        subtitle={tx('ADDITIONAL BILL')}
         lines={cartToReceiptLines(additionalBillLines)}
         total={additionalBillLines.reduce((s, l) => s + l.unitPrice * l.quantity * (1 - l.discountPercent / 100), 0)}
         orderTypeLabel={orderTypeLabel ?? undefined}
@@ -2433,7 +2524,7 @@ const TerminalPage: React.FC = () => {
           onClose={() => setLastCompleted(null)}
           type="bill"
           title={`Receipt ${lastCompleted.invoiceNumber ?? ''}`}
-          subtitle="Offline — sync pending"
+          subtitle={tx('Offline — sync pending')}
           lines={lastCompleted.lines}
           total={lastCompleted.total}
           discountPercent={lastCompleted.discountPercent}
@@ -2451,7 +2542,7 @@ const TerminalPage: React.FC = () => {
               className="fixed bottom-4 right-4 z-50 bg-sky-700 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-semibold hover:bg-sky-800"
               onClick={() => setShowReprint({ invoiceId: lastCompleted.invoiceId!, title: 'Receipt' })}
             >
-              <Printer className="inline h-4 w-4 mr-1" /> Reprint
+              <Printer className="inline h-4 w-4 mr-1" /> {tx('Reprint')}
             </button>
           )}
           <ReprintDialog
@@ -2544,22 +2635,22 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
           className="flex items-center gap-1 text-xs font-bold text-indigo-700 hover:text-indigo-900 px-2 py-1 rounded hover:bg-indigo-50"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          All Tables
+          {tx('All Tables')}
         </button>
         <div className="w-px h-5 bg-slate-200" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-lg font-bold text-slate-800">
-              Table {table.number}{table.name ? ` — ${table.name}` : ''}
+              {tx('Table')} {table.number}{table.name ? ` — ${table.name}` : ''}
             </span>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${badge.cls}`}>
               {badge.label}
             </span>
           </div>
           <div className="text-[11px] text-slate-500 mt-0.5">
-            {table.seats} seats · Zone: {table.zoneName ?? table.zone} · {openOrders.length} open order{openOrders.length !== 1 ? 's' : ''}
-            {tableTotal > 0 && <span className="ml-2 font-semibold text-slate-700">· Total {fmt(tableTotal)}</span>}
-            {hasLocalCart && <span className="ml-2 font-semibold text-amber-600">· ⚡ Draft in progress</span>}
+            {table.seats} {tx('seats · Zone:')} {table.zoneName ?? table.zone} · {openOrders.length} {tx('open order')}{openOrders.length !== 1 ? 's' : ''}
+            {tableTotal > 0 && <span className="ml-2 font-semibold text-slate-700">{tx('· Total')} {fmt(tableTotal)}</span>}
+            {hasLocalCart && <span className="ml-2 font-semibold text-amber-600">{tx('· ⚡ Draft in progress')}</span>}
           </div>
         </div>
           {hasLocalCart ? (
@@ -2568,7 +2659,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
               onClick={() => onContinueDraft(table)}
               className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 shadow-sm"
             >
-              <span className="text-sm leading-none">⚡</span> Continue Draft
+              <span className="text-sm leading-none">⚡</span> {tx('Continue Draft')}
             </button>
           ) : (
             <button
@@ -2576,7 +2667,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
               onClick={() => onStartOrder(table)}
               className="flex items-center gap-1.5 text-xs font-bold px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 shadow-sm"
             >
-              <span className="text-sm leading-none">＋</span> New Order
+              <span className="text-sm leading-none">＋</span> {tx('New Order')}
             </button>
           )}
       </div>
@@ -2586,17 +2677,17 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
         {openOrders.length === 0 && !hasLocalCart ? (
           <div className="flex flex-col items-center justify-center h-full text-slate-400">
             <LayoutGrid className="h-12 w-12 mb-3 opacity-40" />
-            <p className="font-semibold text-sm">No open orders</p>
-            <p className="text-xs mt-1">Tap "New Order" to start ringing up this table.</p>
+            <p className="font-semibold text-sm">{tx('No open orders')}</p>
+            <p className="text-xs mt-1">{tx('Tap "New Order" to start ringing up this table.')}</p>
           </div>
         ) : openOrders.length === 0 && hasLocalCart ? (
           <div className="flex flex-col items-center justify-center h-full text-amber-600">
-            <p className="font-semibold text-sm">⚡ Draft in progress</p>
-            <p className="text-xs mt-1">Items have been added but not yet sent to kitchen.</p>
+            <p className="font-semibold text-sm">{tx('⚡ Draft in progress')}</p>
+            <p className="text-xs mt-1">{tx('Items have been added but not yet sent to kitchen.')}</p>
           </div>
         ) : (
           <div className="space-y-3">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Open Orders</h3>
+            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">{tx('Open Orders')}</h3>
             {openOrders.map((o) => (
               <div
                 key={o.id}
@@ -2620,7 +2711,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
                     <div className="text-xs text-slate-600 font-medium truncate">{o.customerName}</div>
                   )}
                   {o.notes && (
-                    <div className="text-[11px] text-slate-400 mt-0.5 truncate">Note: {o.notes}</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5 truncate">{tx('Note:')} {o.notes}</div>
                   )}
                 </div>
                 <div className="text-right flex-shrink-0">
@@ -2628,7 +2719,7 @@ const TableDetailView: React.FC<TableDetailViewProps> = ({ table, onBack, onStar
                     {o.order ? fmt(Number(o.order.totalAmount || 0)) : '—'}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
-                    {o.order?.status ?? 'open'} · {o.guestCount ?? '?'} guests
+                    {o.order?.status ?? 'open'} · {o.guestCount ?? '?'} {tx('guests')}
                   </div>
                 </div>
               </div>

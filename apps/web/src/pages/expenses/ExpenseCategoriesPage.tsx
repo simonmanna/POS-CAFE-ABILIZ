@@ -29,6 +29,7 @@ import {
   expenseCategoriesApi,
   type ExpenseCategory,
 } from "@/lib/api/expenseCategories";
+import { tx } from '@/lib/i18n/tx';
 
 const NONE = "__none__";
 
@@ -98,7 +99,7 @@ function CategoryDialog({
           <div className="grid grid-cols-[80px_1fr] gap-3">
             <div>
               <label className="text-xs font-bold uppercase text-gray-500">
-                Icon
+                {tx('Icon')}
               </label>
               <Input
                 value={icon}
@@ -109,43 +110,41 @@ function CategoryDialog({
             </div>
             <div>
               <label className="text-xs font-bold uppercase text-gray-500">
-                Name
+                {tx('Name')}
               </label>
               <Input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Lab Materials"
+                placeholder={tx('e.g. Lab Materials')}
               />
             </div>
           </div>
 
           <div>
             <label className="text-xs font-bold uppercase text-gray-500">
-              Linked GL Account (optional)
+              {tx('Linked GL Account (optional)')}
             </label>
             <Select value={ledgerAccountId} onValueChange={setLedgerAccountId}>
               <SelectTrigger>
-                <SelectValue placeholder="No GL account — won't post" />
+                <SelectValue placeholder={tx('No GL account — won\'t post')} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value={NONE}>
-                  No GL account — records expense, no journal entry
+                  {tx('No GL account — records expense, no journal entry')}
                 </SelectItem>
               </SelectContent>
             </Select>
             <p className="text-[11px] text-slate-500 mt-1">
-              Link an account to post double-entry (DR this account · CR Cash/AP).
-              Leave unset to keep this category out of the ledger.
+              {tx('Link an account to post double-entry (DR this account · CR Cash/AP). Leave unset to keep this category out of the ledger.')}
             </p>
           </div>
 
           {isEdit && (
             <label className="flex items-center justify-between rounded border px-3 py-2 cursor-pointer">
               <div>
-                <p className="text-sm font-medium">Active</p>
+                <p className="text-sm font-medium">{tx('Active')}</p>
                 <p className="text-[11px] text-slate-500">
-                  Disabled categories are hidden from new expenses but keep their
-                  history.
+                  {tx('Disabled categories are hidden from new expenses but keep their history.')}
                 </p>
               </div>
               <input
@@ -160,7 +159,7 @@ function CategoryDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={saving}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button onClick={save} disabled={saving}>
             {saving && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}
@@ -223,17 +222,17 @@ export default function ExpenseCategoriesPage() {
             to="/expenses"
             className="text-sm text-slate-500 hover:text-slate-700 flex items-center gap-1"
           >
-            <ChevronLeft className="w-4 h-4" /> Back to Expenses
+            <ChevronLeft className="w-4 h-4" /> {tx('Back to Expenses')}
           </Link>
           <h1 className="text-xl font-bold text-slate-800 mt-1">
-            Expense Categories
+            {tx('Expense Categories')}
           </h1>
           <p className="text-sm text-slate-500">
-            Manage categories and their optional accounting links.
+            {tx('Manage categories and their optional accounting links.')}
           </p>
         </div>
         <Button onClick={() => setDialog({ open: true })}>
-          <Plus className="w-4 h-4 mr-1" /> New Category
+          <Plus className="w-4 h-4 mr-1" /> {tx('New Category')}
         </Button>
       </div>
 
@@ -246,10 +245,10 @@ export default function ExpenseCategoriesPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
               <tr>
-                <th className="text-left px-4 py-2 font-semibold">Category</th>
-                <th className="text-left px-4 py-2 font-semibold">GL Account</th>
-                <th className="text-center px-4 py-2 font-semibold">Status</th>
-                <th className="text-right px-4 py-2 font-semibold">Actions</th>
+                <th className="text-left px-4 py-2 font-semibold">{tx('Category')}</th>
+                <th className="text-left px-4 py-2 font-semibold">{tx('GL Account')}</th>
+                <th className="text-center px-4 py-2 font-semibold">{tx('Status')}</th>
+                <th className="text-right px-4 py-2 font-semibold">{tx('Actions')}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -272,7 +271,7 @@ export default function ExpenseCategoriesPage() {
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-slate-400">
-                        <Link2Off className="w-3.5 h-3.5" /> Not posted
+                        <Link2Off className="w-3.5 h-3.5" /> {tx('Not posted')}
                       </span>
                     )}
                   </td>
@@ -292,14 +291,14 @@ export default function ExpenseCategoriesPage() {
                     <button
                       onClick={() => setDialog({ open: true, category: c })}
                       className="p-1.5 text-slate-500 hover:text-[#3c8dbc]"
-                      title="Edit"
+                      title={tx('Edit')}
                     >
                       <Edit3 className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => remove(c)}
                       className="p-1.5 text-slate-500 hover:text-red-600"
-                      title="Delete"
+                      title={tx('Delete')}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -312,7 +311,7 @@ export default function ExpenseCategoriesPage() {
                     colSpan={4}
                     className="px-4 py-10 text-center text-slate-400"
                   >
-                    No categories yet.
+                    {tx('No categories yet.')}
                   </td>
                 </tr>
               )}

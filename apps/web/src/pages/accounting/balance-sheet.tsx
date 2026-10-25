@@ -11,6 +11,7 @@ import {
 } from '@/features/accounting/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { tx } from '@/lib/i18n/tx';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -86,7 +87,7 @@ function SectionPanel({
         {loading ? (
           <SectionSkeleton />
         ) : rows.length === 0 ? (
-          <p className="text-sm text-slate-400 py-2">No accounts found.</p>
+          <p className="text-sm text-slate-400 py-2">{tx('No accounts found.')}</p>
         ) : (
           <div className="space-y-0">
             {rows.map((row, idx) => (
@@ -135,7 +136,7 @@ export function BalanceSheetPage() {
 
   async function handleRebuild() {
     await rebuildMutation.mutateAsync();
-    toast.success('Snapshots rebuilt');
+    toast.success(tx('Snapshots rebuilt'));
   }
 
   const sectionMap = new Map((data?.sections ?? []).map((s) => [s.key, s]));
@@ -149,9 +150,9 @@ export function BalanceSheetPage() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Balance Sheet</h1>
+          <h1 className="text-2xl font-semibold">{tx('Balance Sheet')}</h1>
           <p className="text-sm text-slate-500">
-            Financial position as of a point in time.
+            {tx('Financial position as of a point in time.')}
           </p>
         </div>
         {data && (
@@ -176,7 +177,7 @@ export function BalanceSheetPage() {
 
       <div className="flex items-end gap-3">
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-slate-500">As of date</label>
+          <label className="text-xs font-medium text-slate-500">{tx('As of date')}</label>
           <Input
             type="date"
             value={asOf}
@@ -191,7 +192,7 @@ export function BalanceSheetPage() {
           onClick={() => refetch()}
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          Refresh
+          {tx('Refresh')}
         </Button>
         <Button
           variant="outline"
@@ -212,7 +213,7 @@ export function BalanceSheetPage() {
 
       {isError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          Failed to load balance sheet. Check that the account mappings are configured.
+          {tx('Failed to load balance sheet. Check that the account mappings are configured.')}
         </div>
       )}
 
@@ -220,7 +221,7 @@ export function BalanceSheetPage() {
         {/* Left column: Assets */}
         <div className="space-y-4">
           <SectionPanel
-            title="Current Assets"
+            title={tx('Current Assets')}
             icon={Scale}
             iconColor="green"
             loading={isLoading}
@@ -230,7 +231,7 @@ export function BalanceSheetPage() {
           />
 
           <SectionPanel
-            title="Non-current Assets"
+            title={tx('Non-current Assets')}
             icon={Scale}
             iconColor="green"
             loading={isLoading}
@@ -244,7 +245,7 @@ export function BalanceSheetPage() {
         {/* Right column: Liabilities + Equity */}
         <div className="space-y-4">
           <SectionPanel
-            title="Current Liabilities"
+            title={tx('Current Liabilities')}
             icon={Scale}
             iconColor="red"
             loading={isLoading}
@@ -254,7 +255,7 @@ export function BalanceSheetPage() {
           />
 
           <SectionPanel
-            title="Long-term Liabilities"
+            title={tx('Long-term Liabilities')}
             icon={Scale}
             iconColor="red"
             loading={isLoading}
@@ -270,7 +271,7 @@ export function BalanceSheetPage() {
           </div>
 
           <SectionPanel
-            title="Stockholders' Equity"
+            title={tx('Stockholders\' Equity')}
             icon={Scale}
             iconColor="blue"
             loading={isLoading}
@@ -284,7 +285,7 @@ export function BalanceSheetPage() {
 
       {data && (
         <p className="text-xs text-slate-400">
-          As of {new Date(data.asOf).toLocaleDateString()} &middot; Source:{' '}
+          {tx('As of')} {new Date(data.asOf).toLocaleDateString()} &middot; Source:{' '}
           {data.source === 'snapshot' ? 'Rebuilt snapshot' : 'Live aggregation'}
         </p>
       )}

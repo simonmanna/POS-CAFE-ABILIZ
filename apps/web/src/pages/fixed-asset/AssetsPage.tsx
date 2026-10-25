@@ -19,6 +19,7 @@ import { notify } from '@/lib/notify';
 import { formatCurrency } from '@/lib/utils';
 import { useAllAssetCategories, useAssets, useCreateAsset, useDeleteAsset, useUpdateAsset } from '@/features/fixed-asset/api';
 import type { Asset } from '@/features/fixed-asset/types';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUSES = ['active', 'under_maintenance', 'disposed', 'lost_stolen', 'in_repair', 'reserved'];
 const ACQ_METHODS = ['purchased', 'donated', 'leased', 'constructed', 'transferred_in', 'gifted'];
@@ -100,10 +101,10 @@ export function AssetsPage() {
       };
       if (editing) {
         await updateAsset.mutateAsync({ id: editing.id, data });
-        notify.success('Asset updated');
+        notify.success(tx('Asset updated'));
       } else {
         await createAsset.mutateAsync(data);
-        notify.success('Asset created');
+        notify.success(tx('Asset created'));
       }
       setOpen(false);
     } catch (err: any) { notify.error(err?.response?.data?.message ?? 'Error'); }
@@ -136,50 +137,50 @@ export function AssetsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Asset Register</h1>
-        {canCreate && <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> Add Asset</Button>}
+        <h1 className="text-2xl font-bold">{tx('Asset Register')}</h1>
+        {canCreate && <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> {tx('Add Asset')}</Button>}
       </div>
       <div className="flex flex-wrap gap-2">
-        <div className="relative w-64"><Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" /><Input placeholder="Search assets..." value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="pl-8" /></div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-40"><SelectValue placeholder="All Status" /></SelectTrigger><SelectContent><SelectItem value="">All Status</SelectItem>{STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace(/_/g, ' ')}</SelectItem>)}</SelectContent></Select>
-        <Select value={catFilter} onValueChange={setCatFilter}><SelectTrigger className="w-48"><SelectValue placeholder="All Categories" /></SelectTrigger><SelectContent><SelectItem value="">All Categories</SelectItem>{(categories ?? []).map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select>
+        <div className="relative w-64"><Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" /><Input placeholder={tx('Search assets...')} value={searchInput} onChange={(e) => setSearchInput(e.target.value)} className="pl-8" /></div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-40"><SelectValue placeholder={tx('All Status')} /></SelectTrigger><SelectContent><SelectItem value="">{tx('All Status')}</SelectItem>{STATUSES.map((s) => <SelectItem key={s} value={s}>{s.replace(/_/g, ' ')}</SelectItem>)}</SelectContent></Select>
+        <Select value={catFilter} onValueChange={setCatFilter}><SelectTrigger className="w-48"><SelectValue placeholder={tx('All Categories')} /></SelectTrigger><SelectContent><SelectItem value="">{tx('All Categories')}</SelectItem>{(categories ?? []).map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select>
       </div>
       <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} />
       {data?.meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>Page {data.meta.page} of {data.meta.totalPages} ({data.meta.total} total)</span>
+          <span>{tx('Page')} {data.meta.page} of {data.meta.totalPages} ({data.meta.total} {tx('total)')}</span>
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
-            <Button size="sm" variant="outline" disabled={page >= (data.meta.totalPages ?? 1)} onClick={() => setPage(page + 1)}>Next</Button>
+            <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage(page - 1)}>{tx('Previous')}</Button>
+            <Button size="sm" variant="outline" disabled={page >= (data.meta.totalPages ?? 1)} onClick={() => setPage(page + 1)}>{tx('Next')}</Button>
           </div>
         </div>
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Create'} Asset</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Create'} {tx('Asset')}</DialogTitle></DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Asset Code</Label><Input {...form.register('assetCode')} placeholder="Auto-generated" /></div>
-              <div><Label>Barcode / QR</Label><Input {...form.register('barcode')} /></div>
+              <div><Label>{tx('Asset Code')}</Label><Input {...form.register('assetCode')} placeholder={tx('Auto-generated')} /></div>
+              <div><Label>{tx('Barcode / QR')}</Label><Input {...form.register('barcode')} /></div>
             </div>
-            <div><Label>Name *</Label><Input {...form.register('name')} /></div>
-            <div><Label>Description</Label><Input {...form.register('description')} /></div>
+            <div><Label>{tx('Name *')}</Label><Input {...form.register('name')} /></div>
+            <div><Label>{tx('Description')}</Label><Input {...form.register('description')} /></div>
             <div className="grid grid-cols-3 gap-4">
-              <div><Label>Brand</Label><Input {...form.register('brand')} /></div>
-              <div><Label>Model</Label><Input {...form.register('model')} /></div>
-              <div><Label>Serial #</Label><Input {...form.register('serialNumber')} /></div>
+              <div><Label>{tx('Brand')}</Label><Input {...form.register('brand')} /></div>
+              <div><Label>{tx('Model')}</Label><Input {...form.register('model')} /></div>
+              <div><Label>{tx('Serial #')}</Label><Input {...form.register('serialNumber')} /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>Category</Label>
+                <Label>{tx('Category')}</Label>
                 <Select value={form.watch('categoryId')} onValueChange={(v) => form.setValue('categoryId', v)}>
-                  <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
-                  <SelectContent><SelectItem value="">None</SelectItem>{(categories ?? []).map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
+                  <SelectTrigger><SelectValue placeholder={tx('Select category')} /></SelectTrigger>
+                  <SelectContent><SelectItem value="">{tx('None')}</SelectItem>{(categories ?? []).map((c: any) => <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div>
-                <Label>Acquisition Method</Label>
+                <Label>{tx('Acquisition Method')}</Label>
                 <Select value={form.watch('acquisitionMethod')} onValueChange={(v) => form.setValue('acquisitionMethod', v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>{ACQ_METHODS.map((m) => <SelectItem key={m} value={m}>{m.replace(/_/g, ' ')}</SelectItem>)}</SelectContent>
@@ -187,18 +188,18 @@ export function AssetsPage() {
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Department</Label><Input {...form.register('department')} /></div>
-              <div><Label>Location</Label><Input {...form.register('location')} /></div>
+              <div><Label>{tx('Department')}</Label><Input {...form.register('department')} /></div>
+              <div><Label>{tx('Location')}</Label><Input {...form.register('location')} /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Purchase Date</Label><Input type="date" {...form.register('purchaseDate')} /></div>
-              <div><Label>Purchase Cost</Label><Input type="number" step="0.01" {...form.register('purchaseCost')} /></div>
+              <div><Label>{tx('Purchase Date')}</Label><Input type="date" {...form.register('purchaseDate')} /></div>
+              <div><Label>{tx('Purchase Cost')}</Label><Input type="number" step="0.01" {...form.register('purchaseCost')} /></div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div><Label>Salvage Value</Label><Input type="number" step="0.01" {...form.register('salvageValue')} /></div>
-              <div><Label>Useful Life (months)</Label><Input type="number" {...form.register('usefulLife')} /></div>
+              <div><Label>{tx('Salvage Value')}</Label><Input type="number" step="0.01" {...form.register('salvageValue')} /></div>
+              <div><Label>{tx('Useful Life (months)')}</Label><Input type="number" {...form.register('usefulLife')} /></div>
             </div>
-            <div><Label>Notes</Label><Input {...form.register('notes')} /></div>
+            <div><Label>{tx('Notes')}</Label><Input {...form.register('notes')} /></div>
             <DialogFooter><Button type="submit">{editing ? 'Update' : 'Create'}</Button></DialogFooter>
           </form>
         </DialogContent>
@@ -206,8 +207,8 @@ export function AssetsPage() {
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Delete Asset?</AlertDialogTitle><AlertDialogDescription>Soft-delete "{deleting?.name}" ({deleting?.assetCode})?</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={async () => { try { await deleteAsset.mutateAsync(deleting!.id); notify.success('Deleted'); setDeleting(null); } catch (e: any) { notify.error(e?.response?.data?.message ?? 'Error'); } }}>Delete</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogHeader><AlertDialogTitle>{tx('Delete Asset?')}</AlertDialogTitle><AlertDialogDescription>{tx('Soft-delete "')}{deleting?.name}" ({deleting?.assetCode})?</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel><AlertDialogAction onClick={async () => { try { await deleteAsset.mutateAsync(deleting!.id); notify.success(tx('Deleted')); setDeleting(null); } catch (e: any) { notify.error(e?.response?.data?.message ?? 'Error'); } }}>{tx('Delete')}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

@@ -13,6 +13,7 @@ import { fetchAllPages, type ExportColumn } from '@/lib/export-list';
 import { money, date, statusLabel } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { useInvoices, type Invoice } from '@/features/invoicing/api';
+import { tx } from '@/lib/i18n/tx';
 
 const statusTone: Record<string, Tone> = {
   draft: 'neutral',
@@ -167,7 +168,7 @@ export function InvoicesPage() {
       header: '',
       className: 'w-12 text-right',
       render: (inv) => (
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/invoices/${inv.id}`)} aria-label="View invoice">
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => navigate(`/invoices/${inv.id}`)} aria-label={tx('View invoice')}>
           <Eye className="h-4 w-4" />
         </Button>
       ),
@@ -198,13 +199,13 @@ export function InvoicesPage() {
     <div className="space-y-4">
       <ListPageHeader
         icon={ReceiptIcon}
-        title="Sales / Invoices"
-        description="Sales invoices — post to the ledger and collect payment."
+        title={tx('Sales / Invoices')}
+        description={tx('Sales invoices — post to the ledger and collect payment.')}
         actions={
           <>
             <ExportMenu
               basename="sales-invoices"
-              title="Sales / Invoices"
+              title={tx('Sales / Invoices')}
               subtitle={describeFilters(chips)}
               columns={exportColumns}
               pageRows={rows}
@@ -220,7 +221,7 @@ export function InvoicesPage() {
             />
             {hasPermission(PERMISSIONS.invoice.create) && (
               <Button onClick={() => navigate('/invoices/new')}>
-                <Plus className="mr-1 h-4 w-4" /> New Invoice
+                <Plus className="mr-1 h-4 w-4" /> {tx('New Invoice')}
               </Button>
             )}
           </>
@@ -228,7 +229,7 @@ export function InvoicesPage() {
       />
 
       <ListToolbar chips={<FilterChips chips={chips} onClearAll={list.clearFilters} />}>
-        <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder="Search invoice #, reference or customer…" />
+        <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder={tx('Search invoice #, reference or customer…')} />
         <FilterSelect value={status} onChange={(v) => list.setFilter('status', v)} options={toOptions(statusOptions)} allLabel="All statuses" className="w-[140px]" />
         <FilterSelect value={paymentStatus} onChange={(v) => list.setFilter('paymentStatus', v)} options={toOptions(paymentStatusOptions)} allLabel="All payments" className="w-[150px]" />
         <FilterSelect value={settlementStatus} onChange={(v) => list.setFilter('settlementStatus', v)} options={toOptions(settlementLabel)} allLabel="All settlements" />

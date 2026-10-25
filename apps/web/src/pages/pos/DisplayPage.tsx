@@ -15,6 +15,7 @@ import React, { useEffect, useState } from 'react';
 import { Coffee, Check } from 'lucide-react';
 import type { CartLine } from '@/features/pos/types';
 import './pos-pro.css';
+import { tx } from '@/lib/i18n/tx';
 
 interface CartSnapshot {
   lines: CartLine[];
@@ -86,25 +87,25 @@ const DisplayPage: React.FC = () => {
       {snap.status === 'paid' ? (
         <div className="rounded-3xl bg-emerald-500 text-white p-8 text-center shadow-2xl mb-6 animate-pulse">
           <Check className="h-20 w-20 mx-auto mb-3" />
-          <div className="text-5xl font-extrabold">Thank you!</div>
-          <div className="text-2xl mt-2">Receipt #{snap.lastInvoiceNumber} — {fmt(snap.lastTotal ?? 0)}</div>
+          <div className="text-5xl font-extrabold">{tx('Thank you!')}</div>
+          <div className="text-2xl mt-2">{tx('Receipt #')}{snap.lastInvoiceNumber} — {fmt(snap.lastTotal ?? 0)}</div>
           {snap.change > 0 ? (
-            <div className="text-3xl mt-3">Change: <strong>{fmt(snap.change)}</strong></div>
+            <div className="text-3xl mt-3">{tx('Change:')} <strong>{fmt(snap.change)}</strong></div>
           ) : null}
         </div>
       ) : snap.status === 'tendering' && snap.tendered > 0 ? (
         <div className="rounded-3xl bg-blue-500 text-white p-6 text-center shadow-2xl mb-6">
-          <div className="text-2xl">Tendered</div>
+          <div className="text-2xl">{tx('Tendered')}</div>
           <div className="text-5xl font-extrabold">{fmt(snap.tendered)}</div>
           {snap.change > 0 ? (
-            <div className="text-3xl mt-3">Change: <strong>{fmt(snap.change)}</strong></div>
+            <div className="text-3xl mt-3">{tx('Change:')} <strong>{fmt(snap.change)}</strong></div>
           ) : null}
         </div>
       ) : snap.lines.length === 0 ? (
         <div className="rounded-3xl bg-slate-800 text-slate-300 p-12 text-center shadow-2xl mb-6">
           <Coffee className="h-20 w-20 mx-auto mb-4 opacity-50" />
-          <div className="text-3xl font-bold">Welcome!</div>
-          <div className="text-xl mt-2 opacity-80">Please place your order at the counter.</div>
+          <div className="text-3xl font-bold">{tx('Welcome!')}</div>
+          <div className="text-xl mt-2 opacity-80">{tx('Please place your order at the counter.')}</div>
         </div>
       ) : null}
 
@@ -134,10 +135,10 @@ const DisplayPage: React.FC = () => {
       {/* Total */}
       {snap.lines.length > 0 ? (
         <div className="rounded-3xl bg-amber-500 text-slate-900 p-6 mt-6 text-center shadow-2xl">
-          <div className="text-2xl font-semibold">Total</div>
+          <div className="text-2xl font-semibold">{tx('Total')}</div>
           <div className="text-7xl font-extrabold font-mono mt-2">{fmt(snap.total)}</div>
           {snap.transactionDiscountPercent > 0 ? (
-            <div className="text-base mt-1">includes {snap.transactionDiscountPercent}% discount</div>
+            <div className="text-base mt-1">{tx('includes')} {snap.transactionDiscountPercent}{tx('% discount')}</div>
           ) : null}
         </div>
       ) : null}

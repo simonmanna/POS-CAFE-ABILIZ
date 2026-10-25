@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { date } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -41,11 +42,11 @@ export function RentalAgreementsPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Rental Agreements</h1>
-          <p className="text-sm text-muted-foreground">Quote → hold → agreement → checkout → return lifecycle.</p>
+          <h1 className="text-xl font-semibold">{tx('Rental Agreements')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Quote → hold → agreement → checkout → return lifecycle.')}</p>
         </div>
         <Link to="/rental/agreements/new">
-          <Button><Plus className="h-4 w-4" /> New agreement</Button>
+          <Button><Plus className="h-4 w-4" /> {tx('New agreement')}</Button>
         </Link>
       </div>
 
@@ -53,7 +54,7 @@ export function RentalAgreementsPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search agreement number…"
+          placeholder={tx('Search agreement number…')}
           className="w-64 rounded-md border bg-card px-3 py-2 text-sm"
         />
         <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm">
@@ -65,11 +66,11 @@ export function RentalAgreementsPage() {
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} agreements</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('agreements')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No agreements match the filters.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No agreements match the filters.')}</p>}
             {rows.map((a) => (
               <Link key={a.id} to={`/rental/agreements/${a.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <div className="flex items-center gap-3">

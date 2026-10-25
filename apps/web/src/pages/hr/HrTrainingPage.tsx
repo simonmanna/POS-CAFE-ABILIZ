@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/dialog';
 import { notify } from '@/lib/notify';
 import { apiErrorMessage } from '@/lib/api-error';
+import { tx } from '@/lib/i18n/tx';
 
 const date = (d: string | null) => (d ? new Date(d).toLocaleDateString('id-ID') : '—');
 
@@ -53,27 +54,27 @@ export function HrTrainingPage() {
     <div className="space-y-4 p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Training</h1>
+          <h1 className="text-xl font-semibold">{tx('Training')}</h1>
           <p className="text-sm text-muted-foreground">
-            Programs, enrolments and completion.
+            {tx('Programs, enrolments and completion.')}
           </p>
         </div>
         <div className="flex gap-2">
           <Button size="sm" variant="outline" onClick={() => setProgramOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" />
-            New program
+            {tx('New program')}
           </Button>
           <Button size="sm" onClick={() => setEnrolOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" />
-            Enrol employee
+            {tx('Enrol employee')}
           </Button>
         </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="enrolments">Enrolments</TabsTrigger>
-          <TabsTrigger value="programs">Programs</TabsTrigger>
+          <TabsTrigger value="enrolments">{tx('Enrolments')}</TabsTrigger>
+          <TabsTrigger value="programs">{tx('Programs')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="enrolments" className="mt-4">
@@ -83,11 +84,11 @@ export function HrTrainingPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                      <th className="py-2">Employee</th>
-                      <th className="py-2">Program</th>
-                      <th className="py-2">Enrolled</th>
-                      <th className="py-2">Completed</th>
-                      <th className="py-2">Status</th>
+                      <th className="py-2">{tx('Employee')}</th>
+                      <th className="py-2">{tx('Program')}</th>
+                      <th className="py-2">{tx('Enrolled')}</th>
+                      <th className="py-2">{tx('Completed')}</th>
+                      <th className="py-2">{tx('Status')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -111,7 +112,7 @@ export function HrTrainingPage() {
                                   id: e.id,
                                   status: ev.target.value,
                                 });
-                                notify.success('Enrolment updated');
+                                notify.success(tx('Enrolment updated'));
                               } catch (err) {
                                 notify.error(apiErrorMessage(err, 'Could not update the enrolment'));
                               }
@@ -130,7 +131,7 @@ export function HrTrainingPage() {
                 </table>
               ) : (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  Nobody is enrolled on training yet.
+                  {tx('Nobody is enrolled on training yet.')}
                 </p>
               )}
             </CardContent>
@@ -144,12 +145,12 @@ export function HrTrainingPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                      <th className="py-2">Code</th>
-                      <th className="py-2">Name</th>
-                      <th className="py-2">Provider</th>
-                      <th className="py-2 text-right">Hours</th>
-                      <th className="py-2 text-right">Enrolled</th>
-                      <th className="py-2">Status</th>
+                      <th className="py-2">{tx('Code')}</th>
+                      <th className="py-2">{tx('Name')}</th>
+                      <th className="py-2">{tx('Provider')}</th>
+                      <th className="py-2 text-right">{tx('Hours')}</th>
+                      <th className="py-2 text-right">{tx('Enrolled')}</th>
+                      <th className="py-2">{tx('Status')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -177,7 +178,7 @@ export function HrTrainingPage() {
                 </table>
               ) : (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  No training programs defined.
+                  {tx('No training programs defined.')}
                 </p>
               )}
             </CardContent>
@@ -211,20 +212,19 @@ function ProgramDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>New training program</DialogTitle>
+          <DialogTitle>{tx('New training program')}</DialogTitle>
           <DialogDescription>
-            A course employees can be enrolled on. Programs with enrolments can be deactivated but
-            not deleted, so the training history survives.
+            {tx('A course employees can be enrolled on. Programs with enrolments can be deactivated but not deleted, so the training history survives.')}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-1.5">
-              <Label>Code</Label>
+              <Label>{tx('Code')}</Label>
               <Input value={form.code} onChange={(e) => set('code', e.target.value)} />
             </div>
             <div className="grid gap-1.5">
-              <Label>Duration (hours)</Label>
+              <Label>{tx('Duration (hours)')}</Label>
               <Input
                 type="number"
                 value={form.durationHours}
@@ -233,15 +233,15 @@ function ProgramDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v
             </div>
           </div>
           <div className="grid gap-1.5">
-            <Label>Name</Label>
+            <Label>{tx('Name')}</Label>
             <Input value={form.name} onChange={(e) => set('name', e.target.value)} />
           </div>
           <div className="grid gap-1.5">
-            <Label>Provider</Label>
+            <Label>{tx('Provider')}</Label>
             <Input value={form.provider} onChange={(e) => set('provider', e.target.value)} />
           </div>
           <div className="grid gap-1.5">
-            <Label>Description</Label>
+            <Label>{tx('Description')}</Label>
             <Textarea
               value={form.description}
               onChange={(e) => set('description', e.target.value)}
@@ -251,7 +251,7 @@ function ProgramDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             disabled={create.isPending || !form.code || !form.name}
@@ -264,14 +264,14 @@ function ProgramDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v
                   durationHours: form.durationHours ? Number(form.durationHours) : undefined,
                   description: form.description || undefined,
                 } as any);
-                notify.success('Program created');
+                notify.success(tx('Program created'));
                 onOpenChange(false);
               } catch (err) {
                 notify.error(apiErrorMessage(err, 'Could not create the program'));
               }
             }}
           >
-            Create
+            {tx('Create')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -299,21 +299,20 @@ function EnrolDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Enrol an employee</DialogTitle>
+          <DialogTitle>{tx('Enrol an employee')}</DialogTitle>
           <DialogDescription>
-            Enrolling someone who has not finished the same program is rejected, so a half-done
-            course cannot be quietly restarted.
+            {tx('Enrolling someone who has not finished the same program is rejected, so a half-done course cannot be quietly restarted.')}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>Employee</Label>
+            <Label>{tx('Employee')}</Label>
             <select
               className="h-9 rounded-md border bg-background px-3 text-sm"
               value={employeeId}
               onChange={(e) => setEmployeeId(e.target.value)}
             >
-              <option value="">Select…</option>
+              <option value="">{tx('Select…')}</option>
               {employees.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.firstName} {e.lastName ?? ''} ({e.employeeCode})
@@ -322,13 +321,13 @@ function EnrolDialog({
             </select>
           </div>
           <div className="grid gap-1.5">
-            <Label>Program</Label>
+            <Label>{tx('Program')}</Label>
             <select
               className="h-9 rounded-md border bg-background px-3 text-sm"
               value={programId}
               onChange={(e) => setProgramId(e.target.value)}
             >
-              <option value="">Select…</option>
+              <option value="">{tx('Select…')}</option>
               {programs
                 .filter((p) => p.isActive)
                 .map((p) => (
@@ -339,13 +338,13 @@ function EnrolDialog({
             </select>
           </div>
           <div className="grid gap-1.5">
-            <Label>Trainer</Label>
+            <Label>{tx('Trainer')}</Label>
             <Input value={trainer} onChange={(e) => setTrainer(e.target.value)} />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             disabled={enrol.isPending || !employeeId || !programId}
@@ -356,7 +355,7 @@ function EnrolDialog({
                   programId,
                   trainer: trainer || undefined,
                 });
-                notify.success('Employee enrolled');
+                notify.success(tx('Employee enrolled'));
                 onOpenChange(false);
                 setEmployeeId('');
                 setProgramId('');
@@ -366,7 +365,7 @@ function EnrolDialog({
               }
             }}
           >
-            Enrol
+            {tx('Enrol')}
           </Button>
         </DialogFooter>
       </DialogContent>

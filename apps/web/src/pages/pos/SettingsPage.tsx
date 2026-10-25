@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePosSettings, useUpdatePosSettings } from '@/features/pos/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 const POS_MODES = [
   { value: 'cafe', label: 'Cafe / Restaurant', desc: 'Menu items with variants, accompaniments, modifiers, tables, KDS, and KOT printing.' },
@@ -28,9 +29,9 @@ export function PosSettingsPage() {
   const handleSave = async () => {
     try {
       await update.mutateAsync({ posMode, sharedDrawer, showClosingAmounts });
-      notify.success('POS settings saved');
+      notify.success(tx('POS settings saved'));
     } catch {
-      notify.error('Failed to save POS settings');
+      notify.error(tx('Failed to save POS settings'));
     }
   };
 
@@ -39,8 +40,8 @@ export function PosSettingsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">POS Settings</h1>
-        <p className="text-sm text-muted-foreground">Configure how your POS terminal behaves.</p>
+        <h1 className="text-2xl font-semibold">{tx('POS Settings')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('Configure how your POS terminal behaves.')}</p>
       </div>
 
       {isLoading ? (
@@ -49,10 +50,9 @@ export function PosSettingsPage() {
         <>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">POS Mode</CardTitle>
+            <CardTitle className="text-base">{tx('POS Mode')}</CardTitle>
             <CardDescription>
-              Choose between Cafe/Restaurant mode (menu items, tables, kitchen) or Retail mode (direct product selling, no tables).
-              This affects the POS terminal layout and available features.
+              {tx('Choose between Cafe/Restaurant mode (menu items, tables, kitchen) or Retail mode (direct product selling, no tables). This affects the POS terminal layout and available features.')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -89,13 +89,13 @@ export function PosSettingsPage() {
                 checked={sharedDrawer}
                 onChange={(e) => setSharedDrawer(e.target.checked)}
               />
-              Allow other cashiers on this register (shared drawer)
+              {tx('Allow other cashiers on this register (shared drawer)')}
             </label>
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Closing amounts visible to the cashier</CardTitle>
+            <CardTitle className="text-base">{tx('Closing amounts visible to the cashier')}</CardTitle>
             <CardDescription>
               When on, the shift-close and handover dialogs show the expected
               drawer cash and every wallet/bank figure before the count — the
@@ -113,7 +113,7 @@ export function PosSettingsPage() {
                 checked={showClosingAmounts}
                 onChange={(e) => setShowClosingAmounts(e.target.checked)}
               />
-              Show the expected closing amounts while closing a shift
+              {tx('Show the expected closing amounts while closing a shift')}
             </label>
           </CardContent>
         </Card>

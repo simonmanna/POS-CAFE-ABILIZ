@@ -28,6 +28,7 @@ import { usePaymentTerms } from '@/features/accounting/api';
 import { ORDER_TYPE_LABELS } from './line-source';
 import { PAYMENT_MODE_LABELS } from './order-create';
 import type { OrderDetail, OrderLine } from '@/features/orders/types';
+import { tx } from '@/lib/i18n/tx';
 
 /** InventoryDetailPage-style InfoRow (dl/dt/dd, uppercase text-xs label). */
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
@@ -56,21 +57,21 @@ function TabOverview({ data }: { data: OrderDetail }) {
       {/* Order header card */}
       <div className="lg:col-span-2 rounded-lg border bg-card shadow-sm">
         <div className="rounded-t-lg bg-muted/30 border-b px-5 py-3">
-          <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Order Information</h2>
+          <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Order Information')}</h2>
         </div>
         <div className="px-5 py-2">
           <dl className="divide-y">
-            <InfoRow label="Order Number" value={
+            <InfoRow label={tx('Order Number')} value={
               <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-primary font-semibold">{data.orderNumber}</code>
             } />
-            <InfoRow label="Customer" value={data.partnerName ? <span className="font-semibold">{data.partnerName}</span> : null} />
-            <InfoRow label="Type" value={ORDER_TYPE_LABELS[data.orderType] ?? data.orderType} />
-            <InfoRow label="Transaction" value={data.transactionKind ? <Badge variant="outline" className="text-xs font-mono">{data.transactionKind}</Badge> : null} />
-            <InfoRow label="Opened" value={dateTime(data.openedAt)} />
-            <InfoRow label="Payment terms" value={data.paymentTermId ? <PaymentTermName id={data.paymentTermId} /> : null} />
-            <InfoRow label="Payment method" value={data.paymentMethod ? PAYMENT_MODE_LABELS[data.paymentMethod] ?? data.paymentMethod : null} />
-            <InfoRow label="Guests" value={data.guestCount != null ? String(data.guestCount) : null} />
-            <InfoRow label="Notes" value={data.notes ?? null} />
+            <InfoRow label={tx('Customer')} value={data.partnerName ? <span className="font-semibold">{data.partnerName}</span> : null} />
+            <InfoRow label={tx('Type')} value={ORDER_TYPE_LABELS[data.orderType] ?? data.orderType} />
+            <InfoRow label={tx('Transaction')} value={data.transactionKind ? <Badge variant="outline" className="text-xs font-mono">{data.transactionKind}</Badge> : null} />
+            <InfoRow label={tx('Opened')} value={dateTime(data.openedAt)} />
+            <InfoRow label={tx('Payment terms')} value={data.paymentTermId ? <PaymentTermName id={data.paymentTermId} /> : null} />
+            <InfoRow label={tx('Payment method')} value={data.paymentMethod ? PAYMENT_MODE_LABELS[data.paymentMethod] ?? data.paymentMethod : null} />
+            <InfoRow label={tx('Guests')} value={data.guestCount != null ? String(data.guestCount) : null} />
+            <InfoRow label={tx('Notes')} value={data.notes ?? null} />
           </dl>
         </div>
       </div>
@@ -79,7 +80,7 @@ function TabOverview({ data }: { data: OrderDetail }) {
             <div className="lg:col-span-3 rounded-lg border bg-card shadow-sm">
               <div className="rounded-t-lg bg-muted/30 border-b px-5 py-3 flex items-center justify-between">
                 <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Order Lines ({data.items.length})
+                  {tx('Order Lines (')}{data.items.length})
                 </h2>
               </div>
               <div className="overflow-x-auto">
@@ -87,11 +88,11 @@ function TabOverview({ data }: { data: OrderDetail }) {
                   <thead>
                     <tr className="border-b bg-muted/20 text-xs uppercase tracking-wider text-muted-foreground">
                       <th className="px-5 py-2.5 text-left font-semibold">#</th>
-                      <th className="px-3 py-2.5 text-left font-semibold">Item</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Qty</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Unit Price</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Discount</th>
-                      <th className="px-5 py-2.5 text-right font-semibold">Line Total</th>
+                      <th className="px-3 py-2.5 text-left font-semibold">{tx('Item')}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">{tx('Qty')}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">{tx('Unit Price')}</th>
+                      <th className="px-3 py-2.5 text-right font-semibold">{tx('Discount')}</th>
+                      <th className="px-5 py-2.5 text-right font-semibold">{tx('Line Total')}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y">
@@ -123,24 +124,24 @@ function TabOverview({ data }: { data: OrderDetail }) {
               <div className="border-t bg-muted/30 px-5 py-4">
                 <div className="max-w-md mx-auto space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Items</span>
+                    <span className="text-muted-foreground">{tx('Items')}</span>
                     <span className="font-semibold tabular-nums">{totalQty}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Subtotal</span>
+                    <span className="text-muted-foreground">{tx('Subtotal')}</span>
                     <span className="tabular-nums">{money(data.subtotal, currency)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Discount</span>
+                    <span className="text-muted-foreground">{tx('Discount')}</span>
                     <span className="tabular-nums text-amber-700">-{money(data.discountTotal, currency)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Tax</span>
+                    <span className="text-muted-foreground">{tx('Tax')}</span>
                     <span className="tabular-nums">{money(data.taxAmount, currency)}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between text-base font-bold">
-                    <span>Total</span>
+                    <span>{tx('Total')}</span>
                     <span className="tabular-nums">{money(data.totalAmount, currency)}</span>
                   </div>
                 </div>
@@ -171,7 +172,7 @@ function TabBilling({ data }: { data: OrderDetail }) {
     return (
       <div className="rounded-lg border bg-card shadow-sm">
         <div className="rounded-t-lg bg-muted/30 border-b px-5 py-3">
-          <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Invoice</h2>
+          <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Invoice')}</h2>
         </div>
         <div className="p-5">
           {data.invoice ? (
@@ -190,11 +191,11 @@ function TabBilling({ data }: { data: OrderDetail }) {
                   </p>
                 </div>
               </div>
-              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">Invoiced</Badge>
+              <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">{tx('Invoiced')}</Badge>
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">
-              This order is linked to an invoice (ID {data.invoiceId.slice(0, 8)}…).
+              {tx('This order is linked to an invoice (ID')} {data.invoiceId.slice(0, 8)}…).
             </p>
           )}
         </div>
@@ -205,20 +206,18 @@ function TabBilling({ data }: { data: OrderDetail }) {
   return (
     <div className="rounded-lg border bg-card shadow-sm">
       <div className="rounded-t-lg bg-muted/30 border-b px-5 py-3">
-        <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Billing</h2>
+        <h2 className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Billing')}</h2>
       </div>
       <div className="p-5 space-y-4">
         <p className="text-sm text-muted-foreground">
-          Billing posts this order through the same spine as POS sales: order items
-          deduct stock, taxes are recomputed, an <code className="text-xs font-mono">INV-</code> invoice
-          is created and the receivable is posted to the ledger. The order becomes read-only.
+          {tx('Billing posts this order through the same spine as POS sales: order items deduct stock, taxes are recomputed, an')} <code className="text-xs font-mono">INV-</code> {tx('invoice is created and the receivable is posted to the ledger. The order becomes read-only.')}
         </p>
         {hasPermission(PERMISSIONS.orders.invoice) && editable && (
           <Button onClick={doBill} disabled={billPending || billOrder.isPending}>
             {billPending || billOrder.isPending
               ? <Loader2 className="mr-1 h-4 w-4 animate-spin" />
               : <Receipt className="mr-1 h-4 w-4" />}
-            Generate Invoice
+            {tx('Generate Invoice')}
           </Button>
         )}
       </div>
@@ -252,7 +251,7 @@ export function OrderDetailPage() {
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         <div className="text-center">
           <ClipboardList className="h-12 w-12 opacity-30 mx-auto mb-2" />
-          <p className="font-semibold">Order not found</p>
+          <p className="font-semibold">{tx('Order not found')}</p>
         </div>
       </div>
     );
@@ -278,7 +277,7 @@ export function OrderDetailPage() {
         {/* Breadcrumb */}
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3">
           <button onClick={() => navigate('/orders')} className="hover:text-primary transition-colors font-medium">
-            Orders
+            {tx('Orders')}
           </button>
           <ChevronRight className="h-3 w-3" />
           <span className="font-semibold">{data.orderNumber}</span>
@@ -303,7 +302,7 @@ export function OrderDetailPage() {
                 >
                   {statusLabel(data.status)}
                 </Badge>
-                {data.invoiceId && <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Invoiced</Badge>}
+                {data.invoiceId && <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">{tx('Invoiced')}</Badge>}
               </div>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {ORDER_TYPE_LABELS[data.orderType] ?? data.orderType}
@@ -320,42 +319,41 @@ export function OrderDetailPage() {
                 <Button variant="outline" size="icon" className="h-9 w-9"><MoreHorizontal className="h-4 w-4" /></Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                <DropdownMenuLabel>{tx('Actions')}</DropdownMenuLabel>
                 {isCancelled && hasPermission(PERMISSIONS.orders.update) && (
                   <DropdownMenuItem onClick={doReopen} disabled={reopenOrder.isPending}>
-                    <RotateCcw className="h-4 w-4 mr-2 text-primary" /> Reopen
+                    <RotateCcw className="h-4 w-4 mr-2 text-primary" /> {tx('Reopen')}
                   </DropdownMenuItem>
                 )}
                 {editable && hasPermission(PERMISSIONS.orders.cancel) && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="text-destructive">
-                        <XCircle className="h-4 w-4 mr-2" /> Cancel Order
+                        <XCircle className="h-4 w-4 mr-2" /> {tx('Cancel Order')}
                       </DropdownMenuItem>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
                       <AlertDialogHeader>
-                        <AlertDialogTitle>Cancel order {data.orderNumber}?</AlertDialogTitle>
+                        <AlertDialogTitle>{tx('Cancel order')} {data.orderNumber}?</AlertDialogTitle>
                         <AlertDialogDescription>
-                          The order stays in the ledger as cancelled (soft-delete style). This cannot be undone —
-                          but you can reopen it later.
+                          {tx('The order stays in the ledger as cancelled (soft-delete style). This cannot be undone — but you can reopen it later.')}
                         </AlertDialogDescription>
                       </AlertDialogHeader>
                       <Textarea
                         rows={2}
                         value={cancelReason}
                         onChange={(e) => setCancelReason(e.target.value)}
-                        placeholder="Reason (optional)"
+                        placeholder={tx('Reason (optional)')}
                       />
                       <AlertDialogFooter>
-                        <AlertDialogCancel>Back</AlertDialogCancel>
+                        <AlertDialogCancel>{tx('Back')}</AlertDialogCancel>
                         <AlertDialogAction
                           className="bg-destructive hover:bg-destructive/90"
                           onClick={doCancel}
                           disabled={cancelOrder.isPending}
                         >
                           {cancelOrder.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <XCircle className="mr-1 h-4 w-4" />}
-                          Cancel order
+                          {tx('Cancel order')}
                         </AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
@@ -363,7 +361,7 @@ export function OrderDetailPage() {
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => navigate('/orders/new')}>
-                  <ClipboardList className="h-4 w-4 mr-2 text-primary" /> New Order
+                  <ClipboardList className="h-4 w-4 mr-2 text-primary" /> {tx('New Order')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -373,17 +371,17 @@ export function OrderDetailPage() {
         {/* Header strip */}
         <div className="flex items-center gap-6 mt-3 pt-3 border-t">
           <div className="flex items-center gap-1.5">
-            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Total:</span>
+            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{tx('Total:')}</span>
             <span className="font-bold text-sm">{money(data.totalAmount, currency)}</span>
           </div>
           <Separator orientation="vertical" className="h-4" />
           <div className="flex items-center gap-1.5">
-            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Lines:</span>
+            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{tx('Lines:')}</span>
             <span className="font-semibold text-sm">{data.items.length}</span>
           </div>
           <Separator orientation="vertical" className="h-4" />
           <div className="flex items-center gap-1.5">
-            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Opened:</span>
+            <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{tx('Opened:')}</span>
             <span className="font-semibold text-sm">{dateTime(data.openedAt)}</span>
           </div>
         </div>
@@ -398,13 +396,13 @@ export function OrderDetailPage() {
                 value="overview"
                 className="relative px-4 py-2 rounded-lg text-sm font-medium text-white/80 hover:bg-white/15 hover:text-white transition-all duration-300 data-[state=active]:bg-white data-[state=active]:text-indigo-600 data-[state=active]:shadow-lg data-[state=active]:font-bold data-[state=active]:scale-105"
               >
-                <span className="flex items-center gap-2"><FileText className="h-4 w-4" /><span className="hidden sm:inline">Overview</span></span>
+                <span className="flex items-center gap-2"><FileText className="h-4 w-4" /><span className="hidden sm:inline">{tx('Overview')}</span></span>
               </TabsTrigger>
               <TabsTrigger
                 value="billing"
                 className="relative px-4 py-2 rounded-lg text-sm font-medium text-white/80 hover:bg-white/15 hover:text-white transition-all duration-300 data-[state=active]:bg-white data-[state=active]:text-indigo-600 data-[state=active]:shadow-lg data-[state=active]:font-bold data-[state=active]:scale-105"
               >
-                <span className="flex items-center gap-2"><Receipt className="h-4 w-4" /><span className="hidden sm:inline">Billing</span></span>
+                <span className="flex items-center gap-2"><Receipt className="h-4 w-4" /><span className="hidden sm:inline">{tx('Billing')}</span></span>
               </TabsTrigger>
             </TabsList>
           </div>

@@ -1,0 +1,11 @@
+# POS / ERP demo — append to the host site's Caddyfile, then:
+#   docker network connect pos-demo-edge <caddy-container>
+#   docker exec <caddy-container> caddy validate --config /etc/caddy/Caddyfile
+#   docker exec <caddy-container> caddy reload --config /etc/caddy/Caddyfile
+# pd-web resolves over the pos-demo-edge network; its nginx proxies /api itself.
+
+pos-demo.almasiresidence.com {
+	encode zstd gzip
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy pd-web:80
+}

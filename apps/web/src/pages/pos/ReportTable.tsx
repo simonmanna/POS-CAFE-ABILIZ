@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { exportCSV } from '@/lib/export-csv';
 import { exportPDF } from '@/lib/export-pdf';
 import { useTableSort } from './report-utils';
+import { tx } from '@/lib/i18n/tx';
 
 export interface ReportColumn<T> {
   key: string;
@@ -99,7 +100,7 @@ export function ReportTable<T>({
 
       {children}
 
-      {loading ? <p className="text-sm text-slate-500">Loading…</p> : null}
+      {loading ? <p className="text-sm text-slate-500">{tx('Loading…')}</p> : null}
       {rows.length === 0 && !loading ? (
         <p className="text-sm text-slate-500">{emptyMessage}</p>
       ) : (

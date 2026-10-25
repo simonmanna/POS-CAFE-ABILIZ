@@ -20,6 +20,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { tx } from '@/lib/i18n/tx';
 
 const statusTone: Record<string, Tone> = {
   confirmed: 'info',
@@ -75,7 +76,7 @@ export function OrdersPage() {
     {
       key: 'partnerName',
       header: 'Customer',
-      render: (o) => o.partnerName ?? <span className="text-muted-foreground">Walk-in</span>,
+      render: (o) => o.partnerName ?? <span className="text-muted-foreground">{tx('Walk-in')}</span>,
     },
     {
       key: 'orderType',
@@ -93,7 +94,7 @@ export function OrdersPage() {
       key: 'invoiceId',
       header: 'Billed',
       render: (o) =>
-        o.invoiceId ? <StatusPill tone="success" dot={false}>Invoiced</StatusPill> : <span className="text-sm text-muted-foreground">—</span>,
+        o.invoiceId ? <StatusPill tone="success" dot={false}>{tx('Invoiced')}</StatusPill> : <span className="text-sm text-muted-foreground">—</span>,
     },
     {
       key: 'actions',
@@ -104,16 +105,16 @@ export function OrdersPage() {
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="h-8 w-8">
               <MoreHorizontal className="h-4 w-4" />
-              <span className="sr-only">Actions</span>
+              <span className="sr-only">{tx('Actions')}</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
             <DropdownMenuItem onClick={() => navigate(`/orders/${o.id}`)}>
-              <Eye className="mr-2 h-3.5 w-3.5" /> View details
+              <Eye className="mr-2 h-3.5 w-3.5" /> {tx('View details')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => navigate(`/invoices/${o.invoiceId}`)} disabled={!o.invoiceId}>
-              <FileText className="mr-2 h-3.5 w-3.5" /> View invoice
+              <FileText className="mr-2 h-3.5 w-3.5" /> {tx('View invoice')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -141,13 +142,13 @@ export function OrdersPage() {
     <div className="space-y-4">
       <ListPageHeader
         icon={ClipboardList}
-        title="Orders"
-        description="Operational orders — café, retail, rental and repair share one document."
+        title={tx('Orders')}
+        description={tx('Operational orders — café, retail, rental and repair share one document.')}
         actions={
           <>
             <ExportMenu
               basename="orders"
-              title="Orders"
+              title={tx('Orders')}
               subtitle={describeFilters(chips)}
               columns={exportColumns}
               pageRows={rows}
@@ -156,14 +157,14 @@ export function OrdersPage() {
               totals={(r) => ['Total', '', '', '', money(r.reduce((s, o) => s + Number(o.totalAmount || 0), 0), currency), '', '']}
             />
             <Button onClick={() => navigate('/orders/new')}>
-              <Plus className="mr-1 h-4 w-4" /> New Order
+              <Plus className="mr-1 h-4 w-4" /> {tx('New Order')}
             </Button>
           </>
         }
       />
 
       <ListToolbar chips={<FilterChips chips={chips} onClearAll={list.clearFilters} />}>
-        <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder="Search order # or customer…" />
+        <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder={tx('Search order # or customer…')} />
         <FilterSelect value={status} onChange={(v) => list.setFilter('status', v)} options={STATUS_OPTIONS} allLabel="All statuses" />
         <FilterSelect value={orderType} onChange={(v) => list.setFilter('orderType', v)} options={TYPE_OPTIONS} allLabel="All types" />
         <DateRangeFilter from={dateFrom} to={dateTo} onChange={(f, t) => list.setFilters({ dateFrom: f, dateTo: t })} />

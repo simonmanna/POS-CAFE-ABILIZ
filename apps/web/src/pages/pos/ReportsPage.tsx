@@ -13,12 +13,13 @@
  *     from the ISO instant in the VIEWER's timezone — never from the
  *     pre-formatted string the API host produced in its own locale.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart3, Clock, TrendingUp, RefreshCw, Printer, CalendarDays, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { useAuthStore } from '@/stores/auth.store';
+import { useCanViewReport } from '@/features/reports/access-api';
 
 import {
   useXReport, useZReport, useSalesByHour, useTopItems, useOpenSession, useSalesSummary,
@@ -36,6 +37,7 @@ import ReportTable from './ReportTable';
 import type { ReportColumn } from './ReportTable';
 import { sumMoney, fmtDate, fmtTime, humanise } from './report-utils';
 import './pos-pro.css';
+import { tx } from '@/lib/i18n/tx';
 
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 
@@ -97,12 +99,23 @@ const TABS: Array<{ id: TabId; label: string }> = [
 const ReportsPage: React.FC = () => {
   const permissions = useAuthStore((s) => s.permissions);
   const [tab, setTab] = useState<TabId>('sales');
+  // Report visibility is configurable per role (Settings → Report Permissions).
+  const canViewReport = useCanViewReport();
+  const visibleTabs = useMemo(() => TABS.filter((t) => canViewReport(`pos.${t.id}`)), [canViewReport]);
   const [filters, setFilters] = useState<ReportFilterState>(emptyFilters());
   const [hourFilter, setHourFilter] = useState<string | undefined>();
   /* Item Sales by Server: daily is the shift-lead's view, shift (cash session)
    * is the supervisor's. Local to the tab — it is a grouping, not a filter. */
   const [serverGroupBy, setServerGroupBy] = useState<'day' | 'shift' | 'none'>('day');
   const { data: openSession } = useOpenSession();
+
+  // A tab hidden for this role must not stay selected — fall back to the first
+  // one it may see.
+  useEffect(() => {
+    if (visibleTabs.length > 0 && !visibleTabs.some((t) => t.id === tab)) {
+      setTab(visibleTabs[0].id);
+    }
+  }, [visibleTabs, tab]);
 
   const { fromDate, toDate } = filters;
   const fields = TAB_FIELDS[tab];
@@ -145,33 +158,38 @@ const ReportsPage: React.FC = () => {
   })();
 
   const denied = !permissions.includes('pos:reports');
+  const noneVisible = !denied && visibleTabs.length === 0;
 
   return (
     <div className="pos-reports-shell">
       <div className="pos-reports-header">
         <div>
           <h1 className="text-2xl font-bold flex items-center">
-            <BarChart3 className="h-6 w-6" /> POS Reports
+            <BarChart3 className="h-6 w-6" /> {tx('POS Reports')}
           </h1>
         </div>
         <div className="flex gap-2 no-print">
           {(tab === 'x' || tab === 'z') && (
             <Button variant="outline" onClick={() => current.refetch()}>
-              <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+              <RefreshCw className="h-4 w-4 mr-1" /> {tx('Refresh')}
             </Button>
           )}
-          <Button variant="outline" onClick={() => window.print()}><Printer className="h-4 w-4 mr-1" /> Print</Button>
+          <Button variant="outline" onClick={() => window.print()}><Printer className="h-4 w-4 mr-1" /> {tx('Print')}</Button>
         </div>
       </div>
 
       {denied ? (
         <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-700">
-          You don't have <code>pos:reports</code> permission. Ask a manager.
+          {tx('You don\'t have')} <code>pos:reports</code> {tx('permission. Ask a manager.')}
+        </div>
+      ) : noneVisible ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-slate-700">
+          {tx('No POS reports are enabled for your role. An administrator can enable them under Settings → Report Permissions.')}
         </div>
       ) : (
         <>
           <div className="pos-reports-tabs pos-reports-tabs-wide no-print">
-            {TABS.map((t) => (
+            {visibleTabs.map((t) => (
               <button
                 key={t.id}
                 className={'pos-reports-tab' + (tab === t.id ? ' active' : '')}
@@ -272,7 +290,7 @@ const totalOf = <T,>(pick: (r: T) => string | number | null | undefined) =>
 /* ============== X / Z ============== */
 
 const XReportView: React.FC<{ report: XReportType | null; loading: boolean; error: any; kind: 'X' | 'Z' }> = ({ report, loading, error, kind }) => {
-  if (loading) return <div className="text-slate-500 p-4">Loading {kind}-report…</div>;
+  if (loading) return <div className="text-slate-500 p-4">{tx('Loading')} {kind}{tx('-report…')}</div>;
   if (error) {
     const msg = error?.response?.data?.message || error?.message || 'Failed to load report';
     return <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-rose-700">{msg}</div>;
@@ -281,8 +299,8 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
         <Clock className="h-10 w-10 mx-auto mb-2 opacity-50" />
-        <p className="font-semibold">No active cash session</p>
-        <p className="text-sm mt-1">Open a shift to see live {kind}-report data.</p>
+        <p className="font-semibold">{tx('No active cash session')}</p>
+        <p className="text-sm mt-1">{tx('Open a shift to see live')} {kind}{tx('-report data.')}</p>
       </div>
     );
   }
@@ -294,23 +312,23 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
   return (
     <div className="space-y-4">
       <div className="pos-shift-banner">
-        <span>Shift opened {report.cashSession.openedAt ? new Date(report.cashSession.openedAt).toLocaleString() : '—'}</span>
-        <span className="font-mono">Opening float: {fmt(report.cashSession.openingFloat)}</span>
+        <span>{tx('Shift opened')} {report.cashSession.openedAt ? new Date(report.cashSession.openedAt).toLocaleString() : '—'}</span>
+        <span className="font-mono">{tx('Opening float:')} {fmt(report.cashSession.openingFloat)}</span>
       </div>
 
       <div className="pos-report-grid">
-        <ReportCard title="Gross sales" value={fmt(t.grossSales)} sub={`incl. tax · ${t.saleCount} sale${t.saleCount === 1 ? '' : 's'}`} />
-        <ReportCard title="Net revenue" value={fmt(t.netRevenueAfterRefunds ?? t.netRevenue)} sub={t.refundedRevenue && Number(t.refundedRevenue) ? `ex-tax · after ${fmt(t.refundedRevenue)} refunded` : 'ex-tax'} />
-        <ReportCard title="Discounts" value={fmt(t.discountTotal)} sub="given this shift" />
-        <ReportCard title="Cash collected" value={fmt(t.cashCollected)} sub="cash tenders into drawer" />
-        <ReportCard title="Expected cash" value={fmt(t.expectedCash)} sub="float + cash − refunds + ins − outs" accent />
+        <ReportCard title={tx('Gross sales')} value={fmt(t.grossSales)} sub={`incl. tax · ${t.saleCount} sale${t.saleCount === 1 ? '' : 's'}`} />
+        <ReportCard title={tx('Net revenue')} value={fmt(t.netRevenueAfterRefunds ?? t.netRevenue)} sub={t.refundedRevenue && Number(t.refundedRevenue) ? `ex-tax · after ${fmt(t.refundedRevenue)} refunded` : 'ex-tax'} />
+        <ReportCard title={tx('Discounts')} value={fmt(t.discountTotal)} sub="given this shift" />
+        <ReportCard title={tx('Cash collected')} value={fmt(t.cashCollected)} sub="cash tenders into drawer" />
+        <ReportCard title={tx('Expected cash')} value={fmt(t.expectedCash)} sub="float + cash − refunds + ins − outs" accent />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="pos-report-card">
-          <h3>By payment method <span className="text-sm font-normal text-slate-400">(all tenders, gross)</span></h3>
+          <h3>{tx('By payment method')} <span className="text-sm font-normal text-slate-400">{tx('(all tenders, gross)')}</span></h3>
           {report.byMethod.length === 0 ? (
-            <p className="text-sm text-slate-500">No sales yet this shift.</p>
+            <p className="text-sm text-slate-500">{tx('No sales yet this shift.')}</p>
           ) : (
             report.byMethod.map((m) => (
               <div key={m.method} className="pos-report-bar-row">
@@ -325,9 +343,9 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
         </div>
 
         <div className="pos-report-card">
-          <h3>By category</h3>
+          <h3>{tx('By category')}</h3>
           {report.byCategory.length === 0 ? (
-            <p className="text-sm text-slate-500">No sales yet this shift.</p>
+            <p className="text-sm text-slate-500">{tx('No sales yet this shift.')}</p>
           ) : (
             report.byCategory.map((c) => (
               <div key={c.categoryId ?? 'uncategorised'} className="pos-report-bar-row">
@@ -342,7 +360,7 @@ const XReportView: React.FC<{ report: XReportType | null; loading: boolean; erro
         </div>
       </div>
 
-      <p className="text-sm text-slate-500">As of {new Date(report.asOf).toLocaleString()}</p>
+      <p className="text-sm text-slate-500">{tx('As of')} {new Date(report.asOf).toLocaleString()}</p>
     </div>
   );
 };
@@ -375,18 +393,18 @@ const HourlyView: React.FC<{
   return (
     <div className="space-y-4">
       <div className="pos-report-grid">
-        <ReportCard title="Gross sales" value={fmt(total)} sub={`${count} sale${count === 1 ? '' : 's'}`} accent />
+        <ReportCard title={tx('Gross sales')} value={fmt(total)} sub={`${count} sale${count === 1 ? '' : 's'}`} accent />
         <ReportCard
-          title="Peak hour"
+          title={tx('Peak hour')}
           value={peak && Number(peak.total) > 0 ? `${String(peak.hour).padStart(2, '0')}:00–${String(peak.hour + 1).padStart(2, '0')}:00` : '—'}
           sub={peak && Number(peak.total) > 0 ? `${fmt(peak.total)} · ${peak.count} sale${peak.count === 1 ? '' : 's'}` : 'No sales in range'}
         />
-        <ReportCard title="Avg per active hour" value={fmt(visible.filter((b) => b.count > 0).length ? total / visible.filter((b) => b.count > 0).length : 0)} />
+        <ReportCard title={tx('Avg per active hour')} value={fmt(visible.filter((b) => b.count > 0).length ? total / visible.filter((b) => b.count > 0).length : 0)} />
       </div>
 
       <div className="flex flex-wrap gap-1 no-print">
         <Label className="w-full text-sm text-slate-500 mb-1">
-          Filter by hour {hFilter ? <button className="underline" onClick={() => setHFilter(undefined)}>(show all)</button> : null}
+          {tx('Filter by hour')} {hFilter ? <button className="underline" onClick={() => setHFilter(undefined)}>{tx('(show all)')}</button> : null}
         </Label>
         {Array.from({ length: 24 }, (_, h) => h).map((h) => {
           const on = !selectedHours || selectedHours.has(h);
@@ -405,11 +423,11 @@ const HourlyView: React.FC<{
 
       <ReportTable<{ hour: number; count: number; total: string }>
         title={heading('Hourly sales', range)}
-        note={<><TrendingUp className="inline h-3.5 w-3.5 mr-1" />Gross sales incl. tax, bucketed by the hour the sale was rung up.</>}
+        note={<><TrendingUp className="inline h-3.5 w-3.5 mr-1" />{tx('Gross sales incl. tax, bucketed by the hour the sale was rung up.')}</>}
         rows={visible}
         loading={loading}
         exportName={`sales-by-hour-${suffix(range)}`}
-        emptyMessage="No sales in this date range."
+        emptyMessage={tx('No sales in this date range.')}
         initialSortKey="hour"
         initialSortDir="asc"
         rowKey={(b) => String(b.hour)}
@@ -458,7 +476,7 @@ const TopItemsView: React.FC<{
   return (
     <div className="space-y-4">
       <div className="pos-report-grid">
-        <ReportCard title="Period total" value={fmt(total)} sub={`${items.length} item${items.length === 1 ? '' : 's'} ranked`} accent />
+        <ReportCard title={tx('Period total')} value={fmt(total)} sub={`${items.length} item${items.length === 1 ? '' : 's'} ranked`} accent />
       </div>
       <ReportTable<typeof items[number]>
         title={heading('Top items', range)}
@@ -466,7 +484,7 @@ const TopItemsView: React.FC<{
         rows={items}
         loading={loading}
         exportName={`top-items-${suffix(range)}`}
-        emptyMessage="No sales in this date range."
+        emptyMessage={tx('No sales in this date range.')}
         initialSortKey="total"
         rowKey={(it) => it.productId || it.name}
         columns={[
@@ -524,7 +542,7 @@ const SalesReportView: React.FC<{ rows: SalesReportRow[]; loading: boolean; rang
     {
       key: 'action', header: '', align: 'center',
       cell: (r) => (
-        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 no-print" onClick={() => navigate(`/invoices/${r.id}`)} title="Open invoice">
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 no-print" onClick={() => navigate(`/invoices/${r.id}`)} title={tx('Open invoice')}>
           <Eye className="h-4 w-4" />
         </Button>
       ),
@@ -534,17 +552,17 @@ const SalesReportView: React.FC<{ rows: SalesReportRow[]; loading: boolean; rang
   return (
     <div className="space-y-4">
       <div className="pos-report-grid">
-        <ReportCard title="Gross sales" value={fmt(gross)} sub={`incl. tax · ${rows.length} sale${rows.length === 1 ? '' : 's'}`} accent />
-        <ReportCard title="Net revenue" value={fmt(net)} sub="ex-tax (invoice subtotal)" />
-        <ReportCard title="Refunded" value={fmt(refunded)} sub={`net of refunds ${fmt(gross - refunded)}`} />
-        <ReportCard title="Avg sale" value={fmt(rows.length ? gross / rows.length : 0)} />
+        <ReportCard title={tx('Gross sales')} value={fmt(gross)} sub={`incl. tax · ${rows.length} sale${rows.length === 1 ? '' : 's'}`} accent />
+        <ReportCard title={tx('Net revenue')} value={fmt(net)} sub="ex-tax (invoice subtotal)" />
+        <ReportCard title={tx('Refunded')} value={fmt(refunded)} sub={`net of refunds ${fmt(gross - refunded)}`} />
+        <ReportCard title={tx('Avg sale')} value={fmt(rows.length ? gross / rows.length : 0)} />
       </div>
       <ReportTable
         title={heading('Sales Report', range)}
         note="One row per POS invoice. Refunded sales stay listed with the amount returned shown separately."
         rows={rows} loading={loading} columns={columns}
         exportName={`sales-report-${suffix(range)}`}
-        emptyMessage="No sales in this date range."
+        emptyMessage={tx('No sales in this date range.')}
         initialSortKey="date" initialSortDir="asc"
         rowKey={(r) => r.id}
       />
@@ -560,15 +578,15 @@ const CashierReportView: React.FC<{ rows: CashierReportRow[]; loading: boolean; 
   return (
     <div className="space-y-4">
       <div className="pos-report-grid">
-        <ReportCard title="Sales" value={fmt(salesTotal)} sub={`${rows.length} sale${rows.length === 1 ? '' : 's'}`} accent />
-        <ReportCard title="Received" value={fmt(received)} sub={received < salesTotal ? `${fmt(salesTotal - received)} outstanding` : 'fully settled'} />
+        <ReportCard title={tx('Sales')} value={fmt(salesTotal)} sub={`${rows.length} sale${rows.length === 1 ? '' : 's'}`} accent />
+        <ReportCard title={tx('Received')} value={fmt(received)} sub={received < salesTotal ? `${fmt(salesTotal - received)} outstanding` : 'fully settled'} />
       </div>
       <ReportTable<CashierReportRow>
         title={heading('Cashier Reports', range)}
         note="Per-sale detail for the cashier who rang it up. 'Received' is the amount settled — a credit sale shows less than its total."
         rows={rows} loading={loading}
         exportName={`cashier-report-${suffix(range)}`}
-        emptyMessage="No sales in this date range."
+        emptyMessage={tx('No sales in this date range.')}
         initialSortKey="date"
         rowKey={(r, i) => `${r.invoiceNumber}-${i}`}
         columns={[
@@ -610,23 +628,23 @@ const CashierShiftSummaryView: React.FC<{ rows: CashierShiftSummaryRow[]; loadin
   return (
     <div className="space-y-4">
       <div className="pos-report-grid">
-        <ReportCard title="Shifts" value={String(rows.length)} sub={`${counted.length} counted · ${rows.length - counted.length} still open`} />
-        <ReportCard title="Total sales" value={fmt(sumMoney(rows, (r) => r.totalSales ?? 0))} sub="all tenders" accent />
-        <ReportCard title="Cash into drawer" value={fmt(sumMoney(rows, (r) => r.cashSales ?? r.sales))} sub="cash tenders only" />
-        <ReportCard title="Cash variance" value={fmt(variance)} sub={`${short} short · ${over} over`} />
+        <ReportCard title={tx('Shifts')} value={String(rows.length)} sub={`${counted.length} counted · ${rows.length - counted.length} still open`} />
+        <ReportCard title={tx('Total sales')} value={fmt(sumMoney(rows, (r) => r.totalSales ?? 0))} sub="all tenders" accent />
+        <ReportCard title={tx('Cash into drawer')} value={fmt(sumMoney(rows, (r) => r.cashSales ?? r.sales))} sub="cash tenders only" />
+        <ReportCard title={tx('Cash variance')} value={fmt(variance)} sub={`${short} short · ${over} over`} />
       </div>
       <ReportTable<CashierShiftSummaryRow>
         title={heading('Cashier Shift Summary', range)}
         note="'Cash sales' is what hit the drawer; 'Total sales' is every tender rung up on the shift. Variance compares the counted cash against the expected drawer balance."
         rows={rows} loading={loading}
         exportName={`cashier-shift-summary-${suffix(range)}`}
-        emptyMessage="No shifts in this date range."
+        emptyMessage={tx('No shifts in this date range.')}
         initialSortKey="opened"
         rowKey={(r, i) => r.sessionId ?? String(i)}
         columns={[
           { key: 'shift', header: 'Shift', sort: (r) => r.openedAt ?? r.shift, cell: (r) => <span className="text-sm font-mono">{r.shift}</span>, text: (r) => r.shift, footer: () => `Total (${rows.length})` },
           { key: 'opened', header: 'Opened', sort: (r) => r.openedAt ?? '', cell: (r) => <span className="text-sm">{r.openedAt ? `${fmtDate(r.openedAt)} ${fmtTime(r.openedAt)}` : '—'}</span>, text: (r) => (r.openedAt ? `${fmtDate(r.openedAt)} ${fmtTime(r.openedAt)}` : '—') },
-          { key: 'closed', header: 'Closed', sort: (r) => r.closedAt ?? '', cell: (r) => <span className="text-sm">{r.closedAt ? `${fmtDate(r.closedAt)} ${fmtTime(r.closedAt)}` : <span className="text-amber-600">open</span>}</span>, text: (r) => (r.closedAt ? `${fmtDate(r.closedAt)} ${fmtTime(r.closedAt)}` : 'open') },
+          { key: 'closed', header: 'Closed', sort: (r) => r.closedAt ?? '', cell: (r) => <span className="text-sm">{r.closedAt ? `${fmtDate(r.closedAt)} ${fmtTime(r.closedAt)}` : <span className="text-amber-600">{tx('open')}</span>}</span>, text: (r) => (r.closedAt ? `${fmtDate(r.closedAt)} ${fmtTime(r.closedAt)}` : 'open') },
           { key: 'cashier', header: 'Cashier', sort: (r) => r.cashierName ?? '', cell: (r) => <span className="text-sm">{r.cashierName ?? '—'}</span>, text: (r) => r.cashierName ?? '—' },
           { key: 'opening', header: 'Opening Cash', align: 'right', sort: (r) => Number(r.openingCash), cell: (r) => money(r.openingCash), text: (r) => num(r.openingCash), pdf: (r) => fmt(r.openingCash), footer: totalOf((r: CashierShiftSummaryRow) => r.openingCash) },
           { key: 'cashSales', header: 'Cash Sales', align: 'right', sort: (r) => Number(r.cashSales ?? r.sales), cell: (r) => money(r.cashSales ?? r.sales), text: (r) => num(r.cashSales ?? r.sales), pdf: (r) => fmt(r.cashSales ?? r.sales), footer: totalOf((r: CashierShiftSummaryRow) => r.cashSales ?? r.sales) },
@@ -634,7 +652,7 @@ const CashierShiftSummaryView: React.FC<{ rows: CashierShiftSummaryRow[]; loadin
           { key: 'expected', header: 'Expected Cash', align: 'right', sort: (r) => Number(r.expectedCash), cell: (r) => money(r.expectedCash), text: (r) => num(r.expectedCash), pdf: (r) => fmt(r.expectedCash), footer: totalOf((r: CashierShiftSummaryRow) => r.expectedCash) },
           {
             key: 'actual', header: 'Actual Cash', align: 'right', sort: (r) => (r.actualCash == null ? null : Number(r.actualCash)),
-            cell: (r) => (r.actualCash == null ? <span className="text-slate-400">not counted</span> : money(r.actualCash)),
+            cell: (r) => (r.actualCash == null ? <span className="text-slate-400">{tx('not counted')}</span> : money(r.actualCash)),
             text: (r) => (r.actualCash == null ? '—' : num(r.actualCash)), pdf: (r) => (r.actualCash == null ? '—' : fmt(r.actualCash)),
             // Only counted shifts contribute — summing an uncounted shift as 0
             // made the total read like a huge shortage.
@@ -661,7 +679,7 @@ const WaiterReportView: React.FC<{ rows: WaiterReportRow[]; loading: boolean; ra
         note="One row per sold line, attributed to the waiter on the invoice. Totals include tax and any line discount."
         rows={rows} loading={loading}
         exportName={`waiter-report-${suffix(range)}`}
-        emptyMessage="No sales in this date range."
+        emptyMessage={tx('No sales in this date range.')}
         initialSortKey="date"
         rowKey={(r, i) => `${r.orderNumber}-${r.item}-${i}`}
         columns={[
@@ -700,7 +718,7 @@ const ItemSalesView: React.FC<{
         note="One row per item across the whole range. Unit price is the effective average (total ÷ qty), so the three money columns always reconcile."
         rows={rows} loading={loading}
         exportName={`item-sales-${suffix(range)}`}
-        emptyMessage="No items sold for these filters."
+        emptyMessage={tx('No items sold for these filters.')}
         initialSortKey="total"
         rowKey={(r) => r.itemKey}
         columns={[
@@ -743,14 +761,14 @@ const ItemsByGroupView: React.FC<{ rows: ItemsByGroupRow[]; loading: boolean; ra
   return (
     <div className="space-y-4">
       <div className="pos-report-grid">
-        <ReportCard title="Group revenue" value={fmt(grandTotal)} sub={`${rows.length} group${rows.length === 1 ? '' : 's'}`} accent />
+        <ReportCard title={tx('Group revenue')} value={fmt(grandTotal)} sub={`${rows.length} group${rows.length === 1 ? '' : 's'}`} accent />
       </div>
       <ReportTable<ItemsByGroupRow>
         title={heading('Items by Group', range)}
         note="Sold lines rolled up by the item's category. Lines whose item has no category land in 'Uncategorised'."
         rows={rows} loading={loading}
         exportName={`items-by-group-${suffix(range)}`}
-        emptyMessage="No sales in this date range."
+        emptyMessage={tx('No sales in this date range.')}
         initialSortKey="total"
         rowKey={(r, i) => r.groupId ?? `uncat-${i}`}
         columns={[
@@ -794,16 +812,16 @@ const OrderReportView: React.FC<{ rows: OrderReportRow[]; loading: boolean; rang
   return (
     <div className="space-y-4">
       <div className="pos-report-grid">
-        <ReportCard title="Order value" value={fmt(total)} sub={`${rows.length} order${rows.length === 1 ? '' : 's'}`} accent />
-        <ReportCard title="Still open" value={String(openOrders.length)} sub={`${fmt(sumMoney(openOrders, (r) => r.totalAmount))} unbilled`} />
-        <ReportCard title="Avg order" value={fmt(rows.length ? total / rows.length : 0)} />
+        <ReportCard title={tx('Order value')} value={fmt(total)} sub={`${rows.length} order${rows.length === 1 ? '' : 's'}`} accent />
+        <ReportCard title={tx('Still open')} value={String(openOrders.length)} sub={`${fmt(sumMoney(openOrders, (r) => r.totalAmount))} unbilled`} />
+        <ReportCard title={tx('Avg order')} value={fmt(rows.length ? total / rows.length : 0)} />
       </div>
       <ReportTable<OrderReportRow>
         title={heading('Order Reports', range)}
         note="Operational orders, including drafts that were never billed — so this total is expected to exceed the Sales Report. Cancelled orders are hidden unless you tick 'Include cancelled'."
         rows={rows} loading={loading}
         exportName={`order-report-${suffix(range)}`}
-        emptyMessage="No orders in this date range."
+        emptyMessage={tx('No orders in this date range.')}
         initialSortKey="date"
         rowKey={(r, i) => `${r.orderNumber}-${i}`}
         columns={[
@@ -840,7 +858,7 @@ const ItemsReportView: React.FC<{ items: SoldItem[]; loading: boolean; range: Ra
         note="Every sold line in the range. Total amount includes tax and the line discount. Served By is who punched the line; Order Waiter is who owns the order — on a busy floor they differ."
         rows={items} loading={loading}
         exportName={`items-report-${suffix(range)}`}
-        emptyMessage="No sales in this date range."
+        emptyMessage={tx('No sales in this date range.')}
         initialSortKey="date"
         rowKey={(it, i) => `${it.invoiceNumber}-${it.item}-${i}`}
         columns={[
@@ -895,7 +913,7 @@ const ItemsByServerView: React.FC<{
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 no-print">
-        <Label className="text-xs font-semibold text-slate-500">Group by</Label>
+        <Label className="text-xs font-semibold text-slate-500">{tx('Group by')}</Label>
         {GROUPS.map((g) => (
           <button
             key={g.key}
@@ -932,7 +950,7 @@ const ItemsByServerView: React.FC<{
         rows={rows}
         loading={loading}
         exportName={`item-sales-by-server-${groupBy}-${suffix(range)}`}
-        emptyMessage="No sales in this date range."
+        emptyMessage={tx('No sales in this date range.')}
         initialSortKey="period"
         rowKey={(r, i) => `${r.periodKey}-${r.serverId ?? 'x'}-${r.item}-${i}`}
         columns={[
@@ -967,12 +985,12 @@ const MethodBar: React.FC<{ byMethod: SalesSummaryReport['byMethod'] }> = ({ byM
   const max = Math.max(1, ...byMethod.map((m) => Number(m.total)));
   return (
     <div className="pos-report-card">
-      <h3>By payment method</h3>
+      <h3>{tx('By payment method')}</h3>
       <p className="text-sm text-slate-500 mb-2">
-        Money actually allocated to these invoices. A credit sale settled later shows under the tender that eventually paid it.
+        {tx('Money actually allocated to these invoices. A credit sale settled later shows under the tender that eventually paid it.')}
       </p>
       {byMethod.length === 0 ? (
-        <p className="text-sm text-slate-500">No payments allocated in this period.</p>
+        <p className="text-sm text-slate-500">{tx('No payments allocated in this period.')}</p>
       ) : (
         byMethod.map((m) => (
           <div key={m.method} className="pos-report-bar-row">
@@ -991,12 +1009,12 @@ const MethodBar: React.FC<{ byMethod: SalesSummaryReport['byMethod'] }> = ({ byM
 const SalesSummaryView: React.FC<{
   report: SalesSummaryReport | undefined; loading: boolean; periodLabel: 'Day' | 'Week' | 'Month'; range: Range;
 }> = ({ report, loading, periodLabel, range }) => {
-  if (loading) return <div className="text-slate-500 p-4">Loading {periodLabel.toLowerCase()} sales…</div>;
+  if (loading) return <div className="text-slate-500 p-4">{tx('Loading')} {periodLabel.toLowerCase()} {tx('sales…')}</div>;
   if (!report) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
         <CalendarDays className="h-10 w-10 mx-auto mb-2 opacity-50" />
-        <p className="font-semibold">No data for {range.fromDate} → {range.toDate}</p>
+        <p className="font-semibold">{tx('No data for')} {range.fromDate} → {range.toDate}</p>
       </div>
     );
   }
@@ -1008,11 +1026,11 @@ const SalesSummaryView: React.FC<{
   return (
     <div className="space-y-4">
       <div className="pos-report-grid">
-        <ReportCard title="Net revenue" value={fmt(t.revenue)} sub={`ex-tax · ${t.orders} order${t.orders === 1 ? '' : 's'}`} accent />
-        <ReportCard title="Gross sales" value={fmt(t.grossSales)} sub="incl. tax" />
-        <ReportCard title="Avg order value" value={fmt(t.avgOrderValue)} />
-        <ReportCard title="Discounts" value={fmt(t.discounts)} />
-        <ReportCard title="Refunds" value={fmt(t.refunds)} sub={`net sales ${fmt(t.netSales)}`} />
+        <ReportCard title={tx('Net revenue')} value={fmt(t.revenue)} sub={`ex-tax · ${t.orders} order${t.orders === 1 ? '' : 's'}`} accent />
+        <ReportCard title={tx('Gross sales')} value={fmt(t.grossSales)} sub="incl. tax" />
+        <ReportCard title={tx('Avg order value')} value={fmt(t.avgOrderValue)} />
+        <ReportCard title={tx('Discounts')} value={fmt(t.discounts)} />
+        <ReportCard title={tx('Refunds')} value={fmt(t.refunds)} sub={`net sales ${fmt(t.netSales)}`} />
       </div>
 
       <ReportTable<SalesSummaryReport['periods'][number]>
@@ -1021,7 +1039,7 @@ const SalesSummaryView: React.FC<{
         rows={periods}
         exportName={`${periodLabel.toLowerCase()}-breakdown-${suffix(range)}`}
         exportTitle={`${periodLabel} breakdown — ${range.fromDate} → ${range.toDate}`}
-        emptyMessage="No sales in this period."
+        emptyMessage={tx('No sales in this period.')}
         initialSortKey="period" initialSortDir="asc"
         rowKey={(p) => p.periodKey}
         columns={[

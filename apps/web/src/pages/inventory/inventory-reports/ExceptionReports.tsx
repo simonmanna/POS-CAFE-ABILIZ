@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { date } from '@/lib/format';
 import { DataTable, Kpi, KpiGrid, ReportState, money, qty, type Column } from './shared';
 import { FilterBar, type useReportFilters } from './filters';
+import { tx } from '@/lib/i18n/tx';
 
 type Ctl = ReturnType<typeof useReportFilters>;
 
@@ -45,16 +46,16 @@ export function ReorderReport({ ctl }: { ctl: Ctl }) {
       <FilterBar ctl={ctl} show={['location', 'category', 'search']} />
       <ReportState query={report}>
         <KpiGrid>
-          <Kpi label="Items at / below par" value={rows.length} tone={rows.length ? 'warn' : 'good'} />
-          <Kpi label="Out of stock" value={rows.filter((r) => r.onHand <= 0).length} tone="bad" />
-          <Kpi label="Without supplier" value={rows.filter((r) => !r.supplier).length} />
-          <Kpi label="Estimated reorder cost" value={money(cost)} hint="Suggested qty × product cost price" />
+          <Kpi label={tx('Items at / below par')} value={rows.length} tone={rows.length ? 'warn' : 'good'} />
+          <Kpi label={tx('Out of stock')} value={rows.filter((r) => r.onHand <= 0).length} tone="bad" />
+          <Kpi label={tx('Without supplier')} value={rows.filter((r) => !r.supplier).length} />
+          <Kpi label={tx('Estimated reorder cost')} value={money(cost)} hint="Suggested qty × product cost price" />
         </KpiGrid>
         <DataTable
           rows={rows} columns={columns} rowKey={(r) => r.productId}
           defaultSort={{ key: 'shortfall', dir: 'desc' }}
           exportName={`inventory-reorder_${new Date().toISOString().slice(0, 10)}`}
-          emptyText="Nothing below par. Set a minimum quantity (par) on products to use this report."
+          emptyText={tx('Nothing below par. Set a minimum quantity (par) on products to use this report.')}
           onRowClick={(r) => navigate(`/inventory/items/${r.productId}`)}
         />
       </ReportState>
@@ -89,7 +90,7 @@ export function ExpiringReport({ ctl }: { ctl: Ctl }) {
     {
       key: 'daysToExpiry', header: 'Days Left', align: 'right',
       render: (r) => r.expired
-        ? <Badge variant="destructive">Expired {Math.abs(r.daysToExpiry ?? 0)}d ago</Badge>
+        ? <Badge variant="destructive">{tx('Expired')} {Math.abs(r.daysToExpiry ?? 0)}{tx('d ago')}</Badge>
         : <span className={(r.daysToExpiry ?? 99) <= 7 ? 'font-semibold text-amber-600' : ''}>{r.daysToExpiry}</span>,
       sort: (r) => r.daysToExpiry,
     },
@@ -102,16 +103,16 @@ export function ExpiringReport({ ctl }: { ctl: Ctl }) {
       <FilterBar ctl={ctl} show={['location', 'category', 'search', 'days']} />
       <ReportState query={report}>
         <KpiGrid>
-          <Kpi label="Batches expiring" value={rows.length} tone={rows.length ? 'warn' : 'good'} hint={`Within ${ctl.filters.days} days`} />
-          <Kpi label="Already expired" value={expired.length} tone={expired.length ? 'bad' : 'good'} />
-          <Kpi label="Value at risk" value={money(rows.reduce((s, r) => s + r.value, 0))} />
-          <Kpi label="Expired value" value={money(expired.reduce((s, r) => s + r.value, 0))} tone={expired.length ? 'bad' : undefined} />
+          <Kpi label={tx('Batches expiring')} value={rows.length} tone={rows.length ? 'warn' : 'good'} hint={`Within ${ctl.filters.days} days`} />
+          <Kpi label={tx('Already expired')} value={expired.length} tone={expired.length ? 'bad' : 'good'} />
+          <Kpi label={tx('Value at risk')} value={money(rows.reduce((s, r) => s + r.value, 0))} />
+          <Kpi label={tx('Expired value')} value={money(expired.reduce((s, r) => s + r.value, 0))} tone={expired.length ? 'bad' : undefined} />
         </KpiGrid>
         <DataTable
           rows={rows} columns={columns} rowKey={(r) => r.id}
           defaultSort={{ key: 'daysToExpiry', dir: 'asc' }}
           exportName={`inventory-expiring_${new Date().toISOString().slice(0, 10)}`}
-          emptyText="No batch-tracked stock expiring in this window."
+          emptyText={tx('No batch-tracked stock expiring in this window.')}
           rowClassName={(r) => (r.expired ? 'bg-red-50/60 dark:bg-red-950/20' : undefined)}
         />
       </ReportState>
@@ -146,7 +147,7 @@ export function NegativeStockReport({ ctl }: { ctl: Ctl }) {
     { key: 'name', header: 'Item', className: 'whitespace-nowrap font-medium', render: (r) => <>{r.name}{r.code && <span className="ml-1 font-mono text-xs text-muted-foreground">{r.code}</span>}</>, sort: (r) => r.name },
     { key: 'locationName', header: 'Location', render: (r) => r.locationName ?? '—', sort: (r) => r.locationName },
     { key: 'quantity', header: 'On Hand', align: 'right', render: (r) => <span className="font-semibold text-destructive">{qty(r.quantity)}</span>, sort: (r) => Number(r.quantity) },
-    { key: 'unitCost', header: 'Unit Cost', align: 'right', render: (r) => (r.zeroCostBasis ? <Badge variant="destructive">No cost</Badge> : money(r.unitCost)), sort: (r) => Number(r.unitCost) },
+    { key: 'unitCost', header: 'Unit Cost', align: 'right', render: (r) => (r.zeroCostBasis ? <Badge variant="destructive">{tx('No cost')}</Badge> : money(r.unitCost)), sort: (r) => Number(r.unitCost) },
     { key: 'valuationExposure', header: 'Valuation Exposure', align: 'right', render: (r) => money(r.valuationExposure), sort: (r) => Number(r.valuationExposure), footer: money(s?.totalValuationExposure) },
     { key: 'lastMovedAt', header: 'Last Moved', render: (r) => date(r.lastMovedAt), sort: (r) => r.lastMovedAt },
   ];
@@ -157,9 +158,9 @@ export function NegativeStockReport({ ctl }: { ctl: Ctl }) {
       <ReportState query={report}>
         {s && (
           <KpiGrid>
-            <Kpi label="Negative cells" value={s.cells} tone={s.cells ? 'bad' : 'good'} hint="Item × location" />
-            <Kpi label="Valuation exposure" value={money(s.totalValuationExposure)} tone={s.cells ? 'bad' : undefined} hint="Inventory overstated / COGS understated" />
-            <Kpi label="Zero cost basis" value={s.zeroCostBasisCells} tone={s.zeroCostBasisCells ? 'bad' : undefined} hint="Sold with no cost — receive stock" />
+            <Kpi label={tx('Negative cells')} value={s.cells} tone={s.cells ? 'bad' : 'good'} hint="Item × location" />
+            <Kpi label={tx('Valuation exposure')} value={money(s.totalValuationExposure)} tone={s.cells ? 'bad' : undefined} hint="Inventory overstated / COGS understated" />
+            <Kpi label={tx('Zero cost basis')} value={s.zeroCostBasisCells} tone={s.zeroCostBasisCells ? 'bad' : undefined} hint="Sold with no cost — receive stock" />
           </KpiGrid>
         )}
         <DataTable
@@ -167,7 +168,7 @@ export function NegativeStockReport({ ctl }: { ctl: Ctl }) {
           rowKey={(r) => `${r.productId}|${r.variantKey}|${r.locationId}`}
           defaultSort={{ key: 'valuationExposure', dir: 'desc' }}
           exportName={`inventory-negative-stock_${new Date().toISOString().slice(0, 10)}`}
-          emptyText="No negative stock — every sale is covered by a receipt."
+          emptyText={tx('No negative stock — every sale is covered by a receipt.')}
           onRowClick={(r) => navigate(`/inventory/items/${r.productId}?locationId=${r.locationId}`)}
         />
       </ReportState>

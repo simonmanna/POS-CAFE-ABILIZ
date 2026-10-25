@@ -10,6 +10,7 @@ import { useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useSidebarTheme, SIDEBAR_THEMES, type SidebarThemeKey } from '@/lib/sidebar-theme';
+import { tx } from '@/lib/i18n/tx';
 
 const ORDER: SidebarThemeKey[] = ['luxurySky', 'lightCharcoal'];
 
@@ -56,7 +57,7 @@ export function ThemePicker({ compact = false }: { compact?: boolean }) {
   return (
     <div
       role="radiogroup"
-      aria-label="Color theme"
+      aria-label={tx('Color theme')}
       className="relative grid grid-cols-[1fr_1fr] items-center rounded-full border border-border/80 bg-muted/60 p-0.5 shadow-[inset_0_1px_2px_hsl(var(--shadow)/0.06)]"
     >
       {/* Sliding thumb */}

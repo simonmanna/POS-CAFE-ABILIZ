@@ -26,6 +26,7 @@ import {
   type Journal,
 } from '@/features/accounting/api';
 import { useHrEmployees, type HrEmployee } from '@/features/hr/api';
+import { tx } from '@/lib/i18n/tx';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-sky-200 bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400';
@@ -320,17 +321,17 @@ export function InvoiceCreatePage() {
           onClick={() => navigate('/invoices')}
           className="flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900"
         >
-          Invoices
+          {tx('Invoices')}
         </button>
         <span className="text-sky-300">/</span>
-        <span className="text-sm text-sky-900 font-semibold">New Invoice</span>
+        <span className="text-sm text-sky-900 font-semibold">{tx('New Invoice')}</span>
       </div>
 
       {/* Title bar */}
       <div className="rounded-t-lg bg-gradient-to-r from-sky-400 to-sky-500 px-6 py-3 flex items-center justify-between shadow-sm gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <h1 className="text-white font-bold text-base tracking-wide whitespace-nowrap">NEW CUSTOMER INVOICE</h1>
-          <Badge className="bg-white text-sky-700 border-white/60">Draft</Badge>
+          <h1 className="text-white font-bold text-base tracking-wide whitespace-nowrap">{tx('NEW CUSTOMER INVOICE')}</h1>
+          <Badge className="bg-white text-sky-700 border-white/60">{tx('Draft')}</Badge>
         </div>
         <div className="flex gap-2 shrink-0">
           <Button
@@ -342,7 +343,7 @@ export function InvoiceCreatePage() {
             className="bg-white/15 border-white/40 text-white hover:bg-white/25"
             disabled={busy}
           >
-            Save draft
+            {tx('Save draft')}
           </Button>
           <Button
             type="submit"
@@ -364,9 +365,9 @@ export function InvoiceCreatePage() {
           <div className="px-4 py-3 bg-sky-50/30">
             <table className="w-full text-xs">
               <tbody className="divide-y divide-sky-100">
-                <MetaRow label="Customer">
+                <MetaRow label={tx('Customer')}>
                   <select className={selectClassSm} {...register('partnerId', { required: true })}>
-                    <option value="">Select customer</option>
+                    <option value="">{tx('Select customer')}</option>
                     {(partners.data?.data ?? []).map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name}
@@ -374,15 +375,15 @@ export function InvoiceCreatePage() {
                     ))}
                   </select>
                 </MetaRow>
-                <MetaRow label="Reference">
+                <MetaRow label={tx('Reference')}>
                   <Input id="reference" className="h-8 text-xs px-2 py-1 border-sky-200 focus-visible:ring-sky-400" {...register('reference')} />
                 </MetaRow>
-                <MetaRow label="Invoice Date">
+                <MetaRow label={tx('Invoice Date')}>
                   <Input id="issueDate" type="date" className="h-8 text-xs px-2 py-1 border-sky-200 focus-visible:ring-sky-400" {...register('issueDate', { required: true })} />
                 </MetaRow>
-                <MetaRow label="Payment Terms">
+                <MetaRow label={tx('Payment Terms')}>
                   <select id="paymentTermId" className={selectClassSm} {...register('paymentTermId')}>
-                    <option value="">No payment terms</option>
+                    <option value="">{tx('No payment terms')}</option>
                     {terms.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name}
@@ -397,15 +398,15 @@ export function InvoiceCreatePage() {
           <div className="px-4 py-3 bg-sky-50/20">
             <table className="w-full text-xs">
               <tbody className="divide-y divide-sky-100">
-                <MetaRow label="Due Date">
+                <MetaRow label={tx('Due Date')}>
                   <Input id="dueDate" type="date" className="h-8 text-xs px-2 py-1 border-sky-200 focus-visible:ring-sky-400" {...register('dueDate')} />
                 </MetaRow>
-                <MetaRow label="Currency">
+                <MetaRow label={tx('Currency')}>
                   <span className="text-sky-800 font-semibold">{currency}</span>
                 </MetaRow>
-                <MetaRow label="Salesperson">
+                <MetaRow label={tx('Salesperson')}>
                   <select id="salespersonId" className={selectClassSm} {...register('salespersonId')}>
-                    <option value="">— Not assigned —</option>
+                    <option value="">{tx('— Not assigned —')}</option>
                     {salespersonList.map((e) => (
                       <option key={e.id} value={e.id}>
                         {e.firstName} {e.lastName ?? ''}
@@ -413,8 +414,8 @@ export function InvoiceCreatePage() {
                     ))}
                   </select>
                 </MetaRow>
-                <MetaRow label="Source Doc">
-                  <Input id="sourceDocument" placeholder="SO/PO/reference of the originating doc" className="h-8 text-xs px-2 py-1 border-sky-200 focus-visible:ring-sky-400" {...register('sourceDocument')} />
+                <MetaRow label={tx('Source Doc')}>
+                  <Input id="sourceDocument" placeholder={tx('SO/PO/reference of the originating doc')} className="h-8 text-xs px-2 py-1 border-sky-200 focus-visible:ring-sky-400" {...register('sourceDocument')} />
                 </MetaRow>
               </tbody>
             </table>
@@ -425,7 +426,7 @@ export function InvoiceCreatePage() {
           <div className="border-t border-sky-100 bg-muted/30">
             <div className="flex items-center justify-between px-6 py-3 text-sm">
               <span className="text-muted-foreground">
-                Due date derived from <strong className="text-foreground">{selectedTerm.name}</strong>
+                {tx('Due date derived from')} <strong className="text-foreground">{selectedTerm.name}</strong>
               </span>
               <span className="font-mono">{dueDateForTerm(selectedTerm, issueDate)}</span>
             </div>
@@ -435,16 +436,16 @@ export function InvoiceCreatePage() {
         {/* Odoo file tabs */}
         <div className="border-b border-sky-200 px-4 bg-sky-50/40 flex gap-1 overflow-x-auto">
           <TabBtn active={activeTab === 'lines'} onClick={() => setActiveTab('lines')}>
-            Invoice Lines
+            {tx('Invoice Lines')}
           </TabBtn>
           <TabBtn active={activeTab === 'info'} onClick={() => setActiveTab('info')}>
-            Other Info
+            {tx('Other Info')}
           </TabBtn>
           <TabBtn active={activeTab === 'delivery'} onClick={() => setActiveTab('delivery')}>
-            Delivery
+            {tx('Delivery')}
           </TabBtn>
           <TabBtn active={activeTab === 'journal'} onClick={() => setActiveTab('journal')}>
-            Journal Entry
+            {tx('Journal Entry')}
           </TabBtn>
         </div>
 
@@ -455,13 +456,13 @@ export function InvoiceCreatePage() {
               <div className="flex-1 overflow-x-auto">
                 <div className="flex items-center justify-end gap-2 p-4 border-b border-sky-100 bg-sky-50/30">
                   <Button type="button" variant="outline" size="sm" onClick={() => append({ quantity: 1 })}>
-                    <Plus className="h-4 w-4" /> Add a line
+                    <Plus className="h-4 w-4" /> {tx('Add a line')}
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={() => append({ lineType: 'section', description: '', quantity: 0 })}>
-                    <Section className="h-4 w-4" /> Add a section
+                    <Section className="h-4 w-4" /> {tx('Add a section')}
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={() => append({ lineType: 'note', description: '', quantity: 0 })}>
-                    <StickyNote className="h-4 w-4" /> Add a note
+                    <StickyNote className="h-4 w-4" /> {tx('Add a note')}
                   </Button>
                 </div>
                 <div className="space-y-2 p-4">
@@ -490,13 +491,13 @@ export function InvoiceCreatePage() {
                     return (
                       <div key={field.id} className="grid grid-cols-12 items-end gap-2 border-b border-sky-50 pb-2">
                         <div className="col-span-3">
-                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">Product</Label>
+                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">{tx('Product')}</Label>
                           <select
                             className={selectClass}
                             value={watch(`lines.${index}.productId`) ?? ''}
                             onChange={(e) => onProductChange(index, e.target.value)}
                           >
-                            <option value="">— none —</option>
+                            <option value="">{tx('— none —')}</option>
                             {productList.map((p) => (
                               <option key={p.id} value={p.id}>
                                 {p.name}
@@ -505,19 +506,19 @@ export function InvoiceCreatePage() {
                           </select>
                         </div>
                         <div className="col-span-3">
-                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">Description</Label>
+                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">{tx('Description')}</Label>
                           <Input {...register(`lines.${index}.description`)} />
                         </div>
                         <div className="col-span-1">
-                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">Qty</Label>
+                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">{tx('Qty')}</Label>
                           <Input type="number" step="any" className="border-sky-200 focus-visible:ring-sky-400" {...register(`lines.${index}.quantity`, { valueAsNumber: true })} />
                         </div>
                         <div className="col-span-2">
-                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">Unit price</Label>
+                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">{tx('Unit price')}</Label>
                           <Input type="number" step="any" className="border-sky-200 focus-visible:ring-sky-400" {...register(`lines.${index}.unitPrice`, { valueAsNumber: true })} />
                         </div>
                         <div className="col-span-1">
-                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">Disc %</Label>
+                          <Label className="text-xs text-sky-600 font-bold uppercase tracking-wider">{tx('Disc %')}</Label>
                           <Input
                             type="number"
                             step="any"
@@ -546,14 +547,14 @@ export function InvoiceCreatePage() {
               {/* Odoo right totals panel */}
               <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-sky-100 bg-gradient-to-b from-sky-50/60 to-sky-100/30 p-4 shrink-0">
                 <div className="space-y-2">
-                  <SummaryRow label="Untaxed Amount" value={money(subtotal)} />
+                  <SummaryRow label={tx('Untaxed Amount')} value={money(subtotal)} />
                   <div className="border-t-2 border-sky-200 pt-2">
                     <SummaryRow label="TOTAL" value={money(subtotal)} bold />
                   </div>
-                  <SummaryRow label="Amount Due" value={money(subtotal)} bold accent={subtotal > 0.005} />
+                  <SummaryRow label={tx('Amount Due')} value={money(subtotal)} bold accent={subtotal > 0.005} />
                 </div>
                 <p className="mt-4 text-xs text-muted-foreground">
-                  Tax is applied from each product when the invoice is posted.
+                  {tx('Tax is applied from each product when the invoice is posted.')}
                 </p>
               </div>
             </div>
@@ -566,10 +567,10 @@ export function InvoiceCreatePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2">
               <dl>
                 <div className="py-1.5">
-                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">Fiscal Position</dt>
+                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">{tx('Fiscal Position')}</dt>
                   <dd className="mt-1">
                     <select id="fiscalPositionId" className={selectClass} {...register('fiscalPositionId')}>
-                      <option value="">— No fiscal position —</option>
+                      <option value="">{tx('— No fiscal position —')}</option>
                       {fiscalPositionList.map((f) => (
                         <option key={f.id} value={f.id}>
                           {f.name}
@@ -579,10 +580,10 @@ export function InvoiceCreatePage() {
                   </dd>
                 </div>
                 <div className="py-1.5">
-                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">Invoicing Journal</dt>
+                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">{tx('Invoicing Journal')}</dt>
                   <dd className="mt-1">
                     <select id="invoicingJournalId" className={selectClass} {...register('invoicingJournalId')}>
-                      <option value="">— Default sales journal —</option>
+                      <option value="">{tx('— Default sales journal —')}</option>
                       {journalList.map((j) => (
                         <option key={j.id} value={j.id}>
                           {j.name}
@@ -594,10 +595,10 @@ export function InvoiceCreatePage() {
               </dl>
               <dl>
                 <div className="py-1.5">
-                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">Payment Method</dt>
+                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">{tx('Payment Method')}</dt>
                   <dd className="mt-1">
                     <select id="paymentMode" className={selectClass} {...register('paymentMode')}>
-                      <option value="">— Not set —</option>
+                      <option value="">{tx('— Not set —')}</option>
                       {Object.entries(PAYMENT_MODE_LABELS).map(([value, label]) => (
                         <option key={value} value={value}>
                           {label}
@@ -607,7 +608,7 @@ export function InvoiceCreatePage() {
                   </dd>
                 </div>
                 <div className="py-1.5">
-                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">Salesperson</dt>
+                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">{tx('Salesperson')}</dt>
                   <dd className="mt-1 text-sm text-sky-900">
                     {salespersonList.length === 0 ? '—' : 'Set above in the header.'}
                   </dd>
@@ -623,24 +624,24 @@ export function InvoiceCreatePage() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2">
               <dl>
                 <div className="py-1.5">
-                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">Delivery Date</dt>
+                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">{tx('Delivery Date')}</dt>
                   <dd className="mt-1">
                     <Input id="deliveryDate" type="date" className="border-sky-200 focus-visible:ring-sky-400" {...register('deliveryDate')} />
                   </dd>
                 </div>
                 <div className="py-1.5">
-                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">Delivery Address</dt>
+                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">{tx('Delivery Address')}</dt>
                   <dd className="mt-1">
-                    <Input id="deliveryAddress" placeholder="Street, city, region" className="border-sky-200 focus-visible:ring-sky-400" {...register('deliveryAddress')} />
+                    <Input id="deliveryAddress" placeholder={tx('Street, city, region')} className="border-sky-200 focus-visible:ring-sky-400" {...register('deliveryAddress')} />
                   </dd>
                 </div>
               </dl>
               <dl>
                 <div className="py-1.5">
-                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">Incoterm</dt>
+                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">{tx('Incoterm')}</dt>
                   <dd className="mt-1">
                     <select id="incoterm" className={selectClass} {...register('incoterm')}>
-                      <option value="">— None —</option>
+                      <option value="">{tx('— None —')}</option>
                       {INCOTERM_OPTIONS.map((code) => (
                         <option key={code} value={code}>
                           {code}
@@ -650,9 +651,9 @@ export function InvoiceCreatePage() {
                   </dd>
                 </div>
                 <div className="py-1.5">
-                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">Incoterm Location</dt>
+                  <dt className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/80">{tx('Incoterm Location')}</dt>
                   <dd className="mt-1">
-                    <Input id="incotermLocation" placeholder="e.g. Jakarta (ID)" className="border-sky-200 focus-visible:ring-sky-400" {...register('incotermLocation')} />
+                    <Input id="incotermLocation" placeholder={tx('e.g. Jakarta (ID)')} className="border-sky-200 focus-visible:ring-sky-400" {...register('incotermLocation')} />
                   </dd>
                 </div>
               </dl>
@@ -664,16 +665,14 @@ export function InvoiceCreatePage() {
         {activeTab === 'journal' && (
           <div className="p-5 space-y-4">
             <div className="rounded-md border border-sky-200 bg-sky-50/60 px-4 py-3 text-xs text-sky-800">
-              When this invoice is <strong>posted</strong>, a journal entry is created automatically: it
-              debits the customer receivable and credits the income and tax accounts of each product
-              line. The entry lands in the <strong>Invoicing Journal</strong> chosen under Other Info, or
+              {tx('When this invoice is')} <strong>{tx('posted')}</strong>{tx(', a journal entry is created automatically: it debits the customer receivable and credits the income and tax accounts of each product line. The entry lands in the')} <strong>{tx('Invoicing Journal')}</strong> chosen under Other Info, or
               in the business&apos;s default sales journal (Company Settings → Sales Journals). The
               numbers below are a live preview — the final entry is computed at post time.
             </div>
 
             {!partnerId || !(lines ?? []).some((l) => l.productId) ? (
               <div className="py-12 text-center text-sm text-muted-foreground">
-                Select a customer and add at least one product line to preview the journal entry.
+                {tx('Select a customer and add at least one product line to preview the journal entry.')}
               </div>
             ) : previewError ? (
               <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-xs text-red-700">
@@ -683,18 +682,18 @@ export function InvoiceCreatePage() {
               <div className="rounded-lg border border-sky-100 overflow-hidden bg-background">
                 <div className="flex flex-wrap items-center gap-x-8 gap-y-2 border-b border-sky-100 bg-sky-50/60 px-4 py-3 text-xs">
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Journal</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">{tx('Journal')}</div>
                     <div className="text-sm font-semibold text-sky-900">
                       {preview.journal.name}{' '}
                       <span className="font-mono text-xs font-normal text-muted-foreground">({preview.journal.code})</span>
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Entry Date</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">{tx('Entry Date')}</div>
                     <div className="text-sm text-sky-900">{preview.postingDate}</div>
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">Memo</div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">{tx('Memo')}</div>
                     <div className="truncate text-sm text-sky-900">{preview.description ?? '—'}</div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -710,7 +709,7 @@ export function InvoiceCreatePage() {
                     </Badge>
                     {previewPending && (
                       <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <Loader2 className="h-3 w-3 animate-spin" /> updating…
+                        <Loader2 className="h-3 w-3 animate-spin" /> {tx('updating…')}
                       </span>
                     )}
                   </div>
@@ -721,11 +720,11 @@ export function InvoiceCreatePage() {
                     <thead className="border-b border-sky-100 bg-muted/30">
                       <tr className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
                         <th className="px-4 py-2 w-10">#</th>
-                        <th className="px-4 py-2">Account</th>
-                        <th className="px-4 py-2">Label</th>
-                        <th className="px-4 py-2">Partner</th>
-                        <th className="px-4 py-2 text-right">Debit</th>
-                        <th className="px-4 py-2 text-right">Credit</th>
+                        <th className="px-4 py-2">{tx('Account')}</th>
+                        <th className="px-4 py-2">{tx('Label')}</th>
+                        <th className="px-4 py-2">{tx('Partner')}</th>
+                        <th className="px-4 py-2 text-right">{tx('Debit')}</th>
+                        <th className="px-4 py-2 text-right">{tx('Credit')}</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-sky-50">
@@ -754,7 +753,7 @@ export function InvoiceCreatePage() {
                       ))}
                       <tr className="border-t border-sky-100 bg-muted/30 font-semibold text-sky-900">
                         <td colSpan={4} className="px-4 py-2 text-right">
-                          Total
+                          {tx('Total')}
                         </td>
                         <td className="px-4 py-2 text-right">{money(Number(preview.debitTotal))}</td>
                         <td className="px-4 py-2 text-right">{money(Number(preview.creditTotal))}</td>
@@ -763,12 +762,12 @@ export function InvoiceCreatePage() {
                   </table>
                 </div>
                 <p className="border-t border-sky-100 px-4 py-2 text-[11px] text-muted-foreground">
-                  Preview only — the entry number and sequence are assigned when the invoice is posted.
+                  {tx('Preview only — the entry number and sequence are assigned when the invoice is posted.')}
                 </p>
               </div>
             ) : (
               <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" /> Computing journal entry…
+                <Loader2 className="h-4 w-4 animate-spin" /> {tx('Computing journal entry…')}
               </div>
             )}
           </div>

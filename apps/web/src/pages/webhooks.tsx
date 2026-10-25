@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface Endpoint {
   id: string;
@@ -43,7 +44,7 @@ export function WebhooksPage() {
   const create = useMutation({
     mutationFn: async () => (await api.post('/webhooks/endpoints', { url, events: events.split(',').map((s) => s.trim()).filter(Boolean) })).data,
     onSuccess: (data: any) => {
-      notify.success('Endpoint created', `Signing secret: ${data.signingSecret?.slice(0, 16)}…`);
+      notify.success(tx('Endpoint created'), `Signing secret: ${data.signingSecret?.slice(0, 16)}…`);
       setOpen(false);
       setUrl('');
       setEvents('');
@@ -55,14 +56,14 @@ export function WebhooksPage() {
   const rotate = useMutation({
     mutationFn: async (id: string) => (await api.post(`/webhooks/endpoints/${id}/rotate`)).data,
     onSuccess: (data: any) => {
-      notify.success('Secret rotated', `New secret: ${data.signingSecret?.slice(0, 16)}…`);
+      notify.success(tx('Secret rotated'), `New secret: ${data.signingSecret?.slice(0, 16)}…`);
       qc.invalidateQueries({ queryKey: ['webhooks'] });
     },
   });
   const remove = useMutation({
     mutationFn: async (id: string) => await api.delete(`/webhooks/endpoints/${id}`),
     onSuccess: () => {
-      notify.success('Removed');
+      notify.success(tx('Removed'));
       qc.invalidateQueries({ queryKey: ['webhooks'] });
     },
   });
@@ -71,24 +72,24 @@ export function WebhooksPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Webhooks</h1>
-          <p className="text-sm text-muted-foreground">Outbound event delivery to your services</p>
+          <h1 className="text-2xl font-semibold">{tx('Webhooks')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Outbound event delivery to your services')}</p>
         </div>
         <Button onClick={() => setOpen(true)}>
-          <Plus className="mr-2 h-4 w-4" />New Endpoint
+          <Plus className="mr-2 h-4 w-4" />{tx('New Endpoint')}
         </Button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Endpoints</CardTitle>
-            <CardDescription>Subscribe to events delivered to your URL</CardDescription>
+            <CardTitle>{tx('Endpoints')}</CardTitle>
+            <CardDescription>{tx('Subscribe to events delivered to your URL')}</CardDescription>
           </CardHeader>
           <CardContent>
             {endpoints.isLoading && <Skeleton className="h-24 w-full" />}
             {endpoints.data && endpoints.data.length === 0 && (
-              <p className="text-sm text-muted-foreground">No endpoints yet.</p>
+              <p className="text-sm text-muted-foreground">{tx('No endpoints yet.')}</p>
             )}
             {endpoints.data?.map((ep) => (
               <div key={ep.id} className="flex items-center justify-between border-b py-2 last:border-b-0">
@@ -98,14 +99,14 @@ export function WebhooksPage() {
                     <code className="truncate text-xs">{ep.url}</code>
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    {ep.events.length === 0 ? 'all events' : `${ep.events.length} event(s)`} · created {new Date(ep.createdAt).toLocaleDateString()}
+                    {ep.events.length === 0 ? 'all events' : `${ep.events.length} event(s)`} {tx('· created')} {new Date(ep.createdAt).toLocaleDateString()}
                   </div>
                 </div>
                 <div className="flex gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => rotate.mutate(ep.id)} aria-label="Rotate secret">
+                  <Button size="sm" variant="ghost" onClick={() => rotate.mutate(ep.id)} aria-label={tx('Rotate secret')}>
                     <RotateCw className="h-3 w-3" />
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => remove.mutate(ep.id)} aria-label="Delete">
+                  <Button size="sm" variant="ghost" onClick={() => remove.mutate(ep.id)} aria-label={tx('Delete')}>
                     <Trash2 className="h-3 w-3 text-destructive" />
                   </Button>
                 </div>
@@ -116,13 +117,13 @@ export function WebhooksPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent Deliveries</CardTitle>
-            <CardDescription>Last 200 attempts</CardDescription>
+            <CardTitle>{tx('Recent Deliveries')}</CardTitle>
+            <CardDescription>{tx('Last 200 attempts')}</CardDescription>
           </CardHeader>
           <CardContent>
             {deliveries.isLoading && <Skeleton className="h-24 w-full" />}
             {deliveries.data && deliveries.data.length === 0 && (
-              <p className="text-sm text-muted-foreground">No deliveries yet.</p>
+              <p className="text-sm text-muted-foreground">{tx('No deliveries yet.')}</p>
             )}
             <div className="max-h-96 overflow-y-auto">
               {deliveries.data?.map((d) => (
@@ -130,7 +131,7 @@ export function WebhooksPage() {
                   <div>
                     <div className="font-mono text-xs">{d.eventName}</div>
                     <div className="text-xs text-muted-foreground">
-                      {new Date(d.createdAt).toLocaleString()} · attempt {d.attempts}
+                      {new Date(d.createdAt).toLocaleString()} {tx('· attempt')} {d.attempts}
                     </div>
                   </div>
                   <Badge
@@ -152,7 +153,7 @@ export function WebhooksPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New Webhook Endpoint</DialogTitle>
+            <DialogTitle>{tx('New Webhook Endpoint')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
@@ -166,19 +167,19 @@ export function WebhooksPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium">Events (comma-separated; empty = all)</label>
+              <label className="text-sm font-medium">{tx('Events (comma-separated; empty = all)')}</label>
               <input
                 type="text"
                 value={events}
                 onChange={(e) => setEvents(e.target.value)}
-                placeholder="invoice.posted, payment.received"
+                placeholder={tx('invoice.posted, payment.received')}
                 className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={() => create.mutate()} disabled={!url || create.isPending}>Create</Button>
+            <Button variant="outline" onClick={() => setOpen(false)}>{tx('Cancel')}</Button>
+            <Button onClick={() => create.mutate()} disabled={!url || create.isPending}>{tx('Create')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

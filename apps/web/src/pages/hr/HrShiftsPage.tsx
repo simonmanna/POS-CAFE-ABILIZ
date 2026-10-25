@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { tx } from '@/lib/i18n/tx';
 
 const SHIFT_TYPES = ['MORNING', 'AFTERNOON', 'NIGHT', 'SPLIT', 'ROTATING', 'FLEXIBLE'];
 
@@ -59,24 +60,24 @@ export function HrShiftsPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Shifts</h1>
-          <p className="text-sm text-muted-foreground">Shift patterns with grace windows — clock events are matched against these.</p>
+          <h1 className="text-xl font-semibold">{tx('Shifts')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Shift patterns with grace windows — clock events are matched against these.')}</p>
         </div>
-        <Button onClick={openCreate}><Plus className="h-4 w-4" /> New shift</Button>
+        <Button onClick={openCreate}><Plus className="h-4 w-4" /> {tx('New shift')}</Button>
       </div>
 
       <div className="flex items-center gap-2">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or code…"
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={tx('Search name or code…')}
           className="w-64 rounded-md border bg-card px-3 py-2 text-sm" />
       </div>
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} shifts</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('shifts')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No shifts yet.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No shifts yet.')}</p>}
             {rows.map((s: any) => (
               <div key={s.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <div className="flex items-center gap-3">
@@ -85,17 +86,17 @@ export function HrShiftsPage() {
                     <p className="text-sm font-medium">{s.code} · {s.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {s.startTime}–{s.endTime}{s.breakStart ? ` · break ${s.breakStart}–${s.breakEnd}` : ''}
-                      {' · '}{s.graceMinutes}min grace{s.maxOvertimeMinutes ? ` · ${s.maxOvertimeMinutes}min max OT` : ''}
-                      {' · '}{s._count?.assignments ?? 0} assignments
+                      {' · '}{s.graceMinutes}{tx('min grace')}{s.maxOvertimeMinutes ? ` · ${s.maxOvertimeMinutes}min max OT` : ''}
+                      {' · '}{s._count?.assignments ?? 0} {tx('assignments')}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">
                   <Badge variant="outline" className={SHIFT_TYPE_STYLE[s.shiftType] ?? ''}>{s.shiftType.replace(/_/g, ' ')}</Badge>
-                  {!s.isActive && <Badge variant="outline" className="bg-muted text-muted-foreground">Inactive</Badge>}
-                  <button onClick={() => openEdit(s)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">Edit</button>
+                  {!s.isActive && <Badge variant="outline" className="bg-muted text-muted-foreground">{tx('Inactive')}</Badge>}
+                  <button onClick={() => openEdit(s)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">{tx('Edit')}</button>
                   <button onClick={() => { if (confirm(`Delete shift ${s.name}?`)) remove.mutate(s.id); }}
-                    className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Delete</button>
+                    className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">{tx('Delete')}</button>
                 </div>
               </div>
             ))}
@@ -109,16 +110,16 @@ export function HrShiftsPage() {
           <div className="grid gap-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Code *</Label>
-                <Input value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="SHIFT-001" />
+                <Label>{tx('Code *')}</Label>
+                <Input value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={tx('SHIFT-001')} />
               </div>
               <div>
-                <Label>Name *</Label>
+                <Label>{tx('Name *')}</Label>
                 <Input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </div>
             </div>
             <div>
-              <Label>Shift type</Label>
+              <Label>{tx('Shift type')}</Label>
               <select value={form.shiftType} onChange={(e) => setForm({ ...form, shiftType: e.target.value })}
                 className="w-full rounded-md border bg-card px-3 py-2 text-sm">
                 {SHIFT_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
@@ -126,31 +127,31 @@ export function HrShiftsPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Start time *</Label>
+                <Label>{tx('Start time *')}</Label>
                 <Input type="time" value={form.startTime ?? ''} onChange={(e) => setForm({ ...form, startTime: e.target.value })} />
               </div>
               <div>
-                <Label>End time *</Label>
+                <Label>{tx('End time *')}</Label>
                 <Input type="time" value={form.endTime ?? ''} onChange={(e) => setForm({ ...form, endTime: e.target.value })} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Break start</Label>
+                <Label>{tx('Break start')}</Label>
                 <Input type="time" value={form.breakStart ?? ''} onChange={(e) => setForm({ ...form, breakStart: e.target.value })} />
               </div>
               <div>
-                <Label>Break end</Label>
+                <Label>{tx('Break end')}</Label>
                 <Input type="time" value={form.breakEnd ?? ''} onChange={(e) => setForm({ ...form, breakEnd: e.target.value })} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Grace minutes</Label>
+                <Label>{tx('Grace minutes')}</Label>
                 <Input type="number" value={form.graceMinutes ?? ''} onChange={(e) => setForm({ ...form, graceMinutes: e.target.value })} />
               </div>
               <div>
-                <Label>Max overtime (min)</Label>
+                <Label>{tx('Max overtime (min)')}</Label>
                 <Input type="number" value={form.maxOvertimeMinutes ?? ''} onChange={(e) => setForm({ ...form, maxOvertimeMinutes: e.target.value })} />
               </div>
             </div>

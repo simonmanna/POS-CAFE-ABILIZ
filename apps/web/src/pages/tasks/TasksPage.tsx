@@ -10,6 +10,7 @@ import { Plus } from 'lucide-react';
 import { useTasks, useReorderTask, useUpdateTask } from '@/features/tasks/api';
 import { useTaskStore } from '@/features/tasks/task.store';
 import type { TaskStatus } from '@/features/tasks/types';
+import { tx } from '@/lib/i18n/tx';
 
 export function TasksPage() {
   const navigate = useNavigate();
@@ -50,13 +51,13 @@ export function TasksPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Tasks</h1>
+          <h1 className="text-2xl font-semibold">{tx('Tasks')}</h1>
           <p className="text-sm text-muted-foreground">
-            Manage operational tasks across branches
+            {tx('Manage operational tasks across branches')}
           </p>
         </div>
         <Button onClick={() => navigate('/tasks/new')}>
-          <Plus className="mr-1 h-4 w-4" /> New Task
+          <Plus className="mr-1 h-4 w-4" /> {tx('New Task')}
         </Button>
       </div>
 
@@ -79,7 +80,7 @@ export function TasksPage() {
         {filters.view === 'dashboard' && <TaskDashboard />}
         {filters.view === 'calendar' && (
           <div className="flex items-center justify-center py-20 text-muted-foreground">
-            Calendar view coming soon
+            {tx('Calendar view coming soon')}
           </div>
         )}
       </div>

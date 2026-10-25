@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { DirectStockActions } from './DirectStockActions';
+import { tx } from '@/lib/i18n/tx';
 
 interface ProductStockLevel {
   id: string;
@@ -82,11 +83,11 @@ export function InventoryItemsPage() {
     <>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Stock Levels</h1>
+          <h1 className="text-2xl font-semibold">{tx('Stock Levels')}</h1>
           <div className="flex items-center gap-2">
             <DirectStockActions />
             <Button variant="outline" size="sm" onClick={() => items.refetch()}>
-              <RefreshCw className="mr-2 h-3 w-3" />Refresh
+              <RefreshCw className="mr-2 h-3 w-3" />{tx('Refresh')}
             </Button>
           </div>
         </div>
@@ -96,7 +97,7 @@ export function InventoryItemsPage() {
           <CardContent className="flex items-center gap-2 p-0">
             <Package className="h-4 w-4 text-sky-600 shrink-0" />
             <div className="flex w-full items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Total Products</span>
+              <span className="text-xs text-muted-foreground">{tx('Total Products')}</span>
               <span className="text-sm font-bold text-sky-600">{stats.data?.totalProducts ?? '—'}</span>
             </div>
           </CardContent>
@@ -105,7 +106,7 @@ export function InventoryItemsPage() {
           <CardContent className="flex items-center gap-2 p-0">
             <Boxes className="h-4 w-4 text-emerald-600 shrink-0" />
             <div className="flex w-full items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">In Stock</span>
+              <span className="text-xs text-muted-foreground">{tx('In Stock')}</span>
               <span className="text-sm font-bold text-emerald-600">{stats.data?.totalItems ?? '—'}</span>
             </div>
           </CardContent>
@@ -114,7 +115,7 @@ export function InventoryItemsPage() {
           <CardContent className="flex items-center gap-2 p-0">
             <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
             <div className="flex w-full items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Low Stock</span>
+              <span className="text-xs text-muted-foreground">{tx('Low Stock')}</span>
               <span className="text-sm font-bold text-amber-600">{stats.data?.lowStockCount ?? '—'}</span>
             </div>
           </CardContent>
@@ -123,7 +124,7 @@ export function InventoryItemsPage() {
           <CardContent className="flex items-center gap-2 p-0">
             <MapPin className="h-4 w-4 text-indigo-600 shrink-0" />
             <div className="flex w-full items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Locations</span>
+              <span className="text-xs text-muted-foreground">{tx('Locations')}</span>
               <span className="text-sm font-bold text-indigo-600">{stats.data?.totalLocations ?? '—'}</span>
             </div>
           </CardContent>
@@ -134,26 +135,26 @@ export function InventoryItemsPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            className="pl-8" placeholder="Search products…"
+            className="pl-8" placeholder={tx('Search products…')}
             value={search} onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <Select value={locationId} onValueChange={setLocationId}>
-          <SelectTrigger className="w-44"><SelectValue placeholder="All locations" /></SelectTrigger>
+          <SelectTrigger className="w-44"><SelectValue placeholder={tx('All locations')} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All locations</SelectItem>
+            <SelectItem value="all">{tx('All locations')}</SelectItem>
             {locations.data?.map((l) => (
               <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
             ))}
           </SelectContent>
         </Select>
         <div className="flex gap-1">
-          <Button size="sm" variant={view === 'all' ? 'default' : 'outline'} onClick={() => setView('all')}>All</Button>
+          <Button size="sm" variant={view === 'all' ? 'default' : 'outline'} onClick={() => setView('all')}>{tx('All')}</Button>
           <Button size="sm" variant={view === 'low' ? 'default' : 'outline'} onClick={() => setView('low')}>
-            <TrendingDown className="mr-1 h-3 w-3" />Low Stock
+            <TrendingDown className="mr-1 h-3 w-3" />{tx('Low Stock')}
           </Button>
           <Button size="sm" variant={view === 'out' ? 'default' : 'outline'} onClick={() => setView('out')}>
-            <XCircle className="mr-1 h-3 w-3" />Out of Stock
+            <XCircle className="mr-1 h-3 w-3" />{tx('Out of Stock')}
           </Button>
         </div>
       </div>
@@ -166,19 +167,19 @@ export function InventoryItemsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="px-3 py-2 text-left font-medium">Product</th>
-                  <th className="px-3 py-2 text-left font-medium">Code</th>
-                  <th className="px-3 py-2 text-left font-medium">Type</th>
-                  <th className="px-3 py-2 text-right font-medium">On Hand</th>
-                  <th className="px-3 py-2 text-right font-medium">Min Qty</th>
-                  <th className="px-3 py-2 text-right font-medium">Avg Cost</th>
-                  <th className="px-3 py-2 text-right font-medium">Total Value</th>
-                  <th className="px-3 py-2 text-center font-medium">Status</th>
+                  <th className="px-3 py-2 text-left font-medium">{tx('Product')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tx('Code')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tx('Type')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{tx('On Hand')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{tx('Min Qty')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{tx('Avg Cost')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{tx('Total Value')}</th>
+                  <th className="px-3 py-2 text-center font-medium">{tx('Status')}</th>
                 </tr>
               </thead>
               <tbody>
                 {items.data.data.length === 0 && (
-                  <tr><td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">No products found</td></tr>
+                  <tr><td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">{tx('No products found')}</td></tr>
                 )}
                 {items.data.data.map((item) => {
                   const value = item.averageCost * item.totalQuantity;
@@ -203,11 +204,11 @@ export function InventoryItemsPage() {
                       </td>
                       <td className="px-3 py-2 text-center">
                         {item.isOut ? (
-                          <Badge variant="destructive">Out of stock</Badge>
+                          <Badge variant="destructive">{tx('Out of stock')}</Badge>
                         ) : item.isLow ? (
-                          <Badge variant="secondary" className="bg-amber-100 text-amber-800">Low stock</Badge>
+                          <Badge variant="secondary" className="bg-amber-100 text-amber-800">{tx('Low stock')}</Badge>
                         ) : (
-                          <Badge variant="default" className="bg-emerald-100 text-emerald-800">In stock</Badge>
+                          <Badge variant="default" className="bg-emerald-100 text-emerald-800">{tx('In stock')}</Badge>
                         )}
                       </td>
                     </tr>
@@ -217,8 +218,8 @@ export function InventoryItemsPage() {
             </table>
           </div>
           <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>{items.data.meta.total} product(s)</span>
-            <span>Page {items.data.meta.page} of {items.data.meta.totalPages}</span>
+            <span>{items.data.meta.total} {tx('product(s)')}</span>
+            <span>{tx('Page')} {items.data.meta.page} of {items.data.meta.totalPages}</span>
           </div>
         </>
       )}

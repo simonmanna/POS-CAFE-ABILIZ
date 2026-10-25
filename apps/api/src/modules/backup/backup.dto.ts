@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Max, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Matches, Max, Min, ValidateNested } from 'class-validator';
+
+const HH_MM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 // =============================================================================
 // Enums
@@ -92,10 +94,12 @@ export class RestoreDto {
   @IsEnum(RestoreScope)
   scope!: RestoreScopeType;
 
+  /** File name (or path) of a backup inside a configured backup folder. */
   @IsString()
   backupFile!: string;
 
-  @IsOptional() @IsString()
+  /** NEW database to restore into. Never the live database, never an existing one. */
+  @IsOptional() @IsString() @Matches(/^[A-Za-z0-9_]{1,63}$/, { message: 'targetDatabase may only contain letters, digits and _' })
   targetDatabase?: string;
 
   @IsOptional() @IsBoolean()
@@ -253,16 +257,18 @@ export class AdvancedDto {
 
 export class DailyFrequencyDto {
   @IsArray()
-  @IsString({ each: true })
+  @Matches(HH_MM, { each: true, message: 'times must be HH:MM (24h)' })
   times!: string[];
 }
 
 export class WeeklyFrequencyDto {
   @IsArray()
   @IsNumber({}, { each: true })
+  @Min(0, { each: true })
+  @Max(6, { each: true })
   days!: number[];
 
-  @IsString()
+  @Matches(HH_MM, { message: 'time must be HH:MM (24h)' })
   time!: string;
 }
 
@@ -357,7 +363,14 @@ export class BackupConfigDto {
 // Runtime types (not DTOs)
 // =============================================================================
 
-export type BackupKind = 'full' | 'incremental' | 'differential' | 'files' | 'config' | 'cleanup';
+export type BackupKind = 'full' | 'incremental' | 'differential' | 'files' | 'config' | 'cleanup' | 'restore_test';
+
+export interface BackupCopyResult {
+  destination: string;
+  ok: boolean;
+  target?: string;
+  error?: string;
+}
 
 export interface BackupRunResult {
   kind: BackupKind;
@@ -368,4 +381,11 @@ export interface BackupRunResult {
   finishedAt: string;
   error?: string;
   checksumSha256?: string;
+  encrypted?: boolean;
+  /** Database that was dumped (full) or restored into (restore_test). */
+  database?: string;
+  /** Secondary-destination copies of this artifact (offsite / USB / NAS / cloud). */
+  copies?: BackupCopyResult[];
+  /** Non-fatal problems: the artifact exists, but something needs attention. */
+  warnings?: string[];
 }

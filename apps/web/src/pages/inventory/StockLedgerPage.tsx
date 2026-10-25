@@ -14,6 +14,7 @@ import { api } from '@/lib/api';
 import { formatMoney, dateTime } from '@/lib/format';
 import { referenceLabel } from '@/lib/ledger-links';
 import { DirectStockActions } from './DirectStockActions';
+import { tx } from '@/lib/i18n/tx';
 
 interface LedgerEntry {
   id: string;
@@ -94,11 +95,11 @@ export function StockLedgerPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Stock Ledger</h1>
+        <h1 className="text-2xl font-semibold">{tx('Stock Ledger')}</h1>
         <div className="flex items-center gap-2">
           <DirectStockActions />
           <Button variant="outline" size="sm" onClick={() => ledger.refetch()}>
-            <RefreshCw className="mr-2 h-3 w-3" />Refresh
+            <RefreshCw className="mr-2 h-3 w-3" />{tx('Refresh')}
           </Button>
         </div>
       </div>
@@ -106,15 +107,15 @@ export function StockLedgerPage() {
       <Card className="p-3">
         <div className="flex flex-wrap items-end gap-2">
           <div className="flex-1 min-w-[160px]">
-            <label className="mb-1 block text-xs text-muted-foreground">Product ID</label>
-            <Input placeholder="Filter by product ID…" value={productSearch} onChange={(e) => { setProductSearch(e.target.value); setPage(1); }} />
+            <label className="mb-1 block text-xs text-muted-foreground">{tx('Product ID')}</label>
+            <Input placeholder={tx('Filter by product ID…')} value={productSearch} onChange={(e) => { setProductSearch(e.target.value); setPage(1); }} />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Location</label>
+            <label className="mb-1 block text-xs text-muted-foreground">{tx('Location')}</label>
             <Select value={locationId} onValueChange={(v) => { setLocationId(v); setPage(1); }}>
-              <SelectTrigger className="w-40"><SelectValue placeholder="All" /></SelectTrigger>
+              <SelectTrigger className="w-40"><SelectValue placeholder={tx('All')} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All locations</SelectItem>
+                <SelectItem value="">{tx('All locations')}</SelectItem>
                 {locations.data?.map((l) => (
                   <SelectItem key={l.id} value={l.id}>{l.code}</SelectItem>
                 ))}
@@ -122,11 +123,11 @@ export function StockLedgerPage() {
             </Select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Type</label>
+            <label className="mb-1 block text-xs text-muted-foreground">{tx('Type')}</label>
             <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); setPage(1); }}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="All types" /></SelectTrigger>
+              <SelectTrigger className="w-36"><SelectValue placeholder={tx('All types')} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All types</SelectItem>
+                <SelectItem value="">{tx('All types')}</SelectItem>
                 {Object.entries(MOVE_TYPE_LABELS).map(([k, v]) => (
                   <SelectItem key={k} value={k}>{v}</SelectItem>
                 ))}
@@ -134,24 +135,24 @@ export function StockLedgerPage() {
             </Select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">Reference</label>
+            <label className="mb-1 block text-xs text-muted-foreground">{tx('Reference')}</label>
             <Select value={refTypeFilter} onValueChange={(v) => { setRefTypeFilter(v); setPage(1); }}>
-              <SelectTrigger className="w-36"><SelectValue placeholder="All" /></SelectTrigger>
+              <SelectTrigger className="w-36"><SelectValue placeholder={tx('All')} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="">All references</SelectItem>
-                <SelectItem value="direct_stock_in">Direct Stock In</SelectItem>
-                <SelectItem value="direct_stock_out">Direct Stock Out</SelectItem>
-                <SelectItem value="stock_out">Stock Out</SelectItem>
-                <SelectItem value="waste">Waste</SelectItem>
+                <SelectItem value="">{tx('All references')}</SelectItem>
+                <SelectItem value="direct_stock_in">{tx('Direct Stock In')}</SelectItem>
+                <SelectItem value="direct_stock_out">{tx('Direct Stock Out')}</SelectItem>
+                <SelectItem value="stock_out">{tx('Stock Out')}</SelectItem>
+                <SelectItem value="waste">{tx('Waste')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">From</label>
+            <label className="mb-1 block text-xs text-muted-foreground">{tx('From')}</label>
             <Input type="date" className="w-36" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1); }} />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-muted-foreground">To</label>
+            <label className="mb-1 block text-xs text-muted-foreground">{tx('To')}</label>
             <Input type="date" className="w-36" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1); }} />
           </div>
         </div>
@@ -165,24 +166,24 @@ export function StockLedgerPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="px-3 py-2 text-left font-medium whitespace-nowrap">Date</th>
-                  <th className="px-3 py-2 text-left font-medium whitespace-nowrap">Code</th>
-                  <th className="px-3 py-2 text-left font-medium">Product</th>
-                  <th className="px-3 py-2 text-left font-medium">Location</th>
-                  <th className="px-3 py-2 text-center font-medium">Type</th>
-                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Qty Before</th>
-                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Change</th>
-                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Qty After</th>
-                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Unit Cost</th>
-                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Total Value</th>
-                  <th className="px-3 py-2 text-left font-medium">Reference</th>
-                  <th className="px-3 py-2 text-left font-medium">Notes</th>
-                  <th className="px-3 py-2 text-center font-medium">View</th>
+                  <th className="px-3 py-2 text-left font-medium whitespace-nowrap">{tx('Date')}</th>
+                  <th className="px-3 py-2 text-left font-medium whitespace-nowrap">{tx('Code')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tx('Product')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tx('Location')}</th>
+                  <th className="px-3 py-2 text-center font-medium">{tx('Type')}</th>
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">{tx('Qty Before')}</th>
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">{tx('Change')}</th>
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">{tx('Qty After')}</th>
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">{tx('Unit Cost')}</th>
+                  <th className="px-3 py-2 text-right font-medium whitespace-nowrap">{tx('Total Value')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tx('Reference')}</th>
+                  <th className="px-3 py-2 text-left font-medium">{tx('Notes')}</th>
+                  <th className="px-3 py-2 text-center font-medium">{tx('View')}</th>
                 </tr>
               </thead>
               <tbody>
                 {ledger.data.data.length === 0 && (
-                  <tr><td colSpan={13} className="px-3 py-8 text-center text-muted-foreground">No ledger entries found</td></tr>
+                  <tr><td colSpan={13} className="px-3 py-8 text-center text-muted-foreground">{tx('No ledger entries found')}</td></tr>
                 )}
                 {ledger.data.data.map((entry) => (
                   <tr key={entry.id} className="border-b hover:bg-muted/30 cursor-pointer" onClick={() => navigate(`/inventory/items/${entry.productId}`)}>
@@ -212,9 +213,9 @@ export function StockLedgerPage() {
                         size="sm"
                         variant="outline"
                         onClick={(e) => { e.stopPropagation(); navigate(`/inventory/ledger/${entry.id}`); }}
-                        title="Open the transaction this movement came from"
+                        title={tx('Open the transaction this movement came from')}
                       >
-                        <Eye className="mr-1 h-3 w-3" />View
+                        <Eye className="mr-1 h-3 w-3" />{tx('View')}
                       </Button>
                     </td>
                   </tr>
@@ -223,11 +224,11 @@ export function StockLedgerPage() {
             </table>
           </div>
           <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>{ledger.data.meta.total} entry(ies)</span>
+            <span>{ledger.data.meta.total} {tx('entry(ies)')}</span>
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-              <span>Page {ledger.data.meta.page} of {ledger.data.meta.totalPages}</span>
-              <Button size="sm" variant="outline" disabled={page >= ledger.data.meta.totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
+              <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>{tx('Previous')}</Button>
+              <span>{tx('Page')} {ledger.data.meta.page} of {ledger.data.meta.totalPages}</span>
+              <Button size="sm" variant="outline" disabled={page >= ledger.data.meta.totalPages} onClick={() => setPage((p) => p + 1)}>{tx('Next')}</Button>
             </div>
           </div>
         </>

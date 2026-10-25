@@ -37,6 +37,25 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+/* ── Server reachability ─────────────────────────────────────────────────────
+ * A response with no HTTP status never reached the API: the network is down, the
+ * service is stopped, or the request timed out. The POS needs to know that
+ * WITHOUT probing, so it can stop walking into a full timeout on every keystroke
+ * and keep selling against the local cart instead.
+ *
+ * Deliberately NOT `navigator.onLine`: the common install runs the API and the
+ * database on the till itself, where an unplugged cable reads as "offline" while
+ * the server is perfectly reachable. Only a request that actually failed counts,
+ * and any answered request — including a 4xx — clears it.
+ */
+let lastNetworkFailureAt: number | null = null;
+export function noteServerUnreachable(): void { lastNetworkFailureAt = Date.now(); }
+export function noteServerReachable(): void { lastNetworkFailureAt = null; }
+/** True when a request failed to reach the server within the last `withinMs`. */
+export function serverUnreachable(withinMs = 15_000): boolean {
+  return lastNetworkFailureAt != null && Date.now() - lastNetworkFailureAt < withinMs;
+}
+
 api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken;
   if (token) {
@@ -88,9 +107,11 @@ async function refresh(): Promise<string | null> {
 }
 
 api.interceptors.response.use(
-  (r) => r,
+  (r) => { noteServerReachable(); return r; },
   async (err: AxiosError) => {
     const status = err.response?.status;
+    // The server answered — whatever it said, it is up.
+    if (status) noteServerReachable();
     const original = err.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
     // The cashier's POS token was revoked (disabled, deleted, or taken off the
     // tills by HR). The back-office session is fine, so do NOT refresh or sign
@@ -119,7 +140,15 @@ api.interceptors.response.use(
     (err as any).userMessage = serverMsg;
     if (status === 403) notify.error(serverMsg || 'Permission denied');
     if (status && status >= 500) notify.error(serverMsg || 'Server error — please retry');
-    if (!status) notify.error('Network error — please check your connection');
+    // A cancelled request (a component unmounted, a query superseded) says
+    // nothing about the server, so it must not be read as an outage.
+    if (!status && !axios.isCancel(err) && err.code !== 'ERR_CANCELED') {
+      // One notice per outage, not one per request: an offline terminal saves,
+      // quotes and polls constantly, and it used to toast on every one of them.
+      const alreadyKnown = serverUnreachable();
+      noteServerUnreachable();
+      if (!alreadyKnown) notify.error('No connection to the server — work is kept on this device');
+    }
     throw err;
   },
 );

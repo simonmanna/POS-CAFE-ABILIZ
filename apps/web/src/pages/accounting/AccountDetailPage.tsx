@@ -24,6 +24,7 @@ import {
   type Account, type AccountCategory,
 } from '@/features/accounting/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -139,7 +140,7 @@ function CategorySelect({
 
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger id={id}><SelectValue placeholder="Select category" /></SelectTrigger>
+      <SelectTrigger id={id}><SelectValue placeholder={tx('Select category')} /></SelectTrigger>
       <SelectContent>
         {grouped.map((g) => (
           <div key={g.classification}>
@@ -277,7 +278,7 @@ export function AccountDetailPage() {
 
       {/* ── Breadcrumb ── */}
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <button onClick={() => navigate('/accounts')} className="hover:text-foreground transition-colors">Chart of Accounts</button>
+        <button onClick={() => navigate('/accounts')} className="hover:text-foreground transition-colors">{tx('Chart of Accounts')}</button>
         <span>/</span>
         <span className="text-foreground font-medium">
           {isNew ? 'New Account' : a ? `${a.code} — ${a.name}` : 'Loading...'}
@@ -306,24 +307,24 @@ export function AccountDetailPage() {
                       {a.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                     {a.isGroup && (
-                      <Badge variant="outline" className="text-xs">Group</Badge>
+                      <Badge variant="outline" className="text-xs">{tx('Group')}</Badge>
                     )}
                     {a.isControlAccount && (
-                      <Badge variant="outline" className="text-xs border-sky-300 text-sky-700">Control</Badge>
+                      <Badge variant="outline" className="text-xs border-sky-300 text-sky-700">{tx('Control')}</Badge>
                     )}
                     {a.deprecatedAt && (
-                      <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">Deprecated</Badge>
+                      <Badge variant="outline" className="text-xs border-orange-300 text-orange-700">{tx('Deprecated')}</Badge>
                     )}
                     {a.isSystem && (
-                      <Badge variant="outline" className="text-xs border-amber-300 text-amber-700">System</Badge>
+                      <Badge variant="outline" className="text-xs border-amber-300 text-amber-700">{tx('System')}</Badge>
                     )}
                   </>
                 )}
               </div>
               {a && (
                 <p className="text-sm text-muted-foreground mt-0.5">
-                  {a.category?.name ?? 'Uncategorized'} · {humanize(a.normalBalance)}-normal
-                  {a.parent && <> · Parent: {a.parent.code} — {a.parent.name}</>}
+                  {a.category?.name ?? 'Uncategorized'} · {humanize(a.normalBalance)}{tx('-normal')}
+                  {a.parent && <> {tx('· Parent:')} {a.parent.code} — {a.parent.name}</>}
                 </p>
               )}
             </div>
@@ -332,7 +333,7 @@ export function AccountDetailPage() {
 
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => navigate('/accounts')}>
-            Discard
+            {tx('Discard')}
           </Button>
           <Button size="sm" onClick={onSubmit} disabled={isPending || account.isLoading}>
             {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
@@ -346,16 +347,16 @@ export function AccountDetailPage() {
         <form onSubmit={onSubmit} className="space-y-6">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
-              <CardHeader><CardTitle>Account Information</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{tx('Account Information')}</CardTitle></CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="code">Code *</Label>
+                    <Label htmlFor="code">{tx('Code *')}</Label>
                     <Input id="code" placeholder="e.g. 1100" {...register('code')} />
                     {errors.code && <p className="text-sm text-destructive">{errors.code.message as string}</p>}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="categoryId">Category *</Label>
+                    <Label htmlFor="categoryId">{tx('Category *')}</Label>
                     <CategorySelect
                       id="categoryId"
                       categories={categoryList}
@@ -368,54 +369,53 @@ export function AccountDetailPage() {
                 {selectedCategory && (
                   <div className="rounded-md bg-muted/40 p-3 text-xs text-muted-foreground space-y-1">
                     <p>
-                      <span className="font-medium text-foreground">{humanize(selectedCategory.normalBalance)}-normal</span>
+                      <span className="font-medium text-foreground">{humanize(selectedCategory.normalBalance)}{tx('-normal')}</span>
                       {' · '}{CLASSIFICATION_LABELS[selectedCategory.classification] ?? selectedCategory.classification}
-                      {' · '}reported under {humanize(selectedCategory.reportSection)}
+                      {' · '}{tx('reported under')} {humanize(selectedCategory.reportSection)}
                     </p>
                     {selectedCategory.description && <p>{selectedCategory.description}</p>}
                   </div>
                 )}
                 <div className="space-y-2">
-                  <Label htmlFor="name">Name *</Label>
-                  <Input id="name" placeholder="e.g. Cash on Hand" {...register('name')} />
+                  <Label htmlFor="name">{tx('Name *')}</Label>
+                  <Input id="name" placeholder={tx('e.g. Cash on Hand')} {...register('name')} />
                   {errors.name && <p className="text-sm text-destructive">{errors.name.message as string}</p>}
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="parentAccountId">Parent Account</Label>
+                  <Label htmlFor="parentAccountId">{tx('Parent Account')}</Label>
                   <Select
                     value={watch('parentAccountId') ?? NONE}
                     onValueChange={(v) => setValue('parentAccountId', v === NONE ? null : v)}
                   >
-                    <SelectTrigger id="parentAccountId"><SelectValue placeholder="None (top-level)" /></SelectTrigger>
+                    <SelectTrigger id="parentAccountId"><SelectValue placeholder={tx('None (top-level)')} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NONE}>None (top-level)</SelectItem>
+                      <SelectItem value={NONE}>{tx('None (top-level)')}</SelectItem>
                       {parentOptions.map((p) => (
                         <SelectItem key={p.id} value={p.id}>{p.code} — {p.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Hierarchy is for reporting and navigation only. A parent must be a group
-                    account with the same classification.
+                    {tx('Hierarchy is for reporting and navigation only. A parent must be a group account with the same classification.')}
                   </p>
                 </div>
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input type="checkbox" className="h-4 w-4 rounded border-input" {...register('isGroup')} />
-                  <span>Group account (cannot post journal lines directly)</span>
+                  <span>{tx('Group account (cannot post journal lines directly)')}</span>
                 </label>
                 <label className="flex items-center gap-2 text-sm cursor-pointer">
                   <input type="checkbox" className="h-4 w-4 rounded border-input" {...register('isControlAccount')} />
-                  <span>Control account (backed by a subledger, e.g. AR / AP / stock)</span>
+                  <span>{tx('Control account (backed by a subledger, e.g. AR / AP / stock)')}</span>
                 </label>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader><CardTitle>Description</CardTitle></CardHeader>
+              <CardHeader><CardTitle>{tx('Description')}</CardTitle></CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  <Label>Description</Label>
-                  <Textarea placeholder="What this account is used for…" rows={5} {...register('description')} />
+                  <Label>{tx('Description')}</Label>
+                  <Textarea placeholder={tx('What this account is used for…')} rows={5} {...register('description')} />
                 </div>
               </CardContent>
             </Card>
@@ -431,13 +431,13 @@ export function AccountDetailPage() {
             <div className="bg-gradient-to-r from-indigo-50 via-white to-purple-50 rounded-lg border p-1">
               <TabsList className="bg-transparent h-auto p-0 gap-0">
                 <TabsTrigger value="general" className="data-[state=active]:bg-white data-[state=active]:shadow-sm rounded-md px-4 py-2 text-sm gap-1.5">
-                  <Settings className="h-4 w-4" /> General
+                  <Settings className="h-4 w-4" /> {tx('General')}
                 </TabsTrigger>
                 <TabsTrigger value="details" className="data-[state=active]:bg-white data-[state=active]:shadow-sm rounded-md px-4 py-2 text-sm gap-1.5">
-                  <Activity className="h-4 w-4" /> Details
+                  <Activity className="h-4 w-4" /> {tx('Details')}
                 </TabsTrigger>
                 <TabsTrigger value="cashflow" className="data-[state=active]:bg-white data-[state=active]:shadow-sm rounded-md px-4 py-2 text-sm gap-1.5">
-                  <BarChart3 className="h-4 w-4" /> Behavior
+                  <BarChart3 className="h-4 w-4" /> {tx('Behavior')}
                 </TabsTrigger>
               </TabsList>
             </div>
@@ -449,29 +449,29 @@ export function AccountDetailPage() {
                   <CardHeader>
                     <div className="flex items-center gap-2">
                       <Settings className="h-4 w-4 text-muted-foreground" />
-                      <CardTitle className="text-base">Account Details</CardTitle>
+                      <CardTitle className="text-base">{tx('Account Details')}</CardTitle>
                     </div>
                   </CardHeader>
                   <CardContent>
                     <dl className="divide-y divide-muted/20">
-                      <InfoRow label="Code" value={<span className="font-mono">{a.code}</span>} />
-                      <InfoRow label="Name" value={<Input className="h-8 text-sm" {...register('name')} />} />
-                      <InfoRow label="Category" value={
+                      <InfoRow label={tx('Code')} value={<span className="font-mono">{a.code}</span>} />
+                      <InfoRow label={tx('Name')} value={<Input className="h-8 text-sm" {...register('name')} />} />
+                      <InfoRow label={tx('Category')} value={
                         <CategorySelect
                           categories={categoryList}
                           value={watchCategoryId}
                           onChange={(v) => setValue('categoryId', v, { shouldValidate: true })}
                         />
                       } />
-                      <InfoRow label="Parent" value={a.parent ? `${a.parent.code} — ${a.parent.name}` : '—'} />
-                      <InfoRow label="Children" value={a.children?.length ? `${a.children.length} sub-account(s)` : '—'} />
-                      <InfoRow label="Group" value={a.isGroup ? 'Yes — summary account' : 'No — postable account'} />
-                      <InfoRow label="Status" value={
+                      <InfoRow label={tx('Parent')} value={a.parent ? `${a.parent.code} — ${a.parent.name}` : '—'} />
+                      <InfoRow label={tx('Children')} value={a.children?.length ? `${a.children.length} sub-account(s)` : '—'} />
+                      <InfoRow label={tx('Group')} value={a.isGroup ? 'Yes — summary account' : 'No — postable account'} />
+                      <InfoRow label={tx('Status')} value={
                         <Badge variant={a.isActive ? 'default' : 'secondary'} className="text-xs">
                           {a.isActive ? 'Active' : 'Inactive'}
                         </Badge>
                       } />
-                      <InfoRow label="Protected" value={a.isProtected ? 'Yes' : 'No'} />
+                      <InfoRow label={tx('Protected')} value={a.isProtected ? 'Yes' : 'No'} />
                     </dl>
                   </CardContent>
                 </Card>
@@ -480,23 +480,22 @@ export function AccountDetailPage() {
                   <CardHeader>
                     <div className="flex items-center gap-2">
                       <Activity className="h-4 w-4 text-muted-foreground" />
-                      <CardTitle className="text-base">Accounting Treatment</CardTitle>
+                      <CardTitle className="text-base">{tx('Accounting Treatment')}</CardTitle>
                     </div>
                   </CardHeader>
                   <CardContent>
                     <p className="text-xs text-muted-foreground mb-3">
-                      Derived from the category. These drive how the engine posts and reports
-                      this account, so they cannot be set per account.
+                      {tx('Derived from the category. These drive how the engine posts and reports this account, so they cannot be set per account.')}
                     </p>
                     <dl className="divide-y divide-muted/20">
-                      <InfoRow label="Classification" value={CLASSIFICATION_LABELS[a.category?.classification ?? ''] ?? humanize(a.category?.classification)} />
-                      <InfoRow label="Normal Balance" value={humanize(a.normalBalance)} />
-                      <InfoRow label="Report Section" value={humanize(a.category?.reportSection)} />
-                      <InfoRow label="Contra Account" value={a.category?.isContra ? 'Yes' : 'No'} />
-                      <InfoRow label="Cash Equivalent" value={a.category?.isCashEquivalent ? 'Yes' : 'No'} />
-                      <InfoRow label="Control Account" value={a.isControlAccount ? 'Yes' : 'No'} />
-                      <InfoRow label="Default Account" value={a.isDefault ? 'Yes' : 'No'} />
-                      <InfoRow label="System Account" value={a.isSystem ? 'Yes' : 'No'} />
+                      <InfoRow label={tx('Classification')} value={CLASSIFICATION_LABELS[a.category?.classification ?? ''] ?? humanize(a.category?.classification)} />
+                      <InfoRow label={tx('Normal Balance')} value={humanize(a.normalBalance)} />
+                      <InfoRow label={tx('Report Section')} value={humanize(a.category?.reportSection)} />
+                      <InfoRow label={tx('Contra Account')} value={a.category?.isContra ? 'Yes' : 'No'} />
+                      <InfoRow label={tx('Cash Equivalent')} value={a.category?.isCashEquivalent ? 'Yes' : 'No'} />
+                      <InfoRow label={tx('Control Account')} value={a.isControlAccount ? 'Yes' : 'No'} />
+                      <InfoRow label={tx('Default Account')} value={a.isDefault ? 'Yes' : 'No'} />
+                      <InfoRow label={tx('System Account')} value={a.isSystem ? 'Yes' : 'No'} />
                     </dl>
                   </CardContent>
                 </Card>
@@ -509,33 +508,33 @@ export function AccountDetailPage() {
                 <CardHeader>
                   <div className="flex items-center gap-2">
                     <Activity className="h-4 w-4 text-muted-foreground" />
-                    <CardTitle className="text-base">Additional Information</CardTitle>
+                    <CardTitle className="text-base">{tx('Additional Information')}</CardTitle>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4 max-w-lg">
                   <div className="space-y-2">
-                    <Label>Description</Label>
+                    <Label>{tx('Description')}</Label>
                     <Textarea rows={3} {...register('description')} />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Bank Name</Label>
-                      <Input placeholder="Bank name" {...register('bankName')} />
+                      <Label>{tx('Bank Name')}</Label>
+                      <Input placeholder={tx('Bank name')} {...register('bankName')} />
                     </div>
                     <div className="space-y-2">
-                      <Label>Account Number</Label>
-                      <Input placeholder="Account/phone number" {...register('accountNumber')} />
+                      <Label>{tx('Account Number')}</Label>
+                      <Input placeholder={tx('Account/phone number')} {...register('accountNumber')} />
                     </div>
                   </div>
                   <div className="space-y-2">
-                    <Label>Parent Account</Label>
+                    <Label>{tx('Parent Account')}</Label>
                     <Select
                       value={watch('parentAccountId') ?? NONE}
                       onValueChange={(v) => setValue('parentAccountId', v === NONE ? null : v)}
                     >
-                      <SelectTrigger><SelectValue placeholder="None (top-level)" /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={tx('None (top-level)')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NONE}>None (top-level)</SelectItem>
+                        <SelectItem value={NONE}>{tx('None (top-level)')}</SelectItem>
                         {parentOptions.map((p) => (
                           <SelectItem key={p.id} value={p.id}>{p.code} — {p.name}</SelectItem>
                         ))}
@@ -544,11 +543,11 @@ export function AccountDetailPage() {
                   </div>
                   <label className="flex items-center gap-2 text-sm cursor-pointer pt-2">
                     <input type="checkbox" className="h-4 w-4 rounded border-input" {...register('isGroup')} />
-                    <span>Group account (cannot post journal lines directly)</span>
+                    <span>{tx('Group account (cannot post journal lines directly)')}</span>
                   </label>
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
                     <input type="checkbox" className="h-4 w-4 rounded border-input" {...register('isControlAccount')} />
-                    <span>Control account (backed by a subledger)</span>
+                    <span>{tx('Control account (backed by a subledger)')}</span>
                   </label>
                 </CardContent>
               </Card>
@@ -561,25 +560,24 @@ export function AccountDetailPage() {
                   <CardHeader>
                     <div className="flex items-center gap-2">
                       <BarChart3 className="h-4 w-4 text-muted-foreground" />
-                      <CardTitle className="text-base">Cash Flow Classification</CardTitle>
+                      <CardTitle className="text-base">{tx('Cash Flow Classification')}</CardTitle>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4 max-w-md">
                     <p className="text-sm text-muted-foreground">
-                      Which section of the cash flow statement this account's movements appear
-                      in. Leave unset to inherit{' '}
+                      {tx('Which section of the cash flow statement this account\'s movements appear in. Leave unset to inherit')}{' '}
                       <span className="font-medium">{humanize(a.category?.cashFlowClass)}</span>{' '}
-                      from the category.
+                      {tx('from the category.')}
                     </p>
                     <div className="space-y-2">
-                      <Label>Cash Flow Category</Label>
+                      <Label>{tx('Cash Flow Category')}</Label>
                       <Select
                         value={watch('cashFlowCategory') ?? NONE}
                         onValueChange={(v) => setValue('cashFlowCategory', v === NONE ? null : v)}
                       >
-                        <SelectTrigger><SelectValue placeholder="Inherit from category" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={tx('Inherit from category')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value={NONE}>Inherit from category</SelectItem>
+                          <SelectItem value={NONE}>{tx('Inherit from category')}</SelectItem>
                           {CASH_FLOW_OPTIONS.map((o) => (
                             <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                           ))}
@@ -593,13 +591,12 @@ export function AccountDetailPage() {
                   <CardHeader>
                     <div className="flex items-center gap-2">
                       <Settings className="h-4 w-4 text-muted-foreground" />
-                      <CardTitle className="text-base">Permissions</CardTitle>
+                      <CardTitle className="text-base">{tx('Permissions')}</CardTitle>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4 max-w-md">
                     <p className="text-sm text-muted-foreground">
-                      Each defaults to the category setting. Override only when this one account
-                      needs to differ.
+                      {tx('Each defaults to the category setting. Override only when this one account needs to differ.')}
                     </p>
                     {([
                       ['allowManualPosting', 'Manual journal entries', a.category?.allowManualPosting],
@@ -644,7 +641,7 @@ export function AccountDetailPage() {
             </Button>
             {a.isActive && (
               <p className="text-xs text-muted-foreground">
-                Deactivating hides this account from selection lists. Existing journal lines remain unchanged.
+                {tx('Deactivating hides this account from selection lists. Existing journal lines remain unchanged.')}
               </p>
             )}
           </div>
@@ -662,13 +659,13 @@ export function AccountDetailPage() {
                 </DialogDescription>
               </DialogHeader>
               <div className="rounded-lg bg-muted/30 p-3 space-y-1 text-xs">
-                <DialogInfoRow label="Code" value={a.code} />
-                <DialogInfoRow label="Name" value={a.name} />
-                <DialogInfoRow label="Category" value={a.category?.name ?? '—'} />
-                <DialogInfoRow label="Current Status" value={a.isActive ? 'Active' : 'Inactive'} />
+                <DialogInfoRow label={tx('Code')} value={a.code} />
+                <DialogInfoRow label={tx('Name')} value={a.name} />
+                <DialogInfoRow label={tx('Category')} value={a.category?.name ?? '—'} />
+                <DialogInfoRow label={tx('Current Status')} value={a.isActive ? 'Active' : 'Inactive'} />
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setDeleteOpen(false)}>Cancel</Button>
+                <Button variant="outline" onClick={() => setDeleteOpen(false)}>{tx('Cancel')}</Button>
                 <Button
                   variant={a.isActive ? 'destructive' : 'default'}
                   disabled={updateAccount.isPending}
@@ -681,7 +678,7 @@ export function AccountDetailPage() {
           </Dialog>
         </>
       ) : (
-        <div className="text-center py-16 text-muted-foreground">Account not found.</div>
+        <div className="text-center py-16 text-muted-foreground">{tx('Account not found.')}</div>
       )}
     </div>
   );

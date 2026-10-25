@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { date } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUS_FILTERS = [
   { value: '', label: 'All' },
@@ -76,32 +77,32 @@ export function RepairWarrantiesPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Warranties</h1>
-          <p className="text-sm text-muted-foreground">Repair warranty coverage and claims.</p>
+          <h1 className="text-xl font-semibold">{tx('Warranties')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Repair warranty coverage and claims.')}</p>
         </div>
-        <Button onClick={() => setShowForm((v) => !v)}><Plus className="h-4 w-4" /> New warranty</Button>
+        <Button onClick={() => setShowForm((v) => !v)}><Plus className="h-4 w-4" /> {tx('New warranty')}</Button>
       </div>
 
       {showForm && (
         <Card>
-          <CardHeader className="bg-muted/30 border-b rounded-t-lg"><CardTitle className="text-sm">New warranty</CardTitle></CardHeader>
+          <CardHeader className="bg-muted/30 border-b rounded-t-lg"><CardTitle className="text-sm">{tx('New warranty')}</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-4">
-            <Input placeholder="Repair order ID" value={form.repairOrderId} onChange={(e) => set('repairOrderId', e.target.value)} />
+            <Input placeholder={tx('Repair order ID')} value={form.repairOrderId} onChange={(e) => set('repairOrderId', e.target.value)} />
             <select value={form.warrantyType} onChange={(e) => set('warrantyType', e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm">
-              <option value="repair_warranty">Repair warranty</option>
-              <option value="manufacturer">Manufacturer</option>
-              <option value="extended">Extended</option>
+              <option value="repair_warranty">{tx('Repair warranty')}</option>
+              <option value="manufacturer">{tx('Manufacturer')}</option>
+              <option value="extended">{tx('Extended')}</option>
             </select>
             <Input type="date" value={form.coverageStart} onChange={(e) => set('coverageStart', e.target.value)} />
             <Input type="date" value={form.coverageEnd} onChange={(e) => set('coverageEnd', e.target.value)} />
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.coveredLabour} onChange={(e) => setForm((f) => ({ ...f, coveredLabour: e.target.checked }))} />
-              Covers labour
+              {tx('Covers labour')}
             </label>
-            <Input className="sm:col-span-3" placeholder="Terms" value={form.terms} onChange={(e) => set('terms', e.target.value)} />
+            <Input className="sm:col-span-3" placeholder={tx('Terms')} value={form.terms} onChange={(e) => set('terms', e.target.value)} />
             <div className="flex items-end gap-2">
-              <Button onClick={submit} disabled={create.isPending}>Save</Button>
-              <Button variant="ghost" onClick={() => setShowForm(false)}>Cancel</Button>
+              <Button onClick={submit} disabled={create.isPending}>{tx('Save')}</Button>
+              <Button variant="ghost" onClick={() => setShowForm(false)}>{tx('Cancel')}</Button>
             </div>
             {error && <p className="text-sm text-red-600 sm:col-span-4">{error}</p>}
           </CardContent>
@@ -118,11 +119,11 @@ export function RepairWarrantiesPage() {
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} warranties</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('warranties')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No warranties match the filter.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No warranties match the filter.')}</p>}
             {rows.map((w: any) => (
               <div key={w.id} className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -140,7 +141,7 @@ export function RepairWarrantiesPage() {
                 </div>
                 <div className="flex items-center gap-2">
                   {(w.status === 'active' || w.status === 'claimed') && (
-                    <Button size="sm" variant="outline" onClick={() => setClaimFor(w)}>File claim</Button>
+                    <Button size="sm" variant="outline" onClick={() => setClaimFor(w)}>{tx('File claim')}</Button>
                   )}
                   <Badge variant="outline" className={STATUS_STYLES[w.status] ?? ''}>{w.status}</Badge>
                 </div>
@@ -153,14 +154,14 @@ export function RepairWarrantiesPage() {
       {claimFor && (
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="text-sm">File claim · {claimFor.order?.repairNumber ?? claimFor.id.slice(0, 8)}</CardTitle>
+            <CardTitle className="text-sm">{tx('File claim ·')} {claimFor.order?.repairNumber ?? claimFor.id.slice(0, 8)}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
-            <Input className="sm:col-span-2" placeholder="Claim description" value={claimForm.description} onChange={(e) => setClaimForm((f) => ({ ...f, description: e.target.value }))} />
-            <Input type="number" placeholder="Amount (Rp)" value={claimForm.amount} onChange={(e) => setClaimForm((f) => ({ ...f, amount: e.target.value }))} />
+            <Input className="sm:col-span-2" placeholder={tx('Claim description')} value={claimForm.description} onChange={(e) => setClaimForm((f) => ({ ...f, description: e.target.value }))} />
+            <Input type="number" placeholder={tx('Amount (Rp)')} value={claimForm.amount} onChange={(e) => setClaimForm((f) => ({ ...f, amount: e.target.value }))} />
             <div className="flex items-end gap-2">
-              <Button onClick={submitClaim} disabled={createClaim.isPending}>File claim</Button>
-              <Button variant="ghost" onClick={() => setClaimFor(null)}>Cancel</Button>
+              <Button onClick={submitClaim} disabled={createClaim.isPending}>{tx('File claim')}</Button>
+              <Button variant="ghost" onClick={() => setClaimFor(null)}>{tx('Cancel')}</Button>
             </div>
           </CardContent>
         </Card>

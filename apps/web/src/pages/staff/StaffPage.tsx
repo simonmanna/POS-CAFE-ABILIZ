@@ -39,6 +39,7 @@ import {
 import type { UserSummary } from '@/features/staff/types';
 import { UserDialog } from './UserDialog';
 import { SetPinDialog } from './SetPinDialog';
+import { tx } from '@/lib/i18n/tx';
 
 type LinkFilter = 'all' | 'linked' | 'unlinked';
 
@@ -125,7 +126,7 @@ export function StaffPage() {
             </span>
             {u.id === meId && (
               <Badge variant="outline" className="text-[10px]">
-                You
+                {tx('You')}
               </Badge>
             )}
           </div>
@@ -138,7 +139,7 @@ export function StaffPage() {
       header: 'Roles',
       render: (u) => (
         <div className="flex flex-wrap gap-1">
-          {u.roles.length === 0 && <span className="text-xs text-muted-foreground">No roles</span>}
+          {u.roles.length === 0 && <span className="text-xs text-muted-foreground">{tx('No roles')}</span>}
           {u.roles.map((r) => (
             <Badge key={r.id} variant="secondary" className="text-[10px]">
               {r.name}
@@ -158,7 +159,7 @@ export function StaffPage() {
           <Link
             to={`/hr/employees/${u.employee.id}`}
             className="space-y-0.5 hover:underline"
-            title="Open the Employee 360 record"
+            title={tx('Open the Employee 360 record')}
           >
             <div className="text-sm">
               {u.employee.firstName} {u.employee.lastName ?? ''}
@@ -166,7 +167,7 @@ export function StaffPage() {
             <div className="text-xs text-muted-foreground">{u.employee.employeeCode}</div>
           </Link>
         ) : (
-          <span className="text-xs text-muted-foreground">Not linked</span>
+          <span className="text-xs text-muted-foreground">{tx('Not linked')}</span>
         ),
     },
     {
@@ -174,15 +175,15 @@ export function StaffPage() {
       header: 'Status',
       render: (u) => {
         const locked = u.lockedUntil && new Date(u.lockedUntil).getTime() > Date.now();
-        if (!u.isActive) return <Badge variant="secondary">Disabled</Badge>;
+        if (!u.isActive) return <Badge variant="secondary">{tx('Disabled')}</Badge>;
         if (locked) {
           return (
             <Badge variant="destructive" className="gap-1">
-              <Lock className="h-3 w-3" /> Locked
+              <Lock className="h-3 w-3" /> {tx('Locked')}
             </Badge>
           );
         }
-        return <Badge variant="default">Active</Badge>;
+        return <Badge variant="default">{tx('Active')}</Badge>;
       },
     },
     {
@@ -191,10 +192,10 @@ export function StaffPage() {
       render: (u) =>
         u.hasPin ? (
           <Badge variant="outline" className="text-[10px]">
-            Set
+            {tx('Set')}
           </Badge>
         ) : (
-          <span className="text-xs text-muted-foreground">Not set</span>
+          <span className="text-xs text-muted-foreground">{tx('Not set')}</span>
         ),
     },
     {
@@ -203,10 +204,10 @@ export function StaffPage() {
       render: (u) =>
         u.mfaEnrolled ? (
           <Badge variant="outline" className="text-[10px]">
-            On
+            {tx('On')}
           </Badge>
         ) : (
-          <span className="text-xs text-muted-foreground">Off</span>
+          <span className="text-xs text-muted-foreground">{tx('Off')}</span>
         ),
     },
     {
@@ -216,7 +217,7 @@ export function StaffPage() {
         u.lastLoginAt ? (
           <span className="text-xs">{new Date(u.lastLoginAt).toLocaleString()}</span>
         ) : (
-          <span className="text-xs text-muted-foreground">Never</span>
+          <span className="text-xs text-muted-foreground">{tx('Never')}</span>
         ),
     },
     {
@@ -232,8 +233,8 @@ export function StaffPage() {
                 variant="ghost"
                 size="icon"
                 onClick={() => doUnlock(u)}
-                aria-label="Unlock account"
-                title="Unlock account"
+                aria-label={tx('Unlock account')}
+                title={tx('Unlock account')}
               >
                 <Unlock className="h-4 w-4 text-amber-500" />
               </Button>
@@ -254,8 +255,8 @@ export function StaffPage() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setResetTarget(u)}
-                aria-label="Reset password"
-                title="Reset password"
+                aria-label={tx('Reset password')}
+                title={tx('Reset password')}
               >
                 <KeyRound className="h-4 w-4" />
               </Button>
@@ -265,8 +266,8 @@ export function StaffPage() {
               size="icon"
               disabled={!canUpdate}
               onClick={() => openEdit(u)}
-              aria-label="Edit user"
-              title="Edit user"
+              aria-label={tx('Edit user')}
+              title={tx('Edit user')}
             >
               <Pencil className="h-4 w-4" />
             </Button>
@@ -275,7 +276,7 @@ export function StaffPage() {
               size="icon"
               disabled={!canDelete || u.id === meId}
               onClick={() => setDeleting(u)}
-              aria-label="Delete user"
+              aria-label={tx('Delete user')}
               title={u.id === meId ? 'You cannot delete your own account' : 'Delete user'}
             >
               <Trash2 className="h-4 w-4 text-destructive" />
@@ -293,15 +294,15 @@ export function StaffPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold">
-            <UsersIcon className="h-6 w-6" /> Staff
+            <UsersIcon className="h-6 w-6" /> {tx('Staff')}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Manage user accounts, role assignments, passwords and POS PINs.
+            {tx('Manage user accounts, role assignments, passwords and POS PINs.')}
           </p>
         </div>
         {canCreate && (
           <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" /> New User
+            <Plus className="h-4 w-4" /> {tx('New User')}
           </Button>
         )}
       </div>
@@ -311,13 +312,13 @@ export function StaffPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search by name or email..."
+            placeholder={tx('Search by name or email...')}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
         </div>
         {/* "Not linked to HR" is the worklist for keeping the two lists as one. */}
-        <div className="flex gap-1" role="group" aria-label="Filter by HR link">
+        <div className="flex gap-1" role="group" aria-label={tx('Filter by HR link')}>
           {(
             [
               ['all', 'All'],
@@ -349,13 +350,13 @@ export function StaffPage() {
 
       {meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} record(s)</span>
+          <span>{meta.total} {tx('record(s)')}</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {tx('Previous')}
             </Button>
             <span>
-              Page {meta.page} of {meta.totalPages}
+              {tx('Page')} {meta.page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -363,7 +364,7 @@ export function StaffPage() {
               disabled={page >= meta.totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>
@@ -384,7 +385,7 @@ export function StaffPage() {
       <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete user?</DialogTitle>
+            <DialogTitle>{tx('Delete user?')}</DialogTitle>
             <DialogDescription>
               {deleting
                 ? `${deleting.firstName} (${deleting.email}) will be deactivated. Their sessions will be revoked.`
@@ -393,7 +394,7 @@ export function StaffPage() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleting(null)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button variant="destructive" disabled={deleteUser.isPending} onClick={confirmDelete}>
               {deleteUser.isPending ? 'Deleting…' : 'Delete user'}
@@ -405,7 +406,7 @@ export function StaffPage() {
       <Dialog open={!!resetTarget} onOpenChange={(open) => !open && setResetTarget(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Reset password</DialogTitle>
+            <DialogTitle>{tx('Reset password')}</DialogTitle>
             <DialogDescription>
               {resetTarget
                 ? `Set a new password for ${resetTarget.firstName} (${resetTarget.email}). All active sessions will be revoked.`
@@ -413,19 +414,19 @@ export function StaffPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor="reset-pw">New password</Label>
+            <Label htmlFor="reset-pw">{tx('New password')}</Label>
             <Input
               id="reset-pw"
               type="password"
               autoComplete="new-password"
               value={resetPassword}
               onChange={(e) => setResetPassword(e.target.value)}
-              placeholder="At least 10 characters"
+              placeholder={tx('At least 10 characters')}
             />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setResetTarget(null)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               disabled={resetPassword.length < 10 || resetUser.isPending}

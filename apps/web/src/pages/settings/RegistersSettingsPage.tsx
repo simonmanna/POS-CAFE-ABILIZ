@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
+import { tx } from '@/lib/i18n/tx';
 
 type RegisterRow = RegisterConfig & { defaultAccount?: { id: string; code: string; name: string } | null; location?: { id: string; name: string } | null };
 
@@ -54,7 +55,7 @@ function RegisterDialog({ open, onClose, editing }: { open: boolean; onClose: ()
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !code.trim()) { toast.error('Name and code are required'); return; }
+    if (!name.trim() || !code.trim()) { toast.error(tx('Name and code are required')); return; }
     try {
       await save.mutateAsync({
         id: editing?.id,
@@ -76,61 +77,61 @@ function RegisterDialog({ open, onClose, editing }: { open: boolean; onClose: ()
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{editing ? `Edit ${editing.name}` : 'Add a register'}</DialogTitle>
-          <DialogDescription>A till where cashiers open shifts and take cash. Each register has its own drawer account.</DialogDescription>
+          <DialogDescription>{tx('A till where cashiers open shifts and take cash. Each register has its own drawer account.')}</DialogDescription>
         </DialogHeader>
         <form onSubmit={submit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
             <div className="space-y-1.5">
-              <Label htmlFor="reg-name">Name</Label>
-              <Input id="reg-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Main Counter" />
+              <Label htmlFor="reg-name">{tx('Name')}</Label>
+              <Input id="reg-name" required value={name} onChange={(e) => setName(e.target.value)} placeholder={tx('e.g. Main Counter')} />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="reg-code">Code</Label>
+              <Label htmlFor="reg-code">{tx('Code')}</Label>
               <Input id="reg-code" required disabled={!!editing} className="font-mono" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="MAIN" />
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label>Branch <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Label>{tx('Branch')} <span className="font-normal text-muted-foreground">{tx('(optional)')}</span></Label>
             <SearchableSelect
               value={branchId}
               onValueChange={setBranchId}
-              placeholder="Choose branch"
+              placeholder={tx('Choose branch')}
               options={(branches?.data ?? []).map((b) => ({ value: b.id, label: `${b.name} · ${b.code}` }))}
             />
           </div>
           <div className="space-y-1.5">
-            <Label>Stock location <span className="font-normal text-muted-foreground">(optional)</span></Label>
+            <Label>{tx('Stock location')} <span className="font-normal text-muted-foreground">{tx('(optional)')}</span></Label>
             <SearchableSelect
               value={locationId}
               onValueChange={setLocationId}
-              placeholder="Choose where sold stock is taken from"
+              placeholder={tx('Choose where sold stock is taken from')}
               options={(locations?.data ?? []).filter((l) => l.isActive).map((l) => ({ value: l.id, label: `${l.name} · ${l.code}` }))}
             />
           </div>
 
           <div className="rounded-lg border bg-muted/40 p-3 text-sm">
-            <p className="flex items-center gap-2 font-medium"><Banknote className="h-4 w-4" aria-hidden /> Drawer account</p>
+            <p className="flex items-center gap-2 font-medium"><Banknote className="h-4 w-4" aria-hidden /> {tx('Drawer account')}</p>
             <p className="mt-1 text-xs text-muted-foreground">
               {editing
-                ? <>Currently <strong>{editing.defaultAccount?.name ?? 'set'}</strong>{editing.defaultAccount?.code ? ` (${editing.defaultAccount.code})` : ''}.</>
-                : <>Created automatically as <strong className="font-mono">{suggestedCode}</strong>. Cash sales on this register are booked there.</>}
+                ? <>{tx('Currently')} <strong>{editing.defaultAccount?.name ?? 'set'}</strong>{editing.defaultAccount?.code ? ` (${editing.defaultAccount.code})` : ''}.</>
+                : <>{tx('Created automatically as')} <strong className="font-mono">{suggestedCode}</strong>{tx('. Cash sales on this register are booked there.')}</>}
             </p>
             <button type="button" onClick={() => setAdvanced((v) => !v)} aria-expanded={advanced} className="mt-2 inline-flex min-h-[36px] items-center gap-1 text-xs font-medium text-primary">
-              Advanced: use an existing cash account <ChevronDown className={`h-3.5 w-3.5 transition-transform ${advanced ? 'rotate-180' : ''}`} aria-hidden />
+              {tx('Advanced: use an existing cash account')} <ChevronDown className={`h-3.5 w-3.5 transition-transform ${advanced ? 'rotate-180' : ''}`} aria-hidden />
             </button>
             {advanced ? (
               <div className="mt-2 space-y-1">
-                <select aria-label="Existing drawer account" className="min-h-[40px] w-full rounded-md border bg-background px-3 text-sm" value={drawerId} onChange={(e) => setDrawerId(e.target.value)}>
+                <select aria-label={tx('Existing drawer account')} className="min-h-[40px] w-full rounded-md border bg-background px-3 text-sm" value={drawerId} onChange={(e) => setDrawerId(e.target.value)}>
                   <option value="">{editing ? 'Keep current account' : 'Create automatically'}</option>
                   {eligibleDrawers.map((a) => <option key={a.id} value={a.id}>{a.name} · {a.code}</option>)}
                 </select>
-                <p className="text-[11px] text-muted-foreground">Only unused cash or petty-cash accounts are listed. The account cannot change while a shift is open.</p>
+                <p className="text-[11px] text-muted-foreground">{tx('Only unused cash or petty-cash accounts are listed. The account cannot change while a shift is open.')}</p>
               </div>
             ) : null}
           </div>
 
           <DialogFooter className="gap-2">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={save.isPending}>Cancel</Button>
+            <Button type="button" variant="ghost" onClick={onClose} disabled={save.isPending}>{tx('Cancel')}</Button>
             <Button type="submit" disabled={save.isPending}>{save.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}{editing ? 'Save changes' : 'Add register'}</Button>
           </DialogFooter>
         </form>
@@ -159,21 +160,21 @@ export function RegistersSettingsPage() {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-5 p-4 md:p-6">
       <MoneyPageHeader
-        title="Registers"
-        description="Tills where cashiers open shifts. Day-to-day shifts, cash in/out and banking happen on the register page."
+        title={tx('Registers')}
+        description={tx('Tills where cashiers open shifts. Day-to-day shifts, cash in/out and banking happen on the register page.')}
         actions={(
           <>
-            <Button asChild variant="outline" className="min-h-[44px]"><Link to="/pos/cash-registers">Open register page</Link></Button>
+            <Button asChild variant="outline" className="min-h-[44px]"><Link to="/pos/cash-registers">{tx('Open register page')}</Link></Button>
             {hasPermission(PERMISSIONS.cashRegister.create) ? (
-              <Button className="min-h-[44px]" onClick={() => setDialog({ editing: null })}><Plus className="mr-2 h-4 w-4" /> Add register</Button>
+              <Button className="min-h-[44px]" onClick={() => setDialog({ editing: null })}><Plus className="mr-2 h-4 w-4" /> {tx('Add register')}</Button>
             ) : null}
           </>
         )}
       />
       {isLoading ? (
-        <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" /></div>
+        <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label={tx('Loading')} /></div>
       ) : rows.length === 0 ? (
-        <EmptyState icon={Banknote} title="No registers yet">Add a register so the POS can take cash.</EmptyState>
+        <EmptyState icon={Banknote} title={tx('No registers yet')}>{tx('Add a register so the POS can take cash.')}</EmptyState>
       ) : (
         <ul className="divide-y rounded-xl border bg-card">
           {rows.map((r) => (
@@ -181,7 +182,7 @@ export function RegistersSettingsPage() {
               <div className="text-sm">
                 <p className="font-medium text-foreground">{r.name} <span className="font-mono text-xs text-muted-foreground">{r.code}</span></p>
                 <p className="text-xs text-muted-foreground">
-                  Drawer: {r.defaultAccount ? `${r.defaultAccount.name} (${r.defaultAccount.code})` : '—'}
+                  {tx('Drawer:')} {r.defaultAccount ? `${r.defaultAccount.name} (${r.defaultAccount.code})` : '—'}
                   {r.location ? ` · Stock from ${r.location.name}` : ''}
                 </p>
               </div>
@@ -191,9 +192,9 @@ export function RegistersSettingsPage() {
                 </span>
                 {canEdit ? (
                   <>
-                    <Button variant="outline" size="sm" className="min-h-[40px]" onClick={() => setDialog({ editing: r })}><Pencil className="mr-1 h-3.5 w-3.5" aria-hidden /> Edit</Button>
+                    <Button variant="outline" size="sm" className="min-h-[40px]" onClick={() => setDialog({ editing: r })}><Pencil className="mr-1 h-3.5 w-3.5" aria-hidden /> {tx('Edit')}</Button>
                     <Button variant="ghost" size="sm" className="min-h-[40px]" onClick={() => toggle(r)} disabled={save.isPending}>
-                      {r.isActive ? <><PowerOff className="mr-1 h-3.5 w-3.5 text-destructive" aria-hidden /> Deactivate</> : <><Power className="mr-1 h-3.5 w-3.5 text-emerald-600" aria-hidden /> Activate</>}
+                      {r.isActive ? <><PowerOff className="mr-1 h-3.5 w-3.5 text-destructive" aria-hidden /> {tx('Deactivate')}</> : <><Power className="mr-1 h-3.5 w-3.5 text-emerald-600" aria-hidden /> {tx('Activate')}</>}
                     </Button>
                   </>
                 ) : null}

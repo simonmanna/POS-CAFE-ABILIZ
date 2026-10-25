@@ -26,6 +26,7 @@ import {
   useUpdateAccountCategory, type AccountCategory,
 } from '@/features/accounting/api';
 import { useAuthStore } from '@/stores/auth.store';
+import { tx } from '@/lib/i18n/tx';
 
 const CLASSIFICATIONS = ['asset', 'liability', 'equity', 'revenue', 'expense', 'off_balance'] as const;
 const NORMAL_BALANCES = ['debit', 'credit'] as const;
@@ -148,7 +149,7 @@ export function AccountCategoriesPage() {
       render: (c) => (
         <div className="flex items-center gap-2">
           <code className="text-xs bg-muted px-1.5 py-0.5 rounded">{c.key}</code>
-          {c.isSystem && <Lock className="h-3 w-3 text-muted-foreground" aria-label="System category" />}
+          {c.isSystem && <Lock className="h-3 w-3 text-muted-foreground" aria-label={tx('System category')} />}
         </div>
       ),
     },
@@ -169,10 +170,10 @@ export function AccountCategoriesPage() {
       header: 'Flags',
       render: (c) => (
         <div className="flex flex-wrap gap-1">
-          {c.isContra && <Badge variant="outline" className="text-[10px]">Contra</Badge>}
-          {c.isCashEquivalent && <Badge variant="outline" className="text-[10px]">Cash</Badge>}
-          {c.allowReconciliation && <Badge variant="outline" className="text-[10px]">Reconcile</Badge>}
-          {!c.isActive && <Badge variant="secondary" className="text-[10px]">Inactive</Badge>}
+          {c.isContra && <Badge variant="outline" className="text-[10px]">{tx('Contra')}</Badge>}
+          {c.isCashEquivalent && <Badge variant="outline" className="text-[10px]">{tx('Cash')}</Badge>}
+          {c.allowReconciliation && <Badge variant="outline" className="text-[10px]">{tx('Reconcile')}</Badge>}
+          {!c.isActive && <Badge variant="secondary" className="text-[10px]">{tx('Inactive')}</Badge>}
         </div>
       ),
     },
@@ -189,7 +190,7 @@ export function AccountCategoriesPage() {
       render: (c) => (
         <div className="flex justify-end gap-1">
           {canUpdate && (
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenEdit(c)} title="Edit">
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenEdit(c)} title={tx('Edit')}>
               <Pencil className="h-3.5 w-3.5" />
             </Button>
           )}
@@ -199,7 +200,7 @@ export function AccountCategoriesPage() {
               size="icon"
               className="h-8 w-8 text-destructive"
               onClick={() => setDeleting(c)}
-              title="Delete"
+              title={tx('Delete')}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -216,25 +217,25 @@ export function AccountCategoriesPage() {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4">
-          <h1 className="text-3xl font-bold">Account Categories</h1>
+          <h1 className="text-3xl font-bold">{tx('Account Categories')}</h1>
           <p className="text-sm text-gray-500 mt-1">
-            Categories define accounting <em>behavior</em> — normal balance, which statement an
+            {tx('Categories define accounting')} <em>{tx('behavior')}</em> — normal balance, which statement an
             account lands on, and which modules can find it automatically. This is separate from
             the chart-of-accounts hierarchy, which is for reporting and navigation only.
           </p>
         </div>
         {canCreate && (
           <Button onClick={handleOpenCreate}>
-            <Plus className="h-4 w-4 mr-1" /> New Category
+            <Plus className="h-4 w-4 mr-1" /> {tx('New Category')}
           </Button>
         )}
       </div>
 
       <Tabs value={tab} onValueChange={(v) => setTab(v as typeof tab)}>
         <TabsList>
-          <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="system">System</TabsTrigger>
-          <TabsTrigger value="custom">Custom</TabsTrigger>
+          <TabsTrigger value="all">{tx('All')}</TabsTrigger>
+          <TabsTrigger value="system">{tx('System')}</TabsTrigger>
+          <TabsTrigger value="custom">{tx('Custom')}</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -243,7 +244,7 @@ export function AccountCategoriesPage() {
         columns={columns}
         loading={categories.isLoading}
         getRowId={(c) => c.id}
-        emptyMessage="No account categories found."
+        emptyMessage={tx('No account categories found.')}
       />
 
       {/* ── Create / Edit dialog ── */}
@@ -261,15 +262,15 @@ export function AccountCategoriesPage() {
           <form onSubmit={onSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="key">Key *</Label>
-                <Input id="key" placeholder="e.g. crypto_wallet" disabled={!!editing} {...form.register('key')} />
+                <Label htmlFor="key">{tx('Key *')}</Label>
+                <Input id="key" placeholder={tx('e.g. crypto_wallet')} disabled={!!editing} {...form.register('key')} />
                 {form.formState.errors.key && (
                   <p className="text-sm text-destructive">{form.formState.errors.key.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="name">Name *</Label>
-                <Input id="name" placeholder="e.g. Crypto Wallet" {...form.register('name')} />
+                <Label htmlFor="name">{tx('Name *')}</Label>
+                <Input id="name" placeholder={tx('e.g. Crypto Wallet')} {...form.register('name')} />
                 {form.formState.errors.name && (
                   <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
                 )}
@@ -277,13 +278,13 @@ export function AccountCategoriesPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{tx('Description')}</Label>
               <Textarea id="description" rows={2} {...form.register('description')} />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Classification *</Label>
+                <Label>{tx('Classification *')}</Label>
                 <Select
                   value={form.watch('classification')}
                   onValueChange={(v) => form.setValue('classification', v as FormValues['classification'])}
@@ -298,7 +299,7 @@ export function AccountCategoriesPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Normal Balance *</Label>
+                <Label>{tx('Normal Balance *')}</Label>
                 <Select
                   value={form.watch('normalBalance')}
                   onValueChange={(v) => form.setValue('normalBalance', v as FormValues['normalBalance'])}
@@ -313,7 +314,7 @@ export function AccountCategoriesPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Report Section *</Label>
+                <Label>{tx('Report Section *')}</Label>
                 <Select
                   value={form.watch('reportSection')}
                   onValueChange={(v) => form.setValue('reportSection', v as FormValues['reportSection'])}
@@ -327,7 +328,7 @@ export function AccountCategoriesPage() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Cash Flow Class</Label>
+                <Label>{tx('Cash Flow Class')}</Label>
                 <Select
                   value={form.watch('cashFlowClass')}
                   onValueChange={(v) => form.setValue('cashFlowClass', v as FormValues['cashFlowClass'])}
@@ -345,7 +346,7 @@ export function AccountCategoriesPage() {
             <div className="grid grid-cols-2 gap-3 rounded-md border p-3">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4" disabled={isSystemEdit} {...form.register('isContra')} />
-                <span>Contra account (opposite normal balance)</span>
+                <span>{tx('Contra account (opposite normal balance)')}</span>
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4" {...form.register('isCashEquivalent')} />
@@ -353,24 +354,24 @@ export function AccountCategoriesPage() {
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4" {...form.register('allowReconciliation')} />
-                <span>Allow reconciliation</span>
+                <span>{tx('Allow reconciliation')}</span>
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4" {...form.register('allowManualPosting')} />
-                <span>Allow manual posting</span>
+                <span>{tx('Allow manual posting')}</span>
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" className="h-4 w-4" {...form.register('allowBudgeting')} />
-                <span>Allow budgeting</span>
+                <span>{tx('Allow budgeting')}</span>
               </label>
               <div className="space-y-1">
-                <Label htmlFor="sortOrder" className="text-xs">Sort order</Label>
+                <Label htmlFor="sortOrder" className="text-xs">{tx('Sort order')}</Label>
                 <Input id="sortOrder" type="number" className="h-8" {...form.register('sortOrder')} />
               </div>
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>{tx('Cancel')}</Button>
               <Button type="submit" disabled={isSaving}>
                 {isSaving ? 'Saving…' : editing ? 'Save' : 'Create'}
               </Button>
@@ -383,7 +384,7 @@ export function AccountCategoriesPage() {
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {deleting?.name}?</AlertDialogTitle>
+            <AlertDialogTitle>{tx('Delete')} {deleting?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
               {deleting?.accountCount
                 ? `${deleting.accountCount} account(s) still use this category. Reassign them first.`
@@ -391,7 +392,7 @@ export function AccountCategoriesPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel>
             <AlertDialogAction
               disabled={!!deleting?.accountCount || deleteCategory.isPending}
               onClick={async () => {
@@ -402,7 +403,7 @@ export function AccountCategoriesPage() {
                 } catch { /* handled */ }
               }}
             >
-              Delete
+              {tx('Delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

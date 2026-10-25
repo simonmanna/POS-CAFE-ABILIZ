@@ -35,6 +35,9 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { CashSession } from './types';
 import { UserSwitcher } from './UserSwitcher';
+import { LanguageSwitcher } from '@/components/language-switcher';
+import { useTranslation } from 'react-i18next';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   search: string;
@@ -89,6 +92,7 @@ export const Topbar: React.FC<Props> = ({
   rightExtras,
   user,
 }) => {
+  const { t } = useTranslation();
   const shiftOpen = !!session && session.status === 'open';
   const collapsed = useSidebarStore((s) => s.collapsed);
 
@@ -106,7 +110,7 @@ export const Topbar: React.FC<Props> = ({
     try {
       await api.patch('/organizations/me/branch', { defaultBranchId: id });
     } catch {
-      notify.error('Failed to switch branch');
+      notify.error(tx('Failed to switch branch'));
     }
   };
 
@@ -129,10 +133,10 @@ export const Topbar: React.FC<Props> = ({
           type="button"
           className="pos-nav-btn"
           onClick={onOpenOrders}
-          title="Open orders — resume any order"
+          title={tx('Open orders — resume any order')}
         >
           <ClipboardList className="h-4 w-4" />
-          <span>Orders</span>
+          <span>{t('pos.orders')}</span>
           {ordersCount > 0 ? (
             <span className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-white/90 text-slate-900 text-[11px] font-bold leading-none">
               {ordersCount}
@@ -147,10 +151,10 @@ export const Topbar: React.FC<Props> = ({
           type="button"
           className="pos-nav-btn"
           onClick={onOpenHeldOrders}
-          title="View held orders"
+          title={t('pos.hold')}
         >
           <ClipboardList className="h-4 w-4" />
-          <span>Held Orders</span>
+          <span>{t('pos.hold')}</span>
         </button>
       )}
 
@@ -161,7 +165,7 @@ export const Topbar: React.FC<Props> = ({
           type="button"
           className={`pos-nav-btn ${activeTableLabel ? 'pos-nav-btn--open' : ''}`}
           onClick={onOpenTableSelector}
-          title="Choose a table"
+          title={t('pos.tables')}
         >
           <LayoutGrid className="h-4 w-4" />
           <span>{'Tables'}</span>
@@ -175,7 +179,7 @@ export const Topbar: React.FC<Props> = ({
         <Search className="pos-search-icon h-4 w-4" />
         <input
           type="text"
-          placeholder="Search menu or scan barcode…"
+          placeholder={tx('Search menu or scan barcode…')}
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           autoFocus
@@ -194,11 +198,13 @@ export const Topbar: React.FC<Props> = ({
       >
         {shiftOpen ? <PowerCircle className="h-4 w-4" /> : <PowerOff className="h-4 w-4" />}
         {shiftOpen ? (
-          <span>Shift Close</span>
+          <span>{t('pos.closeShift')}</span>
         ) : (
-          <span>Open Shift</span>
+          <span>{t('pos.openShift')}</span>
         )}
       </button>
+
+      <LanguageSwitcher className="gap-1 px-2 text-white hover:bg-white/15 hover:text-white" />
 
       {/* Right-cluster extras (e.g. offline indicator) */}
       {rightExtras ? <div className="flex items-center mr-1">{rightExtras}</div> : null}
@@ -228,14 +234,14 @@ export const Topbar: React.FC<Props> = ({
             <DropdownMenuSeparator />
             <div className="px-2 py-1.5">
               <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                Active Branch
+                {tx('Active Branch')}
               </label>
               <Select value={currentBranchId ?? '__all__'} onValueChange={onSelectBranch}>
                 <SelectTrigger className="h-8 text-xs">
-                  <SelectValue placeholder="Select branch" />
+                  <SelectValue placeholder={tx('Select branch')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__all__">All branches</SelectItem>
+                  <SelectItem value="__all__">{tx('All branches')}</SelectItem>
                   {branches.map((b) => (
                     <SelectItem key={b.id} value={b.id}>{b.name} ({b.code})</SelectItem>
                   ))}
@@ -245,7 +251,7 @@ export const Topbar: React.FC<Props> = ({
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onLogout} className="cursor-pointer text-destructive focus:text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
-              <span>Sign Out</span>
+              <span>{t('auth.signOut')}</span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -273,7 +279,7 @@ export const Topbar: React.FC<Props> = ({
       >
         {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
       </button>
-      <button type="button" className="pos-icon-btn ml-1" onClick={onLogout} title="Sign out">
+      <button type="button" className="pos-icon-btn ml-1" onClick={onLogout} title={t('auth.signOut')}>
         <LogOut className="h-4 w-4" />
       </button>
     </div>

@@ -13,6 +13,7 @@ import { CalendarDays, User } from 'lucide-react';
 import { money } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { DEAL_STAGES, STAGE_META, dealCurrency, useChangeStage, type CrmDeal, type DealStage } from './api';
+import { tx } from '@/lib/i18n/tx';
 
 export { STAGE_META, dealCurrency };
 
@@ -84,7 +85,7 @@ function DealColumn({ stage, deals }: { stage: DealStage; deals: CrmDeal[] }) {
       <div className="flex min-h-[140px] flex-1 flex-col gap-2 p-2">
         {deals.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed text-[11px] text-muted-foreground/60">
-            Drop deals here
+            {tx('Drop deals here')}
           </div>
         ) : (
           deals.map((d) => <DealCard key={d.id} deal={d} />)

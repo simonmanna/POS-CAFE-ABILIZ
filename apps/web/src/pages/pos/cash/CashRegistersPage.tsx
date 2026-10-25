@@ -43,6 +43,7 @@ import type {
   SessionDetail, SessionHistoryItem,
 } from '../types';
 import '../pos-pro.css';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string | null | undefined) => (n == null ? '—' : `${orgCur()} ${Number(n).toLocaleString()}`);
 
@@ -84,15 +85,15 @@ const CashRegistersPage: React.FC = () => {
           <div className="pos-reports-header">
             <div>
               <h1 className="text-2xl font-bold flex items-center gap-2">
-                <Banknote className="h-6 w-6" /> Cash Register Management
+                <Banknote className="h-6 w-6" /> {tx('Cash Register Management')}
               </h1>
               <p className="text-sm text-slate-600">
-                Manage registers, sessions, cash movements, and reconciliation.
+                {tx('Manage registers, sessions, cash movements, and reconciliation.')}
               </p>
             </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => refetchSession()}>
-                <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+                <RefreshCw className="h-4 w-4 mr-1" /> {tx('Refresh')}
               </Button>
             </div>
           </div>
@@ -100,20 +101,20 @@ const CashRegistersPage: React.FC = () => {
       {/* Tabs */}
       <div className="pos-reports-tabs pos-reports-tabs-wide">
         <button className={'pos-reports-tab' + (tab === 'register' ? ' active' : '')} onClick={() => setTab('register')}>
-          <Banknote className="h-3.5 w-3.5 inline mr-1" /> Register
+          <Banknote className="h-3.5 w-3.5 inline mr-1" /> {tx('Register')}
         </button>
         <button className={'pos-reports-tab' + (tab === 'history' ? ' active' : '')} onClick={() => setTab('history')}>
-          <History className="h-3.5 w-3.5 inline mr-1" /> Session History
+          <History className="h-3.5 w-3.5 inline mr-1" /> {tx('Session History')}
         </button>
         <button className={'pos-reports-tab' + (tab === 'reconciliation' ? ' active' : '')} onClick={() => setTab('reconciliation')}>
-          <ClipboardList className="h-3.5 w-3.5 inline mr-1" /> Daily Reconciliation
+          <ClipboardList className="h-3.5 w-3.5 inline mr-1" /> {tx('Daily Reconciliation')}
         </button>
       </div>
 
       {/* Register selector */}
       {registers.length > 0 && (
         <div className="flex items-center gap-2">
-          <Label className="text-sm whitespace-nowrap">Register:</Label>
+          <Label className="text-sm whitespace-nowrap">{tx('Register:')}</Label>
           <select
             className="px-3 py-1.5 border border-slate-200 rounded-md text-sm font-semibold"
             value={registerId}
@@ -125,7 +126,7 @@ const CashRegistersPage: React.FC = () => {
           </select>
           {selectedRegister && (
             <span className="text-sm text-slate-500 ml-2">
-              Register: {selectedRegister.name}
+              {tx('Register:')} {selectedRegister.name}
             </span>
           )}
         </div>
@@ -142,8 +143,8 @@ const CashRegistersPage: React.FC = () => {
         ) : (
           <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
             <Banknote className="h-10 w-10 mx-auto mb-2 opacity-50" />
-            <p className="font-semibold">No cash registers configured</p>
-            <p className="text-sm mt-1">Ask a manager to create a cash register under Accounting.</p>
+            <p className="font-semibold">{tx('No cash registers configured')}</p>
+            <p className="text-sm mt-1">{tx('Ask a manager to create a cash register under Accounting.')}</p>
           </div>
         )
       )}
@@ -197,9 +198,9 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
           <div className="pos-shift-banner">
             <span>
               <span className="pos-active-dot inline-block mr-2" />
-              Session open since {new Date(thisSession.openedAt!).toLocaleString()}
+              {tx('Session open since')} {new Date(thisSession.openedAt!).toLocaleString()}
             </span>
-            <span className="font-mono">Float: {fmt(thisSession.openingFloat)}</span>
+            <span className="font-mono">{tx('Float:')} {fmt(thisSession.openingFloat)}</span>
           </div>
 
           {/* Actions */}
@@ -209,10 +210,10 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
               <CashInOutButton sessionId={thisSession.id} onDone={onSessionChange} direction="pay_out" />
             </>)}
             <Button variant="outline" className="border-indigo-300 text-indigo-700" onClick={() => setShowHandover(true)}>
-              <ArrowLeftRight className="h-4 w-4 mr-1" /> Handover
+              <ArrowLeftRight className="h-4 w-4 mr-1" /> {tx('Handover')}
             </Button>
             <Button variant="outline" className="border-rose-300 text-rose-700" onClick={() => setShowCloseShift(true)}>
-              <LogOut className="h-4 w-4 mr-1" /> Close register
+              <LogOut className="h-4 w-4 mr-1" /> {tx('Close register')}
             </Button>
           </div>
 
@@ -230,7 +231,7 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
               closer (it makes them the variance approver of record). */}
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" className="border-rose-300 text-rose-700" onClick={() => setShowCloseShift(true)}>
-              <LogOut className="h-4 w-4 mr-1" /> Close register
+              <LogOut className="h-4 w-4 mr-1" /> {tx('Close register')}
             </Button>
           </div>
           <PaymentAccountsPanel session={someoneElsesShift} registerId={registerId} />
@@ -242,10 +243,10 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
           {/* No open session */}
           <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
             <Power className="h-10 w-10 mx-auto mb-2 opacity-50" />
-            <p className="font-semibold">Register is closed</p>
-            <p className="text-sm mt-1 mb-4">Open this register to start recording cash movements and sales.</p>
+            <p className="font-semibold">{tx('Register is closed')}</p>
+            <p className="text-sm mt-1 mb-4">{tx('Open this register to start recording cash movements and sales.')}</p>
             <Button onClick={() => setShowOpenShift(true)} style={{ background: '#16a34a' }}>
-              <Calculator className="h-4 w-4 mr-1" /> Open register
+              <Calculator className="h-4 w-4 mr-1" /> {tx('Open register')}
             </Button>
           </div>
 
@@ -256,7 +257,7 @@ const RegisterView: React.FC<RegisterViewProps> = ({ registerId, openSession, on
 
           {/* Past sessions for this register */}
           <div>
-            <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wide mb-2">Past sessions</h3>
+            <h3 className="text-sm font-bold text-slate-600 uppercase tracking-wide mb-2">{tx('Past sessions')}</h3>
             <RegisterSessionList registerId={registerId} />
           </div>
         </>
@@ -320,8 +321,8 @@ const CashInOutButton: React.FC<{
 
   const handleSubmit = async () => {
     const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) { toast.error('Enter a valid amount'); return; }
-    if (!reason.trim()) { toast.error('Enter a reason'); return; }
+    if (!Number.isFinite(amt) || amt <= 0) { toast.error(tx('Enter a valid amount')); return; }
+    if (!reason.trim()) { toast.error(tx('Enter a reason')); return; }
     try {
       await record.mutateAsync({
         sessionId,
@@ -363,19 +364,19 @@ const CashInOutButton: React.FC<{
             </div>
 
             <div>
-              <Label>Amount ({orgCur()})</Label>
+              <Label>{tx('Amount (')}{orgCur()})</Label>
               <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus />
             </div>
 
             <div>
-              <Label>Reason</Label>
+              <Label>{tx('Reason')}</Label>
               <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={isIn ? 'e.g. Added change money' : 'e.g. Purchased milk'} />
             </div>
 
-            <label className="block text-sm">Expense / safe / counterpart account<select className="block border rounded p-2 w-full" value={counterpartAccountId} onChange={(e) => setCounterpartAccountId(e.target.value)}><option value="">Choose account</option>{(accountPage?.data ?? []).filter((a) => a.isActive && !a.isGroup).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}</select></label>
-            {!isIn && <><Input aria-label="Approving manager email" placeholder="Manager email" value={approverEmail} onChange={(e) => setApproverEmail(e.target.value)} /><Input aria-label="Approving manager PIN" type="password" placeholder="Manager PIN" value={managerPin} onChange={(e) => setManagerPin(e.target.value)} /></>}
+            <label className="block text-sm">{tx('Expense / safe / counterpart account')}<select className="block border rounded p-2 w-full" value={counterpartAccountId} onChange={(e) => setCounterpartAccountId(e.target.value)}><option value="">{tx('Choose account')}</option>{(accountPage?.data ?? []).filter((a) => a.isActive && !a.isGroup).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}</select></label>
+            {!isIn && <><Input aria-label={tx('Approving manager email')} placeholder={tx('Manager email')} value={approverEmail} onChange={(e) => setApproverEmail(e.target.value)} /><Input aria-label={tx('Approving manager PIN')} type="password" placeholder={tx('Manager PIN')} value={managerPin} onChange={(e) => setManagerPin(e.target.value)} /></>}
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="ghost" onClick={close}>Cancel</Button>
+              <Button variant="ghost" onClick={close}>{tx('Cancel')}</Button>
               <Button onClick={handleSubmit} disabled={record.isPending} style={{ background: isIn ? '#16a34a' : '#d97706' }}>
                 {record.isPending ? 'Recording…' : isIn ? 'Record Cash In' : 'Record Cash Out'}
               </Button>
@@ -420,10 +421,10 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
   const { data, isLoading } = useSessionMovements(sessionId);
 
   if (isLoading) {
-    return <div className="flex items-center gap-2 text-sm text-slate-500 p-4"><RefreshCw className="h-4 w-4 animate-spin" /> Loading audit trail…</div>;
+    return <div className="flex items-center gap-2 text-sm text-slate-500 p-4"><RefreshCw className="h-4 w-4 animate-spin" /> {tx('Loading audit trail…')}</div>;
   }
   if (!data) {
-    return <div className="text-sm text-slate-500 p-4">No data</div>;
+    return <div className="text-sm text-slate-500 p-4">{tx('No data')}</div>;
   }
 
   const { session, movements } = data;
@@ -431,20 +432,20 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
   return (
     <div className="pos-report-card">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Cash Drawer Audit Trail</h3>
+        <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">{tx('Cash Drawer Audit Trail')}</h3>
         <Button size="sm" variant="outline" className="border-blue-300 text-blue-700" onClick={() => setShowAllMovements(true)}>
-          <List className="h-3.5 w-3.5 mr-1" /> View all ({movements.length})
+          <List className="h-3.5 w-3.5 mr-1" /> {tx('View all (')}{movements.length})
         </Button>
       </div>
 
       {/* Session summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-sm">
-        <div><span className="text-slate-500">Float:</span> <span className="font-bold">{fmt(session.openingFloat)}</span></div>
-        {session.closingExpected && <div><span className="text-slate-500">Expected:</span> <span className="font-bold">{fmt(session.closingExpected)}</span></div>}
-        {session.closingCounted && <div><span className="text-slate-500">Counted:</span> <span className="font-bold">{fmt(session.closingCounted)}</span></div>}
+        <div><span className="text-slate-500">{tx('Float:')}</span> <span className="font-bold">{fmt(session.openingFloat)}</span></div>
+        {session.closingExpected && <div><span className="text-slate-500">{tx('Expected:')}</span> <span className="font-bold">{fmt(session.closingExpected)}</span></div>}
+        {session.closingCounted && <div><span className="text-slate-500">{tx('Counted:')}</span> <span className="font-bold">{fmt(session.closingCounted)}</span></div>}
         {session.closingDifference && (
           <div>
-            <span className="text-slate-500">Variance:</span>
+            <span className="text-slate-500">{tx('Variance:')}</span>
             <span className={'font-bold ' + (Number(session.closingDifference) >= 0 ? 'text-emerald-600' : 'text-rose-600')}>
               {fmt(session.closingDifference)}
             </span>
@@ -457,11 +458,11 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
         <table className="w-full text-sm">
           <thead className="text-left text-slate-500 border-b border-slate-200 sticky top-0 bg-white">
             <tr>
-              <th className="py-1.5 pr-2">Time</th>
-              <th className="py-1.5 pr-2">Action</th>
-              <th className="py-1.5 pr-2 text-right">Amount</th>
-              <th className="py-1.5 pr-2 text-right">Balance</th>
-              <th className="py-1.5 pr-2">Reason</th>
+              <th className="py-1.5 pr-2">{tx('Time')}</th>
+              <th className="py-1.5 pr-2">{tx('Action')}</th>
+              <th className="py-1.5 pr-2 text-right">{tx('Amount')}</th>
+              <th className="py-1.5 pr-2 text-right">{tx('Balance')}</th>
+              <th className="py-1.5 pr-2">{tx('Reason')}</th>
             </tr>
           </thead>
           <tbody>
@@ -469,7 +470,7 @@ const CashDrawerAudit: React.FC<{ sessionId: string }> = ({ sessionId }) => {
             <tr className="border-b border-slate-100 text-slate-600">
               <td className="py-1.5 pr-2 font-mono">{session.openedAt ? new Date(session.openedAt).toLocaleTimeString() : ''}</td>
               <td className="py-2.5 pr-2 flex items-center gap-2">
-                <Calculator className="h-3 w-3" /> Opening Float
+                <Calculator className="h-3 w-3" /> {tx('Opening Float')}
               </td>
               <td className="py-1.5 pr-2 text-right font-mono font-bold">{fmt(session.openingFloat)}</td>
               <td className="py-1.5 pr-2 text-right font-mono">{fmt(session.openingFloat)}</td>
@@ -523,7 +524,7 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
       const note = window.prompt('Review note (why the variance is accepted)', reason ? `Accepted: ${reason}` : '');
       if (note == null || !note.trim()) return;
       await updateVariance.mutateAsync({ sessionId, reason: note.trim(), status: 'approved' });
-      toast.success('Variance approved');
+      toast.success(tx('Variance approved'));
     } catch (e: any) {
       toast.error(apiErrorMessage(e, 'Failed to update variance'));
     }
@@ -534,15 +535,15 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
       const note = window.prompt('Review note (why the variance is rejected and what happens next)', '');
       if (note == null || !note.trim()) return;
       await updateVariance.mutateAsync({ sessionId, reason: note.trim(), status: 'rejected' });
-      toast.success('Variance rejected');
+      toast.success(tx('Variance rejected'));
     } catch (e: any) {
       toast.error(apiErrorMessage(e, 'Failed to update variance'));
     }
   };
 
-  if (isLoading) return <div className="text-sm text-slate-500">Loading sessions…</div>;
+  if (isLoading) return <div className="text-sm text-slate-500">{tx('Loading sessions…')}</div>;
   if (!data || data.data.length === 0) {
-    return <div className="text-sm text-slate-400">No past sessions for this register.</div>;
+    return <div className="text-sm text-slate-400">{tx('No past sessions for this register.')}</div>;
   }
 
   return (
@@ -551,15 +552,15 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left border-b border-slate-200 text-slate-600">
-              <th className="py-2 pr-3">Opened</th>
-              <th className="py-2 pr-3">Closed</th>
-              <th className="py-2 pr-3">Status</th>
-              <th className="py-2 pr-3 text-right">Float</th>
-              <th className="py-2 pr-3 text-right">Expected</th>
-              <th className="py-2 pr-3 text-right">Counted</th>
-              <th className="py-2 pr-3 text-right">Variance</th>
-              <th className="py-2 pr-3">Variance Status</th>
-              <th className="py-2 pr-3">Movements</th>
+              <th className="py-2 pr-3">{tx('Opened')}</th>
+              <th className="py-2 pr-3">{tx('Closed')}</th>
+              <th className="py-2 pr-3">{tx('Status')}</th>
+              <th className="py-2 pr-3 text-right">{tx('Float')}</th>
+              <th className="py-2 pr-3 text-right">{tx('Expected')}</th>
+              <th className="py-2 pr-3 text-right">{tx('Counted')}</th>
+              <th className="py-2 pr-3 text-right">{tx('Variance')}</th>
+              <th className="py-2 pr-3">{tx('Variance Status')}</th>
+              <th className="py-2 pr-3">{tx('Movements')}</th>
             </tr>
           </thead>
           <tbody>
@@ -585,26 +586,26 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
                   <td className="py-2 pr-3 text-sm">
                     {needsApproval ? (
                       <div className="flex items-center gap-1">
-                        <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-amber-100 text-amber-800">Review</span>
+                        <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-amber-100 text-amber-800">{tx('Review')}</span>
                         <button
                           className="p-1 rounded hover:bg-emerald-100 text-emerald-600"
-                          title="Approve variance"
+                          title={tx('Approve variance')}
                           onClick={() => handleApprove(s.id, s.varianceReason ?? '')}
                         >
                           <ThumbsUp className="h-3 w-3" />
                         </button>
                         <button
                           className="p-1 rounded hover:bg-rose-100 text-rose-600"
-                          title="Reject variance"
+                          title={tx('Reject variance')}
                           onClick={() => handleReject(s.id, s.varianceReason ?? '')}
                         >
                           <ThumbsDown className="h-3 w-3" />
                         </button>
                       </div>
                     ) : varStatus === 'approved' ? (
-                      <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-emerald-100 text-emerald-800">Approved</span>
+                      <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-emerald-100 text-emerald-800">{tx('Approved')}</span>
                     ) : varStatus === 'rejected' ? (
-                      <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-rose-100 text-rose-800">Rejected</span>
+                      <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-rose-100 text-rose-800">{tx('Rejected')}</span>
                     ) : (
                       <span className="text-slate-400">—</span>
                     )}
@@ -618,9 +619,9 @@ const RegisterSessionList: React.FC<{ registerId: string }> = ({ registerId }) =
       </div>
       {data.totalPages > 1 && (
         <div className="flex justify-center gap-2 mt-3">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
-          <span className="text-sm text-slate-500 self-center">Page {page} of {data.totalPages}</span>
-          <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
+          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>{tx('Previous')}</Button>
+          <span className="text-sm text-slate-500 self-center">{tx('Page')} {page} of {data.totalPages}</span>
+          <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)}>{tx('Next')}</Button>
         </div>
       )}
     </div>
@@ -643,7 +644,7 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
       const note = window.prompt('Review note (why the variance is accepted)', reason ? `Accepted: ${reason}` : '');
       if (note == null || !note.trim()) return;
       await updateVariance.mutateAsync({ sessionId, reason: note.trim(), status: 'approved' });
-      toast.success('Variance approved');
+      toast.success(tx('Variance approved'));
     } catch (e: any) {
       toast.error(apiErrorMessage(e, 'Failed to update variance'));
     }
@@ -654,7 +655,7 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
       const note = window.prompt('Review note (why the variance is rejected and what happens next)', '');
       if (note == null || !note.trim()) return;
       await updateVariance.mutateAsync({ sessionId, reason: note.trim(), status: 'rejected' });
-      toast.success('Variance rejected');
+      toast.success(tx('Variance rejected'));
     } catch (e: any) {
       toast.error(apiErrorMessage(e, 'Failed to update variance'));
     }
@@ -663,28 +664,28 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
   return (
     <div className="space-y-4">
       <div className="pos-report-card">
-        <h3>All Sessions {registerId ? ` — ${registerId}` : ''}</h3>
+        <h3>{tx('All Sessions')} {registerId ? ` — ${registerId}` : ''}</h3>
         {isLoading ? (
-          <div className="text-sm text-slate-500">Loading…</div>
+          <div className="text-sm text-slate-500">{tx('Loading…')}</div>
         ) : !data || data.data.length === 0 ? (
-          <div className="text-sm text-slate-400 py-4 text-center">No sessions found.</div>
+          <div className="text-sm text-slate-400 py-4 text-center">{tx('No sessions found.')}</div>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left border-b border-slate-200 text-slate-600">
-                    <th className="py-2 pr-3">Register</th>
-                    <th className="py-2 pr-3">Opened</th>
-                    <th className="py-2 pr-3">Closed</th>
-                    <th className="py-2 pr-3">Status</th>
-                    <th className="py-2 pr-3 text-right">Float</th>
-                    <th className="py-2 pr-3 text-right">Expected</th>
-                    <th className="py-2 pr-3 text-right">Counted</th>
-                    <th className="py-2 pr-3 text-right">Variance</th>
-                    <th className="py-2 pr-3">Variance</th>
-                    <th className="py-2 pr-3">Notes</th>
-                    <th className="py-2 pr-3">Actions</th>
+                    <th className="py-2 pr-3">{tx('Register')}</th>
+                    <th className="py-2 pr-3">{tx('Opened')}</th>
+                    <th className="py-2 pr-3">{tx('Closed')}</th>
+                    <th className="py-2 pr-3">{tx('Status')}</th>
+                    <th className="py-2 pr-3 text-right">{tx('Float')}</th>
+                    <th className="py-2 pr-3 text-right">{tx('Expected')}</th>
+                    <th className="py-2 pr-3 text-right">{tx('Counted')}</th>
+                    <th className="py-2 pr-3 text-right">{tx('Variance')}</th>
+                    <th className="py-2 pr-3">{tx('Variance')}</th>
+                    <th className="py-2 pr-3">{tx('Notes')}</th>
+                    <th className="py-2 pr-3">{tx('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -711,25 +712,25 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
                         <td className="py-2 pr-3 text-sm">
                           {needsApproval ? (
                             <div className="flex items-center gap-1">
-                              <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-amber-100 text-amber-800">Review</span>
-                              <button className="p-1 rounded hover:bg-emerald-100 text-emerald-600" title="Approve" onClick={() => handleApprove(s.id, s.varianceReason ?? '')}>
+                              <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-amber-100 text-amber-800">{tx('Review')}</span>
+                              <button className="p-1 rounded hover:bg-emerald-100 text-emerald-600" title={tx('Approve')} onClick={() => handleApprove(s.id, s.varianceReason ?? '')}>
                                 <ThumbsUp className="h-3 w-3" />
                               </button>
-                              <button className="p-1 rounded hover:bg-rose-100 text-rose-600" title="Reject" onClick={() => handleReject(s.id, s.varianceReason ?? '')}>
+                              <button className="p-1 rounded hover:bg-rose-100 text-rose-600" title={tx('Reject')} onClick={() => handleReject(s.id, s.varianceReason ?? '')}>
                                 <ThumbsDown className="h-3 w-3" />
                               </button>
                             </div>
                           ) : varStatus === 'approved' ? (
-                            <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-emerald-100 text-emerald-800">Approved</span>
+                            <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-emerald-100 text-emerald-800">{tx('Approved')}</span>
                           ) : varStatus === 'rejected' ? (
-                            <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-rose-100 text-rose-800">Rejected</span>
+                            <span className="px-1.5 py-0.5 rounded text-sm font-bold bg-rose-100 text-rose-800">{tx('Rejected')}</span>
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}
                         </td>
                         <td className="py-2 pr-3 text-sm text-slate-500 max-w-[150px] truncate">{s.notes || '—'}</td>
                         <td className="py-2 pr-3">
-                          <button className="p-1 rounded hover:bg-blue-100 text-blue-600" title="View transactions" onClick={() => setViewingSessionId(s.id)}>
+                          <button className="p-1 rounded hover:bg-blue-100 text-blue-600" title={tx('View transactions')} onClick={() => setViewingSessionId(s.id)}>
                             <Eye className="h-3.5 w-3.5" />
                           </button>
                         </td>
@@ -741,9 +742,9 @@ const SessionHistoryView: React.FC<{ registerId: string }> = ({ registerId }) =>
             </div>
             {data.totalPages > 1 && (
               <div className="flex justify-center gap-2 mt-3">
-                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>Previous</Button>
-                <span className="text-sm text-slate-500 self-center">Page {page} of {data.totalPages}</span>
-                <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)}>Next</Button>
+                <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>{tx('Previous')}</Button>
+                <span className="text-sm text-slate-500 self-center">{tx('Page')} {page} of {data.totalPages}</span>
+                <Button variant="outline" size="sm" disabled={page >= data.totalPages} onClick={() => setPage(p => p + 1)}>{tx('Next')}</Button>
               </div>
             )}
             {viewMovements && viewingSessionId && (
@@ -775,48 +776,48 @@ const ReconciliationView: React.FC = () => {
     <div className="space-y-4">
       <div className="flex items-end gap-2">
         <div>
-          <Label>Date</Label>
+          <Label>{tx('Date')}</Label>
           <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="h-4 w-4 mr-1" /> Refresh
+          <RefreshCw className="h-4 w-4 mr-1" /> {tx('Refresh')}
         </Button>
       </div>
 
       {isLoading ? (
-              <div className="text-slate-500 p-4">Loading reconciliation…</div>
+              <div className="text-slate-500 p-4">{tx('Loading reconciliation…')}</div>
             ) : !data ? (
               <div className="rounded-lg border border-slate-200 bg-white p-8 text-center text-slate-500">
                 <ClipboardList className="h-10 w-10 mx-auto mb-2 opacity-50" />
-                <p className="font-semibold">No data for {date}</p>
+                <p className="font-semibold">{tx('No data for')} {date}</p>
               </div>
             ) : (
               <>
                 {/* Summary cards */}
                 <div className="pos-report-grid">
-                  <ReportCard title="Opening float" value={fmt(t!.openingFloat)} sub={`${data.sessionCount} session${data.sessionCount === 1 ? '' : 's'}`} />
-                  <ReportCard title="Cash sales" value={fmt(t!.salesTotal)} />
-                  <ReportCard title="Expected cash" value={fmt(t!.expectedCash)} accent />
+                  <ReportCard title={tx('Opening float')} value={fmt(t!.openingFloat)} sub={`${data.sessionCount} session${data.sessionCount === 1 ? '' : 's'}`} />
+                  <ReportCard title={tx('Cash sales')} value={fmt(t!.salesTotal)} />
+                  <ReportCard title={tx('Expected cash')} value={fmt(t!.expectedCash)} accent />
                 </div>
 
           {/* Session breakdown */}
           {data.sessions.length > 0 && (
             <div className="pos-report-card">
-              <h3>Session breakdown</h3>
+              <h3>{tx('Session breakdown')}</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left border-b border-slate-200 text-slate-600">
-                      <th className="py-2 pr-3">Register</th>
-                      <th className="py-2 pr-3">Float</th>
-                      <th className="py-2 pr-3 text-right">Sales</th>
-                      <th className="py-2 pr-3 text-right">Pay In</th>
-                      <th className="py-2 pr-3 text-right">Pay Out</th>
-                      <th className="py-2 pr-3 text-right">Refunds</th>
-                      <th className="py-2 pr-3 text-right">Banked</th>
-                      <th className="py-2 pr-3 text-right">Expected</th>
-                      <th className="py-2 pr-3 text-right">Actual</th>
-                      <th className="py-2 pr-3 text-right">Variance</th>
+                      <th className="py-2 pr-3">{tx('Register')}</th>
+                      <th className="py-2 pr-3">{tx('Float')}</th>
+                      <th className="py-2 pr-3 text-right">{tx('Sales')}</th>
+                      <th className="py-2 pr-3 text-right">{tx('Pay In')}</th>
+                      <th className="py-2 pr-3 text-right">{tx('Pay Out')}</th>
+                      <th className="py-2 pr-3 text-right">{tx('Refunds')}</th>
+                      <th className="py-2 pr-3 text-right">{tx('Banked')}</th>
+                      <th className="py-2 pr-3 text-right">{tx('Expected')}</th>
+                      <th className="py-2 pr-3 text-right">{tx('Actual')}</th>
+                      <th className="py-2 pr-3 text-right">{tx('Variance')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -896,9 +897,9 @@ const MovementsDialog: React.FC<{
         <div className="bg-[#3b82f6] text-white px-6 py-4 shrink-0">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-base font-semibold">Cash Movements</h2>
+              <h2 className="text-base font-semibold">{tx('Cash Movements')}</h2>
               <p className="text-white/75 text-sm mt-0.5">
-                Session opened {session.openedAt ? new Date(session.openedAt).toLocaleString() : '—'} · {rows.length} entries
+                {tx('Session opened')} {session.openedAt ? new Date(session.openedAt).toLocaleString() : '—'} · {rows.length} {tx('entries')}
               </p>
             </div>
             <button onClick={onClose}><X className="h-5 w-5 text-white/80 hover:text-white" /></button>
@@ -909,11 +910,11 @@ const MovementsDialog: React.FC<{
           <table className="w-full text-sm">
             <thead className="text-left text-slate-500 border-b border-slate-200 sticky top-0 bg-white">
               <tr>
-                <th className="py-2 pr-3 font-medium">Time</th>
-                <th className="py-2 pr-3 font-medium">Action</th>
-                <th className="py-2 pr-3 text-right font-medium">Amount</th>
-                <th className="py-2 pr-3 text-right font-medium">Balance</th>
-                <th className="py-2 pr-3 font-medium">Reason</th>
+                <th className="py-2 pr-3 font-medium">{tx('Time')}</th>
+                <th className="py-2 pr-3 font-medium">{tx('Action')}</th>
+                <th className="py-2 pr-3 text-right font-medium">{tx('Amount')}</th>
+                <th className="py-2 pr-3 text-right font-medium">{tx('Balance')}</th>
+                <th className="py-2 pr-3 font-medium">{tx('Reason')}</th>
               </tr>
             </thead>
             <tbody>
@@ -934,7 +935,7 @@ const MovementsDialog: React.FC<{
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-sm text-slate-400">No movements recorded yet</td>
+                  <td colSpan={5} className="py-8 text-center text-sm text-slate-400">{tx('No movements recorded yet')}</td>
                 </tr>
               )}
             </tbody>
@@ -942,7 +943,7 @@ const MovementsDialog: React.FC<{
         </div>
 
         <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-end gap-2 shrink-0">
-          <Button variant="outline" onClick={onClose} className="rounded-lg border-gray-300 hover:bg-gray-100">Close</Button>
+          <Button variant="outline" onClick={onClose} className="rounded-lg border-gray-300 hover:bg-gray-100">{tx('Close')}</Button>
         </div>
       </div>
     </div>

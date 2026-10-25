@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
 import { formatMoney } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 interface DebitNote {
   id: string;
@@ -34,7 +35,7 @@ export function DebitNotesPage() {
     mutationFn: async (vars: { id: string; action: 'post' | 'cancel' }) =>
       (await api.patch(`/procurement/debit-notes/${vars.id}/${vars.action}`)).data,
     onSuccess: () => {
-      notify.success('Updated');
+      notify.success(tx('Updated'));
       qc.invalidateQueries({ queryKey: ['debit-notes'] });
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
@@ -44,13 +45,13 @@ export function DebitNotesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Debit Notes</h1>
+          <h1 className="text-2xl font-semibold">{tx('Debit Notes')}</h1>
           <p className="text-sm text-muted-foreground">
-            Increases to AR (outbound to customers) or AP (inbound from suppliers). Posts via PostingService.
+            {tx('Increases to AR (outbound to customers) or AP (inbound from suppliers). Posts via PostingService.')}
           </p>
         </div>
         <Button asChild>
-          <Link to="/procurement/debit-notes/new"><Plus className="mr-2 h-4 w-4" />New debit note</Link>
+          <Link to="/procurement/debit-notes/new"><Plus className="mr-2 h-4 w-4" />{tx('New debit note')}</Link>
         </Button>
       </div>
 
@@ -58,7 +59,7 @@ export function DebitNotesPage() {
       {list.data && list.data.length === 0 && (
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            No debit notes yet.
+            {tx('No debit notes yet.')}
           </CardContent>
         </Card>
       )}
@@ -79,11 +80,11 @@ export function DebitNotesPage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Total</span>
+                <span className="text-muted-foreground">{tx('Total')}</span>
                 <span className="font-semibold">{formatMoney(n.totalAmount, n.currencyCode ?? org?.currencyCode)}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Status</span>
+                <span className="text-muted-foreground">{tx('Status')}</span>
                 <Badge variant={n.status === 'cancelled' ? 'destructive' : n.status === 'posted' ? 'default' : 'outline'}>
                   {n.status}
                 </Badge>
@@ -92,10 +93,10 @@ export function DebitNotesPage() {
                 {n.status === 'draft' && (
                   <>
                     <Button size="sm" onClick={() => act.mutate({ id: n.id, action: 'post' })}>
-                      <Send className="mr-1 h-3 w-3" />Post
+                      <Send className="mr-1 h-3 w-3" />{tx('Post')}
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => act.mutate({ id: n.id, action: 'cancel' })}>
-                      <X className="mr-1 h-3 w-3 text-destructive" />Cancel
+                      <X className="mr-1 h-3 w-3 text-destructive" />{tx('Cancel')}
                     </Button>
                   </>
                 )}

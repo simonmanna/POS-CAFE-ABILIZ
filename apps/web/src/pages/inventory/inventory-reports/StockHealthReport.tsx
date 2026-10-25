@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { date } from '@/lib/format';
 import { DataTable, Kpi, KpiGrid, ReportState, money, qty, type Column } from './shared';
 import { Field, FilterBar, type useReportFilters } from './filters';
+import { tx } from '@/lib/i18n/tx';
 
 type Ctl = ReturnType<typeof useReportFilters>;
 
@@ -61,7 +62,7 @@ export function StockHealthReport({ ctl }: { ctl: Ctl }) {
     { key: 'd61_90', header: '61–90d', align: 'right', render: (r) => qty(r.aging.d61_90), sort: (r) => r.aging.d61_90 },
     { key: 'd91_180', header: '91–180d', align: 'right', render: (r) => qty(r.aging.d91_180), sort: (r) => r.aging.d91_180 },
     { key: 'd180_plus', header: '180d+', align: 'right', render: (r) => <span className={r.aging.d180_plus > 0 ? 'font-semibold text-amber-600' : ''}>{qty(r.aging.d180_plus)}</span>, sort: (r) => r.aging.d180_plus },
-    { key: 'lastConsumedAt', header: 'Last Used', render: (r) => (r.lastConsumedAt ? date(r.lastConsumedAt) : <span className="text-muted-foreground">Never</span>), sort: (r) => r.lastConsumedAt },
+    { key: 'lastConsumedAt', header: 'Last Used', render: (r) => (r.lastConsumedAt ? date(r.lastConsumedAt) : <span className="text-muted-foreground">{tx('Never')}</span>), sort: (r) => r.lastConsumedAt },
     { key: 'consumedQty', header: 'Used (period)', align: 'right', render: (r) => qty(r.consumedQty), sort: (r) => r.consumedQty },
     { key: 'turnover', header: 'Turnover', align: 'right', render: (r) => (r.turnover == null ? '—' : `${r.turnover}×`), sort: (r) => r.turnover },
     { key: 'daysOfCover', header: 'Days of Cover', align: 'right', render: (r) => (r.daysOfCover == null ? '—' : r.daysOfCover), sort: (r) => r.daysOfCover },
@@ -80,17 +81,17 @@ export function StockHealthReport({ ctl }: { ctl: Ctl }) {
         show={['date', 'location', 'category', 'search']}
         extra={
           <>
-            <Field label="Status">
+            <Field label={tx('Status')}>
               <select
-                aria-label="Stock health status"
+                aria-label={tx('Stock health status')}
                 className="h-9 rounded-md border bg-background px-2 text-sm"
                 value={status}
                 onChange={(e) => setStatus(e.target.value as typeof status)}
               >
-                <option value="all">All</option>
-                <option value="active">Active</option>
-                <option value="slow">Slow-moving</option>
-                <option value="dead">Dead stock</option>
+                <option value="all">{tx('All')}</option>
+                <option value="active">{tx('Active')}</option>
+                <option value="slow">{tx('Slow-moving')}</option>
+                <option value="dead">{tx('Dead stock')}</option>
               </select>
             </Field>
             {numberField('Slow after (days)', slowDays, setSlowDays, 'health-slow-days')}
@@ -101,18 +102,18 @@ export function StockHealthReport({ ctl }: { ctl: Ctl }) {
       <ReportState query={report}>
         {s && (
           <KpiGrid>
-            <Kpi label="Stock value" value={money(s.totalValue)} hint={`${s.quants} item-locations on hand`} />
-            <Kpi label="Slow-moving" value={money(s.slowValue)} hint={`${s.slowCount} lines · no use in ${s.slowDays}+ days`} tone={s.slowCount ? 'warn' : 'good'} />
-            <Kpi label="Dead stock" value={money(s.deadValue)} hint={`${s.deadCount} lines · no use in ${s.deadDays}+ days`} tone={s.deadCount ? 'bad' : 'good'} />
-            <Kpi label="Turnover period" value={`${s.start} → ${s.end}`} hint="Used quantity ÷ average on hand" />
+            <Kpi label={tx('Stock value')} value={money(s.totalValue)} hint={`${s.quants} item-locations on hand`} />
+            <Kpi label={tx('Slow-moving')} value={money(s.slowValue)} hint={`${s.slowCount} lines · no use in ${s.slowDays}+ days`} tone={s.slowCount ? 'warn' : 'good'} />
+            <Kpi label={tx('Dead stock')} value={money(s.deadValue)} hint={`${s.deadCount} lines · no use in ${s.deadDays}+ days`} tone={s.deadCount ? 'bad' : 'good'} />
+            <Kpi label={tx('Turnover period')} value={`${s.start} → ${s.end}`} hint="Used quantity ÷ average on hand" />
           </KpiGrid>
         )}
-        {s?.truncated && <p role="status" className="text-sm text-amber-600">Showing the first 5,000 item-locations — narrow the location or category.</p>}
+        {s?.truncated && <p role="status" className="text-sm text-amber-600">{tx('Showing the first 5,000 item-locations — narrow the location or category.')}</p>}
         <DataTable
           rows={rows} columns={columns} rowKey={(r) => `${r.productId}:${r.variantId ?? ''}:${r.locationId}`}
           defaultSort={{ key: 'value', dir: 'desc' }}
           exportName={`inventory-stock-health_${new Date().toISOString().slice(0, 10)}`}
-          emptyText="No stock on hand in this scope."
+          emptyText={tx('No stock on hand in this scope.')}
           onRowClick={(r) => navigate(`/inventory/items/${r.productId}`)}
         />
       </ReportState>

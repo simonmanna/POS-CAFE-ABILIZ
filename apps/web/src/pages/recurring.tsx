@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface Recurring {
   id: string;
@@ -28,7 +29,7 @@ export function RecurringPage() {
       await api.patch(`/recurring/${vars.id}/${vars.op}`);
     },
     onSuccess: () => {
-      notify.success('Updated');
+      notify.success(tx('Updated'));
       qc.invalidateQueries({ queryKey: ['recurring'] });
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
@@ -37,16 +38,16 @@ export function RecurringPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Recurring Documents</h1>
+        <h1 className="text-2xl font-semibold">{tx('Recurring Documents')}</h1>
         <Button>
-          <Plus className="mr-2 h-4 w-4" />New Recurring
+          <Plus className="mr-2 h-4 w-4" />{tx('New Recurring')}
         </Button>
       </div>
       {list.isLoading && <Skeleton className="h-32 w-full" />}
       {list.data && list.data.length === 0 && (
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            No recurring templates yet
+            {tx('No recurring templates yet')}
           </CardContent>
         </Card>
       )}
@@ -68,29 +69,29 @@ export function RecurringPage() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               <div>
-                <div className="text-xs text-muted-foreground">Next run</div>
+                <div className="text-xs text-muted-foreground">{tx('Next run')}</div>
                 <div>{new Date(r.nextRunAt).toLocaleString()}</div>
               </div>
               {r.lastRunAt && (
                 <div>
-                  <div className="text-xs text-muted-foreground">Last run</div>
+                  <div className="text-xs text-muted-foreground">{tx('Last run')}</div>
                   <div>{new Date(r.lastRunAt).toLocaleString()}</div>
                 </div>
               )}
               <div className="flex gap-2 border-t pt-3">
                 {r.status === 'active' && (
                   <Button size="sm" variant="outline" onClick={() => act.mutate({ id: r.id, op: 'pause' })}>
-                    <Pause className="mr-1 h-3 w-3" />Pause
+                    <Pause className="mr-1 h-3 w-3" />{tx('Pause')}
                   </Button>
                 )}
                 {r.status === 'paused' && (
                   <Button size="sm" variant="outline" onClick={() => act.mutate({ id: r.id, op: 'resume' })}>
-                    <Play className="mr-1 h-3 w-3" />Resume
+                    <Play className="mr-1 h-3 w-3" />{tx('Resume')}
                   </Button>
                 )}
                 {r.status !== 'ended' && (
                   <Button size="sm" variant="outline" onClick={() => act.mutate({ id: r.id, op: 'end' })}>
-                    <StopCircle className="mr-1 h-3 w-3" />End
+                    <StopCircle className="mr-1 h-3 w-3" />{tx('End')}
                   </Button>
                 )}
               </div>

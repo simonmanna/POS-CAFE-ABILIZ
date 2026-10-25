@@ -13,6 +13,7 @@ import {
   toLineInput, type PickableItem,
 } from './line-source';
 import type { OrderLineInput } from '@/features/orders/types';
+import { tx } from '@/lib/i18n/tx';
 
 const tabClass = (active: boolean) =>
   `rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
@@ -92,9 +93,9 @@ export function OrderLinePicker({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add line</DialogTitle>
+          <DialogTitle>{tx('Add line')}</DialogTitle>
           <DialogDescription>
-            Pick an item to add to the order — prices are resolved server-side on save.
+            {tx('Pick an item to add to the order — prices are resolved server-side on save.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -102,10 +103,10 @@ export function OrderLinePicker({
           {resolved === 'both' && (
             <div className="flex shrink-0 gap-1 rounded-lg bg-muted p-1">
               <button type="button" className={tabClass(tab === 'menu')} onClick={() => setTab('menu')}>
-                Menu
+                {tx('Menu')}
               </button>
               <button type="button" className={tabClass(tab === 'products')} onClick={() => setTab('products')}>
-                Products
+                {tx('Products')}
               </button>
             </div>
           )}
@@ -123,11 +124,11 @@ export function OrderLinePicker({
         <div className="max-h-96 overflow-y-auto rounded-md border">
           {loading ? (
             <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+              <Loader2 className="h-4 w-4 animate-spin" /> {tx('Loading…')}
             </div>
           ) : source.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">
-              No {activeTab === 'menu' ? 'menu items' : 'products'} found{search ? ` for “${search}”` : ''}.
+              {tx('No')} {activeTab === 'menu' ? 'menu items' : 'products'} {tx('found')}{search ? ` for “${search}”` : ''}.
             </div>
           ) : (
             <ul className="divide-y">
@@ -154,7 +155,7 @@ export function OrderLinePicker({
 
         <div className="flex justify-end">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-            Close
+            {tx('Close')}
           </Button>
         </div>
       </DialogContent>

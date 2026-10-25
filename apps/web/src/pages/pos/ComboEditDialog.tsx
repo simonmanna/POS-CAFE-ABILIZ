@@ -24,6 +24,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useProductPicker, type ProductMini } from '@/features/menu/api';
 import type { ComboFE } from './pos-features-api';
+import { tx } from '@/lib/i18n/tx';
 
 export interface ComboSubmitInput {
   name: string;
@@ -152,45 +153,45 @@ export function ComboEditDialog({ open, combo, onOpenChange, onSubmit }: Props) 
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <Label htmlFor="combo-name" className="text-sm font-medium text-slate-700 mb-1.5">Name *</Label>
-              <Input id="combo-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} required placeholder="e.g. Breakfast Deal" />
+              <Label htmlFor="combo-name" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Name *')}</Label>
+              <Input id="combo-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} required placeholder={tx('e.g. Breakfast Deal')} />
             </div>
             <div>
-              <Label htmlFor="combo-price" className="text-sm font-medium text-slate-700 mb-1.5">Combo price ({orgCur()}) *</Label>
+              <Label htmlFor="combo-price" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Combo price (')}{orgCur()}) *</Label>
               <Input id="combo-price" type="number" step="1" min="0" placeholder="0" value={price} onChange={(e) => setPrice(e.target.value)} required />
             </div>
             <div>
-              <Label htmlFor="combo-img" className="text-sm font-medium text-slate-700 mb-1.5">Image URL</Label>
+              <Label htmlFor="combo-img" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Image URL')}</Label>
               <Input id="combo-img" placeholder="https://…" value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} />
             </div>
             <div className="md:col-span-2">
-              <Label htmlFor="combo-desc" className="text-sm font-medium text-slate-700 mb-1.5">Description</Label>
-              <Textarea id="combo-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Croissant + Latte + Juice" />
+              <Label htmlFor="combo-desc" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Description')}</Label>
+              <Textarea id="combo-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={tx('Croissant + Latte + Juice')} />
             </div>
           </div>
 
           {/* Component items */}
           <div className="border-t border-gray-200 pt-4 space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-semibold text-slate-800">Items *</Label>
+              <Label className="text-sm font-semibold text-slate-800">{tx('Items *')}</Label>
               <Button
                 type="button" size="sm"
                 style={{ background: '#7c3aed' }}
                 className="rounded-lg text-white"
                 onClick={() => setItems((s) => [...s, newItem()])}
               >
-                <PlusCircle className="h-4 w-4 mr-1" /> Add item
+                <PlusCircle className="h-4 w-4 mr-1" /> {tx('Add item')}
               </Button>
             </div>
 
             <Input
-              placeholder="Search products…"
+              placeholder={tx('Search products…')}
               value={productSearch}
               onChange={(e) => setProductSearch(e.target.value)}
             />
 
             {items.length === 0 && (
-              <p className="text-sm text-muted-foreground">No items yet. A combo needs at least one component.</p>
+              <p className="text-sm text-muted-foreground">{tx('No items yet. A combo needs at least one component.')}</p>
             )}
 
             <div className="space-y-2">
@@ -207,10 +208,10 @@ export function ComboEditDialog({ open, combo, onOpenChange, onSubmit }: Props) 
                         s.map((r, i) => i === idx ? { ...r, productId: v === '_pick' ? '' : v } : r))}
                     >
                       <SelectTrigger className="flex-1">
-                        <SelectValue placeholder="Pick product" />
+                        <SelectValue placeholder={tx('Pick product')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="_pick">— pick —</SelectItem>
+                        <SelectItem value="_pick">{tx('— pick —')}</SelectItem>
                         {productOptions
                           .filter((p) => p.id === row.productId || !takenElsewhere.has(p.id))
                           .map((p) => (
@@ -224,7 +225,7 @@ export function ComboEditDialog({ open, combo, onOpenChange, onSubmit }: Props) 
                     <Input
                       type="number" min="1" step="1"
                       className="w-24"
-                      placeholder="Qty"
+                      placeholder={tx('Qty')}
                       value={row.quantity ?? 1}
                       onChange={(e) => setItems((s) =>
                         s.map((r, i) => i === idx ? { ...r, quantity: Number(e.target.value) } : r))}
@@ -240,13 +241,13 @@ export function ComboEditDialog({ open, combo, onOpenChange, onSubmit }: Props) 
               })}
             </div>
             {hasBlankRow && (
-              <p className="text-sm text-destructive">Pick a product for every row before saving.</p>
+              <p className="text-sm text-destructive">{tx('Pick a product for every row before saving.')}</p>
             )}
           </div>
 
           <DialogFooter className="px-1 py-1 gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button type="submit" disabled={submitting || !valid} style={{ background: '#7c3aed' }} className="text-white">
               {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Create combo'}

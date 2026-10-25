@@ -8,6 +8,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { formatMoney, dateTime } from '@/lib/format';
 import { referenceLabel, sourceRoute, type LedgerSourceRef } from '@/lib/ledger-links';
+import { tx } from '@/lib/i18n/tx';
 
 interface LedgerLine {
   id: string;
@@ -80,10 +81,10 @@ export function StockMovementDetailPage() {
   if (detail.isError || !detail.data) {
     return (
       <Card className="p-8 text-center text-muted-foreground">
-        Movement not found.
+        {tx('Movement not found.')}
         <div className="mt-4">
           <Button variant="outline" size="sm" onClick={() => navigate('/inventory/ledger')}>
-            Back to Stock Ledger
+            {tx('Back to Stock Ledger')}
           </Button>
         </div>
       </Card>
@@ -101,7 +102,7 @@ export function StockMovementDetailPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => navigate('/inventory/ledger')}>
-            <ArrowLeft className="mr-2 h-4 w-4" />Stock Ledger
+            <ArrowLeft className="mr-2 h-4 w-4" />{tx('Stock Ledger')}
           </Button>
           <h1 className="text-2xl font-semibold">
             {source?.label ?? referenceLabel(entry.referenceType)}
@@ -109,44 +110,44 @@ export function StockMovementDetailPage() {
         </div>
         {route && (
           <Button variant="outline" size="sm" onClick={() => navigate(route)}>
-            <ExternalLink className="mr-2 h-3 w-3" />Open source document
+            <ExternalLink className="mr-2 h-3 w-3" />{tx('Open source document')}
           </Button>
         )}
       </div>
 
       <Card className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Field label="Transaction">{referenceLabel(entry.referenceType)}</Field>
-        <Field label="Reference">
+        <Field label={tx('Transaction')}>{referenceLabel(entry.referenceType)}</Field>
+        <Field label={tx('Reference')}>
           <span className="font-mono text-xs">{source?.code ?? entry.referenceId ?? '—'}</span>
         </Field>
-        <Field label="Date">{dateTime(entry.createdAt)}</Field>
-        <Field label="Status">{source?.status ? <Badge variant="outline">{source.status}</Badge> : '—'}</Field>
-        <Field label="Location">{entry.location.name} ({entry.location.code})</Field>
-        <Field label="Partner">{source?.partnerName ?? '—'}</Field>
-        <Field label="Performed by">{entry.performedBy ?? '—'}</Field>
-        <Field label="Total value">{formatMoney(totals.totalValue)}</Field>
+        <Field label={tx('Date')}>{dateTime(entry.createdAt)}</Field>
+        <Field label={tx('Status')}>{source?.status ? <Badge variant="outline">{source.status}</Badge> : '—'}</Field>
+        <Field label={tx('Location')}>{entry.location.name} ({entry.location.code})</Field>
+        <Field label={tx('Partner')}>{source?.partnerName ?? '—'}</Field>
+        <Field label={tx('Performed by')}>{entry.performedBy ?? '—'}</Field>
+        <Field label={tx('Total value')}>{formatMoney(totals.totalValue)}</Field>
       </Card>
 
       <Card className="grid gap-4 p-4 sm:grid-cols-3">
-        <Field label="Lines">{totals.lines}</Field>
-        <Field label="Quantity in"><span className="text-emerald-600">+{totals.quantityIn}</span></Field>
-        <Field label="Quantity out"><span className="text-destructive">-{totals.quantityOut}</span></Field>
+        <Field label={tx('Lines')}>{totals.lines}</Field>
+        <Field label={tx('Quantity in')}><span className="text-emerald-600">+{totals.quantityIn}</span></Field>
+        <Field label={tx('Quantity out')}><span className="text-destructive">-{totals.quantityOut}</span></Field>
       </Card>
 
       <div className="rounded-md border overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-muted/50">
-              <th className="px-3 py-2 text-left font-medium whitespace-nowrap">Code</th>
-              <th className="px-3 py-2 text-left font-medium">Product</th>
-              <th className="px-3 py-2 text-left font-medium">Location</th>
-              <th className="px-3 py-2 text-left font-medium">Batch</th>
-              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Qty Before</th>
-              <th className="px-3 py-2 text-right font-medium">Change</th>
-              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Qty After</th>
-              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Unit Cost</th>
-              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">Total Value</th>
-              <th className="px-3 py-2 text-left font-medium">Notes</th>
+              <th className="px-3 py-2 text-left font-medium whitespace-nowrap">{tx('Code')}</th>
+              <th className="px-3 py-2 text-left font-medium">{tx('Product')}</th>
+              <th className="px-3 py-2 text-left font-medium">{tx('Location')}</th>
+              <th className="px-3 py-2 text-left font-medium">{tx('Batch')}</th>
+              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">{tx('Qty Before')}</th>
+              <th className="px-3 py-2 text-right font-medium">{tx('Change')}</th>
+              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">{tx('Qty After')}</th>
+              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">{tx('Unit Cost')}</th>
+              <th className="px-3 py-2 text-right font-medium whitespace-nowrap">{tx('Total Value')}</th>
+              <th className="px-3 py-2 text-left font-medium">{tx('Notes')}</th>
             </tr>
           </thead>
           <tbody>

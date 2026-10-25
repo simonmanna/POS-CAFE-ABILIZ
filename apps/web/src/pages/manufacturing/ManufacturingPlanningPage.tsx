@@ -17,6 +17,7 @@ import {
   useReport,
   useRequestAction,
 } from '@/features/manufacturing/api';
+import { tx } from '@/lib/i18n/tx';
 
 export function ManufacturingPlanningPage() {
   const hasPermission = useAuthStore((s) => s.hasPermission);
@@ -32,38 +33,38 @@ export function ManufacturingPlanningPage() {
   const [tab, setTab] = useState('requests');
 
   const run = async (fn: () => Promise<unknown>, ok: string) => {
-    try { await fn(); notify.success(ok); } catch (e: any) { notify.error('Failed', e?.response?.data?.message ?? e?.message); }
+    try { await fn(); notify.success(ok); } catch (e: any) { notify.error(tx('Failed'), e?.response?.data?.message ?? e?.message); }
   };
 
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold"><ClipboardList className="h-6 w-6" /> Planning</h1>
-          <p className="text-sm text-muted-foreground">Demand → requests → plan → orders. Never auto-starts.</p>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold"><ClipboardList className="h-6 w-6" /> {tx('Planning')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Demand → requests → plan → orders. Never auto-starts.')}</p>
         </div>
         {canPlan && (
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => run(() => mrp.mutateAsync({ path: 'scan-min-stock' }), 'Scanned min-stock.')}><PackagePlus className="mr-2 h-4 w-4" /> Scan min-stock</Button>
-            <Button variant="outline" onClick={() => run(() => mrp.mutateAsync({ path: 'run' }), 'MRP run — purchase request drafted for shortfalls.')}><Wand2 className="mr-2 h-4 w-4" /> Run MRP</Button>
-            <Button onClick={() => run(() => createPlan.mutateAsync({ fromOpenRequests: true, name: `Plan ${new Date().toLocaleDateString()}` }), 'Plan created from open requests.')}><Sparkles className="mr-2 h-4 w-4" /> Plan from requests</Button>
+            <Button variant="outline" onClick={() => run(() => mrp.mutateAsync({ path: 'scan-min-stock' }), 'Scanned min-stock.')}><PackagePlus className="mr-2 h-4 w-4" /> {tx('Scan min-stock')}</Button>
+            <Button variant="outline" onClick={() => run(() => mrp.mutateAsync({ path: 'run' }), 'MRP run — purchase request drafted for shortfalls.')}><Wand2 className="mr-2 h-4 w-4" /> {tx('Run MRP')}</Button>
+            <Button onClick={() => run(() => createPlan.mutateAsync({ fromOpenRequests: true, name: `Plan ${new Date().toLocaleDateString()}` }), 'Plan created from open requests.')}><Sparkles className="mr-2 h-4 w-4" /> {tx('Plan from requests')}</Button>
           </div>
         )}
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="requests">Requests</TabsTrigger>
-          <TabsTrigger value="plans">Plans</TabsTrigger>
-          <TabsTrigger value="forecast">Forecast</TabsTrigger>
+          <TabsTrigger value="requests">{tx('Requests')}</TabsTrigger>
+          <TabsTrigger value="plans">{tx('Plans')}</TabsTrigger>
+          <TabsTrigger value="forecast">{tx('Forecast')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="requests">
           <Card>
             <CardContent className="pt-6">
-              {!requests?.length ? <p className="text-sm text-muted-foreground">No requests.</p> : (
+              {!requests?.length ? <p className="text-sm text-muted-foreground">{tx('No requests.')}</p> : (
                 <Table>
-                  <TableHeader><TableRow><TableHead>Request</TableHead><TableHead>Source</TableHead><TableHead>Lines</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>{tx('Request')}</TableHead><TableHead>{tx('Source')}</TableHead><TableHead>{tx('Lines')}</TableHead><TableHead>{tx('Status')}</TableHead><TableHead className="text-right">{tx('Actions')}</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {requests.map((r: any) => (
                       <TableRow key={r.id}>
@@ -72,7 +73,7 @@ export function ManufacturingPlanningPage() {
                         <TableCell>{r.lines?.length ?? 0}</TableCell>
                         <TableCell><Badge variant="outline">{r.status}</Badge></TableCell>
                         <TableCell className="text-right">
-                          {r.status === 'submitted' && <Button size="sm" variant="outline" onClick={() => run(() => reqApprove.mutateAsync({ id: r.id }), 'Approved.')}>Approve</Button>}
+                          {r.status === 'submitted' && <Button size="sm" variant="outline" onClick={() => run(() => reqApprove.mutateAsync({ id: r.id }), 'Approved.')}>{tx('Approve')}</Button>}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -86,9 +87,9 @@ export function ManufacturingPlanningPage() {
         <TabsContent value="plans">
           <Card>
             <CardContent className="pt-6">
-              {!plans?.length ? <p className="text-sm text-muted-foreground">No plans.</p> : (
+              {!plans?.length ? <p className="text-sm text-muted-foreground">{tx('No plans.')}</p> : (
                 <Table>
-                  <TableHeader><TableRow><TableHead>Plan</TableHead><TableHead>Name</TableHead><TableHead>Lines</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Actions</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>{tx('Plan')}</TableHead><TableHead>{tx('Name')}</TableHead><TableHead>{tx('Lines')}</TableHead><TableHead>{tx('Status')}</TableHead><TableHead className="text-right">{tx('Actions')}</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {plans.map((p: any) => (
                       <TableRow key={p.id}>
@@ -97,7 +98,7 @@ export function ManufacturingPlanningPage() {
                         <TableCell>{p.lines?.length ?? 0}</TableCell>
                         <TableCell><Badge variant="outline">{p.status}</Badge></TableCell>
                         <TableCell className="text-right">
-                          {p.status === 'draft' && <Button size="sm" onClick={() => run(() => planConfirm.mutateAsync(p.id), 'Confirmed — draft orders generated.')}><CheckCircle2 className="mr-1 h-3 w-3" /> Confirm → orders</Button>}
+                          {p.status === 'draft' && <Button size="sm" onClick={() => run(() => planConfirm.mutateAsync(p.id), 'Confirmed — draft orders generated.')}><CheckCircle2 className="mr-1 h-3 w-3" /> {tx('Confirm → orders')}</Button>}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -110,11 +111,11 @@ export function ManufacturingPlanningPage() {
 
         <TabsContent value="forecast">
           <Card>
-            <CardHeader><CardTitle>Demand forecast (from sales history)</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{tx('Demand forecast (from sales history)')}</CardTitle></CardHeader>
             <CardContent>
-              {!forecast.data?.suggestions?.length ? <p className="text-sm text-muted-foreground">Not enough sales history yet.</p> : (
+              {!forecast.data?.suggestions?.length ? <p className="text-sm text-muted-foreground">{tx('Not enough sales history yet.')}</p> : (
                 <Table>
-                  <TableHeader><TableRow><TableHead>Product</TableHead><TableHead>For</TableHead><TableHead className="text-right">Suggested qty</TableHead></TableRow></TableHeader>
+                  <TableHeader><TableRow><TableHead>{tx('Product')}</TableHead><TableHead>{tx('For')}</TableHead><TableHead className="text-right">{tx('Suggested qty')}</TableHead></TableRow></TableHeader>
                   <TableBody>
                     {forecast.data.suggestions.map((s: any) => (
                       <TableRow key={s.productId}>

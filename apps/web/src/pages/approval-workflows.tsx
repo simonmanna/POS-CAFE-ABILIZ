@@ -18,6 +18,7 @@ import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { ENTITY_TYPE_LABELS, entityTypeLabel } from '@/lib/approval-entity-types';
 import { usePermissionCatalog } from '@/features/staff/api';
+import { tx } from '@/lib/i18n/tx';
 
 interface ApprovalStep {
   id: string;
@@ -137,18 +138,18 @@ function PermissionPicker({ permissions, onChange }: { permissions: string[]; on
         </DialogTrigger>
         <DialogContent className="max-w-2xl max-h-[70vh]">
           <DialogHeader>
-            <DialogTitle>Select Approver Permissions</DialogTitle>
+            <DialogTitle>{tx('Select Approver Permissions')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <Input
-              placeholder="Search permissions…"
+              placeholder={tx('Search permissions…')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="mb-2"
             />
             <div className="h-[50vh] overflow-y-auto">
               {catalog.isLoading ? (
-                <p className="text-sm text-muted-foreground p-4">Loading permissions…</p>
+                <p className="text-sm text-muted-foreground p-4">{tx('Loading permissions…')}</p>
               ) : (
                 <div className="space-y-4">
                   {grouped.map((group) => (
@@ -181,7 +182,7 @@ function PermissionPicker({ permissions, onChange }: { permissions: string[]; on
               )}
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t">
-              <Button variant="outline" onClick={() => setOpen(false)}>Done</Button>
+              <Button variant="outline" onClick={() => setOpen(false)}>{tx('Done')}</Button>
             </div>
           </div>
         </DialogContent>
@@ -222,7 +223,7 @@ export function ApprovalWorkflowsPage() {
       api.patch(`/approval-workflows/${vars.id}`, { isActive: vars.isActive }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['approval-workflows'] });
-      notify.success('Workflow updated');
+      notify.success(tx('Workflow updated'));
     },
     onError: (err: any) => notify.error(err?.response?.data?.message ?? 'Failed'),
   });
@@ -251,7 +252,7 @@ export function ApprovalWorkflowsPage() {
       qc.invalidateQueries({ queryKey: ['approval-workflows'] });
       setShowForm(false);
       setForm(emptyForm());
-      notify.success('Workflow created');
+      notify.success(tx('Workflow created'));
     },
     onError: (err: any) => notify.error(err?.response?.data?.message ?? err.message),
   });
@@ -260,7 +261,7 @@ export function ApprovalWorkflowsPage() {
     mutationFn: async (id: string) => api.delete(`/approval-workflows/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['approval-workflows'] });
-      notify.success('Workflow deleted');
+      notify.success(tx('Workflow deleted'));
     },
     onError: (err: any) => notify.error(err?.response?.data?.message ?? 'Failed'),
   });
@@ -279,30 +280,28 @@ export function ApprovalWorkflowsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Approval Workflows</h1>
+          <h1 className="text-2xl font-semibold">{tx('Approval Workflows')}</h1>
           <p className="text-sm text-muted-foreground">
-            Configure multi-step approval chains per document type. A request clears
-            every step whose amount band matches, in order. No workflow = auto-approve.
+            {tx('Configure multi-step approval chains per document type. A request clears every step whose amount band matches, in order. No workflow = auto-approve.')}
           </p>
         </div>
         <Button onClick={() => setShowForm((s) => !s)}>
-          <Plus className="mr-1 h-4 w-4" /> Add Workflow
+          <Plus className="mr-1 h-4 w-4" /> {tx('Add Workflow')}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">New Approval Workflow</CardTitle>
+            <CardTitle className="text-base">{tx('New Approval Workflow')}</CardTitle>
             <CardDescription>
-              Each step needs its own approvers. Set amount bands to route by value
-              (e.g. Supervisor 0–5,000, then Finance 5,000–20,000, then CEO 20,000+).
+              {tx('Each step needs its own approvers. Set amount bands to route by value (e.g. Supervisor 0–5,000, then Finance 5,000–20,000, then CEO 20,000+).')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Feature *</Label>
+                <Label>{tx('Feature *')}</Label>
                 <Dialog>
                   <DialogTrigger asChild>
                     <Button variant="outline" className="w-full justify-between">
@@ -314,7 +313,7 @@ export function ApprovalWorkflowsPage() {
                   </DialogTrigger>
                   <DialogContent className="max-w-md max-h-[70vh]">
                     <DialogHeader>
-                      <DialogTitle>Select Document Type</DialogTitle>
+                      <DialogTitle>{tx('Select Document Type')}</DialogTitle>
                     </DialogHeader>
                     <div className="h-[50vh] overflow-y-auto">
                       <div className="space-y-4">
@@ -343,18 +342,18 @@ export function ApprovalWorkflowsPage() {
                 </Dialog>
               </div>
               <div className="space-y-1.5">
-                <Label>Workflow Name</Label>
+                <Label>{tx('Workflow Name')}</Label>
                 <Input
-                  placeholder="e.g. PO Approval"
+                  placeholder={tx('e.g. PO Approval')}
                   value={form.name}
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Min Amount (whole workflow, optional)</Label>
+                <Label>{tx('Min Amount (whole workflow, optional)')}</Label>
                 <Input
                   type="number"
-                  placeholder="applies only above this amount"
+                  placeholder={tx('applies only above this amount')}
                   value={form.minAmount}
                   onChange={(e) => setForm((f) => ({ ...f, minAmount: e.target.value }))}
                 />
@@ -368,22 +367,22 @@ export function ApprovalWorkflowsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, enforceDistinctApprovers: e.target.checked }))}
                 />
                 <Label htmlFor="sod" className="cursor-pointer">
-                  Segregation of duties (one approver can clear only one step)
+                  {tx('Segregation of duties (one approver can clear only one step)')}
                 </Label>
               </div>
             </div>
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Steps</Label>
+                <Label className="text-sm font-medium">{tx('Steps')}</Label>
                 <Button variant="outline" size="sm" onClick={addStep}>
-                  <Plus className="mr-1 h-4 w-4" /> Add Step
+                  <Plus className="mr-1 h-4 w-4" /> {tx('Add Step')}
                 </Button>
               </div>
               {form.steps.map((s, idx) => (
                 <div key={idx} className="rounded-md border p-3">
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="text-xs font-medium text-muted-foreground">Step {s.stepOrder}</span>
+                    <span className="text-xs font-medium text-muted-foreground">{tx('Step')} {s.stepOrder}</span>
                     {form.steps.length > 1 && (
                       <Button variant="ghost" size="icon" onClick={() => removeStep(idx)}>
                         <Trash2 className="h-4 w-4 text-red-500" />
@@ -392,15 +391,15 @@ export function ApprovalWorkflowsPage() {
                   </div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div className="space-y-1.5">
-                      <Label>Step Name</Label>
+                      <Label>{tx('Step Name')}</Label>
                       <Input
-                        placeholder="e.g. Finance"
+                        placeholder={tx('e.g. Finance')}
                         value={s.name}
                         onChange={(e) => setStep(idx, { name: e.target.value })}
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Required Approvals</Label>
+                      <Label>{tx('Required Approvals')}</Label>
                       <Input
                         type="number"
                         min={1}
@@ -409,14 +408,14 @@ export function ApprovalWorkflowsPage() {
                       />
                     </div>
                     <div className="space-y-1.5 sm:col-span-2">
-                      <Label>Approver Permissions</Label>
+                      <Label>{tx('Approver Permissions')}</Label>
                       <PermissionPicker
                         permissions={s.approverPermissions}
                         onChange={(perms) => setStep(idx, { approverPermissions: perms })}
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Band Min (optional)</Label>
+                      <Label>{tx('Band Min (optional)')}</Label>
                       <Input
                         type="number"
                         placeholder="0"
@@ -425,10 +424,10 @@ export function ApprovalWorkflowsPage() {
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Band Max (optional)</Label>
+                      <Label>{tx('Band Max (optional)')}</Label>
                       <Input
                         type="number"
-                        placeholder="no upper bound"
+                        placeholder={tx('no upper bound')}
                         value={s.maxAmount}
                         onChange={(e) => setStep(idx, { maxAmount: e.target.value })}
                       />
@@ -444,8 +443,8 @@ export function ApprovalWorkflowsPage() {
             </div>
 
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-              <Button disabled={create.isPending} onClick={() => create.mutate()}>Create Workflow</Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>{tx('Cancel')}</Button>
+              <Button disabled={create.isPending} onClick={() => create.mutate()}>{tx('Create Workflow')}</Button>
             </div>
           </CardContent>
         </Card>
@@ -456,12 +455,12 @@ export function ApprovalWorkflowsPage() {
       {list.data && list.data.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center gap-3 p-12 text-center">
-            <p className="text-sm text-muted-foreground">No approval workflows configured.</p>
+            <p className="text-sm text-muted-foreground">{tx('No approval workflows configured.')}</p>
             <p className="text-xs text-muted-foreground">
-              Document types without a workflow are auto-approved. Add one to gate them.
+              {tx('Document types without a workflow are auto-approved. Add one to gate them.')}
             </p>
             <Button variant="outline" size="sm" onClick={() => setShowForm(true)}>
-              <Plus className="mr-1 h-4 w-4" /> Add your first workflow
+              <Plus className="mr-1 h-4 w-4" /> {tx('Add your first workflow')}
             </Button>
           </CardContent>
         </Card>
@@ -483,7 +482,7 @@ export function ApprovalWorkflowsPage() {
                         <span className="text-xs text-muted-foreground">≥ {w.minAmount}</span>
                       )}
                       {w.enforceDistinctApprovers && (
-                        <span className="text-[10px] uppercase tracking-wide text-amber-600">SoD</span>
+                        <span className="text-[10px] uppercase tracking-wide text-amber-600">{tx('SoD')}</span>
                       )}
                     </div>
                     <ol className="mt-2 space-y-1">
@@ -492,7 +491,7 @@ export function ApprovalWorkflowsPage() {
                         .map((s) => (
                           <li key={s.id} className="text-sm text-muted-foreground">
                             <span className="font-medium text-foreground">{s.stepOrder}. {s.name}</span>{' '}
-                            — {s.requiredCount} approval{s.requiredCount > 1 ? 's' : ''} ·{' '}
+                            — {s.requiredCount} {tx('approval')}{s.requiredCount > 1 ? 's' : ''} ·{' '}
                             {fmtBand(s.minAmount, s.maxAmount)}
                             {s.approverPermissions && s.approverPermissions.length > 0 && (
                               <span className="ml-1 text-[10px] text-muted-foreground/60">

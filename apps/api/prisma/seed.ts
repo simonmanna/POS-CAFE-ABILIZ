@@ -87,7 +87,11 @@ async function main(): Promise<void> {
   });
 
   // --- Admin user -----------------------------------------------------------
-  const passwordHash = await bcrypt.hash('Admin@123', 10);
+  // SEED_ADMIN_PASSWORD lets a throwaway demo deployment pick its own (weak,
+  // published) admin password without editing this file. Create-only, like the
+  // rest of the user: an existing admin's password is never overwritten.
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Admin@123';
+  const passwordHash = await bcrypt.hash(adminPassword, 10);
   await prisma.user.upsert({
     where: { organizationId_email: { organizationId: org.id, email: 'admin@demo.test' } },
     update: { roles: { set: [{ id: adminRole.id }] } },

@@ -4,6 +4,7 @@ import { Printer, Download, X, CheckCircle2 } from 'lucide-react';
 
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { tx } from '@/lib/i18n/tx';
 
 export interface ReceiptLine {
   name: string;
@@ -208,26 +209,26 @@ export const ReceiptPreview: React.FC<Props> = ({
         {printed ? (
           <div className="p-8 flex flex-col items-center justify-center min-h-[200px] text-center">
             <CheckCircle2 className="h-12 w-12 text-green-500 mb-3" />
-            <p className="text-base font-semibold text-slate-800">Sent to printer</p>
-            <p className="text-sm text-slate-500 mt-1">The {type === 'kot' ? 'KOT' : 'bill'} has been sent to the thermal printer.</p>
+            <p className="text-base font-semibold text-slate-800">{tx('Sent to printer')}</p>
+            <p className="text-sm text-slate-500 mt-1">{tx('The')} {type === 'kot' ? 'KOT' : 'bill'} {tx('has been sent to the thermal printer.')}</p>
           </div>
         ) : (
           <div className="bg-slate-200 p-4 flex justify-center">
-            <iframe srcDoc={html} title="Preview" className="bg-white shadow-md" style={{ width: 340, height: 440 }} />
+            <iframe srcDoc={html} title={tx('Preview')} className="bg-white shadow-md" style={{ width: 340, height: 440 }} />
           </div>
         )}
 
         <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 flex gap-2 justify-between">
           <Button variant="ghost" onClick={handleClose}>
-            <X className="h-4 w-4 mr-1" /> Close
+            <X className="h-4 w-4 mr-1" /> {tx('Close')}
           </Button>
           <div className="flex gap-2">
             <Button variant="outline" onClick={doDownload}>
-              <Download className="h-4 w-4 mr-1" /> Download HTML
+              <Download className="h-4 w-4 mr-1" /> {tx('Download HTML')}
             </Button>
             {!printed && (
               <Button onClick={doPrint} style={{ background: '#16a34a' }}>
-                <Printer className="h-4 w-4 mr-1" /> Print {type === 'kot' ? 'KOT' : 'Bill'}
+                <Printer className="h-4 w-4 mr-1" /> {tx('Print')} {type === 'kot' ? 'KOT' : 'Bill'}
               </Button>
             )}
           </div>

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { tx } from '@/lib/i18n/tx';
 
 export function RepairTechniciansPage() {
   const { data } = useRepairTechnicians();
@@ -57,10 +58,10 @@ export function RepairTechniciansPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Technicians</h1>
-          <p className="text-sm text-muted-foreground">Workshop staff, skills and hourly rates.</p>
+          <h1 className="text-xl font-semibold">{tx('Technicians')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Workshop staff, skills and hourly rates.')}</p>
         </div>
-        <Button onClick={openCreate}><Plus className="h-4 w-4" /> New technician</Button>
+        <Button onClick={openCreate}><Plus className="h-4 w-4" /> {tx('New technician')}</Button>
       </div>
 
       {showForm && (
@@ -69,16 +70,16 @@ export function RepairTechniciansPage() {
             <CardTitle className="text-sm">{editing ? `Edit ${editing.name}` : 'New technician'}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-4">
-            <Input placeholder="Code (TCH-001)" value={form.code} onChange={(e) => set('code', e.target.value)} />
-            <Input placeholder="Name" value={form.name} onChange={(e) => set('name', e.target.value)} />
-            <Input placeholder="Phone" value={form.phone} onChange={(e) => set('phone', e.target.value)} />
-            <Input placeholder="Email" value={form.email} onChange={(e) => set('email', e.target.value)} />
-            <Input placeholder="Skills (comma separated)" value={form.skills} onChange={(e) => set('skills', e.target.value)} />
-            <Input type="number" placeholder="Hourly rate (Rp)" value={form.hourlyRate} onChange={(e) => set('hourlyRate', e.target.value)} />
-            <Input placeholder="Availability (Mon–Sat)" value={form.availability} onChange={(e) => set('availability', e.target.value)} />
+            <Input placeholder={tx('Code (TCH-001)')} value={form.code} onChange={(e) => set('code', e.target.value)} />
+            <Input placeholder={tx('Name')} value={form.name} onChange={(e) => set('name', e.target.value)} />
+            <Input placeholder={tx('Phone')} value={form.phone} onChange={(e) => set('phone', e.target.value)} />
+            <Input placeholder={tx('Email')} value={form.email} onChange={(e) => set('email', e.target.value)} />
+            <Input placeholder={tx('Skills (comma separated)')} value={form.skills} onChange={(e) => set('skills', e.target.value)} />
+            <Input type="number" placeholder={tx('Hourly rate (Rp)')} value={form.hourlyRate} onChange={(e) => set('hourlyRate', e.target.value)} />
+            <Input placeholder={tx('Availability (Mon–Sat)')} value={form.availability} onChange={(e) => set('availability', e.target.value)} />
             <div className="flex items-end gap-2">
-              <Button onClick={submit} disabled={create.isPending || update.isPending}>Save</Button>
-              <Button variant="ghost" onClick={() => setShowForm(false)}>Cancel</Button>
+              <Button onClick={submit} disabled={create.isPending || update.isPending}>{tx('Save')}</Button>
+              <Button variant="ghost" onClick={() => setShowForm(false)}>{tx('Cancel')}</Button>
             </div>
             {error && <p className="text-sm text-red-600 sm:col-span-4">{error}</p>}
           </CardContent>
@@ -87,11 +88,11 @@ export function RepairTechniciansPage() {
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} technicians</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('technicians')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No technicians yet.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No technicians yet.')}</p>}
             {rows.map((t: any) => (
               <div key={t.id} className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -99,15 +100,15 @@ export function RepairTechniciansPage() {
                   <div>
                     <p className="text-sm font-medium">{t.name} <span className="text-xs text-muted-foreground">· {t.code}</span></p>
                     <p className="text-xs text-muted-foreground">
-                      {(t.skills ?? []).join(', ') || 'No skills'} · Rp {Number(t.hourlyRate ?? 0).toLocaleString('id-ID')}/h
+                      {(t.skills ?? []).join(', ') || 'No skills'} {tx('· Rp')} {Number(t.hourlyRate ?? 0).toLocaleString('id-ID')}/h
                       {t.availability ? ` · ${t.availability}` : ''}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {!t.isActive && <Badge variant="outline">inactive</Badge>}
-                  <Button size="sm" variant="outline" onClick={() => openEdit(t)}>Edit</Button>
-                  <Button size="sm" variant="ghost" onClick={() => del.mutateAsync(t.id)}>Delete</Button>
+                  {!t.isActive && <Badge variant="outline">{tx('inactive')}</Badge>}
+                  <Button size="sm" variant="outline" onClick={() => openEdit(t)}>{tx('Edit')}</Button>
+                  <Button size="sm" variant="ghost" onClick={() => del.mutateAsync(t.id)}>{tx('Delete')}</Button>
                 </div>
               </div>
             ))}

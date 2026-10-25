@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { tx } from '@/lib/i18n/tx';
 
 export function HrHolidaysPage() {
   const year = new Date().getFullYear();
@@ -33,19 +34,19 @@ export function HrHolidaysPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Holidays</h1>
-          <p className="text-sm text-muted-foreground">Official days off — attendance on these days is marked OFF_DAY.</p>
+          <h1 className="text-xl font-semibold">{tx('Holidays')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Official days off — attendance on these days is marked OFF_DAY.')}</p>
         </div>
-        <Button onClick={openCreate}>New holiday</Button>
+        <Button onClick={openCreate}>{tx('New holiday')}</Button>
       </div>
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} holidays · {year}</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('holidays ·')} {year}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No holidays configured for {year}.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No holidays configured for')} {year}.</p>}
             {rows.map((h: any) => (
               <div key={h.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <div className="flex items-center gap-3">
@@ -58,10 +59,10 @@ export function HrHolidaysPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {h.isRecurring && <Badge variant="outline" className="bg-cyan-100 text-cyan-800">Recurring yearly</Badge>}
-                  <button onClick={() => openEdit(h)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">Edit</button>
+                  {h.isRecurring && <Badge variant="outline" className="bg-cyan-100 text-cyan-800">{tx('Recurring yearly')}</Badge>}
+                  <button onClick={() => openEdit(h)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">{tx('Edit')}</button>
                   <button onClick={() => { if (confirm(`Delete holiday ${h.name}?`)) remove.mutate(h.id); }}
-                    className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Delete</button>
+                    className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">{tx('Delete')}</button>
                 </div>
               </div>
             ))}
@@ -74,16 +75,16 @@ export function HrHolidaysPage() {
           <DialogHeader><DialogTitle>{editing ? 'Edit holiday' : 'New holiday'}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
             <div>
-              <Label>Name *</Label>
+              <Label>{tx('Name *')}</Label>
               <Input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             </div>
             <div>
-              <Label>Date *</Label>
+              <Label>{tx('Date *')}</Label>
               <Input type="date" value={form.date ?? ''} onChange={(e) => setForm({ ...form, date: e.target.value })} />
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={form.isRecurring ?? false} onChange={(e) => setForm({ ...form, isRecurring: e.target.checked })} />
-              Repeats every year
+              {tx('Repeats every year')}
             </label>
             <Button onClick={submit} disabled={!form.name || !form.date || create.isPending || update.isPending}>
               {editing ? 'Save changes' : 'Create holiday'}

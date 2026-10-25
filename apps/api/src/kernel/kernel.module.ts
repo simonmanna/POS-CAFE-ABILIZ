@@ -15,6 +15,8 @@ import { SettingsService } from './settings/settings.service';
 import { SettingResolverService } from './settings/setting-resolver.service';
 import { SettingsController } from './settings/settings.controller';
 import { CompanySettingsController } from './settings/company-settings.controller';
+import { ReportAccessService } from './reports/report-access.service';
+import { ReportAccessController } from './reports/report-access.controller';
 import { ModuleRegistry } from './module-loader/module-registry.service';
 import { SequenceService } from './sequence/sequence.service';
 import { JwtTokenService } from './auth/jwt-token.service';
@@ -73,7 +75,7 @@ import { FulfillmentRegistry } from './fulfillment/fulfillment.registry';
   // be registered before SettingsController's catch-all `:key` PUT so
   // `PUT /settings/company` reaches the company handler (same static-first
   // rule documented in settings.controller.ts).
-  controllers: [CompanySettingsController, SettingsController, AuditLogController],
+  controllers: [CompanySettingsController, SettingsController, AuditLogController, ReportAccessController],
   providers: [
     TenantContextService,
     PrismaService,
@@ -83,6 +85,7 @@ import { FulfillmentRegistry } from './fulfillment/fulfillment.registry';
     AuditService,
     SettingsService,
     SettingResolverService,
+    ReportAccessService,
     ModuleRegistry,
     SequenceService,
     JwtTokenService,
@@ -112,6 +115,7 @@ import { FulfillmentRegistry } from './fulfillment/fulfillment.registry';
     AuditService,
     SettingsService,
     SettingResolverService,
+    ReportAccessService,
     ModuleRegistry,
     SequenceService,
     JwtTokenService,

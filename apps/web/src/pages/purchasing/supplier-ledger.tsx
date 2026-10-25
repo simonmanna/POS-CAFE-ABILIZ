@@ -14,6 +14,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useNavigate } from 'react-router-dom';
+import { tx } from '@/lib/i18n/tx';
 
 export function SupplierLedgerPage() {
   const { partnerId } = useParams();
@@ -33,29 +34,29 @@ export function SupplierLedgerPage() {
   }
 
   if (!data) {
-    return <div className="p-6 text-center text-muted-foreground">Supplier not found.</div>;
+    return <div className="p-6 text-center text-muted-foreground">{tx('Supplier not found.')}</div>;
   }
 
   return (
     <div className="space-y-6 p-4 md:p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Supplier Ledger</h1>
-          <p className="text-sm text-gray-500">Transaction history and balance</p>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Supplier Ledger')}</h1>
+          <p className="text-sm text-gray-500">{tx('Transaction history and balance')}</p>
         </div>
-        <Button variant="outline" onClick={() => navigate('/suppliers')}>Back to Suppliers</Button>
+        <Button variant="outline" onClick={() => navigate('/suppliers')}>{tx('Back to Suppliers')}</Button>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Opening Balance</div>
+            <div className="text-sm text-muted-foreground">{tx('Opening Balance')}</div>
             <div className="text-2xl font-bold">{money(data.openingBalance)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Closing Balance</div>
+            <div className="text-sm text-muted-foreground">{tx('Closing Balance')}</div>
             <div className="text-2xl font-bold">{money(data.closingBalance)}</div>
           </CardContent>
         </Card>
@@ -66,20 +67,20 @@ export function SupplierLedgerPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Debit</TableHead>
-                <TableHead className="text-right">Credit</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
+                <TableHead>{tx('Date')}</TableHead>
+                <TableHead>{tx('Type')}</TableHead>
+                <TableHead>{tx('Reference')}</TableHead>
+                <TableHead>{tx('Description')}</TableHead>
+                <TableHead className="text-right">{tx('Debit')}</TableHead>
+                <TableHead className="text-right">{tx('Credit')}</TableHead>
+                <TableHead className="text-right">{tx('Balance')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.transactions.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
-                    No transactions found.
+                    {tx('No transactions found.')}
                   </TableCell>
                 </TableRow>
               ) : (

@@ -30,6 +30,7 @@ import {
   fmtMoney,
   minutesBetween,
 } from '@/features/tables/utils';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -106,7 +107,7 @@ export const TableSelectorDialog: React.FC<Props> = ({
               <div className="p-2 bg-white rounded-lg shadow-sm">
                 <LayoutGrid className="w-5 h-5 text-indigo-500" />
               </div>
-              Table Selection
+              {tx('Table Selection')}
             </DialogTitle>
           </DialogHeader>
         </div>
@@ -152,7 +153,7 @@ export const TableSelectorDialog: React.FC<Props> = ({
             <Input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search table…"
+              placeholder={tx('Search table…')}
               className="h-9 w-44 text-xs rounded-lg"
             />
             <Button
@@ -169,11 +170,11 @@ export const TableSelectorDialog: React.FC<Props> = ({
         {/* Main grid area – wider, more columns */}
         <div className="flex-1 overflow-y-auto p-6 bg-stone-50/50 min-h-[320px] max-h-[60vh]">
           {isLoading ? (
-            <div className="text-center text-slate-400 py-12">Loading tables…</div>
+            <div className="text-center text-slate-400 py-12">{tx('Loading tables…')}</div>
           ) : grouped.length === 0 ? (
             <div className="text-center text-slate-400 py-12">
               <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p className="font-semibold">No tables match this filter</p>
+              <p className="font-semibold">{tx('No tables match this filter')}</p>
             </div>
           ) : (
             grouped.map(([zoneKey, list]) => {
@@ -185,7 +186,7 @@ export const TableSelectorDialog: React.FC<Props> = ({
                       className="w-2.5 h-2.5 rounded-full"
                       style={{ background: zMeta?.color ?? '#cbd5e1' }}
                     />
-                    {zoneLabel(zones, zoneKey)} · {list.length} table{list.length === 1 ? '' : 's'}
+                    {zoneLabel(zones, zoneKey)} · {list.length} {tx('table')}{list.length === 1 ? '' : 's'}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
                     {list.map((t) => (
@@ -215,7 +216,7 @@ export const TableSelectorDialog: React.FC<Props> = ({
           </div>
           <DialogFooter className="p-0 m-0">
             <Button variant="outline" size="sm" onClick={onClose} className="rounded-lg">
-              Close
+              {tx('Close')}
             </Button>
           </DialogFooter>
         </div>
@@ -266,13 +267,13 @@ const TableCard: React.FC<{
 
       {/* Seats (zone is the group header above) */}
       <div className="text-sm font-medium text-slate-400 mb-auto">
-        {table.seats} seat{table.seats === 1 ? '' : 's'}
+        {table.seats} {tx('seat')}{table.seats === 1 ? '' : 's'}
       </div>
 
       {/* Merged indicator */}
       {table.mergedIntoId && (
         <div className="text-[11px] text-orange-600 font-semibold mt-1">
-          Merged · orders on T{table.mergedInto?.number ?? '?'}
+          {tx('Merged · orders on T')}{table.mergedInto?.number ?? '?'}
         </div>
       )}
       {openOrders.length > 0 ? (
@@ -284,7 +285,7 @@ const TableCard: React.FC<{
           <span>{fmtMoney(total)}</span>
         </div>
       ) : (
-        <div className="mt-2 text-xs text-slate-400 font-medium">Tap to open</div>
+        <div className="mt-2 text-xs text-slate-400 font-medium">{tx('Tap to open')}</div>
       )}
     </div>
   );

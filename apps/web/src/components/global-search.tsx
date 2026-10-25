@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface Hit {
   type: string;
@@ -58,7 +59,7 @@ export function GlobalSearch({ open, onOpenChange }: Props) {
         setHits(res.data.data ?? []);
         setSelected(0);
       } catch (err) {
-        notify.error('Search failed');
+        notify.error(tx('Search failed'));
         setHits([]);
       } finally {
         setLoading(false);
@@ -76,7 +77,7 @@ export function GlobalSearch({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl p-0">
         <DialogHeader className="px-4 pt-4">
-          <DialogTitle className="sr-only">Global search</DialogTitle>
+          <DialogTitle className="sr-only">{tx('Global search')}</DialogTitle>
         </DialogHeader>
         <div className="flex items-center gap-2 border-b px-4 pb-3">
           <Search className="h-4 w-4 text-muted-foreground" />
@@ -97,18 +98,18 @@ export function GlobalSearch({ open, onOpenChange }: Props) {
                 onOpenChange(false);
               }
             }}
-            placeholder="Search partners, products, invoices…"
+            placeholder={tx('Search partners, products, invoices…')}
             className="border-0 focus-visible:ring-0"
           />
         </div>
         <div className="max-h-96 overflow-y-auto p-1">
-          {loading && <div className="p-4 text-sm text-muted-foreground">Searching…</div>}
+          {loading && <div className="p-4 text-sm text-muted-foreground">{tx('Searching…')}</div>}
           {!loading && q.length >= 2 && hits.length === 0 && (
-            <div className="p-4 text-sm text-muted-foreground">No matches for "{q}"</div>
+            <div className="p-4 text-sm text-muted-foreground">{tx('No matches for "')}{q}"</div>
           )}
           {!loading && q.length < 2 && (
             <div className="p-4 text-sm text-muted-foreground">
-              Type at least 2 characters to search.
+              {tx('Type at least 2 characters to search.')}
             </div>
           )}
           {hits.map((hit, idx) => {
@@ -135,7 +136,7 @@ export function GlobalSearch({ open, onOpenChange }: Props) {
           })}
         </div>
         <div className="border-t px-4 py-2 text-xs text-muted-foreground">
-          ↑↓ to navigate · ↵ to open · Esc to close
+          {tx('↑↓ to navigate · ↵ to open · Esc to close')}
         </div>
       </DialogContent>
     </Dialog>

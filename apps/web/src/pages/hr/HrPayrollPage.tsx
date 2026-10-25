@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -45,26 +46,26 @@ export function HrPayrollPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Payroll</h1>
-          <p className="text-sm text-muted-foreground">Periods → runs → calculate → approve → post to GL → pay.</p>
+          <h1 className="text-xl font-semibold">{tx('Payroll')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Periods → runs → calculate → approve → post to GL → pay.')}</p>
         </div>
-        <Button onClick={() => { setCreateForm({}); setCreateOpen(true); }}>New run</Button>
+        <Button onClick={() => { setCreateForm({}); setCreateOpen(true); }}>{tx('New run')}</Button>
       </div>
 
       <div className="flex items-center gap-2">
         <select value={periodId} onChange={(e) => setPeriodId(e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm">
-          <option value="">All periods</option>
+          <option value="">{tx('All periods')}</option>
           {periodRows.map((p: any) => <option key={p.id} value={p.id}>{p.periodCode} ({p.startDate} → {p.endDate})</option>)}
         </select>
       </div>
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} payroll runs</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('payroll runs')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No payroll runs yet — create a run for an open period.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No payroll runs yet — create a run for an open period.')}</p>}
             {rows.map((r: any) => (
               <div key={r.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <button className="flex flex-1 items-center gap-3 text-left" onClick={() => setDetailId(r.id)}>
@@ -72,16 +73,16 @@ export function HrPayrollPage() {
                   <div>
                     <p className="text-sm font-medium">{r.runNumber} · {r.period?.periodCode}</p>
                     <p className="text-xs text-muted-foreground">
-                      Net {fmt(r.totalNet)} · {r._count?.items ?? 0} employees
+                      {tx('Net')} {fmt(r.totalNet)} · {r._count?.items ?? 0} {tx('employees')}
                       {r.glPosted ? ' · GL posted' : ''}
                     </p>
                   </div>
                 </button>
                 <div className="flex items-center gap-2">
-                  {r.status === 'DRAFT' && <Button size="sm" variant="outline" onClick={() => calculate.mutate(r.id)}>Calculate</Button>}
-                  {r.status === 'CALCULATED' && <Button size="sm" onClick={() => approve.mutate(r.id)}>Approve & post</Button>}
+                  {r.status === 'DRAFT' && <Button size="sm" variant="outline" onClick={() => calculate.mutate(r.id)}>{tx('Calculate')}</Button>}
+                  {r.status === 'CALCULATED' && <Button size="sm" onClick={() => approve.mutate(r.id)}>{tx('Approve & post')}</Button>}
                   {r.status === 'APPROVED' && (
-                    <Button size="sm" variant="outline" onClick={() => { if (confirm('Reverse this run and void its GL entry?')) reverse.mutate({ id: r.id }); }}>Reverse</Button>
+                    <Button size="sm" variant="outline" onClick={() => { if (confirm('Reverse this run and void its GL entry?')) reverse.mutate({ id: r.id }); }}>{tx('Reverse')}</Button>
                   )}
                   <Badge variant="outline" className={RUN_STATUS[r.status] ?? ''}>{r.status.replace(/_/g, ' ')}</Badge>
                 </div>
@@ -94,19 +95,19 @@ export function HrPayrollPage() {
       {/* Create run dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>New payroll run</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('New payroll run')}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
             <div>
-              <Label>Period *</Label>
+              <Label>{tx('Period *')}</Label>
               <select value={createForm.periodId ?? ''} onChange={(e) => setCreateForm({ ...createForm, periodId: e.target.value })}
                 className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                <option value="">Select period…</option>
+                <option value="">{tx('Select period…')}</option>
                 {periodRows.filter((p: any) => p.status === 'OPEN').map((p: any) => (
                   <option key={p.id} value={p.id}>{p.periodCode} ({p.startDate} → {p.endDate})</option>
                 ))}
               </select>
             </div>
-            <Button onClick={doCreate} disabled={create.isPending}>Create run</Button>
+            <Button onClick={doCreate} disabled={create.isPending}>{tx('Create run')}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -117,8 +118,8 @@ export function HrPayrollPage() {
           <DialogHeader><DialogTitle>{detail?.runNumber} · {detail?.period?.periodCode}</DialogTitle></DialogHeader>
 
           <div className="flex items-center gap-2">
-            {detail?.status === 'DRAFT' && <Button size="sm" onClick={() => calculate.mutate(detail.id)}>Calculate</Button>}
-            {detail?.status === 'CALCULATED' && <Button size="sm" onClick={() => approve.mutate(detail.id)}>Approve & post</Button>}
+            {detail?.status === 'DRAFT' && <Button size="sm" onClick={() => calculate.mutate(detail.id)}>{tx('Calculate')}</Button>}
+            {detail?.status === 'CALCULATED' && <Button size="sm" onClick={() => approve.mutate(detail.id)}>{tx('Approve & post')}</Button>}
             <Badge variant="outline" className={RUN_STATUS[detail?.status ?? ''] ?? ''}>{detail?.status?.replace(/_/g, ' ')}</Badge>
           </div>
 
@@ -132,9 +133,9 @@ export function HrPayrollPage() {
           </div>
 
           <div className="rounded-md border">
-            <div className="bg-muted/30 border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Employee breakdown</div>
+            <div className="bg-muted/30 border-b px-3 py-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">{tx('Employee breakdown')}</div>
             <div className="divide-y">
-              {items.length === 0 && <p className="p-4 text-sm text-muted-foreground">No items yet — run Calculate.</p>}
+              {items.length === 0 && <p className="p-4 text-sm text-muted-foreground">{tx('No items yet — run Calculate.')}</p>}
               {items.map((it: any) => (
                 <div key={it.id} className="px-3 py-2">
                   <div className="flex items-center justify-between">
@@ -142,7 +143,7 @@ export function HrPayrollPage() {
                     <p className="text-sm font-semibold">{fmt(it.netPay)}</p>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Base {fmt(it.baseSalary)}{it.overtimeHours > 0 ? ` · OT ${it.overtimeHours}h` : ''}{it.absenceDays > 0 ? ` · absent ${it.absenceDays}d` : ''}
+                    {tx('Base')} {fmt(it.baseSalary)}{it.overtimeHours > 0 ? ` · OT ${it.overtimeHours}h` : ''}{it.absenceDays > 0 ? ` · absent ${it.absenceDays}d` : ''}
                     {' · '}tax {fmt(it.taxAmount)}{it.pensionAmount > 0 ? ` · pension ${fmt(it.pensionAmount)}` : ''}{it.socialSecurityAmount > 0 ? ` · SSF ${fmt(it.socialSecurityAmount)}` : ''}
                   </p>
                 </div>

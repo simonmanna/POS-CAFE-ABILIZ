@@ -25,6 +25,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import {
   type StockLevel, fetchAllStockLevels, fmtQty, apiErrorMessage as errMsg,
 } from '@/features/inventory/stock-levels';
+import { tx } from '@/lib/i18n/tx';
 
 interface Location { id: string; code: string; name: string }
 
@@ -277,12 +278,12 @@ export function WastePage() {
         <div>
           <h1 className="text-2xl font-semibold">Damages &amp; Waste</h1>
           <p className="text-sm text-muted-foreground">
-            Register damaged, spoiled and expired stock. Posting removes it from inventory and books the loss to the ledger.
+            {tx('Register damaged, spoiled and expired stock. Posting removes it from inventory and books the loss to the ledger.')}
           </p>
         </div>
         {canCreate && (
           <Button onClick={() => { resetForm(); setShowForm(true); }}>
-            <Plus className="mr-2 h-4 w-4" />Register Damage / Waste
+            <Plus className="mr-2 h-4 w-4" />{tx('Register Damage / Waste')}
           </Button>
         )}
       </div>
@@ -321,30 +322,30 @@ export function WastePage() {
           <Select value={status} onValueChange={setStatus}>
             <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="completed">Posted</SelectItem>
-              <SelectItem value="cancelled">Cancelled</SelectItem>
-              <SelectItem value="reversed">Reversed</SelectItem>
+              <SelectItem value="all">{tx('All statuses')}</SelectItem>
+              <SelectItem value="pending">{tx('Pending')}</SelectItem>
+              <SelectItem value="completed">{tx('Posted')}</SelectItem>
+              <SelectItem value="cancelled">{tx('Cancelled')}</SelectItem>
+              <SelectItem value="reversed">{tx('Reversed')}</SelectItem>
             </SelectContent>
           </Select>
         )}
         <Select value={category} onValueChange={setCategory}>
           <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All categories</SelectItem>
+            <SelectItem value="all">{tx('All categories')}</SelectItem>
             {CATEGORIES.map((c) => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}
           </SelectContent>
         </Select>
         <Select value={filterLoc} onValueChange={setFilterLoc}>
           <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All locations</SelectItem>
+            <SelectItem value="all">{tx('All locations')}</SelectItem>
             {locations.data?.map((l) => <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>)}
           </SelectContent>
         </Select>
-        <Input type="date" className="w-40" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label="From" />
-        <Input type="date" className="w-40" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label="To" />
+        <Input type="date" className="w-40" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} aria-label={tx('From')} />
+        <Input type="date" className="w-40" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} aria-label={tx('To')} />
       </div>
 
       {tab === 'records' && (
@@ -354,21 +355,21 @@ export function WastePage() {
             <Card><CardContent className="p-8 text-center text-destructive">{errMsg(records.error, 'Failed to load records')}</CardContent></Card>
           )}
           {records.data && records.data.length === 0 && (
-            <Card><CardContent className="p-8 text-center text-muted-foreground">No damages or waste recorded for these filters.</CardContent></Card>
+            <Card><CardContent className="p-8 text-center text-muted-foreground">{tx('No damages or waste recorded for these filters.')}</CardContent></Card>
           )}
           {records.data && records.data.length > 0 && (
             <div className="overflow-x-auto rounded-md border">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="px-3 py-2 text-left">Ref #</th>
-                    <th className="px-3 py-2 text-left">Date</th>
-                    <th className="px-3 py-2 text-left">Location</th>
-                    <th className="px-3 py-2 text-left">Category</th>
-                    <th className="px-3 py-2 text-left">Items</th>
-                    <th className="px-3 py-2 text-right">Value</th>
-                    <th className="px-3 py-2 text-left">Status</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
+                    <th className="px-3 py-2 text-left">{tx('Ref #')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Date')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Location')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Category')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Items')}</th>
+                    <th className="px-3 py-2 text-right">{tx('Value')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Status')}</th>
+                    <th className="px-3 py-2 text-right">{tx('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -383,7 +384,7 @@ export function WastePage() {
                       </td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums">
                         {formatMoney(Number(r.totalValue))}
-                        {isPending(r.status) && <span className="ml-1 text-[10px] text-muted-foreground">est.</span>}
+                        {isPending(r.status) && <span className="ml-1 text-[10px] text-muted-foreground">{tx('est.')}</span>}
                       </td>
                       <td className="px-3 py-2">
                         <span className={`inline-flex rounded px-2.5 py-0.5 text-xs font-semibold ${STATUS_COLORS[r.status] ?? 'bg-gray-100 text-gray-700'}`}>
@@ -392,23 +393,23 @@ export function WastePage() {
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex justify-end gap-1">
-                          <Button size="icon" variant="ghost" className="h-7 w-7" title="View" onClick={() => setViewingId(r.id)}>
+                          <Button size="icon" variant="ghost" className="h-7 w-7" title={tx('View')} onClick={() => setViewingId(r.id)}>
                             <Eye className="h-4 w-4" />
                           </Button>
                           {canApprove && isPending(r.status) && (
                             <>
-                              <Button size="icon" variant="ghost" className="h-7 w-7" title="Approve & post"
+                              <Button size="icon" variant="ghost" className="h-7 w-7" title={tx('Approve & post')}
                                 disabled={approve.isPending} onClick={() => approve.mutate(r.id)}>
                                 <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                               </Button>
-                              <Button size="icon" variant="ghost" className="h-7 w-7" title="Cancel"
+                              <Button size="icon" variant="ghost" className="h-7 w-7" title={tx('Cancel')}
                                 disabled={cancel.isPending} onClick={() => confirmCancel(r.id, r.wasteCode)}>
                                 <XCircle className="h-4 w-4 text-destructive" />
                               </Button>
                             </>
                           )}
                           {canApprove && r.status === 'completed' && (
-                            <Button size="icon" variant="ghost" className="h-7 w-7" title="Reverse posted write-off"
+                            <Button size="icon" variant="ghost" className="h-7 w-7" title={tx('Reverse posted write-off')}
                               disabled={reverse.isPending} onClick={() => setReversing({ id: r.id, code: r.wasteCode })}>
                               <Undo2 className="h-4 w-4 text-slate-600" />
                             </Button>
@@ -429,8 +430,8 @@ export function WastePage() {
           <div className="grid gap-4 lg:grid-cols-2">
             <Card>
               <CardContent className="space-y-3 p-4">
-                <h2 className="font-semibold">Loss by category</h2>
-                {summary.data.byCategory.length === 0 && <p className="text-sm text-muted-foreground">No posted records in this period.</p>}
+                <h2 className="font-semibold">{tx('Loss by category')}</h2>
+                {summary.data.byCategory.length === 0 && <p className="text-sm text-muted-foreground">{tx('No posted records in this period.')}</p>}
                 {summary.data.byCategory.map((c) => (
                   <div key={c.category} className="space-y-1">
                     <div className="flex justify-between text-sm">
@@ -446,8 +447,8 @@ export function WastePage() {
             </Card>
             <Card>
               <CardContent className="space-y-3 p-4">
-                <h2 className="font-semibold">Loss by location</h2>
-                {summary.data.byLocation.length === 0 && <p className="text-sm text-muted-foreground">No posted records in this period.</p>}
+                <h2 className="font-semibold">{tx('Loss by location')}</h2>
+                {summary.data.byLocation.length === 0 && <p className="text-sm text-muted-foreground">{tx('No posted records in this period.')}</p>}
                 <table className="w-full text-sm">
                   <tbody>
                     {summary.data.byLocation.map((l) => (
@@ -463,18 +464,18 @@ export function WastePage() {
             </Card>
             <Card className="lg:col-span-2">
               <CardContent className="space-y-3 p-4">
-                <h2 className="font-semibold">Top wasted products</h2>
+                <h2 className="font-semibold">{tx('Top wasted products')}</h2>
                 {summary.data.topProducts.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No posted records in this period.</p>
+                  <p className="text-sm text-muted-foreground">{tx('No posted records in this period.')}</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b text-left text-muted-foreground">
-                          <th className="py-1.5">Product</th>
-                          <th className="py-1.5 text-right">Times</th>
-                          <th className="py-1.5 text-right">Qty</th>
-                          <th className="py-1.5 text-right">Value</th>
+                          <th className="py-1.5">{tx('Product')}</th>
+                          <th className="py-1.5 text-right">{tx('Times')}</th>
+                          <th className="py-1.5 text-right">{tx('Qty')}</th>
+                          <th className="py-1.5 text-right">{tx('Value')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -499,20 +500,20 @@ export function WastePage() {
       {/* Register dialog */}
       <Dialog open={showForm} onOpenChange={(o) => { if (!create.isPending) setShowForm(o); }}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Register Damage / Waste</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Register Damage / Waste')}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-sm font-medium">Location <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium">{tx('Location')} <span className="text-destructive">*</span></label>
                 <Select value={locationId} onValueChange={setLocationId}>
-                  <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={tx('Select location')} /></SelectTrigger>
                   <SelectContent>
                     {locations.data?.map((l) => <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium">Category</label>
+                <label className="text-sm font-medium">{tx('Category')}</label>
                 <Select value={formCategory} onValueChange={changeFormCategory}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -523,39 +524,39 @@ export function WastePage() {
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-sm font-medium">Responsible Person <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium">{tx('Responsible Person')} <span className="text-destructive">*</span></label>
                 <SearchableSelect
                   value={responsibleId}
                   onValueChange={setResponsibleId}
                   options={staffOptions}
-                  placeholder="Select staff…"
+                  placeholder={tx('Select staff…')}
                   searchPlaceholder="Search staff…"
-                  emptyText="No staff match"
+                  emptyText={tx('No staff match')}
                 />
               </div>
               <div>
-                <label className="text-sm font-medium">Approved By <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium">{tx('Approved By')} <span className="text-destructive">*</span></label>
                 <SearchableSelect
                   value={approvedId}
                   onValueChange={setApprovedId}
                   options={staffOptions}
-                  placeholder="Select staff…"
+                  placeholder={tx('Select staff…')}
                   searchPlaceholder="Search staff…"
-                  emptyText="No staff match"
+                  emptyText={tx('No staff match')}
                 />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Items</label>
+                <label className="text-sm font-medium">{tx('Items')}</label>
                 <Button size="sm" variant="outline" disabled={!locationId} onClick={() => setLines((p) => [...p, { ...blankLine(), isExpiry: formCategory === 'expired' }])}>
-                  <Plus className="mr-1 h-3 w-3" />Add Item
+                  <Plus className="mr-1 h-3 w-3" />{tx('Add Item')}
                 </Button>
               </div>
               {!locationId ? (
                 <div className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-                  Select the location the stock is written off from.
+                  {tx('Select the location the stock is written off from.')}
                 </div>
               ) : stockLevels.isError ? (
                 <div className="rounded-md border p-6 text-center text-sm text-destructive">{errMsg(stockLevels.error, 'Failed to load stock levels')}</div>
@@ -564,12 +565,12 @@ export function WastePage() {
                   <table className="w-full min-w-[720px] text-sm">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="px-2 py-1.5 text-left">Product</th>
-                        <th className="w-24 px-2 py-1.5 text-right">On hand</th>
-                        <th className="w-28 px-2 py-1.5 text-right">Qty lost</th>
-                        <th className="w-32 px-2 py-1.5 text-left">Batch #</th>
-                        <th className="w-20 px-2 py-1.5 text-center" title="Post as expiry write-off">Expiry</th>
-                        <th className="w-28 px-2 py-1.5 text-right">Est. value</th>
+                        <th className="px-2 py-1.5 text-left">{tx('Product')}</th>
+                        <th className="w-24 px-2 py-1.5 text-right">{tx('On hand')}</th>
+                        <th className="w-28 px-2 py-1.5 text-right">{tx('Qty lost')}</th>
+                        <th className="w-32 px-2 py-1.5 text-left">{tx('Batch #')}</th>
+                        <th className="w-20 px-2 py-1.5 text-center" title={tx('Post as expiry write-off')}>{tx('Expiry')}</th>
+                        <th className="w-28 px-2 py-1.5 text-right">{tx('Est. value')}</th>
                         <th className="w-8"></th>
                       </tr>
                     </thead>
@@ -587,7 +588,7 @@ export function WastePage() {
                                 options={productOptions}
                                 placeholder={stockLevels.isLoading ? 'Loading products…' : 'Select product…'}
                                 searchPlaceholder="Search products…"
-                                emptyText="No products match"
+                                emptyText={tx('No products match')}
                                 disabled={stockLevels.isLoading}
                               />
                             </td>
@@ -599,7 +600,7 @@ export function WastePage() {
                                 disabled={!ln.productId} value={ln.qty} onChange={(e) => updateLine(ln.key, { qty: e.target.value })} />
                               {over && (
                                 <p className="mt-1 flex items-center gap-1 text-[11px] text-amber-600">
-                                  <AlertTriangle className="h-3 w-3" />More than on hand
+                                  <AlertTriangle className="h-3 w-3" />{tx('More than on hand')}
                                 </p>
                               )}
                             </td>
@@ -627,7 +628,7 @@ export function WastePage() {
                     {filled.length > 0 && (
                       <tfoot>
                         <tr className="bg-muted/30">
-                          <td colSpan={5} className="px-2 py-2 text-right text-sm font-medium">Estimated loss</td>
+                          <td colSpan={5} className="px-2 py-2 text-right text-sm font-medium">{tx('Estimated loss')}</td>
                           <td className="px-2 py-2 text-right font-mono font-semibold tabular-nums text-destructive">{formatMoney(estTotal)}</td>
                           <td />
                         </tr>
@@ -636,23 +637,22 @@ export function WastePage() {
                   </table>
                 </div>
               )}
-              {badQty && <p className="text-xs text-destructive">Every selected product needs a quantity greater than 0.</p>}
-              {missingBatch && <p className="text-xs text-amber-600">Batch-tracked products without a batch # are taken earliest-expiry first (FEFO).</p>}
+              {badQty && <p className="text-xs text-destructive">{tx('Every selected product needs a quantity greater than 0.')}</p>}
+              {missingBatch && <p className="text-xs text-amber-600">{tx('Batch-tracked products without a batch # are taken earliest-expiry first (FEFO).')}</p>}
             </div>
 
             <div>
-              <label className="text-sm font-medium">Notes</label>
-              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="What happened? e.g. dropped crate, fridge failure" />
+              <label className="text-sm font-medium">{tx('Notes')}</label>
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={tx('What happened? e.g. dropped crate, fridge failure')} />
             </div>
             <p className="text-xs text-muted-foreground">
-              Posting removes the stock at its current cost and books Dr Waste/Expiry expense · Cr Stock Valuation
-              (accounts configurable under Posting Rules).
+              {tx('Posting removes the stock at its current cost and books Dr Waste/Expiry expense · Cr Stock Valuation (accounts configurable under Posting Rules).')}
             </p>
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="outline" disabled={create.isPending} onClick={() => setShowForm(false)}>Cancel</Button>
+            <Button variant="outline" disabled={create.isPending} onClick={() => setShowForm(false)}>{tx('Cancel')}</Button>
             <Button variant="secondary" disabled={!canSubmit || create.isPending} onClick={() => create.mutate(false)}>
-              <Save className="mr-2 h-4 w-4" />Save as Pending
+              <Save className="mr-2 h-4 w-4" />{tx('Save as Pending')}
             </Button>
             {canApprove && (
               <Button disabled={!canSubmit || create.isPending} onClick={() => create.mutate(true)}>
@@ -674,15 +674,15 @@ export function WastePage() {
               <>
                 <DialogHeader><DialogTitle>{d.wasteCode}</DialogTitle></DialogHeader>
                 <div className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-2">
-                  <div><span className="text-muted-foreground">Location: </span>{d.location ? `${d.location.code} — ${d.location.name}` : '—'}</div>
-                  <div><span className="text-muted-foreground">Category: </span>{CATEGORY_LABELS[d.category] ?? d.category}</div>
-                  <div><span className="text-muted-foreground">Registered: </span>{dateTime(d.createdAt)}</div>
-                  <div><span className="text-muted-foreground">Status: </span>{STATUS_LABELS[d.status] ?? d.status}</div>
-                  {d.postedAt && <div><span className="text-muted-foreground">Posted: </span>{dateTime(d.postedAt)}</div>}
+                  <div><span className="text-muted-foreground">{tx('Location:')} </span>{d.location ? `${d.location.code} — ${d.location.name}` : '—'}</div>
+                  <div><span className="text-muted-foreground">{tx('Category:')} </span>{CATEGORY_LABELS[d.category] ?? d.category}</div>
+                  <div><span className="text-muted-foreground">{tx('Registered:')} </span>{dateTime(d.createdAt)}</div>
+                  <div><span className="text-muted-foreground">{tx('Status:')} </span>{STATUS_LABELS[d.status] ?? d.status}</div>
+                  {d.postedAt && <div><span className="text-muted-foreground">{tx('Posted:')} </span>{dateTime(d.postedAt)}</div>}
                   <div><span className="text-muted-foreground">{isPending(d.status) ? 'Estimated value: ' : 'Value: '}</span><span className="font-semibold">{formatMoney(Number(d.totalValue))}</span></div>
-                  {d.notes && <div className="sm:col-span-2"><span className="text-muted-foreground">Notes: </span>{d.notes}</div>}
+                  {d.notes && <div className="sm:col-span-2"><span className="text-muted-foreground">{tx('Notes:')} </span>{d.notes}</div>}
                   {d.reversedAt && (
-                    <div className="sm:col-span-2"><span className="text-muted-foreground">Reversed: </span>{dateTime(d.reversedAt)}{d.reversalReason ? ` — ${d.reversalReason}` : ''}</div>
+                    <div className="sm:col-span-2"><span className="text-muted-foreground">{tx('Reversed:')} </span>{dateTime(d.reversedAt)}{d.reversalReason ? ` — ${d.reversalReason}` : ''}</div>
                   )}
                 </div>
 
@@ -690,11 +690,11 @@ export function WastePage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-muted/50">
-                        <th className="px-2 py-1.5 text-left">Product</th>
-                        <th className="px-2 py-1.5 text-right">Qty</th>
-                        <th className="px-2 py-1.5 text-left">Batch</th>
-                        <th className="px-2 py-1.5 text-right">Unit cost</th>
-                        <th className="px-2 py-1.5 text-right">Total</th>
+                        <th className="px-2 py-1.5 text-left">{tx('Product')}</th>
+                        <th className="px-2 py-1.5 text-right">{tx('Qty')}</th>
+                        <th className="px-2 py-1.5 text-left">{tx('Batch')}</th>
+                        <th className="px-2 py-1.5 text-right">{tx('Unit cost')}</th>
+                        <th className="px-2 py-1.5 text-right">{tx('Total')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -702,7 +702,7 @@ export function WastePage() {
                         <tr key={i.id} className="border-b last:border-0">
                           <td className="px-2 py-1.5">
                             {i.productName}
-                            {i.isExpiry && <Badge variant="outline" className="ml-2 text-[10px]">expiry</Badge>}
+                            {i.isExpiry && <Badge variant="outline" className="ml-2 text-[10px]">{tx('expiry')}</Badge>}
                           </td>
                           <td className="px-2 py-1.5 text-right font-mono tabular-nums">{fmtQty(Number(i.qty))}{i.unit ? ` ${i.unit}` : ''}</td>
                           <td className="px-2 py-1.5 text-muted-foreground">{i.batchNumber ?? '—'}</td>
@@ -716,9 +716,9 @@ export function WastePage() {
 
                 {d.postedAt && (
                   <div className="space-y-2">
-                    <h3 className="flex items-center gap-2 text-sm font-semibold"><BookOpen className="h-4 w-4" />Accounting</h3>
+                    <h3 className="flex items-center gap-2 text-sm font-semibold"><BookOpen className="h-4 w-4" />{tx('Accounting')}</h3>
                     {d.journalEntries.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No journal entry — the stock had zero cost, so there was no value to book.</p>
+                      <p className="text-sm text-muted-foreground">{tx('No journal entry — the stock had zero cost, so there was no value to book.')}</p>
                     ) : d.journalEntries.map((je) => (
                       <div key={je.id} className="rounded-md border">
                         <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-1.5 text-sm">
@@ -739,8 +739,8 @@ export function WastePage() {
                       </div>
                     ))}
                     <p className="text-xs text-muted-foreground">
-                      {d.ledger.length} stock ledger movement{d.ledger.length === 1 ? '' : 's'} ·{' '}
-                      <Link to="/inventory/ledger" className="text-primary hover:underline">Stock Ledger</Link>
+                      {d.ledger.length} {tx('stock ledger movement')}{d.ledger.length === 1 ? '' : 's'} ·{' '}
+                      <Link to="/inventory/ledger" className="text-primary hover:underline">{tx('Stock Ledger')}</Link>
                     </p>
                   </div>
                 )}
@@ -749,7 +749,7 @@ export function WastePage() {
                   {canApprove && isPending(d.status) && (
                     <>
                       <Button variant="outline" disabled={cancel.isPending} onClick={() => confirmCancel(d.id, d.wasteCode)}>
-                        <XCircle className="mr-2 h-4 w-4" />Cancel Record
+                        <XCircle className="mr-2 h-4 w-4" />{tx('Cancel Record')}
                       </Button>
                       <Button disabled={approve.isPending} onClick={() => approve.mutate(d.id)}>
                         <CheckCircle2 className="mr-2 h-4 w-4" />{approve.isPending ? 'Posting…' : 'Approve & Post'}
@@ -758,7 +758,7 @@ export function WastePage() {
                   )}
                   {canApprove && d.status === 'completed' && (
                     <Button variant="outline" onClick={() => setReversing({ id: d.id, code: d.wasteCode })}>
-                      <Undo2 className="mr-2 h-4 w-4" />Reverse
+                      <Undo2 className="mr-2 h-4 w-4" />{tx('Reverse')}
                     </Button>
                   )}
                 </DialogFooter>
@@ -772,8 +772,8 @@ export function WastePage() {
         open={!!reversing}
         onOpenChange={(o) => { if (!o) setReversing(null); }}
         title={`Reverse ${reversing?.code ?? ''}`}
-        description={<p>Puts the written-off stock back at its original cost and posts the opposite journal entries today. The original record stays, marked reversed.</p>}
-        confirmLabel="Reverse write-off"
+        description={<p>{tx('Puts the written-off stock back at its original cost and posts the opposite journal entries today. The original record stays, marked reversed.')}</p>}
+        confirmLabel={tx('Reverse write-off')}
         pendingLabel="Reversing…"
         destructive
         pending={reverse.isPending}

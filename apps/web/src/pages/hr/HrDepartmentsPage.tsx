@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { tx } from '@/lib/i18n/tx';
 
 export function HrDepartmentsPage() {
   const [search, setSearch] = useState('');
@@ -35,24 +36,24 @@ export function HrDepartmentsPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Departments</h1>
-          <p className="text-sm text-muted-foreground">Org structure — every employee and position hangs off a department.</p>
+          <h1 className="text-xl font-semibold">{tx('Departments')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Org structure — every employee and position hangs off a department.')}</p>
         </div>
-        <Button onClick={openCreate}><Plus className="h-4 w-4" /> New department</Button>
+        <Button onClick={openCreate}><Plus className="h-4 w-4" /> {tx('New department')}</Button>
       </div>
 
       <div className="flex items-center gap-2">
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or code…"
+        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={tx('Search name or code…')}
           className="w-64 rounded-md border bg-card px-3 py-2 text-sm" />
       </div>
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} departments</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('departments')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No departments yet.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No departments yet.')}</p>}
             {rows.map((d: any) => (
               <div key={d.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <div className="flex items-center gap-3">
@@ -61,15 +62,15 @@ export function HrDepartmentsPage() {
                     <p className="text-sm font-medium">{d.code} · {d.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {d.manager ? `Manager: ${d.manager.firstName}${d.manager.lastName ? ' ' + d.manager.lastName : ''}` : 'No manager'}
-                      {' · '}{d._count?.employees ?? 0} employees · {d._count?.positions ?? 0} positions
+                      {' · '}{d._count?.employees ?? 0} {tx('employees ·')} {d._count?.positions ?? 0} {tx('positions')}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {!d.isActive && <Badge variant="outline" className="bg-muted text-muted-foreground">Inactive</Badge>}
-                  <button onClick={() => openEdit(d)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">Edit</button>
+                  {!d.isActive && <Badge variant="outline" className="bg-muted text-muted-foreground">{tx('Inactive')}</Badge>}
+                  <button onClick={() => openEdit(d)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">{tx('Edit')}</button>
                   <button onClick={() => { if (confirm(`Delete department ${d.name}?`)) remove.mutate(d.id); }}
-                    className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Delete</button>
+                    className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">{tx('Delete')}</button>
                 </div>
               </div>
             ))}
@@ -83,23 +84,23 @@ export function HrDepartmentsPage() {
           <div className="grid gap-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Code *</Label>
-                <Input value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="DEPT-001" />
+                <Label>{tx('Code *')}</Label>
+                <Input value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={tx('DEPT-001')} />
               </div>
               <div>
-                <Label>Name *</Label>
+                <Label>{tx('Name *')}</Label>
                 <Input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </div>
             </div>
             <div>
-              <Label>Description</Label>
+              <Label>{tx('Description')}</Label>
               <Input value={form.description ?? ''} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             </div>
             <div>
-              <Label>Manager</Label>
+              <Label>{tx('Manager')}</Label>
               <select value={form.managerId ?? ''} onChange={(e) => setForm({ ...form, managerId: e.target.value })}
                 className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                <option value="">None</option>
+                <option value="">{tx('None')}</option>
                 {employees.map((e: any) => (
                   <option key={e.id} value={e.id}>{e.employeeCode} · {e.firstName}{e.lastName ? ' ' + e.lastName : ''}</option>
                 ))}

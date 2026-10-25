@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { tx } from '@/lib/i18n/tx';
 
 interface LandedCost {
   id: string;
@@ -78,7 +79,7 @@ export function LandedCostPanel({ goodsReceiptId, canCreate, canPost, canCancel 
   });
   const cancel = useMutation({
     mutationFn: async (id: string) => await idempotentPost<LandedCost>(`/procurement/landed-costs/${id}/cancel`),
-    onSuccess: () => { notify.success('Landed cost cancelled'); refresh(); },
+    onSuccess: () => { notify.success(tx('Landed cost cancelled')); refresh(); },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Could not cancel landed cost'),
   });
 
@@ -90,12 +91,12 @@ export function LandedCostPanel({ goodsReceiptId, canCreate, canPost, canCancel 
     <section aria-labelledby="landed-cost-heading" className="mt-4 rounded-md border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 id="landed-cost-heading" className="text-sm font-semibold">Landed costs</h2>
-          <p className="text-xs text-muted-foreground">Freight, duty and insurance added to the cost of these goods.</p>
+          <h2 id="landed-cost-heading" className="text-sm font-semibold">{tx('Landed costs')}</h2>
+          <p className="text-xs text-muted-foreground">{tx('Freight, duty and insurance added to the cost of these goods.')}</p>
         </div>
         {canCreate && (
           <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-            <Plus className="mr-1 h-3.5 w-3.5" />Add landed cost
+            <Plus className="mr-1 h-3.5 w-3.5" />{tx('Add landed cost')}
           </Button>
         )}
       </div>
@@ -105,13 +106,13 @@ export function LandedCostPanel({ goodsReceiptId, canCreate, canPost, canCancel 
           <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
-                <th scope="col" className="py-1 pr-2">Code</th>
-                <th scope="col" className="py-1 pr-2">Date</th>
-                <th scope="col" className="py-1 pr-2">Charges</th>
-                <th scope="col" className="py-1 pr-2 text-right">Total</th>
-                <th scope="col" className="py-1 pr-2 text-right">Capitalised</th>
-                <th scope="col" className="py-1 pr-2 text-right">To COGS</th>
-                <th scope="col" className="py-1 pr-2">Status</th>
+                <th scope="col" className="py-1 pr-2">{tx('Code')}</th>
+                <th scope="col" className="py-1 pr-2">{tx('Date')}</th>
+                <th scope="col" className="py-1 pr-2">{tx('Charges')}</th>
+                <th scope="col" className="py-1 pr-2 text-right">{tx('Total')}</th>
+                <th scope="col" className="py-1 pr-2 text-right">{tx('Capitalised')}</th>
+                <th scope="col" className="py-1 pr-2 text-right">{tx('To COGS')}</th>
+                <th scope="col" className="py-1 pr-2">{tx('Status')}</th>
                 <th scope="col" className="py-1" />
               </tr>
             </thead>
@@ -120,7 +121,7 @@ export function LandedCostPanel({ goodsReceiptId, canCreate, canPost, canCancel 
                 <tr key={lc.id} className="border-b last:border-0">
                   <td className="py-1.5 pr-2 font-mono text-xs">{lc.code}</td>
                   <td className="py-1.5 pr-2">{date(lc.date)}</td>
-                  <td className="py-1.5 pr-2 text-xs">{lc.charges.map((c) => c.kind).join(', ')} · by {lc.allocationMethod}</td>
+                  <td className="py-1.5 pr-2 text-xs">{lc.charges.map((c) => c.kind).join(', ')} {tx('· by')} {lc.allocationMethod}</td>
                   <td className="py-1.5 pr-2 text-right tabular-nums">{money(Number(lc.totalAmount))}</td>
                   <td className="py-1.5 pr-2 text-right tabular-nums">{lc.status === 'posted' ? money(Number(lc.capitalizedAmount)) : '—'}</td>
                   <td className="py-1.5 pr-2 text-right tabular-nums">{lc.status === 'posted' ? money(Number(lc.expensedAmount)) : '—'}</td>
@@ -128,7 +129,7 @@ export function LandedCostPanel({ goodsReceiptId, canCreate, canPost, canCancel 
                   <td className="py-1.5 text-right whitespace-nowrap">
                     {lc.status === 'draft' && canPost && (
                       <Button size="sm" variant="outline" disabled={post.isPending} onClick={() => post.mutate(lc.id)}>
-                        <CheckCircle2 className="mr-1 h-3.5 w-3.5" />Post
+                        <CheckCircle2 className="mr-1 h-3.5 w-3.5" />{tx('Post')}
                       </Button>
                     )}
                     {lc.status === 'draft' && canCancel && (
@@ -146,21 +147,21 @@ export function LandedCostPanel({ goodsReceiptId, canCreate, canPost, canCancel 
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader><DialogTitle>Add landed cost</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Add landed cost')}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <label className="text-sm font-medium" htmlFor="lc-method">Allocate by</label>
+                <label className="text-sm font-medium" htmlFor="lc-method">{tx('Allocate by')}</label>
                 <select id="lc-method" className="block h-9 w-full rounded-md border bg-background px-2 text-sm" value={method} onChange={(e) => setMethod(e.target.value as LandedCost['allocationMethod'])}>
-                  <option value="value">Line value</option>
-                  <option value="quantity">Quantity</option>
-                  <option value="equal">Equally per line</option>
+                  <option value="value">{tx('Line value')}</option>
+                  <option value="quantity">{tx('Quantity')}</option>
+                  <option value="equal">{tx('Equally per line')}</option>
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium" htmlFor="lc-account">Credit account <span className="text-destructive">*</span></label>
+                <label className="text-sm font-medium" htmlFor="lc-account">{tx('Credit account')} <span className="text-destructive">*</span></label>
                 <select id="lc-account" className="block h-9 w-full rounded-md border bg-background px-2 text-sm" value={creditAccountId} onChange={(e) => setCreditAccountId(e.target.value)}>
-                  <option value="">Freight accrual, payable or bank…</option>
+                  <option value="">{tx('Freight accrual, payable or bank…')}</option>
                   {accountRows.filter((a) => a.isPostable !== false && a.isActive !== false).map((a) => (
                     <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
                   ))}
@@ -172,26 +173,26 @@ export function LandedCostPanel({ goodsReceiptId, canCreate, canPost, canCancel 
                 const set = (patch: Partial<Charge>) => setCharges((cur) => cur.map((x, i) => (i === idx ? { ...x, ...patch } : x)));
                 return (
                   <div key={idx} className="flex flex-wrap items-center gap-2">
-                    <select aria-label="Charge type" className="h-9 rounded-md border bg-background px-2 text-sm" value={c.kind} onChange={(e) => set({ kind: e.target.value as Charge['kind'] })}>
+                    <select aria-label={tx('Charge type')} className="h-9 rounded-md border bg-background px-2 text-sm" value={c.kind} onChange={(e) => set({ kind: e.target.value as Charge['kind'] })}>
                       {KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
                     </select>
-                    <Input aria-label="Charge description" className="h-9 min-w-[140px] flex-1" placeholder="Description" value={c.description} onChange={(e) => set({ description: e.target.value })} />
-                    <Input aria-label="Charge amount" type="number" min="0" step="any" inputMode="decimal" className="h-9 w-32 text-right" placeholder="Amount" value={c.amount} onChange={(e) => set({ amount: e.target.value })} />
-                    <Button size="icon" variant="ghost" aria-label="Remove charge" disabled={charges.length === 1} onClick={() => setCharges((cur) => cur.filter((_, i) => i !== idx))}>
+                    <Input aria-label={tx('Charge description')} className="h-9 min-w-[140px] flex-1" placeholder={tx('Description')} value={c.description} onChange={(e) => set({ description: e.target.value })} />
+                    <Input aria-label={tx('Charge amount')} type="number" min="0" step="any" inputMode="decimal" className="h-9 w-32 text-right" placeholder={tx('Amount')} value={c.amount} onChange={(e) => set({ amount: e.target.value })} />
+                    <Button size="icon" variant="ghost" aria-label={tx('Remove charge')} disabled={charges.length === 1} onClick={() => setCharges((cur) => cur.filter((_, i) => i !== idx))}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
                 );
               })}
               <Button size="sm" variant="outline" onClick={() => setCharges((cur) => [...cur, { kind: 'duty', description: '', amount: '' }])}>
-                <Plus className="mr-1 h-3 w-3" />Add charge
+                <Plus className="mr-1 h-3 w-3" />{tx('Add charge')}
               </Button>
             </div>
-            <Input aria-label="Notes" placeholder="Notes (carrier invoice, customs entry…)" value={notes} onChange={(e) => setNotes(e.target.value)} />
-            <p className="text-sm">Total <span className="font-semibold tabular-nums">{money(total)}</span></p>
+            <Input aria-label={tx('Notes')} placeholder={tx('Notes (carrier invoice, customs entry…)')} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <p className="text-sm">{tx('Total')} <span className="font-semibold tabular-nums">{money(total)}</span></p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setOpen(false)}>{tx('Cancel')}</Button>
             <Button disabled={!creditAccountId || total <= 0 || create.isPending} onClick={() => create.mutate()}>
               {create.isPending ? 'Saving…' : 'Save draft'}
             </Button>

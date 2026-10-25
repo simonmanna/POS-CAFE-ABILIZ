@@ -48,6 +48,7 @@ import {
   RESERVATION_STATUS_LABEL,
   zoneLabel,
 } from '@/features/tables/utils';
+import { tx } from '@/lib/i18n/tx';
 
 interface FormState {
   tableId: string;
@@ -129,7 +130,7 @@ export const ReservationsPage: React.FC = () => {
 
   async function submitCreate() {
     if (!form.tableId || !form.customerName.trim()) {
-      toast.error('Table and customer name are required');
+      toast.error(tx('Table and customer name are required'));
       return;
     }
     const body: CreateReservationInput = {
@@ -144,7 +145,7 @@ export const ReservationsPage: React.FC = () => {
     };
     try {
       await create.mutateAsync(body);
-      toast.success('Reservation created');
+      toast.success(tx('Reservation created'));
       setCreateOpen(false);
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Failed to create reservation');
@@ -166,7 +167,7 @@ export const ReservationsPage: React.FC = () => {
           notes: form.notes.trim() || undefined,
         },
       });
-      toast.success('Reservation updated');
+      toast.success(tx('Reservation updated'));
       setEditTarget(null);
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Failed to update reservation');
@@ -186,7 +187,7 @@ export const ReservationsPage: React.FC = () => {
     if (!cancelTarget) return;
     try {
       await cancel.mutateAsync(cancelTarget.id);
-      toast.success('Reservation cancelled');
+      toast.success(tx('Reservation cancelled'));
       setCancelTarget(null);
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Cancel failed');
@@ -196,7 +197,7 @@ export const ReservationsPage: React.FC = () => {
   async function doNoShow(r: PosTableReservationFE) {
     try {
       await noShow.mutateAsync(r.id);
-      toast.success('Marked no-show');
+      toast.success(tx('Marked no-show'));
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'No-show failed');
     }
@@ -213,13 +214,13 @@ export const ReservationsPage: React.FC = () => {
             </div>
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-white/70">
-                Restaurant
+                {tx('Restaurant')}
               </div>
               <div className="text-2xl md:text-3xl font-extrabold tracking-tight">
-                Reservations
+                {tx('Reservations')}
               </div>
               <div className="text-sm text-white/80 mt-0.5">
-                Bookings, parties and no-shows — at a glance.
+                {tx('Bookings, parties and no-shows — at a glance.')}
               </div>
             </div>
           </div>
@@ -227,7 +228,7 @@ export const ReservationsPage: React.FC = () => {
             onClick={openCreate}
             className="bg-white text-blue-700 hover:bg-white/90 btn-shine shadow-lg"
           >
-            <CalendarPlus className="w-4 h-4 mr-1.5" /> New reservation
+            <CalendarPlus className="w-4 h-4 mr-1.5" /> {tx('New reservation')}
           </Button>
         </div>
       </div>
@@ -236,7 +237,7 @@ export const ReservationsPage: React.FC = () => {
       <div className="glass-card p-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <label className="section-title flex items-center gap-1.5">
-            <CalendarClock className="w-3 h-3" /> Date
+            <CalendarClock className="w-3 h-3" /> {tx('Date')}
           </label>
           <Input
             type="date"
@@ -249,24 +250,24 @@ export const ReservationsPage: React.FC = () => {
             value={status}
             onChange={(e) => setStatus(e.target.value)}
           >
-            <option value="all">All statuses</option>
+            <option value="all">{tx('All statuses')}</option>
             {Object.entries(RESERVATION_STATUS_LABEL).map(([k, v]) => (
               <option key={k} value={k}>{v}</option>
             ))}
           </select>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()}>
-          <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+          <RefreshCw className="w-3 h-3 mr-1" /> {tx('Refresh')}
         </Button>
       </div>
 
       {/* ── List ── */}
       {isLoading ? (
-        <div className="text-slate-400 py-10 text-center">Loading reservations…</div>
+        <div className="text-slate-400 py-10 text-center">{tx('Loading reservations…')}</div>
       ) : reservations.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-slate-400">
-            No reservations for this filter.
+            {tx('No reservations for this filter.')}
           </CardContent>
         </Card>
       ) : (
@@ -314,7 +315,7 @@ export const ReservationsPage: React.FC = () => {
                           onClick={() => doSeat(r)}
                           disabled={seat.isPending}
                         >
-                          <Check className="w-3 h-3 mr-1" /> Seat
+                          <Check className="w-3 h-3 mr-1" /> {tx('Seat')}
                         </Button>
                         <Button
                           variant="outline"
@@ -323,7 +324,7 @@ export const ReservationsPage: React.FC = () => {
                           onClick={() => doNoShow(r)}
                           disabled={noShow.isPending}
                         >
-                          <Eye className="w-3 h-3 mr-1" /> No-show
+                          <Eye className="w-3 h-3 mr-1" /> {tx('No-show')}
                         </Button>
                         <Button
                           variant="outline"
@@ -331,7 +332,7 @@ export const ReservationsPage: React.FC = () => {
                           className="h-7 text-[11px]"
                           onClick={() => openEdit(r)}
                         >
-                          <Pencil className="w-3 h-3 mr-1" /> Edit
+                          <Pencil className="w-3 h-3 mr-1" /> {tx('Edit')}
                         </Button>
                         <Button
                           variant="ghost"
@@ -339,7 +340,7 @@ export const ReservationsPage: React.FC = () => {
                           className="h-7 text-[11px] text-rose-600"
                           onClick={() => setCancelTarget(r)}
                         >
-                          <X className="w-3 h-3 mr-1" /> Cancel
+                          <X className="w-3 h-3 mr-1" /> {tx('Cancel')}
                         </Button>
                       </>
                     ) : null}
@@ -367,19 +368,18 @@ export const ReservationsPage: React.FC = () => {
               {editTarget ? `Edit reservation` : 'New reservation'}
             </DialogTitle>
             <DialogDescription>
-              Tables automatically flip to RESERVED 60 minutes before the
-              booking and free up on cancel / no-show.
+              {tx('Tables automatically flip to RESERVED 60 minutes before the booking and free up on cancel / no-show.')}
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Table" className="col-span-2">
+            <Field label={tx('Table')} className="col-span-2">
               <select
                 className="h-10 px-3 rounded-md border border-slate-200 bg-white text-sm"
                 value={form.tableId}
                 onChange={(e) => setForm((f) => ({ ...f, tableId: e.target.value }))}
                 disabled={!!editTarget}
               >
-                <option value="">Select table…</option>
+                <option value="">{tx('Select table…')}</option>
                 {tables.map((t) => (
                   <option key={t.id} value={t.id}>
                     T{t.number} {t.name}
@@ -387,25 +387,25 @@ export const ReservationsPage: React.FC = () => {
                 ))}
               </select>
             </Field>
-            <Field label="Customer name" className="col-span-2">
+            <Field label={tx('Customer name')} className="col-span-2">
               <Input
                 value={form.customerName}
                 onChange={(e) => setForm((f) => ({ ...f, customerName: e.target.value }))}
               />
             </Field>
-            <Field label="Phone">
+            <Field label={tx('Phone')}>
               <Input
                 value={form.phone}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
               />
             </Field>
-            <Field label="Email">
+            <Field label={tx('Email')}>
               <Input
                 value={form.email}
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               />
             </Field>
-            <Field label="Party size">
+            <Field label={tx('Party size')}>
               <Input
                 type="number"
                 min={1}
@@ -413,21 +413,21 @@ export const ReservationsPage: React.FC = () => {
                 onChange={(e) => setForm((f) => ({ ...f, partySize: Number(e.target.value) }))}
               />
             </Field>
-            <Field label="Start">
+            <Field label={tx('Start')}>
               <Input
                 type="datetime-local"
                 value={form.startAt}
                 onChange={(e) => setForm((f) => ({ ...f, startAt: e.target.value }))}
               />
             </Field>
-            <Field label="End" className="col-span-2">
+            <Field label={tx('End')} className="col-span-2">
               <Input
                 type="datetime-local"
                 value={form.endAt}
                 onChange={(e) => setForm((f) => ({ ...f, endAt: e.target.value }))}
               />
             </Field>
-            <Field label="Notes" className="col-span-2">
+            <Field label={tx('Notes')} className="col-span-2">
               <Input
                 value={form.notes}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
@@ -436,7 +436,7 @@ export const ReservationsPage: React.FC = () => {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => { setCreateOpen(false); setEditTarget(null); }}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               onClick={editTarget ? submitEdit : submitCreate}
@@ -452,15 +452,15 @@ export const ReservationsPage: React.FC = () => {
       <AlertDialog open={!!cancelTarget} onOpenChange={(o) => !o && setCancelTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancel reservation?</AlertDialogTitle>
+            <AlertDialogTitle>{tx('Cancel reservation?')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {cancelTarget?.customerName}'s booking will be marked cancelled and the table freed.
+              {cancelTarget?.customerName}{tx('\'s booking will be marked cancelled and the table freed.')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Keep</AlertDialogCancel>
+            <AlertDialogCancel>{tx('Keep')}</AlertDialogCancel>
             <AlertDialogAction className="bg-rose-600 hover:bg-rose-700" onClick={doCancel}>
-              Cancel reservation
+              {tx('Cancel reservation')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

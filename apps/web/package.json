@@ -8,7 +8,10 @@
     "build": "tsc --noEmit -p tsconfig.json && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "lint": "eslint \"src/**/*.{ts,tsx}\""
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "i18n:check": "node scripts/i18n-phrases.cjs",
+    "i18n:sync": "node scripts/i18n-phrases.cjs --write",
+    "i18n:merge": "node scripts/i18n-merge.cjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

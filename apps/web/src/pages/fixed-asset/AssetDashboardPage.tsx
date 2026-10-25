@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuthStore } from '@/stores/auth.store';
 import { formatCurrency } from '@/lib/utils';
 import { useAssetDashboardSummary, useAssetDashboardUpcoming } from '@/features/fixed-asset/api';
+import { tx } from '@/lib/i18n/tx';
 
 export function AssetDashboardPage() {
   const navigate = useNavigate();
@@ -15,7 +16,7 @@ export function AssetDashboardPage() {
   const { data: summary } = useAssetDashboardSummary();
   const { data: upcoming } = useAssetDashboardUpcoming();
 
-  if (!canView) return <div className="p-8 text-center text-muted-foreground">No permission to view fixed assets.</div>;
+  if (!canView) return <div className="p-8 text-center text-muted-foreground">{tx('No permission to view fixed assets.')}</div>;
 
   const cards = [
     { title: 'Total Assets', value: summary?.totalAssets ?? 0, icon: Building2, color: 'text-blue-600' },
@@ -29,10 +30,10 @@ export function AssetDashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Fixed Assets Dashboard</h1>
+        <h1 className="text-2xl font-bold">{tx('Fixed Assets Dashboard')}</h1>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => navigate('/fixed-assets')}>Asset Register</Button>
-          <Button variant="outline" onClick={() => navigate('/fixed-assets/categories')}>Categories</Button>
+          <Button variant="outline" onClick={() => navigate('/fixed-assets')}>{tx('Asset Register')}</Button>
+          <Button variant="outline" onClick={() => navigate('/fixed-assets/categories')}>{tx('Categories')}</Button>
         </div>
       </div>
 
@@ -50,7 +51,7 @@ export function AssetDashboardPage() {
 
       {summary?.byCategory && summary.byCategory.length > 0 && (
         <Card>
-          <CardHeader><CardTitle>Assets by Category</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{tx('Assets by Category')}</CardTitle></CardHeader>
           <CardContent>
             <div className="space-y-2">
               {summary.byCategory.map((cat: any) => (
@@ -66,50 +67,50 @@ export function AssetDashboardPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2"><Clock className="h-5 w-5 text-yellow-500" /><CardTitle>Maintenance Due (30 days)</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center gap-2"><Clock className="h-5 w-5 text-yellow-500" /><CardTitle>{tx('Maintenance Due (30 days)')}</CardTitle></CardHeader>
           <CardContent>
             {upcoming?.maintenanceDue?.length ? upcoming.maintenanceDue.map((m: any) => (
               <div key={m.id} className="flex justify-between py-1 text-sm border-b last:border-0">
                 <span>{m.asset?.name ?? m.title}</span>
                 <span className="text-muted-foreground">{m.nextMaintenanceDate ? new Date(m.nextMaintenanceDate).toLocaleDateString() : ''}</span>
               </div>
-            )) : <p className="text-sm text-muted-foreground">No upcoming maintenance</p>}
+            )) : <p className="text-sm text-muted-foreground">{tx('No upcoming maintenance')}</p>}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="flex flex-row items-center gap-2"><AlertTriangle className="h-5 w-5 text-orange-500" /><CardTitle>Warranty Expiring (90 days)</CardTitle></CardHeader>
+          <CardHeader className="flex flex-row items-center gap-2"><AlertTriangle className="h-5 w-5 text-orange-500" /><CardTitle>{tx('Warranty Expiring (90 days)')}</CardTitle></CardHeader>
           <CardContent>
             {upcoming?.warrantyExpiring?.length ? upcoming.warrantyExpiring.map((w: any) => (
               <div key={w.id} className="flex justify-between py-1 text-sm border-b last:border-0">
                 <span>{w.asset?.name ?? ''}</span>
                 <span className="text-muted-foreground">{new Date(w.warrantyEnd).toLocaleDateString()}</span>
               </div>
-            )) : <p className="text-sm text-muted-foreground">No expiring warranties</p>}
+            )) : <p className="text-sm text-muted-foreground">{tx('No expiring warranties')}</p>}
           </CardContent>
         </Card>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card>
-          <CardHeader><CardTitle>Recently Added Assets</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{tx('Recently Added Assets')}</CardTitle></CardHeader>
           <CardContent>
             {upcoming?.recentAssets?.length ? upcoming.recentAssets.map((a: any) => (
               <div key={a.id} className="flex justify-between py-1 text-sm border-b last:border-0 cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/fixed-assets/${a.id}`)}>
                 <span className="font-medium">{a.name}</span>
                 <span className="text-muted-foreground">{a.assetCode}</span>
               </div>
-            )) : <p className="text-sm text-muted-foreground">No recent assets</p>}
+            )) : <p className="text-sm text-muted-foreground">{tx('No recent assets')}</p>}
           </CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle>Recent Depreciation</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{tx('Recent Depreciation')}</CardTitle></CardHeader>
           <CardContent>
             {upcoming?.recentDepreciation?.length ? upcoming.recentDepreciation.map((d: any) => (
               <div key={d.id} className="flex justify-between py-1 text-sm border-b last:border-0">
                 <span>{d.asset?.name ?? ''}</span>
                 <span className="text-muted-foreground">{d.period} · {formatCurrency(d.depreciationAmount)}</span>
               </div>
-            )) : <p className="text-sm text-muted-foreground">No depreciation yet</p>}
+            )) : <p className="text-sm text-muted-foreground">{tx('No depreciation yet')}</p>}
           </CardContent>
         </Card>
       </div>

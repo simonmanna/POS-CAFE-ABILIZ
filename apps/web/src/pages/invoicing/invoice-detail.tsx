@@ -15,6 +15,7 @@ import { useJournalEntry } from '@/features/accounting/api';
 import { usePartner } from '@/features/partners/api';
 import { useOpenSession, useReceivePayment } from '@/pages/pos/api';
 import { Skeleton } from '@/components/ui/skeleton';
+import { tx } from '@/lib/i18n/tx';
 
 /** Display labels for the back-office invoice payment method (InvoicePaymentMode). */
 const PAYMENT_MODE_LABELS: Record<string, string> = {
@@ -152,14 +153,14 @@ export function InvoiceDetailPage() {
       <div className="max-w-[1600px] mx-auto space-y-4 px-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/invoices')} className="flex items-center text-sm text-sky-700 hover:text-sky-900 gap-1">
-            <ArrowLeft className="h-4 w-4" /> Invoices
+            <ArrowLeft className="h-4 w-4" /> {tx('Invoices')}
           </button>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-8 text-center">
-          <h1 className="text-xl font-semibold text-destructive">Not Found</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Invoice not found or you don't have permission to view it.</p>
+          <h1 className="text-xl font-semibold text-destructive">{tx('Not Found')}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{tx('Invoice not found or you don\'t have permission to view it.')}</p>
           <Button variant="outline" className="mt-4" onClick={() => navigate('/invoices')}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back to Invoices
+            <ArrowLeft className="mr-2 h-4 w-4" /> {tx('Back to Invoices')}
           </Button>
         </div>
       </div>
@@ -179,9 +180,9 @@ export function InvoiceDetailPage() {
   // Odoo-style Draft | Posted state switch in the title bar; paid/cancelled keep a badge.
   const stateSwitch =
     inv.status === 'cancelled' ? (
-      <Badge className="bg-red-100 text-red-700 border-red-200">Cancelled</Badge>
+      <Badge className="bg-red-100 text-red-700 border-red-200">{tx('Cancelled')}</Badge>
     ) : paid ? (
-      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">Paid</Badge>
+      <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200">{tx('Paid')}</Badge>
     ) : (
       <div className="flex overflow-hidden rounded-md border border-white/40 bg-white/10 shadow-sm">
         <span
@@ -189,14 +190,14 @@ export function InvoiceDetailPage() {
             inv.status === 'draft' ? 'bg-white text-sky-700' : 'text-white/80'
           }`}
         >
-          Draft
+          {tx('Draft')}
         </span>
         <span
           className={`px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider ${
             inv.status === 'posted' ? 'bg-white text-sky-700' : 'text-white/80'
           }`}
         >
-          Posted
+          {tx('Posted')}
         </span>
       </div>
     );
@@ -276,7 +277,7 @@ export function InvoiceDetailPage() {
           onClick={() => navigate('/invoices')}
           className="flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900"
         >
-          <ArrowLeft className="h-4 w-4" /> Invoices
+          <ArrowLeft className="h-4 w-4" /> {tx('Invoices')}
         </button>
         <span className="text-sky-300">/</span>
         <span className="font-mono text-sm text-sky-900 font-semibold">{inv.documentNumber}</span>
@@ -285,7 +286,7 @@ export function InvoiceDetailPage() {
       {/* Title bar */}
       <div className="rounded-t-lg bg-gradient-to-r from-sky-400 to-sky-500 px-6 py-3 flex items-center justify-between shadow-sm gap-4">
         <div className="flex items-center gap-3 min-w-0">
-          <h1 className="text-white font-bold text-base tracking-wide whitespace-nowrap">CUSTOMER INVOICE</h1>
+          <h1 className="text-white font-bold text-base tracking-wide whitespace-nowrap">{tx('CUSTOMER INVOICE')}</h1>
           <span className="font-mono text-xs text-white/85 bg-white/15 rounded px-2 py-0.5 truncate">{inv.documentNumber}</span>
           {inv.invoicingJournalName ? (
             <span className="font-mono text-xs text-white/85 bg-white/15 rounded px-2 py-0.5 truncate">({inv.invoicingJournalName})</span>
@@ -293,7 +294,7 @@ export function InvoiceDetailPage() {
           {stateSwitch}
           {isOpenCredit ? (
             <Badge className="bg-amber-100 text-amber-800 border-amber-200 whitespace-nowrap">
-              On account — {money(residual, currency)} due
+              {tx('On account —')} {money(residual, currency)} due
             </Badge>
           ) : null}
         </div>
@@ -315,12 +316,12 @@ export function InvoiceDetailPage() {
               className="bg-white/15 border-white/40 text-white hover:bg-white/25"
               onClick={() => setCancelOpen(true)}
             >
-              Cancel
+              {tx('Cancel')}
             </Button>
           )}
           {canPay && has(PERMISSIONS.payment.create) && (
             <Button size="sm" className="bg-white text-sky-700 hover:bg-sky-50 font-semibold shadow-sm" onClick={openPay}>
-              Register Payment
+              {tx('Register Payment')}
             </Button>
           )}
         </div>
@@ -331,10 +332,10 @@ export function InvoiceDetailPage() {
         {/* Odoo header: customer left, meta right */}
         <div className="grid grid-cols-1 md:grid-cols-2 divide-x divide-sky-100">
           <div className="p-5 bg-sky-50/30">
-            <p className="text-[11px] text-sky-500 font-bold uppercase tracking-wider mb-2">Customer</p>
+            <p className="text-[11px] text-sky-500 font-bold uppercase tracking-wider mb-2">{tx('Customer')}</p>
             <p className="font-bold text-base text-sky-900">{inv.partner?.name ?? '—'}</p>
             {partner?.taxNumber && (
-              <p className="text-xs text-sky-500 mt-0.5">TIN: {partner.taxNumber}</p>
+              <p className="text-xs text-sky-500 mt-0.5">{tx('TIN:')} {partner.taxNumber}</p>
             )}
             {addressLines.length > 0 && (
               <div className="mt-2 text-xs text-sky-700/80 leading-relaxed">
@@ -343,34 +344,34 @@ export function InvoiceDetailPage() {
                 ))}
               </div>
             )}
-            {!addressLines.length && <p className="text-xs text-sky-400 mt-1">Customer</p>}
+            {!addressLines.length && <p className="text-xs text-sky-400 mt-1">{tx('Customer')}</p>}
           </div>
 
           <div className="p-5 bg-sky-50/20">
             <table className="w-full text-sm">
               <tbody className="divide-y divide-sky-100">
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-1.5 w-32 align-top">Invoice Date</th>
+                  <th className="text-left text-sky-600 font-medium py-1.5 w-32 align-top">{tx('Invoice Date')}</th>
                   <td className="text-right text-sky-800 py-1.5 font-semibold">{date(inv.issueDate)}</td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">Payment Terms</th>
+                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">{tx('Payment Terms')}</th>
                   <td className="text-right text-sky-800 py-1.5">{inv.paymentTermName ?? '-'}</td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">Currency</th>
+                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">{tx('Currency')}</th>
                   <td className="text-right text-sky-800 py-1.5 font-semibold">{currency}</td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">Due Date</th>
+                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">{tx('Due Date')}</th>
                   <td className="text-right text-sky-800 py-1.5 font-semibold">{inv.dueDate ? date(inv.dueDate) : '-'}</td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">Source Doc</th>
+                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">{tx('Source Doc')}</th>
                   <td className="text-right text-sky-800 py-1.5">{inv.sourceDocument ?? inv.reference ?? '-'}</td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">Salesperson</th>
+                  <th className="text-left text-sky-600 font-medium py-1.5 align-top">{tx('Salesperson')}</th>
                   <td className="text-right text-sky-800 py-1.5">{inv.salespersonName ?? '-'}</td>
                 </tr>
               </tbody>
@@ -380,11 +381,11 @@ export function InvoiceDetailPage() {
 
         {/* Odoo file tabs */}
         <div className="border-b border-sky-200 px-4 bg-sky-50/40 flex gap-1 overflow-x-auto">
-          <TabBtn active={activeTab === 'lines'} onClick={() => setActiveTab('lines')}>Invoice Lines</TabBtn>
-          <TabBtn active={activeTab === 'journal'} onClick={() => setActiveTab('journal')}>Journal Items</TabBtn>
-          <TabBtn active={activeTab === 'info'} onClick={() => setActiveTab('info')}>Other Info</TabBtn>
+          <TabBtn active={activeTab === 'lines'} onClick={() => setActiveTab('lines')}>{tx('Invoice Lines')}</TabBtn>
+          <TabBtn active={activeTab === 'journal'} onClick={() => setActiveTab('journal')}>{tx('Journal Items')}</TabBtn>
+          <TabBtn active={activeTab === 'info'} onClick={() => setActiveTab('info')}>{tx('Other Info')}</TabBtn>
           <TabBtn active={activeTab === 'payments'} onClick={() => setActiveTab('payments')}>
-            Payments{receiptRows.length ? ` (${receiptRows.length})` : ''}
+            {tx('Payments')}{receiptRows.length ? ` (${receiptRows.length})` : ''}
           </TabBtn>
         </div>
 
@@ -395,20 +396,20 @@ export function InvoiceDetailPage() {
                       <Table>
                         <TableHeader>
                           <TableRow className="bg-sky-50 hover:bg-sky-50">
-                            <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Product</TableHead>
-                            <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Account</TableHead>
-                            <TableHead className="w-20 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Qty</TableHead>
-                            <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Unit Price</TableHead>
-                            <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Tax</TableHead>
-                            <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Discount</TableHead>
-                            <TableHead className="w-32 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Amount</TableHead>
+                            <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Product')}</TableHead>
+                            <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Account')}</TableHead>
+                            <TableHead className="w-20 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Qty')}</TableHead>
+                            <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Unit Price')}</TableHead>
+                            <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Tax')}</TableHead>
+                            <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Discount')}</TableHead>
+                            <TableHead className="w-32 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Amount')}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {inv.lines.length === 0 ? (
                             <TableRow>
                               <TableCell colSpan={7} className="py-10 text-center text-sky-400">
-                                No line items found.
+                                {tx('No line items found.')}
                               </TableCell>
                             </TableRow>
                           ) : inv.lines.map((l) => {
@@ -463,14 +464,14 @@ export function InvoiceDetailPage() {
                     {/* Summary below the items list */}
                                         <div className="border-t border-sky-100 bg-gradient-to-b from-sky-50/60 to-sky-100/30 p-4 mt-4">
                                           <div className="max-w-[400px] ml-auto space-y-2">
-                        <SummaryRow label="Untaxed Amount" value={money(inv.subtotal)} />
+                        <SummaryRow label={tx('Untaxed Amount')} value={money(inv.subtotal)} />
                         {taxGroups.size > 0 ? (
                           [...taxGroups.values()].map(g => (
                             <SummaryRow key={g.label} label={g.label} value={money(g.amount)} />
                           ))
                         ) : (
                           inv.taxAmount && Number(inv.taxAmount) > 0 ? (
-                            <SummaryRow label="Taxes" value={money(inv.taxAmount)} />
+                            <SummaryRow label={tx('Taxes')} value={money(inv.taxAmount)} />
                           ) : null
                         )}
                         {inv.discountTotal && Number(inv.discountTotal) > 0 && (
@@ -482,12 +483,12 @@ export function InvoiceDetailPage() {
                         <div className="border-t-2 border-sky-200 pt-2">
                           <SummaryRow label="TOTAL" value={money(inv.totalAmount)} bold />
                         </div>
-                        <SummaryRow label="Total Paid" value={money(inv.amountPaid)} />
-                        <SummaryRow label="Amount Due" value={money(inv.amountResidual)} bold accent={residual > 0.005} />
+                        <SummaryRow label={tx('Total Paid')} value={money(inv.amountPaid)} />
+                        <SummaryRow label={tx('Amount Due')} value={money(inv.amountResidual)} bold accent={residual > 0.005} />
                       </div>
                       {inv.notes ? (
                         <div className="mt-4 rounded border border-sky-100 bg-white/70 p-3">
-                          <p className="text-[11px] font-bold uppercase tracking-wider text-sky-600 mb-1">Terms & Conditions</p>
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-sky-600 mb-1">{tx('Terms & Conditions')}</p>
                           <p className="text-xs text-sky-800/80 whitespace-pre-wrap">{inv.notes}</p>
                         </div>
                       ) : null}
@@ -500,8 +501,7 @@ export function InvoiceDetailPage() {
           <div className="p-0">
             {!inv.journalEntryId ? (
               <div className="p-10 text-center">
-                <p className="text-sm text-sky-400">No journal entry yet — the invoice posts to the ledger when confirmed.
-                Journal items appear here (Account · Label · Debit · Credit) once the invoice is confirmed.</p>
+                <p className="text-sm text-sky-400">{tx('No journal entry yet — the invoice posts to the ledger when confirmed. Journal items appear here (Account · Label · Debit · Credit) once the invoice is confirmed.')}</p>
               </div>
             ) : entry?.isLoading ? (
               <div className="p-10 text-center">
@@ -512,10 +512,10 @@ export function InvoiceDetailPage() {
                 <TableHeader>
                   <TableRow className="bg-sky-50 hover:bg-sky-50">
                     <TableHead className="w-10 text-sky-700 font-bold text-xs uppercase tracking-wider">#</TableHead>
-                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Account</TableHead>
-                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Label</TableHead>
-                    <TableHead className="w-36 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Debit</TableHead>
-                    <TableHead className="w-36 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Credit</TableHead>
+                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Account')}</TableHead>
+                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Label')}</TableHead>
+                    <TableHead className="w-36 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Debit')}</TableHead>
+                    <TableHead className="w-36 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Credit')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -534,7 +534,7 @@ export function InvoiceDetailPage() {
                     </TableRow>
                   ))}
                   <TableRow className="bg-sky-50/60">
-                    <TableCell colSpan={3} className="text-right text-xs font-bold text-sky-700 uppercase tracking-wider">Totals {balanced ? '· Balanced' : '· NOT Balanced'}</TableCell>
+                    <TableCell colSpan={3} className="text-right text-xs font-bold text-sky-700 uppercase tracking-wider">{tx('Totals')} {balanced ? '· Balanced' : '· NOT Balanced'}</TableCell>
                     <TableCell className="text-right font-bold text-sm text-emerald-700">{money(journalTotalDebit)}</TableCell>
                     <TableCell className="text-right font-bold text-sm text-sky-900">{money(journalTotalCredit)}</TableCell>
                   </TableRow>
@@ -542,7 +542,7 @@ export function InvoiceDetailPage() {
               </Table>
             ) : (
               <div className="p-10 text-center">
-                <p className="text-sm text-sky-400">Journal entry has no lines.</p>
+                <p className="text-sm text-sky-400">{tx('Journal entry has no lines.')}</p>
               </div>
             )}
           </div>
@@ -553,22 +553,22 @@ export function InvoiceDetailPage() {
           <div className="p-5">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2">
               <dl>
-                <InfoCell label="Payment Terms" value={inv.paymentTermName ?? '-'} />
-                <InfoCell label="Fiscal Position" value={inv.fiscalPositionName ?? '-'} />
-                <InfoCell label="Invoicing Journal" value={inv.invoicingJournalName ?? '-'} />
-                <InfoCell label="Payment Method" value={inv.paymentMode ? PAYMENT_MODE_LABELS[inv.paymentMode] ?? inv.paymentMode : '-'} />
+                <InfoCell label={tx('Payment Terms')} value={inv.paymentTermName ?? '-'} />
+                <InfoCell label={tx('Fiscal Position')} value={inv.fiscalPositionName ?? '-'} />
+                <InfoCell label={tx('Invoicing Journal')} value={inv.invoicingJournalName ?? '-'} />
+                <InfoCell label={tx('Payment Method')} value={inv.paymentMode ? PAYMENT_MODE_LABELS[inv.paymentMode] ?? inv.paymentMode : '-'} />
               </dl>
               <dl>
-                <InfoCell label="Salesperson" value={inv.salespersonName ?? '-'} />
-                <InfoCell label="Source Document" value={inv.sourceDocument ?? '-'} />
-                <InfoCell label="Reference" value={inv.reference ?? '-'} />
-                <InfoCell label="Payment Status" value={statusLabel(inv.paymentStatus)} />
+                <InfoCell label={tx('Salesperson')} value={inv.salespersonName ?? '-'} />
+                <InfoCell label={tx('Source Document')} value={inv.sourceDocument ?? '-'} />
+                <InfoCell label={tx('Reference')} value={inv.reference ?? '-'} />
+                <InfoCell label={tx('Payment Status')} value={statusLabel(inv.paymentStatus)} />
               </dl>
               <dl>
-                <InfoCell label="Delivery Date" value={inv.deliveryDate ? date(inv.deliveryDate) : '-'} />
-                <InfoCell label="Delivery Address" value={inv.deliveryAddress ?? '-'} />
+                <InfoCell label={tx('Delivery Date')} value={inv.deliveryDate ? date(inv.deliveryDate) : '-'} />
+                <InfoCell label={tx('Delivery Address')} value={inv.deliveryAddress ?? '-'} />
                 <InfoCell
-                  label="Incoterm"
+                  label={tx('Incoterm')}
                   value={inv.incoterm ? `${inv.incoterm}${inv.incotermLocation ? ' · ' + inv.incotermLocation : ''}` : '-'}
                 />
               </dl>
@@ -580,16 +580,16 @@ export function InvoiceDetailPage() {
         {activeTab === 'payments' && (
           <div>
             {receiptRows.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-sky-400">No payments recorded for this invoice.</div>
+              <div className="px-4 py-6 text-sm text-sky-400">{tx('No payments recorded for this invoice.')}</div>
             ) : (
               <Table>
                 <TableHeader>
                   <TableRow className="bg-sky-50/60 hover:bg-sky-50/60">
-                    <TableHead className="w-16 text-sky-700 font-bold text-xs uppercase tracking-wider">Sr.</TableHead>
-                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Date</TableHead>
-                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Method</TableHead>
-                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Ref.</TableHead>
-                    <TableHead className="w-36 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Amount</TableHead>
+                    <TableHead className="w-16 text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Sr.')}</TableHead>
+                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Date')}</TableHead>
+                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Method')}</TableHead>
+                    <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Ref.')}</TableHead>
+                    <TableHead className="w-36 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Amount')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -607,8 +607,8 @@ export function InvoiceDetailPage() {
             )}
             <div className="border-t border-sky-100 bg-gradient-to-r from-sky-50/60 to-sky-100/40 px-4 py-3 flex justify-end">
               <div className="w-80 space-y-2">
-                <SummaryRow label="Total Paid" value={money(inv.amountPaid)} />
-                <SummaryRow label="Amount Due" value={money(inv.amountResidual)} bold accent={residual > 0.005} />
+                <SummaryRow label={tx('Total Paid')} value={money(inv.amountPaid)} />
+                <SummaryRow label={tx('Amount Due')} value={money(inv.amountResidual)} bold accent={residual > 0.005} />
               </div>
             </div>
           </div>
@@ -621,15 +621,14 @@ export function InvoiceDetailPage() {
         <Dialog open={payOpen} onOpenChange={setPayOpen}>
           <DialogContent className="border-sky-100">
             <DialogHeader className="border-b border-sky-100 pb-3">
-              <DialogTitle className="text-sky-900">Register Payment</DialogTitle>
+              <DialogTitle className="text-sky-900">{tx('Register Payment')}</DialogTitle>
               <DialogDescription className="text-sky-600">
-                Record a payment against {inv.documentNumber}. {money(residual, currency)} is still due —
-                pay it in full or part of it now.
+                {tx('Record a payment against')} {inv.documentNumber}. {money(residual, currency)} {tx('is still due — pay it in full or part of it now.')}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={submitPayment} className="space-y-4 pt-2">
               <div className="space-y-2">
-                <Label htmlFor="amount" className="text-sky-800">Amount</Label>
+                <Label htmlFor="amount" className="text-sky-800">{tx('Amount')}</Label>
                 <Input
                   id="amount"
                   type="number"
@@ -645,32 +644,32 @@ export function InvoiceDetailPage() {
                     className="rounded bg-sky-100 px-2 py-0.5 font-semibold text-sky-700 hover:bg-sky-200"
                     onClick={() => setAmount(inv.amountResidual)}
                   >
-                    Pay full {money(residual, currency)}
+                    {tx('Pay full')} {money(residual, currency)}
                   </button>
                   {Number(amount) > 0 && Number(amount) < residual - 0.01 ? (
                     <span className="text-amber-600 font-medium">
-                      {money(residual - Number(amount), currency)} will stay outstanding
+                      {money(residual - Number(amount), currency)} {tx('will stay outstanding')}
                     </span>
                   ) : null}
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="method" className="text-sky-800">Method</Label>
+                <Label htmlFor="method" className="text-sky-800">{tx('Method')}</Label>
                 <select id="method" className={selectClass + ' border-sky-200'} value={method} onChange={(e) => setMethod(e.target.value)}>
-                  <option value="cash">Cash</option>
-                  <option value="bank">Bank</option>
-                  <option value="mobile_money">Mobile Money</option>
-                  <option value="card">Card</option>
+                  <option value="cash">{tx('Cash')}</option>
+                  <option value="bank">{tx('Bank')}</option>
+                  <option value="mobile_money">{tx('Mobile Money')}</option>
+                  <option value="card">{tx('Card')}</option>
                 </select>
               </div>
               {isPosInvoice && method !== 'cash' ? (
                 <div className="space-y-2">
-                  <Label htmlFor="pay-reference" className="text-sky-800">Reference (optional)</Label>
+                  <Label htmlFor="pay-reference" className="text-sky-800">{tx('Reference (optional)')}</Label>
                   <Input
                     id="pay-reference"
                     value={reference}
                     onChange={(e) => setReference(e.target.value)}
-                    placeholder="e.g. MTN-12345"
+                    placeholder={tx('e.g. MTN-12345')}
                     className="border-sky-200 font-mono focus-visible:ring-sky-400"
                   />
                 </div>
@@ -694,13 +693,13 @@ export function InvoiceDetailPage() {
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent className="border-sky-100 max-w-md">
           <DialogHeader className="border-b border-sky-100 pb-3">
-            <DialogTitle className="text-sky-900">Cancel Invoice</DialogTitle>
+            <DialogTitle className="text-sky-900">{tx('Cancel Invoice')}</DialogTitle>
             <DialogDescription className="text-sky-600">
-              This will cancel {inv.documentNumber} and prevent further changes or payments.
+              {tx('This will cancel')} {inv.documentNumber} {tx('and prevent further changes or payments.')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelOpen(false)}>Keep</Button>
+            <Button variant="outline" onClick={() => setCancelOpen(false)}>{tx('Keep')}</Button>
             <Button
               className="bg-red-600 hover:bg-red-700 text-white"
               disabled={cancelInvoice.isPending}

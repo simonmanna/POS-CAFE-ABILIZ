@@ -26,6 +26,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { money, date } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { useJournalEntry, useReverseJournalEntry } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   posted: 'default',
@@ -78,7 +79,7 @@ export function JournalEntryDetailPage() {
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         <div className="text-center">
           <ScrollText className="h-12 w-12 opacity-30 mx-auto mb-2" />
-          <p className="font-semibold">Journal entry not found</p>
+          <p className="font-semibold">{tx('Journal entry not found')}</p>
         </div>
       </div>
     );
@@ -103,7 +104,7 @@ export function JournalEntryDetailPage() {
       {/* Breadcrumb + Header */}
       <div className="px-6 py-4 border-b bg-white shadow-sm">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3">
-          <button onClick={() => navigate('/journal-entries')} className="hover:text-primary transition-colors font-medium">Journal Entries</button>
+          <button onClick={() => navigate('/journal-entries')} className="hover:text-primary transition-colors font-medium">{tx('Journal Entries')}</button>
           <ChevronRight className="h-3 w-3" />
           <span className="font-semibold">{entry.entryNumber}</span>
         </div>
@@ -118,7 +119,7 @@ export function JournalEntryDetailPage() {
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-lg font-bold">{entry.entryNumber}</h1>
                 <Badge variant={statusVariant[entry.status] ?? 'secondary'} className="text-xs font-semibold">{entry.status.toUpperCase()}</Badge>
-                {!balanced && <Badge variant="destructive" className="text-[10px]">UNBALANCED</Badge>}
+                {!balanced && <Badge variant="destructive" className="text-[10px]">{tx('UNBALANCED')}</Badge>}
               </div>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {entry.journal?.name} ({entry.journal?.code}) · {date(entry.postingDate)}
@@ -129,7 +130,7 @@ export function JournalEntryDetailPage() {
 
           <div className="flex items-center gap-2 flex-shrink-0">
             <Button variant="outline" size="sm" onClick={() => navigate('/journal-entries')}>
-              Back to List
+              {tx('Back to List')}
             </Button>
             {entry.status === 'posted' && has(PERMISSIONS.journalEntry.reverse) && (
               <Button variant="outline" size="sm" className="border-amber-300 text-amber-700 hover:bg-amber-50 gap-1.5" onClick={() => setReverseConfirm(true)} disabled={reverse.isPending}>
@@ -147,7 +148,7 @@ export function JournalEntryDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Card>
             <CardHeader className="pb-2 pt-3 px-4 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Journal</CardTitle>
+              <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Journal')}</CardTitle>
             </CardHeader>
             <CardContent className="px-4 py-3">
               <div className="flex items-center gap-2">
@@ -159,23 +160,23 @@ export function JournalEntryDetailPage() {
 
           <Card>
             <CardHeader className="pb-2 pt-3 px-4 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Posting Date</CardTitle>
+              <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Posting Date')}</CardTitle>
             </CardHeader>
             <CardContent className="px-4 py-3">
               <p className="text-sm font-semibold">{date(entry.postingDate)}</p>
               {entry.postedAt && (
-                <p className="text-[10px] text-muted-foreground mt-0.5">Posted {date(entry.postedAt)}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{tx('Posted')} {date(entry.postedAt)}</p>
               )}
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader className="pb-2 pt-3 px-4 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Lines / Balance</CardTitle>
+              <CardTitle className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Lines / Balance')}</CardTitle>
             </CardHeader>
             <CardContent className="px-4 py-3">
               <div className="flex items-center gap-3">
-                <span className="text-sm font-semibold">{entry.lines.length} lines</span>
+                <span className="text-sm font-semibold">{entry.lines.length} {tx('lines')}</span>
                 <Separator orientation="vertical" className="h-4" />
                 <span className={`text-sm font-semibold ${balanced ? 'text-emerald-600' : 'text-destructive'}`}>
                   {balanced ? 'Balanced ✓' : 'Unbalanced'}
@@ -188,16 +189,16 @@ export function JournalEntryDetailPage() {
         {/* Details Card */}
         <Card>
           <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Entry Details</CardTitle>
+            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Entry Details')}</CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-4">
             <dl className="divide-y">
-              <InfoRow label="Description" value={entry.description ?? <span className="italic text-muted-foreground">No description</span>} />
-              <InfoRow label="Status" value={<Badge variant={statusVariant[entry.status] ?? 'secondary'} className="text-xs">{entry.status}</Badge>} />
-              {entry.postedBy && <InfoRow label="Posted By" value={entry.postedBy} />}
-              {entry.createdBy && <InfoRow label="Created By" value={entry.createdBy} />}
+              <InfoRow label={tx('Description')} value={entry.description ?? <span className="italic text-muted-foreground">{tx('No description')}</span>} />
+              <InfoRow label={tx('Status')} value={<Badge variant={statusVariant[entry.status] ?? 'secondary'} className="text-xs">{entry.status}</Badge>} />
+              {entry.postedBy && <InfoRow label={tx('Posted By')} value={entry.postedBy} />}
+              {entry.createdBy && <InfoRow label={tx('Created By')} value={entry.createdBy} />}
               {sourceLink && (
-                <InfoRow label="Source" value={
+                <InfoRow label={tx('Source')} value={
                   <a href={sourceLink.path} className="text-primary hover:underline font-medium text-sm flex items-center gap-1">
                     <FileText className="h-3.5 w-3.5" />
                     {sourceLink.label} <ExternalLink className="h-3 w-3" />
@@ -205,16 +206,16 @@ export function JournalEntryDetailPage() {
                 } />
               )}
               {entry.reversalOfId && (
-                <InfoRow label="Reversal of" value={
+                <InfoRow label={tx('Reversal of')} value={
                   <button onClick={() => navigate(`/journal-entries/${entry.reversalOfId}`)} className="text-primary hover:underline font-medium text-sm flex items-center gap-1">
-                    Original entry <ExternalLink className="h-3 w-3" />
+                    {tx('Original entry')} <ExternalLink className="h-3 w-3" />
                   </button>
                 } />
               )}
               {entry.reversedEntryId && (
-                <InfoRow label="Reversed by" value={
+                <InfoRow label={tx('Reversed by')} value={
                   <button onClick={() => navigate(`/journal-entries/${entry.reversedEntryId}`)} className="text-primary hover:underline font-medium text-sm flex items-center gap-1">
-                    Reversal entry <ExternalLink className="h-3 w-3" />
+                    {tx('Reversal entry')} <ExternalLink className="h-3 w-3" />
                   </button>
                 } />
               )}
@@ -225,9 +226,9 @@ export function JournalEntryDetailPage() {
         {/* Lines Table */}
         <Card>
           <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg flex-row items-center justify-between">
-            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Account Lines</CardTitle>
+            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Account Lines')}</CardTitle>
             <p className="text-[10px] font-medium text-muted-foreground">
-              Dr {money(totalDebit)} / Cr {money(totalCredit)} {balanced ? '✓' : '✗'}
+              {tx('Dr')} {money(totalDebit)} / Cr {money(totalCredit)} {balanced ? '✓' : '✗'}
             </p>
           </CardHeader>
           <CardContent className="p-0">
@@ -235,10 +236,10 @@ export function JournalEntryDetailPage() {
               <TableHeader>
                 <TableRow className="bg-muted/30">
                   <TableHead className="text-xs font-bold text-muted-foreground uppercase w-12">#</TableHead>
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase">Account</TableHead>
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase">Description</TableHead>
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">Debit</TableHead>
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">Credit</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Account')}</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Description')}</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">{tx('Debit')}</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">{tx('Credit')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -257,7 +258,7 @@ export function JournalEntryDetailPage() {
                   </TableRow>
                 ))}
                 <TableRow className="font-bold bg-muted/10 border-t-2">
-                  <TableCell colSpan={3} className="text-sm">Total</TableCell>
+                  <TableCell colSpan={3} className="text-sm">{tx('Total')}</TableCell>
                   <TableCell className="text-right text-sm text-emerald-600">{money(totalDebit)}</TableCell>
                   <TableCell className="text-right text-sm">{money(totalCredit)}</TableCell>
                 </TableRow>
@@ -271,14 +272,13 @@ export function JournalEntryDetailPage() {
       <Dialog open={reverseConfirm} onOpenChange={(o) => !o && setReverseConfirm(false)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Reverse Journal Entry?</DialogTitle>
+            <DialogTitle>{tx('Reverse Journal Entry?')}</DialogTitle>
             <DialogDescription>
-              This will create a new journal entry with debits and credits swapped,
-              fully reversing {entry.entryNumber}. The original remains unchanged for audit.
+              {tx('This will create a new journal entry with debits and credits swapped, fully reversing')} {entry.entryNumber}{tx('. The original remains unchanged for audit.')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReverseConfirm(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setReverseConfirm(false)}>{tx('Cancel')}</Button>
             <Button variant="destructive" onClick={onReverse} disabled={reverse.isPending}>
               {reverse.isPending ? 'Reversing…' : 'Confirm Reversal'}
             </Button>

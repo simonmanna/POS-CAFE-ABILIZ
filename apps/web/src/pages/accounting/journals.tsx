@@ -18,6 +18,7 @@ import {
 import { useAuthStore } from '@/stores/auth.store';
 import { useJournals, useDeleteJournal, type Journal } from '@/features/accounting/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 const TYPE_COLORS: Record<string, string> = {
   general: 'bg-slate-100 text-slate-700',
@@ -44,7 +45,7 @@ export function JournalsPage() {
     if (!deleting) return;
     try {
       await deleteJournal.mutateAsync(deleting.id);
-      notify.success('Journal deleted');
+      notify.success(tx('Journal deleted'));
       setDeleting(null);
     } catch (err: any) {
       notify.error(err?.response?.data?.message ?? 'Delete failed');
@@ -81,8 +82,8 @@ export function JournalsPage() {
       header: 'Status',
       render: (j) => (
         j.isActive
-          ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Active</Badge>
-          : <Badge variant="secondary" className="text-xs">Inactive</Badge>
+          ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">{tx('Active')}</Badge>
+          : <Badge variant="secondary" className="text-xs">{tx('Inactive')}</Badge>
       ),
     },
     {
@@ -90,16 +91,16 @@ export function JournalsPage() {
       header: '',
       render: (j: Journal) => (
         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
-          <Button size="sm" variant="ghost" onClick={() => navigate(`/journals/${j.id}`)} title="View">
+          <Button size="sm" variant="ghost" onClick={() => navigate(`/journals/${j.id}`)} title={tx('View')}>
             <Eye className="h-4 w-4 text-primary/70" />
           </Button>
           {canEdit && (
-            <Button size="sm" variant="ghost" onClick={() => navigate(`/journals/${j.id}/edit`)} title="Edit">
+            <Button size="sm" variant="ghost" onClick={() => navigate(`/journals/${j.id}/edit`)} title={tx('Edit')}>
               <Edit className="h-4 w-4" />
             </Button>
           )}
           {canDelete && j._count?.entries === 0 && (
-            <Button size="sm" variant="ghost" onClick={() => setDeleting(j)} title="Delete">
+            <Button size="sm" variant="ghost" onClick={() => setDeleting(j)} title={tx('Delete')}>
               <Trash2 className="h-4 w-4 text-destructive/70" />
             </Button>
           )}
@@ -112,12 +113,12 @@ export function JournalsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Journals</h1>
-          <p className="text-sm text-gray-500">Books of original entry — sales, purchases, cash, bank, general and adjustments.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Journals')}</h1>
+          <p className="text-sm text-gray-500">{tx('Books of original entry — sales, purchases, cash, bank, general and adjustments.')}</p>
         </div>
         {canCreate && (
           <Button onClick={() => navigate('/journals/new')}>
-            <Plus className="h-4 w-4" /> New Journal
+            <Plus className="h-4 w-4" /> {tx('New Journal')}
           </Button>
         )}
       </div>
@@ -127,14 +128,14 @@ export function JournalsPage() {
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Journal?</AlertDialogTitle>
+            <AlertDialogTitle>{tx('Delete Journal?')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {deleting?.name} ({deleting?.code}) will be permanently deleted. This cannot be undone.
+              {deleting?.name} ({deleting?.code}{tx(') will be permanently deleted. This cannot be undone.')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+            <AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">{tx('Delete')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { money } from '@/lib/format';
 import { useAccounts, useJournals, useCreateJournalEntry } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -84,7 +85,7 @@ export function JournalEntryCreatePage() {
   return (
     <form onSubmit={onSubmit} className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">New Journal Entry</h1>
+        <h1 className="text-2xl font-semibold">{tx('New Journal Entry')}</h1>
         <div className="flex items-center gap-3">
           <Badge variant={balanced ? 'default' : 'secondary'}>
             {balanced ? 'Balanced' : `Diff ${money(diff)}`}
@@ -99,13 +100,13 @@ export function JournalEntryCreatePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Header</CardTitle>
+          <CardTitle className="text-base">{tx('Header')}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
-            <Label>Journal</Label>
+            <Label>{tx('Journal')}</Label>
             <select className={selectClass} {...register('journalCode', { required: true })}>
-              <option value="">Select journal</option>
+              <option value="">{tx('Select journal')}</option>
               {(journals.data?.data ?? []).map((j) => (
                 <option key={j.id} value={j.code}>
                   {j.code} — {j.name}
@@ -114,11 +115,11 @@ export function JournalEntryCreatePage() {
             </select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="date">Date</Label>
+            <Label htmlFor="date">{tx('Date')}</Label>
             <Input id="date" type="date" {...register('date', { required: true })} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
+            <Label htmlFor="description">{tx('Description')}</Label>
             <Input id="description" {...register('description')} />
           </div>
         </CardContent>
@@ -126,18 +127,18 @@ export function JournalEntryCreatePage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">Lines</CardTitle>
+          <CardTitle className="text-base">{tx('Lines')}</CardTitle>
           <Button type="button" variant="outline" size="sm" onClick={() => append({ accountId: '' })}>
-            <Plus className="h-4 w-4" /> Add line
+            <Plus className="h-4 w-4" /> {tx('Add line')}
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
           {fields.map((field, index) => (
             <div key={field.id} className="grid grid-cols-12 items-end gap-2">
               <div className="col-span-5">
-                <Label className="text-xs">Account</Label>
+                <Label className="text-xs">{tx('Account')}</Label>
                 <select className={selectClass} {...register(`lines.${index}.accountId`)}>
-                  <option value="">Select account</option>
+                  <option value="">{tx('Select account')}</option>
                   {postable.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.code} — {a.name}
@@ -146,15 +147,15 @@ export function JournalEntryCreatePage() {
                 </select>
               </div>
               <div className="col-span-3">
-                <Label className="text-xs">Description</Label>
+                <Label className="text-xs">{tx('Description')}</Label>
                 <Input {...register(`lines.${index}.description`)} />
               </div>
               <div className="col-span-1">
-                <Label className="text-xs">Debit</Label>
+                <Label className="text-xs">{tx('Debit')}</Label>
                 <Input type="number" step="any" {...register(`lines.${index}.debit`, { valueAsNumber: true })} />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs">Credit</Label>
+                <Label className="text-xs">{tx('Credit')}</Label>
                 <Input type="number" step="any" {...register(`lines.${index}.credit`, { valueAsNumber: true })} />
               </div>
               <div className="col-span-1">
@@ -173,11 +174,11 @@ export function JournalEntryCreatePage() {
 
           <div className="flex justify-end gap-8 border-t pt-3 text-sm">
             <div className="flex gap-2">
-              <span className="text-muted-foreground">Total debit</span>
+              <span className="text-muted-foreground">{tx('Total debit')}</span>
               <span className="w-24 text-right font-medium">{money(totalDebit)}</span>
             </div>
             <div className="flex gap-2">
-              <span className="text-muted-foreground">Total credit</span>
+              <span className="text-muted-foreground">{tx('Total credit')}</span>
               <span className="w-24 text-right font-medium">{money(totalCredit)}</span>
             </div>
           </div>

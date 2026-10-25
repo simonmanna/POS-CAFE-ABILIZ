@@ -6,6 +6,7 @@ import { Coffee, X, Check, ArrowLeft } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { AccompanimentGroupFE } from './pos-features-api';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -103,7 +104,7 @@ export const AccompanimentPicker: React.FC<Props> = ({ open, productName, groups
             <StepDots current={1} total={3} />
           </div>
           <DialogDescription>
-            <span className="text-amber-600 font-semibold text-xs uppercase tracking-wide">Step 2 of 3</span> — Choose sides & extras
+            <span className="text-amber-600 font-semibold text-xs uppercase tracking-wide">{tx('Step 2 of 3')}</span> {tx('— Choose sides & extras')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
@@ -155,7 +156,7 @@ export const AccompanimentPicker: React.FC<Props> = ({ open, productName, groups
           })}
           {totalImpact !== 0 && (
             <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2 flex items-center justify-between">
-              <span className="text-sm font-semibold text-emerald-900">+ Accompaniments</span>
+              <span className="text-sm font-semibold text-emerald-900">{tx('+ Accompaniments')}</span>
               <span className="font-mono font-bold text-emerald-900">+{fmt(totalImpact)}</span>
             </div>
           )}
@@ -164,13 +165,13 @@ export const AccompanimentPicker: React.FC<Props> = ({ open, productName, groups
           <div className="flex gap-2">
             {onBack && (
               <Button variant="ghost" onClick={onBack}>
-                <ArrowLeft className="h-4 w-4 mr-1" /> Back
+                <ArrowLeft className="h-4 w-4 mr-1" /> {tx('Back')}
               </Button>
             )}
-            <Button variant="ghost" onClick={onClose}><X className="h-4 w-4 mr-1" /> Cancel</Button>
+            <Button variant="ghost" onClick={onClose}><X className="h-4 w-4 mr-1" /> {tx('Cancel')}</Button>
           </div>
           <Button onClick={handleConfirm} disabled={!valid} style={{ background: '#16a34a' }}>
-            <Check className="h-4 w-4 mr-1" /> Continue
+            <Check className="h-4 w-4 mr-1" /> {tx('Continue')}
           </Button>
         </DialogFooter>
       </DialogContent>

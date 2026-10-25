@@ -1,0 +1,159 @@
+# Public DEMO stack — throwaway data, published admin/admin login, every
+# optional module switched on. Never point this at a database holding real data.
+#
+# Runs beside other stacks on a shared host, so:
+#   * services are prefixed `pd-` — a reverse proxy attached to the edge network
+#     must not see a second `api` / `web` alias next to its own upstreams;
+#   * only pd-web is published (loopback unless WEB_BIND is set); a host
+#     reverse proxy can instead reach it over the `pos-demo-edge` network
+#     (see Caddyfile.snippet).
+#
+#   ./demo.sh up          (lifecycle: up / update / reset / activity)
+name: pos-demo
+
+x-build-context: &ctx
+  context: ../..
+
+services:
+  pd-db:
+    image: postgres:16-alpine
+    container_name: pd-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cafe-pos
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: cafe-pos
+    command: ["postgres", "-c", "max_locks_per_transaction=1024"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cafe-pos -d cafe-pos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    mem_limit: 768m
+    networks: [internal]
+
+  pd-redis:
+    image: redis:7-alpine
+    container_name: pd-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    mem_limit: 128m
+    networks: [internal]
+
+  # One-shot: migrate + seed. Built from the Dockerfile's `build` stage because
+  # the seed is TypeScript that imports from src/, which the runtime image drops.
+  #   docker compose --profile init run --rm pd-init
+  pd-init:
+    image: pos-demo/init:latest
+    build:
+      <<: *ctx
+      dockerfile: infra/docker/Dockerfile.api
+      target: build
+    profiles: ["init"]
+    depends_on:
+      pd-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://cafe-pos:${POSTGRES_PASSWORD}@pd-db:5432/cafe-pos?schema=public
+      SEED_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-admin}
+    command: ["sh", "-c", "pnpm --filter @erp/api db:deploy && pnpm --filter @erp/api db:seed"]
+    networks: [internal]
+
+  pd-api:
+    image: pos-demo/api:latest
+    build:
+      <<: *ctx
+      dockerfile: infra/docker/Dockerfile.api
+    container_name: pd-api
+    restart: unless-stopped
+    depends_on:
+      pd-db:
+        condition: service_healthy
+      pd-redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://cafe-pos:${POSTGRES_PASSWORD}@pd-db:5432/cafe-pos?schema=public
+      RLS_ALLOW_SUPERUSER: "true"
+      REDIS_URL: redis://pd-redis:6379
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?set JWT_ACCESS_SECRET in .env}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?set JWT_REFRESH_SECRET in .env}
+      JWT_POS_SECRET: ${JWT_POS_SECRET:?set JWT_POS_SECRET in .env}
+      METRICS_TOKEN: ${METRICS_TOKEN:?set METRICS_TOKEN in .env}
+      JWT_ACCESS_TTL: 15m
+      JWT_REFRESH_TTL: 7d
+      NODE_ENV: production
+      PORT: 3000
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS in .env (the demo's public origin)}
+      LOG_LEVEL: info
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_DIR: /app/var/uploads
+      BODY_LIMIT: 5mb
+      SMTP_FROM: no-reply@cafe-pos.local
+      FISCAL_PROVIDER: none
+      # Manual backups work from Settings -> Backup; the scheduler stays off.
+      PG_BIN: /usr/bin
+      BACKUP_DIR: /app/var/backups
+      BACKUP_CRON_ENABLED: "false"
+      # Every optional module on. WhatsApp / Telegram stay off: they need real
+      # provider credentials (and COMM_ENCRYPTION_KEY) to boot.
+      ENABLE_BEVERAGE: "true"
+      ENABLE_ASSETS: "true"
+      ENABLE_TASKS: "true"
+      ENABLE_MANUFACTURING: "true"
+      ENABLE_RENTAL: "true"
+      ENABLE_REPAIR: "true"
+      ENABLE_HR: "true"
+      ENABLE_ORDERS: "true"
+      ENABLE_COMMUNICATION: "true"
+      ENABLE_COMMUNICATION_WHATSAPP: "false"
+      ENABLE_COMMUNICATION_TELEGRAM: "false"
+    volumes:
+      - uploads:/app/var/uploads
+      - backups:/app/var/backups
+    mem_limit: 1536m
+    networks:
+      internal:
+        # nginx in pd-web proxies /api to `api:3000` (infra/docker/nginx.conf).
+        aliases: [api]
+
+  pd-web:
+    image: pos-demo/web:latest
+    build:
+      <<: *ctx
+      dockerfile: infra/docker/Dockerfile.web
+      args:
+        VITE_API_URL: ""
+        VITE_DEMO_MODE: "true"
+        VITE_ENABLE_BEVERAGE: "true"
+        VITE_ENABLE_TASKS: "true"
+        VITE_ENABLE_MANUFACTURING: "true"
+        VITE_ENABLE_HR: "true"
+        VITE_ENABLE_ORDERS: "true"
+    container_name: pd-web
+    restart: unless-stopped
+    depends_on:
+      - pd-api
+    # Loopback by default (smoke checks; public traffic then comes in through
+    # the host's reverse proxy over the edge network). WEB_BIND=0.0.0.0 serves
+    # the demo straight from http://<host ip>:<WEB_PORT> — plain http, and a
+    # Docker-published port is not filtered by ufw.
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8091}:80"
+    mem_limit: 128m
+    networks: [internal, edge]
+
+networks:
+  internal:
+  edge:
+    name: pos-demo-edge
+
+volumes:
+  pgdata:
+  uploads:
+  backups:

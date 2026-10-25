@@ -9,6 +9,7 @@ import { AnalysisReport } from './inventory-reports/AnalysisReport';
 import { ExpiringReport, NegativeStockReport, ReorderReport } from './inventory-reports/ExceptionReports';
 import { StockHealthReport } from './inventory-reports/StockHealthReport';
 import { RegisterReport, type RegisterKind } from './inventory-reports/RegisterReport';
+import { tx } from '@/lib/i18n/tx';
 
 const REGISTER_TABS: RegisterKind[] = ['stock_in', 'stock_out', 'damages', 'adjustments', 'transfers'];
 
@@ -37,11 +38,11 @@ export function InventoryReportsPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-semibold">Inventory Reports</h1>
+          <h1 className="text-2xl font-semibold">{tx('Inventory Reports')}</h1>
           <p className="text-sm text-muted-foreground">{current.description}</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => qc.invalidateQueries({ queryKey: ['inventory-report'] })}>
-          <RefreshCw className="mr-2 h-3 w-3" />Refresh
+          <RefreshCw className="mr-2 h-3 w-3" />{tx('Refresh')}
         </Button>
       </div>
 

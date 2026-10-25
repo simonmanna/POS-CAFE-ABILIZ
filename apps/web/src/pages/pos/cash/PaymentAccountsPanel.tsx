@@ -21,6 +21,7 @@ import { usePaymentAccounts } from '@/features/pos/payment-accounts';
 import { useSessionReconciliation, type ReconAccount } from '@/features/pos/session-reconciliation';
 import { useAuthStore } from '@/stores/auth.store';
 import type { CashSession } from '../types';
+import { tx } from '@/lib/i18n/tx';
 
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 const num = (v: unknown) => {
@@ -164,19 +165,18 @@ export const PaymentAccountsPanel: React.FC<Props> = ({ session, registerId }) =
             Payment accounts &amp; shift balances
           </h3>
           <p className="text-xs text-slate-500">
-            Every account from Accounting → Cash Accounts. A ✓ means the POS can receive into it when a receipt is
-            registered at the selling screen.
+            {tx('Every account from Accounting → Cash Accounts. A ✓ means the POS can receive into it when a receipt is registered at the selling screen.')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
-            {posCount} of {rows.length} accepted in POS
+            {posCount} of {rows.length} {tx('accepted in POS')}
           </span>
           <Link
             to="/settings/payment-methods"
             className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
           >
-            Payment methods
+            {tx('Payment methods')}
           </Link>
         </div>
       </div>
@@ -185,26 +185,26 @@ export const PaymentAccountsPanel: React.FC<Props> = ({ session, registerId }) =
       {session ? (
         <div className="grid gap-3 border-b border-slate-100 p-4 sm:grid-cols-2 xl:grid-cols-4">
           <Tile
-            label="Opening float"
+            label={tx('Opening float')}
             value={`${orgCur()} ${money(session.openingFloat)}`}
             sub={`Open since ${session.openedAt ? new Date(session.openedAt).toLocaleTimeString() : '—'}`}
             icon={<span className="text-lg leading-none">💵</span>}
           />
           <Tile
-            label="Total sales"
+            label={tx('Total sales')}
             value={`${orgCur()} ${money(salesTotal)}`}
             sub={`${num(totals?.saleCount)} transactions · ${orgCur()} ${money(tenderTotal)} tendered`}
             icon={<span className="text-lg leading-none">🧾</span>}
           />
           <Tile
-            label="Cash sales"
+            label={tx('Cash sales')}
             value={`${orgCur()} ${money(cashSales)}`}
             sub={pct(cashSales)}
             tone="emerald"
             icon={<span className="text-lg leading-none">🟢</span>}
           />
           <Tile
-            label="Non-cash sales"
+            label={tx('Non-cash sales')}
             value={`${orgCur()} ${money(nonCashSales)}`}
             sub={pct(nonCashSales)}
             tone="blue"
@@ -218,32 +218,32 @@ export const PaymentAccountsPanel: React.FC<Props> = ({ session, registerId }) =
         <table className="w-full min-w-[880px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-              <th className="px-4 py-2 text-left font-bold">Account</th>
-              <th className="px-3 py-2 text-left font-bold">Type</th>
+              <th className="px-4 py-2 text-left font-bold">{tx('Account')}</th>
+              <th className="px-3 py-2 text-left font-bold">{tx('Type')}</th>
               <th
                 className="px-3 py-2 text-center font-bold"
-                title="Selectable as a tender in the POS selling interface"
+                title={tx('Selectable as a tender in the POS selling interface')}
               >
-                POS receiving
+                {tx('POS receiving')}
               </th>
-              <th className="px-3 py-2 text-right font-bold">Opening ({orgCur()})</th>
-              <th className="px-3 py-2 text-right font-bold">Received ({orgCur()})</th>
-              <th className="px-3 py-2 text-right font-bold">Refunds ({orgCur()})</th>
-              <th className="px-3 py-2 text-right font-bold">Expected ({orgCur()})</th>
-              <th className="px-3 py-2 text-right font-bold">Ledger balance</th>
+              <th className="px-3 py-2 text-right font-bold">{tx('Opening (')}{orgCur()})</th>
+              <th className="px-3 py-2 text-right font-bold">{tx('Received (')}{orgCur()})</th>
+              <th className="px-3 py-2 text-right font-bold">{tx('Refunds (')}{orgCur()})</th>
+              <th className="px-3 py-2 text-right font-bold">{tx('Expected (')}{orgCur()})</th>
+              <th className="px-3 py-2 text-right font-bold">{tx('Ledger balance')}</th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
                 <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
-                  Loading accounts…
+                  {tx('Loading accounts…')}
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
-                  No cash accounts yet. Create them under Accounting → Cash Accounts.
+                  {tx('No cash accounts yet. Create them under Accounting → Cash Accounts.')}
                 </td>
               </tr>
             ) : (
@@ -262,7 +262,7 @@ export const PaymentAccountsPanel: React.FC<Props> = ({ session, registerId }) =
                           <p className="font-mono text-[11px] text-slate-400">
                             {row.acc.code}
                             {row.isDrawer ? (
-                              <span className="ml-1 font-sans font-bold text-emerald-700">· this drawer</span>
+                              <span className="ml-1 font-sans font-bold text-emerald-700">{tx('· this drawer')}</span>
                             ) : null}
                           </p>
                         </div>
@@ -277,16 +277,16 @@ export const PaymentAccountsPanel: React.FC<Props> = ({ session, registerId }) =
                       {row.inPos ? (
                         <span
                           className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-200"
-                          title="Accepted: a cashier can settle a receipt into this account"
+                          title={tx('Accepted: a cashier can settle a receipt into this account')}
                         >
-                          <Check className="h-3 w-3" /> Accepted
+                          <Check className="h-3 w-3" /> {tx('Accepted')}
                         </span>
                       ) : (
                         <span
                           className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500"
-                          title="Not offered as a tender at the POS selling screen"
+                          title={tx('Not offered as a tender at the POS selling screen')}
                         >
-                          <Minus className="h-3 w-3" /> Not in POS
+                          <Minus className="h-3 w-3" /> {tx('Not in POS')}
                         </span>
                       )}
                     </td>
@@ -295,7 +295,7 @@ export const PaymentAccountsPanel: React.FC<Props> = ({ session, registerId }) =
                         row.openingKnown ? (
                           money(row.opening)
                         ) : (
-                          <span className="text-slate-300">not recorded</span>
+                          <span className="text-slate-300">{tx('not recorded')}</span>
                         )
                       ) : (
                         <span className="text-slate-300">—</span>
@@ -317,11 +317,11 @@ export const PaymentAccountsPanel: React.FC<Props> = ({ session, registerId }) =
                       {session && (row.touched || row.openingKnown) ? (
                         money(row.expected)
                       ) : (
-                        <span className="font-normal text-slate-300">no activity</span>
+                        <span className="font-normal text-slate-300">{tx('no activity')}</span>
                       )}
                       {row.pendingSettlement > 0 ? (
                         <p className="font-sans text-[10px] font-normal text-amber-600">
-                          {money(row.pendingSettlement)} awaiting settlement
+                          {money(row.pendingSettlement)} {tx('awaiting settlement')}
                         </p>
                       ) : null}
                     </td>
@@ -339,16 +339,14 @@ export const PaymentAccountsPanel: React.FC<Props> = ({ session, registerId }) =
       {/* Footer legend */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 px-4 py-2.5 text-[11px] text-slate-500">
         <span className="inline-flex items-center gap-1">
-          <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Accepted = offered as a tender when a receipt is
-          registered in the POS.
+          <CheckCircle2 className="h-3 w-3 text-emerald-600" /> {tx('Accepted = offered as a tender when a receipt is registered in the POS.')}
         </span>
         <span className="inline-flex items-center gap-1">
-          <Info className="h-3 w-3" /> Expected = opening + received − refunds (the drawer row also folds in cash
-          in/out).
+          <Info className="h-3 w-3" /> {tx('Expected = opening + received − refunds (the drawer row also folds in cash in/out).')}
         </span>
         {!session ? (
           <span className="inline-flex items-center gap-1 text-amber-700">
-            <AlertTriangle className="h-3 w-3" /> Shift figures appear once this register is open.
+            <AlertTriangle className="h-3 w-3" /> {tx('Shift figures appear once this register is open.')}
           </span>
         ) : null}
       </div>

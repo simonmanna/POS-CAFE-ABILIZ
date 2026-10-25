@@ -7,6 +7,7 @@ const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR'
 import React from 'react';
 import { getFoodEmoji } from './food-images';
 import type { Product } from './types';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   products: Product[];
@@ -38,8 +39,8 @@ export const MenuGrid: React.FC<Props> = ({ products, locked, onPick }) => {
     return (
       <div className="pos-menu-empty-pro">
         <div className="pos-menu-empty-icon">🔍</div>
-        <p className="pos-menu-empty-title">No items found</p>
-        <p className="pos-menu-empty-sub">Try a different category or clear the search.</p>
+        <p className="pos-menu-empty-title">{tx('No items found')}</p>
+        <p className="pos-menu-empty-sub">{tx('Try a different category or clear the search.')}</p>
       </div>
     );
   }
@@ -68,7 +69,7 @@ export const MenuGrid: React.FC<Props> = ({ products, locked, onPick }) => {
                     boxShadow: '0 1px 2px rgba(0,0,0,.25)',
                   }}
                 >
-                  🍱 COMBO
+                  {tx('🍱 COMBO')}
                 </span>
               ) : null}
               {p.image ? (

@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { ENTITY_TYPE_LABELS } from '@/lib/approval-entity-types';
+import { tx } from '@/lib/i18n/tx';
 
 interface ApprovalPolicy {
   id: string;
@@ -28,7 +29,7 @@ function EntityTypeSelect({ value, onChange }: { value: string; onChange: (v: st
       onChange={(e) => onChange(e.target.value)}
       className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
     >
-      <option value="">-- Select feature --</option>
+      <option value="">{tx('-- Select feature --')}</option>
       {Object.entries(ENTITY_TYPE_LABELS).map(([k, v]) => (
         <option key={k} value={k}>{v}</option>
       ))}
@@ -49,7 +50,7 @@ export function ApprovalPoliciesPage() {
   const toggle = useMutation({
     mutationFn: async (vars: { id: string; isActive: boolean }) =>
       api.patch(`/approval-policies/${vars.id}`, { isActive: vars.isActive }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['approval-policies'] }); notify.success('Policy updated'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['approval-policies'] }); notify.success(tx('Policy updated')); },
     onError: (err: any) => notify.error(err?.response?.data?.message ?? 'Failed'),
   });
 
@@ -69,14 +70,14 @@ export function ApprovalPoliciesPage() {
       qc.invalidateQueries({ queryKey: ['approval-policies'] });
       setShowForm(false);
       setForm({ name: '', entityType: '', minAmount: '', requiredCount: '1', approverPermissions: '' });
-      notify.success('Policy created');
+      notify.success(tx('Policy created'));
     },
     onError: (err: any) => notify.error(err?.response?.data?.message ?? err.message),
   });
 
   const remove = useMutation({
     mutationFn: async (id: string) => api.delete(`/approval-policies/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['approval-policies'] }); notify.success('Policy deleted'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['approval-policies'] }); notify.success(tx('Policy deleted')); },
     onError: (err: any) => notify.error(err?.response?.data?.message ?? 'Failed'),
   });
 
@@ -84,44 +85,43 @@ export function ApprovalPoliciesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Approval Policies</h1>
+          <h1 className="text-2xl font-semibold">{tx('Approval Policies')}</h1>
           <p className="text-sm text-muted-foreground">
-            Configure which features require approval. Toggle off to auto-approve.
+            {tx('Configure which features require approval. Toggle off to auto-approve.')}
           </p>
         </div>
         <Button onClick={() => setShowForm((s) => !s)}>
-          <Plus className="mr-1 h-4 w-4" /> Add Policy
+          <Plus className="mr-1 h-4 w-4" /> {tx('Add Policy')}
         </Button>
       </div>
 
       {showForm && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">New Approval Policy</CardTitle>
+            <CardTitle className="text-base">{tx('New Approval Policy')}</CardTitle>
             <CardDescription>
-              When active, this feature's actions will be held pending until the
-              required number of authorized approvers decide.
+              {tx('When active, this feature\'s actions will be held pending until the required number of authorized approvers decide.')}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label>Feature *</Label>
+                <Label>{tx('Feature *')}</Label>
                 <EntityTypeSelect
                   value={form.entityType}
                   onChange={(v) => setForm((f) => ({ ...f, entityType: v }))}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Policy Name</Label>
+                <Label>{tx('Policy Name')}</Label>
                 <Input
-                  placeholder="e.g. PO Approval"
+                  placeholder={tx('e.g. PO Approval')}
                   value={form.name}
                   onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Min Amount (optional)</Label>
+                <Label>{tx('Min Amount (optional)')}</Label>
                 <Input
                   type="number"
                   placeholder="e.g. 500"
@@ -130,7 +130,7 @@ export function ApprovalPoliciesPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Required Approvals</Label>
+                <Label>{tx('Required Approvals')}</Label>
                 <Input
                   type="number"
                   min={1}
@@ -139,17 +139,17 @@ export function ApprovalPoliciesPage() {
                 />
               </div>
               <div className="space-y-1.5 sm:col-span-2">
-                <Label>Approver Permissions (comma-separated)</Label>
+                <Label>{tx('Approver Permissions (comma-separated)')}</Label>
                 <Input
-                  placeholder="purchase_order:approve, purchase_order:manage"
+                  placeholder={tx('purchase_order:approve, purchase_order:manage')}
                   value={form.approverPermissions}
                   onChange={(e) => setForm((f) => ({ ...f, approverPermissions: e.target.value }))}
                 />
               </div>
             </div>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-              <Button disabled={create.isPending} onClick={() => create.mutate()}>Create Policy</Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>{tx('Cancel')}</Button>
+              <Button disabled={create.isPending} onClick={() => create.mutate()}>{tx('Create Policy')}</Button>
             </div>
           </CardContent>
         </Card>
@@ -160,12 +160,12 @@ export function ApprovalPoliciesPage() {
       {list.data && list.data.length === 0 && (
         <Card>
           <CardContent className="flex flex-col items-center justify-center gap-3 p-12 text-center">
-            <p className="text-sm text-muted-foreground">No approval policies configured.</p>
+            <p className="text-sm text-muted-foreground">{tx('No approval policies configured.')}</p>
             <p className="text-xs text-muted-foreground">
-              Features without a policy are auto-approved. Add a policy to gate them behind approval.
+              {tx('Features without a policy are auto-approved. Add a policy to gate them behind approval.')}
             </p>
             <Button variant="outline" size="sm" onClick={() => setShowForm(true)}>
-              <Plus className="mr-1 h-4 w-4" /> Add your first policy
+              <Plus className="mr-1 h-4 w-4" /> {tx('Add your first policy')}
             </Button>
           </CardContent>
         </Card>
@@ -177,11 +177,11 @@ export function ApprovalPoliciesPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Feature</th>
-                  <th className="px-4 py-3 font-medium">Name</th>
-                  <th className="px-4 py-3 font-medium">Min Amount</th>
-                  <th className="px-4 py-3 font-medium">Approvals</th>
-                  <th className="px-4 py-3 font-medium">Active</th>
+                  <th className="px-4 py-3 font-medium">{tx('Feature')}</th>
+                  <th className="px-4 py-3 font-medium">{tx('Name')}</th>
+                  <th className="px-4 py-3 font-medium">{tx('Min Amount')}</th>
+                  <th className="px-4 py-3 font-medium">{tx('Approvals')}</th>
+                  <th className="px-4 py-3 font-medium">{tx('Active')}</th>
                   <th className="px-4 py-3 font-medium" />
                 </tr>
               </thead>

@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/dialog';
 import { usePermissionCatalog, useCreateRole, useUpdateRole } from '@/features/staff/api';
 import type { Role } from '@/features/staff/types';
+import { tx } from '@/lib/i18n/tx';
 
 const schema = z.object({
   name: z.string().min(2, 'At least 2 characters').max(64),
@@ -145,27 +146,27 @@ export function RoleDialog({ open, onOpenChange, role }: RoleDialogProps) {
           <fieldset className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input id="name" placeholder="Cashier" {...form.register('name')} />
+                <Label htmlFor="name">{tx('Name')}</Label>
+                <Input id="name" placeholder={tx('Cashier')} {...form.register('name')} />
                 {form.formState.errors.name && (
                   <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Input id="description" placeholder="Front-of-house staff" {...form.register('description')} />
+                <Label htmlFor="description">{tx('Description')}</Label>
+                <Input id="description" placeholder={tx('Front-of-house staff')} {...form.register('description')} />
               </div>
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>Permissions</Label>
+                <Label>{tx('Permissions')}</Label>
                 <span className="text-xs text-muted-foreground">
-                  {selectedCount} of {totalCount} selected
+                  {selectedCount} of {totalCount} {tx('selected')}
                 </span>
               </div>
               <div className="h-[320px] overflow-y-auto rounded-md border bg-muted/30 p-3">
-                {catalog.isLoading && <p className="text-sm text-muted-foreground">Loading catalog…</p>}
+                {catalog.isLoading && <p className="text-sm text-muted-foreground">{tx('Loading catalog…')}</p>}
                 <div className="space-y-3">
                   {grouped.map((group) => {
                     const groupSelected = group.permissions.filter((p) => selected.includes(p.key)).length;
@@ -231,7 +232,7 @@ export function RoleDialog({ open, onOpenChange, role }: RoleDialogProps) {
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button type="submit" disabled={isPending}>
               {isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Create role'}

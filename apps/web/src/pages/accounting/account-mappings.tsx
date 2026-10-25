@@ -31,6 +31,7 @@ import { PERMISSIONS } from '@erp/shared';
 import { useAuthStore } from '@/stores/auth.store';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { tx } from '@/lib/i18n/tx';
 
 const GROUP_LABELS: Record<string, string> = {
   ar_ap: 'Receivables & Payables',
@@ -151,7 +152,7 @@ function AccountMappingsPage() {
           <div className="flex items-center gap-1.5">
             {m.label}
             {m.required && !m.accountId && (
-              <Badge variant="destructive" className="text-[10px]">Unmapped</Badge>
+              <Badge variant="destructive" className="text-[10px]">{tx('Unmapped')}</Badge>
             )}
           </div>
           <div className="text-xs text-muted-foreground">{GROUP_LABELS[m.group] ?? m.group}</div>
@@ -162,7 +163,7 @@ function AccountMappingsPage() {
       key: 'account',
       header: 'Linked Account',
       render: (m) => {
-        if (!m.accountId) return <span className="text-slate-400">Not configured</span>;
+        if (!m.accountId) return <span className="text-slate-400">{tx('Not configured')}</span>;
         const acc = accountMap.get(m.accountId);
         if (!acc) return <span className="text-slate-400">—</span>;
         return (
@@ -228,10 +229,9 @@ function AccountMappingsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Account Mappings</h1>
+        <h1 className="text-2xl font-semibold">{tx('Account Mappings')}</h1>
         <p className="text-sm text-muted-foreground">
-          Which account the posting engine uses for each kind of transaction. Modules resolve
-          accounts through these keys rather than by name or code.
+          {tx('Which account the posting engine uses for each kind of transaction. Modules resolve accounts through these keys rather than by name or code.')}
         </p>
       </div>
 
@@ -240,10 +240,10 @@ function AccountMappingsPage() {
           <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
           <div>
             <p className="font-medium text-destructive">
-              {missing.length} required mapping{missing.length === 1 ? '' : 's'} not configured
+              {missing.length} {tx('required mapping')}{missing.length === 1 ? '' : 's'} {tx('not configured')}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Posting will fail when one of these is needed: {missing.join(', ')}
+              {tx('Posting will fail when one of these is needed:')} {missing.join(', ')}
             </p>
           </div>
         </div>
@@ -254,17 +254,17 @@ function AccountMappingsPage() {
         data={rows}
         loading={isLoading}
         getRowId={(m) => m.key}
-        emptyMessage="No account mappings found."
+        emptyMessage={tx('No account mappings found.')}
       />
 
       <Dialog open={!!editingKey} onOpenChange={(open) => !open && setEditingKey(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Change Linked Account</DialogTitle>
+            <DialogTitle>{tx('Change Linked Account')}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Mapping</Label>
+              <Label>{tx('Mapping')}</Label>
               <div className="text-sm font-medium">{editingDef?.label ?? editingKey}</div>
               <code className="text-xs text-slate-500">{editingKey}</code>
               {editingDef?.description && (
@@ -272,10 +272,10 @@ function AccountMappingsPage() {
               )}
             </div>
             <div className="space-y-2">
-              <Label>Linked Account</Label>
+              <Label>{tx('Linked Account')}</Label>
               <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select an account…" />
+                  <SelectValue placeholder={tx('Select an account…')} />
                 </SelectTrigger>
                 <SelectContent>
                   {eligibleAccounts.map((acc) => (
@@ -294,13 +294,13 @@ function AccountMappingsPage() {
               </p>
               {eligibleAccounts.length === 0 && (
                 <p className="text-xs text-destructive">
-                  No account matches this mapping. Create one under Chart of Accounts first.
+                  {tx('No account matches this mapping. Create one under Chart of Accounts first.')}
                 </p>
               )}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingKey(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setEditingKey(null)}>{tx('Cancel')}</Button>
             <Button
               onClick={handleSave}
               disabled={!selectedAccountId || updateMutation.isPending}

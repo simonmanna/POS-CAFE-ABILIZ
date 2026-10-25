@@ -15,6 +15,7 @@ import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
+import { tx } from '@/lib/i18n/tx';
 
 interface Location { id: string; code: string; name: string; type: string }
 
@@ -195,10 +196,10 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
     <>
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={() => setInOpen(true)}>
-          <Plus className="mr-1 h-3 w-3" />Direct Stock In
+          <Plus className="mr-1 h-3 w-3" />{tx('Direct Stock In')}
         </Button>
         <Button size="sm" variant="secondary" onClick={() => setOutOpen(true)}>
-          <Minus className="mr-1 h-3 w-3" />Direct Stock Out
+          <Minus className="mr-1 h-3 w-3" />{tx('Direct Stock Out')}
         </Button>
       </div>
 
@@ -208,12 +209,11 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
         <div className="bg-[#3c8dbc] px-6 py-4 text-white">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg text-white">
-              <Plus className="h-5 w-5" /> Direct Stock In
+              <Plus className="h-5 w-5" /> {tx('Direct Stock In')}
             </DialogTitle>
           </DialogHeader>
           <p className="mt-1 text-sm text-white/80">
-            Receive stock straight into a location. Posts an audited movement, valued at the cost you
-            enter — leave cost blank to use the item's current average.
+            {tx('Receive stock straight into a location. Posts an audited movement, valued at the cost you enter — leave cost blank to use the item\'s current average.')}
           </p>
         </div>
 
@@ -221,10 +221,10 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Location <span className="text-destructive">*</span>
+                {tx('Location')} <span className="text-destructive">*</span>
               </label>
               <Select value={inLocId} onValueChange={setInLocId}>
-                <SelectTrigger><SelectValue placeholder="Select location…" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={tx('Select location…')} /></SelectTrigger>
                 <SelectContent className="max-h-64">
                   {locations.data?.map((l) => (
                     <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
@@ -234,38 +234,38 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Responsible Person <span className="text-destructive">*</span>
+                {tx('Responsible Person')} <span className="text-destructive">*</span>
               </label>
               <SearchableSelect
                 value={inResponsibleId}
                 onValueChange={setInResponsibleId}
                 options={staffOptions}
-                placeholder="Select staff…"
+                placeholder={tx('Select staff…')}
                 searchPlaceholder="Search staff…"
-                emptyText="No staff match"
+                emptyText={tx('No staff match')}
               />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Approved By <span className="text-destructive">*</span>
+                {tx('Approved By')} <span className="text-destructive">*</span>
               </label>
               <SearchableSelect
                 value={inApprovedId}
                 onValueChange={setInApprovedId}
                 options={staffOptions}
-                placeholder="Select staff…"
+                placeholder={tx('Select staff…')}
                 searchPlaceholder="Search staff…"
-                emptyText="No staff match"
+                emptyText={tx('No staff match')}
               />
               {inApprovedId && inApprovedId !== myId && (
-                <Input type="password" inputMode="numeric" autoComplete="off" placeholder="Approver PIN" value={inApproverPin} onChange={(e) => setInApproverPin(e.target.value)} />
+                <Input type="password" inputMode="numeric" autoComplete="off" placeholder={tx('Approver PIN')} value={inApproverPin} onChange={(e) => setInApproverPin(e.target.value)} />
               )}
             </div>
             <div className="space-y-1.5 md:col-span-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Notes <span className="font-normal normal-case tracking-normal">(optional)</span>
+                {tx('Notes')} <span className="font-normal normal-case tracking-normal">{tx('(optional)')}</span>
               </label>
-              <Input placeholder="Reference, supplier, reason…" value={inNotes} onChange={(e) => setInNotes(e.target.value)} />
+              <Input placeholder={tx('Reference, supplier, reason…')} value={inNotes} onChange={(e) => setInNotes(e.target.value)} />
             </div>
           </div>
 
@@ -282,12 +282,12 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
               </colgroup>
               <thead>
                 <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-600">
-                  <th className="px-3 py-2.5 font-semibold">Product</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Qty</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Unit Cost</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Line Total</th>
-                  <th className="px-3 py-2.5 font-semibold">Batch #</th>
-                  <th className="px-3 py-2.5 font-semibold">Expiry</th>
+                  <th className="px-3 py-2.5 font-semibold">{tx('Product')}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">{tx('Qty')}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">{tx('Unit Cost')}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">{tx('Line Total')}</th>
+                  <th className="px-3 py-2.5 font-semibold">{tx('Batch #')}</th>
+                  <th className="px-3 py-2.5 font-semibold">{tx('Expiry')}</th>
                   <th className="px-3 py-2.5" />
                 </tr>
               </thead>
@@ -299,9 +299,9 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                         value={line.productId}
                         onValueChange={(v) => pickInProduct(idx, v)}
                         options={productOptions}
-                        placeholder="Select product…"
+                        placeholder={tx('Select product…')}
                         searchPlaceholder="Search products…"
-                        emptyText="No products match"
+                        emptyText={tx('No products match')}
                       />
                     </td>
                     <td className="px-2 py-2">
@@ -310,7 +310,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                       }} />
                     </td>
                     <td className="px-2 py-2">
-                      <Input type="number" step="0.01" min={0} className="text-right tabular-nums" placeholder="Avg cost" value={line.unitCost} onChange={(e) => {
+                      <Input type="number" step="0.01" min={0} className="text-right tabular-nums" placeholder={tx('Avg cost')} value={line.unitCost} onChange={(e) => {
                         const next = [...inLines]; next[idx] = { ...next[idx], unitCost: e.target.value }; setInLines(next);
                       }} />
                     </td>
@@ -320,7 +320,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                         : <span className="text-slate-300">—</span>}
                     </td>
                     <td className="px-2 py-2">
-                      <Input placeholder="Optional" value={line.batchNumber} onChange={(e) => {
+                      <Input placeholder={tx('Optional')} value={line.batchNumber} onChange={(e) => {
                         const next = [...inLines]; next[idx] = { ...next[idx], batchNumber: e.target.value }; setInLines(next);
                       }} />
                     </td>
@@ -330,7 +330,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                       }} />
                     </td>
                     <td className="px-2 py-2 text-center">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-destructive" disabled={inLines.length <= 1} title="Remove line" onClick={() => setInLines((prev) => prev.filter((_, i) => i !== idx))}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-destructive" disabled={inLines.length <= 1} title={tx('Remove line')} onClick={() => setInLines((prev) => prev.filter((_, i) => i !== idx))}>
                         <XCircle className="h-4 w-4" />
                       </Button>
                     </td>
@@ -340,7 +340,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
             </table>
             <div className="border-t bg-slate-50/60 px-3 py-2">
               <Button variant="outline" size="sm" onClick={() => setInLines((prev) => [...prev, { productId: '', name: '', quantity: 1, unitCost: '', batchNumber: '', expiryDate: '' }])}>
-                <Plus className="mr-1 h-3 w-3" />Add Item
+                <Plus className="mr-1 h-3 w-3" />{tx('Add Item')}
               </Button>
             </div>
           </div>
@@ -348,13 +348,13 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-slate-50 px-6 py-3">
           <div className="text-xs text-muted-foreground">
-            {inFilledCount} item{inFilledCount !== 1 ? 's' : ''} · {inTotalQty} unit{inTotalQty !== 1 ? 's' : ''}
+            {inFilledCount} {tx('item')}{inFilledCount !== 1 ? 's' : ''} · {inTotalQty} {tx('unit')}{inTotalQty !== 1 ? 's' : ''}
             {inTotalValue > 0 && (
-              <> · valued <span className="font-semibold text-slate-700">{formatMoney(inTotalValue)}</span></>
+              <> {tx('· valued')} <span className="font-semibold text-slate-700">{formatMoney(inTotalValue)}</span></>
             )}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setInOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setInOpen(false)}>{tx('Cancel')}</Button>
             <Button className="bg-[#3c8dbc] hover:bg-[#367fa9]" disabled={!inLocId || !inResponsibleId || (inApprovalNeeded && !inApprovedId) || (inApprovalNeeded && inApprovedId !== myId && !inApproverPin) || inFilledCount === 0 || directIn.isPending} onClick={() => directIn.mutate()}>
               {directIn.isPending ? 'Processing…' : 'Complete Stock In'}
             </Button>
@@ -369,12 +369,11 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
         <div className="bg-rose-600 px-6 py-4 text-white">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg text-white">
-              <Minus className="h-5 w-5" /> Direct Stock Out
+              <Minus className="h-5 w-5" /> {tx('Direct Stock Out')}
             </DialogTitle>
           </DialogHeader>
           <p className="mt-1 text-sm text-white/80">
-            Issue stock out of a location. FEFO and FIFO pick the batch for you; Manual needs the
-            batch number. Cost comes from the batch, never from this form.
+            {tx('Issue stock out of a location. FEFO and FIFO pick the batch for you; Manual needs the batch number. Cost comes from the batch, never from this form.')}
           </p>
         </div>
 
@@ -382,10 +381,10 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Location <span className="text-destructive">*</span>
+                {tx('Location')} <span className="text-destructive">*</span>
               </label>
               <Select value={outLocId} onValueChange={setOutLocId}>
-                <SelectTrigger><SelectValue placeholder="Select location…" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={tx('Select location…')} /></SelectTrigger>
                 <SelectContent className="max-h-64">
                   {locations.data?.map((l) => (
                     <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
@@ -395,38 +394,38 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Responsible Person <span className="text-destructive">*</span>
+                {tx('Responsible Person')} <span className="text-destructive">*</span>
               </label>
               <SearchableSelect
                 value={outResponsibleId}
                 onValueChange={setOutResponsibleId}
                 options={staffOptions}
-                placeholder="Select staff…"
+                placeholder={tx('Select staff…')}
                 searchPlaceholder="Search staff…"
-                emptyText="No staff match"
+                emptyText={tx('No staff match')}
               />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Approved By <span className="text-destructive">*</span>
+                {tx('Approved By')} <span className="text-destructive">*</span>
               </label>
               <SearchableSelect
                 value={outApprovedId}
                 onValueChange={setOutApprovedId}
                 options={staffOptions}
-                placeholder="Select staff…"
+                placeholder={tx('Select staff…')}
                 searchPlaceholder="Search staff…"
-                emptyText="No staff match"
+                emptyText={tx('No staff match')}
               />
               {outApprovedId && outApprovedId !== myId && (
-                <Input type="password" inputMode="numeric" autoComplete="off" placeholder="Approver PIN" value={outApproverPin} onChange={(e) => setOutApproverPin(e.target.value)} />
+                <Input type="password" inputMode="numeric" autoComplete="off" placeholder={tx('Approver PIN')} value={outApproverPin} onChange={(e) => setOutApproverPin(e.target.value)} />
               )}
             </div>
             <div className="space-y-1.5 md:col-span-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Notes <span className="font-normal normal-case tracking-normal">(optional)</span>
+                {tx('Notes')} <span className="font-normal normal-case tracking-normal">{tx('(optional)')}</span>
               </label>
-              <Input placeholder="Reason, department, reference…" value={outNotes} onChange={(e) => setOutNotes(e.target.value)} />
+              <Input placeholder={tx('Reason, department, reference…')} value={outNotes} onChange={(e) => setOutNotes(e.target.value)} />
             </div>
           </div>
 
@@ -441,10 +440,10 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
               </colgroup>
               <thead>
                 <tr className="border-b bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-600">
-                  <th className="px-3 py-2.5 font-semibold">Product</th>
-                  <th className="px-3 py-2.5 text-right font-semibold">Qty</th>
-                  <th className="px-3 py-2.5 font-semibold">Strategy</th>
-                  <th className="px-3 py-2.5 font-semibold">Batch #</th>
+                  <th className="px-3 py-2.5 font-semibold">{tx('Product')}</th>
+                  <th className="px-3 py-2.5 text-right font-semibold">{tx('Qty')}</th>
+                  <th className="px-3 py-2.5 font-semibold">{tx('Strategy')}</th>
+                  <th className="px-3 py-2.5 font-semibold">{tx('Batch #')}</th>
                   <th className="px-3 py-2.5" />
                 </tr>
               </thead>
@@ -456,9 +455,9 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                         value={line.productId}
                         onValueChange={(v) => pickOutProduct(idx, v)}
                         options={productOptions}
-                        placeholder="Select product…"
+                        placeholder={tx('Select product…')}
                         searchPlaceholder="Search products…"
-                        emptyText="No products match"
+                        emptyText={tx('No products match')}
                       />
                     </td>
                     <td className="px-2 py-2">
@@ -472,9 +471,9 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                       }}>
                         <SelectTrigger className="min-w-0"><SelectValue /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="FEFO">FEFO — earliest expiry</SelectItem>
-                          <SelectItem value="FIFO">FIFO — oldest first</SelectItem>
-                          <SelectItem value="MANUAL">Manual batch</SelectItem>
+                          <SelectItem value="FEFO">{tx('FEFO — earliest expiry')}</SelectItem>
+                          <SelectItem value="FIFO">{tx('FIFO — oldest first')}</SelectItem>
+                          <SelectItem value="MANUAL">{tx('Manual batch')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </td>
@@ -489,7 +488,7 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
                       />
                     </td>
                     <td className="px-2 py-2 text-center">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-destructive" disabled={outLines.length <= 1} title="Remove line" onClick={() => setOutLines((prev) => prev.filter((_, i) => i !== idx))}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-destructive" disabled={outLines.length <= 1} title={tx('Remove line')} onClick={() => setOutLines((prev) => prev.filter((_, i) => i !== idx))}>
                         <XCircle className="h-4 w-4" />
                       </Button>
                     </td>
@@ -499,24 +498,24 @@ export function DirectStockActions({ invalidateKeys = [] }: DirectStockActionsPr
             </table>
             <div className="border-t bg-slate-50/60 px-3 py-2">
               <Button variant="outline" size="sm" onClick={() => setOutLines((prev) => [...prev, { productId: '', name: '', quantity: 1, distStrategy: 'FEFO', batchNumber: '' }])}>
-                <Plus className="mr-1 h-3 w-3" />Add Item
+                <Plus className="mr-1 h-3 w-3" />{tx('Add Item')}
               </Button>
             </div>
           </div>
 
           {outMissingBatch > 0 && (
             <p className="text-xs text-destructive">
-              {outMissingBatch} line{outMissingBatch !== 1 ? 's' : ''} set to Manual still need a batch number.
+              {outMissingBatch} {tx('line')}{outMissingBatch !== 1 ? 's' : ''} {tx('set to Manual still need a batch number.')}
             </p>
           )}
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-slate-50 px-6 py-3">
           <div className="text-xs text-muted-foreground">
-            {outFilledCount} item{outFilledCount !== 1 ? 's' : ''} · {outTotalQty} unit{outTotalQty !== 1 ? 's' : ''} leaving stock
+            {outFilledCount} {tx('item')}{outFilledCount !== 1 ? 's' : ''} · {outTotalQty} {tx('unit')}{outTotalQty !== 1 ? 's' : ''} {tx('leaving stock')}
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setOutOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setOutOpen(false)}>{tx('Cancel')}</Button>
             <Button className="bg-rose-600 hover:bg-rose-700" disabled={!outLocId || !outResponsibleId || (outApprovalNeeded && !outApprovedId) || (outApprovalNeeded && outApprovedId !== myId && !outApproverPin) || outFilledCount === 0 || outMissingBatch > 0 || directOut.isPending} onClick={() => directOut.mutate()}>
               {directOut.isPending ? 'Processing…' : 'Complete Stock Out'}
             </Button>

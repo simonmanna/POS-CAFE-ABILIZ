@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useProductionOrders } from '@/features/manufacturing/api';
 import { ORDER_STATUS_VARIANT } from './ProductionOrdersPage';
+import { tx } from '@/lib/i18n/tx';
 
 export function ProductionDashboardPage() {
   const { data: orders, isLoading } = useProductionOrders();
@@ -27,29 +28,29 @@ export function ProductionDashboardPage() {
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold"><Factory className="h-6 w-6" /> Production</h1>
-          <p className="text-sm text-muted-foreground">Today's floor at a glance.</p>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold"><Factory className="h-6 w-6" /> {tx('Production')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Today\'s floor at a glance.')}</p>
         </div>
         <div className="flex gap-2">
-          <Button asChild variant="outline"><Link to="/manufacturing/boms">Recipes</Link></Button>
-          <Button asChild><Link to="/manufacturing/orders">Orders</Link></Button>
+          <Button asChild variant="outline"><Link to="/manufacturing/boms">{tx('Recipes')}</Link></Button>
+          <Button asChild><Link to="/manufacturing/orders">{tx('Orders')}</Link></Button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard icon={<ClipboardList className="h-5 w-5" />} label="Draft" value={stats.draft} />
-        <StatCard icon={<ClipboardList className="h-5 w-5" />} label="Confirmed" value={stats.confirmed} />
-        <StatCard icon={<PlayCircle className="h-5 w-5" />} label="In progress" value={stats.inProgress} />
-        <StatCard icon={<CheckCircle2 className="h-5 w-5" />} label="Completed today" value={stats.completedToday} />
+        <StatCard icon={<ClipboardList className="h-5 w-5" />} label={tx('Draft')} value={stats.draft} />
+        <StatCard icon={<ClipboardList className="h-5 w-5" />} label={tx('Confirmed')} value={stats.confirmed} />
+        <StatCard icon={<PlayCircle className="h-5 w-5" />} label={tx('In progress')} value={stats.inProgress} />
+        <StatCard icon={<CheckCircle2 className="h-5 w-5" />} label={tx('Completed today')} value={stats.completedToday} />
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Active orders</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{tx('Active orders')}</CardTitle></CardHeader>
         <CardContent className="space-y-2">
           {isLoading ? (
-            <p className="text-sm text-muted-foreground">Loading…</p>
+            <p className="text-sm text-muted-foreground">{tx('Loading…')}</p>
           ) : !stats.active.length ? (
-            <p className="text-sm text-muted-foreground">Nothing on the floor right now.</p>
+            <p className="text-sm text-muted-foreground">{tx('Nothing on the floor right now.')}</p>
           ) : (
             stats.active.map((o) => {
               const planned = Number(o.plannedQty) || 1;
@@ -63,7 +64,7 @@ export function ProductionDashboardPage() {
                   <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
                     <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
                   </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{Number(o.producedQty)} / {Number(o.plannedQty)} produced</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{Number(o.producedQty)} / {Number(o.plannedQty)} {tx('produced')}</p>
                 </Link>
               );
             })

@@ -41,6 +41,7 @@ import {
 } from '@/features/menu/api';
 import { CategoryDialog } from './category-dialog';
 import { ItemDialog } from './item-dialog';
+import { tx } from '@/lib/i18n/tx';
 
 export function MenuPage() {
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
@@ -92,14 +93,14 @@ export function MenuPage() {
     try {
       if (deleteTarget.type === 'category') {
         await deleteCategory.mutateAsync(deleteTarget.id);
-        notify.success('Category moved to Recently deleted');
+        notify.success(tx('Category moved to Recently deleted'));
         if (selectedCat === deleteTarget.id) setSelectedCat(null);
       } else {
         await disableItem.mutateAsync(deleteTarget.id);
-        notify.success('Item disabled successfully');
+        notify.success(tx('Item disabled successfully'));
       }
     } catch {
-      notify.error('Could not delete');
+      notify.error(tx('Could not delete'));
     }
     setDeleteTarget(null);
   };
@@ -109,7 +110,7 @@ export function MenuPage() {
       await restoreCategory.mutateAsync(c.id);
       notify.success(`Category "${c.name}" restored`);
     } catch {
-      notify.error('Could not restore category');
+      notify.error(tx('Could not restore category'));
     }
   };
 
@@ -119,7 +120,7 @@ export function MenuPage() {
       await toggleAvailability.mutateAsync({ id: it.id, isAvailable: !it.isAvailable });
       notify.success(it.isAvailable ? `"${it.name}" marked unavailable (86)` : `"${it.name}" is back on the menu`);
     } catch {
-      notify.error('Could not update availability');
+      notify.error(tx('Could not update availability'));
     }
   };
 
@@ -127,8 +128,8 @@ export function MenuPage() {
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-6 text-center">
-          <h1 className="text-2xl font-semibold text-destructive">Access Denied</h1>
-          <p className="mt-2 text-sm text-muted-foreground">You do not have permission to view the menu.</p>
+          <h1 className="text-2xl font-semibold text-destructive">{tx('Access Denied')}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{tx('You do not have permission to view the menu.')}</p>
         </div>
       </div>
     );
@@ -141,20 +142,20 @@ export function MenuPage() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Menu</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">{tx('Menu')}</h1>
           <p className="text-sm text-muted-foreground">
-            Menu items are what customers order; products remain the master inventory behind them.
+            {tx('Menu items are what customers order; products remain the master inventory behind them.')}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {canCreateCat && (
             <Button size="sm" variant="outline" onClick={() => setCatDialog({ open: true })}>
-              <FolderOpen className="mr-1.5 h-3.5 w-3.5" />Add category
+              <FolderOpen className="mr-1.5 h-3.5 w-3.5" />{tx('Add category')}
             </Button>
           )}
           {canCreateMenu && (
             <Button size="sm" onClick={() => setItemDialog({ open: true })}>
-              <PlusCircle className="mr-1.5 h-3.5 w-3.5" />Add menu item
+              <PlusCircle className="mr-1.5 h-3.5 w-3.5" />{tx('Add menu item')}
             </Button>
           )}
         </div>
@@ -166,7 +167,7 @@ export function MenuPage() {
           <CardContent className="flex items-center gap-2 p-0">
             <Coffee className="h-4 w-4 shrink-0 text-sky-600" />
             <div className="flex w-full items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Menu Items</span>
+              <span className="text-xs text-muted-foreground">{tx('Menu Items')}</span>
               <span className="text-sm font-bold tabular-nums text-sky-600">{meta?.total ?? '—'}</span>
             </div>
           </CardContent>
@@ -175,7 +176,7 @@ export function MenuPage() {
           <CardContent className="flex items-center gap-2 p-0">
             <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
             <div className="flex w-full items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Available</span>
+              <span className="text-xs text-muted-foreground">{tx('Available')}</span>
               <span className="text-sm font-bold tabular-nums text-emerald-600">{items.isLoading ? '—' : availableCount}</span>
             </div>
           </CardContent>
@@ -184,7 +185,7 @@ export function MenuPage() {
           <CardContent className="flex items-center gap-2 p-0">
             <FolderOpen className="h-4 w-4 shrink-0 text-violet-600" />
             <div className="flex w-full items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Categories</span>
+              <span className="text-xs text-muted-foreground">{tx('Categories')}</span>
               <span className="text-sm font-bold tabular-nums text-violet-600">{cats.isLoading ? '—' : liveCats.length}</span>
             </div>
           </CardContent>
@@ -193,7 +194,7 @@ export function MenuPage() {
           <CardContent className="flex items-center gap-2 p-0">
             <CircleDollarSign className="h-4 w-4 shrink-0 text-amber-600" />
             <div className="flex w-full items-center justify-between gap-1">
-              <span className="text-xs text-muted-foreground">Avg Price</span>
+              <span className="text-xs text-muted-foreground">{tx('Avg Price')}</span>
               <span className="text-sm font-bold tabular-nums text-amber-600">{avgPrice != null ? formatCurrency(avgPrice) : '—'}</span>
             </div>
           </CardContent>
@@ -207,16 +208,16 @@ export function MenuPage() {
             <div className="flex items-center justify-between border-b bg-muted/40 px-3 py-2">
               <div className="flex items-center gap-2">
                 <Tag className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold">Categories</h3>
+                <h3 className="text-sm font-semibold">{tx('Categories')}</h3>
               </div>
               {canCreateCat && (
                 <Button
                   size="icon"
                   variant="ghost"
                   className="h-11 w-11"
-                  aria-label="Add menu category"
+                  aria-label={tx('Add menu category')}
                   onClick={() => setCatDialog({ open: true })}
-                  title="Add category"
+                  title={tx('Add category')}
                 >
                   <PlusCircle className="h-4 w-4" />
                 </Button>
@@ -233,7 +234,7 @@ export function MenuPage() {
                 }
               >
                 <span className="flex items-center gap-2">
-                  <List className="h-3.5 w-3.5" />All items
+                  <List className="h-3.5 w-3.5" />{tx('All items')}
                 </span>
                 <Badge variant="secondary" className="tabular-nums">{allPaginatedItems.length}</Badge>
               </button>
@@ -272,7 +273,7 @@ export function MenuPage() {
                           variant="ghost"
                           className="h-7 w-7 text-muted-foreground hover:text-primary"
                           onClick={() => setCatDialog({ open: true, category: c })}
-                          title="Edit category"
+                          title={tx('Edit category')}
                         >
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
@@ -283,7 +284,7 @@ export function MenuPage() {
                           variant="ghost"
                           className="h-7 w-7 text-muted-foreground hover:text-destructive"
                           onClick={() => setDeleteTarget({ type: 'category', id: c.id, name: c.name })}
-                          title="Move to Recently deleted"
+                          title={tx('Move to Recently deleted')}
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
@@ -294,7 +295,7 @@ export function MenuPage() {
               })}
 
               {!cats.isLoading && liveCats.length === 0 && (
-                <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">No categories yet.</p>
+                <p className="px-2.5 py-6 text-center text-xs text-muted-foreground">{tx('No categories yet.')}</p>
               )}
             </div>
 
@@ -307,12 +308,12 @@ export function MenuPage() {
                   className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  Recently deleted{deletedCats.length ? ` (${deletedCats.length})` : ''}
+                  {tx('Recently deleted')}{deletedCats.length ? ` (${deletedCats.length})` : ''}
                 </button>
                 {showDeleted && (
                   <div className="mt-1 space-y-0.5">
                     {deletedCats.length === 0 && (
-                      <p className="px-2.5 py-1.5 text-xs text-muted-foreground">Nothing here.</p>
+                      <p className="px-2.5 py-1.5 text-xs text-muted-foreground">{tx('Nothing here.')}</p>
                     )}
                     {deletedCats.map((c) => (
                       <div key={c.id} className="flex items-center justify-between rounded-md px-2.5 py-1 text-sm text-muted-foreground">
@@ -323,7 +324,7 @@ export function MenuPage() {
                           className="h-7 w-7 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-600"
                           onClick={() => handleRestore(c)}
                           disabled={restoreCategory.isPending}
-                          title="Restore category"
+                          title={tx('Restore category')}
                         >
                           <RotateCcw className="h-3.5 w-3.5" />
                         </Button>
@@ -342,13 +343,13 @@ export function MenuPage() {
             <div className="min-w-0">
               <h3 className="truncate text-sm font-semibold">{selectedCatName}</h3>
               <p className="text-xs text-muted-foreground">
-                {meta?.total ?? 0} item{(meta?.total ?? 0) !== 1 ? 's' : ''}{debounced ? ' (filtered)' : ''}
+                {meta?.total ?? 0} {tx('item')}{(meta?.total ?? 0) !== 1 ? 's' : ''}{debounced ? ' (filtered)' : ''}
               </p>
             </div>
             <div className="relative w-full sm:w-64">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                placeholder="Search items…"
+                placeholder={tx('Search items…')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="h-9 pl-8"
@@ -367,13 +368,13 @@ export function MenuPage() {
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
                 <Coffee className="h-7 w-7 text-muted-foreground" />
               </div>
-              <h3 className="text-base font-semibold">No menu items{selectedCat ? ' in this category' : ''}</h3>
+              <h3 className="text-base font-semibold">{tx('No menu items')}{selectedCat ? ' in this category' : ''}</h3>
               <p className="max-w-sm text-sm text-muted-foreground">
                 {search ? 'Try adjusting your search terms.' : 'Add one to make it available on the POS terminal.'}
               </p>
               {!search && canCreateMenu && (
                 <Button className="mt-2" size="sm" onClick={() => setItemDialog({ open: true })}>
-                  <PlusCircle className="mr-1.5 h-4 w-4" />Add menu item
+                  <PlusCircle className="mr-1.5 h-4 w-4" />{tx('Add menu item')}
                 </Button>
               )}
             </div>
@@ -382,13 +383,13 @@ export function MenuPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/40 text-xs text-muted-foreground">
-                    <th className="px-3 py-2 text-left font-medium">Item</th>
-                    <th className="px-3 py-2 text-left font-medium">Code</th>
-                    <th className="px-3 py-2 text-left font-medium">Category</th>
-                    <th className="px-3 py-2 text-right font-medium">Price</th>
-                    <th className="px-3 py-2 text-right font-medium">Recipe</th>
-                    <th className="px-3 py-2 text-center font-medium">Status</th>
-                    <th className="px-3 py-2 text-right font-medium">Actions</th>
+                    <th className="px-3 py-2 text-left font-medium">{tx('Item')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tx('Code')}</th>
+                    <th className="px-3 py-2 text-left font-medium">{tx('Category')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{tx('Price')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{tx('Recipe')}</th>
+                    <th className="px-3 py-2 text-center font-medium">{tx('Status')}</th>
+                    <th className="px-3 py-2 text-right font-medium">{tx('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -414,14 +415,14 @@ export function MenuPage() {
           {meta && meta.totalPages > 1 && (
             <div className="flex items-center justify-between border-t px-3 py-2">
               <span className="text-xs text-muted-foreground">
-                Page {meta.page} of {meta.totalPages} · {meta.total} total
+                {tx('Page')} {meta.page} of {meta.totalPages} · {meta.total} {tx('total')}
               </span>
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                  Previous
+                  {tx('Previous')}
                 </Button>
                 <Button variant="outline" size="sm" disabled={page >= meta.totalPages} onClick={() => setPage((p) => p + 1)}>
-                  Next
+                  {tx('Next')}
                 </Button>
               </div>
             </div>
@@ -439,7 +440,7 @@ export function MenuPage() {
               updateCategory.mutate(
                 { id: catDialog.category.id, data: input },
                 {
-                  onSuccess: () => { notify.success('Category updated successfully'); resolve(); },
+                  onSuccess: () => { notify.success(tx('Category updated successfully')); resolve(); },
                   onError: (e: any) => { notify.error(e?.message ?? 'Could not update category'); reject(e); },
                 },
               );
@@ -487,18 +488,18 @@ export function MenuPage() {
                   {deleteTarget?.type === 'category' ? 'Delete category' : 'Disable menu item'}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  This action can be undone from the Recently deleted bin.
+                  {tx('This action can be undone from the Recently deleted bin.')}
                 </AlertDialogDescription>
               </div>
             </div>
           </AlertDialogHeader>
           <p className="text-sm text-muted-foreground">
             {deleteTarget?.type === 'category'
-              ? <>Delete <span className="font-semibold text-foreground">{deleteTarget?.name}</span>? Items in this category are not deleted and the category can be restored later.</>
-              : <>Disable <span className="font-semibold text-foreground">{deleteTarget?.name}</span>? It disappears from the POS menu but stays in the database.</>}
+              ? <>{tx('Delete')} <span className="font-semibold text-foreground">{deleteTarget?.name}</span>{tx('? Items in this category are not deleted and the category can be restored later.')}</>
+              : <>{tx('Disable')} <span className="font-semibold text-foreground">{deleteTarget?.name}</span>{tx('? It disappears from the POS menu but stays in the database.')}</>}
           </p>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteConfirm}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -598,7 +599,7 @@ function ItemRow({
             variant="ghost"
             onClick={() => navigateRow(`/menu/${item.id}`)}
             className="h-8 w-8 text-muted-foreground hover:text-primary"
-            title="View details"
+            title={tx('View details')}
           >
             <Eye className="h-4 w-4" />
           </Button>
@@ -608,7 +609,7 @@ function ItemRow({
               variant="ghost"
               onClick={onEdit}
               className="h-8 w-8 text-muted-foreground hover:text-primary"
-              title="Edit item"
+              title={tx('Edit item')}
             >
               <Edit className="h-4 w-4" />
             </Button>
@@ -619,7 +620,7 @@ function ItemRow({
               variant="ghost"
               onClick={onDelete}
               className="h-8 w-8 text-muted-foreground hover:text-destructive"
-              title="Disable item"
+              title={tx('Disable item')}
             >
               {item.isAvailable ? <Trash2 className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             </Button>

@@ -19,6 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   onUserChanged: () => void;
@@ -58,17 +59,17 @@ export const UserSwitcher: React.FC<Props> = ({ onUserChanged }) => {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48 bg-slate-800 border-slate-600 text-white">
             <DropdownMenuItem onSelect={() => setTimeout(() => setChangePinOpen(true), 50)}>
-              <LockKeyhole className="mr-2 h-4 w-4" /> Change PIN
+              <LockKeyhole className="mr-2 h-4 w-4" /> {tx('Change PIN')}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setTimeout(() => setChangePasswordOpen(true), 50)}>
-              <KeyRound className="mr-2 h-4 w-4" /> Change Password
+              <KeyRound className="mr-2 h-4 w-4" /> {tx('Change Password')}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={handleSwitch}>
-              <Repeat className="mr-2 h-4 w-4" /> Switch User
+              <Repeat className="mr-2 h-4 w-4" /> {tx('Switch User')}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={handleLogout} className="text-destructive">
-              <LogOut className="mr-2 h-4 w-4" /> Logout
+              <LogOut className="mr-2 h-4 w-4" /> {tx('Logout')}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

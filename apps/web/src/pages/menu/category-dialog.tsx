@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { CreateCategoryInput, MenuCategory } from '@/features/menu/api';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -58,29 +59,29 @@ export function CategoryDialog({ open, category, onOpenChange, onSubmit }: Props
           }}
         >
           <div>
-            <Label htmlFor="cat-name" className="text-sm font-medium text-slate-700 mb-1.5">Name</Label>
+            <Label htmlFor="cat-name" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Name')}</Label>
             <Input
               id="cat-name"
               autoFocus
-              placeholder="e.g. Hot Drinks"
+              placeholder={tx('e.g. Hot Drinks')}
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
             />
           </div>
           <div>
-            <Label htmlFor="cat-order" className="text-sm font-medium text-slate-700 mb-1.5">Display order (optional)</Label>
+            <Label htmlFor="cat-order" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Display order (optional)')}</Label>
             <Input
               id="cat-order"
               type="number"
-              placeholder="0 = top"
+              placeholder={tx('0 = top')}
               value={displayOrder}
               onChange={(e) => setDisplayOrder(e.target.value)}
             />
           </div>
           <DialogFooter className="px-5 py-3 border-t bg-slate-50 gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting} className="rounded-lg border-gray-300 hover:bg-gray-100">
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button type="submit" disabled={submitting || !name.trim()} className="rounded-lg bg-[#3b82f6] hover:bg-[#2563eb] text-white">
               {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Create category'}

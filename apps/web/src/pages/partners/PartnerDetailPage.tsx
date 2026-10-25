@@ -21,6 +21,7 @@ import { useOpenCreditInvoices } from '@/pages/pos/api';
 import { RecordCreditPaymentDialog, type CreditPaymentTarget } from '@/pages/pos/RecordCreditPaymentDialog';
 import { useSupplierLedger } from '@/features/invoicing/api';
 import { CrmPartnerTab } from '@/features/crm/partner-tab';
+import { tx } from '@/lib/i18n/tx';
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -32,8 +33,8 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function PartnerStatusBadge({ status }: { status: string }) {
-  if (status === 'active') return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Active</Badge>;
-  return <Badge variant="secondary" className="text-xs">Inactive</Badge>;
+  if (status === 'active') return <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">{tx('Active')}</Badge>;
+  return <Badge variant="secondary" className="text-xs">{tx('Inactive')}</Badge>;
 }
 
 function TabOverview({ partner }: { partner: Partner }) {
@@ -41,39 +42,39 @@ function TabOverview({ partner }: { partner: Partner }) {
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <Card>
         <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Basic Info</CardTitle>
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Basic Info')}</CardTitle>
         </CardHeader>
         <CardContent className="px-5 pb-4">
           <dl className="divide-y">
-            <InfoRow label="Code" value={<code className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-primary font-semibold">{partner.code}</code>} />
-            <InfoRow label="Name" value={<span className="font-semibold">{partner.name}</span>} />
-            <InfoRow label="Email" value={partner.email ? <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-muted-foreground" />{partner.email}</span> : null} />
-            <InfoRow label="Phone" value={partner.phone ? <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-muted-foreground" />{partner.phone}</span> : null} />
-            <InfoRow label="Website" value={partner.website} />
-            <InfoRow label="Tax Number" value={partner.taxNumber ? <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{partner.taxNumber}</code> : null} />
-            <InfoRow label="Status" value={<PartnerStatusBadge status={partner.status} />} />
-            <InfoRow label="Type" value={
+            <InfoRow label={tx('Code')} value={<code className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-primary font-semibold">{partner.code}</code>} />
+            <InfoRow label={tx('Name')} value={<span className="font-semibold">{partner.name}</span>} />
+            <InfoRow label={tx('Email')} value={partner.email ? <span className="flex items-center gap-1.5"><Mail className="h-3.5 w-3.5 text-muted-foreground" />{partner.email}</span> : null} />
+            <InfoRow label={tx('Phone')} value={partner.phone ? <span className="flex items-center gap-1.5"><Phone className="h-3.5 w-3.5 text-muted-foreground" />{partner.phone}</span> : null} />
+            <InfoRow label={tx('Website')} value={partner.website} />
+            <InfoRow label={tx('Tax Number')} value={partner.taxNumber ? <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">{partner.taxNumber}</code> : null} />
+            <InfoRow label={tx('Status')} value={<PartnerStatusBadge status={partner.status} />} />
+            <InfoRow label={tx('Type')} value={
               <div className="flex gap-1.5">
-                {partner.isCustomer && <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700">Customer</Badge>}
-                {partner.isSupplier && <Badge variant="secondary" className="text-xs bg-purple-50 text-purple-700">Supplier</Badge>}
-                {partner.isEmployee && <Badge variant="secondary" className="text-xs bg-green-50 text-green-700">Employee</Badge>}
+                {partner.isCustomer && <Badge variant="secondary" className="text-xs bg-blue-50 text-blue-700">{tx('Customer')}</Badge>}
+                {partner.isSupplier && <Badge variant="secondary" className="text-xs bg-purple-50 text-purple-700">{tx('Supplier')}</Badge>}
+                {partner.isEmployee && <Badge variant="secondary" className="text-xs bg-green-50 text-green-700">{tx('Employee')}</Badge>}
               </div>
             } />
-            <InfoRow label="Category" value={partner.category?.name ? <span className="font-semibold">{partner.category.name}</span> : null} />
-            <InfoRow label="Membership" value={partner.membershipLevel ? <Badge variant="outline" className="text-xs">{partner.membershipLevel}</Badge> : null} />
-            <InfoRow label="Gender" value={partner.gender ? <span className="capitalize">{partner.gender}</span> : null} />
-            <InfoRow label="Notes" value={partner.notes} />
+            <InfoRow label={tx('Category')} value={partner.category?.name ? <span className="font-semibold">{partner.category.name}</span> : null} />
+            <InfoRow label={tx('Membership')} value={partner.membershipLevel ? <Badge variant="outline" className="text-xs">{partner.membershipLevel}</Badge> : null} />
+            <InfoRow label={tx('Gender')} value={partner.gender ? <span className="capitalize">{partner.gender}</span> : null} />
+            <InfoRow label={tx('Notes')} value={partner.notes} />
           </dl>
         </CardContent>
       </Card>
       <Card>
         <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Activity</CardTitle>
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Activity')}</CardTitle>
         </CardHeader>
         <CardContent className="px-5 pb-4">
           <dl className="divide-y">
-            <InfoRow label="Created" value={<span className="text-sm">{dateTime(partner.createdAt)}</span>} />
-            <InfoRow label="Updated" value={<span className="text-sm">{dateTime(partner.updatedAt)}</span>} />
+            <InfoRow label={tx('Created')} value={<span className="text-sm">{dateTime(partner.createdAt)}</span>} />
+            <InfoRow label={tx('Updated')} value={<span className="text-sm">{dateTime(partner.updatedAt)}</span>} />
           </dl>
         </CardContent>
       </Card>
@@ -89,18 +90,18 @@ function TabContacts({ partner }: { partner: Partner }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>First Name</TableHead>
-              <TableHead>Last Name</TableHead>
-              <TableHead>Position</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Primary</TableHead>
+              <TableHead>{tx('First Name')}</TableHead>
+              <TableHead>{tx('Last Name')}</TableHead>
+              <TableHead>{tx('Position')}</TableHead>
+              <TableHead>{tx('Email')}</TableHead>
+              <TableHead>{tx('Phone')}</TableHead>
+              <TableHead>{tx('Primary')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {contacts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No contacts registered.</TableCell>
+                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">{tx('No contacts registered.')}</TableCell>
               </TableRow>
             ) : contacts.map((c) => (
               <TableRow key={c.id}>
@@ -109,7 +110,7 @@ function TabContacts({ partner }: { partner: Partner }) {
                 <TableCell>{c.position ?? '-'}</TableCell>
                 <TableCell>{c.email ?? '-'}</TableCell>
                 <TableCell>{c.phone ?? '-'}</TableCell>
-                <TableCell>{c.isPrimary ? <Badge className="bg-emerald-100 text-emerald-700 text-xs">Primary</Badge> : '-'}</TableCell>
+                <TableCell>{c.isPrimary ? <Badge className="bg-emerald-100 text-emerald-700 text-xs">{tx('Primary')}</Badge> : '-'}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -127,19 +128,19 @@ function TabAddresses({ partner }: { partner: Partner }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Type</TableHead>
-              <TableHead>Address</TableHead>
-              <TableHead>City</TableHead>
-              <TableHead>State</TableHead>
-              <TableHead>Postal Code</TableHead>
-              <TableHead>Country</TableHead>
-              <TableHead>Primary</TableHead>
+              <TableHead>{tx('Type')}</TableHead>
+              <TableHead>{tx('Address')}</TableHead>
+              <TableHead>{tx('City')}</TableHead>
+              <TableHead>{tx('State')}</TableHead>
+              <TableHead>{tx('Postal Code')}</TableHead>
+              <TableHead>{tx('Country')}</TableHead>
+              <TableHead>{tx('Primary')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {addresses.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No addresses registered.</TableCell>
+                <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">{tx('No addresses registered.')}</TableCell>
               </TableRow>
             ) : addresses.map((a) => (
               <TableRow key={a.id}>
@@ -149,7 +150,7 @@ function TabAddresses({ partner }: { partner: Partner }) {
                 <TableCell>{a.state ?? '-'}</TableCell>
                 <TableCell>{a.postalCode ?? '-'}</TableCell>
                 <TableCell>{a.country ?? '-'}</TableCell>
-                <TableCell>{a.isPrimary ? <Badge className="bg-emerald-100 text-emerald-700 text-xs">Primary</Badge> : '-'}</TableCell>
+                <TableCell>{a.isPrimary ? <Badge className="bg-emerald-100 text-emerald-700 text-xs">{tx('Primary')}</Badge> : '-'}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -188,17 +189,17 @@ function TabInvoices({ partnerId }: { partnerId: string }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Document #</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Payment</TableHead>
+              <TableHead>{tx('Document #')}</TableHead>
+              <TableHead>{tx('Date')}</TableHead>
+              <TableHead className="text-right">{tx('Amount')}</TableHead>
+              <TableHead>{tx('Status')}</TableHead>
+              <TableHead>{tx('Payment')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {invoices.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No invoices found.</TableCell>
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">{tx('No invoices found.')}</TableCell>
               </TableRow>
             ) : invoices.map((inv) => (
               <TableRow key={inv.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/invoices/${inv.id}`)}>
@@ -246,17 +247,17 @@ function TabPayments({ partnerId, direction }: { partnerId: string; direction: '
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Payment #</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead>Method</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>{tx('Payment #')}</TableHead>
+              <TableHead>{tx('Date')}</TableHead>
+              <TableHead className="text-right">{tx('Amount')}</TableHead>
+              <TableHead>{tx('Method')}</TableHead>
+              <TableHead>{tx('Status')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {payments.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No payments found.</TableCell>
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">{tx('No payments found.')}</TableCell>
               </TableRow>
             ) : payments.map((p) => (
               <TableRow key={p.id}>
@@ -310,16 +311,16 @@ function TabPurchaseOrders({ partnerId }: { partnerId: string }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Order #</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead className="text-right">Amount</TableHead>
-              <TableHead>Status</TableHead>
+              <TableHead>{tx('Order #')}</TableHead>
+              <TableHead>{tx('Date')}</TableHead>
+              <TableHead className="text-right">{tx('Amount')}</TableHead>
+              <TableHead>{tx('Status')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {orders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No purchases found.</TableCell>
+                <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">{tx('No purchases found.')}</TableCell>
               </TableRow>
             ) : orders.map((po) => (
               <TableRow key={po.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/procurement/purchase-orders/${po.id}`)}>
@@ -344,20 +345,20 @@ function TabLedger({ partnerId }: { partnerId: string }) {
   const { data, isLoading } = useSupplierLedger(partnerId);
 
   if (isLoading) return <div className="p-8"><Skeleton className="h-48 w-full" /></div>;
-  if (!data) return <div className="p-8 text-center text-muted-foreground">No ledger data.</div>;
+  if (!data) return <div className="p-8 text-center text-muted-foreground">{tx('No ledger data.')}</div>;
 
   return (
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Opening Balance</div>
+            <div className="text-sm text-muted-foreground">{tx('Opening Balance')}</div>
             <div className="text-2xl font-bold">{money(data.openingBalance)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Closing Balance</div>
+            <div className="text-sm text-muted-foreground">{tx('Closing Balance')}</div>
             <div className="text-2xl font-bold">{money(data.closingBalance)}</div>
           </CardContent>
         </Card>
@@ -367,19 +368,19 @@ function TabLedger({ partnerId }: { partnerId: string }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Debit</TableHead>
-                <TableHead className="text-right">Credit</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
+                <TableHead>{tx('Date')}</TableHead>
+                <TableHead>{tx('Type')}</TableHead>
+                <TableHead>{tx('Reference')}</TableHead>
+                <TableHead>{tx('Description')}</TableHead>
+                <TableHead className="text-right">{tx('Debit')}</TableHead>
+                <TableHead className="text-right">{tx('Credit')}</TableHead>
+                <TableHead className="text-right">{tx('Balance')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.transactions.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">No transactions found.</TableCell>
+                  <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">{tx('No transactions found.')}</TableCell>
                 </TableRow>
               ) : data.transactions.map((t) => (
                 <TableRow key={t.id}>
@@ -410,7 +411,7 @@ function TabStatement({ partnerId }: { partnerId: string }) {
   const [target, setTarget] = useState<CreditPaymentTarget | null>(null);
 
   if (isLoading) return <div className="p-8"><Skeleton className="h-48 w-full" /></div>;
-  if (!data) return <div className="p-8 text-center text-muted-foreground">No statement data.</div>;
+  if (!data) return <div className="p-8 text-center text-muted-foreground">{tx('No statement data.')}</div>;
 
   const typeBadge: Record<string, string> = {
     credit_issue: 'bg-blue-50 text-blue-700',
@@ -424,25 +425,25 @@ function TabStatement({ partnerId }: { partnerId: string }) {
     <div className="space-y-4">
       {data.creditHold ? (
         <div className="rounded-lg border-2 border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-semibold text-rose-700">
-          On credit hold — new credit sales are blocked for this customer.
+          {tx('On credit hold — new credit sales are blocked for this customer.')}
         </div>
       ) : null}
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Credit Limit</div>
+            <div className="text-sm text-muted-foreground">{tx('Credit Limit')}</div>
             <div className="text-2xl font-bold">{data.creditLimit > 0 ? money(data.creditLimit) : 'No limit'}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Outstanding</div>
+            <div className="text-sm text-muted-foreground">{tx('Outstanding')}</div>
             <div className="text-2xl font-bold">{money(data.outstanding)}</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Available</div>
+            <div className="text-sm text-muted-foreground">{tx('Available')}</div>
             <div className="text-2xl font-bold">{data.available == null ? '—' : money(data.available)}</div>
           </CardContent>
         </Card>
@@ -451,7 +452,7 @@ function TabStatement({ partnerId }: { partnerId: string }) {
       {openRows.length > 0 ? (
         <Card>
           <CardContent className="pt-6">
-            <div className="mb-3 text-sm font-semibold">Open invoices</div>
+            <div className="mb-3 text-sm font-semibold">{tx('Open invoices')}</div>
             <div className="space-y-2">
               {openRows.map((r) => (
                 <div key={r.invoiceId} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
@@ -471,7 +472,7 @@ function TabStatement({ partnerId }: { partnerId: string }) {
                         amountResidual: r.amountResidual,
                       })}
                     >
-                      Record payment
+                      {tx('Record payment')}
                     </Button>
                   </div>
                 </div>
@@ -487,18 +488,18 @@ function TabStatement({ partnerId }: { partnerId: string }) {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead className="text-right">Charge</TableHead>
-                <TableHead className="text-right">Payment</TableHead>
-                <TableHead className="text-right">Balance</TableHead>
+                <TableHead>{tx('Date')}</TableHead>
+                <TableHead>{tx('Type')}</TableHead>
+                <TableHead>{tx('Reference')}</TableHead>
+                <TableHead className="text-right">{tx('Charge')}</TableHead>
+                <TableHead className="text-right">{tx('Payment')}</TableHead>
+                <TableHead className="text-right">{tx('Balance')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {data.entries.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">No credit activity.</TableCell>
+                  <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">{tx('No credit activity.')}</TableCell>
                 </TableRow>
               ) : data.entries.map((e, i) => (
                 <TableRow key={`${e.invoiceId}-${e.type}-${i}`}>
@@ -575,9 +576,9 @@ function TabExpensesPurchases({ partnerId }: { partnerId: string }) {
       {/* Expenses Section */}
       <Card>
         <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg flex flex-row items-center justify-between">
-          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Expenses</CardTitle>
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Expenses')}</CardTitle>
           <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => navigate('/expenses')}>
-            View all expenses →
+            {tx('View all expenses →')}
           </Button>
         </CardHeader>
         <CardContent className="p-0">
@@ -587,17 +588,17 @@ function TabExpensesPurchases({ partnerId }: { partnerId: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Code</TableHead>
-                  <TableHead>Title</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{tx('Code')}</TableHead>
+                  <TableHead>{tx('Title')}</TableHead>
+                  <TableHead>{tx('Date')}</TableHead>
+                  <TableHead className="text-right">{tx('Amount')}</TableHead>
+                  <TableHead>{tx('Status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {expenses.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">No expenses found.</TableCell>
+                    <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">{tx('No expenses found.')}</TableCell>
                   </TableRow>
                 ) : expenses.map((exp) => (
                   <TableRow key={exp.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/expenses/${exp.id}`)}>
@@ -621,9 +622,9 @@ function TabExpensesPurchases({ partnerId }: { partnerId: string }) {
       {/* Purchase Orders Section */}
       <Card>
         <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg flex flex-row items-center justify-between">
-          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Purchases</CardTitle>
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Purchases')}</CardTitle>
           <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => navigate('/procurement/purchase-orders')}>
-            View all POs →
+            {tx('View all POs →')}
           </Button>
         </CardHeader>
         <CardContent className="p-0">
@@ -633,16 +634,16 @@ function TabExpensesPurchases({ partnerId }: { partnerId: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Order #</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>{tx('Order #')}</TableHead>
+                  <TableHead>{tx('Date')}</TableHead>
+                  <TableHead className="text-right">{tx('Amount')}</TableHead>
+                  <TableHead>{tx('Status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {pos.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">No purchases found.</TableCell>
+                    <TableCell colSpan={4} className="py-8 text-center text-muted-foreground">{tx('No purchases found.')}</TableCell>
                   </TableRow>
                 ) : pos.map((po) => (
                   <TableRow key={po.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/procurement/purchase-orders/${po.id}`)}>
@@ -685,10 +686,10 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
     return (
       <div className="space-y-6 px-2 md:px-4 py-3 mx-auto">
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-6 text-center">
-          <h1 className="text-2xl font-semibold text-destructive">Not Found</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Partner not found or you don't have permission to view it.</p>
+          <h1 className="text-2xl font-semibold text-destructive">{tx('Not Found')}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{tx('Partner not found or you don\'t have permission to view it.')}</p>
           <Button variant="outline" className="mt-4" onClick={() => navigate(partnerType === 'customer' ? '/customers' : '/suppliers')}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back to {partnerType === 'customer' ? 'Customers' : 'Suppliers'}
+            <ArrowLeft className="mr-2 h-4 w-4" /> {tx('Back to')} {partnerType === 'customer' ? 'Customers' : 'Suppliers'}
           </Button>
         </div>
       </div>
@@ -749,7 +750,7 @@ function PartnerDetailPage({ partnerType }: { partnerType: 'customer' | 'supplie
               className="bg-white/20 text-white hover:bg-white/30 border-0"
               onClick={() => navigate(`/${labelPlural.toLowerCase()}`)}
             >
-              <ArrowLeft className="mr-1.5 h-4 w-4" /> Back
+              <ArrowLeft className="mr-1.5 h-4 w-4" /> {tx('Back')}
             </Button>
           </div>
         </div>

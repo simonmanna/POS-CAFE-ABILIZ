@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { CartLine } from '@/features/pos/types';
 import { useVerifyPin } from './api';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -72,11 +73,10 @@ export const VoidItemDialog: React.FC<Props> = ({ open, line, sentToKitchen, onC
       <DialogContent className="sm:max-w-[420px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-rose-600">
-            <AlertTriangle className="w-4 h-4" /> Void Item
+            <AlertTriangle className="w-4 h-4" /> {tx('Void Item')}
           </DialogTitle>
           <DialogDescription>
-            Take <strong>{line.name}</strong> (×{line.quantity}) off this order. The item stays on
-            the order's record with your name against it.
+            {tx('Take')} <strong>{line.name}</strong> (×{line.quantity}{tx(') off this order. The item stays on the order\'s record with your name against it.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -84,20 +84,20 @@ export const VoidItemDialog: React.FC<Props> = ({ open, line, sentToKitchen, onC
           {sentToKitchen ? (
             <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs font-medium text-amber-800">
               <ChefHat className="h-4 w-4 shrink-0" />
-              <span>The kitchen has already been sent this item. A manager PIN is required next.</span>
+              <span>{tx('The kitchen has already been sent this item. A manager PIN is required next.')}</span>
             </div>
           ) : null}
           <textarea
             autoFocus
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="e.g. Customer changed their mind, wrong item ordered…"
+            placeholder={tx('e.g. Customer changed their mind, wrong item ordered…')}
             className="w-full px-3 py-2 border border-slate-200 rounded-md text-sm resize-none h-20"
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit(); }}
           />
           <div className="space-y-1">
             <Label className="flex items-center gap-1">
-              <KeyRound className="h-3 w-3" /> Your PIN (4–8 digits)
+              <KeyRound className="h-3 w-3" /> {tx('Your PIN (4–8 digits)')}
             </Label>
             <Input
               type="password"
@@ -113,7 +113,7 @@ export const VoidItemDialog: React.FC<Props> = ({ open, line, sentToKitchen, onC
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button variant="outline" onClick={onClose} disabled={busy}>{tx('Cancel')}</Button>
           <Button
             variant="destructive"
             disabled={!reason.trim() || !pin || busy || verify.isPending}

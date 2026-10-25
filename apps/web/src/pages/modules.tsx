@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface OrgModule {
   id: string;
@@ -67,14 +68,14 @@ export function ModulesPage() {
   const enable = useMutation({
     mutationFn: async (name: string) => await api.post(`/feature-flags/modules/${name}/enable`, { config: {} }),
     onSuccess: () => {
-      notify.success('Module enabled');
+      notify.success(tx('Module enabled'));
       qc.invalidateQueries({ queryKey: ['org-modules'] });
     },
   });
   const disable = useMutation({
     mutationFn: async (name: string) => await api.patch(`/feature-flags/modules/${name}/disable`),
     onSuccess: () => {
-      notify.success('Module disabled');
+      notify.success(tx('Module disabled'));
       qc.invalidateQueries({ queryKey: ['org-modules'] });
     },
   });
@@ -86,16 +87,15 @@ export function ModulesPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Modules</h1>
+        <h1 className="text-2xl font-semibold">{tx('Modules')}</h1>
         <p className="text-sm text-muted-foreground">
-          Enable vertical apps for your organization. Each module is a thin layer that uses the core ERP — your data stays in one place.
-          Only modules this server was started with can be enabled here.
+          {tx('Enable vertical apps for your organization. Each module is a thin layer that uses the core ERP — your data stays in one place. Only modules this server was started with can be enabled here.')}
         </p>
       </div>
       {loading && <Skeleton className="h-32 w-full" />}
       {!loading && modules.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          No optional modules are available on this server.
+          {tx('No optional modules are available on this server.')}
         </p>
       )}
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -120,11 +120,11 @@ export function ModulesPage() {
               <CardContent>
                 {active ? (
                   <Button size="sm" variant="outline" className="w-full" onClick={() => disable.mutate(v.name)}>
-                    <PowerOff className="mr-2 h-3 w-3" />Disable
+                    <PowerOff className="mr-2 h-3 w-3" />{tx('Disable')}
                   </Button>
                 ) : (
                   <Button size="sm" className="w-full" onClick={() => enable.mutate(v.name)}>
-                    <Power className="mr-2 h-3 w-3" />Enable
+                    <Power className="mr-2 h-3 w-3" />{tx('Enable')}
                   </Button>
                 )}
               </CardContent>

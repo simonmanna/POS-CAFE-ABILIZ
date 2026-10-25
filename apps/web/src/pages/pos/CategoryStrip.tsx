@@ -2,6 +2,7 @@
 import React from 'react';
 import { ChefHat } from 'lucide-react';
 import type { Category } from './types';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   categories: Category[];
@@ -17,7 +18,7 @@ export const CategoryStrip: React.FC<Props> = ({ categories, activeId, onSelect 
         className={'pos-cat-pill-pro' + (activeId === null ? ' active' : '')}
         onClick={() => onSelect(null)}
       >
-        <ChefHat className="h-4 w-4" /> All menu
+        <ChefHat className="h-4 w-4" /> {tx('All menu')}
       </button>
       {categories.map((c) => (
         <button

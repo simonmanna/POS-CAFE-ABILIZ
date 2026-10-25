@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { usePnL } from '@/features/accounting/api';
 import { money } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 export function ProfitAndLossPage() {
   const today = new Date();
@@ -22,18 +23,18 @@ export function ProfitAndLossPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Profit & Loss</h1>
-          <p className="text-sm text-gray-500">Revenue, costs, and operating profit for the selected period.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Profit & Loss')}</h1>
+          <p className="text-sm text-gray-500">{tx('Revenue, costs, and operating profit for the selected period.')}</p>
         </div>
       </div>
 
       <div className="flex flex-wrap items-end gap-3 p-3 bg-white border rounded-lg shadow-sm">
         <div className="space-y-1 min-w-[150px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">From</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('From')}</Label>
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-9 text-xs" />
         </div>
         <div className="space-y-1 min-w-[150px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">To</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('To')}</Label>
           <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-9 text-xs" />
         </div>
       </div>
@@ -44,7 +45,7 @@ export function ProfitAndLossPage() {
           <CardHeader className="pb-2 pt-4 px-5 bg-emerald-50/50 border-b rounded-t-lg">
             <div className="flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-emerald-600" />
-              <CardTitle className="text-xs font-bold text-emerald-700 uppercase tracking-wider">Revenue</CardTitle>
+              <CardTitle className="text-xs font-bold text-emerald-700 uppercase tracking-wider">{tx('Revenue')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="p-5">
@@ -53,15 +54,15 @@ export function ProfitAndLossPage() {
             ) : (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Gross Revenue</span>
+                  <span className="text-xs text-muted-foreground">{tx('Gross Revenue')}</span>
                   <span className="text-lg font-bold text-emerald-600">{data ? money(data.revenue) : '—'}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Contra Revenue</span>
+                  <span className="text-xs text-muted-foreground">{tx('Contra Revenue')}</span>
                   <span className="text-sm font-medium text-red-500">({data ? money(data.contraRevenue) : '—'})</span>
                 </div>
                 <div className="border-t pt-2 mt-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-muted-foreground">Net Revenue</span>
+                  <span className="text-xs font-semibold text-muted-foreground">{tx('Net Revenue')}</span>
                   <span className="text-base font-bold text-emerald-600">{data ? money(data.netRevenue) : '—'}</span>
                 </div>
               </div>
@@ -74,7 +75,7 @@ export function ProfitAndLossPage() {
           <CardHeader className="pb-2 pt-4 px-5 bg-red-50/50 border-b rounded-t-lg">
             <div className="flex items-center gap-2">
               <TrendingDown className="h-4 w-4 text-red-500" />
-              <CardTitle className="text-xs font-bold text-red-700 uppercase tracking-wider">Costs</CardTitle>
+              <CardTitle className="text-xs font-bold text-red-700 uppercase tracking-wider">{tx('Costs')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="p-5">
@@ -87,11 +88,11 @@ export function ProfitAndLossPage() {
                   <span className="text-lg font-bold text-red-500">{data ? money(data.cogs) : '—'}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Operating Expenses</span>
+                  <span className="text-xs text-muted-foreground">{tx('Operating Expenses')}</span>
                   <span className="text-sm font-medium text-red-500">{data ? money(data.expense) : '—'}</span>
                 </div>
                 <div className="border-t pt-2 mt-2 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-muted-foreground">Total Costs</span>
+                  <span className="text-xs font-semibold text-muted-foreground">{tx('Total Costs')}</span>
                   <span className="text-base font-bold text-red-500">{data ? money(Number(data.cogs) + Number(data.expense)) : '—'}</span>
                 </div>
               </div>
@@ -104,7 +105,7 @@ export function ProfitAndLossPage() {
           <CardHeader className="pb-2 pt-4 px-5 bg-blue-50/50 border-b rounded-t-lg">
             <div className="flex items-center gap-2">
               <DollarSign className={`h-4 w-4 ${profitColor}`} />
-              <CardTitle className={`text-xs font-bold uppercase tracking-wider ${profitColor}`}>Operating Profit</CardTitle>
+              <CardTitle className={`text-xs font-bold uppercase tracking-wider ${profitColor}`}>{tx('Operating Profit')}</CardTitle>
             </div>
           </CardHeader>
           <CardContent className="p-5">
@@ -113,11 +114,11 @@ export function ProfitAndLossPage() {
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground">Gross Profit</span>
+                  <span className="text-xs text-muted-foreground">{tx('Gross Profit')}</span>
                   <span className="text-sm font-semibold">{data ? money(data.grossProfit) : '—'}</span>
                 </div>
                 <div className="border-t pt-2 flex items-center justify-between">
-                  <span className="text-sm font-bold text-muted-foreground">Operating Profit</span>
+                  <span className="text-sm font-bold text-muted-foreground">{tx('Operating Profit')}</span>
                   <span className={`text-xl font-bold ${profitColor}`}>{data ? money(data.operatingProfit) : '—'}</span>
                 </div>
                 <div className="text-[10px] text-muted-foreground italic pt-1">

@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { tx } from '@/lib/i18n/tx';
 
 const PRODUCT_TYPES = ['stockable', 'consumable', 'service', 'fee', 'subscription', 'asset'] as const;
 const TYPE_OPTIONS = PRODUCT_TYPES.map((t) => ({ value: t, label: statusLabel(t) }));
@@ -111,7 +112,7 @@ export function ProductsPage() {
   const handleDelete = async () => {
     if (!deleting) return;
     await deleteProduct.mutateAsync(deleting.id);
-    notify.success('Product moved to deleted');
+    notify.success(tx('Product moved to deleted'));
     setDeleting(null);
   };
 
@@ -184,16 +185,16 @@ export function ProductsPage() {
       className: 'w-28 text-right',
       render: (p: Product) => (
         <div className="flex justify-end gap-0.5">
-          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(`/inventory/items/${p.id}`)} aria-label="View stock">
+          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(`/inventory/items/${p.id}`)} aria-label={tx('View stock')}>
             <Eye className="h-4 w-4 text-primary/70" />
           </Button>
           {canEditProduct && (
-            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(`/products/${p.id}/edit`)} aria-label="Edit">
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => navigate(`/products/${p.id}/edit`)} aria-label={tx('Edit')}>
               <Edit className="h-4 w-4" />
             </Button>
           )}
           {canDeleteProduct && (
-            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setDeleting(p)} aria-label="Delete">
+            <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setDeleting(p)} aria-label={tx('Delete')}>
               <Trash2 className="h-4 w-4 text-destructive/70" />
             </Button>
           )}
@@ -225,8 +226,8 @@ export function ProductsPage() {
   if (!canViewProducts && !canViewCategories) {
     return (
       <div className="space-y-4">
-        <h1 className="text-2xl font-semibold">Products</h1>
-        <p className="text-sm text-muted-foreground">You do not have permission to view products or categories.</p>
+        <h1 className="text-2xl font-semibold">{tx('Products')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('You do not have permission to view products or categories.')}</p>
       </div>
     );
   }
@@ -282,7 +283,7 @@ export function ProductsPage() {
     if (!confirm(`Delete "${cat.name}"? This cannot be undone.`)) return;
     try {
       await deleteCategory.mutateAsync(cat.id);
-      notify.success('Category deleted');
+      notify.success(tx('Category deleted'));
     } catch (e: any) {
       alert(e.response?.data?.message || e.message);
     }
@@ -290,19 +291,19 @@ export function ProductsPage() {
 
   return (
     <div className="space-y-4">
-      <ListPageHeader icon={Package} title="Products" description="Goods, services, fees and subscriptions." />
+      <ListPageHeader icon={Package} title={tx('Products')} description={tx('Goods, services, fees and subscriptions.')} />
 
       <Tabs defaultValue="products" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="products">Products</TabsTrigger>
-          <TabsTrigger value="categories">Categories</TabsTrigger>
+          <TabsTrigger value="products">{tx('Products')}</TabsTrigger>
+          <TabsTrigger value="categories">{tx('Categories')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="products" className="space-y-4">
           {canViewProducts ? (
             <>
               <ListToolbar chips={<FilterChips chips={chips} onClearAll={list.clearFilters} />}>
-                <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder="Search name, code or SKU…" />
+                <SearchInput value={list.searchInput} onChange={list.setSearchInput} placeholder={tx('Search name, code or SKU…')} />
                 <FilterSelect
                   value={categoryFilter}
                   onChange={(v) => list.setFilter('categoryId', v)}
@@ -314,7 +315,7 @@ export function ProductsPage() {
                 <div className="ml-auto flex items-center gap-2">
                   <ExportMenu
                     basename="products"
-                    title="Products"
+                    title={tx('Products')}
                     subtitle={describeFilters(chips)}
                     columns={exportColumns}
                     pageRows={rows}
@@ -323,7 +324,7 @@ export function ProductsPage() {
                   />
                   {canCreateProduct && (
                     <Button size="sm" onClick={() => navigate('/products/new')}>
-                      <Plus className="mr-1 h-4 w-4" /> New Product
+                      <Plus className="mr-1 h-4 w-4" /> {tx('New Product')}
                     </Button>
                   )}
                 </div>
@@ -359,20 +360,20 @@ export function ProductsPage() {
               </ListCard>
             </>
           ) : (
-            <p className="text-sm text-muted-foreground">You do not have permission to view products.</p>
+            <p className="text-sm text-muted-foreground">{tx('You do not have permission to view products.')}</p>
           )}
 
           <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Delete Product?</AlertDialogTitle>
+                <AlertDialogTitle>{tx('Delete Product?')}</AlertDialogTitle>
                 <AlertDialogDescription>
-                  {deleting?.name} will be marked as deleted. It can be restored later.
+                  {deleting?.name} {tx('will be marked as deleted. It can be restored later.')}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">Delete</AlertDialogAction>
+                <AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel>
+                <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">{tx('Delete')}</AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
@@ -382,12 +383,12 @@ export function ProductsPage() {
           {canViewCategories && (
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold">Categories</h2>
-                <p className="text-sm text-muted-foreground">Organize products into categories.</p>
+                <h2 className="text-2xl font-bold">{tx('Categories')}</h2>
+                <p className="text-sm text-muted-foreground">{tx('Organize products into categories.')}</p>
               </div>
               {canCreateCategory && (
                 <Button onClick={() => openCategoryDialog(null)}>
-                  <Plus className="h-4 w-4" /> New Category
+                  <Plus className="h-4 w-4" /> {tx('New Category')}
                 </Button>
               )}
             </div>
@@ -398,11 +399,11 @@ export function ProductsPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
                   <tr>
-                    <th className="text-left px-4 py-2 font-semibold">Name</th>
-                    <th className="text-left px-4 py-2 font-semibold">Parent</th>
-                    <th className="text-left px-4 py-2 font-semibold">Income Account</th>
-                    <th className="text-left px-4 py-2 font-semibold">Expense Account</th>
-                    <th className="text-right px-4 py-2 font-semibold">Actions</th>
+                    <th className="text-left px-4 py-2 font-semibold">{tx('Name')}</th>
+                    <th className="text-left px-4 py-2 font-semibold">{tx('Parent')}</th>
+                    <th className="text-left px-4 py-2 font-semibold">{tx('Income Account')}</th>
+                    <th className="text-left px-4 py-2 font-semibold">{tx('Expense Account')}</th>
+                    <th className="text-right px-4 py-2 font-semibold">{tx('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -449,7 +450,7 @@ export function ProductsPage() {
                   {categories.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
-                        No categories yet.
+                        {tx('No categories yet.')}
                       </td>
                     </tr>
                   )}
@@ -458,7 +459,7 @@ export function ProductsPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">You do not have permission to view categories.</p>
+              <p className="text-sm text-muted-foreground">{tx('You do not have permission to view categories.')}</p>
             </div>
           )}
 
@@ -478,25 +479,25 @@ export function ProductsPage() {
                 )}
 
                 <div>
-                  <Label className="text-sm font-medium">Name</Label>
+                  <Label className="text-sm font-medium">{tx('Name')}</Label>
                   <Input
                     value={catName}
                     onChange={(e) => setCatName(e.target.value)}
-                    placeholder="e.g. Beverages"
+                    placeholder={tx('e.g. Beverages')}
                     disabled={catSaving}
                   />
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium">Parent Category</Label>
+                  <Label className="text-sm font-medium">{tx('Parent Category')}</Label>
                   <Select
                     value={catParentId || NO_PARENT}
                     onValueChange={(v) => setCatParentId(v === NO_PARENT ? '' : v)}
                     disabled={catSaving}
                   >
-                    <SelectTrigger className="w-full"><SelectValue placeholder="No parent (top level)" /></SelectTrigger>
+                    <SelectTrigger className="w-full"><SelectValue placeholder={tx('No parent (top level)')} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NO_PARENT}>No parent (top level)</SelectItem>
+                      <SelectItem value={NO_PARENT}>{tx('No parent (top level)')}</SelectItem>
                       {categories.filter(c => c.id !== categoryDialog.category?.id).map((c) => (
                         <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                       ))}
@@ -505,21 +506,21 @@ export function ProductsPage() {
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium">Income Account (optional)</Label>
+                  <Label className="text-sm font-medium">{tx('Income Account (optional)')}</Label>
                   <Input
                     value={catIncomeAccountId}
                     onChange={(e) => setCatIncomeAccountId(e.target.value)}
-                    placeholder="Account ID"
+                    placeholder={tx('Account ID')}
                     disabled={catSaving}
                   />
                 </div>
 
                 <div>
-                  <Label className="text-sm font-medium">Expense Account (optional)</Label>
+                  <Label className="text-sm font-medium">{tx('Expense Account (optional)')}</Label>
                   <Input
                     value={catExpenseAccountId}
                     onChange={(e) => setCatExpenseAccountId(e.target.value)}
-                    placeholder="Account ID"
+                    placeholder={tx('Account ID')}
                     disabled={catSaving}
                   />
                 </div>
@@ -527,7 +528,7 @@ export function ProductsPage() {
 
               <DialogFooter>
                 <Button variant="outline" onClick={closeCategoryDialog} disabled={catSaving}>
-                  Cancel
+                  {tx('Cancel')}
                 </Button>
                 <Button onClick={saveCategory} disabled={catSaving}>
                   {catSaving && <Loader2 className="w-4 h-4 mr-1 animate-spin" />}

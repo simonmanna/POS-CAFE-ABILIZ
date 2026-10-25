@@ -45,6 +45,7 @@ import {
   useDeleteCostCenter,
   type CostCenter,
 } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 type TabValue = 'all' | 'cost' | 'profit';
 
@@ -155,8 +156,8 @@ function CostCentersPage() {
       header: 'Status',
       render: (c) => (
         c.isActive
-          ? <Badge variant="default" className="bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100">Active</Badge>
-          : <Badge variant="secondary" className="bg-slate-100 text-slate-500 border-slate-200">Inactive</Badge>
+          ? <Badge variant="default" className="bg-emerald-100 text-emerald-700 border-emerald-200 hover:bg-emerald-100">{tx('Active')}</Badge>
+          : <Badge variant="secondary" className="bg-slate-100 text-slate-500 border-slate-200">{tx('Inactive')}</Badge>
       ),
     },
     {
@@ -192,14 +193,14 @@ function CostCentersPage() {
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
           <h1 className="text-3xl font-bold tracking-tight text-gray-900">
-            Cost & Profit Centers
+            {tx('Cost & Profit Centers')}
           </h1>
           <p className="text-sm text-gray-500">
-            Manage cost and profit centers used to track performance by department or business unit.
+            {tx('Manage cost and profit centers used to track performance by department or business unit.')}
           </p>
         </div>
         <Button onClick={handleOpenCreate} className="gap-1.5">
-          <Plus className="h-4 w-4" /> Create Center
+          <Plus className="h-4 w-4" /> {tx('Create Center')}
         </Button>
       </div>
 
@@ -220,14 +221,14 @@ function CostCentersPage() {
         data={centers}
         loading={isLoading}
         getRowId={(c) => c.id}
-        emptyMessage="No cost or profit centers found."
+        emptyMessage={tx('No cost or profit centers found.')}
       />
 
       {/* Pagination */}
       {meta && (
         <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
           <div className="text-sm text-gray-600">
-            Showing{' '}
+            {tx('Showing')}{' '}
             <span className="font-medium text-gray-800">
               {(page - 1) * meta.pageSize + 1}
             </span>{' '}
@@ -236,7 +237,7 @@ function CostCentersPage() {
               {Math.min(page * meta.pageSize, meta.total)}
             </span>{' '}
             of{' '}
-            <span className="font-medium text-gray-800">{meta.total}</span> centers
+            <span className="font-medium text-gray-800">{meta.total}</span> {tx('centers')}
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -246,10 +247,10 @@ function CostCentersPage() {
               onClick={() => setPage((p) => p - 1)}
               className="border-gray-300"
             >
-              Previous
+              {tx('Previous')}
             </Button>
             <span className="text-sm text-gray-600">
-              Page {page} of {meta.totalPages}
+              {tx('Page')} {page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -258,7 +259,7 @@ function CostCentersPage() {
               onClick={() => setPage((p) => p + 1)}
               className="border-gray-300"
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>
@@ -277,31 +278,31 @@ function CostCentersPage() {
           </DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="code">Code</Label>
-              <Input id="code" placeholder="e.g. CC-001" {...form.register('code')} />
+              <Label htmlFor="code">{tx('Code')}</Label>
+              <Input id="code" placeholder={tx('e.g. CC-001')} {...form.register('code')} />
               {form.formState.errors.code && (
                 <p className="text-sm text-destructive">{form.formState.errors.code.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
-              <Input id="name" placeholder="e.g. Kitchen Operations" {...form.register('name')} />
+              <Label htmlFor="name">{tx('Name')}</Label>
+              <Input id="name" placeholder={tx('e.g. Kitchen Operations')} {...form.register('name')} />
               {form.formState.errors.name && (
                 <p className="text-sm text-destructive">{form.formState.errors.name.message}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="type">Type</Label>
+              <Label htmlFor="type">{tx('Type')}</Label>
               <Select
                 value={form.watch('type')}
                 onValueChange={(v) => form.setValue('type', v as 'cost' | 'profit', { shouldValidate: true })}
               >
                 <SelectTrigger id="type">
-                  <SelectValue placeholder="Select type" />
+                  <SelectValue placeholder={tx('Select type')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cost">Cost Center</SelectItem>
-                  <SelectItem value="profit">Profit Center</SelectItem>
+                  <SelectItem value="cost">{tx('Cost Center')}</SelectItem>
+                  <SelectItem value="profit">{tx('Profit Center')}</SelectItem>
                 </SelectContent>
               </Select>
               {form.formState.errors.type && (
@@ -310,7 +311,7 @@ function CostCentersPage() {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                Cancel
+                {tx('Cancel')}
               </Button>
               <Button type="submit" disabled={isPending}>
                 {isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Create center'}
@@ -324,15 +325,14 @@ function CostCentersPage() {
       <AlertDialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Center</AlertDialogTitle>
+            <AlertDialogTitle>{tx('Delete Center')}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete{' '}
-              <span className="font-medium">{deleting?.code} — {deleting?.name}</span>?
-              This action cannot be undone.
+              {tx('Are you sure you want to delete')}{' '}
+              <span className="font-medium">{deleting?.code} — {deleting?.name}</span>{tx('? This action cannot be undone.')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDelete}
               disabled={deleteCenter.isPending}

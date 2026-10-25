@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { formatAmount, useAmountCurrency, useOrgToday } from './money-ui';
+import { tx } from '@/lib/i18n/tx';
 
 export type MoneyOperationMode = 'in' | 'out' | 'transfer';
 
@@ -115,7 +116,7 @@ export function MoneyOperationDialog({
     try {
       if (mode === 'transfer') {
         await transfer.mutateAsync({ fromAccountId: accountId, toAccountId, amount: n, date, reference: reference.trim() || undefined });
-        toast.success('Transfer recorded');
+        toast.success(tx('Transfer recorded'));
       } else {
         const description = [note.trim(), reference.trim() ? `ref ${reference.trim()}` : ''].filter(Boolean).join(' · ');
         const input = { accountId, counterpartAccountId: counterpartId, operationType: operation, amount: n, description, date };
@@ -145,7 +146,7 @@ export function MoneyOperationDialog({
         {step === 'purpose' && mode !== 'transfer' ? (
           <div className="space-y-4">
             <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">Is this one of these? They have their own screen:</p>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">{tx('Is this one of these? They have their own screen:')}</p>
               <ul className="space-y-1.5">
                 {ELSEWHERE[mode].map((e) => (
                   <li key={e.href}>
@@ -165,9 +166,9 @@ export function MoneyOperationDialog({
               </ul>
             </div>
             <div>
-              <p className="mb-2 text-xs font-medium text-muted-foreground">Otherwise, continue here:</p>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">{tx('Otherwise, continue here:')}</p>
               {!operationTypes ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> {tx('Loading…')}</div>
               ) : (
                 <ul className="space-y-1.5">
                   {ops.map((o) => (
@@ -195,41 +196,41 @@ export function MoneyOperationDialog({
           >
             {mode !== 'transfer' && op ? (
               <p className="flex items-center justify-between rounded-lg bg-muted px-3 py-2 text-sm">
-                <span><span className="text-muted-foreground">Purpose:</span> <strong>{op.label}</strong></span>
-                <Button type="button" variant="ghost" size="sm" onClick={() => setStep('purpose')}>Change</Button>
+                <span><span className="text-muted-foreground">{tx('Purpose:')}</span> <strong>{op.label}</strong></span>
+                <Button type="button" variant="ghost" size="sm" onClick={() => setStep('purpose')}>{tx('Change')}</Button>
               </p>
             ) : null}
 
             <div className="space-y-1.5">
               <Label htmlFor="money-op-account">{mode === 'in' ? 'Receive into' : mode === 'out' ? 'Pay from' : 'From'}</Label>
               <select id="money-op-account" required className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                <option value="">Choose account</option>
+                <option value="">{tx('Choose account')}</option>
                 {eligible.map((a) => <option key={a.id} value={a.id}>{a.name} — {fmt(a.balance)}</option>)}
               </select>
             </div>
 
             {mode === 'transfer' ? (
               <div className="space-y-1.5">
-                <Label htmlFor="money-op-to">To</Label>
+                <Label htmlFor="money-op-to">{tx('To')}</Label>
                 <select id="money-op-to" required className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm" value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>
-                  <option value="">Choose account</option>
+                  <option value="">{tx('Choose account')}</option>
                   {eligible.filter((a) => a.id !== accountId).map((a) => <option key={a.id} value={a.id}>{a.name} — {fmt(a.balance)}</option>)}
                 </select>
               </div>
             ) : op ? (
               <div className="space-y-1.5">
-                <Label htmlFor="money-op-counterpart">Accounting account</Label>
+                <Label htmlFor="money-op-counterpart">{tx('Accounting account')}</Label>
                 <select id="money-op-counterpart" required className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm" value={counterpartId} onChange={(e) => setCounterpartId(e.target.value)}>
                   <option value="">{op.accounts.length ? 'Choose account' : 'No eligible account — add one to the chart of accounts'}</option>
                   {op.accounts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
                 </select>
-                <p className="text-xs text-muted-foreground">Where this is recorded in the books ({op.accounts[0]?.classification ?? 'ledger'} account).</p>
+                <p className="text-xs text-muted-foreground">{tx('Where this is recorded in the books (')}{op.accounts[0]?.classification ?? 'ledger'} {tx('account).')}</p>
               </div>
             ) : null}
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="money-op-amount">Amount{currency ? ` (${currency})` : ''}</Label>
+                <Label htmlFor="money-op-amount">{tx('Amount')}{currency ? ` (${currency})` : ''}</Label>
                 <Input id="money-op-amount" type="number" inputMode="decimal" step="0.01" min="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} />
                 {source && needsFunds ? (
                   <p className={insufficient ? 'text-xs font-medium text-destructive' : 'text-xs text-muted-foreground'}>
@@ -238,26 +239,26 @@ export function MoneyOperationDialog({
                 ) : null}
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="money-op-date">Date</Label>
+                <Label htmlFor="money-op-date">{tx('Date')}</Label>
                 <Input id="money-op-date" type="date" required value={date} max={today} onChange={(e) => setDate(e.target.value)} />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="money-op-ref">Reference <span className="font-normal text-muted-foreground">(optional)</span></Label>
-              <Input id="money-op-ref" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Bank slip, transaction ID…" />
+              <Label htmlFor="money-op-ref">{tx('Reference')} <span className="font-normal text-muted-foreground">{tx('(optional)')}</span></Label>
+              <Input id="money-op-ref" value={reference} onChange={(e) => setReference(e.target.value)} placeholder={tx('Bank slip, transaction ID…')} />
             </div>
 
             {mode !== 'transfer' ? (
               <div className="space-y-1.5">
-                <Label htmlFor="money-op-note">Description</Label>
+                <Label htmlFor="money-op-note">{tx('Description')}</Label>
                 <Input id="money-op-note" required value={note} onChange={(e) => setNote(e.target.value)} placeholder={mode === 'in' ? 'e.g. Capital from owner' : 'e.g. Monthly bank charges'} />
               </div>
             ) : null}
 
             <DialogFooter className="gap-2">
-              <Button type="button" variant="ghost" className="min-h-[44px]" onClick={onClose}>Cancel</Button>
-              <Button type="submit" className="min-h-[44px]" disabled={!detailsValid}>Review</Button>
+              <Button type="button" variant="ghost" className="min-h-[44px]" onClick={onClose}>{tx('Cancel')}</Button>
+              <Button type="submit" className="min-h-[44px]" disabled={!detailsValid}>{tx('Review')}</Button>
             </DialogFooter>
           </form>
         ) : null}
@@ -269,15 +270,15 @@ export function MoneyOperationDialog({
               <p className="text-foreground">{summary}</p>
             </div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-              <dt className="text-muted-foreground">Date</dt><dd>{date}</dd>
-              {reference ? (<><dt className="text-muted-foreground">Reference</dt><dd>{reference}</dd></>) : null}
-              {note ? (<><dt className="text-muted-foreground">Description</dt><dd>{note}</dd></>) : null}
+              <dt className="text-muted-foreground">{tx('Date')}</dt><dd>{date}</dd>
+              {reference ? (<><dt className="text-muted-foreground">{tx('Reference')}</dt><dd>{reference}</dd></>) : null}
+              {note ? (<><dt className="text-muted-foreground">{tx('Description')}</dt><dd>{note}</dd></>) : null}
             </dl>
             <DialogFooter className="gap-2">
-              <Button type="button" variant="ghost" className="min-h-[44px]" onClick={() => setStep('details')} disabled={pending}>Back</Button>
+              <Button type="button" variant="ghost" className="min-h-[44px]" onClick={() => setStep('details')} disabled={pending}>{tx('Back')}</Button>
               <Button type="button" className="min-h-[44px]" onClick={submit} disabled={pending}>
                 {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                Confirm and record
+                {tx('Confirm and record')}
               </Button>
             </DialogFooter>
           </div>

@@ -24,6 +24,7 @@ import {
   useDeleteModifier,
   useGroupMenuItems,
 } from '@/pages/pos/pos-features-api';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number) => `UGX ${n.toLocaleString()}`;
 const selectCls = 'w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm';
@@ -147,7 +148,7 @@ export default function ModifiersPage() {
         minSelect: sRequired ? 1 : 0,
         maxSelect: sMax,
       });
-      toast.success('Settings saved');
+      toast.success(tx('Settings saved'));
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Failed to save');
     }
@@ -170,7 +171,7 @@ export default function ModifiersPage() {
     if (!deleteTarget) return;
     try {
       await deleteGroup.mutateAsync(deleteTarget.id);
-      toast.success('Group deleted');
+      toast.success(tx('Group deleted'));
       setDeleteTarget(null);
       if (selectedGroupId === deleteTarget.id) setSelectedGroupId(null);
     } catch (e: any) {
@@ -180,7 +181,7 @@ export default function ModifiersPage() {
   };
 
   const submitOption = async () => {
-    if (!selectedGroupId || !aName.trim()) { toast.error('Option name is required'); return; }
+    if (!selectedGroupId || !aName.trim()) { toast.error(tx('Option name is required')); return; }
     try {
       await createModifier.mutateAsync({
         groupId: selectedGroupId,
@@ -189,13 +190,13 @@ export default function ModifiersPage() {
         priceDelta: Number(aPrice) || 0,
         isDefault: aDefault,
       });
-      toast.success('Option added');
+      toast.success(tx('Option added'));
       setAddOpen(false); setAName(''); setAKitchen(''); setAPrice(''); setADefault(false);
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to add option'); }
   };
 
   const saveEditOption = async (modifierId: string) => {
-    if (!eName.trim()) { toast.error('Name is required'); return; }
+    if (!eName.trim()) { toast.error(tx('Name is required')); return; }
     try {
       await updateModifier.mutateAsync({
         id: modifierId,
@@ -205,19 +206,19 @@ export default function ModifiersPage() {
         isDefault: eDefault,
       });
       setEditOptId(null);
-      toast.success('Option updated');
+      toast.success(tx('Option updated'));
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to update'); }
   };
 
   const removeOption = async (id: string) => {
     try {
       await deleteModifier.mutateAsync(id);
-      toast.success('Option removed');
+      toast.success(tx('Option removed'));
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to delete'); }
   };
 
   const submitNewGroup = async () => {
-    if (!gName.trim()) { toast.error('Group name is required'); return; }
+    if (!gName.trim()) { toast.error(tx('Group name is required')); return; }
     const maxSelect = gType === 'single' ? 1 : Math.max(1, Number(gMax) || 1);
     const minSelect = gRequired ? 1 : 0;
     try {
@@ -246,13 +247,13 @@ export default function ModifiersPage() {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <h1 className="text-xl font-bold text-slate-800">Menu Modifiers &amp; Add-ons</h1>
-          <p className="text-sm text-slate-500">{total} group{total !== 1 ? 's' : ''}</p>
+          <p className="text-sm text-slate-500">{total} {tx('group')}{total !== 1 ? 's' : ''}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative w-48">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
             <Input
-              placeholder="Search groups…"
+              placeholder={tx('Search groups…')}
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               className="h-9 pl-8 text-sm"
@@ -263,11 +264,11 @@ export default function ModifiersPage() {
             value={activeFilter}
             onChange={(e) => { setActiveFilter(e.target.value); setPage(1); }}
           >
-            <option value="true">Active only</option>
-            <option value="all">All (incl. inactive)</option>
+            <option value="true">{tx('Active only')}</option>
+            <option value="all">{tx('All (incl. inactive)')}</option>
           </select>
           <Button onClick={() => setShowNewGroup(true)} style={{ background: '#4f46e5' }} className="h-9">
-            <Plus className="h-4 w-4 mr-1" /> New Group
+            <Plus className="h-4 w-4 mr-1" /> {tx('New Group')}
           </Button>
         </div>
       </div>
@@ -277,14 +278,14 @@ export default function ModifiersPage() {
         {/* ── Sidebar ── */}
         <div className="rounded-lg border border-slate-200 bg-white overflow-hidden flex flex-col">
           <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 px-3 py-2 border-b border-slate-100">
-            Modifier Groups
+            {tx('Modifier Groups')}
           </div>
           {isLoading ? (
-            <div className="p-6 text-center text-sm text-slate-400">Loading…</div>
+            <div className="p-6 text-center text-sm text-slate-400">{tx('Loading…')}</div>
           ) : groups.length === 0 ? (
             <div className="p-6 text-center text-sm text-slate-400">
               <Tag className="h-6 w-6 mx-auto mb-1 opacity-50" />
-              No groups found
+              {tx('No groups found')}
             </div>
           ) : (
             <div className="divide-y divide-slate-100 overflow-y-auto max-h-[70vh]">
@@ -311,7 +312,7 @@ export default function ModifiersPage() {
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-500 mt-0.5 flex gap-2">
-                      <span>{g.modifiers.length} option{g.modifiers.length !== 1 ? 's' : ''}</span>
+                      <span>{g.modifiers.length} {tx('option')}{g.modifiers.length !== 1 ? 's' : ''}</span>
                     </div>
                   </button>
                 );
@@ -328,7 +329,7 @@ export default function ModifiersPage() {
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
-              <span>Page {page} of {totalPages}</span>
+              <span>{tx('Page')} {page} of {totalPages}</span>
               <button
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
@@ -346,30 +347,30 @@ export default function ModifiersPage() {
             <div className="flex items-center justify-center h-full min-h-[300px] text-slate-400">
               <div className="text-center">
                 <Tag className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm font-semibold">Select a group</p>
-                <p className="text-xs">Click a group in the sidebar to edit its settings, options, and menu assignments.</p>
+                <p className="text-sm font-semibold">{tx('Select a group')}</p>
+                <p className="text-xs">{tx('Click a group in the sidebar to edit its settings, options, and menu assignments.')}</p>
               </div>
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
               {/* ── Section 1: Group Settings ── */}
               <div className="p-4 space-y-3">
-                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Group Settings</h3>
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">{tx('Group Settings')}</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2 sm:col-span-1">
-                    <Label className="text-xs font-medium text-slate-600">Name</Label>
+                    <Label className="text-xs font-medium text-slate-600">{tx('Name')}</Label>
                     <Input value={sName} onChange={(e) => setSName(e.target.value)} className="h-9 text-sm mt-0.5" />
                   </div>
                   <div className="col-span-2 sm:col-span-1">
-                    <Label className="text-xs font-medium text-slate-600">Category (optional)</Label>
-                    <Input value={sCategory} onChange={(e) => setSCategory(e.target.value)} placeholder="e.g. Prep, Milk" className="h-9 text-sm mt-0.5" />
+                    <Label className="text-xs font-medium text-slate-600">{tx('Category (optional)')}</Label>
+                    <Input value={sCategory} onChange={(e) => setSCategory(e.target.value)} placeholder={tx('e.g. Prep, Milk')} className="h-9 text-sm mt-0.5" />
                   </div>
                   <div className="col-span-2">
-                    <Label className="text-xs font-medium text-slate-600">Description (optional)</Label>
-                    <Input value={sDesc} onChange={(e) => setSDesc(e.target.value)} placeholder="Brief description" className="h-9 text-sm mt-0.5" />
+                    <Label className="text-xs font-medium text-slate-600">{tx('Description (optional)')}</Label>
+                    <Input value={sDesc} onChange={(e) => setSDesc(e.target.value)} placeholder={tx('Brief description')} className="h-9 text-sm mt-0.5" />
                   </div>
                   <div>
-                    <Label className="text-xs font-medium text-slate-600">Type</Label>
+                    <Label className="text-xs font-medium text-slate-600">{tx('Type')}</Label>
                     <div className="flex gap-2 mt-1">
                       <button
                         type="button"
@@ -381,7 +382,7 @@ export default function ModifiersPage() {
                         }`}
                       >
                         <span className="inline-block w-2 h-2 rounded-full bg-violet-500 mr-1.5" />
-                        Modifier
+                        {tx('Modifier')}
                       </button>
                       <button
                         type="button"
@@ -393,19 +394,19 @@ export default function ModifiersPage() {
                         }`}
                       >
                         <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1.5" />
-                        Add-on
+                        {tx('Add-on')}
                       </button>
                     </div>
                   </div>
                   <div>
-                    <Label className="text-xs font-medium text-slate-600">Color (optional)</Label>
+                    <Label className="text-xs font-medium text-slate-600">{tx('Color (optional)')}</Label>
                     <div className="flex items-center gap-2 mt-1">
                       <Input value={sColor} onChange={(e) => setSColor(e.target.value)} placeholder="#4f46e5" className="h-9 text-sm flex-1" />
                       {sColor ? <span className="w-7 h-7 rounded border border-slate-300" style={{ background: sColor }} /> : null}
                     </div>
                   </div>
                   <div>
-                    <Label className="text-xs font-medium text-slate-600">Selection</Label>
+                    <Label className="text-xs font-medium text-slate-600">{tx('Selection')}</Label>
                     <div className="flex gap-2 mt-1">
                       <button
                         type="button"
@@ -415,7 +416,7 @@ export default function ModifiersPage() {
                             ? 'border-sky-500 bg-sky-50 text-sky-700'
                             : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
                         }`}
-                      >Optional</button>
+                      >{tx('Optional')}</button>
                       <button
                         type="button"
                         onClick={() => setSRequired(true)}
@@ -424,11 +425,11 @@ export default function ModifiersPage() {
                             ? 'border-rose-500 bg-rose-50 text-rose-700'
                             : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300'
                         }`}
-                      >Required</button>
+                      >{tx('Required')}</button>
                     </div>
                   </div>
                   <div>
-                    <Label className="text-xs font-medium text-slate-600">Maximum selections</Label>
+                    <Label className="text-xs font-medium text-slate-600">{tx('Maximum selections')}</Label>
                     <Input type="number" value={sMax} onChange={(e) => setSMax(Number(e.target.value))} min={1} className="h-9 text-sm mt-0.5" />
                     <p className="text-[10px] text-slate-400 mt-0.5">
                       {sMax === 1 ? 'Single choice (radio)' : `Customer may choose up to ${sMax} options`}
@@ -437,30 +438,30 @@ export default function ModifiersPage() {
                 </div>
                 <div className="flex items-center gap-3 pt-1">
                   <Button onClick={handleSaveSettings} disabled={!groupChanged || updateGroup.isPending} style={{ background: '#4f46e5' }} className="h-9 text-sm">
-                    <Check className="h-4 w-4 mr-1" /> Save Settings
+                    <Check className="h-4 w-4 mr-1" /> {tx('Save Settings')}
                   </Button>
                   <Button variant="outline" onClick={() => setDeleteTarget({ id: selectedGroup.id, name: selectedGroup.name })} className="h-9 text-sm text-rose-600 border-rose-200 hover:bg-rose-50">
-                    <Trash2 className="h-4 w-4 mr-1" /> Delete Group
+                    <Trash2 className="h-4 w-4 mr-1" /> {tx('Delete Group')}
                   </Button>
                 </div>
               </div>
 
               {/* ── Section 2: Options Table ── */}
               <div className="p-4 space-y-3">
-                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Options</h3>
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">{tx('Options')}</h3>
                 {selectedGroup.modifiers.length === 0 && !addOpen ? (
-                  <div className="text-sm text-slate-400 italic">No options yet</div>
+                  <div className="text-sm text-slate-400 italic">{tx('No options yet')}</div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-200">
                           <th className="py-2 pr-2 w-8">#</th>
-                          <th className="py-2 pr-2">Option Name</th>
-                          <th className="py-2 pr-2 w-36">Kitchen Print</th>
-                          <th className="py-2 pr-2 w-24 text-right">+ Price</th>
-                          <th className="py-2 pr-2 w-16 text-center">Default</th>
-                          <th className="py-2 w-20 text-center">Actions</th>
+                          <th className="py-2 pr-2">{tx('Option Name')}</th>
+                          <th className="py-2 pr-2 w-36">{tx('Kitchen Print')}</th>
+                          <th className="py-2 pr-2 w-24 text-right">{tx('+ Price')}</th>
+                          <th className="py-2 pr-2 w-16 text-center">{tx('Default')}</th>
+                          <th className="py-2 w-20 text-center">{tx('Actions')}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -472,7 +473,7 @@ export default function ModifiersPage() {
                                 <Input value={eName} onChange={(e) => setEName(e.target.value)} className="h-8 text-sm" />
                               </td>
                               <td className="py-1.5 pr-2">
-                                <Input value={eKitchen} onChange={(e) => setEKitchen(e.target.value)} placeholder="KOT text" className="h-8 text-sm" />
+                                <Input value={eKitchen} onChange={(e) => setEKitchen(e.target.value)} placeholder={tx('KOT text')} className="h-8 text-sm" />
                               </td>
                               <td className="py-1.5 pr-2">
                                 <Input type="number" value={ePrice} onChange={(e) => setEPrice(e.target.value)} className="h-8 text-sm text-right" />
@@ -482,8 +483,8 @@ export default function ModifiersPage() {
                               </td>
                               <td className="py-1.5 text-center">
                                 <div className="flex items-center justify-center gap-1">
-                                  <button onClick={() => saveEditOption(m.id)} className="p-1 text-green-600 hover:bg-green-50 rounded" title="Save"><Check className="h-3.5 w-3.5" /></button>
-                                  <button onClick={() => setEditOptId(null)} className="p-1 text-slate-400 hover:bg-slate-100 rounded" title="Cancel"><X className="h-3.5 w-3.5" /></button>
+                                  <button onClick={() => saveEditOption(m.id)} className="p-1 text-green-600 hover:bg-green-50 rounded" title={tx('Save')}><Check className="h-3.5 w-3.5" /></button>
+                                  <button onClick={() => setEditOptId(null)} className="p-1 text-slate-400 hover:bg-slate-100 rounded" title={tx('Cancel')}><X className="h-3.5 w-3.5" /></button>
                                 </div>
                               </td>
                             </tr>
@@ -499,11 +500,11 @@ export default function ModifiersPage() {
                                   <button
                                     onClick={() => { setEditOptId(m.id); setEName(m.name); setEKitchen(m.kitchenPrintName ?? ''); setEPrice(String(m.priceDelta)); setEDefault(m.isDefault); }}
                                     className="p-1 text-slate-400 hover:text-indigo-600 rounded transition-colors"
-                                    title="Edit option"
+                                    title={tx('Edit option')}
                                   >
                                     <Pencil className="h-3.5 w-3.5" />
                                   </button>
-                                  <button onClick={() => removeOption(m.id)} className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors" title="Remove option">
+                                  <button onClick={() => removeOption(m.id)} className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors" title={tx('Remove option')}>
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
                                 </div>
@@ -518,47 +519,47 @@ export default function ModifiersPage() {
                 {addOpen ? (
                   <div className="flex flex-wrap items-end gap-2 border border-indigo-200 rounded-lg bg-indigo-50/60 p-3">
                     <div className="flex-1 min-w-[140px]">
-                      <Label className="text-xs font-medium text-slate-600">Name</Label>
-                      <Input value={aName} onChange={(e) => setAName(e.target.value)} placeholder="Option name" autoFocus className="h-9 text-sm mt-0.5" />
+                      <Label className="text-xs font-medium text-slate-600">{tx('Name')}</Label>
+                      <Input value={aName} onChange={(e) => setAName(e.target.value)} placeholder={tx('Option name')} autoFocus className="h-9 text-sm mt-0.5" />
                     </div>
                     <div className="w-36">
-                      <Label className="text-xs font-medium text-slate-600">Kitchen print</Label>
-                      <Input value={aKitchen} onChange={(e) => setAKitchen(e.target.value)} placeholder="KOT text" className="h-9 text-sm mt-0.5" />
+                      <Label className="text-xs font-medium text-slate-600">{tx('Kitchen print')}</Label>
+                      <Input value={aKitchen} onChange={(e) => setAKitchen(e.target.value)} placeholder={tx('KOT text')} className="h-9 text-sm mt-0.5" />
                     </div>
                     <div className="w-24">
-                      <Label className="text-xs font-medium text-slate-600">+ Price</Label>
+                      <Label className="text-xs font-medium text-slate-600">{tx('+ Price')}</Label>
                       <Input type="number" value={aPrice} onChange={(e) => setAPrice(e.target.value)} placeholder="0" className="h-9 text-sm mt-0.5" />
                     </div>
                     <label className="flex items-center gap-1.5 text-sm font-medium text-slate-700 h-9 cursor-pointer select-none">
-                      <input type="checkbox" checked={aDefault} onChange={(e) => setADefault(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" /> Default
+                      <input type="checkbox" checked={aDefault} onChange={(e) => setADefault(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" /> {tx('Default')}
                     </label>
                     <Button onClick={submitOption} disabled={createModifier.isPending} style={{ background: '#16a34a' }} className="h-9 text-sm px-4">
-                      <Check className="h-4 w-4 mr-1" /> Add
+                      <Check className="h-4 w-4 mr-1" /> {tx('Add')}
                     </Button>
-                    <Button variant="ghost" onClick={() => { setAddOpen(false); setAName(''); setAKitchen(''); setAPrice(''); setADefault(false); }} className="h-9 text-sm">Cancel</Button>
+                    <Button variant="ghost" onClick={() => { setAddOpen(false); setAName(''); setAKitchen(''); setAPrice(''); setADefault(false); }} className="h-9 text-sm">{tx('Cancel')}</Button>
                   </div>
                 ) : (
                   <button type="button" onClick={() => setAddOpen(true)} className="text-sm font-semibold text-indigo-600 hover:text-indigo-800 inline-flex items-center gap-1.5 py-1">
-                    <Plus className="h-4 w-4" /> Add Option
+                    <Plus className="h-4 w-4" /> {tx('Add Option')}
                   </button>
                 )}
               </div>
 
               {/* ── Section 3: Assigned Menu Items ── */}
               <div className="p-4 space-y-3">
-                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Assigned Menu Items</h3>
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">{tx('Assigned Menu Items')}</h3>
                 <div className="flex items-center gap-3 flex-wrap">
                   <div className="relative flex-1 min-w-[160px]">
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                     <Input
-                      placeholder="Search menu items…"
+                      placeholder={tx('Search menu items…')}
                       value={miSearch}
                       onChange={(e) => setMiSearch(e.target.value)}
                       className="h-9 pl-8 text-sm"
                     />
                   </div>
                   <span className="text-xs text-slate-500">
-                    {assignedCount} of {groupMenuItems.length} items assigned
+                    {assignedCount} of {groupMenuItems.length} {tx('items assigned')}
                   </span>
                 </div>
                 <div className="max-h-[260px] overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100">
@@ -593,60 +594,60 @@ export default function ModifiersPage() {
       <Dialog open={showNewGroup} onOpenChange={(o) => !o && setShowNewGroup(false)}>
         <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
-            <DialogTitle>New modifier group</DialogTitle>
-            <DialogDescription>e.g. Size, Milk type, Sugar level, Extras.</DialogDescription>
+            <DialogTitle>{tx('New modifier group')}</DialogTitle>
+            <DialogDescription>{tx('e.g. Size, Milk type, Sugar level, Extras.')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Group name</Label>
-              <Input value={gName} onChange={(e) => setGName(e.target.value)} placeholder="e.g. Size" autoFocus />
+              <Label>{tx('Group name')}</Label>
+              <Input value={gName} onChange={(e) => setGName(e.target.value)} placeholder={tx('e.g. Size')} autoFocus />
             </div>
             <div>
-              <Label>Category (optional)</Label>
-              <Input value={gCategory} onChange={(e) => setGCategory(e.target.value)} placeholder="e.g. Prep, Milk, Size" />
+              <Label>{tx('Category (optional)')}</Label>
+              <Input value={gCategory} onChange={(e) => setGCategory(e.target.value)} placeholder={tx('e.g. Prep, Milk, Size')} />
             </div>
             <div>
-              <Label>Description (optional)</Label>
-              <Input value={gDesc} onChange={(e) => setGDesc(e.target.value)} placeholder="Brief description" />
+              <Label>{tx('Description (optional)')}</Label>
+              <Input value={gDesc} onChange={(e) => setGDesc(e.target.value)} placeholder={tx('Brief description')} />
             </div>
             <div>
-              <Label>Color (optional, hex)</Label>
+              <Label>{tx('Color (optional, hex)')}</Label>
               <div className="flex items-center gap-2">
                 <Input value={gColor} onChange={(e) => setGColor(e.target.value)} placeholder="e.g. #4f46e5" className="flex-1" />
                 {gColor ? <span className="w-8 h-8 rounded border border-slate-300" style={{ background: gColor }} /> : null}
               </div>
             </div>
             <div>
-              <Label>Group type</Label>
+              <Label>{tx('Group type')}</Label>
               <Select value={gGroupType} onValueChange={(v) => setGGroupType(v as 'ADD_ON' | 'MODIFIER')}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ADD_ON">Add-on (product upsell)</SelectItem>
-                  <SelectItem value="MODIFIER">Modifier (prep instruction)</SelectItem>
+                  <SelectItem value="ADD_ON">{tx('Add-on (product upsell)')}</SelectItem>
+                  <SelectItem value="MODIFIER">{tx('Modifier (prep instruction)')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label>Selection type</Label>
+              <Label>{tx('Selection type')}</Label>
               <select className={selectCls} value={gType} onChange={(e) => setGType(e.target.value as 'single' | 'multi')}>
-                <option value="single">Single choice (radio)</option>
-                <option value="multi">Multiple choice (checkbox)</option>
+                <option value="single">{tx('Single choice (radio)')}</option>
+                <option value="multi">{tx('Multiple choice (checkbox)')}</option>
               </select>
             </div>
             {gType === 'multi' ? (
               <div>
-                <Label>Max selections</Label>
+                <Label>{tx('Max selections')}</Label>
                 <Input type="number" value={gMax} onChange={(e) => setGMax(Number(e.target.value))} min={1} />
               </div>
             ) : null}
             <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
               <input type="checkbox" checked={gRequired} onChange={(e) => setGRequired(e.target.checked)} />
-              Required (customer must choose at least one)
+              {tx('Required (customer must choose at least one)')}
             </label>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setShowNewGroup(false)}>Cancel</Button>
-            <Button onClick={submitNewGroup} disabled={createGroupFn.isPending} style={{ background: '#4f46e5' }}>Create group</Button>
+            <Button variant="ghost" onClick={() => setShowNewGroup(false)}>{tx('Cancel')}</Button>
+            <Button onClick={submitNewGroup} disabled={createGroupFn.isPending} style={{ background: '#4f46e5' }}>{tx('Create group')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -656,20 +657,20 @@ export default function ModifiersPage() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-rose-500" /> Delete group?
+              <AlertTriangle className="h-5 w-5 text-rose-500" /> {tx('Delete group?')}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete <strong>"{deleteTarget?.name}"</strong> and all its options.
+              {tx('This will permanently delete')} <strong>"{deleteTarget?.name}"</strong> {tx('and all its options.')}
               {assignedCount > 0 ? (
                 <span className="block mt-1 text-rose-600 font-semibold">
-                  Currently assigned to {assignedCount} menu item{assignedCount !== 1 ? 's' : ''}.
+                  {tx('Currently assigned to')} {assignedCount} {tx('menu item')}{assignedCount !== 1 ? 's' : ''}.
                 </span>
               ) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteGroup} className="bg-rose-600 hover:bg-rose-700">Delete</AlertDialogAction>
+            <AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteGroup} className="bg-rose-600 hover:bg-rose-700">{tx('Delete')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

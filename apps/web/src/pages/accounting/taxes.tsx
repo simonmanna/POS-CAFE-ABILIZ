@@ -31,6 +31,7 @@ import {
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@erp/shared';
 import { cn } from '@/lib/utils';
+import { tx } from '@/lib/i18n/tx';
 
 /* ── Constants ────────────────────────────────────────────── */
 
@@ -230,9 +231,9 @@ export default function TaxesPage() {
       header: 'Status',
       render: (t) =>
         t.isActive ? (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Active</Badge>
+          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">{tx('Active')}</Badge>
         ) : (
-          <Badge variant="secondary">Inactive</Badge>
+          <Badge variant="secondary">{tx('Inactive')}</Badge>
         ),
     },
     {
@@ -246,8 +247,8 @@ export default function TaxesPage() {
               variant="ghost"
               size="icon"
               onClick={() => openEdit(t)}
-              aria-label="Edit tax"
-              title="Edit tax"
+              aria-label={tx('Edit tax')}
+              title={tx('Edit tax')}
             >
               <Pencil className="h-4 w-4" />
             </Button>
@@ -257,8 +258,8 @@ export default function TaxesPage() {
               variant="ghost"
               size="icon"
               onClick={() => setDeleting(t)}
-              aria-label="Delete tax"
-              title="Delete tax"
+              aria-label={tx('Delete tax')}
+              title={tx('Delete tax')}
             >
               <Trash2 className="h-4 w-4 text-destructive" />
             </Button>
@@ -275,14 +276,14 @@ export default function TaxesPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Tax Rates</h1>
+          <h1 className="text-2xl font-semibold">{tx('Tax Rates')}</h1>
           <p className="text-sm text-muted-foreground">
-            Manage VAT, sales tax, withholding and other tax configurations.
+            {tx('Manage VAT, sales tax, withholding and other tax configurations.')}
           </p>
         </div>
         {canCreate && (
           <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" /> Create Tax
+            <Plus className="h-4 w-4" /> {tx('Create Tax')}
           </Button>
         )}
       </div>
@@ -293,7 +294,7 @@ export default function TaxesPage() {
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search taxes..."
+          placeholder={tx('Search taxes...')}
           className="pl-9"
         />
       </div>
@@ -368,19 +369,19 @@ export default function TaxesPage() {
             {/* Name & Code */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name">{tx('Name')}</Label>
                 <Input
                   id="name"
-                  placeholder="e.g. Standard VAT"
+                  placeholder={tx('e.g. Standard VAT')}
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="code">Code</Label>
+                <Label htmlFor="code">{tx('Code')}</Label>
                 <Input
                   id="code"
-                  placeholder="e.g. VAT-16"
+                  placeholder={tx('e.g. VAT-16')}
                   value={form.code}
                   onChange={(e) => setForm({ ...form, code: e.target.value })}
                 />
@@ -390,7 +391,7 @@ export default function TaxesPage() {
             {/* Rate & Type */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="rate">Rate (%)</Label>
+                <Label htmlFor="rate">{tx('Rate (%)')}</Label>
                 <Input
                   id="rate"
                   type="number"
@@ -402,13 +403,13 @@ export default function TaxesPage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="type">Type</Label>
+                <Label htmlFor="type">{tx('Type')}</Label>
                 <Select
                   value={form.type}
                   onValueChange={(v) => setForm({ ...form, type: v })}
                 >
                   <SelectTrigger id="type">
-                    <SelectValue placeholder="Select type" />
+                    <SelectValue placeholder={tx('Select type')} />
                   </SelectTrigger>
                   <SelectContent>
                     {TAX_TYPE_OPTIONS.map((t) => (
@@ -423,13 +424,13 @@ export default function TaxesPage() {
 
             {/* VAT Category */}
             <div className="space-y-1.5">
-              <Label htmlFor="vatCategory">VAT Category</Label>
+              <Label htmlFor="vatCategory">{tx('VAT Category')}</Label>
               <Select
                 value={form.vatCategory}
                 onValueChange={(v) => setForm({ ...form, vatCategory: v })}
               >
                 <SelectTrigger id="vatCategory">
-                  <SelectValue placeholder="Select category" />
+                  <SelectValue placeholder={tx('Select category')} />
                 </SelectTrigger>
                 <SelectContent>
                   {VAT_CATEGORY_OPTIONS.map((c) => (
@@ -443,16 +444,16 @@ export default function TaxesPage() {
 
             {/* Account (optional) */}
             <div className="space-y-1.5">
-              <Label htmlFor="accountId">Account (optional)</Label>
+              <Label htmlFor="accountId">{tx('Account (optional)')}</Label>
               <Select
                 value={form.accountId}
                 onValueChange={(v) => setForm({ ...form, accountId: v })}
               >
                 <SelectTrigger id="accountId">
-                  <SelectValue placeholder="No account linked" />
+                  <SelectValue placeholder={tx('No account linked')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">No account linked</SelectItem>
+                  <SelectItem value="">{tx('No account linked')}</SelectItem>
                   {accounts.map((a) => (
                     <SelectItem key={a.id} value={a.id}>
                       {a.code} — {a.name}
@@ -472,9 +473,9 @@ export default function TaxesPage() {
                   className="h-4 w-4 rounded border-input"
                 />
                 <span>
-                  <span className="font-medium">Inclusive</span>
+                  <span className="font-medium">{tx('Inclusive')}</span>
                   <span className="text-muted-foreground ml-1">
-                    — Tax is included in the price
+                    {tx('— Tax is included in the price')}
                   </span>
                 </span>
               </label>
@@ -486,9 +487,9 @@ export default function TaxesPage() {
                   className="h-4 w-4 rounded border-input"
                 />
                 <span>
-                  <span className="font-medium">Compound</span>
+                  <span className="font-medium">{tx('Compound')}</span>
                   <span className="text-muted-foreground ml-1">
-                    — Tax is calculated on the pre-tax amount plus other taxes
+                    {tx('— Tax is calculated on the pre-tax amount plus other taxes')}
                   </span>
                 </span>
               </label>
@@ -500,12 +501,12 @@ export default function TaxesPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button onClick={handleSave} disabled={isPending}>
               {isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving…
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" /> {tx('Saving…')}
                 </>
               ) : editingTax ? (
                 'Save changes'
@@ -521,12 +522,11 @@ export default function TaxesPage() {
       <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete tax?</DialogTitle>
+            <DialogTitle>{tx('Delete tax?')}</DialogTitle>
             <DialogDescription>
               {deleting ? (
                 <>
-                  <strong>{deleting.name}</strong> (rate: {Number(deleting.rate).toFixed(2)}%) will
-                  be permanently deleted. This action cannot be undone.
+                  <strong>{deleting.name}</strong> {tx('(rate:')} {Number(deleting.rate).toFixed(2)}{tx('%) will be permanently deleted. This action cannot be undone.')}
                 </>
               ) : (
                 ''
@@ -535,7 +535,7 @@ export default function TaxesPage() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleting(null)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               variant="destructive"

@@ -16,6 +16,7 @@ import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { money, date, useOrgCurrency } from '@/lib/format';
 import { useOpenCreditInvoices, type OpenCreditInvoice } from '@/pages/pos/api';
 import { RecordCreditPaymentDialog, type CreditPaymentTarget } from './RecordCreditPaymentDialog';
+import { tx } from '@/lib/i18n/tx';
 
 function Stat({ icon, label, value, accent }: { icon: React.ReactNode; label: string; value: string; accent?: string }) {
   return (
@@ -113,7 +114,7 @@ export function ReceivablesPage() {
             amountResidual: r.amountResidual,
           })}
         >
-          <HandCoins className="mr-1 h-4 w-4" /> Record payment
+          <HandCoins className="mr-1 h-4 w-4" /> {tx('Record payment')}
         </Button>
       ),
     },
@@ -125,24 +126,23 @@ export function ReceivablesPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Credit / Receivables</h1>
+        <h1 className="text-2xl font-semibold">{tx('Credit / Receivables')}</h1>
         <p className="text-sm text-muted-foreground">
-          Sales charged to a customer's account and not yet paid. Record a payment in full or in part —
-          the balance stays here until it clears.
+          {tx('Sales charged to a customer\'s account and not yet paid. Record a payment in full or in part — the balance stays here until it clears.')}
         </p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat
           icon={<Wallet className="h-5 w-5" />}
-          label="Total outstanding"
+          label={tx('Total outstanding')}
           value={money(data?.totalOutstanding ?? 0, currency)}
           accent="text-rose-600"
         />
-        <Stat icon={<Users className="h-5 w-5" />} label="Customers owing" value={String(data?.customersOwing ?? 0)} />
+        <Stat icon={<Users className="h-5 w-5" />} label={tx('Customers owing')} value={String(data?.customersOwing ?? 0)} />
         <Stat
           icon={<Clock className="h-5 w-5" />}
-          label="Oldest debt"
+          label={tx('Oldest debt')}
           // A debt raised today is 0 days old — still a debt, so don't show a dash.
           value={!data || data.total === 0 ? '—' : data.oldestDebtDays >= 1 ? `${data.oldestDebtDays} days` : 'Today'}
           accent={(data?.oldestDebtDays ?? 0) >= 30 ? 'text-rose-600' : undefined}
@@ -153,7 +153,7 @@ export function ReceivablesPage() {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
-          placeholder="Search by invoice # or customer…"
+          placeholder={tx('Search by invoice # or customer…')}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -163,20 +163,20 @@ export function ReceivablesPage() {
 
       {!isLoading && rows.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">
-          Nothing outstanding — every credit sale has been paid.
+          {tx('Nothing outstanding — every credit sale has been paid.')}
         </p>
       ) : null}
 
       {data && data.total > 0 ? (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{data.total} open credit invoice(s)</span>
+          <span>{data.total} {tx('open credit invoice(s)')}</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {tx('Previous')}
             </Button>
-            <span>Page {data.page} of {totalPages}</span>
+            <span>{tx('Page')} {data.page} of {totalPages}</span>
             <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>

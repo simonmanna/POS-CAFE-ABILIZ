@@ -10,6 +10,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { notify } from '@/lib/notify';
 import { api } from '@/lib/api';
 import { useCreateDeal, useCrmPartners, useCrmUsers, useUpdateDeal, DEAL_STAGES, type CrmDeal, type DealStage } from './api';
+import { tx } from '@/lib/i18n/tx';
 
 interface DealFormDialogProps {
   open: boolean;
@@ -63,7 +64,7 @@ export function DealFormDialog({ open, onOpenChange, deal, presetPartnerId, onSa
   const partnerRows = partners?.data ?? [];
 
   const submit = async () => {
-    if (!name.trim()) return notify.error('Deal name is required');
+    if (!name.trim()) return notify.error(tx('Deal name is required'));
     let pid = partnerId;
     if (!pid && quickName.trim()) {
       // inline quick-create: reuse the standard partners endpoint
@@ -76,10 +77,10 @@ export function DealFormDialog({ open, onOpenChange, deal, presetPartnerId, onSa
         const created = res.data as { id: string };
         pid = created.id;
       } catch {
-        return notify.error('Could not create the partner — check your partner permissions');
+        return notify.error(tx('Could not create the partner — check your partner permissions'));
       }
     }
-    if (!pid) return notify.error('Pick a partner or enter a new partner name');
+    if (!pid) return notify.error(tx('Pick a partner or enter a new partner name'));
 
     const payload = {
       name: name.trim(),
@@ -96,11 +97,11 @@ export function DealFormDialog({ open, onOpenChange, deal, presetPartnerId, onSa
     try {
       if (deal) {
         await updateDeal.mutateAsync({ id: deal.id, data: payload });
-        notify.success('Deal updated');
+        notify.success(tx('Deal updated'));
         onOpenChange(false);
       } else {
         const created = await createDeal.mutateAsync(payload);
-        notify.success('Deal created');
+        notify.success(tx('Deal created'));
         onOpenChange(false);
         onSaved?.(created.id);
       }
@@ -120,32 +121,32 @@ export function DealFormDialog({ open, onOpenChange, deal, presetPartnerId, onSa
 
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
-            <Label htmlFor="deal-name">Deal name *</Label>
-            <Input id="deal-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Corporate catering — Q3" autoFocus />
+            <Label htmlFor="deal-name">{tx('Deal name *')}</Label>
+            <Input id="deal-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={tx('e.g. Corporate catering — Q3')} autoFocus />
           </div>
 
           {/* Partner picker */}
           <div className="space-y-1.5">
-            <Label>Customer / Partner *</Label>
+            <Label>{tx('Customer / Partner *')}</Label>
             {!showQuickCreate ? (
               <div className="flex gap-2">
                 <div className="relative flex-1">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
                     className="pl-8"
-                    placeholder="Search customers…"
+                    placeholder={tx('Search customers…')}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
-                <Button type="button" variant="outline" size="icon" title="Quick-create partner" onClick={() => setShowQuickCreate(true)}>
+                <Button type="button" variant="outline" size="icon" title={tx('Quick-create partner')} onClick={() => setShowQuickCreate(true)}>
                   <Plus className="h-4 w-4" />
                 </Button>
               </div>
             ) : (
               <div className="flex gap-2">
-                <Input placeholder="New partner name" value={quickName} onChange={(e) => setQuickName(e.target.value)} autoFocus />
-                <Button type="button" variant="ghost" onClick={() => setShowQuickCreate(false)}>Cancel</Button>
+                <Input placeholder={tx('New partner name')} value={quickName} onChange={(e) => setQuickName(e.target.value)} autoFocus />
+                <Button type="button" variant="ghost" onClick={() => setShowQuickCreate(false)}>{tx('Cancel')}</Button>
               </div>
             )}
 
@@ -165,11 +166,11 @@ export function DealFormDialog({ open, onOpenChange, deal, presetPartnerId, onSa
               <div className="max-h-40 overflow-y-auto rounded-md border">
                 {partnersLoading ? (
                   <div className="flex items-center justify-center gap-2 p-4 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Searching…
+                    <Loader2 className="h-4 w-4 animate-spin" /> {tx('Searching…')}
                   </div>
                 ) : partnerRows.length === 0 ? (
                   <div className="p-4 text-center text-sm text-muted-foreground">
-                    No customers found{search ? ` for “${search}”` : ''}. Use the + button to create one inline.
+                    {tx('No customers found')}{search ? ` for “${search}”` : ''}{tx('. Use the + button to create one inline.')}
                   </div>
                 ) : (
                   partnerRows.map((p) => (
@@ -190,11 +191,11 @@ export function DealFormDialog({ open, onOpenChange, deal, presetPartnerId, onSa
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="deal-amount">Expected value ({currency})</Label>
+              <Label htmlFor="deal-amount">{tx('Expected value (')}{currency})</Label>
               <Input id="deal-amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
             </div>
             <div className="space-y-1.5">
-              <Label>Stage</Label>
+              <Label>{tx('Stage')}</Label>
               <Select value={stage} onValueChange={(v) => setStage(v as DealStage)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -208,15 +209,15 @@ export function DealFormDialog({ open, onOpenChange, deal, presetPartnerId, onSa
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label htmlFor="deal-close">Expected close</Label>
+              <Label htmlFor="deal-close">{tx('Expected close')}</Label>
               <Input id="deal-close" type="date" value={expectedClose} onChange={(e) => setExpectedClose(e.target.value)} />
             </div>
             <div className="space-y-1.5">
-              <Label>Owner</Label>
+              <Label>{tx('Owner')}</Label>
               <Select value={ownerId} onValueChange={setOwnerId}>
-                <SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={tx('Unassigned')} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">Unassigned</SelectItem>
+                  <SelectItem value="__none__">{tx('Unassigned')}</SelectItem>
                   {users?.map((u) => (
                     <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                   ))}
@@ -226,13 +227,13 @@ export function DealFormDialog({ open, onOpenChange, deal, presetPartnerId, onSa
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="deal-notes">Notes</Label>
-            <Textarea id="deal-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Context, next steps…" />
+            <Label htmlFor="deal-notes">{tx('Notes')}</Label>
+            <Textarea id="deal-notes" value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder={tx('Context, next steps…')} />
           </div>
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>{tx('Cancel')}</Button>
           <Button onClick={submit} disabled={submitting}>
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             {deal ? 'Save changes' : 'Create deal'}

@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { tx } from '@/lib/i18n/tx';
 
 function SettleDialog({
   source, open, onClose, destinations, feeAccounts, currency,
@@ -62,7 +63,7 @@ function SettleDialog({
         // Today's settlement is stamped now; an earlier statement date at midday so it stays on that day.
         settledAt: (date === today ? new Date() : new Date(`${date}T12:00:00`)).toISOString(),
       });
-      toast.success('Settlement recorded');
+      toast.success(tx('Settlement recorded'));
       onClose();
     } catch (err) {
       toast.error(apiErrorMessage(err, 'The settlement was not recorded. Keep the provider reference and check history before retrying.'));
@@ -73,14 +74,14 @@ function SettleDialog({
     <Dialog open={open} onOpenChange={(v) => { if (!v && !settle.isPending) onClose(); }}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Settle {source.accountName} to the bank</DialogTitle>
-          <DialogDescription>Record money the provider paid into your bank. Use the date and reference on the provider statement.</DialogDescription>
+          <DialogTitle>{tx('Settle')} {source.accountName} {tx('to the bank')}</DialogTitle>
+          <DialogDescription>{tx('Record money the provider paid into your bank. Use the date and reference on the provider statement.')}</DialogDescription>
         </DialogHeader>
 
         {step === 'form' ? (
           <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); if (valid) setStep('review'); }}>
             <div className="space-y-1.5">
-              <Label htmlFor="settle-dest">Bank that received the money</Label>
+              <Label htmlFor="settle-dest">{tx('Bank that received the money')}</Label>
               <select id="settle-dest" required className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm" value={destinationId} onChange={(e) => setDestinationId(e.target.value)}>
                 <option value="">{destinations.length ? 'Choose bank account' : 'No bank account — add one under Accounts'}</option>
                 {destinations.map((d) => <option key={d.id} value={d.id}>{d.name} · {d.code}</option>)}
@@ -88,49 +89,49 @@ function SettleDialog({
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="settle-amount">Amount settled{currency ? ` (${currency})` : ''}</Label>
+                <Label htmlFor="settle-amount">{tx('Amount settled')}{currency ? ` (${currency})` : ''}</Label>
                 <Input id="settle-amount" type="number" inputMode="decimal" min="0.01" step="0.01" required value={amount} onChange={(e) => setAmount(e.target.value)} />
                 <p className={overBalance ? 'text-xs font-medium text-destructive' : 'text-xs text-muted-foreground'}>
                   {overBalance ? 'More than the provider account holds: ' : 'Balance on provider account: '}{fmt(source.balance)}
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="settle-fee">Provider fee</Label>
+                <Label htmlFor="settle-fee">{tx('Provider fee')}</Label>
                 <Input id="settle-fee" type="number" inputMode="decimal" min="0" step="0.01" value={fee} onChange={(e) => setFee(e.target.value)} />
               </div>
             </div>
             {Number(source.suggestedAmount) > 0 ? (
               <p className="flex items-start gap-2 rounded-lg bg-muted/50 p-2 text-xs text-muted-foreground">
                 <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-                Suggested amount {fmt(source.suggestedAmount)} comes from recorded POS receipts since the last settlement. Verify against the provider statement before posting.
+                {tx('Suggested amount')} {fmt(source.suggestedAmount)} {tx('comes from recorded POS receipts since the last settlement. Verify against the provider statement before posting.')}
               </p>
             ) : null}
             {feeN > 0 ? (
               <div className="space-y-1.5">
-                <Label htmlFor="settle-fee-acct">Record the fee as</Label>
+                <Label htmlFor="settle-fee-acct">{tx('Record the fee as')}</Label>
                 <select id="settle-fee-acct" required className="min-h-[44px] w-full rounded-md border bg-background px-3 text-sm" value={feeAccountId} onChange={(e) => setFeeAccountId(e.target.value)}>
-                  <option value="">Choose expense account</option>
+                  <option value="">{tx('Choose expense account')}</option>
                   {feeAccounts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
                 </select>
               </div>
             ) : null}
             <div className="rounded-lg border p-3 text-sm">
-              <div className="flex justify-between"><span className="text-muted-foreground">Bank receives</span><strong>{gross > 0 ? fmt(net) : '—'}</strong></div>
-              {feeN >= gross && gross > 0 ? <p className="mt-1 text-xs text-destructive">The fee must be less than the amount settled.</p> : null}
+              <div className="flex justify-between"><span className="text-muted-foreground">{tx('Bank receives')}</span><strong>{gross > 0 ? fmt(net) : '—'}</strong></div>
+              {feeN >= gross && gross > 0 ? <p className="mt-1 text-xs text-destructive">{tx('The fee must be less than the amount settled.')}</p> : null}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="settle-ref">Provider reference</Label>
-                <Input id="settle-ref" required value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Statement / batch ID" />
+                <Label htmlFor="settle-ref">{tx('Provider reference')}</Label>
+                <Input id="settle-ref" required value={reference} onChange={(e) => setReference(e.target.value)} placeholder={tx('Statement / batch ID')} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="settle-date">Settlement date</Label>
+                <Label htmlFor="settle-date">{tx('Settlement date')}</Label>
                 <Input id="settle-date" type="date" required max={today} value={date} onChange={(e) => setDate(e.target.value)} />
               </div>
             </div>
             <DialogFooter className="gap-2">
-              <Button type="button" variant="ghost" className="min-h-[44px]" onClick={onClose}>Cancel</Button>
-              <Button type="submit" className="min-h-[44px]" disabled={!valid}>Review</Button>
+              <Button type="button" variant="ghost" className="min-h-[44px]" onClick={onClose}>{tx('Cancel')}</Button>
+              <Button type="submit" className="min-h-[44px]" disabled={!valid}>{tx('Review')}</Button>
             </DialogFooter>
           </form>
         ) : (
@@ -138,14 +139,14 @@ function SettleDialog({
             <div className="flex gap-3 rounded-lg border bg-muted/40 p-4 text-sm">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
               <p>
-                {fmt(gross)} leaves {source.accountName}. {dest?.name} receives {fmt(net)}
-                {feeN > 0 ? <> and the {fmt(feeN)} fee is recorded as an expense (money that leaves the business)</> : null}. Reference {reference}, dated {date}.
+                {fmt(gross)} {tx('leaves')} {source.accountName}. {dest?.name} {tx('receives')} {fmt(net)}
+                {feeN > 0 ? <> {tx('and the')} {fmt(feeN)} {tx('fee is recorded as an expense (money that leaves the business)')}</> : null}{tx('. Reference')} {reference}{tx(', dated')} {date}.
               </p>
             </div>
             <DialogFooter className="gap-2">
-              <Button type="button" variant="ghost" onClick={() => setStep('form')} disabled={settle.isPending}>Back</Button>
+              <Button type="button" variant="ghost" onClick={() => setStep('form')} disabled={settle.isPending}>{tx('Back')}</Button>
               <Button type="button" onClick={submit} disabled={settle.isPending}>
-                {settle.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Confirm settlement
+                {settle.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} {tx('Confirm settlement')}
               </Button>
             </DialogFooter>
           </div>
@@ -170,19 +171,19 @@ export function MoneySettlementsPage() {
 
   return (
     <MoneyPage
-      title="Settlements"
-      description="Card and mobile-money payments wait on the provider account until the provider pays them into your bank."
+      title={tx('Settlements')}
+      description={tx('Card and mobile-money payments wait on the provider account until the provider pays them into your bank.')}
     >
       {isLoading ? (
-        <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" /></div>
+        <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label={tx('Loading')} /></div>
       ) : isError || !data ? (
         <LoadError message="Settlement accounts could not be loaded." onRetry={() => refetch()} />
       ) : data.sources.length === 0 ? (
-        <EmptyState icon={Landmark} title="No card or mobile-money account to settle">
-          Connect card or mobile-money payment methods to their receiving accounts in <Link to="/settings/payment-methods" className="font-medium text-primary hover:underline">Settings → Payment methods</Link>.
+        <EmptyState icon={Landmark} title={tx('No card or mobile-money account to settle')}>
+          {tx('Connect card or mobile-money payment methods to their receiving accounts in')} <Link to="/settings/payment-methods" className="font-medium text-primary hover:underline">{tx('Settings → Payment methods')}</Link>.
         </EmptyState>
       ) : (
-        <section aria-label="Accounts to settle" className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <section aria-label={tx('Accounts to settle')} className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {data.sources.map((s) => (
             <article key={s.accountId} className="flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm">
               <div className="flex items-start gap-3">
@@ -195,15 +196,15 @@ export function MoneySettlementsPage() {
                 </div>
               </div>
               <dl className="grid grid-cols-[1fr_auto] gap-y-1 text-sm">
-                <dt className="text-muted-foreground">Balance on provider account</dt>
+                <dt className="text-muted-foreground">{tx('Balance on provider account')}</dt>
                 <dd className="text-right font-semibold"><MoneyAmount value={s.balance} currency={currency} /></dd>
-                <dt className="text-muted-foreground">POS receipts since last settlement</dt>
+                <dt className="text-muted-foreground">{tx('POS receipts since last settlement')}</dt>
                 <dd className="text-right"><MoneyAmount value={s.posReceiptsSinceLastSettlement} currency={currency} /></dd>
-                <dt className="text-muted-foreground">Last settlement</dt>
+                <dt className="text-muted-foreground">{tx('Last settlement')}</dt>
                 <dd className="text-right">{s.lastSettledAt ? new Date(s.lastSettledAt).toLocaleDateString(undefined, { timeZone, dateStyle: 'medium' }) : 'None recorded'}</dd>
               </dl>
               <div className="mt-auto flex flex-wrap gap-2">
-                <Button className="min-h-[44px] flex-1" disabled={Number(s.balance) <= 0} onClick={() => setSettling(s)}>Settle to bank</Button>
+                <Button className="min-h-[44px] flex-1" disabled={Number(s.balance) <= 0} onClick={() => setSettling(s)}>{tx('Settle to bank')}</Button>
                 <Button variant="outline" className="min-h-[44px]" onClick={() => { const n = new URLSearchParams(params); if (sourceFilter === s.accountId) n.delete('source'); else n.set('source', s.accountId); setParams(n, { replace: true }); setPage(1); }}>
                   {sourceFilter === s.accountId ? 'All history' : 'History'}
                 </Button>
@@ -215,18 +216,18 @@ export function MoneySettlementsPage() {
 
       <section aria-labelledby="settlement-history" className="space-y-2">
         <h2 id="settlement-history" className="text-base font-semibold text-foreground">
-          Settlement history{filterName ? ` — ${filterName}` : ''}
+          {tx('Settlement history')}{filterName ? ` — ${filterName}` : ''}
         </h2>
         {history.isLoading ? (
-          <div className="flex h-24 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label="Loading" /></div>
+          <div className="flex h-24 items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-label={tx('Loading')} /></div>
         ) : history.isError ? (
           <LoadError message="Settlement history could not be loaded." onRetry={() => history.refetch()} retrying={history.isFetching} />
         ) : !history.data?.data.length ? (
-          <p className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">No settlements recorded yet.</p>
+          <p className="rounded-xl border bg-card p-6 text-center text-sm text-muted-foreground">{tx('No settlements recorded yet.')}</p>
         ) : (
           <>
           {/* Phones: one card per settlement. */}
-          <ul className="divide-y rounded-xl border bg-card md:hidden" aria-label="Settlement history">
+          <ul className="divide-y rounded-xl border bg-card md:hidden" aria-label={tx('Settlement history')}>
             {history.data.data.map((r) => (
               <li key={r.id} className="space-y-2 px-3 py-3 text-sm">
                 <div className="flex items-start justify-between gap-3">
@@ -236,16 +237,16 @@ export function MoneySettlementsPage() {
                   </div>
                   <div className="shrink-0 text-right">
                     <MoneyAmount value={r.netAmount} currency={currency} className="font-semibold" />
-                    <p className="text-xs text-muted-foreground">Bank received</p>
+                    <p className="text-xs text-muted-foreground">{tx('Bank received')}</p>
                   </div>
                 </div>
                 <dl className="grid grid-cols-2 gap-x-3 text-xs">
-                  <dt className="text-muted-foreground">Settled</dt><dd className="text-right"><MoneyAmount value={r.grossAmount} currency={currency} /></dd>
-                  <dt className="text-muted-foreground">Fee</dt><dd className="text-right">{Number(r.feeAmount) > 0 ? <MoneyAmount value={r.feeAmount} currency={currency} /> : '—'}</dd>
+                  <dt className="text-muted-foreground">{tx('Settled')}</dt><dd className="text-right"><MoneyAmount value={r.grossAmount} currency={currency} /></dd>
+                  <dt className="text-muted-foreground">{tx('Fee')}</dt><dd className="text-right">{Number(r.feeAmount) > 0 ? <MoneyAmount value={r.feeAmount} currency={currency} /> : '—'}</dd>
                 </dl>
                 <div className="flex flex-wrap items-center gap-x-3 text-xs">
-                  {r.session ? <span className="text-muted-foreground">{r.session.registerName} shift</span> : null}
-                  {r.journalEntryId ? <Link to={`/journal-entries/${r.journalEntryId}`} className="inline-flex min-h-[44px] items-center gap-1 font-medium text-primary hover:underline">Journal entry <ExternalLink className="h-3 w-3" aria-hidden /></Link> : null}
+                  {r.session ? <span className="text-muted-foreground">{r.session.registerName} {tx('shift')}</span> : null}
+                  {r.journalEntryId ? <Link to={`/journal-entries/${r.journalEntryId}`} className="inline-flex min-h-[44px] items-center gap-1 font-medium text-primary hover:underline">{tx('Journal entry')} <ExternalLink className="h-3 w-3" aria-hidden /></Link> : null}
                 </div>
               </li>
             ))}
@@ -254,13 +255,13 @@ export function MoneySettlementsPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">Date</th>
-                  <th className="px-3 py-2 font-medium">From → To</th>
-                  <th className="px-3 py-2 text-right font-medium">Settled</th>
-                  <th className="px-3 py-2 text-right font-medium">Fee</th>
-                  <th className="px-3 py-2 text-right font-medium">Bank received</th>
-                  <th className="px-3 py-2 font-medium">Reference</th>
-                  <th className="px-3 py-2 font-medium">Links</th>
+                  <th className="px-3 py-2 font-medium">{tx('Date')}</th>
+                  <th className="px-3 py-2 font-medium">{tx('From → To')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{tx('Settled')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{tx('Fee')}</th>
+                  <th className="px-3 py-2 text-right font-medium">{tx('Bank received')}</th>
+                  <th className="px-3 py-2 font-medium">{tx('Reference')}</th>
+                  <th className="px-3 py-2 font-medium">{tx('Links')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -273,8 +274,8 @@ export function MoneySettlementsPage() {
                     <td className="px-3 py-2 text-right font-medium"><MoneyAmount value={r.netAmount} currency={currency} /></td>
                     <td className="px-3 py-2 font-mono text-xs">{r.reference}</td>
                     <td className="px-3 py-2 text-xs">
-                      {r.session ? <span className="mr-2 text-muted-foreground">{r.session.registerName} shift</span> : null}
-                      {r.journalEntryId ? <Link to={`/journal-entries/${r.journalEntryId}`} className="inline-flex items-center gap-1 text-primary hover:underline">Entry <ExternalLink className="h-3 w-3" aria-hidden /></Link> : null}
+                      {r.session ? <span className="mr-2 text-muted-foreground">{r.session.registerName} {tx('shift')}</span> : null}
+                      {r.journalEntryId ? <Link to={`/journal-entries/${r.journalEntryId}`} className="inline-flex items-center gap-1 text-primary hover:underline">{tx('Entry')} <ExternalLink className="h-3 w-3" aria-hidden /></Link> : null}
                     </td>
                   </tr>
                 ))}

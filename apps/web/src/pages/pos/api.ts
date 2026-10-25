@@ -622,6 +622,10 @@ export function useSaveTab() {
       return (await api.post<TabDocument | null>(
         `/pos/tabs/${tableId}/save`,
         { ...draftPricing(useCartStore.getState()), cashSessionId: useCartStore.getState().cashSessionId, ...body, ...(version != null ? { expectedVersion: version } : {}) },
+        // An order save on a till's own LAN answers in well under a second. The
+        // 30s default meant a dead service froze the terminal for half a minute
+        // per keystroke before it could fall back to the local cart.
+        { timeout: 8000 },
       )).data;
     },
     onSuccess: (data, variables) => {
@@ -1021,7 +1025,11 @@ export function useSaveOrderItems() {
     mutationFn: async ({ orderId, ...body }: {
       orderId: string; lines: OrderLineBody[]; expectedVersion?: number;
       guestCount?: number; partnerId?: string; transactionDiscountPercent?: number;
-    }) => (await api.put<Order>(`/pos/orders/${orderId}/items`, { ...draftPricing(useCartStore.getState()), partnerId: useCartStore.getState().customer?.id, ...body })).data,
+    }) => (await api.put<Order>(
+      `/pos/orders/${orderId}/items`,
+      { ...draftPricing(useCartStore.getState()), partnerId: useCartStore.getState().customer?.id, ...body },
+      { timeout: 8000 },
+    )).data,
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ['pos-order', v.orderId] });
       qc.invalidateQueries({ queryKey: ['pos-tables'] });

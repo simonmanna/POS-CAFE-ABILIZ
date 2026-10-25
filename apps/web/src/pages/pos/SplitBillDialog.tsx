@@ -22,6 +22,7 @@ import {
   type SplitBill,
 } from './api';
 import type { PaymentTender } from '@/features/pos/types';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
@@ -86,12 +87,12 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
     try {
       const res = await splitEqually.mutateAsync({ tableId, count: 2 });
       setActiveBillId(res.bills.find((bill) => bill.status === 'open')?.id ?? null);
-      toast.success('Order split equally into 2 bills');
+      toast.success(tx('Order split equally into 2 bills'));
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not split equally'); }
   };
 
   const onAssign = async (lineId: string, qty: number) => {
-    if (!activeBillId) { toast.error('Pick a bill first'); return; }
+    if (!activeBillId) { toast.error(tx('Pick a bill first')); return; }
     try {
       await assignItems.mutateAsync({ billId: activeBillId, tableId, items: [{ sourceItemId: lineId, quantity: qty }] });
       setQtyByLine((p) => ({ ...p, [lineId]: 0 }));
@@ -117,7 +118,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
   const onCancelSplit = async () => {
     try {
       await cancelSplit.mutateAsync({ tableId });
-      toast.success('Split cancelled');
+      toast.success(tx('Split cancelled'));
       onClose();
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Could not cancel the split'); }
   };
@@ -131,7 +132,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
     setPayingBill(null);
     if (res.invoiceId) setTimeout(() => setReceipt({ invoiceId: res.invoiceId, invoiceNumber: res.invoiceNumber, receiptHtml: res.receiptHtml }), 100);
     if (res.tableClosed) {
-      toast.success('All bills paid — table closed');
+      toast.success(tx('All bills paid — table closed'));
       onTableClosed?.();
     }
   };
@@ -142,31 +143,31 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
         <DialogContent className="sm:max-w-[1000px] p-0 overflow-hidden">
           <DialogHeader className="bg-gradient-to-r from-indigo-600 to-indigo-800 text-white p-4">
             <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
-              Split Bill {tableLabel ? `· ${tableLabel}` : ''}
+              {tx('Split Bill')} {tableLabel ? `· ${tableLabel}` : ''}
             </DialogTitle>
             <DialogDescription className="text-indigo-100 text-xs">
-              Assign items to bills. Each bill pays on its own — the table closes when every bill is settled. Kitchen orders are unchanged.
+              {tx('Assign items to bills. Each bill pays on its own — the table closes when every bill is settled. Kitchen orders are unchanged.')}
             </DialogDescription>
           </DialogHeader>
 
           {/* Running balance bar */}
           {summary ? (
             <div className="grid grid-cols-4 divide-x divide-slate-200 border-b bg-slate-50 text-center text-xs">
-              <div className="py-2"><div className="text-slate-400">Table total</div><div className="font-bold text-slate-800">{fmt(summary.tableTotal)}</div></div>
-              <div className="py-2"><div className="text-slate-400">Unassigned</div><div className="font-bold text-amber-600">{fmt(summary.unassignedTotal)}</div></div>
-              <div className="py-2"><div className="text-slate-400">Paid</div><div className="font-bold text-emerald-600">{fmt(summary.paidTotal)}</div></div>
-              <div className="py-2"><div className="text-slate-400">Outstanding</div><div className="font-bold text-rose-600">{fmt(summary.outstandingTotal)}</div></div>
+              <div className="py-2"><div className="text-slate-400">{tx('Table total')}</div><div className="font-bold text-slate-800">{fmt(summary.tableTotal)}</div></div>
+              <div className="py-2"><div className="text-slate-400">{tx('Unassigned')}</div><div className="font-bold text-amber-600">{fmt(summary.unassignedTotal)}</div></div>
+              <div className="py-2"><div className="text-slate-400">{tx('Paid')}</div><div className="font-bold text-emerald-600">{fmt(summary.paidTotal)}</div></div>
+              <div className="py-2"><div className="text-slate-400">{tx('Outstanding')}</div><div className="font-bold text-rose-600">{fmt(summary.outstandingTotal)}</div></div>
             </div>
           ) : null}
 
           <div className="grid grid-cols-1 md:grid-cols-2 min-h-[420px] max-h-[60vh]">
             {/* Left — current order */}
             <div className="border-r border-slate-200 p-3 overflow-y-auto">
-              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Current Order</div>
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">{tx('Current Order')}</div>
               {isLoading ? (
-                <div className="text-center text-slate-400 py-8 text-sm">Loading…</div>
+                <div className="text-center text-slate-400 py-8 text-sm">{tx('Loading…')}</div>
               ) : lines.length === 0 ? (
-                <div className="text-center text-slate-400 py-8 text-sm">No open tab on this table.</div>
+                <div className="text-center text-slate-400 py-8 text-sm">{tx('No open tab on this table.')}</div>
               ) : (
                 <div className="space-y-1.5">
                   {lines.map((l) => {
@@ -178,8 +179,8 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
                           <div className="min-w-0">
                             <div className="text-sm font-semibold text-slate-800 truncate">{l.description}</div>
                             <div className="text-[11px] text-slate-400">
-                              {fmt(l.unitPrice)} · qty {l.quantity}
-                              {l.assignedQty > 0 && <span className="text-indigo-500"> · assigned {l.assignedQty}</span>}
+                              {fmt(l.unitPrice)} {tx('· qty')} {l.quantity}
+                              {l.assignedQty > 0 && <span className="text-indigo-500"> {tx('· assigned')} {l.assignedQty}</span>}
                             </div>
                             {l.modifiers.length > 0 && <div className="text-[10px] text-slate-400 truncate">+ {l.modifiers.join(', ')}</div>}
                           </div>
@@ -189,12 +190,12 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
                         </div>
                         {remaining > 0 && (
                           <div className="flex items-center gap-2 mt-2">
-                            <label className="sr-only" htmlFor={`split-qty-${l.id}`}>Quantity of {l.description} to assign</label>
+                            <label className="sr-only" htmlFor={`split-qty-${l.id}`}>{tx('Quantity of')} {l.description} {tx('to assign')}</label>
                             <input id={`split-qty-${l.id}`} type="number" min="0.001" max={remaining} step="0.001" value={step}
                               onChange={(event) => setStep(l.id, Math.min(remaining, Math.max(0.001, Number(event.target.value))))}
                               className="h-11 w-24 rounded-md border border-slate-300 px-2 text-center text-sm font-bold" />
                             <Button size="sm" className="h-7 text-xs flex-1" disabled={!activeBillId || busy} onClick={() => onAssign(l.id, step)}>
-                              Add to {bills.find((b) => b.id === activeBillId)?.label ?? 'bill'}
+                              {tx('Add to')} {bills.find((b) => b.id === activeBillId)?.label ?? 'bill'}
                             </Button>
                           </div>
                         )}
@@ -208,16 +209,16 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
             {/* Right — bills */}
             <div className="p-3 overflow-y-auto bg-slate-50">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">Bills</div>
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500">{tx('Bills')}</div>
                 <div className="flex gap-2">
-                  {bills.length === 0 && <Button size="sm" variant="secondary" className="min-h-11 text-xs" disabled={lines.length === 0 || busy} onClick={onSplitEqually}>Split equally</Button>}
+                  {bills.length === 0 && <Button size="sm" variant="secondary" className="min-h-11 text-xs" disabled={lines.length === 0 || busy} onClick={onSplitEqually}>{tx('Split equally')}</Button>}
                   <Button size="sm" variant="outline" className="min-h-11 text-xs" disabled={lines.length === 0 || busy} onClick={onAddBill}>
-                    <Plus className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> Add Bill
+                    <Plus className="h-3.5 w-3.5 mr-1" aria-hidden="true" /> {tx('Add Bill')}
                   </Button>
                 </div>
               </div>
               {bills.length === 0 ? (
-                <div className="text-center text-slate-400 py-8 text-sm">Add a bill, then assign items to it.</div>
+                <div className="text-center text-slate-400 py-8 text-sm">{tx('Add a bill, then assign items to it.')}</div>
               ) : (
                 <div className="space-y-2">
                   {bills.map((b) => {
@@ -235,12 +236,12 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
                             <span className="text-sm font-bold text-slate-800">{b.label}</span>
                             {b.status === 'settled'
                               ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">PAID</span>
-                              : isActive ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">SELECTED</span> : null}
+                              : isActive ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">{tx('SELECTED')}</span> : null}
                           </div>
                           <span className="text-sm font-bold text-slate-800">{fmt(b.totalAmount)}</span>
                         </div>
                         {b.items.length === 0 ? (
-                          <div className="text-[11px] text-slate-400 italic py-1">(empty)</div>
+                          <div className="text-[11px] text-slate-400 italic py-1">{tx('(empty)')}</div>
                         ) : (
                           <div className="space-y-1">
                             {b.items.map((it) => (
@@ -249,7 +250,7 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
                                 <div className="flex items-center gap-2">
                                   <span className="font-mono text-slate-500">{fmt(it.lineTotal)}</span>
                                   {isOpen && (
-                                    <button type="button" title="Return to order" className="text-rose-400 hover:text-rose-600" onClick={(e) => { e.stopPropagation(); onReturn(b.id, it.sourceItemId, it.quantity); }}>
+                                    <button type="button" title={tx('Return to order')} className="text-rose-400 hover:text-rose-600" onClick={(e) => { e.stopPropagation(); onReturn(b.id, it.sourceItemId, it.quantity); }}>
                                       <X className="h-3.5 w-3.5" />
                                     </button>
                                   )}
@@ -262,27 +263,27 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
                         {isOpen ? (
                           <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
                             <Button size="sm" className="h-7 text-xs flex-1" style={{ background: '#16a34a' }} disabled={b.items.length === 0 || busy || settleBill.isPending} onClick={() => setTimeout(() => setPayingBill(b), 100)}>
-                              <Wallet className="h-3.5 w-3.5 mr-1" /> Pay {fmt(b.totalAmount)}
+                              <Wallet className="h-3.5 w-3.5 mr-1" /> {tx('Pay')} {fmt(b.totalAmount)}
                             </Button>
                             {mergeTargets.length > 0 && (
                               <select
                                 className="h-7 text-xs border border-slate-200 rounded-md px-1 text-slate-600 bg-white max-w-[110px]"
                                 value=""
                                 onChange={(e) => { if (e.target.value) onMerge(b.id, e.target.value); }}
-                                title="Merge this bill into another"
+                                title={tx('Merge this bill into another')}
                               >
-                                <option value="">Merge…</option>
+                                <option value="">{tx('Merge…')}</option>
                                 {mergeTargets.map((t) => <option key={t.id} value={t.id}>→ {t.label}</option>)}
                               </select>
                             )}
-                            <button type="button" title="Delete bill" className="h-7 px-2 text-rose-500 hover:bg-rose-50 rounded-md" disabled={busy} onClick={() => onDelete(b.id)}>
+                            <button type="button" title={tx('Delete bill')} className="h-7 px-2 text-rose-500 hover:bg-rose-50 rounded-md" disabled={busy} onClick={() => onDelete(b.id)}>
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
                           </div>
                         ) : b.invoiceId ? (
                           <div className="mt-2 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
                             <Button size="sm" variant="outline" className="h-7 text-xs w-full" onClick={() => setReceipt({ invoiceId: b.invoiceId!, invoiceNumber: undefined })}>
-                              <Printer className="h-3.5 w-3.5 mr-1" /> Receipt
+                              <Printer className="h-3.5 w-3.5 mr-1" /> {tx('Receipt')}
                             </Button>
                           </div>
                         ) : null}
@@ -297,12 +298,12 @@ export const SplitBillDialog: React.FC<Props> = ({ open, tableId, tableLabel, ca
           {/* Footer */}
           <div className="border-t border-slate-200 p-3 bg-white flex items-center justify-between gap-2">
             <Button variant="ghost" className="text-rose-600" disabled={busy || bills.some((b) => b.status === 'settled')} onClick={onCancelSplit}>
-              Cancel Split
+              {tx('Cancel Split')}
             </Button>
             <div className="text-[11px] text-slate-500">
-              {summary?.fullyAssigned ? <span className="text-emerald-600 font-semibold flex items-center gap-1"><Check className="h-3.5 w-3.5" /> Every item assigned</span> : 'Assign every item to a bill, then pay each bill.'}
+              {summary?.fullyAssigned ? <span className="text-emerald-600 font-semibold flex items-center gap-1"><Check className="h-3.5 w-3.5" /> {tx('Every item assigned')}</span> : 'Assign every item to a bill, then pay each bill.'}
             </div>
-            <Button variant="outline" onClick={onClose}>Done</Button>
+            <Button variant="outline" onClick={onClose}>{tx('Done')}</Button>
           </div>
         </DialogContent>
       </Dialog>

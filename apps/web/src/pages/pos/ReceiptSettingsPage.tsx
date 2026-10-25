@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface ReceiptSettings {
   businessName: string;
@@ -50,7 +51,7 @@ export function ReceiptSettingsPage() {
 
   const save = useMutation({
     mutationFn: async () => (await api.patch('/pos/settings/receipt', s)).data,
-    onSuccess: () => notify.success('Receipt settings saved'),
+    onSuccess: () => notify.success(tx('Receipt settings saved')),
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Save failed'),
   });
 
@@ -60,13 +61,13 @@ export function ReceiptSettingsPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold flex items-center gap-2">
-        <Receipt className="h-6 w-6" /> Receipt Settings
+        <Receipt className="h-6 w-6" /> {tx('Receipt Settings')}
       </h1>
 
       <Card>
         <CardHeader>
-          <CardTitle>Receipt Header</CardTitle>
-          <CardDescription>Printed on every customer receipt and bill.</CardDescription>
+          <CardTitle>{tx('Receipt Header')}</CardTitle>
+          <CardDescription>{tx('Printed on every customer receipt and bill.')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {q.isLoading ? (
@@ -74,25 +75,25 @@ export function ReceiptSettingsPage() {
           ) : (
             <>
               <div>
-                <Label htmlFor="rs-biz">Business name</Label>
-                <Input id="rs-biz" value={s.businessName} onChange={update('businessName')} placeholder="My Cafe" className="mt-1" />
+                <Label htmlFor="rs-biz">{tx('Business name')}</Label>
+                <Input id="rs-biz" value={s.businessName} onChange={update('businessName')} placeholder={tx('My Cafe')} className="mt-1" />
               </div>
               <div>
-                <Label htmlFor="rs-addr1">Address line 1</Label>
-                <Input id="rs-addr1" value={s.addressLine1} onChange={update('addressLine1')} placeholder="123 Main Street" className="mt-1" />
+                <Label htmlFor="rs-addr1">{tx('Address line 1')}</Label>
+                <Input id="rs-addr1" value={s.addressLine1} onChange={update('addressLine1')} placeholder={tx('123 Main Street')} className="mt-1" />
               </div>
               <div>
-                <Label htmlFor="rs-addr2">Address line 2</Label>
-                <Input id="rs-addr2" value={s.addressLine2} onChange={update('addressLine2')} placeholder="Kampala, Uganda" className="mt-1" />
+                <Label htmlFor="rs-addr2">{tx('Address line 2')}</Label>
+                <Input id="rs-addr2" value={s.addressLine2} onChange={update('addressLine2')} placeholder={tx('Kampala, Uganda')} className="mt-1" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label htmlFor="rs-phone">Phone</Label>
+                  <Label htmlFor="rs-phone">{tx('Phone')}</Label>
                   <Input id="rs-phone" value={s.phone} onChange={update('phone')} placeholder="+256 700 000 000" className="mt-1" />
                 </div>
                 <div>
-                  <Label htmlFor="rs-tax">Tax ID (TIN)</Label>
-                  <Input id="rs-tax" value={s.taxId} onChange={update('taxId')} placeholder="TIN-0000000000" className="mt-1" />
+                  <Label htmlFor="rs-tax">{tx('Tax ID (TIN)')}</Label>
+                  <Input id="rs-tax" value={s.taxId} onChange={update('taxId')} placeholder={tx('TIN-0000000000')} className="mt-1" />
                 </div>
               </div>
             </>
@@ -102,16 +103,16 @@ export function ReceiptSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Receipt Footer</CardTitle>
-          <CardDescription>Closing message on every customer receipt.</CardDescription>
+          <CardTitle>{tx('Receipt Footer')}</CardTitle>
+          <CardDescription>{tx('Closing message on every customer receipt.')}</CardDescription>
         </CardHeader>
         <CardContent>
           {q.isLoading ? (
             <Skeleton className="h-10 w-full" />
           ) : (
             <div>
-              <Label htmlFor="rs-footer">Footer message</Label>
-              <Input id="rs-footer" value={s.footerMessage} onChange={update('footerMessage')} placeholder="Thank you!" className="mt-1" />
+              <Label htmlFor="rs-footer">{tx('Footer message')}</Label>
+              <Input id="rs-footer" value={s.footerMessage} onChange={update('footerMessage')} placeholder={tx('Thank you!')} className="mt-1" />
             </div>
           )}
         </CardContent>
@@ -120,7 +121,7 @@ export function ReceiptSettingsPage() {
       <div className="flex justify-end">
         <Button onClick={() => save.mutate()} disabled={save.isPending || q.isLoading}>
           {save.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-          Save receipt settings
+          {tx('Save receipt settings')}
         </Button>
       </div>
     </div>

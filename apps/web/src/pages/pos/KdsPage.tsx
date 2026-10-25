@@ -19,6 +19,7 @@ import {
   useKitchenStations, type KdsTicketFE, type KdsTicketItemFE, type KdsAction, type KdsPriorityFE,
 } from './pos-features-api';
 import './pos-pro.css';
+import { tx } from '@/lib/i18n/tx';
 
 type Layout = 'columns' | 'queue' | 'grid' | 'tv' | 'expo';
 const LAYOUTS: Array<{ id: Layout; label: string; icon: React.ComponentType<any> }> = [
@@ -132,7 +133,7 @@ const TicketCard: React.FC<{
 
       {eta && <div className="text-[11px] font-semibold text-slate-500 mb-1.5">{eta}</div>}
       {ticket.recallCount > 0 && (
-        <div className="text-[11px] font-semibold text-rose-600 mb-1.5">↺ recalled ×{ticket.recallCount}{ticket.recallReason ? ` — ${ticket.recallReason}` : ''}</div>
+        <div className="text-[11px] font-semibold text-rose-600 mb-1.5">{tx('↺ recalled ×')}{ticket.recallCount}{ticket.recallReason ? ` — ${ticket.recallReason}` : ''}</div>
       )}
 
       <div className="space-y-2 mb-3">
@@ -160,20 +161,20 @@ const TicketCard: React.FC<{
       <div className="flex gap-1.5 items-center">
         {status === 'new' && (
           <Button onClick={() => onAction('start')} disabled={pending} className="flex-1" style={{ background: '#f59e0b' }}>
-            <ChefHat className="h-3.5 w-3.5 mr-1" /> Start
+            <ChefHat className="h-3.5 w-3.5 mr-1" /> {tx('Start')}
           </Button>
         )}
         {status === 'preparing' && (
           <Button onClick={() => onAction('ready')} disabled={pending} className="flex-1" style={{ background: '#16a34a' }}>
-            <Check className="h-3.5 w-3.5 mr-1" /> Ready
+            <Check className="h-3.5 w-3.5 mr-1" /> {tx('Ready')}
           </Button>
         )}
         {status === 'ready' && (
           <>
             <Button onClick={() => onAction('serve')} disabled={pending} className="flex-1" style={{ background: '#0f172a' }}>
-              <Truck className="h-3.5 w-3.5 mr-1" /> Served
+              <Truck className="h-3.5 w-3.5 mr-1" /> {tx('Served')}
             </Button>
-            <Button onClick={() => onAction('recall')} disabled={pending} variant="outline" className="border-amber-300 text-amber-700 px-2" title="Recall">
+            <Button onClick={() => onAction('recall')} disabled={pending} variant="outline" className="border-amber-300 text-amber-700 px-2" title={tx('Recall')}>
               <RotateCcw className="h-3.5 w-3.5" />
             </Button>
           </>
@@ -183,7 +184,7 @@ const TicketCard: React.FC<{
           {ticket.priority === 'vip' ? <Star className="h-3.5 w-3.5 text-fuchsia-600" /> : <Flame className={`h-3.5 w-3.5 ${ticket.priority === 'rush' ? 'text-orange-500' : 'text-slate-400'}`} />}
         </Button>
         {(status === 'new' || status === 'preparing') && (
-          <Button onClick={() => onAction('cancel')} disabled={pending} variant="outline" className="border-rose-300 text-rose-600 px-2" title="Cancel">
+          <Button onClick={() => onAction('cancel')} disabled={pending} variant="outline" className="border-rose-300 text-rose-600 px-2" title={tx('Cancel')}>
             <X className="h-3.5 w-3.5" />
           </Button>
         )}
@@ -320,8 +321,8 @@ const KdsPage: React.FC = () => {
       <div className="min-h-[60vh] flex items-center justify-center text-center">
         <div>
           <ChefHat className="h-12 w-12 mx-auto mb-3 text-slate-300" />
-          <p className="text-lg font-semibold">Access denied</p>
-          <p className="text-sm text-muted-foreground">You need the Kitchen Display permission (pos:kds).</p>
+          <p className="text-lg font-semibold">{tx('Access denied')}</p>
+          <p className="text-sm text-muted-foreground">{tx('You need the Kitchen Display permission (pos:kds).')}</p>
         </div>
       </div>
     );
@@ -347,15 +348,15 @@ const KdsPage: React.FC = () => {
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <Button variant="outline" size="sm" onClick={() => navigate('/pos/terminal')}>
-            <ArrowLeft className="h-4 w-4 mr-1" /> Back
+            <ArrowLeft className="h-4 w-4 mr-1" /> {tx('Back')}
           </Button>
           <h1 className="text-2xl font-extrabold flex items-center gap-2"><ChefHat className="h-6 w-6" /> KDS</h1>
-          <span className="text-sm text-slate-500">{activeCount} active</span>
+          <span className="text-sm text-slate-500">{activeCount} {tx('active')}</span>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Station tabs */}
           <div className="flex gap-1 flex-wrap">
-            <Button variant={station === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setStation('all')}>All</Button>
+            <Button variant={station === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setStation('all')}>{tx('All')}</Button>
             {stations.filter((s) => s.isActive).map((s) => {
               const load = stationLoad.get(s.code) ?? 0;
               return (
@@ -384,11 +385,11 @@ const KdsPage: React.FC = () => {
       {/* Batch action bar */}
       {selected.size > 0 && (
         <div className="flex items-center gap-2 mb-3 p-2 rounded-lg bg-sky-50 border border-sky-200">
-          <span className="text-sm font-semibold text-sky-800">{selected.size} selected</span>
-          <Button size="sm" onClick={() => runBulk('start')} style={{ background: '#f59e0b' }}>Start</Button>
-          <Button size="sm" onClick={() => runBulk('ready')} style={{ background: '#16a34a' }}><CheckCheck className="h-3.5 w-3.5 mr-1" /> Ready</Button>
-          <Button size="sm" onClick={() => runBulk('serve')} style={{ background: '#0f172a' }}>Served</Button>
-          <Button size="sm" variant="outline" onClick={() => setSelected(new Set())}>Clear</Button>
+          <span className="text-sm font-semibold text-sky-800">{selected.size} {tx('selected')}</span>
+          <Button size="sm" onClick={() => runBulk('start')} style={{ background: '#f59e0b' }}>{tx('Start')}</Button>
+          <Button size="sm" onClick={() => runBulk('ready')} style={{ background: '#16a34a' }}><CheckCheck className="h-3.5 w-3.5 mr-1" /> {tx('Ready')}</Button>
+          <Button size="sm" onClick={() => runBulk('serve')} style={{ background: '#0f172a' }}>{tx('Served')}</Button>
+          <Button size="sm" variant="outline" onClick={() => setSelected(new Set())}>{tx('Clear')}</Button>
         </div>
       )}
 
@@ -411,7 +412,7 @@ const KdsPage: React.FC = () => {
       ) : layout === 'expo' ? (
         (() => {
           const ready = sortTickets(tickets.filter((t) => t.status === 'ready'));
-          return ready.length === 0 ? <EmptyState label="Nothing waiting for pickup." /> : (
+          return ready.length === 0 ? <EmptyState label={tx('Nothing waiting for pickup.')} /> : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
               {ready.map((t) => renderCard(t, { tv: true }))}
             </div>
@@ -438,7 +439,7 @@ const EmptyState: React.FC<{ label?: string }> = ({ label = 'No active tickets.'
   <div className="flex-1 flex items-center justify-center text-slate-400 py-20">
     <div className="text-center">
       <ChefHat className="h-12 w-12 mx-auto mb-3 opacity-50" />
-      <p className="text-lg font-semibold">All caught up!</p>
+      <p className="text-lg font-semibold">{tx('All caught up!')}</p>
       <p className="text-sm">{label}</p>
     </div>
   </div>

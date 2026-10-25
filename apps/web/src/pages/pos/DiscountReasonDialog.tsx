@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -49,10 +50,10 @@ export const DiscountReasonDialog: React.FC<Props> = ({ open, onClose, onSelect 
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Tag className="h-4 w-4 text-amber-600" /> Discount Reason
+            <Tag className="h-4 w-4 text-amber-600" /> {tx('Discount Reason')}
           </DialogTitle>
           <DialogDescription>
-            Select a reason for this discount. Required for manual discounts.
+            {tx('Select a reason for this discount. Required for manual discounts.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -73,16 +74,16 @@ export const DiscountReasonDialog: React.FC<Props> = ({ open, onClose, onSelect 
               className="px-3 py-2.5 rounded-lg border border-dashed border-slate-300 hover:border-amber-300 hover:bg-amber-50 text-sm font-medium text-left transition col-span-2 flex items-center gap-2"
               onClick={() => pick('other')}
             >
-              <MessageSquare className="h-4 w-4 text-slate-400" /> Other — type a reason
+              <MessageSquare className="h-4 w-4 text-slate-400" /> {tx('Other — type a reason')}
             </button>
           </div>
         ) : (
           <div>
-            <Label>Enter reason</Label>
+            <Label>{tx('Enter reason')}</Label>
             <Input
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
-              placeholder="e.g. Grand opening promotion"
+              placeholder={tx('e.g. Grand opening promotion')}
               autoFocus
               onKeyDown={(e) => { if (e.key === 'Enter') submitCustom(); }}
             />
@@ -90,10 +91,10 @@ export const DiscountReasonDialog: React.FC<Props> = ({ open, onClose, onSelect 
         )}
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{tx('Cancel')}</Button>
           {showCustom ? (
             <Button onClick={submitCustom} disabled={!custom.trim()} style={{ background: '#f59e0b' }}>
-              Apply
+              {tx('Apply')}
             </Button>
           ) : null}
         </DialogFooter>

@@ -13,6 +13,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useCrmDeletedDeals, useCrmDeals, useCrmUsers, useDeleteDeal, useRestoreDeal, DEAL_STAGES, STAGE_META, dealCurrency, type CrmDeal, type DealStage } from '@/features/crm/api';
 import { DealsKanban } from '@/features/crm/kanban';
 import { DealFormDialog } from '@/features/crm/deal-form';
+import { tx } from '@/lib/i18n/tx';
 
 const PAGE_SIZE = 50;
 
@@ -62,24 +63,24 @@ export function DealsPage() {
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input
           className="pl-8"
-          placeholder="Search deals…"
+          placeholder={tx('Search deals…')}
           value={q}
           onChange={(e) => { setQ(e.target.value); setPage(1); }}
         />
       </div>
       <Select value={stage} onValueChange={(v) => { setStage(v as DealStage | ''); setPage(1); }}>
-        <SelectTrigger className="w-40"><SelectValue placeholder="All stages" /></SelectTrigger>
+        <SelectTrigger className="w-40"><SelectValue placeholder={tx('All stages')} /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="__all__">All stages</SelectItem>
+          <SelectItem value="__all__">{tx('All stages')}</SelectItem>
           {DEAL_STAGES.map((s) => (
             <SelectItem key={s} value={s} className="capitalize">{STAGE_META[s].label}</SelectItem>
           ))}
         </SelectContent>
       </Select>
       <Select value={ownerId} onValueChange={(v) => { setOwnerId(v === '__all__' ? '' : v); setPage(1); }}>
-        <SelectTrigger className="w-44"><SelectValue placeholder="All owners" /></SelectTrigger>
+        <SelectTrigger className="w-44"><SelectValue placeholder={tx('All owners')} /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="__all__">All owners</SelectItem>
+          <SelectItem value="__all__">{tx('All owners')}</SelectItem>
           {users?.map((u) => (
             <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
           ))}
@@ -91,7 +92,7 @@ export function DealsPage() {
         onClick={() => { setMyDeals((v) => !v); setPage(1); }}
         className="h-9"
       >
-        My deals
+        {tx('My deals')}
       </Button>
       <Button
         variant={showArchived ? 'default' : 'outline'}
@@ -99,7 +100,7 @@ export function DealsPage() {
         onClick={() => setShowArchived((v) => !v)}
         className="h-9"
       >
-        <Archive className="mr-1.5 h-4 w-4" /> Archived ({deleted?.length ?? 0})
+        <Archive className="mr-1.5 h-4 w-4" /> {tx('Archived (')}{deleted?.length ?? 0})
       </Button>
     </div>
   );
@@ -109,11 +110,11 @@ export function DealsPage() {
       <div className="space-y-6 px-2 md:px-4 py-3 mx-auto">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-bold">Archived Deals</h1>
-            <p className="text-sm text-muted-foreground">Soft-deleted deals can be restored back to the pipeline.</p>
+            <h1 className="text-2xl font-bold">{tx('Archived Deals')}</h1>
+            <p className="text-sm text-muted-foreground">{tx('Soft-deleted deals can be restored back to the pipeline.')}</p>
           </div>
           <Button variant="outline" size="sm" onClick={() => setShowArchived(false)}>
-            <RefreshCw className="mr-1.5 h-4 w-4" /> Back to pipeline
+            <RefreshCw className="mr-1.5 h-4 w-4" /> {tx('Back to pipeline')}
           </Button>
         </div>
         <Card>
@@ -124,17 +125,17 @@ export function DealsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Deal</TableHead>
-                    <TableHead>Partner</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Stage</TableHead>
-                    <TableHead>Deleted</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>{tx('Deal')}</TableHead>
+                    <TableHead>{tx('Partner')}</TableHead>
+                    <TableHead className="text-right">{tx('Amount')}</TableHead>
+                    <TableHead>{tx('Stage')}</TableHead>
+                    <TableHead>{tx('Deleted')}</TableHead>
+                    <TableHead className="text-right">{tx('Actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {deleted?.length === 0 ? (
-                    <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">Nothing archived.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={6} className="py-8 text-center text-muted-foreground">{tx('Nothing archived.')}</TableCell></TableRow>
                   ) : deleted?.map((d) => (
                     <TableRow key={d.id}>
                       <TableCell className="font-medium">{d.name}</TableCell>
@@ -145,7 +146,7 @@ export function DealsPage() {
                       <TableCell className="text-right">
                         {hasWrite && (
                           <Button variant="outline" size="sm" className="h-8" onClick={() => restoreDeal.mutate(d.id)}>
-                            Restore
+                            {tx('Restore')}
                           </Button>
                         )}
                       </TableCell>
@@ -165,21 +166,21 @@ export function DealsPage() {
       {/* Header bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Deals</h1>
-          <p className="text-sm text-muted-foreground">Sales pipeline — drag deals between stages to update them.</p>
+          <h1 className="text-2xl font-bold">{tx('Deals')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Sales pipeline — drag deals between stages to update them.')}</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center rounded-lg border bg-muted/40 p-0.5">
             <Button variant={view === 'kanban' ? 'default' : 'ghost'} size="sm" className="h-8 gap-1.5" onClick={() => setView('kanban')}>
-              <Kanban className="h-4 w-4" /> Kanban
+              <Kanban className="h-4 w-4" /> {tx('Kanban')}
             </Button>
             <Button variant={view === 'list' ? 'default' : 'ghost'} size="sm" className="h-8 gap-1.5" onClick={() => setView('list')}>
-              <LayoutList className="h-4 w-4" /> List
+              <LayoutList className="h-4 w-4" /> {tx('List')}
             </Button>
           </div>
           {hasWrite && (
             <Button onClick={() => { setEditing(null); setFormOpen(true); }}>
-              <Plus className="mr-1.5 h-4 w-4" /> New Deal
+              <Plus className="mr-1.5 h-4 w-4" /> {tx('New Deal')}
             </Button>
           )}
         </div>
@@ -204,19 +205,19 @@ export function DealsPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Deal</TableHead>
-                      <TableHead>Customer</TableHead>
-                      <TableHead className="text-right">Amount</TableHead>
-                      <TableHead>Stage</TableHead>
-                      <TableHead>Owner</TableHead>
-                      <TableHead>Expected close</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
+                      <TableHead>{tx('Deal')}</TableHead>
+                      <TableHead>{tx('Customer')}</TableHead>
+                      <TableHead className="text-right">{tx('Amount')}</TableHead>
+                      <TableHead>{tx('Stage')}</TableHead>
+                      <TableHead>{tx('Owner')}</TableHead>
+                      <TableHead>{tx('Expected close')}</TableHead>
+                      <TableHead className="text-right">{tx('Actions')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {deals.length === 0 ? (
                       <TableRow><TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                        No deals match the current filters.
+                        {tx('No deals match the current filters.')}
                       </TableCell></TableRow>
                     ) : deals.map((d) => (
                       <TableRow key={d.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/crm/deals/${d.id}`)}>
@@ -231,9 +232,9 @@ export function DealsPage() {
                             {hasWrite && (
                               <>
                                 <Button variant="ghost" size="sm" className="h-8" onClick={() => { setEditing(d); setFormOpen(true); }}>
-                                  Edit
+                                  {tx('Edit')}
                                 </Button>
-                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title="Delete (archive)" onClick={() => deleteDeal.mutate(d.id)}>
+                                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" title={tx('Delete (archive)')} onClick={() => deleteDeal.mutate(d.id)}>
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
                               </>
@@ -247,11 +248,11 @@ export function DealsPage() {
                 {meta && meta.totalPages > 1 && (
                   <div className="flex items-center justify-between border-t px-4 py-3">
                     <span className="text-xs text-muted-foreground">
-                      Page {meta.page} of {meta.totalPages} · {meta.total} deals
+                      {tx('Page')} {meta.page} of {meta.totalPages} · {meta.total} {tx('deals')}
                     </span>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Prev</Button>
-                      <Button variant="outline" size="sm" disabled={page >= meta.totalPages} onClick={() => setPage((p) => p + 1)}>Next</Button>
+                      <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>{tx('Prev')}</Button>
+                      <Button variant="outline" size="sm" disabled={page >= meta.totalPages} onClick={() => setPage((p) => p + 1)}>{tx('Next')}</Button>
                     </div>
                   </div>
                 )}

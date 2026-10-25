@@ -4,6 +4,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { tx } from '@/lib/i18n/tx';
 
 /** Page numbers to render, with `null` marking an ellipsis gap. */
 function pageWindow(page: number, totalPages: number): Array<number | null> {
@@ -47,12 +48,12 @@ export function DataTablePagination({
     <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-muted/20 px-4 py-2.5 text-sm">
       <div className="flex items-center gap-3 text-muted-foreground">
         <span>
-          Showing <span className="font-medium text-foreground">{first.toLocaleString()}–{last.toLocaleString()}</span> of{' '}
+          {tx('Showing')} <span className="font-medium text-foreground">{first.toLocaleString()}–{last.toLocaleString()}</span> of{' '}
           <span className="font-medium text-foreground">{total.toLocaleString()}</span> {noun}{total === 1 ? '' : 's'}
         </span>
         {onPageSizeChange && (
           <div className="hidden items-center gap-1.5 sm:flex">
-            <span className="text-xs">Rows</span>
+            <span className="text-xs">{tx('Rows')}</span>
             <Select value={String(pageSize)} onValueChange={(v) => onPageSizeChange(Number(v))}>
               <SelectTrigger className="h-8 w-[70px] bg-background text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -63,11 +64,11 @@ export function DataTablePagination({
         )}
       </div>
 
-      <nav className="flex items-center gap-1" aria-label="Pagination">
-        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => onPageChange(1)} aria-label="First page">
+      <nav className="flex items-center gap-1" aria-label={tx('Pagination')}>
+        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => onPageChange(1)} aria-label={tx('First page')}>
           <ChevronsLeft className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label="Previous page">
+        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page <= 1} onClick={() => onPageChange(page - 1)} aria-label={tx('Previous page')}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
         {pageWindow(page, pages).map((p, i) =>
@@ -86,10 +87,10 @@ export function DataTablePagination({
             </Button>
           ),
         )}
-        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page >= pages} onClick={() => onPageChange(page + 1)} aria-label="Next page">
+        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page >= pages} onClick={() => onPageChange(page + 1)} aria-label={tx('Next page')}>
           <ChevronRight className="h-4 w-4" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page >= pages} onClick={() => onPageChange(pages)} aria-label="Last page">
+        <Button variant="ghost" size="icon" className="h-8 w-8" disabled={page >= pages} onClick={() => onPageChange(pages)} aria-label={tx('Last page')}>
           <ChevronsRight className="h-4 w-4" />
         </Button>
       </nav>

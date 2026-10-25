@@ -15,6 +15,7 @@ import {
 import { money, date } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCreditNote, usePostCreditNote } from '@/features/invoicing/api';
+import { tx } from '@/lib/i18n/tx';
 
 function SummaryRow({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
@@ -36,7 +37,7 @@ export function CreditNoteDetailPage() {
   const [disposition, setDisposition] = useState<'restock' | 'scrap'>('restock');
 
   if (isLoading || !cn) {
-    return <div className="text-sm text-muted-foreground">Loading...</div>;
+    return <div className="text-sm text-muted-foreground">{tx('Loading...')}</div>;
   }
 
   const isDraft = cn.status === 'draft';
@@ -56,7 +57,7 @@ export function CreditNoteDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => navigate('/credit-notes')}>
-            Back
+            {tx('Back')}
           </Button>
           {isDraft && has(PERMISSIONS.creditNote.post) && (
             <div className="flex items-center gap-2">
@@ -64,13 +65,13 @@ export function CreditNoteDetailPage() {
                 value={disposition}
                 onChange={(e) => setDisposition(e.target.value as 'restock' | 'scrap')}
                 className="rounded border bg-background px-2 py-1 text-sm"
-                title="What happens to returned goods when this note is posted"
+                title={tx('What happens to returned goods when this note is posted')}
               >
-                <option value="restock">Restock goods</option>
-                <option value="scrap">Scrap goods</option>
+                <option value="restock">{tx('Restock goods')}</option>
+                <option value="scrap">{tx('Scrap goods')}</option>
               </select>
               <Button onClick={() => postCreditNote.mutate({ id: cn.id, disposition })} disabled={postCreditNote.isPending}>
-                Post
+                {tx('Post')}
               </Button>
             </div>
           )}
@@ -82,12 +83,12 @@ export function CreditNoteDetailPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Description</TableHead>
-                <TableHead className="text-right">Qty</TableHead>
-                <TableHead className="text-right">Unit price</TableHead>
-                <TableHead className="text-right">Net</TableHead>
-                <TableHead className="text-right">Tax</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                <TableHead>{tx('Description')}</TableHead>
+                <TableHead className="text-right">{tx('Qty')}</TableHead>
+                <TableHead className="text-right">{tx('Unit price')}</TableHead>
+                <TableHead className="text-right">{tx('Net')}</TableHead>
+                <TableHead className="text-right">{tx('Tax')}</TableHead>
+                <TableHead className="text-right">{tx('Total')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -106,9 +107,9 @@ export function CreditNoteDetailPage() {
 
           <div className="mt-4 flex justify-end">
             <div className="w-64 space-y-1 text-sm">
-              <SummaryRow label="Subtotal" value={money(cn.subtotal)} />
-              <SummaryRow label="Tax" value={money(cn.taxAmount)} />
-              <SummaryRow label="Total credited" value={money(cn.totalAmount)} bold />
+              <SummaryRow label={tx('Subtotal')} value={money(cn.subtotal)} />
+              <SummaryRow label={tx('Tax')} value={money(cn.taxAmount)} />
+              <SummaryRow label={tx('Total credited')} value={money(cn.totalAmount)} bold />
             </div>
           </div>
         </CardContent>

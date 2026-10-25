@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Button } from '@/components/ui/button';
 import { useHeldOrders, useRecallHold, useCancelHold } from './api';
 import type { CartLine } from '@/features/pos/types';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
 
@@ -61,20 +62,20 @@ export const HeldOrdersDialog: React.FC<Props> = ({ open, onClose, onRecall }) =
       <DialogContent className="sm:max-w-[640px] p-0 overflow-hidden">
         <DialogHeader className="bg-gradient-to-r from-amber-500 to-amber-700 text-white p-4">
           <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
-            <Pause className="h-4 w-4" /> Held / parked orders
+            <Pause className="h-4 w-4" /> {tx('Held / parked orders')}
           </DialogTitle>
           <DialogDescription className="text-amber-100 text-xs">
-            Pick a parked ticket to recall it into the cart, or cancel it if it's no longer needed.
+            {tx('Pick a parked ticket to recall it into the cart, or cancel it if it\'s no longer needed.')}
           </DialogDescription>
         </DialogHeader>
         <div className="p-3 max-h-[60vh] overflow-y-auto">
           {isLoading ? (
-            <p className="text-center text-slate-500 py-6">Loading…</p>
+            <p className="text-center text-slate-500 py-6">{tx('Loading…')}</p>
           ) : list.length === 0 ? (
             <div className="text-center py-10 text-slate-500">
               <Pause className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p className="font-semibold">No held orders</p>
-              <p className="text-xs mt-1">Held tickets will show here so you can recall them later.</p>
+              <p className="font-semibold">{tx('No held orders')}</p>
+              <p className="text-xs mt-1">{tx('Held tickets will show here so you can recall them later.')}</p>
             </div>
           ) : (
             <div className="space-y-2">
@@ -93,17 +94,17 @@ export const HeldOrdersDialog: React.FC<Props> = ({ open, onClose, onRecall }) =
                         {o.name}
                       </div>
                       <div className="text-xs text-slate-500 flex items-center gap-3 mt-0.5">
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{mins}m ago</span>
-                        <span>{itemCount} item{itemCount !== 1 ? 's' : ''}</span>
+                        <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{mins}{tx('m ago')}</span>
+                        <span>{itemCount} {tx('item')}{itemCount !== 1 ? 's' : ''}</span>
                         <span className="font-mono font-bold text-amber-600">{fmt(o.totalAmount)}</span>
                       </div>
                       {o.notes ? <div className="text-xs text-slate-600 italic mt-1">"{o.notes}"</div> : null}
                     </div>
                     <Button onClick={() => handleRecall(o)} disabled={busy} style={{ background: '#16a34a' }}>
-                      <Play className="h-4 w-4 mr-1" /> Recall
+                      <Play className="h-4 w-4 mr-1" /> {tx('Recall')}
                     </Button>
                     <Button onClick={() => handleCancel(o)} disabled={busy} variant="outline" className="border-rose-300 text-rose-600">
-                      <X className="h-4 w-4 mr-1" /> Cancel
+                      <X className="h-4 w-4 mr-1" /> {tx('Cancel')}
                     </Button>
                   </div>
                 );
@@ -113,9 +114,9 @@ export const HeldOrdersDialog: React.FC<Props> = ({ open, onClose, onRecall }) =
         </div>
         <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50">
           <Button variant="outline" onClick={() => refetch()} disabled={isLoading}>
-            <RefreshCw className="h-3 w-3 mr-1" /> Refresh
+            <RefreshCw className="h-3 w-3 mr-1" /> {tx('Refresh')}
           </Button>
-          <Button variant="ghost" onClick={onClose}>Close</Button>
+          <Button variant="ghost" onClick={onClose}>{tx('Close')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

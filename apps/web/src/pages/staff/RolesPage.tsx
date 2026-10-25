@@ -19,6 +19,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useDeleteRole, useRoles } from '@/features/staff/api';
 import type { Role } from '@/features/staff/types';
 import { RoleDialog } from './RoleDialog';
+import { tx } from '@/lib/i18n/tx';
 
 export function RolesPage() {
   const [searchInput, setSearchInput] = useState('');
@@ -75,7 +76,7 @@ export function RolesPage() {
             <span className="font-medium">{r.name}</span>
             {r.isSystem && (
               <Badge variant="secondary" className="text-[10px]">
-                System
+                {tx('System')}
               </Badge>
             )}
           </div>
@@ -88,7 +89,7 @@ export function RolesPage() {
       header: 'Permissions',
       render: (r) => (
         <Badge variant="outline" className="font-mono">
-          {r.permissions.length} keys
+          {r.permissions.length} {tx('keys')}
         </Badge>
       ),
     },
@@ -108,8 +109,8 @@ export function RolesPage() {
             size="icon"
             disabled={!canUpdate}
             onClick={() => openEdit(r)}
-            aria-label="Edit role"
-            title="Edit role"
+            aria-label={tx('Edit role')}
+            title={tx('Edit role')}
           >
             <Pencil className="h-4 w-4" />
           </Button>
@@ -118,8 +119,8 @@ export function RolesPage() {
             size="icon"
             disabled={!canDelete}
             onClick={() => setDeleting(r)}
-            aria-label="Delete role"
-            title="Delete role"
+            aria-label={tx('Delete role')}
+            title={tx('Delete role')}
           >
             <Trash2 className="h-4 w-4 text-destructive" />
           </Button>
@@ -134,12 +135,12 @@ export function RolesPage() {
         <div>
           <h1 className="text-2xl font-semibold">Roles &amp; Permissions</h1>
           <p className="text-sm text-muted-foreground">
-            Manage who can do what. System roles are seeded with defaults but can be edited or deleted.
+            {tx('Manage who can do what. System roles are seeded with defaults but can be edited or deleted.')}
           </p>
         </div>
         {canCreate && (
           <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" /> New Role
+            <Plus className="h-4 w-4" /> {tx('New Role')}
           </Button>
         )}
       </div>
@@ -149,7 +150,7 @@ export function RolesPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search roles..."
+            placeholder={tx('Search roles...')}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             onKeyDown={(e) => {
@@ -172,7 +173,7 @@ export function RolesPage() {
       <Dialog open={!!deleting} onOpenChange={(open) => !open && setDeleting(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete role?</DialogTitle>
+            <DialogTitle>{tx('Delete role?')}</DialogTitle>
             <DialogDescription>
               {deleting
                 ? `"${deleting.name}" will be removed. Users with this role will lose its permissions on their next request.`
@@ -181,7 +182,7 @@ export function RolesPage() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleting(null)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button variant="destructive" disabled={deleteRole.isPending} onClick={confirmDelete}>
               {deleteRole.isPending ? 'Deleting…' : 'Delete role'}

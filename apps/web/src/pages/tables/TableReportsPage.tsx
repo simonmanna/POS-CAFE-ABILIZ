@@ -18,6 +18,7 @@ import {
   useUtilizationReport,
 } from '@/features/tables/api';
 import { fmtMoney } from '@/features/tables/utils';
+import { tx } from '@/lib/i18n/tx';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const daysAgo = (n: number) =>
@@ -41,9 +42,9 @@ export const TableReportsPage: React.FC = () => {
         <CardContent className="p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="text-lg font-extrabold">Utilization</h2>
+              <h2 className="text-lg font-extrabold">{tx('Utilization')}</h2>
               <p className="text-sm text-slate-500">
-                Occupancy % by hour of day. Total active tables:{' '}
+                {tx('Occupancy % by hour of day. Total active tables:')}{' '}
                 {util.data?.totalActiveTables ?? '—'}
               </p>
             </div>
@@ -55,14 +56,14 @@ export const TableReportsPage: React.FC = () => {
                 className="h-9 w-44"
               />
               <Button variant="outline" size="sm" onClick={() => util.refetch()}>
-                <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+                <RefreshCw className="w-3 h-3 mr-1" /> {tx('Refresh')}
               </Button>
             </div>
           </div>
           <HourBars hours={util.data?.hours ?? []} />
           {util.data?.peakHours?.length ? (
             <p className="mt-3 text-sm text-slate-500">
-              Peak hours:{' '}
+              {tx('Peak hours:')}{' '}
               {util.data.peakHours
                 .map((h) => `${h}:00 (${util.data?.hours.find((x) => x.hour === h)?.occupancyPct ?? 0}%)`)
                 .join(', ')}
@@ -76,9 +77,9 @@ export const TableReportsPage: React.FC = () => {
         <CardContent className="p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="text-lg font-extrabold">Revenue</h2>
+              <h2 className="text-lg font-extrabold">{tx('Revenue')}</h2>
               <p className="text-sm text-slate-500">
-                Sales per table and per zone for the selected date range.
+                {tx('Sales per table and per zone for the selected date range.')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -86,32 +87,32 @@ export const TableReportsPage: React.FC = () => {
               <span className="text-slate-400">–</span>
               <Input type="date" value={revTo} onChange={(e) => setRevTo(e.target.value)} className="h-9 w-36" />
               <Button variant="outline" size="sm" onClick={() => rev.refetch()}>
-                <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+                <RefreshCw className="w-3 h-3 mr-1" /> {tx('Refresh')}
               </Button>
             </div>
           </div>
 
           {rev.data ? (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-              <Kpi label="Orders" value={String(rev.data.totals.orders)} />
-              <Kpi label="Revenue" value={fmtMoney(rev.data.totals.revenue)} />
+              <Kpi label={tx('Orders')} value={String(rev.data.totals.orders)} />
+              <Kpi label={tx('Revenue')} value={fmtMoney(rev.data.totals.revenue)} />
               <Kpi
-                label="Avg dining"
+                label={tx('Avg dining')}
                 value={`${rev.data.totals.averageDiningMinutes}m`}
               />
             </div>
           ) : null}
 
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-2">
-            Top performers
+            {tx('Top performers')}
           </h3>
           <table className="w-full text-sm">
             <thead>
               <tr className="text-sm uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                <th className="text-left py-2">Table</th>
-                <th className="text-left py-2">Zone</th>
-                <th className="text-right py-2">Orders</th>
-                <th className="text-right py-2">Revenue</th>
+                <th className="text-left py-2">{tx('Table')}</th>
+                <th className="text-left py-2">{tx('Zone')}</th>
+                <th className="text-right py-2">{tx('Orders')}</th>
+                <th className="text-right py-2">{tx('Revenue')}</th>
               </tr>
             </thead>
             <tbody>
@@ -132,7 +133,7 @@ export const TableReportsPage: React.FC = () => {
               {rev.data && rev.data.topPerformers.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="py-6 text-center text-slate-400">
-                    No revenue in this range.
+                    {tx('No revenue in this range.')}
                   </td>
                 </tr>
               ) : null}
@@ -146,9 +147,9 @@ export const TableReportsPage: React.FC = () => {
         <CardContent className="p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h2 className="text-lg font-extrabold">Reservations</h2>
+              <h2 className="text-lg font-extrabold">{tx('Reservations')}</h2>
               <p className="text-sm text-slate-500">
-                Outcome counts and rates for the selected date range.
+                {tx('Outcome counts and rates for the selected date range.')}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -156,30 +157,30 @@ export const TableReportsPage: React.FC = () => {
               <span className="text-slate-400">–</span>
               <Input type="date" value={resTo} onChange={(e) => setResTo(e.target.value)} className="h-9 w-36" />
               <Button variant="outline" size="sm" onClick={() => res.refetch()}>
-                <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+                <RefreshCw className="w-3 h-3 mr-1" /> {tx('Refresh')}
               </Button>
             </div>
           </div>
 
           {res.data ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-              <Kpi label="Total" value={String(res.data.totals.total)} />
-              <Kpi label="Completed" value={String(res.data.totals.completed)} accent="text-emerald-600" />
-              <Kpi label="No-show" value={String(res.data.totals.noShow)} accent="text-orange-600" />
-              <Kpi label="Cancelled" value={String(res.data.totals.cancelled)} accent="text-rose-600" />
-              <Kpi label="Completion rate" value={`${res.data.totals.completionRate}%`} />
-              <Kpi label="No-show rate" value={`${res.data.totals.noShowRate}%`} accent="text-orange-600" />
+              <Kpi label={tx('Total')} value={String(res.data.totals.total)} />
+              <Kpi label={tx('Completed')} value={String(res.data.totals.completed)} accent="text-emerald-600" />
+              <Kpi label={tx('No-show')} value={String(res.data.totals.noShow)} accent="text-orange-600" />
+              <Kpi label={tx('Cancelled')} value={String(res.data.totals.cancelled)} accent="text-rose-600" />
+              <Kpi label={tx('Completion rate')} value={`${res.data.totals.completionRate}%`} />
+              <Kpi label={tx('No-show rate')} value={`${res.data.totals.noShowRate}%`} accent="text-orange-600" />
             </div>
           ) : null}
 
           <table className="w-full text-sm">
             <thead>
               <tr className="text-sm uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                <th className="text-left py-2">Day</th>
-                <th className="text-right py-2">Total</th>
-                <th className="text-right py-2">Completed</th>
-                <th className="text-right py-2">No-show</th>
-                <th className="text-right py-2">Cancelled</th>
+                <th className="text-left py-2">{tx('Day')}</th>
+                <th className="text-right py-2">{tx('Total')}</th>
+                <th className="text-right py-2">{tx('Completed')}</th>
+                <th className="text-right py-2">{tx('No-show')}</th>
+                <th className="text-right py-2">{tx('Cancelled')}</th>
               </tr>
             </thead>
             <tbody>
@@ -195,7 +196,7 @@ export const TableReportsPage: React.FC = () => {
               {res.data && res.data.byDay.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-6 text-center text-slate-400">
-                    No reservations in this range.
+                    {tx('No reservations in this range.')}
                   </td>
                 </tr>
               ) : null}

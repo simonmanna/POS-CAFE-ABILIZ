@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUS_STYLE: Record<string, string> = {
   DRAFT: 'bg-muted text-muted-foreground',
@@ -72,26 +73,26 @@ export function HrTimesheetsPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Timesheets</h1>
-          <p className="text-sm text-muted-foreground">Project/repair hours with approval flow.</p>
+          <h1 className="text-xl font-semibold">{tx('Timesheets')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Project/repair hours with approval flow.')}</p>
         </div>
-        <Button onClick={() => { setCreateForm({}); setCreateOpen(true); }}>New timesheet</Button>
+        <Button onClick={() => { setCreateForm({}); setCreateOpen(true); }}>{tx('New timesheet')}</Button>
       </div>
 
       <div className="flex items-center gap-2">
         <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm">
-          <option value="">All statuses</option>
+          <option value="">{tx('All statuses')}</option>
           {['DRAFT', 'SUBMITTED', 'APPROVED', 'REJECTED'].map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
       </div>
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} timesheets</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('timesheets')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No timesheets yet.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No timesheets yet.')}</p>}
             {rows.map((t: any) => (
               <div key={t.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <button className="flex flex-1 items-center gap-3 text-left" onClick={() => setDetailId(t.id)}>
@@ -99,16 +100,16 @@ export function HrTimesheetsPage() {
                   <div>
                     <p className="text-sm font-medium">{t.timesheetCode} · {t.employee?.employeeCode} {t.employee?.firstName}</p>
                     <p className="text-xs text-muted-foreground">
-                      {t.periodStart} → {t.periodEnd} · {fmtH(t.totalMinutes ?? 0)} · {t._count?.entries ?? 0} entries
+                      {t.periodStart} → {t.periodEnd} · {fmtH(t.totalMinutes ?? 0)} · {t._count?.entries ?? 0} {tx('entries')}
                     </p>
                   </div>
                 </button>
                 <div className="flex items-center gap-2">
-                  {t.status === 'DRAFT' && <Button size="sm" variant="outline" onClick={() => submit.mutate(t.id)}>Submit</Button>}
+                  {t.status === 'DRAFT' && <Button size="sm" variant="outline" onClick={() => submit.mutate(t.id)}>{tx('Submit')}</Button>}
                   {t.status === 'SUBMITTED' && (
                     <>
-                      <Button size="sm" variant="outline" onClick={() => approve.mutate(t.id)}>Approve</Button>
-                      <Button size="sm" variant="outline" onClick={() => reject.mutate({ id: t.id })}>Reject</Button>
+                      <Button size="sm" variant="outline" onClick={() => approve.mutate(t.id)}>{tx('Approve')}</Button>
+                      <Button size="sm" variant="outline" onClick={() => reject.mutate({ id: t.id })}>{tx('Reject')}</Button>
                     </>
                   )}
                   <Badge variant="outline" className={STATUS_STYLE[t.status] ?? ''}>{t.status}</Badge>
@@ -122,27 +123,27 @@ export function HrTimesheetsPage() {
       {/* Create dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>New timesheet</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('New timesheet')}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
             <div>
-              <Label>Employee *</Label>
+              <Label>{tx('Employee *')}</Label>
               <select value={createForm.employeeId ?? ''} onChange={(e) => setCreateForm({ ...createForm, employeeId: e.target.value })}
                 className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                <option value="">Select employee…</option>
+                <option value="">{tx('Select employee…')}</option>
                 {employees.map((e: any) => <option key={e.id} value={e.id}>{e.employeeCode} · {e.firstName}{e.lastName ? ' ' + e.lastName : ''}</option>)}
               </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Period start *</Label>
+                <Label>{tx('Period start *')}</Label>
                 <Input type="date" value={createForm.periodStart ?? ''} onChange={(e) => setCreateForm({ ...createForm, periodStart: e.target.value })} />
               </div>
               <div>
-                <Label>Period end *</Label>
+                <Label>{tx('Period end *')}</Label>
                 <Input type="date" value={createForm.periodEnd ?? ''} onChange={(e) => setCreateForm({ ...createForm, periodEnd: e.target.value })} />
               </div>
             </div>
-            <Button onClick={doCreate} disabled={create.isPending}>Create timesheet</Button>
+            <Button onClick={doCreate} disabled={create.isPending}>{tx('Create timesheet')}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -155,19 +156,19 @@ export function HrTimesheetsPage() {
           </DialogHeader>
 
           <div className="flex items-center gap-2">
-            {detail?.status === 'DRAFT' && <Button size="sm" onClick={() => submit.mutate(detail.id)}>Submit</Button>}
+            {detail?.status === 'DRAFT' && <Button size="sm" onClick={() => submit.mutate(detail.id)}>{tx('Submit')}</Button>}
             {detail?.status === 'SUBMITTED' && (
               <>
-                <Button size="sm" onClick={() => approve.mutate(detail.id)}>Approve</Button>
-                <Button size="sm" variant="outline" onClick={() => reject.mutate({ id: detail.id })}>Reject</Button>
+                <Button size="sm" onClick={() => approve.mutate(detail.id)}>{tx('Approve')}</Button>
+                <Button size="sm" variant="outline" onClick={() => reject.mutate({ id: detail.id })}>{tx('Reject')}</Button>
               </>
             )}
             <Badge variant="outline" className={STATUS_STYLE[detail?.status ?? ''] ?? ''}>{detail?.status}</Badge>
           </div>
 
           <div className="grid grid-cols-2 gap-3 rounded-md bg-muted/30 p-3">
-            <p className="text-xs text-muted-foreground">Period</p><p className="text-sm">{detail?.periodStart} → {detail?.periodEnd}</p>
-            <p className="text-xs text-muted-foreground">Total</p><p className="text-sm">{fmtH(detail?.totalMinutes ?? 0)}</p>
+            <p className="text-xs text-muted-foreground">{tx('Period')}</p><p className="text-sm">{detail?.periodStart} → {detail?.periodEnd}</p>
+            <p className="text-xs text-muted-foreground">{tx('Total')}</p><p className="text-sm">{fmtH(detail?.totalMinutes ?? 0)}</p>
           </div>
 
           <div className="space-y-2">
@@ -179,15 +180,15 @@ export function HrTimesheetsPage() {
                     {en.workType.replace(/_/g, ' ')}{en.description ? ` · ${en.description}` : ''}{en.isBillable ? ' · billable' : ''}
                   </p>
                 </div>
-                <button onClick={() => delEntry.mutate(en.id)} className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Delete</button>
+                <button onClick={() => delEntry.mutate(en.id)} className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">{tx('Delete')}</button>
               </div>
             ))}
-            {entries.length === 0 && <p className="text-sm text-muted-foreground">No entries yet.</p>}
+            {entries.length === 0 && <p className="text-sm text-muted-foreground">{tx('No entries yet.')}</p>}
           </div>
 
           {detail?.status === 'DRAFT' && (
             <div className="grid gap-2 rounded-md border p-3">
-              <p className="text-sm font-medium">Add entry</p>
+              <p className="text-sm font-medium">{tx('Add entry')}</p>
               <div className="grid grid-cols-2 gap-2">
                 <Input type="date" value={entryForm.date ?? ''} onChange={(e) => setEntryForm({ ...entryForm, date: e.target.value })} />
                 <select value={entryForm.workType ?? 'OTHER'} onChange={(e) => setEntryForm({ ...entryForm, workType: e.target.value })}
@@ -200,12 +201,12 @@ export function HrTimesheetsPage() {
                 <Input type="datetime-local" value={entryForm.endAt ?? ''} onChange={(e) => setEntryForm({ ...entryForm, endAt: e.target.value })} />
               </div>
               <div className="flex items-center gap-2">
-                <Input value={entryForm.description ?? ''} onChange={(e) => setEntryForm({ ...entryForm, description: e.target.value })} placeholder="Description" />
+                <Input value={entryForm.description ?? ''} onChange={(e) => setEntryForm({ ...entryForm, description: e.target.value })} placeholder={tx('Description')} />
                 <label className="flex items-center gap-1 text-xs">
                   <input type="checkbox" checked={entryForm.isBillable ?? false} onChange={(e) => setEntryForm({ ...entryForm, isBillable: e.target.checked })} />
-                  Billable
+                  {tx('Billable')}
                 </label>
-                <Button size="sm" onClick={doAddEntry} disabled={addEntry.isPending}>Add</Button>
+                <Button size="sm" onClick={doAddEntry} disabled={addEntry.isPending}>{tx('Add')}</Button>
               </div>
             </div>
           )}

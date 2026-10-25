@@ -22,6 +22,7 @@ import {
 import { money, date, statusLabel } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { usePayment, useVoidPayment } from '@/features/invoicing/api';
+import { tx } from '@/lib/i18n/tx';
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -49,10 +50,10 @@ export function PaymentDetailPage() {
   });
 
   const confirmVoid = async () => {
-    if (!payment || !voidReason.trim()) { toast.error('Enter the reason for voiding this payment'); return; }
+    if (!payment || !voidReason.trim()) { toast.error(tx('Enter the reason for voiding this payment')); return; }
     try {
       await voidPayment.mutateAsync({ id: payment.id, reason: voidReason.trim(), correctionSessionId: myOpenShift?.id });
-      toast.success('Payment voided');
+      toast.success(tx('Payment voided'));
       setVoidOpen(false);
       setVoidReason('');
     } catch (err) {
@@ -61,7 +62,7 @@ export function PaymentDetailPage() {
   };
 
   if (isLoading || !payment) {
-    return <div className="text-sm text-muted-foreground">Loading...</div>;
+    return <div className="text-sm text-muted-foreground">{tx('Loading...')}</div>;
   }
 
   const isOutbound = payment.direction === 'outbound';
@@ -74,16 +75,16 @@ export function PaymentDetailPage() {
     <div className="mx-auto max-w-2xl space-y-4">
       <div className="flex items-center justify-between print:hidden">
         <Button variant="outline" onClick={() => navigate(backTo)}>
-          Back
+          {tx('Back')}
         </Button>
         <div className="flex gap-2">
           {payment.status === 'posted' && has(PERMISSIONS.payment.void) && (
             <Button variant="outline" onClick={() => setVoidOpen(true)} disabled={voidPayment.isPending}>
-              Void
+              {tx('Void')}
             </Button>
           )}
           <Button variant="outline" onClick={() => window.print()}>
-            Print
+            {tx('Print')}
           </Button>
         </div>
       </div>
@@ -94,7 +95,7 @@ export function PaymentDetailPage() {
             <div>
               <div className="flex items-center gap-3">
                 <h1 className="text-2xl font-semibold">{title}</h1>
-                {payment.status === 'cancelled' && <Badge variant="destructive">voided</Badge>}
+                {payment.status === 'cancelled' && <Badge variant="destructive">{tx('voided')}</Badge>}
               </div>
               <p className="text-sm text-muted-foreground">{payment.paymentNumber}</p>
             </div>
@@ -103,9 +104,9 @@ export function PaymentDetailPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <Field label={partyLabel} value={payment.partner?.name ?? '-'} />
-            <Field label="Method" value={statusLabel(payment.paymentMethod)} />
-            <Field label="Reference" value={payment.reference ?? '-'} />
-            <Field label="Status" value={statusLabel(payment.status)} />
+            <Field label={tx('Method')} value={statusLabel(payment.paymentMethod)} />
+            <Field label={tx('Reference')} value={payment.reference ?? '-'} />
+            <Field label={tx('Status')} value={statusLabel(payment.status)} />
           </div>
 
           <div className="rounded-md bg-muted/50 p-4 text-center">
@@ -115,12 +116,12 @@ export function PaymentDetailPage() {
 
           {payment.allocations.length > 0 && (
             <div>
-              <div className="mb-2 text-sm font-medium">Applied to</div>
+              <div className="mb-2 text-sm font-medium">{tx('Applied to')}</div>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Document</TableHead>
-                    <TableHead className="text-right">Amount applied</TableHead>
+                    <TableHead>{tx('Document')}</TableHead>
+                    <TableHead className="text-right">{tx('Amount applied')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -137,7 +138,7 @@ export function PaymentDetailPage() {
 
           {Number(payment.unallocatedAmount) > 0 && (
             <p className="text-sm text-muted-foreground">
-              Unapplied {isOutbound ? 'on account' : 'credit'}: {money(payment.unallocatedAmount)}
+              {tx('Unapplied')} {isOutbound ? 'on account' : 'credit'}: {money(payment.unallocatedAmount)}
             </p>
           )}
         </CardContent>
@@ -146,11 +147,11 @@ export function PaymentDetailPage() {
       <Dialog open={voidOpen} onOpenChange={(o) => { if (!voidPayment.isPending) setVoidOpen(o); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Void {payment.paymentNumber}</DialogTitle>
+            <DialogTitle>{tx('Void')} {payment.paymentNumber}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              The payment and its journal are kept and reversed. Settled documents return to unpaid.
+              {tx('The payment and its journal are kept and reversed. Settled documents return to unpaid.')}
             </p>
             {payment.paymentMethod === 'cash' && (
               <p className="rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
@@ -160,13 +161,13 @@ export function PaymentDetailPage() {
               </p>
             )}
             <div className="space-y-1">
-              <Label htmlFor="void-reason">Reason</Label>
-              <Textarea id="void-reason" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="Why is this payment being voided?" />
+              <Label htmlFor="void-reason">{tx('Reason')}</Label>
+              <Textarea id="void-reason" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder={tx('Why is this payment being voided?')} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setVoidOpen(false)} disabled={voidPayment.isPending}>Cancel</Button>
-            <Button variant="destructive" onClick={confirmVoid} disabled={voidPayment.isPending || !voidReason.trim()}>Void payment</Button>
+            <Button variant="outline" onClick={() => setVoidOpen(false)} disabled={voidPayment.isPending}>{tx('Cancel')}</Button>
+            <Button variant="destructive" onClick={confirmVoid} disabled={voidPayment.isPending || !voidReason.trim()}>{tx('Void payment')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

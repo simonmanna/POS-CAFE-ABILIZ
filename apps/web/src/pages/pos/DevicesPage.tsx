@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface PosDevice {
   id: string;
@@ -91,7 +92,7 @@ export function DevicesPage() {
   const revoke = useMutation({
     mutationFn: async (id: string) => (await api.post(`/sync/devices/${id}/revoke`)).data,
     onSuccess: () => {
-      notify.success('Device revoked — it will stop syncing on next contact');
+      notify.success(tx('Device revoked — it will stop syncing on next contact'));
       setConfirmRevoke(null);
       qc.invalidateQueries({ queryKey: ['pos-devices'] });
     },
@@ -101,7 +102,7 @@ export function DevicesPage() {
   const copy = (text: string, label: string) => {
     navigator.clipboard.writeText(text).then(
       () => notify.success(`${label} copied`),
-      () => notify.error('Copy failed — select and copy manually'),
+      () => notify.error(tx('Copy failed — select and copy manually')),
     );
   };
 
@@ -110,10 +111,10 @@ export function DevicesPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <Smartphone className="h-6 w-6" /> Offline devices
+            <Smartphone className="h-6 w-6" /> {tx('Offline devices')}
           </h1>
           <p className="text-muted-foreground">
-            Android terminals that sell offline and sync when they reconnect.
+            {tx('Android terminals that sell offline and sync when they reconnect.')}
           </p>
         </div>
         <Link to="/settings/devices/rejected">
@@ -126,45 +127,44 @@ export function DevicesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Register a device</CardTitle>
+          <CardTitle>{tx('Register a device')}</CardTitle>
           <CardDescription>
-            The device token is shown once, right after registering. Enter it on the
-            tablet's setup screen together with the server URL below.
+            {tx('The device token is shown once, right after registering. Enter it on the tablet\'s setup screen together with the server URL below.')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
             <div className="grid gap-1.5">
-              <Label htmlFor="device-name">Device name</Label>
+              <Label htmlFor="device-name">{tx('Device name')}</Label>
               <Input
                 id="device-name"
-                placeholder="e.g. Counter tablet"
+                placeholder={tx('e.g. Counter tablet')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 className="w-64"
               />
             </div>
             <div className="grid gap-1.5">
-              <Label htmlFor="device-platform">Platform</Label>
+              <Label htmlFor="device-platform">{tx('Platform')}</Label>
               <select
                 id="device-platform"
                 value={platform}
                 onChange={(e) => setPlatform(e.target.value as 'android' | 'web')}
                 className="h-10 rounded-md border bg-background px-3"
               >
-                <option value="android">Android</option>
-                <option value="web">Web terminal</option>
+                <option value="android">{tx('Android')}</option>
+                <option value="web">{tx('Web terminal')}</option>
               </select>
             </div>
             <Button onClick={() => register.mutate()} disabled={!name.trim() || register.isPending}>
               {register.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              Register
+              {tx('Register')}
             </Button>
           </div>
           <div className="rounded-md border bg-muted/40 p-3 text-sm">
             <div className="flex items-center justify-between gap-2">
               <span>
-                <span className="text-muted-foreground">Server URL for devices: </span>
+                <span className="text-muted-foreground">{tx('Server URL for devices:')} </span>
                 <code className="font-mono">{apiBaseForDevice()}</code>
               </span>
               <Button variant="ghost" size="sm" onClick={() => copy(apiBaseForDevice(), 'Server URL')}>
@@ -172,8 +172,7 @@ export function DevicesPage() {
               </Button>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              If that says <code>localhost</code>, use this machine's LAN address instead
-              (the API prints it on startup) — a phone cannot reach your localhost.
+              {tx('If that says')} <code>localhost</code>{tx(', use this machine\'s LAN address instead (the API prints it on startup) — a phone cannot reach your localhost.')}
             </p>
           </div>
         </CardContent>
@@ -181,7 +180,7 @@ export function DevicesPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Registered devices</CardTitle>
+          <CardTitle>{tx('Registered devices')}</CardTitle>
         </CardHeader>
         <CardContent>
           {q.isLoading ? (
@@ -191,12 +190,12 @@ export function DevicesPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-left text-muted-foreground">
-                    <th className="py-2 pr-4 font-medium">Name</th>
-                    <th className="py-2 pr-4 font-medium">Platform</th>
-                    <th className="py-2 pr-4 font-medium">Prefix</th>
-                    <th className="py-2 pr-4 font-medium">Last seen</th>
-                    <th className="py-2 pr-4 font-medium">Ops synced</th>
-                    <th className="py-2 pr-4 font-medium">Status</th>
+                    <th className="py-2 pr-4 font-medium">{tx('Name')}</th>
+                    <th className="py-2 pr-4 font-medium">{tx('Platform')}</th>
+                    <th className="py-2 pr-4 font-medium">{tx('Prefix')}</th>
+                    <th className="py-2 pr-4 font-medium">{tx('Last seen')}</th>
+                    <th className="py-2 pr-4 font-medium">{tx('Ops synced')}</th>
+                    <th className="py-2 pr-4 font-medium">{tx('Status')}</th>
                     <th className="py-2 font-medium" />
                   </tr>
                 </thead>
@@ -211,18 +210,18 @@ export function DevicesPage() {
                       <td className="py-2 pr-4">
                         {d.revokedAt ? (
                           <span className="inline-flex items-center gap-1 text-rose-500">
-                            <Ban className="h-3.5 w-3.5" /> revoked
+                            <Ban className="h-3.5 w-3.5" /> {tx('revoked')}
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-emerald-500">
-                            <CheckCircle2 className="h-3.5 w-3.5" /> active
+                            <CheckCircle2 className="h-3.5 w-3.5" /> {tx('active')}
                           </span>
                         )}
                       </td>
                       <td className="py-2 text-right">
                         {!d.revokedAt && (
                           <Button variant="ghost" size="sm" onClick={() => setConfirmRevoke(d)}>
-                            Revoke
+                            {tx('Revoke')}
                           </Button>
                         )}
                       </td>
@@ -233,7 +232,7 @@ export function DevicesPage() {
             </div>
           ) : (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              No devices registered yet.
+              {tx('No devices registered yet.')}
             </p>
           )}
         </CardContent>
@@ -243,13 +242,12 @@ export function DevicesPage() {
       <Dialog open={!!issued} onOpenChange={(open) => !open && setIssued(null)}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Device registered — copy the token now</DialogTitle>
+            <DialogTitle>{tx('Device registered — copy the token now')}</DialogTitle>
           </DialogHeader>
           <div className="flex items-start gap-2 rounded-md border border-amber-400/50 bg-amber-500/10 p-3 text-sm">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
             <span>
-              This token is shown <strong>once</strong>. It cannot be recovered — if you lose
-              it, revoke the device and register again.
+              {tx('This token is shown')} <strong>{tx('once')}</strong>{tx('. It cannot be recovered — if you lose it, revoke the device and register again.')}
             </span>
           </div>
           {issued && (
@@ -273,8 +271,7 @@ export function DevicesPage() {
                 </div>
               ))}
               <p className="text-xs text-muted-foreground">
-                Enter these four values on the tablet's setup screen, then tap
-                "Enroll + first sync".
+                {tx('Enter these four values on the tablet\'s setup screen, then tap "Enroll + first sync".')}
               </p>
             </div>
           )}
@@ -284,21 +281,20 @@ export function DevicesPage() {
       <Dialog open={!!confirmRevoke} onOpenChange={(open) => !open && setConfirmRevoke(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Revoke {confirmRevoke?.name}?</DialogTitle>
+            <DialogTitle>{tx('Revoke')} {confirmRevoke?.name}?</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            The device stops syncing on its next contact with the server. Sales already
-            queued on it will be rejected — settle or push them first.
+            {tx('The device stops syncing on its next contact with the server. Sales already queued on it will be rejected — settle or push them first.')}
           </p>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setConfirmRevoke(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setConfirmRevoke(null)}>{tx('Cancel')}</Button>
             <Button
               variant="destructive"
               disabled={revoke.isPending}
               onClick={() => confirmRevoke && revoke.mutate(confirmRevoke.id)}
             >
               {revoke.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />}
-              Revoke device
+              {tx('Revoke device')}
             </Button>
           </div>
         </DialogContent>

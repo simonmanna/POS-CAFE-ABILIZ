@@ -57,6 +57,7 @@ import {
   type CashMovementGrouping,
   type CashMovementRow,
 } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 const PAGE_SIZE = 50;
 
@@ -203,10 +204,9 @@ export function CashFlowReportPage() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Money Reports</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Money Reports')}</h1>
           <p className="text-sm text-gray-500">
-            Every cash movement in and out of your payment accounts — receipts, payments, transfers
-            and drawer operations, with the ledger entry behind each one.
+            {tx('Every cash movement in and out of your payment accounts — receipts, payments, transfers and drawer operations, with the ledger entry behind each one.')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -265,7 +265,7 @@ export function CashFlowReportPage() {
       {/* Filters */}
       <div className="flex flex-wrap items-end gap-3 p-3 bg-white border rounded-lg shadow-sm">
         <div className="space-y-1 min-w-[140px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">From</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('From')}</Label>
           <Input
             type="date"
             value={from}
@@ -274,7 +274,7 @@ export function CashFlowReportPage() {
           />
         </div>
         <div className="space-y-1 min-w-[140px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">To</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('To')}</Label>
           <Input
             type="date"
             value={to}
@@ -285,7 +285,7 @@ export function CashFlowReportPage() {
 
         {/* Accounts (multi) */}
         <div className="space-y-1 min-w-[190px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Accounts</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Accounts')}</Label>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-9 w-full justify-between text-xs font-normal">
@@ -300,7 +300,7 @@ export function CashFlowReportPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto w-64">
-              <DropdownMenuLabel className="text-[10px] uppercase">Payment accounts</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-[10px] uppercase">{tx('Payment accounts')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {accountOptions.map((a) => (
                 <DropdownMenuCheckboxItem
@@ -314,7 +314,7 @@ export function CashFlowReportPage() {
                 </DropdownMenuCheckboxItem>
               ))}
               {accountOptions.length === 0 && (
-                <div className="px-2 py-3 text-xs text-muted-foreground">No payment accounts</div>
+                <div className="px-2 py-3 text-xs text-muted-foreground">{tx('No payment accounts')}</div>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -322,7 +322,7 @@ export function CashFlowReportPage() {
 
         {/* Account type (multi) */}
         <div className="space-y-1 min-w-[160px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Account Type</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Account Type')}</Label>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-9 w-full justify-between text-xs font-normal">
@@ -350,7 +350,7 @@ export function CashFlowReportPage() {
 
         {/* Movement category (multi) */}
         <div className="space-y-1 min-w-[190px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Movement Type</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Movement Type')}</Label>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-9 w-full justify-between text-xs font-normal">
@@ -365,7 +365,7 @@ export function CashFlowReportPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="max-h-72 overflow-y-auto w-60">
-              <DropdownMenuLabel className="text-[10px] uppercase">What moved the cash</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-[10px] uppercase">{tx('What moved the cash')}</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {categoryOptions.map((c) => (
                 <DropdownMenuCheckboxItem
@@ -384,20 +384,20 @@ export function CashFlowReportPage() {
 
         {/* Direction */}
         <div className="space-y-1 min-w-[130px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Direction</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Direction')}</Label>
           <Select value={direction} onValueChange={(v) => { setDirection(v as typeof direction); setPage(1); }}>
             <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">In &amp; Out</SelectItem>
-              <SelectItem value="in">Cash In only</SelectItem>
-              <SelectItem value="out">Cash Out only</SelectItem>
+              <SelectItem value="in">{tx('Cash In only')}</SelectItem>
+              <SelectItem value="out">{tx('Cash Out only')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         {/* Min amount */}
         <div className="space-y-1 min-w-[120px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Min Amount</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Min Amount')}</Label>
           <Input
             type="number"
             min={0}
@@ -410,13 +410,13 @@ export function CashFlowReportPage() {
 
         {/* Search */}
         <div className="space-y-1 flex-1 min-w-[200px]">
-          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Search</Label>
+          <Label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{tx('Search')}</Label>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
             <Input
               value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              placeholder="Entry #, description, account…"
+              placeholder={tx('Entry #, description, account…')}
               className="h-9 text-xs pl-9"
             />
           </div>
@@ -424,7 +424,7 @@ export function CashFlowReportPage() {
 
         {filtersDirty && (
           <Button variant="ghost" size="sm" onClick={reset} className="h-9 text-xs gap-1">
-            <X className="h-3 w-3" /> Clear
+            <X className="h-3 w-3" /> {tx('Clear')}
           </Button>
         )}
       </div>
@@ -432,14 +432,14 @@ export function CashFlowReportPage() {
       {/* Summary */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <SummaryCard
-          label="Opening Balance"
+          label={tx('Opening Balance')}
           value={summary?.openingBalance}
           currency={currency}
           icon={Wallet}
           loading={isLoading}
         />
         <SummaryCard
-          label="Money In"
+          label={tx('Money In')}
           value={summary?.externalIn ?? summary?.cashIn}
           currency={currency}
           icon={TrendingUp}
@@ -450,7 +450,7 @@ export function CashFlowReportPage() {
           loading={isLoading}
         />
         <SummaryCard
-          label="Money Out"
+          label={tx('Money Out')}
           value={summary?.externalOut ?? summary?.cashOut}
           currency={currency}
           icon={TrendingDown}
@@ -459,7 +459,7 @@ export function CashFlowReportPage() {
           loading={isLoading}
         />
         <SummaryCard
-          label="Net Change"
+          label={tx('Net Change')}
           value={summary?.netChange}
           currency={currency}
           icon={Scale}
@@ -467,7 +467,7 @@ export function CashFlowReportPage() {
           loading={isLoading}
         />
         <SummaryCard
-          label="Closing Balance"
+          label={tx('Closing Balance')}
           value={summary?.closingBalance}
           currency={currency}
           icon={Wallet}
@@ -479,15 +479,15 @@ export function CashFlowReportPage() {
       <Tabs defaultValue="movements" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <TabsList>
-            <TabsTrigger value="movements" className="text-xs">Movements</TabsTrigger>
-            <TabsTrigger value="accounts" className="text-xs">By Account</TabsTrigger>
-            <TabsTrigger value="categories" className="text-xs">By Movement Type</TabsTrigger>
-            <TabsTrigger value="trend" className="text-xs">Trend</TabsTrigger>
+            <TabsTrigger value="movements" className="text-xs">{tx('Movements')}</TabsTrigger>
+            <TabsTrigger value="accounts" className="text-xs">{tx('By Account')}</TabsTrigger>
+            <TabsTrigger value="categories" className="text-xs">{tx('By Movement Type')}</TabsTrigger>
+            <TabsTrigger value="trend" className="text-xs">{tx('Trend')}</TabsTrigger>
           </TabsList>
           <div className="flex items-center gap-2">
             {isFetching && !isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
             <span className="text-xs text-muted-foreground">
-              {data?.total ?? 0} movement{(data?.total ?? 0) !== 1 ? 's' : ''}
+              {data?.total ?? 0} {tx('movement')}{(data?.total ?? 0) !== 1 ? 's' : ''}
             </span>
           </div>
         </div>
@@ -505,20 +505,20 @@ export function CashFlowReportPage() {
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/30">
-                        <TableHead className="text-[10px] font-bold uppercase">Date</TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase">Account</TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase">Movement</TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase">Details</TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase">Entry #</TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase text-right">Cash In</TableHead>
-                        <TableHead className="text-[10px] font-bold uppercase text-right">Cash Out</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase">{tx('Date')}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase">{tx('Account')}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase">{tx('Movement')}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase">{tx('Details')}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase">{tx('Entry #')}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Cash In')}</TableHead>
+                        <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Cash Out')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {rows.length === 0 ? (
                         <TableRow>
                           <TableCell colSpan={7} className="text-center text-muted-foreground py-12">
-                            No cash movements match these filters
+                            {tx('No cash movements match these filters')}
                           </TableCell>
                         </TableRow>
                       ) : (
@@ -588,7 +588,7 @@ export function CashFlowReportPage() {
 
           <div className="flex items-center justify-between pt-3">
             <p className="text-xs text-muted-foreground">
-              Page {data?.page ?? 1} of {data?.totalPages ?? 1} · showing {rows.length} of {data?.total ?? 0}
+              {tx('Page')} {data?.page ?? 1} of {data?.totalPages ?? 1} {tx('· showing')} {rows.length} of {data?.total ?? 0}
             </p>
             <div className="flex items-center gap-1">
               <Button
@@ -614,7 +614,7 @@ export function CashFlowReportPage() {
         {/* ── By account ────────────────────────────────────────────────────── */}
         <TabsContent value="accounts">
           <RollupCard
-            title="Cash movement per payment account"
+            title={tx('Cash movement per payment account')}
             firstHeader="Account"
             rows={(data?.byAccount ?? []).map((a) => ({
               key: a.accountId,
@@ -633,7 +633,7 @@ export function CashFlowReportPage() {
         {/* ── By category ───────────────────────────────────────────────────── */}
         <TabsContent value="categories">
           <RollupCard
-            title="Cash movement by what drove it"
+            title={tx('Cash movement by what drove it')}
             firstHeader="Movement Type"
             rows={(data?.byCategory ?? []).map((c) => ({
               key: c.category,
@@ -654,14 +654,14 @@ export function CashFlowReportPage() {
           <Card>
             <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg flex-row items-center justify-between">
               <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                Cash in / out over time
+                {tx('Cash in / out over time')}
               </CardTitle>
               <Select value={groupBy} onValueChange={(v) => setGroupBy(v as CashMovementGrouping)}>
                 <SelectTrigger className="h-8 w-28 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="day">Daily</SelectItem>
-                  <SelectItem value="week">Weekly</SelectItem>
-                  <SelectItem value="month">Monthly</SelectItem>
+                  <SelectItem value="day">{tx('Daily')}</SelectItem>
+                  <SelectItem value="week">{tx('Weekly')}</SelectItem>
+                  <SelectItem value="month">{tx('Monthly')}</SelectItem>
                 </SelectContent>
               </Select>
             </CardHeader>
@@ -784,17 +784,17 @@ function RollupCard({
             <TableHeader>
               <TableRow className="bg-muted/30">
                 <TableHead className="text-[10px] font-bold uppercase">{firstHeader}</TableHead>
-                <TableHead className="text-[10px] font-bold uppercase text-right">Movements</TableHead>
-                <TableHead className="text-[10px] font-bold uppercase text-right">Cash In</TableHead>
-                <TableHead className="text-[10px] font-bold uppercase text-right">Cash Out</TableHead>
-                <TableHead className="text-[10px] font-bold uppercase text-right">Net</TableHead>
+                <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Movements')}</TableHead>
+                <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Cash In')}</TableHead>
+                <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Cash Out')}</TableHead>
+                <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Net')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground py-10">
-                    Nothing in this period
+                    {tx('Nothing in this period')}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -830,7 +830,7 @@ function RollupCard({
             {rows.length > 0 && (
               <TableBody>
                 <TableRow className="bg-muted/40 font-semibold">
-                  <TableCell className="text-xs">Total</TableCell>
+                  <TableCell className="text-xs">{tx('Total')}</TableCell>
                   <TableCell className="text-right text-xs tabular-nums">{totals.count}</TableCell>
                   <TableCell className="text-right font-mono text-xs text-emerald-700">
                     {money(totals.cashIn.toFixed(2))}
@@ -868,19 +868,19 @@ function TrendTable({
   const peak = Math.max(1, ...series.map((s) => Math.max(Number(s.cashIn), Number(s.cashOut))));
 
   if (series.length === 0) {
-    return <div className="text-center text-muted-foreground py-12 text-sm">Nothing in this period</div>;
+    return <div className="text-center text-muted-foreground py-12 text-sm">{tx('Nothing in this period')}</div>;
   }
 
   return (
     <Table>
       <TableHeader>
         <TableRow className="bg-muted/30">
-          <TableHead className="text-[10px] font-bold uppercase">Period</TableHead>
-          <TableHead className="text-[10px] font-bold uppercase w-[38%]">In / Out</TableHead>
-          <TableHead className="text-[10px] font-bold uppercase text-right">Cash In</TableHead>
-          <TableHead className="text-[10px] font-bold uppercase text-right">Cash Out</TableHead>
-          <TableHead className="text-[10px] font-bold uppercase text-right">Net</TableHead>
-          <TableHead className="text-[10px] font-bold uppercase text-right">Running Balance</TableHead>
+          <TableHead className="text-[10px] font-bold uppercase">{tx('Period')}</TableHead>
+          <TableHead className="text-[10px] font-bold uppercase w-[38%]">{tx('In / Out')}</TableHead>
+          <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Cash In')}</TableHead>
+          <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Cash Out')}</TableHead>
+          <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Net')}</TableHead>
+          <TableHead className="text-[10px] font-bold uppercase text-right">{tx('Running Balance')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

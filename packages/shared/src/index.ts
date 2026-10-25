@@ -1,6 +1,7 @@
 export * from './enums';
 export * from './accounting';
 export * from './permissions';
+export * from './reports';
 export * from './events';
 export * from './workflow';
 export * from './pagination';

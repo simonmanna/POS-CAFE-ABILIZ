@@ -20,6 +20,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { useCashAccounts } from '@/features/accounting/api';
 import { useForceCloseShift, useRecordBankDeposit } from '../api';
 import type { CashSession, SessionHistoryItem } from '../types';
+import { tx } from '@/lib/i18n/tx';
 
 const cur = () => useAuthStore.getState().organization?.currencyCode ?? 'UGX';
 const fmt = (n: number | string | null | undefined) => `${cur()} ${Number(n ?? 0).toLocaleString()}`;
@@ -34,8 +35,8 @@ export const ForceCloseCard: React.FC<{ session: CashSession; onDone: () => void
 
   const submit = async () => {
     const amount = Number(counted);
-    if (counted.trim() === '' || !(amount >= 0)) { toast.error('Enter the cash counted in the drawer'); return; }
-    if (!reason.trim()) { toast.error('Say why this shift is being force-closed'); return; }
+    if (counted.trim() === '' || !(amount >= 0)) { toast.error(tx('Enter the cash counted in the drawer')); return; }
+    if (!reason.trim()) { toast.error(tx('Say why this shift is being force-closed')); return; }
     try {
       await forceClose.mutateAsync({
         sessionId: session.id,
@@ -43,7 +44,7 @@ export const ForceCloseCard: React.FC<{ session: CashSession; onDone: () => void
         notes: reason.trim(),
         varianceReason: varianceReason.trim() || undefined,
       });
-      toast.success('Shift force-closed and Z-report stored');
+      toast.success(tx('Shift force-closed and Z-report stored'));
       setOpen(false);
       onDone();
     } catch (err) {
@@ -55,16 +56,16 @@ export const ForceCloseCard: React.FC<{ session: CashSession; onDone: () => void
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="text-sm text-amber-900">
-          <p className="flex items-center gap-2 font-semibold"><ShieldAlert className="h-4 w-4" /> This register is open under another cashier</p>
+          <p className="flex items-center gap-2 font-semibold"><ShieldAlert className="h-4 w-4" /> {tx('This register is open under another cashier')}</p>
           <p className="text-amber-800">
-            Open since {session.openedAt ? new Date(session.openedAt).toLocaleString() : '—'}. You can close it with the ordinary
+            {tx('Open since')} {session.openedAt ? new Date(session.openedAt).toLocaleString() : '—'}. You can close it with the ordinary
             count above — the shift records who closed it. Force-close is the blind-count route: you count without seeing the
             expected figure and become the approver of any variance.
           </p>
         </div>
         {canForce && (
           <Button variant="outline" className="border-amber-400 text-amber-900" onClick={() => { setCounted(''); setReason(''); setVarianceReason(''); setOpen(true); }}>
-            Force close
+            {tx('Force close')}
           </Button>
         )}
       </div>
@@ -72,7 +73,7 @@ export const ForceCloseCard: React.FC<{ session: CashSession; onDone: () => void
       <Dialog open={open} onOpenChange={(o) => { if (!forceClose.isPending) setOpen(o); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Force-close shift</DialogTitle>
+            <DialogTitle>{tx('Force-close shift')}</DialogTitle>
             <DialogDescription>
               Count the drawer without looking at the expected figure. You approve any variance, so you cannot be the cashier of this shift.
               Wallet and bank balances must still be entered by the cashier's normal close; if they cannot be, close from the POS with "Could not check".
@@ -80,20 +81,20 @@ export const ForceCloseCard: React.FC<{ session: CashSession; onDone: () => void
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Cash counted ({cur()})</Label>
+              <Label>{tx('Cash counted (')}{cur()})</Label>
               <Input type="number" min={0} value={counted} onChange={(e) => setCounted(e.target.value)} className="text-right font-mono" autoFocus />
             </div>
             <div>
-              <Label>Why is this shift being force-closed?</Label>
-              <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Cashier left at end of day without closing" />
+              <Label>{tx('Why is this shift being force-closed?')}</Label>
+              <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={tx('e.g. Cashier left at end of day without closing')} />
             </div>
             <div>
-              <Label>Variance explanation <span className="font-normal text-slate-400">(if the count differs)</span></Label>
+              <Label>{tx('Variance explanation')} <span className="font-normal text-slate-400">{tx('(if the count differs)')}</span></Label>
               <Input value={varianceReason} onChange={(e) => setVarianceReason(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={forceClose.isPending}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={forceClose.isPending}>{tx('Cancel')}</Button>
             <Button onClick={submit} disabled={forceClose.isPending}>{forceClose.isPending ? 'Closing…' : 'Force close'}</Button>
           </DialogFooter>
         </DialogContent>
@@ -121,10 +122,10 @@ export const BankClosedShiftCard: React.FC<{ registerId: string; lastClosed: Ses
     const amt = Number(amount);
     if (!(amt > 0) || amt > inDrawer) { toast.error(`Enter an amount up to ${fmt(inDrawer)}`); return; }
     const bank = banks.find((b) => b.id === destinationAccountId);
-    if (!bank) { toast.error('Choose the bank account'); return; }
+    if (!bank) { toast.error(tx('Choose the bank account')); return; }
     try {
       await bankDeposit.mutateAsync({ sessionId: lastClosed.id, amount: amt, destinationAccountId: bank.id, bankName: bank.bankName || bank.name, reference: reference.trim() || undefined });
-      toast.success('Deposit recorded');
+      toast.success(tx('Deposit recorded'));
       setOpen(false);
       await refetch();
       onDone();
@@ -136,40 +137,40 @@ export const BankClosedShiftCard: React.FC<{ registerId: string; lastClosed: Ses
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 flex items-center justify-between gap-3">
       <div className="text-sm text-amber-900">
-        <p className="font-semibold">{fmt(inDrawer)} is still on this drawer's books</p>
-        <p className="text-amber-800">Bank it before opening with a smaller float: the opening count cannot be below the drawer ledger.</p>
+        <p className="font-semibold">{fmt(inDrawer)} {tx('is still on this drawer\'s books')}</p>
+        <p className="text-amber-800">{tx('Bank it before opening with a smaller float: the opening count cannot be below the drawer ledger.')}</p>
       </div>
       {canBank && (
         <Button variant="outline" className="border-amber-400 text-amber-900" onClick={() => { setAmount(String(inDrawer)); setDestinationAccountId(''); setReference(''); setOpen(true); }}>
-          <Landmark className="h-4 w-4 mr-1" /> Bank it
+          <Landmark className="h-4 w-4 mr-1" /> {tx('Bank it')}
         </Button>
       )}
 
       <Dialog open={open} onOpenChange={(o) => { if (!bankDeposit.isPending) setOpen(o); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Bank drawer cash</DialogTitle>
-            <DialogDescription>The closed shift and its Z-report are not changed; this posts the deposit from the drawer to the bank.</DialogDescription>
+            <DialogTitle>{tx('Bank drawer cash')}</DialogTitle>
+            <DialogDescription>{tx('The closed shift and its Z-report are not changed; this posts the deposit from the drawer to the bank.')}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Amount ({cur()})</Label>
+              <Label>{tx('Amount (')}{cur()})</Label>
               <Input type="number" min={0} max={inDrawer} value={amount} onChange={(e) => setAmount(e.target.value)} className="text-right font-mono" />
             </div>
             <div>
-              <Label>Bank account</Label>
+              <Label>{tx('Bank account')}</Label>
               <select className="w-full h-10 rounded-md border border-slate-200 bg-white px-3 text-sm" value={destinationAccountId} onChange={(e) => setDestinationAccountId(e.target.value)}>
-                <option value="">Choose…</option>
+                <option value="">{tx('Choose…')}</option>
                 {banks.map((b) => <option key={b.id} value={b.id}>{b.code} · {b.name}</option>)}
               </select>
             </div>
             <div>
-              <Label>Deposit slip reference <span className="font-normal text-slate-400">(optional)</span></Label>
+              <Label>{tx('Deposit slip reference')} <span className="font-normal text-slate-400">{tx('(optional)')}</span></Label>
               <Input value={reference} onChange={(e) => setReference(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)} disabled={bankDeposit.isPending}>Cancel</Button>
+            <Button variant="ghost" onClick={() => setOpen(false)} disabled={bankDeposit.isPending}>{tx('Cancel')}</Button>
             <Button onClick={submit} disabled={bankDeposit.isPending}>{bankDeposit.isPending ? 'Recording…' : 'Record deposit'}</Button>
           </DialogFooter>
         </DialogContent>

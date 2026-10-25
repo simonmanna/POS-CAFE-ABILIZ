@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
+import { tx } from '@/lib/i18n/tx';
 
 interface Match {
   id: string;
@@ -56,19 +57,19 @@ export function ThreeWayMatchPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Three-Way Match</h1>
+        <h1 className="text-2xl font-semibold">{tx('Three-Way Match')}</h1>
         <p className="text-sm text-muted-foreground">
-          Compares PO line quantities/prices against goods receipts and vendor bills. Blocked lines cannot be posted.
+          {tx('Compares PO line quantities/prices against goods receipts and vendor bills. Blocked lines cannot be posted.')}
         </p>
       </div>
 
       {stats && (
         <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-          <StatTile label="Total" value={stats.total} icon={Truck} />
-          <StatTile label="Matched" value={stats.matched} icon={CheckCircle2} color="text-emerald-600" />
-          <StatTile label="Partial" value={stats.partial} icon={RefreshCw} color="text-yellow-600" />
-          <StatTile label="Mismatch" value={stats.mismatch} icon={AlertTriangle} color="text-orange-600" />
-          <StatTile label="Blocked" value={stats.blocked} icon={AlertTriangle} color="text-destructive" />
+          <StatTile label={tx('Total')} value={stats.total} icon={Truck} />
+          <StatTile label={tx('Matched')} value={stats.matched} icon={CheckCircle2} color="text-emerald-600" />
+          <StatTile label={tx('Partial')} value={stats.partial} icon={RefreshCw} color="text-yellow-600" />
+          <StatTile label={tx('Mismatch')} value={stats.mismatch} icon={AlertTriangle} color="text-orange-600" />
+          <StatTile label={tx('Blocked')} value={stats.blocked} icon={AlertTriangle} color="text-destructive" />
         </div>
       )}
 
@@ -89,7 +90,7 @@ export function ThreeWayMatchPage() {
       {list.data && list.data.length === 0 && (
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            No three-way match entries yet.
+            {tx('No three-way match entries yet.')}
           </CardContent>
         </Card>
       )}
@@ -101,13 +102,13 @@ export function ThreeWayMatchPage() {
               <thead>
                 <tr className="border-b bg-muted/50 text-left">
                   <th className="px-3 py-2">PO</th>
-                  <th className="px-3 py-2 text-right">Ordered</th>
-                  <th className="px-3 py-2 text-right">Received</th>
-                  <th className="px-3 py-2 text-right">Billed</th>
-                  <th className="px-3 py-2 text-right">Qty Var</th>
-                  <th className="px-3 py-2 text-right">Price Var</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Last Check</th>
+                  <th className="px-3 py-2 text-right">{tx('Ordered')}</th>
+                  <th className="px-3 py-2 text-right">{tx('Received')}</th>
+                  <th className="px-3 py-2 text-right">{tx('Billed')}</th>
+                  <th className="px-3 py-2 text-right">{tx('Qty Var')}</th>
+                  <th className="px-3 py-2 text-right">{tx('Price Var')}</th>
+                  <th className="px-3 py-2">{tx('Status')}</th>
+                  <th className="px-3 py-2">{tx('Last Check')}</th>
                 </tr>
               </thead>
               <tbody>

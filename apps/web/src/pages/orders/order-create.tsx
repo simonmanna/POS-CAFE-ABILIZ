@@ -15,6 +15,7 @@ import { usePaymentTerms } from '@/features/accounting/api';
 import { ORDER_TYPE_LABELS, sourceDef } from './line-source';
 import { OrderLinePicker } from './OrderLinePicker';
 import type { CreateOrderInput, OrderLineInput, OrderType } from '@/features/orders/types';
+import { tx } from '@/lib/i18n/tx';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50';
@@ -110,24 +111,24 @@ export function OrderCreatePage() {
     <div className="space-y-6">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-1 text-sm text-muted-foreground">
-        <Link to="/orders" className="hover:text-primary">Orders</Link>
+        <Link to="/orders" className="hover:text-primary">{tx('Orders')}</Link>
         <ChevronRight className="h-3.5 w-3.5" />
-        <span className="text-foreground">New Order</span>
+        <span className="text-foreground">{tx('New Order')}</span>
       </nav>
 
       {/* Header bar — InventoryDetailPage pattern */}
       <div className="flex items-center justify-between border-b pb-4">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold">New Order</h1>
-          <Badge variant="secondary" className="text-xs">Draft</Badge>
+          <h1 className="text-2xl font-semibold">{tx('New Order')}</h1>
+          <Badge variant="secondary" className="text-xs">{tx('Draft')}</Badge>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => navigate('/orders')}>
-            <X className="mr-1 h-4 w-4" /> Discard
+            <X className="mr-1 h-4 w-4" /> {tx('Discard')}
           </Button>
           <Button onClick={save} disabled={createOrder.isPending || lines.length === 0}>
             {createOrder.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}
-            Save Order
+            {tx('Save Order')}
           </Button>
         </div>
       </div>
@@ -137,11 +138,11 @@ export function OrderCreatePage() {
           {/* Order header card */}
           <div className="rounded-lg border bg-card">
             <div className="border-b bg-muted/30 px-4 py-2 text-xs font-bold uppercase tracking-wider text-muted-foreground rounded-t-lg">
-              Order header
+              {tx('Order header')}
             </div>
             <div className="grid gap-4 p-4 sm:grid-cols-3">
               <div className="space-y-1.5">
-                <Label>Order type</Label>
+                <Label>{tx('Order type')}</Label>
                 <select className={selectClass} value={orderType} onChange={(e) => setOrderType(e.target.value as OrderType)}>
                   {Object.entries(ORDER_TYPE_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
@@ -149,16 +150,16 @@ export function OrderCreatePage() {
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label>Customer</Label>
+                <Label>{tx('Customer')}</Label>
                 <select className={selectClass} value={partnerId} onChange={(e) => setPartnerId(e.target.value)}>
-                  <option value="">Walk-in / no partner</option>
+                  <option value="">{tx('Walk-in / no partner')}</option>
                   {customers.map((p) => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label>Guest count</Label>
+                <Label>{tx('Guest count')}</Label>
                 <Input
                   type="number"
                   min={1}
@@ -168,7 +169,7 @@ export function OrderCreatePage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Order date</Label>
+                <Label>{tx('Order date')}</Label>
                 <Input
                   type="date"
                   value={orderDate}
@@ -177,18 +178,18 @@ export function OrderCreatePage() {
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>Payment terms</Label>
+                <Label>{tx('Payment terms')}</Label>
                 <select className={selectClass} value={paymentTermId} onChange={(e) => setPaymentTermId(e.target.value)}>
-                  <option value="">— No term —</option>
+                  <option value="">{tx('— No term —')}</option>
                   {paymentTerms.map((t) => (
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
               </div>
               <div className="space-y-1.5">
-                <Label>Payment method</Label>
+                <Label>{tx('Payment method')}</Label>
                 <select className={selectClass} value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-                  <option value="">— Not set —</option>
+                  <option value="">{tx('— Not set —')}</option>
                   {Object.entries(PAYMENT_MODE_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
                   ))}
@@ -196,9 +197,9 @@ export function OrderCreatePage() {
               </div>
               <div className="space-y-1.5 sm:col-span-3">
                 <Label>
-                  <StickyNote className="mr-1 inline h-3.5 w-3.5" /> Notes
+                  <StickyNote className="mr-1 inline h-3.5 w-3.5" /> {tx('Notes')}
                 </Label>
-                <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Kitchen or delivery notes…" />
+                <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder={tx('Kitchen or delivery notes…')} />
               </div>
             </div>
           </div>
@@ -207,26 +208,26 @@ export function OrderCreatePage() {
           <div className="rounded-lg border bg-card">
             <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 rounded-t-lg">
               <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Order lines ({lines.length})
+                {tx('Order lines (')}{lines.length})
               </span>
-              <span className="text-xs text-muted-foreground">Source: {def.label}</span>
+              <span className="text-xs text-muted-foreground">{tx('Source:')} {def.label}</span>
             </div>
 
             {lines.length === 0 ? (
               <div className="p-8 text-center text-sm text-muted-foreground">
-                No lines yet — use “Add a line” to pick from {def.label.toLowerCase()}.
+                {tx('No lines yet — use “Add a line” to pick from')} {def.label.toLowerCase()}.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b bg-muted/30 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      <th className="px-4 py-2 w-[38%]">Item</th>
-                      <th className="px-2 py-2 w-20">Qty</th>
-                      <th className="px-2 py-2 w-28">Unit price</th>
-                      <th className="px-2 py-2 w-20">Disc %</th>
-                      <th className="px-2 py-2">Taxes</th>
-                      <th className="px-4 py-2 text-right">Subtotal</th>
+                      <th className="px-4 py-2 w-[38%]">{tx('Item')}</th>
+                      <th className="px-2 py-2 w-20">{tx('Qty')}</th>
+                      <th className="px-2 py-2 w-28">{tx('Unit price')}</th>
+                      <th className="px-2 py-2 w-20">{tx('Disc %')}</th>
+                      <th className="px-2 py-2">{tx('Taxes')}</th>
+                      <th className="px-4 py-2 text-right">{tx('Subtotal')}</th>
                       <th className="w-10" />
                     </tr>
                   </thead>
@@ -238,7 +239,7 @@ export function OrderCreatePage() {
                             value={line.description}
                             onChange={(e) => updateLine(line._key, { description: e.target.value })}
                             className={inputClass}
-                            placeholder="Description"
+                            placeholder={tx('Description')}
                           />
                         </td>
                         <td className="px-2 py-2">
@@ -272,7 +273,7 @@ export function OrderCreatePage() {
                             className={inputClass}
                           />
                         </td>
-                        <td className="px-2 py-2 text-xs text-muted-foreground">Auto</td>
+                        <td className="px-2 py-2 text-xs text-muted-foreground">{tx('Auto')}</td>
                         <td className="px-4 py-2 text-right font-semibold tabular-nums whitespace-nowrap">
                           {money(line.quantity * line.unitPrice, currency)}
                         </td>
@@ -300,7 +301,7 @@ export function OrderCreatePage() {
                 onClick={() => setPickerOpen(true)}
                 className="flex w-full items-center gap-2 rounded-md border border-dashed px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary"
               >
-                <Plus className="h-4 w-4" /> Add a line
+                <Plus className="h-4 w-4" /> {tx('Add a line')}
               </button>
             </div>
           </div>
@@ -310,27 +311,27 @@ export function OrderCreatePage() {
         <div className="space-y-4">
           <div className="rounded-lg border bg-card">
             <div className="rounded-t-lg border-b bg-muted/30 px-4 py-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Totals</span>
+              <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{tx('Totals')}</span>
             </div>
             <dl className="space-y-2 p-4 text-sm">
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">Subtotal</dt>
+                <dt className="text-muted-foreground">{tx('Subtotal')}</dt>
                 <dd className="tabular-nums">{money(totals.subtotal, currency)}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">Discount</dt>
+                <dt className="text-muted-foreground">{tx('Discount')}</dt>
                 <dd className="tabular-nums text-amber-700">-{money(totals.discount, currency)}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-muted-foreground">Taxes</dt>
-                <dd className="tabular-nums text-muted-foreground">Auto</dd>
+                <dt className="text-muted-foreground">{tx('Taxes')}</dt>
+                <dd className="tabular-nums text-muted-foreground">{tx('Auto')}</dd>
               </div>
               <div className="flex justify-between border-t pt-2 text-base font-bold">
-                <dt>Total</dt>
+                <dt>{tx('Total')}</dt>
                 <dd className="tabular-nums">{money(totals.total, currency)}</dd>
               </div>
               <p className="pt-2 text-xs text-muted-foreground">
-                Taxes and authoritative totals are computed server-side on save.
+                {tx('Taxes and authoritative totals are computed server-side on save.')}
               </p>
             </dl>
           </div>
@@ -338,7 +339,7 @@ export function OrderCreatePage() {
           <div className="flex items-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
             <User className="h-4 w-4 shrink-0" />
             <span>
-              Billing this order later posts through the same spine as POS sales — stock deduction and receivables included.
+              {tx('Billing this order later posts through the same spine as POS sales — stock deduction and receivables included.')}
             </span>
           </div>
         </div>

@@ -15,6 +15,7 @@ import {
   useCurrencies, useCurrencyRates, useCreateCurrencyRate,
 } from '@/features/accounting/api';
 import { format } from 'date-fns';
+import { tx } from '@/lib/i18n/tx';
 
 export function CurrencyPage() {
   const { data: currencies, isLoading: currLoading } = useCurrencies();
@@ -37,24 +38,24 @@ export function CurrencyPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Currency Management</h1>
-          <p className="text-sm text-gray-500">Global currency catalog and exchange rate management.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Currency Management')}</h1>
+          <p className="text-sm text-gray-500">{tx('Global currency catalog and exchange rate management.')}</p>
         </div>
         <div className="flex items-center gap-2">
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button size="sm" className="gap-1.5">
-                <Plus className="h-3.5 w-3.5" /> Add Rate
+                <Plus className="h-3.5 w-3.5" /> {tx('Add Rate')}
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle className="text-sm font-bold uppercase tracking-wider">Add Exchange Rate</DialogTitle>
+                <DialogTitle className="text-sm font-bold uppercase tracking-wider">{tx('Add Exchange Rate')}</DialogTitle>
               </DialogHeader>
               <div className="space-y-3 pt-2">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">From</Label>
+                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">{tx('From')}</Label>
                     <select
                       value={fromCode}
                       onChange={(e) => setFromCode(e.target.value)}
@@ -66,7 +67,7 @@ export function CurrencyPage() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">To</Label>
+                    <Label className="text-[10px] font-bold text-muted-foreground uppercase">{tx('To')}</Label>
                     <select
                       value={toCode}
                       onChange={(e) => setToCode(e.target.value)}
@@ -79,12 +80,12 @@ export function CurrencyPage() {
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-[10px] font-bold text-muted-foreground uppercase">Rate</Label>
+                  <Label className="text-[10px] font-bold text-muted-foreground uppercase">{tx('Rate')}</Label>
                   <Input type="number" step="0.00000001" value={rate}
                     onChange={(e) => setRate(e.target.value)} placeholder="e.g. 15650.50" className="h-9 text-xs" />
                 </div>
                 <div className="flex justify-end gap-2 pt-2">
-                  <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)}>Cancel</Button>
+                  <Button variant="outline" size="sm" onClick={() => setDialogOpen(false)}>{tx('Cancel')}</Button>
                   <Button size="sm" onClick={handleAddRate} disabled={!rate || createRate.isPending}>
                     {createRate.isPending ? 'Adding...' : 'Add Rate'}
                   </Button>
@@ -93,7 +94,7 @@ export function CurrencyPage() {
             </DialogContent>
           </Dialog>
           <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
-            <RefreshCw className="h-3.5 w-3.5" /> Refresh
+            <RefreshCw className="h-3.5 w-3.5" /> {tx('Refresh')}
           </Button>
         </div>
       </div>
@@ -103,17 +104,17 @@ export function CurrencyPage() {
         <Card>
           <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
             <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              Currency Catalog
+              {tx('Currency Catalog')}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
-                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">Code</TableHead>
-                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">Name</TableHead>
-                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">Symbol</TableHead>
-                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right pr-4">Decimals</TableHead>
+                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">{tx('Code')}</TableHead>
+                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">{tx('Name')}</TableHead>
+                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">{tx('Symbol')}</TableHead>
+                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right pr-4">{tx('Decimals')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -123,7 +124,7 @@ export function CurrencyPage() {
                   ))
                 ) : !currencies || currencies.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">No currencies</TableCell>
+                    <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">{tx('No currencies')}</TableCell>
                   </TableRow>
                 ) : (
                   currencies.map((c) => (
@@ -144,17 +145,17 @@ export function CurrencyPage() {
         <Card>
           <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
             <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              Exchange Rates
+              {tx('Exchange Rates')}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
-                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">From</TableHead>
-                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">To</TableHead>
-                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right">Rate</TableHead>
-                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right pr-4">As Of</TableHead>
+                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">{tx('From')}</TableHead>
+                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">{tx('To')}</TableHead>
+                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right">{tx('Rate')}</TableHead>
+                  <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right pr-4">{tx('As Of')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -166,8 +167,8 @@ export function CurrencyPage() {
                   <TableRow>
                     <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
                       <DollarSign className="h-6 w-6 mx-auto mb-1 opacity-30" />
-                      <p className="text-sm font-medium">No rates configured</p>
-                      <p className="text-xs">Add exchange rates to enable multi-currency transactions.</p>
+                      <p className="text-sm font-medium">{tx('No rates configured')}</p>
+                      <p className="text-xs">{tx('Add exchange rates to enable multi-currency transactions.')}</p>
                     </TableCell>
                   </TableRow>
                 ) : (

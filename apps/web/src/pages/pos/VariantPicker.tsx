@@ -5,6 +5,7 @@ import { Coffee, X, Check } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { VariantFE } from './pos-features-api';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -49,7 +50,7 @@ export const VariantPicker: React.FC<Props> = ({ open, productName, variants, on
             <StepDots current={0} total={3} />
           </div>
           <DialogDescription>
-            <span className="text-amber-600 font-semibold text-xs uppercase tracking-wide">Step 1 of 3</span> — Choose a size
+            <span className="text-amber-600 font-semibold text-xs uppercase tracking-wide">{tx('Step 1 of 3')}</span> {tx('— Choose a size')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2 py-2">
@@ -75,13 +76,13 @@ export const VariantPicker: React.FC<Props> = ({ open, productName, variants, on
           ))}
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}><X className="h-4 w-4 mr-1" /> Cancel</Button>
+          <Button variant="ghost" onClick={onClose}><X className="h-4 w-4 mr-1" /> {tx('Cancel')}</Button>
           <Button
             onClick={() => picked && onConfirm(picked.id, picked.name, picked.price)}
             disabled={!picked}
             style={{ background: '#16a34a' }}
           >
-            <Check className="h-4 w-4 mr-1" /> Continue
+            <Check className="h-4 w-4 mr-1" /> {tx('Continue')}
           </Button>
         </DialogFooter>
       </DialogContent>

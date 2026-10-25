@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { usePosGlReconciliation } from '@/features/accounting/api';
 import { money } from '@/lib/format';
 import { format } from 'date-fns';
+import { tx } from '@/lib/i18n/tx';
 
 export function PosGlReconciliationPage() {
   const { data, isLoading, refetch, isRefetching } = usePosGlReconciliation();
@@ -14,10 +15,9 @@ export function PosGlReconciliationPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">POS → GL Reconciliation</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('POS → GL Reconciliation')}</h1>
           <p className="text-sm text-gray-500">
-            Independently re-derives sales from POS invoices and the GL ledger, and monitors the
-            inventory/COGS posting lag.
+            {tx('Independently re-derives sales from POS invoices and the GL ledger, and monitors the inventory/COGS posting lag.')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -33,7 +33,7 @@ export function PosGlReconciliationPage() {
             disabled={isRefetching}
             className="gap-1.5"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? 'animate-spin' : ''}`} /> Refresh
+            <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? 'animate-spin' : ''}`} /> {tx('Refresh')}
           </Button>
         </div>
       </div>
@@ -47,7 +47,7 @@ export function PosGlReconciliationPage() {
       ) : !data ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            <p className="font-medium">No reconciliation data available</p>
+            <p className="font-medium">{tx('No reconciliation data available')}</p>
           </CardContent>
         </Card>
       ) : (
@@ -66,7 +66,7 @@ export function PosGlReconciliationPage() {
                   ) : (
                     <AlertTriangle className="h-5 w-5 text-amber-500" />
                   )}
-                  <CardTitle className="text-sm font-bold uppercase tracking-wider">Revenue</CardTitle>
+                  <CardTitle className="text-sm font-bold uppercase tracking-wider">{tx('Revenue')}</CardTitle>
                 </div>
                 <Badge variant={data.variance.revenueBalanced ? 'secondary' : 'destructive'} className="text-[10px]">
                   {data.variance.revenueBalanced ? 'Balanced' : `Variance ${money(data.variance.revenue)}`}
@@ -74,25 +74,24 @@ export function PosGlReconciliationPage() {
               </div>
             </CardHeader>
             <CardContent className="p-5 space-y-2 text-sm">
-              <Row label="POS gross subtotal" value={money(data.pos.grossSubtotal)} />
-              <Row label="POS discounts" value={`− ${money(data.pos.discounts)}`} />
-              <Row label="Refunded revenue" value={`− ${money(data.pos.refundedRevenue)}`} />
+              <Row label={tx('POS gross subtotal')} value={money(data.pos.grossSubtotal)} />
+              <Row label={tx('POS discounts')} value={`− ${money(data.pos.discounts)}`} />
+              <Row label={tx('Refunded revenue')} value={`− ${money(data.pos.refundedRevenue)}`} />
               {data.pos.refundCount > 0 && (
-                <Row label="Refund events" value={`${data.pos.refundCount} · ${money(data.pos.refundedTotal)} (rev ${money(data.pos.refundedRevenue)} + tax ${money(data.pos.refundedTax)})`} />
+                <Row label={tx('Refund events')} value={`${data.pos.refundCount} · ${money(data.pos.refundedTotal)} (rev ${money(data.pos.refundedRevenue)} + tax ${money(data.pos.refundedTax)})`} />
               )}
-              <Row label="POS expected net revenue" value={money(data.pos.expectedNetRevenue)} bold />
+              <Row label={tx('POS expected net revenue')} value={money(data.pos.expectedNetRevenue)} bold />
               <div className="border-t pt-2 space-y-2">
-                <Row label="GL net revenue" value={money(data.gl.actualNetRevenue)} />
+                <Row label={tx('GL net revenue')} value={money(data.gl.actualNetRevenue)} />
                 <Row
-                  label="Variance"
+                  label={tx('Variance')}
                   value={money(data.variance.revenue)}
                   className={data.variance.revenueBalanced ? 'text-emerald-600' : 'text-red-500'}
                   bold
                 />
               </div>
               <p className="text-[10px] text-muted-foreground italic">
-                {data.pos.invoiceCount} invoice(s) in window. Unexplained variance usually means a
-                manual journal touched a revenue account.
+                {data.pos.invoiceCount} {tx('invoice(s) in window. Unexplained variance usually means a manual journal touched a revenue account.')}
               </p>
             </CardContent>
           </Card>
@@ -111,7 +110,7 @@ export function PosGlReconciliationPage() {
                   ) : (
                     <AlertTriangle className="h-5 w-5 text-amber-500" />
                   )}
-                  <CardTitle className="text-sm font-bold uppercase tracking-wider">Tax</CardTitle>
+                  <CardTitle className="text-sm font-bold uppercase tracking-wider">{tx('Tax')}</CardTitle>
                 </div>
                 <Badge variant={data.variance.taxBalanced ? 'secondary' : 'destructive'} className="text-[10px]">
                   {data.variance.taxBalanced ? 'Balanced' : `Variance ${money(data.variance.tax)}`}
@@ -119,21 +118,20 @@ export function PosGlReconciliationPage() {
               </div>
             </CardHeader>
             <CardContent className="p-5 space-y-2 text-sm">
-              <Row label="POS tax charged" value={money(data.pos.tax)} />
-              <Row label="Refunded tax" value={`− ${money(data.pos.refundedTax)}`} />
-              <Row label="POS expected net tax" value={money(data.pos.expectedNetTax)} bold />
-              <Row label="GL tax payable movement" value={money(data.gl.tax)} />
+              <Row label={tx('POS tax charged')} value={money(data.pos.tax)} />
+              <Row label={tx('Refunded tax')} value={`− ${money(data.pos.refundedTax)}`} />
+              <Row label={tx('POS expected net tax')} value={money(data.pos.expectedNetTax)} bold />
+              <Row label={tx('GL tax payable movement')} value={money(data.gl.tax)} />
               <div className="border-t pt-2">
                 <Row
-                  label="Variance"
+                  label={tx('Variance')}
                   value={money(data.variance.tax)}
                   className={data.variance.taxBalanced ? 'text-emerald-600' : 'text-red-500'}
                   bold
                 />
               </div>
               <p className="text-[10px] text-muted-foreground italic">
-                Refund revenue and tax portions are derived from the recorded refund line fractions, not
-                the invoice refund header — both sides move together.
+                {tx('Refund revenue and tax portions are derived from the recorded refund line fractions, not the invoice refund header — both sides move together.')}
               </p>
             </CardContent>
           </Card>
@@ -149,7 +147,7 @@ export function PosGlReconciliationPage() {
                 <div className="flex items-center gap-2">
                   <Package className="h-5 w-5 text-muted-foreground" />
                   <CardTitle className="text-sm font-bold uppercase tracking-wider">
-                    Inventory / COGS
+                    {tx('Inventory / COGS')}
                   </CardTitle>
                 </div>
                 <Badge
@@ -163,18 +161,18 @@ export function PosGlReconciliationPage() {
               </div>
             </CardHeader>
             <CardContent className="p-5 space-y-2 text-sm">
-              <Row label="Stock issue value (POS)" value={money(data.inventory.stockCogsValue)} />
-              <Row label="GL COGS posted" value={money(data.inventory.glCogs)} />
+              <Row label={tx('Stock issue value (POS)')} value={money(data.inventory.stockCogsValue)} />
+              <Row label={tx('GL COGS posted')} value={money(data.inventory.glCogs)} />
               <div className="border-t pt-2">
                 <Row
-                  label="COGS variance"
+                  label={tx('COGS variance')}
                   value={money(data.inventory.cogsVariance)}
                   className={data.inventory.cogsBalanced ? 'text-emerald-600' : 'text-amber-600'}
                   bold
                 />
               </div>
               <div className="text-[10px] text-muted-foreground">
-                Jobs:{' '}
+                {tx('Jobs:')}{' '}
                 {Object.entries(data.inventory.jobCounts).length === 0
                   ? 'none in window'
                   : Object.entries(data.inventory.jobCounts)

@@ -15,6 +15,7 @@ import {
 } from '@/features/rental/api';
 import { api } from '@/lib/api';
 import './pos-pro.css';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `${useAuthStore.getState().organization?.currencyCode ?? 'IDR'} ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -54,7 +55,7 @@ function CustomerPicker({ value, onChange }: { value: { id: string; name: string
             <User className="h-4 w-4 text-muted-foreground" />
             <span className="font-medium">{value.name}</span>
           </div>
-          <button onClick={() => onChange(null)} className="text-muted-foreground hover:text-foreground" aria-label="Clear customer">
+          <button onClick={() => onChange(null)} className="text-muted-foreground hover:text-foreground" aria-label={tx('Clear customer')}>
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -65,7 +66,7 @@ function CustomerPicker({ value, onChange }: { value: { id: string; name: string
         >
           <span className="flex items-center gap-2">
             <User className="h-4 w-4" />
-            Select customer (required)
+            {tx('Select customer (required)')}
           </span>
           <Search className="h-4 w-4" />
         </button>
@@ -77,7 +78,7 @@ function CustomerPicker({ value, onChange }: { value: { id: string; name: string
             autoFocus
             value={search}
             onChange={(e) => searchCustomers(e.target.value)}
-            placeholder="Search by name or phone…"
+            placeholder={tx('Search by name or phone…')}
             className="mb-2 w-full rounded-md border bg-background px-3 py-2 text-sm"
           />
           <div className="max-h-52 space-y-1 overflow-auto">
@@ -94,7 +95,7 @@ function CustomerPicker({ value, onChange }: { value: { id: string; name: string
                 {c.name}
               </button>
             ))}
-            {results.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">Type at least 2 characters…</p>}
+            {results.length === 0 && <p className="px-2 py-1 text-xs text-muted-foreground">{tx('Type at least 2 characters…')}</p>}
           </div>
         </div>
       )}
@@ -160,15 +161,15 @@ const RentalTerminal: React.FC = () => {
 
   const handleCheckout = async () => {
     if (!customer) {
-      toast.error('Select a customer first');
+      toast.error(tx('Select a customer first'));
       return;
     }
     if (!lines.length) {
-      toast.error('Add at least one item');
+      toast.error(tx('Add at least one item'));
       return;
     }
     if (!startAt || !endAt || endAt <= startAt) {
-      toast.error('Check the rental window');
+      toast.error(tx('Check the rental window'));
       return;
     }
     setBusy(true);
@@ -186,7 +187,7 @@ const RentalTerminal: React.FC = () => {
         })),
       });
       if (agreement.status === 'pending_approval') {
-        toast.info('Agreement created — waiting for approval');
+        toast.info(tx('Agreement created — waiting for approval'));
         navigate(`/rental/agreements/${agreement.id}`);
         return;
       }
@@ -222,7 +223,7 @@ const RentalTerminal: React.FC = () => {
         <div className="flex items-center gap-2">
           <Package className="h-5 w-5 text-primary" />
           <div>
-            <p className="text-sm font-semibold leading-none">Rental Terminal</p>
+            <p className="text-sm font-semibold leading-none">{tx('Rental Terminal')}</p>
             <p className="text-xs text-muted-foreground">{user?.firstName ?? 'POS'}</p>
           </div>
         </div>
@@ -230,7 +231,7 @@ const RentalTerminal: React.FC = () => {
           onClick={() => navigate('/')}
           className="rounded-md border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted"
         >
-          Exit
+          {tx('Exit')}
         </button>
       </header>
 
@@ -241,11 +242,11 @@ const RentalTerminal: React.FC = () => {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search rentable items…"
+              placeholder={tx('Search rentable items…')}
               className="w-full rounded-md border bg-card px-3 py-2 text-sm"
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Showing items with rental rates configured ({rentable.length}).
+              {tx('Showing items with rental rates configured (')}{rentable.length}).
             </p>
           </div>
           <div className="grid flex-1 auto-rows-min grid-cols-3 gap-2 overflow-auto p-3">
@@ -267,7 +268,7 @@ const RentalTerminal: React.FC = () => {
             })}
             {rentable.length === 0 && (
               <p className="col-span-3 p-6 text-center text-sm text-muted-foreground">
-                No rentable products yet. Configure rental rates in the Products module first.
+                {tx('No rentable products yet. Configure rental rates in the Products module first.')}
               </p>
             )}
           </div>
@@ -279,11 +280,11 @@ const RentalTerminal: React.FC = () => {
             <CustomerPicker value={customer} onChange={setCustomer} />
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">Pickup date</span>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">{tx('Pickup date')}</span>
                 <input type="date" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="w-full rounded-md border bg-card px-3 py-2 text-sm" />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">Due date</span>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">{tx('Due date')}</span>
                 <input type="date" value={endAt} onChange={(e) => setEndAt(e.target.value)} className="w-full rounded-md border bg-card px-3 py-2 text-sm" />
               </label>
             </div>
@@ -293,7 +294,7 @@ const RentalTerminal: React.FC = () => {
             {lines.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
                 <Package className="h-10 w-10" />
-                <p className="text-sm">Tap items on the left to build the agreement.</p>
+                <p className="text-sm">{tx('Tap items on the left to build the agreement.')}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -310,7 +311,7 @@ const RentalTerminal: React.FC = () => {
                       <span className="w-8 text-center text-sm font-medium">{l.quantity}</span>
                       <button onClick={() => setQty(l.productId, l.quantity + 1)} className="h-7 w-7 rounded border text-sm">+</button>
                     </div>
-                    <button onClick={() => removeLine(l.productId)} className="text-muted-foreground hover:text-destructive" aria-label="Remove">
+                    <button onClick={() => removeLine(l.productId)} className="text-muted-foreground hover:text-destructive" aria-label={tx('Remove')}>
                       <X className="h-4 w-4" />
                     </button>
                   </div>
@@ -321,12 +322,12 @@ const RentalTerminal: React.FC = () => {
 
           <div className="space-y-3 border-t p-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Estimated rental fee / period</span>
+              <span className="text-sm text-muted-foreground">{tx('Estimated rental fee / period')}</span>
               <span className="text-lg font-semibold">{fmt(total)}</span>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">Deposit (optional)</span>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">{tx('Deposit (optional)')}</span>
                 <input
                   type="number"
                   min={0}
@@ -337,12 +338,12 @@ const RentalTerminal: React.FC = () => {
                 />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">Payment mode</span>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">{tx('Payment mode')}</span>
                 <select value={paymentMode} onChange={(e) => setPaymentMode(e.target.value)} className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                  <option value="cash">Cash</option>
-                  <option value="card">Card</option>
-                  <option value="mobile_money">Mobile money</option>
-                  <option value="mixed">Mixed</option>
+                  <option value="cash">{tx('Cash')}</option>
+                  <option value="card">{tx('Card')}</option>
+                  <option value="mobile_money">{tx('Mobile money')}</option>
+                  <option value="mixed">{tx('Mixed')}</option>
                 </select>
               </label>
             </div>
@@ -352,11 +353,11 @@ const RentalTerminal: React.FC = () => {
               className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
             >
               {busy ? (
-                <span>Processing…</span>
+                <span>{tx('Processing…')}</span>
               ) : (
                 <>
                   <CheckCircle2 className="h-4 w-4" />
-                  Checkout rental
+                  {tx('Checkout rental')}
                   <ArrowRight className="h-4 w-4" />
                 </>
               )}

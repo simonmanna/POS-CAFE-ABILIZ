@@ -16,6 +16,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { notify } from '@/lib/notify';
 import { useAllAssetCategories, useAssetCategories, useCreateAssetCategory, useDeleteAssetCategory, useUpdateAssetCategory } from '@/features/fixed-asset/api';
 import type { AssetCategory } from '@/features/fixed-asset/types';
+import { tx } from '@/lib/i18n/tx';
 
 const DEPR_METHODS = [
   { value: 'straight_line', label: 'Straight Line' },
@@ -78,10 +79,10 @@ export function AssetCategoriesPage() {
       };
       if (editing) {
         await updateCat.mutateAsync({ id: editing.id, data: data as any });
-        notify.success('Category updated');
+        notify.success(tx('Category updated'));
       } else {
         await createCat.mutateAsync(data as any);
-        notify.success('Category created');
+        notify.success(tx('Category created'));
       }
       setOpen(false);
     } catch (err: any) { notify.error(err?.response?.data?.message ?? 'Error'); }
@@ -89,7 +90,7 @@ export function AssetCategoriesPage() {
 
   const confirmDelete = async () => {
     if (!deleting) return;
-    try { await deleteCat.mutateAsync(deleting.id); notify.success('Category deleted'); setDeleting(null); } catch (err: any) { notify.error(err?.response?.data?.message ?? 'Error'); }
+    try { await deleteCat.mutateAsync(deleting.id); notify.success(tx('Category deleted')); setDeleting(null); } catch (err: any) { notify.error(err?.response?.data?.message ?? 'Error'); }
   };
 
   const columns: Column<AssetCategory>[] = [
@@ -110,23 +111,23 @@ export function AssetCategoriesPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Asset Categories</h1>
-        {canCreate && <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> Add Category</Button>}
+        <h1 className="text-2xl font-bold">{tx('Asset Categories')}</h1>
+        {canCreate && <Button onClick={openCreate}><Plus className="mr-2 h-4 w-4" /> {tx('Add Category')}</Button>}
       </div>
       <DataTable columns={columns} data={data?.data ?? []} loading={isLoading} />
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Create'} Asset Category</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Create'} {tx('Asset Category')}</DialogTitle></DialogHeader>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div><Label>Name</Label><Input {...form.register('name')} /></div>
-            <div><Label>Description</Label><Input {...form.register('description')} /></div>
+            <div><Label>{tx('Name')}</Label><Input {...form.register('name')} /></div>
+            <div><Label>{tx('Description')}</Label><Input {...form.register('description')} /></div>
             <div>
-              <Label>Parent Category</Label>
+              <Label>{tx('Parent Category')}</Label>
               <Select value={form.watch('parentId')} onValueChange={(v) => form.setValue('parentId', v)}>
-                <SelectTrigger><SelectValue placeholder="None (top-level)" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={tx('None (top-level)')} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None (top-level)</SelectItem>
+                  <SelectItem value="">{tx('None (top-level)')}</SelectItem>
                   {(allCats ?? []).filter((c: AssetCategory) => c.id !== editing?.id).map((c: AssetCategory) => (
                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                   ))}
@@ -134,14 +135,14 @@ export function AssetCategoriesPage() {
               </Select>
             </div>
             <div>
-              <Label>Depreciation Method</Label>
+              <Label>{tx('Depreciation Method')}</Label>
               <Select value={form.watch('depreciationMethod')} onValueChange={(v) => form.setValue('depreciationMethod', v)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>{DEPR_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div><Label>Default Useful Life (months)</Label><Input type="number" {...form.register('defaultUsefulLife')} /></div>
-            <div><Label>Default Residual Value</Label><Input type="number" step="0.01" {...form.register('defaultResidualValue')} /></div>
+            <div><Label>{tx('Default Useful Life (months)')}</Label><Input type="number" {...form.register('defaultUsefulLife')} /></div>
+            <div><Label>{tx('Default Residual Value')}</Label><Input type="number" step="0.01" {...form.register('defaultResidualValue')} /></div>
             <DialogFooter><Button type="submit">{editing ? 'Update' : 'Create'}</Button></DialogFooter>
           </form>
         </DialogContent>
@@ -149,8 +150,8 @@ export function AssetCategoriesPage() {
 
       <AlertDialog open={!!deleting} onOpenChange={(o) => !o && setDeleting(null)}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>Delete Category?</AlertDialogTitle><AlertDialogDescription>This will permanently delete "{deleting?.name}". Cannot delete if assets are assigned.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction></AlertDialogFooter>
+          <AlertDialogHeader><AlertDialogTitle>{tx('Delete Category?')}</AlertDialogTitle><AlertDialogDescription>{tx('This will permanently delete "')}{deleting?.name}{tx('". Cannot delete if assets are assigned.')}</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel><AlertDialogAction onClick={confirmDelete}>{tx('Delete')}</AlertDialogAction></AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>

@@ -5,6 +5,7 @@ import { useRentalAgreements, useRentalUnits, useRentalUtilization } from '@/fea
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { date } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -40,47 +41,47 @@ export function RentalDashboardPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="text-xl font-semibold">Rental Management</h1>
-        <p className="text-sm text-muted-foreground">Agreements, fleet utilisation, deposits and returns.</p>
+        <h1 className="text-xl font-semibold">{tx('Rental Management')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('Agreements, fleet utilisation, deposits and returns.')}</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <Card><CardContent className="pt-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Active</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Active')}</p>
           <p className="mt-1 text-2xl font-semibold">{stats.active}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Overdue</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Overdue')}</p>
           <p className="mt-1 text-2xl font-semibold text-red-600">{stats.overdue}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pending</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Pending')}</p>
           <p className="mt-1 text-2xl font-semibold text-amber-600">{stats.pending}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fleet size</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Fleet size')}</p>
           <p className="mt-1 text-2xl font-semibold">{stats.fleet}</p>
         </CardContent></Card>
         <Card><CardContent className="pt-5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Utilisation (30d)</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Utilisation (30d)')}</p>
           <p className="mt-1 text-2xl font-semibold">{stats.utilization}</p>
         </CardContent></Card>
       </div>
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">Recent agreements</CardTitle>
+          <CardTitle className="text-sm">{tx('Recent agreements')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {recent.length === 0 && <p className="p-6 text-sm text-muted-foreground">No agreements yet.</p>}
+            {recent.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No agreements yet.')}</p>}
             {recent.map((a) => (
               <Link key={a.id} to={`/rental/agreements/${a.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <div className="flex items-center gap-3">
                   {a.status === 'overdue' ? <AlertTriangle className="h-4 w-4 text-red-500" /> : a.status === 'checked_out' ? <CheckCircle2 className="h-4 w-4 text-emerald-500" /> : <CalendarDays className="h-4 w-4 text-muted-foreground" />}
                   <div>
                     <p className="text-sm font-medium">{a.agreementNumber}</p>
-                    <p className="text-xs text-muted-foreground">Due {date(a.dueAt)}</p>
+                    <p className="text-xs text-muted-foreground">{tx('Due')} {date(a.dueAt)}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3">

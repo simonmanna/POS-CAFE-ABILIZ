@@ -20,7 +20,7 @@ export interface ModuleFeature {
 export const MODULE_FEATURES: ModuleFeature[] = [
   { key: 'crm', label: 'CRM', description: 'Customers, leads, opportunities, and pipeline tracking', sections: ['CRM'] },
   { key: 'rental', label: 'Rentals', description: 'Hire-out agreements, rental units, returns, and settlement', sections: ['Rentals'] },
-  { key: 'manufacturing', label: 'Manufacturing / Bakery', description: 'BOMs, production orders, work orders, and MRP', sections: ['Manufacturing/Bakery'] },
+  { key: 'manufacturing', label: 'Production (Manufacturing / Bakery)', description: 'BOMs, production orders, work orders, and MRP', sections: ['Production'] },
   { key: 'repair', label: 'Repair & Maintenance', description: 'Repair jobs, work tickets, and maintenance scheduling', sections: ['Repair & Maintenance'] },
   { key: 'communication', label: 'Communication', description: 'Unified inbox, channels, and messaging automation', sections: ['Communication'] },
   { key: 'assets', label: 'Fixed Assets', description: 'Fixed asset register, categories, and depreciation', sections: ['Fixed Assets'] },

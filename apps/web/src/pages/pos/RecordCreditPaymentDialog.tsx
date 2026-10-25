@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { money, useOrgCurrency } from '@/lib/format';
 import { useOpenSession, useReceivePayment } from '@/pages/pos/api';
+import { tx } from '@/lib/i18n/tx';
 
 const METHODS = [
   { value: 'cash', label: 'Cash' },
@@ -100,23 +101,23 @@ export function RecordCreditPaymentDialog({ target, onClose, onPaid }: Props) {
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
-          <DialogTitle>Record payment</DialogTitle>
+          <DialogTitle>{tx('Record payment')}</DialogTitle>
           <DialogDescription>
-            {target.partnerName} owes {money(residual, currency)} on {target.invoiceNumber}.
+            {target.partnerName} {tx('owes')} {money(residual, currency)} on {target.invoiceNumber}.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="space-y-4">
           {pendingEntityOperationKey(`/pos/invoices/${target.invoiceId}/payments`) && <Button type="button" disabled={recovering} onClick={async () => {
             setRecovering(true);
-            try { const result = await recoverEntitySaleOperation(`/pos/invoices/${target.invoiceId}/payments`); toast.success('Original collection confirmed'); onPaid?.(result.settlementStatus === 'settled'); onClose(); }
+            try { const result = await recoverEntitySaleOperation(`/pos/invoices/${target.invoiceId}/payments`); toast.success(tx('Original collection confirmed')); onPaid?.(result.settlementStatus === 'settled'); onClose(); }
             catch (e: any) { setError(e?.response?.data?.message || e.message); }
             finally { setRecovering(false); }
-          }}>Recover original collection</Button>}
-          {method !== 'cash' && <label className="block text-sm">Receiving account<select aria-label="Receiving account" className="mt-1 block w-full rounded border p-2" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">Choose account</option>{accountsForMethod(accounts, method).map((a) => <option key={a.id} value={a.id}>{a.name} · {a.code}</option>)}</select></label>}
+          }}>{tx('Recover original collection')}</Button>}
+          {method !== 'cash' && <label className="block text-sm">{tx('Receiving account')}<select aria-label={tx('Receiving account')} className="mt-1 block w-full rounded border p-2" value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">{tx('Choose account')}</option>{accountsForMethod(accounts, method).map((a) => <option key={a.id} value={a.id}>{a.name} · {a.code}</option>)}</select></label>}
 
           <div className="space-y-2">
-            <Label htmlFor="credit-amount">Amount received</Label>
+            <Label htmlFor="credit-amount">{tx('Amount received')}</Label>
             <Input
               id="credit-amount"
               type="number"
@@ -133,18 +134,18 @@ export function RecordCreditPaymentDialog({ target, onClose, onPaid }: Props) {
                 className="rounded bg-slate-100 px-2 py-0.5 font-semibold text-slate-700 hover:bg-slate-200"
                 onClick={() => setAmount(String(residual))}
               >
-                Pay full {money(residual, currency)}
+                {tx('Pay full')} {money(residual, currency)}
               </button>
               {isPartial ? (
                 <span className="font-medium text-amber-600">
-                  {money(remainder, currency)} will stay outstanding
+                  {money(remainder, currency)} {tx('will stay outstanding')}
                 </span>
               ) : null}
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label>Method</Label>
+            <Label>{tx('Method')}</Label>
             <div className="grid grid-cols-4 gap-2">
               {METHODS.map((m) => (
                 <button
@@ -165,12 +166,12 @@ export function RecordCreditPaymentDialog({ target, onClose, onPaid }: Props) {
 
           {method !== 'cash' ? (
             <div className="space-y-2">
-              <Label htmlFor="credit-reference">Reference (optional)</Label>
+              <Label htmlFor="credit-reference">{tx('Reference (optional)')}</Label>
               <Input
                 id="credit-reference"
                 value={reference}
                 onChange={(e) => setReference(e.target.value)}
-                placeholder="e.g. MTN-12345"
+                placeholder={tx('e.g. MTN-12345')}
                 className="font-mono"
               />
             </div>
@@ -178,14 +179,14 @@ export function RecordCreditPaymentDialog({ target, onClose, onPaid }: Props) {
 
           {method === 'cash' && !openSession?.id ? (
             <p className="text-xs text-amber-600">
-              No shift is open — the payment will post to the ledger but will not show on a Z-report.
+              {tx('No shift is open — the payment will post to the ledger but will not show on a Z-report.')}
             </p>
           ) : null}
 
           {error ? <p className="text-sm font-medium text-rose-600">{error}</p> : null}
 
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button type="button" variant="ghost" onClick={onClose}>{tx('Cancel')}</Button>
             <Button type="submit" disabled={receivePayment.isPending} className="bg-emerald-600 hover:bg-emerald-700">
               {receivePayment.isPending ? 'Saving…' : `Receive ${money(Number.isFinite(amt) ? amt : 0, currency)}`}
             </Button>

@@ -13,6 +13,7 @@ import {
   useKitchenStations, useCreateStation, useUpdateStation, useDeleteStation, useReorderStations,
   type KitchenStationFE,
 } from './pos-features-api';
+import { tx } from '@/lib/i18n/tx';
 
 const EMPTY = { name: '', code: '', color: '#6366f1', icon: '' };
 
@@ -39,16 +40,16 @@ const KitchenStationsPage: React.FC = () => {
 
   const save = async () => {
     if (!form.name.trim() || (!editing && !form.code.trim())) {
-      notify.error('Name and code are required');
+      notify.error(tx('Name and code are required'));
       return;
     }
     try {
       if (editing) {
         await update.mutateAsync({ id: editing.id, name: form.name, color: form.color, icon: form.icon || null });
-        notify.success('Station updated');
+        notify.success(tx('Station updated'));
       } else {
         await create.mutateAsync({ name: form.name, code: form.code.trim().toLowerCase(), color: form.color, icon: form.icon || undefined });
-        notify.success('Station created');
+        notify.success(tx('Station created'));
       }
       setShowForm(false);
     } catch (e: any) {
@@ -68,7 +69,7 @@ const KitchenStationsPage: React.FC = () => {
 
   const remove = async (s: KitchenStationFE) => {
     if (!window.confirm(`Delete station "${s.name}"? Products routed here fall back to the default station.`)) return;
-    try { await del.mutateAsync(s.id); notify.success('Station deleted'); }
+    try { await del.mutateAsync(s.id); notify.success(tx('Station deleted')); }
     catch (e: any) { notify.error(e?.response?.data?.message ?? 'Delete failed'); }
   };
 
@@ -84,15 +85,14 @@ const KitchenStationsPage: React.FC = () => {
     <div className="max-w-3xl mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-extrabold flex items-center gap-2">
-          <ChefHat className="h-6 w-6" /> Kitchen Stations
+          <ChefHat className="h-6 w-6" /> {tx('Kitchen Stations')}
         </h1>
         {canEdit && !showForm && (
-          <Button onClick={openNew}><Plus className="h-4 w-4 mr-1" /> Add Station</Button>
+          <Button onClick={openNew}><Plus className="h-4 w-4 mr-1" /> {tx('Add Station')}</Button>
         )}
       </div>
       <p className="text-sm text-muted-foreground">
-        Stations are the screens the Kitchen Display routes orders to. Assign each product to a
-        station on its edit page; the station <code>code</code> is the routing key and cannot change once created.
+        {tx('Stations are the screens the Kitchen Display routes orders to. Assign each product to a station on its edit page; the station')} <code>code</code> {tx('is the routing key and cannot change once created.')}
       </p>
 
       {showForm && (
@@ -103,16 +103,16 @@ const KitchenStationsPage: React.FC = () => {
           </CardHeader>
           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label>Name</Label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Grill" />
+              <Label>{tx('Name')}</Label>
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={tx('e.g. Grill')} />
             </div>
             <div className="space-y-1.5">
-              <Label>Code {editing && <span className="text-muted-foreground">(immutable)</span>}</Label>
+              <Label>{tx('Code')} {editing && <span className="text-muted-foreground">{tx('(immutable)')}</span>}</Label>
               <Input value={form.code} disabled={!!editing}
-                onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="e.g. grill" />
+                onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={tx('e.g. grill')} />
             </div>
             <div className="space-y-1.5">
-              <Label>Colour</Label>
+              <Label>{tx('Colour')}</Label>
               <div className="flex items-center gap-2">
                 <input type="color" value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })}
                   className="h-9 w-12 rounded border" />
@@ -120,12 +120,12 @@ const KitchenStationsPage: React.FC = () => {
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label>Icon (lucide name, optional)</Label>
-              <Input value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder="e.g. Pizza" />
+              <Label>{tx('Icon (lucide name, optional)')}</Label>
+              <Input value={form.icon} onChange={(e) => setForm({ ...form, icon: e.target.value })} placeholder={tx('e.g. Pizza')} />
             </div>
             <div className="sm:col-span-2 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setShowForm(false)}>Cancel</Button>
-              <Button onClick={save} disabled={create.isPending || update.isPending}>Save</Button>
+              <Button variant="outline" onClick={() => setShowForm(false)}>{tx('Cancel')}</Button>
+              <Button onClick={save} disabled={create.isPending || update.isPending}>{tx('Save')}</Button>
             </div>
           </CardContent>
         </Card>
@@ -133,16 +133,16 @@ const KitchenStationsPage: React.FC = () => {
 
       <Card>
         <CardContent className="p-0 divide-y">
-          {isLoading && <div className="p-4 text-muted-foreground">Loading…</div>}
-          {!isLoading && stations.length === 0 && <div className="p-4 text-muted-foreground">No stations yet.</div>}
+          {isLoading && <div className="p-4 text-muted-foreground">{tx('Loading…')}</div>}
+          {!isLoading && stations.length === 0 && <div className="p-4 text-muted-foreground">{tx('No stations yet.')}</div>}
           {stations.map((s, idx) => (
             <div key={s.id} className="flex items-center gap-3 p-3">
               <span className="inline-block h-4 w-4 rounded-full border" style={{ background: s.color ?? '#999' }} />
               <div className="flex-1 min-w-0">
                 <div className="font-semibold flex items-center gap-2">
                   {s.name}
-                  {s.isDefault && <Badge variant="secondary" className="gap-1"><Star className="h-3 w-3" /> default</Badge>}
-                  {!s.isActive && <Badge variant="outline" className="text-muted-foreground">inactive</Badge>}
+                  {s.isDefault && <Badge variant="secondary" className="gap-1"><Star className="h-3 w-3" /> {tx('default')}</Badge>}
+                  {!s.isActive && <Badge variant="outline" className="text-muted-foreground">{tx('inactive')}</Badge>}
                 </div>
                 <div className="text-xs text-muted-foreground font-mono">{s.code}</div>
               </div>
@@ -150,7 +150,7 @@ const KitchenStationsPage: React.FC = () => {
                 <div className="flex items-center gap-1">
                   <Button variant="ghost" size="icon" onClick={() => move(idx, -1)} disabled={idx === 0}><ArrowUp className="h-4 w-4" /></Button>
                   <Button variant="ghost" size="icon" onClick={() => move(idx, 1)} disabled={idx === stations.length - 1}><ArrowDown className="h-4 w-4" /></Button>
-                  {!s.isDefault && <Button variant="ghost" size="sm" onClick={() => setDefault(s)}>Set default</Button>}
+                  {!s.isDefault && <Button variant="ghost" size="sm" onClick={() => setDefault(s)}>{tx('Set default')}</Button>}
                   <Button variant="ghost" size="sm" onClick={() => toggleActive(s)}>{s.isActive ? 'Disable' : 'Enable'}</Button>
                   <Button variant="ghost" size="icon" onClick={() => openEdit(s)}><Pencil className="h-4 w-4" /></Button>
                   <Button variant="ghost" size="icon" onClick={() => remove(s)} disabled={s.isDefault}><Trash2 className="h-4 w-4 text-rose-600" /></Button>

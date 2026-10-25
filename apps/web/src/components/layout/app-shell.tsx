@@ -61,7 +61,7 @@ import {
   Handshake,
   Wrench,
   Timer,
-  Database,
+  LayoutGrid,
   Wine,
   KeyRound,
   Calculator,
@@ -74,7 +74,8 @@ import {
   CalendarClock,
   ChevronDown,
 } from 'lucide-react';
-import { PERMISSIONS } from '@erp/shared';
+import { PERMISSIONS, REPORT_CATALOG } from '@erp/shared';
+import { useCanViewReport } from '@/features/reports/access-api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -89,6 +90,7 @@ import { notify } from '@/lib/notify';
 import { GlobalSearch } from '@/components/global-search';
 import { PushBootstrap } from '@/components/push-bootstrap';
 import { ThemePicker } from '@/components/theme-picker';
+import { LanguageSwitcher } from '@/components/language-switcher';
 import { useTranslation } from 'react-i18next';
 import { useSidebarTheme } from '@/lib/sidebar-theme';
 import {
@@ -99,6 +101,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { tx } from '@/lib/i18n/tx';
 
 interface BranchOption {
   id: string;
@@ -121,17 +124,17 @@ function BranchSwitcher() {
     try {
       await api.patch('/organizations/me/branch', { defaultBranchId: id });
     } catch {
-      notify.error('Failed to switch branch');
+      notify.error(tx('Failed to switch branch'));
     }
   };
 
   return (
     <Select value={currentBranchId ?? '__all__'} onValueChange={onSelect}>
       <SelectTrigger className="h-8 text-xs">
-        <SelectValue placeholder="Select branch" />
+        <SelectValue placeholder={tx('Select branch')} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="__all__">All branches</SelectItem>
+        <SelectItem value="__all__">{tx('All branches')}</SelectItem>
         {branches.map((b) => (
           <SelectItem key={b.id} value={b.id}>{b.name} ({b.code})</SelectItem>
         ))}
@@ -145,6 +148,11 @@ interface NavItem {
   label: string;
   icon: typeof LayoutDashboard;
   permission?: string;
+  /**
+   * Configurable report this item opens. Hidden when Settings → Report
+   * Permissions turns the report off for the signed-in user's roles.
+   */
+  reportId?: string | string[];
   badge?: string;
   /** Per-item feature gate, resolved the same way as section flags. */
   flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS';
@@ -163,6 +171,9 @@ interface NavSection {
   flag?: 'VITE_ENABLE_BEVERAGE' | 'VITE_ENABLE_TASKS' | 'VITE_ENABLE_MANUFACTURING' | 'VITE_ENABLE_HR' | 'VITE_ENABLE_ORDERS';
 }
 
+/** Tabs of the POS Reports page — the nav link survives while any one shows. */
+const POS_REPORT_TAB_IDS = REPORT_CATALOG.filter((r) => r.route === '/pos/reports').map((r) => r.id);
+
 const flagEnabled = (flag?: string): boolean =>
   !flag || (import.meta.env as Record<string, string | undefined>)[flag] === 'true';
 
@@ -175,11 +186,11 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/pos/terminal', label: 'POS Terminal', icon: Coffee, permission: PERMISSIONS.pos.checkout },
       { to: '/pos/kds', label: 'Kitchen Display', icon: ChefHat, permission: PERMISSIONS.pos.kds },
       { to: '/pos/kitchen-stations', label: 'Kitchen Stations', icon: UtensilsCrossed, permission: PERMISSIONS.pos.override },
-      { to: '/pos/kds-reports', label: 'Kitchen Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports },
+      { to: '/pos/kds-reports', label: 'Kitchen Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports, reportId: 'pos.kds' },
       { to: '/pos/cash-registers', label: 'Cash Registers', icon: Banknote, permission: PERMISSIONS.cashSession.read },
       { to: '/pos/receipts', label: 'POS Receipts', icon: ScrollText, permission: PERMISSIONS.pos.read },
       { to: '/pos/receivables', label: 'Credit / Receivables', icon: HandCoins, permission: PERMISSIONS.pos.read },
-      { to: '/pos/reports', label: 'POS Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports },
+      { to: '/pos/reports', label: 'POS Reports', icon: BarChart3, permission: PERMISSIONS.pos.reports, reportId: POS_REPORT_TAB_IDS },
     ],
   },
   {
@@ -190,7 +201,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/orders', label: 'Orders', icon: ClipboardList },
       { to: '/credit-notes', label: 'Credit Notes', icon: FileMinus, permission: PERMISSIONS.creditNote.read },
       { to: '/payments', label: 'Receipts', icon: HandCoins, permission: PERMISSIONS.payment.read },
-      { to: '/ar-aging', label: 'Accounts Receivable', icon: Clock, permission: PERMISSIONS.report.ar },
+      { to: '/ar-aging', label: 'Accounts Receivable', icon: Clock, permission: PERMISSIONS.report.ar, reportId: 'sales.ar-aging' },
     ],
   },
   {
@@ -204,27 +215,46 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/inventory/waste', label: 'Damages & Waste', icon: PackageX, permission: PERMISSIONS.inventoryDoc.read },
       { to: '/inventory/transfers', label: 'Stock Transfers', icon: Truck, permission: PERMISSIONS.inventoryDoc.read },
       { to: '/inventory/locations', label: 'Locations', icon: MapPin, permission: PERMISSIONS.inventoryLocation.read },
-      { to: '/inventory/reports', label: 'Inventory Reports', icon: BarChart3, permission: 'inventory:read' },
+      { to: '/products', label: 'Products', icon: Package, permission: PERMISSIONS.products.view },
+      { to: '/uom', label: 'Units of Measure', icon: Ruler, permission: PERMISSIONS.uom.read },
+      { to: '/inventory/reports', label: 'Inventory Reports', icon: BarChart3, permission: 'inventory:read', reportId: 'inventory.reports' },
     ],
   },
   {
-    title: 'Master Data',
-    icon: Database,
+    title: 'Customers',
+    icon: Users,
     items: [
       { to: '/customers', label: 'Customers', icon: Users, permission: PERMISSIONS.partners.view },
+    ],
+  },
+  {
+    title: 'Suppliers',
+    icon: Building2,
+    items: [
       { to: '/suppliers', label: 'Suppliers', icon: Building2, permission: PERMISSIONS.partners.view },
-      { to: '/products', label: 'Products', icon: Package, permission: PERMISSIONS.products.view },
-      { to: '/uom', label: 'Units of Measure', icon: Ruler, permission: PERMISSIONS.uom.read },
+    ],
+  },
+  {
+    title: 'Menus',
+    icon: Coffee,
+    items: [
       { to: '/menu', label: 'Menu', icon: Coffee, permission: PERMISSIONS.menu.view },
-      { to: '/tables', label: 'Tables', icon: Coffee, permission: PERMISSIONS.menu.view },
-      { to: '/menu/modifiers', label: 'Modifiers', icon: Tag, permission: PERMISSIONS.menu.view },
       // F13 — combo authoring hidden while combo selling is paused (the POS
       // checkout guard rejects combo lines). Route kept for when it is finished.
       { to: '/menu/accompaniments', label: 'Accompaniments', icon: Tag, permission: PERMISSIONS.menu.view },
+      { to: '/menu/modifiers', label: 'Modifiers', icon: Tag, permission: PERMISSIONS.menu.view },
     ],
   },
   {
-    title: 'Money & Accounts',
+    title: 'Tables',
+    icon: LayoutGrid,
+    items: [
+      { to: '/tables', label: 'Tables', icon: Coffee, permission: PERMISSIONS.menu.view },
+      { to: '/tables/zones', label: 'Areas/Zones', icon: MapPin, permission: PERMISSIONS.menu.view },
+    ],
+  },
+  {
+    title: 'Cash Flow & Accounts',
     icon: Wallet,
     items: [
       { to: '/accounts/cash-accounts', label: 'Overview', icon: LayoutDashboard, permission: PERMISSIONS.account.read },
@@ -234,7 +264,7 @@ const NAV_SECTIONS: NavSection[] = [
       // Cash Registers lives under POS only; Overview links to it from "Open registers".
       { to: '/payments', label: 'Customer Receipts', icon: HandCoins, permission: PERMISSIONS.payment.read },
       { to: '/supplier-payments', label: 'Supplier Payments', icon: Truck, permission: PERMISSIONS.payment.read },
-      { to: '/cash-flow/report', label: 'Money Reports', icon: BarChart3, permission: PERMISSIONS.account.read },
+      { to: '/cash-flow/report', label: 'Money Reports', icon: BarChart3, permission: PERMISSIONS.account.read, reportId: 'money.reports' },
     ],
   },
   {
@@ -247,13 +277,13 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/accounts/posting-rules', label: 'Posting Rules', icon: FileText, permission: PERMISSIONS.inventoryPostingRule.read },
       { to: '/journals', label: 'Journals', icon: BookText, permission: PERMISSIONS.journal.read },
       { to: '/journal-entries', label: 'Journal Entries', icon: ScrollText, permission: PERMISSIONS.journalEntry.read },
-      { to: '/trial-balance', label: 'Trial Balance', icon: Scale, permission: PERMISSIONS.report.accounting },
-      { to: '/general-ledger', label: 'General Ledger', icon: ArrowUpDown, permission: PERMISSIONS.report.accounting },
-      { to: '/accounting-detailed-report', label: 'Detailed Report', icon: FileSpreadsheet, permission: PERMISSIONS.report.accounting },
-      { to: '/profit-and-loss', label: 'Profit & Loss', icon: TrendingUp, permission: PERMISSIONS.report.accounting },
-      { to: '/cash-flow', label: 'Cash Flow Statement', icon: TrendingDown, permission: PERMISSIONS.report.accounting },
-      { to: '/tieout', label: 'Tie-Out', icon: ShieldCheck, permission: PERMISSIONS.report.accounting },
-      { to: '/pos-gl-reconciliation', label: 'POS → GL Recon', icon: Package, permission: PERMISSIONS.report.accounting },
+      { to: '/trial-balance', label: 'Trial Balance', icon: Scale, permission: PERMISSIONS.report.accounting, reportId: 'accounting.trial-balance' },
+      { to: '/general-ledger', label: 'General Ledger', icon: ArrowUpDown, permission: PERMISSIONS.report.accounting, reportId: 'accounting.general-ledger' },
+      { to: '/accounting-detailed-report', label: 'Detailed Report', icon: FileSpreadsheet, permission: PERMISSIONS.report.accounting, reportId: 'accounting.detailed' },
+      { to: '/profit-and-loss', label: 'Profit & Loss', icon: TrendingUp, permission: PERMISSIONS.report.accounting, reportId: 'accounting.profit-and-loss' },
+      { to: '/cash-flow', label: 'Cash Flow Statement', icon: TrendingDown, permission: PERMISSIONS.report.accounting, reportId: 'accounting.cash-flow-statement' },
+      { to: '/tieout', label: 'Tie-Out', icon: ShieldCheck, permission: PERMISSIONS.report.accounting, reportId: 'accounting.tieout' },
+      { to: '/pos-gl-reconciliation', label: 'POS → GL Recon', icon: Package, permission: PERMISSIONS.report.accounting, reportId: 'accounting.pos-gl-recon' },
       { to: '/audit-log', label: 'Audit Log', icon: History, permission: PERMISSIONS.auditLog.read },
       { to: '/fiscal-periods', label: 'Fiscal Periods', icon: CalendarDays, permission: PERMISSIONS.fiscalPeriod.read },
       { to: '/taxes', label: 'Tax Rates', icon: Percent, permission: PERMISSIONS.tax.read },
@@ -261,11 +291,11 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/currency', label: 'Currency', icon: Banknote, permission: PERMISSIONS.currency.read },
       { to: '/accounts/payment-terms', label: 'Payment Terms', icon: CalendarClock, permission: PERMISSIONS.account.read },
       { to: '/accounts/fiscal-positions', label: 'Fiscal Positions', icon: Landmark, permission: PERMISSIONS.account.read },
-      { to: '/inventory-valuation', label: 'Inventory Val.', icon: Package, permission: PERMISSIONS.report.accounting },
-      { to: '/inventory-gl-tieout', label: 'Inventory ↔ GL', icon: ShieldCheck, permission: PERMISSIONS.report.accounting },
+      { to: '/inventory-valuation', label: 'Inventory Val.', icon: Package, permission: PERMISSIONS.report.accounting, reportId: 'accounting.inventory-valuation' },
+      { to: '/inventory-gl-tieout', label: 'Inventory ↔ GL', icon: ShieldCheck, permission: PERMISSIONS.report.accounting, reportId: 'accounting.inventory-gl-tieout' },
       { to: '/year-end-close', label: 'Year-End Close', icon: Lock, permission: PERMISSIONS.fiscalPeriod.update },
-      { to: '/balance-sheet', label: 'Balance Sheet', icon: Landmark, permission: PERMISSIONS.report.accounting },
-      { to: '/reports', label: 'Report Center', icon: BarChart3, permission: PERMISSIONS.report.accounting },
+      { to: '/balance-sheet', label: 'Balance Sheet', icon: Landmark, permission: PERMISSIONS.report.accounting, reportId: 'accounting.balance-sheet' },
+      { to: '/reports', label: 'Report Center', icon: BarChart3, permission: PERMISSIONS.report.accounting, reportId: 'accounting.report-center' },
     ],
   },
   {
@@ -274,7 +304,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { to: '/expenses', label: 'Expenses', icon: FileText, permission: PERMISSIONS.expense.read },
       { to: '/expenses/categories', label: 'Expense Categories', icon: Tag, permission: PERMISSIONS.expense.read },
-      { to: '/expenses/reports', label: 'Expense Reports', icon: BarChart3, permission: PERMISSIONS.expense.read },
+      { to: '/expenses/reports', label: 'Expense Reports', icon: BarChart3, permission: PERMISSIONS.expense.read, reportId: 'expenses.reports' },
       { to: '/supplier-payments', label: 'Supplier Payments', icon: Banknote, permission: PERMISSIONS.payment.read },
     ],
   },
@@ -309,7 +339,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/hr/payroll/settings', label: 'Payroll Settings', icon: SettingsIcon, permission: PERMISSIONS.hr.payroll },
       { to: '/hr/documents', label: 'Documents', icon: FileText, permission: PERMISSIONS.hr.document },
       { to: '/hr/training', label: 'Training', icon: GraduationCap, permission: PERMISSIONS.hr.training },
-      { to: '/hr/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.hr.report },
+      { to: '/hr/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.hr.report, reportId: 'hr.reports' },
       // No permission: both are scoped server-side to the caller's own record
       // (or their own reports), so gating them would mean handing every cashier
       // the staff directory just to let them see their own payslip.
@@ -326,15 +356,15 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'Manufacturing/Bakery',
+    title: 'Production',
     icon: Factory,
     items: [
-      { to: '/manufacturing', label: 'Production', icon: Factory },
+      { to: '/manufacturing', label: 'Dashboard', icon: Factory },
       { to: '/manufacturing/orders', label: 'Orders', icon: ClipboardList },
       { to: '/manufacturing/boms', label: 'Recipes (BOM)', icon: ScrollText },
       { to: '/manufacturing/planning', label: 'Planning', icon: CalendarDays },
       { to: '/manufacturing/resources', label: 'Work Centres', icon: Boxes },
-      { to: '/manufacturing/reports', label: 'Reports', icon: BarChart3 },
+      { to: '/manufacturing/reports', label: 'Reports', icon: BarChart3, reportId: 'manufacturing.reports' },
     ],
   },
   {
@@ -355,7 +385,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/repair/labour', label: 'Labour Catalog', icon: Timer, permission: PERMISSIONS.repair.read },
       { to: '/repair/warranties', label: 'Warranties', icon: ShieldCheck, permission: PERMISSIONS.repair.read },
       { to: '/repair/contracts', label: 'Service Contracts', icon: Handshake, permission: PERMISSIONS.repair.read },
-      { to: '/repair/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.repair.read },
+      { to: '/repair/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.repair.read, reportId: 'repair.reports' },
     ],
   },
   {
@@ -367,7 +397,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/rental/units', label: 'Rental Units', icon: Boxes, permission: PERMISSIONS.rental.read },
       { to: '/rental/catalog', label: 'Rates & Packages', icon: Package, permission: PERMISSIONS.rental.read },
       { to: '/rental/returns', label: 'Returns', icon: ClipboardCheck, permission: PERMISSIONS.rental.read },
-      { to: '/rental/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.rental.read },
+      { to: '/rental/reports', label: 'Reports', icon: BarChart3, permission: PERMISSIONS.rental.read, reportId: 'rental.reports' },
     ],
   },
   {
@@ -406,6 +436,7 @@ const NAV_SECTIONS: NavSection[] = [
       { to: '/approval-policies', label: 'Approval Policies (legacy)', icon: Shield, permission: 'approvals:read' },
       { to: '/staff', label: 'Staff', icon: UserCog, permission: PERMISSIONS.user.read },
       { to: '/staff/roles', label: 'Roles & Permissions', icon: Shield, permission: PERMISSIONS.role.read },
+      { to: '/settings/report-permissions', label: 'Report Permissions', icon: BarChart3, permission: PERMISSIONS.role.read },
       { to: '/settings/payment-methods', label: 'Payment Methods', icon: Wallet, permission: PERMISSIONS.account.read },
       { to: '/settings/registers', label: 'Registers', icon: Banknote, permission: PERMISSIONS.cashRegister.read },
       { to: '/settings/devices', label: 'Offline devices', icon: Smartphone, permission: PERMISSIONS.organization.read },
@@ -456,6 +487,8 @@ export function AppShell() {
   const { theme: sb } = useSidebarTheme();
   const user = useAuthStore((s) => s.user);
   const hasPermission = useAuthStore((s) => s.hasPermission);
+  // Report visibility is configurable per role (Settings → Report Permissions).
+  const canViewReport = useCanViewReport();
   const clear = useAuthStore((s) => s.clear);
   const org = useAuthStore((s) => s.organization);
   const setOrganization = useAuthStore((s) => s.setOrganization);
@@ -589,7 +622,13 @@ export function AppShell() {
       <nav className="flex-1 space-y-1 overflow-y-auto px-1 py-1">
         {sections.map((section, idx) => {
           const items = section.items.filter(
-                      (i) => flagEnabled(i.flag) && (!i.permission || hasPermission(i.permission)),
+                      (i) =>
+                        flagEnabled(i.flag) &&
+                        (!i.permission || hasPermission(i.permission)) &&
+                        (!i.reportId ||
+                          (Array.isArray(i.reportId)
+                            ? i.reportId.some((id) => canViewReport(id))
+                            : canViewReport(i.reportId))),
                     );
           if (items.length === 0) return null;
           const isOpen = !section.title || (!collapsed && expanded[section.title]);
@@ -725,7 +764,7 @@ export function AppShell() {
                   marginTop: 2,
                 }}
               >
-                Point of Sale
+                {tx('Point of Sale')}
               </span>
             </div>
           )}
@@ -786,7 +825,7 @@ export function AppShell() {
                 size="icon"
                 className="md:hidden"
                 onClick={() => setMobileOpen(true)}
-                aria-label="Open menu"
+                aria-label={tx('Open menu')}
               >
                 <Menu className="h-5 w-5" />
               </Button>
@@ -795,6 +834,7 @@ export function AppShell() {
               </div>
             </div>
             <div className="flex items-center gap-1 sm:gap-2">
+              <LanguageSwitcher />
               <ThemePicker />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -827,7 +867,7 @@ export function AppShell() {
                   <DropdownMenuSeparator />
                   <div className="px-2 py-1.5">
                     <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      Active Branch
+                      {tx('Active Branch')}
                     </label>
                     <BranchSwitcher />
                   </div>

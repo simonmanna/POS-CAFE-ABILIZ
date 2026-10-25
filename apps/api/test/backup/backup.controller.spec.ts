@@ -20,6 +20,7 @@ describe('BackupController', () => {
       }),
       listBackups: jest.fn().mockResolvedValue([]),
       getConfig: jest.fn().mockReturnValue({ frequency: 'daily' }),
+      getPublicConfig: jest.fn().mockReturnValue({ frequency: 'daily' }),
       updateConfig: jest.fn().mockResolvedValue({ frequency: 'daily' }),
       runFullBackup: jest.fn().mockResolvedValue({ kind: 'full', status: 'success' }),
       runIncrementalBackup: jest.fn().mockResolvedValue({ kind: 'incremental', status: 'success' }),
@@ -27,6 +28,7 @@ describe('BackupController', () => {
       runConfigBackup: jest.fn().mockResolvedValue({ kind: 'config', status: 'success' }),
       cleanup: jest.fn().mockResolvedValue(undefined),
       restore: jest.fn().mockResolvedValue({ success: true, message: 'Restored' }),
+      runRestoreTest: jest.fn().mockResolvedValue({ kind: 'restore_test', status: 'success' }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -91,6 +93,18 @@ describe('BackupController', () => {
         backupFile: '/path/to/backup.dump' 
       });
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('restore safety', () => {
+    it('a request body cannot turn a restore into something else', async () => {
+      await controller.restore({ scope: 'database', backupFile: 'x.dump', verifyOnly: true } as any);
+      expect(mockBackupService.restore).toHaveBeenCalledWith(expect.objectContaining({ verifyOnly: false }));
+    });
+
+    it('runs a restore test', async () => {
+      const result = await controller.testRestore({});
+      expect(result.status).toBe('success');
     });
   });
 

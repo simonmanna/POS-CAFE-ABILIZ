@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { usePosChangePassword } from '@/features/pos/api';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -40,46 +41,46 @@ export function PosChangePasswordDialog({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Change Password</DialogTitle>
-          <DialogDescription>Confirm with your current login password, then set a new one. Changing it signs other devices out.</DialogDescription>
+          <DialogTitle>{tx('Change Password')}</DialogTitle>
+          <DialogDescription>{tx('Confirm with your current login password, then set a new one. Changing it signs other devices out.')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="currentPassword">Current password</Label>
+            <Label htmlFor="currentPassword">{tx('Current password')}</Label>
             <Input
               id="currentPassword"
               type="password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="Your login password"
+              placeholder={tx('Your login password')}
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="newPassword">New password</Label>
+            <Label htmlFor="newPassword">{tx('New password')}</Label>
             <Input
               id="newPassword"
               type="password"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="At least 8 characters"
+              placeholder={tx('At least 8 characters')}
             />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="confirmPassword">Confirm password</Label>
+            <Label htmlFor="confirmPassword">{tx('Confirm password')}</Label>
             <Input
               id="confirmPassword"
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter new password"
+              placeholder={tx('Re-enter new password')}
             />
             {mismatch && confirmPassword.length > 0 && (
-              <p className="text-xs text-destructive">Passwords do not match</p>
+              <p className="text-xs text-destructive">{tx('Passwords do not match')}</p>
             )}
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => handleOpenChange(false)}>Cancel</Button>
+          <Button variant="outline" onClick={() => handleOpenChange(false)}>{tx('Cancel')}</Button>
           <Button onClick={handleSubmit} disabled={!canSubmit || changePassword.isPending}>
             {changePassword.isPending ? 'Saving…' : 'Change Password'}
           </Button>

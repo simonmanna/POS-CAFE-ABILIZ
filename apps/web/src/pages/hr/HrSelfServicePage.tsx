@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dialog';
 import { notify } from '@/lib/notify';
 import { apiErrorMessage } from '@/lib/api-error';
+import { tx } from '@/lib/i18n/tx';
 
 const date = (d: string | null) => (d ? new Date(d).toLocaleDateString('id-ID') : '—');
 const time = (d: string | null) =>
@@ -55,14 +56,14 @@ export function HrSelfServicePage() {
   const [tab, setTab] = useState('overview');
   const { data: me, isLoading } = useMe();
 
-  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
+  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">{tx('Loading…')}</div>;
 
   if (!me?.linked) {
     return (
       <div className="p-6">
         <Card className="mx-auto max-w-lg">
           <CardHeader>
-            <CardTitle className="text-base">Self-service is not set up for you</CardTitle>
+            <CardTitle className="text-base">{tx('Self-service is not set up for you')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-muted-foreground">
             <p>
@@ -99,37 +100,37 @@ export function HrSelfServicePage() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap">
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="attendance">Attendance</TabsTrigger>
-          <TabsTrigger value="leave">Leave</TabsTrigger>
-          <TabsTrigger value="payslips">Payslips</TabsTrigger>
-          <TabsTrigger value="training">Training</TabsTrigger>
+          <TabsTrigger value="overview">{tx('Overview')}</TabsTrigger>
+          <TabsTrigger value="attendance">{tx('Attendance')}</TabsTrigger>
+          <TabsTrigger value="leave">{tx('Leave')}</TabsTrigger>
+          <TabsTrigger value="payslips">{tx('Payslips')}</TabsTrigger>
+          <TabsTrigger value="training">{tx('Training')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 md:grid-cols-2">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">My employment</CardTitle>
+              <CardTitle className="text-base">{tx('My employment')}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <Row label="Status" value={String(e.employmentStatus).replace(/_/g, ' ')} />
-              <Row label="Type" value={String(e.employmentType).replace(/_/g, ' ')} />
-              <Row label="Hire date" value={date(e.hireDate)} />
+              <Row label={tx('Status')} value={String(e.employmentStatus).replace(/_/g, ' ')} />
+              <Row label={tx('Type')} value={String(e.employmentType).replace(/_/g, ' ')} />
+              <Row label={tx('Hire date')} value={date(e.hireDate)} />
               <Row
-                label="Supervisor"
+                label={tx('Supervisor')}
                 value={
                   e.supervisor
                     ? `${e.supervisor.firstName} ${e.supervisor.lastName ?? ''}`.trim()
                     : '—'
                 }
               />
-              <Row label="Base salary" value={money(e.baseSalary)} />
+              <Row label={tx('Base salary')} value={money(e.baseSalary)} />
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Leave balances</CardTitle>
+              <CardTitle className="text-base">{tx('Leave balances')}</CardTitle>
             </CardHeader>
             <CardContent>
               <LeaveBalances />
@@ -180,11 +181,11 @@ function ClockButtons() {
     <div className="flex gap-2">
       <Button size="sm" variant="outline" disabled={clock.isPending} onClick={() => run('CHECK_IN')}>
         <LogIn className="mr-1.5 h-3.5 w-3.5" />
-        Clock in
+        {tx('Clock in')}
       </Button>
       <Button size="sm" variant="outline" disabled={clock.isPending} onClick={() => run('CHECK_OUT')}>
         <LogOut className="mr-1.5 h-3.5 w-3.5" />
-        Clock out
+        {tx('Clock out')}
       </Button>
     </div>
   );
@@ -193,14 +194,14 @@ function ClockButtons() {
 function LeaveBalances() {
   const { data } = useMyLeaveBalances();
   if (!data?.rows?.length)
-    return <p className="py-4 text-sm text-muted-foreground">No leave balances yet.</p>;
+    return <p className="py-4 text-sm text-muted-foreground">{tx('No leave balances yet.')}</p>;
   return (
     <ul className="space-y-1.5 text-sm">
       {data.rows.map((b: any) => (
         <li key={b.id} className="flex items-center justify-between border-b py-1.5 last:border-0">
           <span>{b.leaveType?.name ?? '—'}</span>
           <span className="font-medium">
-            {Number(b.accruedDays) + Number(b.adjustedDays) - Number(b.usedDays)} left
+            {Number(b.accruedDays) + Number(b.adjustedDays) - Number(b.usedDays)} {tx('left')}
           </span>
         </li>
       ))}
@@ -217,11 +218,11 @@ function MyAttendance() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                <th className="py-2">Date</th>
-                <th className="py-2">Status</th>
-                <th className="py-2">In</th>
-                <th className="py-2">Out</th>
-                <th className="py-2 text-right">Worked (min)</th>
+                <th className="py-2">{tx('Date')}</th>
+                <th className="py-2">{tx('Status')}</th>
+                <th className="py-2">{tx('In')}</th>
+                <th className="py-2">{tx('Out')}</th>
+                <th className="py-2 text-right">{tx('Worked (min)')}</th>
               </tr>
             </thead>
             <tbody>
@@ -237,7 +238,7 @@ function MyAttendance() {
             </tbody>
           </table>
         ) : (
-          <p className="py-8 text-center text-sm text-muted-foreground">No attendance recorded.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">{tx('No attendance recorded.')}</p>
         )}
       </CardContent>
     </Card>
@@ -257,9 +258,9 @@ function MyLeave() {
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between space-y-0">
-        <CardTitle className="text-base">My leave</CardTitle>
+        <CardTitle className="text-base">{tx('My leave')}</CardTitle>
         <Button size="sm" onClick={() => setOpen(true)}>
-          Request leave
+          {tx('Request leave')}
         </Button>
       </CardHeader>
       <CardContent>
@@ -286,13 +287,13 @@ function MyLeave() {
                       onClick={async () => {
                         try {
                           await cancel.mutateAsync(r.id);
-                          notify.success('Leave cancelled');
+                          notify.success(tx('Leave cancelled'));
                         } catch (err) {
                           notify.error(apiErrorMessage(err, 'Could not cancel that request'));
                         }
                       }}
                     >
-                      Cancel
+                      {tx('Cancel')}
                     </Button>
                   )}
                 </div>
@@ -300,28 +301,27 @@ function MyLeave() {
             ))}
           </ul>
         ) : (
-          <p className="py-8 text-center text-sm text-muted-foreground">No leave requests yet.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">{tx('No leave requests yet.')}</p>
         )}
       </CardContent>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Request leave</DialogTitle>
+            <DialogTitle>{tx('Request leave')}</DialogTitle>
             <DialogDescription>
-              Goes to your manager for approval. Overlapping an existing request is rejected, and
-              you cannot approve your own.
+              {tx('Goes to your manager for approval. Overlapping an existing request is rejected, and you cannot approve your own.')}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3">
             <div className="grid gap-1.5">
-              <Label>Leave type</Label>
+              <Label>{tx('Leave type')}</Label>
               <select
                 className="h-9 rounded-md border bg-background px-3 text-sm"
                 value={form.leaveTypeId}
                 onChange={(e) => set('leaveTypeId', e.target.value)}
               >
-                <option value="">Select…</option>
+                <option value="">{tx('Select…')}</option>
                 {(types?.rows ?? []).map((t: any) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
@@ -331,7 +331,7 @@ function MyLeave() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="grid gap-1.5">
-                <Label>From</Label>
+                <Label>{tx('From')}</Label>
                 <Input
                   type="date"
                   value={form.startDate}
@@ -339,7 +339,7 @@ function MyLeave() {
                 />
               </div>
               <div className="grid gap-1.5">
-                <Label>To</Label>
+                <Label>{tx('To')}</Label>
                 <Input
                   type="date"
                   value={form.endDate}
@@ -348,7 +348,7 @@ function MyLeave() {
               </div>
             </div>
             <div className="grid gap-1.5">
-              <Label>Reason</Label>
+              <Label>{tx('Reason')}</Label>
               <Textarea
                 value={form.reason}
                 onChange={(e) => set('reason', e.target.value)}
@@ -358,7 +358,7 @@ function MyLeave() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               disabled={
@@ -367,7 +367,7 @@ function MyLeave() {
               onClick={async () => {
                 try {
                   await request.mutateAsync(form);
-                  notify.success('Leave requested');
+                  notify.success(tx('Leave requested'));
                   setOpen(false);
                   setForm({ leaveTypeId: '', startDate: '', endDate: '', reason: '' });
                 } catch (err) {
@@ -375,7 +375,7 @@ function MyLeave() {
                 }
               }}
             >
-              Submit
+              {tx('Submit')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -396,7 +396,7 @@ function MyPayslips() {
                 <div>
                   <div>{p.payslipNumber}</div>
                   <div className="text-xs text-muted-foreground">
-                    {p.item?.run?.runNumber ?? '—'} · issued {date(p.issuedAt)}
+                    {p.item?.run?.runNumber ?? '—'} {tx('· issued')} {date(p.issuedAt)}
                   </div>
                 </div>
                 <div className="text-right">
@@ -407,7 +407,7 @@ function MyPayslips() {
             ))}
           </ul>
         ) : (
-          <p className="py-8 text-center text-sm text-muted-foreground">No payslips yet.</p>
+          <p className="py-8 text-center text-sm text-muted-foreground">{tx('No payslips yet.')}</p>
         )}
       </CardContent>
     </Card>
@@ -426,7 +426,7 @@ function MyTraining() {
                 <div>
                   <div>{t.program?.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {t.program?.provider ?? 'Internal'} · enrolled {date(t.enrolledAt)}
+                    {t.program?.provider ?? 'Internal'} {tx('· enrolled')} {date(t.enrolledAt)}
                   </div>
                 </div>
                 <Badge className="bg-muted text-muted-foreground">{t.status}</Badge>
@@ -435,7 +435,7 @@ function MyTraining() {
           </ul>
         ) : (
           <p className="py-8 text-center text-sm text-muted-foreground">
-            You are not enrolled on any training.
+            {tx('You are not enrolled on any training.')}
           </p>
         )}
       </CardContent>

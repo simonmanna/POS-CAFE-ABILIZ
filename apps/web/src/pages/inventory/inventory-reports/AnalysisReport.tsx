@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/card';
 import { api } from '@/lib/api';
 import { DataTable, Kpi, KpiGrid, ReportState, money, moveTypeLabel, qty, type Column } from './shared';
 import { FilterBar, type useReportFilters } from './filters';
+import { tx } from '@/lib/i18n/tx';
 
 interface TypeRow { type: string; group: string; movements: number; quantity: number; value: number; direction: 'in' | 'out' }
 interface TopRow { productId: string; code: string | null; name: string; uom: string | null; value: number; quantity: number | null }
@@ -70,24 +71,24 @@ export function AnalysisReport({ ctl }: { ctl: ReturnType<typeof useReportFilter
         {d && s && (
           <>
             {f.preset === 'all' && (
-              <div className="text-xs text-muted-foreground">“All time” is not charted — showing the last 30 days ({d.range.start} → {d.range.end}).</div>
+              <div className="text-xs text-muted-foreground">{tx('“All time” is not charted — showing the last 30 days (')}{d.range.start} → {d.range.end}).</div>
             )}
             <KpiGrid>
-              <Kpi label="Value in" value={money(s.valueIn)} tone="good" hint={`${d.range.start} → ${d.range.end}`} />
-              <Kpi label="Value out" value={money(s.valueOut)} tone="bad" />
-              <Kpi label="Consumed / sold (cost)" value={money(s.consumedValue)} />
-              <Kpi label="Waste & loss (cost)" value={money(s.lostValue)} tone={s.lostValue > 0 ? 'warn' : undefined} />
+              <Kpi label={tx('Value in')} value={money(s.valueIn)} tone="good" hint={`${d.range.start} → ${d.range.end}`} />
+              <Kpi label={tx('Value out')} value={money(s.valueOut)} tone="bad" />
+              <Kpi label={tx('Consumed / sold (cost)')} value={money(s.consumedValue)} />
+              <Kpi label={tx('Waste & loss (cost)')} value={money(s.lostValue)} tone={s.lostValue > 0 ? 'warn' : undefined} />
               <Kpi
-                label="Loss rate"
+                label={tx('Loss rate')}
                 value={s.lossRatePct == null ? '—' : `${s.lossRatePct}%`}
                 tone={s.lossRatePct == null ? undefined : s.lossRatePct > 5 ? 'bad' : s.lossRatePct > 2 ? 'warn' : 'good'}
                 hint={s.lossRatePct == null ? 'No costed consumption in period' : 'Loss ÷ (consumed + loss), at cost'}
               />
-              <Kpi label="Movements" value={s.movements.toLocaleString()} />
+              <Kpi label={tx('Movements')} value={s.movements.toLocaleString()} />
             </KpiGrid>
 
             <Card className="p-3">
-              <div className="mb-2 text-sm font-medium">Daily stock flow (value at cost)</div>
+              <div className="mb-2 text-sm font-medium">{tx('Daily stock flow (value at cost)')}</div>
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={d.trend} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
@@ -104,9 +105,9 @@ export function AnalysisReport({ ctl }: { ctl: ReturnType<typeof useReportFilter
             </Card>
 
             <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-              <TopList title="Top consumed / sold (cost)" rows={d.topConsumed} empty="No consumption in period." />
-              <TopList title="Top waste & loss (cost)" rows={d.topLost} empty="No waste or loss recorded." />
-              <TopList title="Top received (cost)" rows={d.topReceived} empty="No receipts in period." />
+              <TopList title={tx('Top consumed / sold (cost)')} rows={d.topConsumed} empty="No consumption in period." />
+              <TopList title={tx('Top waste & loss (cost)')} rows={d.topLost} empty="No waste or loss recorded." />
+              <TopList title={tx('Top received (cost)')} rows={d.topReceived} empty="No receipts in period." />
             </div>
 
             <DataTable
@@ -115,7 +116,7 @@ export function AnalysisReport({ ctl }: { ctl: ReturnType<typeof useReportFilter
               rowKey={(r) => r.type}
               defaultSort={{ key: 'value', dir: 'desc' }}
               exportName={`inventory-movement-types_${d.range.start}_${d.range.end}`}
-              emptyText="No movements in the selected period."
+              emptyText={tx('No movements in the selected period.')}
             />
           </>
         )}

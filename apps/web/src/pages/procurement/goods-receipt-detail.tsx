@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { date, money } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 interface GRNProduct {
   id: string;
@@ -102,14 +103,14 @@ export default function GoodsReceiptDetailPage() {
 
   const post = useMutation({
     mutationFn: async () => await idempotentPatch<GRNDetail>(`/procurement/goods-receipts/${id}/post`),
-    onSuccess: () => { notify.success('Goods receipt posted — stock received'); refresh(); },
+    onSuccess: () => { notify.success(tx('Goods receipt posted — stock received')); refresh(); },
     onError: (e: any) => notify.error(errText(e, 'Posting failed')),
   });
 
   const reverse = useMutation({
     mutationFn: async (reason: string) =>
       await idempotentPatch<GRNDetail>(`/procurement/goods-receipts/${id}/reverse`, { reason }),
-    onSuccess: () => { notify.success('Goods receipt reversed — stock returned and journals reversed'); setReversing(false); refresh(); },
+    onSuccess: () => { notify.success(tx('Goods receipt reversed — stock returned and journals reversed')); setReversing(false); refresh(); },
     onError: (e: any) => notify.error(errText(e, 'Reversal failed')),
   });
 
@@ -159,14 +160,14 @@ export default function GoodsReceiptDetailPage() {
       <div className="max-w-5xl mx-auto space-y-4 px-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/procurement/goods-receipts')} className="flex items-center text-sm text-sky-700 hover:text-sky-900 gap-1">
-            <ArrowLeft className="h-4 w-4" /> Goods Receipts
+            <ArrowLeft className="h-4 w-4" /> {tx('Goods Receipts')}
           </button>
         </div>
         <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-8 text-center">
-          <h1 className="text-xl font-semibold text-destructive">Not Found</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Goods receipt not found or you don't have permission to view it.</p>
+          <h1 className="text-xl font-semibold text-destructive">{tx('Not Found')}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{tx('Goods receipt not found or you don\'t have permission to view it.')}</p>
           <Button variant="outline" className="mt-4" onClick={() => navigate('/procurement/goods-receipts')}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back to Goods Receipts
+            <ArrowLeft className="mr-2 h-4 w-4" /> {tx('Back to Goods Receipts')}
           </Button>
         </div>
       </div>
@@ -183,7 +184,7 @@ export default function GoodsReceiptDetailPage() {
           onClick={() => navigate('/procurement/goods-receipts')}
           className="flex items-center gap-1 text-sm text-sky-700 hover:text-sky-900"
         >
-          <ArrowLeft className="h-4 w-4" /> Goods Receipts
+          <ArrowLeft className="h-4 w-4" /> {tx('Goods Receipts')}
         </button>
         <span className="text-sky-300">/</span>
         <span className="font-mono text-sm text-sky-900 font-semibold">{grn.receiptNumber}</span>
@@ -195,19 +196,19 @@ export default function GoodsReceiptDetailPage() {
           )}
           {grn.status === 'posted' && has('goods_receipt:cancel') && (
             <Button size="sm" variant="outline" disabled={reverse.isPending} onClick={() => setReversing(true)}>
-              <Undo2 className="mr-1.5 h-4 w-4" />Reverse
+              <Undo2 className="mr-1.5 h-4 w-4" />{tx('Reverse')}
             </Button>
           )}
         </div>
       </div>
       {grn.reversedAt && (
         <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
-          Reversed {date(grn.reversedAt)}{grn.reversalReason ? ` — ${grn.reversalReason}` : ''}. Stock was returned and the receipt's journals were reversed.
+          {tx('Reversed')} {date(grn.reversedAt)}{grn.reversalReason ? ` — ${grn.reversalReason}` : ''}{tx('. Stock was returned and the receipt\'s journals were reversed.')}
         </div>
       )}
 
       <div className="rounded-t-lg bg-gradient-to-r from-sky-400 to-sky-500 px-6 py-3 flex items-center justify-between shadow-sm">
-        <h1 className="text-white font-bold text-base tracking-wide">GOODS RECEIPT NOTE</h1>
+        <h1 className="text-white font-bold text-base tracking-wide">{tx('GOODS RECEIPT NOTE')}</h1>
         <Badge variant={BADGE_VARIANTS[grn.status]} className="text-sm px-3 py-1">
           {STATUS_LABELS[grn.status] ?? grn.status}
         </Badge>
@@ -216,12 +217,12 @@ export default function GoodsReceiptDetailPage() {
       <div className="bg-white border border-t-0 border-sky-100 shadow-sm rounded-b-lg overflow-hidden">
         <div className="grid grid-cols-1 md:grid-cols-2 divide-x divide-sky-100">
           <div className="p-4 bg-sky-50/30">
-            <p className="text-xs text-sky-500 font-bold uppercase tracking-wider mb-1">Supplier</p>
+            <p className="text-xs text-sky-500 font-bold uppercase tracking-wider mb-1">{tx('Supplier')}</p>
             <p className="font-bold text-base text-sky-900">{grn.partner?.name ?? '—'}</p>
-            <p className="text-xs text-sky-400 mt-1">Partner</p>
+            <p className="text-xs text-sky-400 mt-1">{tx('Partner')}</p>
 
             <div className="mt-4">
-              <p className="text-xs text-sky-500 font-bold uppercase tracking-wider mb-1">Warehouse</p>
+              <p className="text-xs text-sky-500 font-bold uppercase tracking-wider mb-1">{tx('Warehouse')}</p>
               <p className="font-semibold text-sm text-sky-900">
                 {grn.warehouse ? `${grn.warehouse.code} — ${grn.warehouse.name}` : '—'}
               </p>
@@ -229,7 +230,7 @@ export default function GoodsReceiptDetailPage() {
 
             {grn.notes && (
               <div className="mt-4">
-                <p className="text-xs text-sky-500 font-bold uppercase tracking-wider mb-1">Notes</p>
+                <p className="text-xs text-sky-500 font-bold uppercase tracking-wider mb-1">{tx('Notes')}</p>
                 <p className="text-sm text-sky-800">{grn.notes}</p>
               </div>
             )}
@@ -239,15 +240,15 @@ export default function GoodsReceiptDetailPage() {
             <table className="w-full text-sm">
               <tbody className="divide-y divide-sky-100">
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-2 w-28 align-top">Receipt No</th>
+                  <th className="text-left text-sky-600 font-medium py-2 w-28 align-top">{tx('Receipt No')}</th>
                   <td className="text-right font-bold text-sky-900 py-2">{grn.receiptNumber}</td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-2 align-top">Received Date</th>
+                  <th className="text-left text-sky-600 font-medium py-2 align-top">{tx('Received Date')}</th>
                   <td className="text-right text-sky-800 py-2">{date(grn.receivedAt)}</td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-2 align-top">Status</th>
+                  <th className="text-left text-sky-600 font-medium py-2 align-top">{tx('Status')}</th>
                   <td className="text-right text-sky-800 py-2">
                     <Badge variant={BADGE_VARIANTS[grn.status]}>
                       {STATUS_LABELS[grn.status] ?? grn.status}
@@ -255,15 +256,15 @@ export default function GoodsReceiptDetailPage() {
                   </td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-2 align-top">PO Reference</th>
+                  <th className="text-left text-sky-600 font-medium py-2 align-top">{tx('PO Reference')}</th>
                   <td className="text-right text-sky-800 py-2">{grn.order?.orderNumber ?? '—'}</td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-2 align-top">Posted At</th>
+                  <th className="text-left text-sky-600 font-medium py-2 align-top">{tx('Posted At')}</th>
                   <td className="text-right text-sky-800 py-2">{grn.postedAt ? date(grn.postedAt) : '—'}</td>
                 </tr>
                 <tr>
-                  <th className="text-left text-sky-600 font-medium py-2 align-top">Created At</th>
+                  <th className="text-left text-sky-600 font-medium py-2 align-top">{tx('Created At')}</th>
                   <td className="text-right text-sky-800 py-2">{date(grn.createdAt)}</td>
                 </tr>
               </tbody>
@@ -276,21 +277,21 @@ export default function GoodsReceiptDetailPage() {
             <TableHeader>
               <TableRow className="bg-sky-50 hover:bg-sky-50">
                 <TableHead className="w-12 text-sky-700 font-bold text-xs uppercase tracking-wider">#</TableHead>
-                <TableHead className="w-24 text-sky-700 font-bold text-xs uppercase tracking-wider">Product Code</TableHead>
-                <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Product Name</TableHead>
-                <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">Description</TableHead>
-                <TableHead className="w-24 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Qty</TableHead>
-                <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Unit Cost</TableHead>
-                <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">Total</TableHead>
-                <TableHead className="w-24 text-sky-700 font-bold text-xs uppercase tracking-wider">Batch #</TableHead>
-                <TableHead className="w-28 text-sky-700 font-bold text-xs uppercase tracking-wider">Expiry</TableHead>
+                <TableHead className="w-24 text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Product Code')}</TableHead>
+                <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Product Name')}</TableHead>
+                <TableHead className="text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Description')}</TableHead>
+                <TableHead className="w-24 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Qty')}</TableHead>
+                <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Unit Cost')}</TableHead>
+                <TableHead className="w-28 text-right text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Total')}</TableHead>
+                <TableHead className="w-24 text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Batch #')}</TableHead>
+                <TableHead className="w-28 text-sky-700 font-bold text-xs uppercase tracking-wider">{tx('Expiry')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {grn.lines.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={9} className="py-10 text-center text-sky-400">
-                    No line items found.
+                    {tx('No line items found.')}
                   </TableCell>
                 </TableRow>
               ) : grn.lines.map((l, index) => {
@@ -324,16 +325,16 @@ export default function GoodsReceiptDetailPage() {
           <div className="flex justify-end">
             <div className="w-80 space-y-2 pt-3 pb-3 pr-4">
               <div className="flex justify-between gap-8">
-                <span className="text-muted-foreground">Total Items</span>
+                <span className="text-muted-foreground">{tx('Total Items')}</span>
                 <span className="font-semibold">{grn.lines.length}</span>
               </div>
               <div className="flex justify-between gap-8">
-                <span className="text-muted-foreground">Total Quantity</span>
+                <span className="text-muted-foreground">{tx('Total Quantity')}</span>
                 <span className="font-semibold">{totalQty.toLocaleString()}</span>
               </div>
               <div className="border-t-2 border-sky-200 pt-2">
                 <div className="flex justify-between gap-8 font-bold text-sm">
-                  <span>Total Cost</span>
+                  <span>{tx('Total Cost')}</span>
                   <span>{money(totalCost)}</span>
                 </div>
               </div>
@@ -352,11 +353,11 @@ export default function GoodsReceiptDetailPage() {
         title={`Reverse ${grn.receiptNumber}`}
         description={
           <>
-            <p>Returns the received quantities out of stock, reverses the receipt's journal entries (inventory, GRNI and any supplier payable) today, and rolls the purchase order back.</p>
-            <p>Not possible once a vendor bill or payment exists — use a debit note for supplier returns.</p>
+            <p>{tx('Returns the received quantities out of stock, reverses the receipt\'s journal entries (inventory, GRNI and any supplier payable) today, and rolls the purchase order back.')}</p>
+            <p>{tx('Not possible once a vendor bill or payment exists — use a debit note for supplier returns.')}</p>
           </>
         }
-        confirmLabel="Reverse receipt"
+        confirmLabel={tx('Reverse receipt')}
         pendingLabel="Reversing…"
         destructive
         pending={reverse.isPending}

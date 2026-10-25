@@ -29,7 +29,7 @@ export class BackupController {
   @Get('settings')
   @RequirePermissions(PERMISSIONS.backup.read)
   getSettings() {
-    return this.backups.getConfig();
+    return this.backups.getPublicConfig();
   }
 
   @Put('settings')
@@ -68,15 +68,23 @@ export class BackupController {
     return this.backups.cleanup();
   }
 
+  /** Restores into a NEW database; the live database is never overwritten from here. */
   @Post('restore')
   @RequirePermissions(PERMISSIONS.backup.run)
   async restore(@Body() dto: RestoreDto) {
-    return this.backups.restore(dto);
+    return this.backups.restore({ ...dto, verifyOnly: false });
   }
 
   @Post('restore/verify')
   @RequirePermissions(PERMISSIONS.backup.read)
   async verifyRestore(@Body() dto: { backupFile: string }) {
-    return this.backups.restore({ ...dto, verifyOnly: true, scope: 'database' });
+    return this.backups.restore({ backupFile: dto.backupFile, verifyOnly: true, scope: 'database' });
+  }
+
+  /** Full restore into a throwaway database, checked against the live one, then dropped. */
+  @Post('restore/test')
+  @RequirePermissions(PERMISSIONS.backup.run)
+  async testRestore(@Body() dto: { backupFile?: string }) {
+    return this.backups.runRestoreTest(dto?.backupFile);
   }
 }

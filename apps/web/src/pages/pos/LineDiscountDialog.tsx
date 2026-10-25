@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { CartLine, DiscountType } from '@/features/pos/types';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -69,8 +70,8 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Tag className="h-4 w-4" /> Line discount</DialogTitle>
-          <DialogDescription>Discount a single item. A reason is required; ≥10% or {orgCur()} 50,000 needs a manager override.</DialogDescription>
+          <DialogTitle className="flex items-center gap-2"><Tag className="h-4 w-4" /> {tx('Line discount')}</DialogTitle>
+          <DialogDescription>{tx('Discount a single item. A reason is required; ≥10% or')} {orgCur()} {tx('50,000 needs a manager override.')}</DialogDescription>
         </DialogHeader>
 
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -89,7 +90,7 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
             }`}
             onClick={() => setMode('percentage')}
           >
-            <Percent className="w-3.5 h-3.5" /> Percentage
+            <Percent className="w-3.5 h-3.5" /> {tx('Percentage')}
           </button>
           <button
             type="button"
@@ -98,7 +99,7 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
             }`}
             onClick={() => setMode('fixed_amount')}
           >
-            <DollarSign className="w-3.5 h-3.5" /> Fixed Amount
+            <DollarSign className="w-3.5 h-3.5" /> {tx('Fixed Amount')}
           </button>
         </div>
 
@@ -118,11 +119,11 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
             line without one, so collect it up front instead of failing the
             sale at quote time with no way to fix it. */}
         <div>
-          <Label>Reason (required)</Label>
+          <Label>{tx('Reason (required)')}</Label>
           <Input
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Why is this line discounted?"
+            placeholder={tx('Why is this line discounted?')}
           />
           <div className="flex flex-wrap gap-1.5 mt-1.5">
             {COMMON_REASONS.map((r) => (
@@ -140,25 +141,25 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
 
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div className="rounded border border-slate-200 px-3 py-2 bg-slate-50">
-            <div className="text-xs text-slate-500">Current</div>
+            <div className="text-xs text-slate-500">{tx('Current')}</div>
             <div className="font-mono font-bold">{fmt(lineSub)}</div>
           </div>
           <div className="rounded border border-emerald-200 px-3 py-2 bg-emerald-50">
-            <div className="text-xs text-emerald-700">After discount</div>
+            <div className="text-xs text-emerald-700">{tx('After discount')}</div>
             <div className="font-mono font-bold text-emerald-700">{fmt(valid ? newSub : lineSub)}</div>
           </div>
         </div>
 
         {requiresOverride ? (
           <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2">
-            ✓ This line discount requires a manager override at charge time.
+            {tx('✓ This line discount requires a manager override at charge time.')}
           </div>
         ) : null}
 
         {err ? <p className="text-sm text-rose-600">{err}</p> : null}
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{tx('Cancel')}</Button>
           <Button
             onClick={() => {
               if (!valid) { setErr(mode === 'percentage' ? 'Enter a percent between 0 and 100' : 'Enter a valid amount'); return; }
@@ -168,7 +169,7 @@ export const LineDiscountDialog: React.FC<Props> = ({ open, line, onClose, onApp
             }}
             style={{ background: '#f59e0b' }}
           >
-            Apply
+            {tx('Apply')}
           </Button>
         </DialogFooter>
       </DialogContent>

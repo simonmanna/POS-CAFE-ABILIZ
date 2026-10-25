@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { useRole, useUpdateRole, usePermissionCatalog } from '@/features/staff/api';
 import type { PermissionGroup } from '@/features/staff/types';
+import { tx } from '@/lib/i18n/tx';
 
 /** Prettify a resource key like "production_order" -> "Production Order". */
 function prettyResource(resource: string): string {
@@ -121,9 +122,9 @@ export function RoleEditPage() {
   if (roleQuery.isError || !role) {
     return (
       <div className="space-y-4 p-6">
-        <p className="text-sm text-destructive">Could not load this role.</p>
+        <p className="text-sm text-destructive">{tx('Could not load this role.')}</p>
         <Button variant="outline" onClick={() => navigate('/staff/roles')}>
-          <ArrowLeft className="h-4 w-4" /> Back to Roles
+          <ArrowLeft className="h-4 w-4" /> {tx('Back to Roles')}
         </Button>
       </div>
     );
@@ -139,14 +140,14 @@ export function RoleEditPage() {
         <span className="opacity-50">/</span>
         <span className="font-medium text-foreground">{role.name}</span>
         <Badge variant="secondary" className="ml-1 text-[10px]">
-          Edit
+          {tx('Edit')}
         </Badge>
       </nav>
 
       {/* Header bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <Button variant="outline" size="icon" onClick={() => navigate('/staff/roles')} aria-label="Back">
+          <Button variant="outline" size="icon" onClick={() => navigate('/staff/roles')} aria-label={tx('Back')}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex items-center gap-2">
@@ -156,7 +157,7 @@ export function RoleEditPage() {
               <ShieldCheck className="h-5 w-5 text-primary" />
             )}
             <div>
-              <h1 className="text-2xl font-semibold leading-tight">Edit Role</h1>
+              <h1 className="text-2xl font-semibold leading-tight">{tx('Edit Role')}</h1>
               <p className="text-sm text-muted-foreground">
                 {role.isSystem
                   ? 'Seeded system role — rename, describe, and adjust permissions.'
@@ -167,10 +168,10 @@ export function RoleEditPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => navigate('/staff/roles')}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button onClick={onSave} disabled={!canSave}>
-            <Save className="h-4 w-4" /> Save changes
+            <Save className="h-4 w-4" /> {tx('Save changes')}
           </Button>
         </div>
       </div>
@@ -184,12 +185,11 @@ export function RoleEditPage() {
         </span>
         <span className="text-muted-foreground">·</span>
         <span className="text-muted-foreground">
-          <span className="font-medium text-foreground">{selectedCount}</span> of {totalCount} permissions
-          selected
+          <span className="font-medium text-foreground">{selectedCount}</span> of {totalCount} {tx('permissions selected')}
         </span>
         {role.isSystem && (
           <Badge variant="secondary" className="text-[10px]">
-            System
+            {tx('System')}
           </Badge>
         )}
       </div>
@@ -199,12 +199,12 @@ export function RoleEditPage() {
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
             <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              Role Details
+              {tx('Role Details')}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4 p-5">
             <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
+              <Label htmlFor="name">{tx('Name')}</Label>
               <Input
                 id="name"
                 value={name}
@@ -212,14 +212,14 @@ export function RoleEditPage() {
                   setName(e.target.value);
                   setTouched(true);
                 }}
-                placeholder="Cashier"
+                placeholder={tx('Cashier')}
               />
               {name.trim().length > 0 && name.trim().length < 2 && (
-                <p className="text-sm text-destructive">At least 2 characters.</p>
+                <p className="text-sm text-destructive">{tx('At least 2 characters.')}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
+              <Label htmlFor="description">{tx('Description')}</Label>
               <Input
                 id="description"
                 value={description}
@@ -227,19 +227,19 @@ export function RoleEditPage() {
                   setDescription(e.target.value);
                   setTouched(true);
                 }}
-                placeholder="Front-of-house staff"
+                placeholder={tx('Front-of-house staff')}
               />
             </div>
             <div className="rounded-md border bg-muted/30 p-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Selected permissions</span>
+                <span className="text-muted-foreground">{tx('Selected permissions')}</span>
                 <span className="font-semibold">
                   {selectedCount}/{totalCount}
                 </span>
               </div>
               {selectedCount === 0 && (
                 <p className="mt-2 text-xs text-destructive">
-                  Pick at least one permission to save this role.
+                  {tx('Pick at least one permission to save this role.')}
                 </p>
               )}
             </div>
@@ -250,13 +250,13 @@ export function RoleEditPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-3 bg-muted/30 border-b rounded-t-lg">
             <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              Permissions
+              {tx('Permissions')}
             </CardTitle>
             <div className="relative w-full max-w-xs">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 className="pl-9"
-                placeholder="Filter permissions…"
+                placeholder={tx('Filter permissions…')}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -264,7 +264,7 @@ export function RoleEditPage() {
           </CardHeader>
           <CardContent className="p-0">
             {catalog.isLoading ? (
-              <p className="p-5 text-sm text-muted-foreground">Loading permissions…</p>
+              <p className="p-5 text-sm text-muted-foreground">{tx('Loading permissions…')}</p>
             ) : (
               <div className="divide-y">
                 {filteredGroups.map((group) => {
@@ -351,7 +351,7 @@ export function RoleEditPage() {
                 })}
                 {filteredGroups.length === 0 && (
                   <p className="p-5 text-sm text-muted-foreground">
-                    No permissions match “{search}”.
+                    {tx('No permissions match “')}{search}”.
                   </p>
                 )}
               </div>
@@ -363,7 +363,7 @@ export function RoleEditPage() {
       {touched && (
         <div className="flex justify-end">
           <Button onClick={onSave} disabled={!canSave}>
-            <Save className="h-4 w-4" /> Save changes
+            <Save className="h-4 w-4" /> {tx('Save changes')}
           </Button>
         </div>
       )}

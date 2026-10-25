@@ -20,6 +20,7 @@ import {
   DEAL_STAGES, STAGE_META, dealCurrency, ACTIVITY_TYPES, type ActivityType,
 } from '@/features/crm/api';
 import { DealFormDialog } from '@/features/crm/deal-form';
+import { tx } from '@/lib/i18n/tx';
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -99,7 +100,7 @@ function ActivityComposer({ dealId, partnerId }: { dealId: string; partnerId: st
   return (
     <Card>
       <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg">
-        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Log activity</CardTitle>
+        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Log activity')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 px-5 py-4">
         <div className="grid grid-cols-3 gap-2">
@@ -121,15 +122,15 @@ function ActivityComposer({ dealId, partnerId }: { dealId: string; partnerId: st
           })}
         </div>
         <Input placeholder={type === 'task' ? 'Task title (e.g. Send proposal)' : `Short ${type} summary…`} value={title} onChange={(e) => setTitle(e.target.value)} />
-        <Textarea rows={2} placeholder="Details (optional)" value={body} onChange={(e) => setBody(e.target.value)} />
+        <Textarea rows={2} placeholder={tx('Details (optional)')} value={body} onChange={(e) => setBody(e.target.value)} />
         {type === 'task' && (
           <div className="flex items-center gap-2">
-            <Label htmlFor="act-due" className="text-xs text-muted-foreground">Due</Label>
+            <Label htmlFor="act-due" className="text-xs text-muted-foreground">{tx('Due')}</Label>
             <Input id="act-due" type="date" className="w-44" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
           </div>
         )}
         <Button size="sm" disabled={!canSubmit} onClick={submit}>
-          <Plus className="mr-1.5 h-4 w-4" /> Add {type === 'task' ? 'task' : type}
+          <Plus className="mr-1.5 h-4 w-4" /> {tx('Add')} {type === 'task' ? 'task' : type}
         </Button>
       </CardContent>
     </Card>
@@ -162,10 +163,10 @@ export function DealDetailPage() {
     return (
       <div className="space-y-6 px-2 md:px-4 py-3 mx-auto">
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-6 text-center">
-          <h1 className="text-2xl font-semibold text-destructive">Not Found</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Deal not found or archived.</p>
+          <h1 className="text-2xl font-semibold text-destructive">{tx('Not Found')}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{tx('Deal not found or archived.')}</p>
           <Button variant="outline" className="mt-4" onClick={() => navigate('/crm/deals')}>
-            <ArrowLeft className="mr-2 h-4 w-4" /> Back to deals
+            <ArrowLeft className="mr-2 h-4 w-4" /> {tx('Back to deals')}
           </Button>
         </div>
       </div>
@@ -180,7 +181,7 @@ export function DealDetailPage() {
       <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
         <button onClick={() => navigate('/crm')} className="hover:text-foreground transition-colors">CRM</button>
         <ChevronRight className="h-3.5 w-3.5" />
-        <button onClick={() => navigate('/crm/deals')} className="hover:text-foreground transition-colors">Deals</button>
+        <button onClick={() => navigate('/crm/deals')} className="hover:text-foreground transition-colors">{tx('Deals')}</button>
         <ChevronRight className="h-3.5 w-3.5" />
         <span className="text-foreground font-medium truncate">{deal.name}</span>
       </nav>
@@ -210,22 +211,22 @@ export function DealDetailPage() {
           <div className="flex items-center gap-2">
             {hasWrite && (
               <Button size="sm" variant="secondary" className="bg-white/20 text-white hover:bg-white/30 border-0" onClick={() => setEditOpen(true)}>
-                <Pencil className="mr-1.5 h-4 w-4" /> Edit
+                <Pencil className="mr-1.5 h-4 w-4" /> {tx('Edit')}
               </Button>
             )}
             <Button size="sm" variant="secondary" className="bg-white/20 text-white hover:bg-white/30 border-0" onClick={() => navigate('/crm/deals')}>
-              <ArrowLeft className="mr-1.5 h-4 w-4" /> Back
+              <ArrowLeft className="mr-1.5 h-4 w-4" /> {tx('Back')}
             </Button>
           </div>
         </div>
         <div className="mt-4 flex items-end justify-between">
           <div>
-            <p className="text-xs uppercase tracking-wider text-white/70">Expected value</p>
+            <p className="text-xs uppercase tracking-wider text-white/70">{tx('Expected value')}</p>
             <p className="text-3xl font-bold">{money(deal.amount, dealCurrency(deal))}</p>
           </div>
           {deal.expectedClose && (
             <div className="text-right">
-              <p className="text-xs uppercase tracking-wider text-white/70">Expected close</p>
+              <p className="text-xs uppercase tracking-wider text-white/70">{tx('Expected close')}</p>
               <p className="font-semibold">{date(deal.expectedClose)}</p>
             </div>
           )}
@@ -241,43 +242,43 @@ export function DealDetailPage() {
 
       <Tabs defaultValue="overview">
         <TabsList className="bg-muted/50 p-1">
-          <TabsTrigger value="overview" className="data-[state=active]:bg-background">Overview</TabsTrigger>
-          <TabsTrigger value="timeline" className="data-[state=active]:bg-background">Timeline ({activities.length})</TabsTrigger>
+          <TabsTrigger value="overview" className="data-[state=active]:bg-background">{tx('Overview')}</TabsTrigger>
+          <TabsTrigger value="timeline" className="data-[state=active]:bg-background">{tx('Timeline (')}{activities.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card>
               <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Deal Info</CardTitle>
+                <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Deal Info')}</CardTitle>
               </CardHeader>
               <CardContent className="px-5 pb-4">
                 <dl className="divide-y">
-                  <InfoRow label="Customer" value={deal.partner?.name} />
-                  <InfoRow label="Value" value={<span className="font-semibold">{money(deal.amount, dealCurrency(deal))}</span>} />
-                  <InfoRow label="Currency" value={deal.currencyCode} />
-                  <InfoRow label="Stage" value={<Badge variant="secondary" className={`text-xs capitalize ${STAGE_META[deal.stage].chip}`}>{deal.stage}</Badge>} />
-                  <InfoRow label="Owner" value={deal.owner?.name ?? 'Unassigned'} />
-                  <InfoRow label="Expected close" value={deal.expectedClose ? date(deal.expectedClose) : null} />
-                  <InfoRow label="Created" value={<span className="text-sm">{dateTime(deal.createdAt)}</span>} />
-                  <InfoRow label="Updated" value={<span className="text-sm">{dateTime(deal.updatedAt)}</span>} />
+                  <InfoRow label={tx('Customer')} value={deal.partner?.name} />
+                  <InfoRow label={tx('Value')} value={<span className="font-semibold">{money(deal.amount, dealCurrency(deal))}</span>} />
+                  <InfoRow label={tx('Currency')} value={deal.currencyCode} />
+                  <InfoRow label={tx('Stage')} value={<Badge variant="secondary" className={`text-xs capitalize ${STAGE_META[deal.stage].chip}`}>{deal.stage}</Badge>} />
+                  <InfoRow label={tx('Owner')} value={deal.owner?.name ?? 'Unassigned'} />
+                  <InfoRow label={tx('Expected close')} value={deal.expectedClose ? date(deal.expectedClose) : null} />
+                  <InfoRow label={tx('Created')} value={<span className="text-sm">{dateTime(deal.createdAt)}</span>} />
+                  <InfoRow label={tx('Updated')} value={<span className="text-sm">{dateTime(deal.updatedAt)}</span>} />
                 </dl>
               </CardContent>
             </Card>
             <Card>
               <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Notes</CardTitle>
+                <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Notes')}</CardTitle>
               </CardHeader>
               <CardContent className="px-5 pb-4">
                 {deal.notes ? (
                   <p className="whitespace-pre-wrap text-sm text-foreground">{deal.notes}</p>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No notes yet.</p>
+                  <p className="text-sm text-muted-foreground">{tx('No notes yet.')}</p>
                 )}
                 {hasWrite && (
                   <div className="mt-4 border-t pt-3">
                     {deal.stage === 'won' ? (
-                      <p className="text-xs text-muted-foreground">Won deals are archived permanently and cannot be deleted.</p>
+                      <p className="text-xs text-muted-foreground">{tx('Won deals are archived permanently and cannot be deleted.')}</p>
                     ) : (
                       <Button
                         variant="outline"
@@ -290,7 +291,7 @@ export function DealDetailPage() {
                           }
                         }}
                       >
-                        <Trash2 className="mr-1.5 h-4 w-4" /> Archive deal
+                        <Trash2 className="mr-1.5 h-4 w-4" /> {tx('Archive deal')}
                       </Button>
                     )}
                   </div>
@@ -305,11 +306,11 @@ export function DealDetailPage() {
 
           <Card>
             <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Timeline</CardTitle>
+              <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Timeline')}</CardTitle>
             </CardHeader>
             <CardContent className="px-5 py-4">
               {activities.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">No activity yet — log a call, meeting or note.</p>
+                <p className="py-6 text-center text-sm text-muted-foreground">{tx('No activity yet — log a call, meeting or note.')}</p>
               ) : (
                 <ul className="space-y-4">
                   {activities.map((a) => {
@@ -329,22 +330,22 @@ export function DealDetailPage() {
                             <Badge variant="outline" className="text-[10px] capitalize">{a.type.replace(/_/g, ' ')}</Badge>
                             {a.subjectType === 'Invoice' && a.subjectId && (
                               <Button variant="link" size="sm" className="h-6 px-1 text-[11px] text-primary" onClick={() => navigate(`/invoices/${a.subjectId}`)}>
-                                <FileText className="mr-1 h-3 w-3" /> View invoice
+                                <FileText className="mr-1 h-3 w-3" /> {tx('View invoice')}
                               </Button>
                             )}
                             {a.type === 'task' && (
                               <>
                                 {a.dueAt && (
                                   <span className={cn('flex items-center gap-1 text-[11px]', a.status === 'done' ? 'text-emerald-600 line-through' : 'text-muted-foreground')}>
-                                    <Clock className="h-3 w-3" /> Due {date(a.dueAt)}
+                                    <Clock className="h-3 w-3" /> {tx('Due')} {date(a.dueAt)}
                                   </span>
                                 )}
                                 {a.status !== 'done' ? (
                                   <Button variant="outline" size="sm" className="h-6 px-2 text-[11px]" onClick={() => completeActivity.mutate(a.id)}>
-                                    <Check className="mr-1 h-3 w-3" /> Complete
+                                    <Check className="mr-1 h-3 w-3" /> {tx('Complete')}
                                   </Button>
                                 ) : (
-                                  <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">Done</Badge>
+                                  <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">{tx('Done')}</Badge>
                                 )}
                               </>
                             )}
@@ -353,7 +354,7 @@ export function DealDetailPage() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                                title="Delete activity"
+                                title={tx('Delete activity')}
                                 onClick={() => deleteActivity.mutate(a.id)}
                               >
                                 <Trash2 className="h-3 w-3" />

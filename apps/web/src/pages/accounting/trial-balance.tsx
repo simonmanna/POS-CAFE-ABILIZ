@@ -10,6 +10,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { money } from '@/lib/format';
 import { useTrialBalance } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 export function TrialBalancePage() {
   const { data, isLoading } = useTrialBalance({});
@@ -18,8 +19,8 @@ export function TrialBalancePage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Trial Balance</h1>
-          <p className="text-sm text-muted-foreground">Net debit/credit per account (posted entries).</p>
+          <h1 className="text-2xl font-semibold">{tx('Trial Balance')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Net debit/credit per account (posted entries).')}</p>
         </div>
         {data && (
           <Badge variant={data.balanced ? 'default' : 'destructive'}>
@@ -32,10 +33,10 @@ export function TrialBalancePage() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Code</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead className="text-right">Debit</TableHead>
-              <TableHead className="text-right">Credit</TableHead>
+              <TableHead>{tx('Code')}</TableHead>
+              <TableHead>{tx('Account')}</TableHead>
+              <TableHead className="text-right">{tx('Debit')}</TableHead>
+              <TableHead className="text-right">{tx('Credit')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -50,7 +51,7 @@ export function TrialBalancePage() {
             ) : !data || data.rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
-                  No posted entries yet.
+                  {tx('No posted entries yet.')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -64,7 +65,7 @@ export function TrialBalancePage() {
                   </TableRow>
                 ))}
                 <TableRow className="font-semibold">
-                  <TableCell colSpan={2}>Total</TableCell>
+                  <TableCell colSpan={2}>{tx('Total')}</TableCell>
                   <TableCell className="text-right">{money(data.totals.debit)}</TableCell>
                   <TableCell className="text-right">{money(data.totals.credit)}</TableCell>
                 </TableRow>

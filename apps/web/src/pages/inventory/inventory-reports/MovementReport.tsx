@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { dateTime } from '@/lib/format';
 import { DataTable, Kpi, KpiGrid, moveTypeLabel, ReportState, money, qty, type Column } from './shared';
 import { FilterBar, type useReportFilters } from './filters';
+import { tx } from '@/lib/i18n/tx';
 
 interface MovementRow {
   productId: string;
@@ -211,20 +212,20 @@ export function MovementReport({ ctl }: { ctl: ReturnType<typeof useReportFilter
             </button>
           ))}
         </div>
-        {view === 'lines' && <span className="text-xs text-muted-foreground">Every stock movement — stock in, stock out, waste / damages, adjustments, transfers.</span>}
+        {view === 'lines' && <span className="text-xs text-muted-foreground">{tx('Every stock movement — stock in, stock out, waste / damages, adjustments, transfers.')}</span>}
       </div>
 
       {view === 'summary' && (
         <ReportState query={report}>
           {t && (
             <KpiGrid>
-              <Kpi label="Items" value={t.items.toLocaleString()} hint={periodLabel} />
-              <Kpi label="Value received (in)" value={money(t.valueIn)} tone="good" hint={`${qty(t.qtyIn)} units`} />
-              <Kpi label="Value issued (out)" value={money(t.valueOut)} tone="bad" hint={`${qty(t.qtyOut)} units`} />
-              <Kpi label="Net quantity" value={qty(t.netQty)} tone={t.netQty < 0 ? 'bad' : t.netQty > 0 ? 'good' : undefined} />
-              <Kpi label="Closing stock value" value={money(t.closingValue)} hint="Closing qty × current avg cost" />
+              <Kpi label={tx('Items')} value={t.items.toLocaleString()} hint={periodLabel} />
+              <Kpi label={tx('Value received (in)')} value={money(t.valueIn)} tone="good" hint={`${qty(t.qtyIn)} units`} />
+              <Kpi label={tx('Value issued (out)')} value={money(t.valueOut)} tone="bad" hint={`${qty(t.qtyOut)} units`} />
+              <Kpi label={tx('Net quantity')} value={qty(t.netQty)} tone={t.netQty < 0 ? 'bad' : t.netQty > 0 ? 'good' : undefined} />
+              <Kpi label={tx('Closing stock value')} value={money(t.closingValue)} hint="Closing qty × current avg cost" />
               <Kpi
-                label="Ledger movements"
+                label={tx('Ledger movements')}
                 value={t.movements.toLocaleString()}
                 tone={t.driftItems ? 'warn' : undefined}
                 hint={t.driftItems ? `⚠ ${t.driftItems} item(s) where ledger ≠ on-hand` : undefined}
@@ -237,11 +238,11 @@ export function MovementReport({ ctl }: { ctl: ReturnType<typeof useReportFilter
             rowKey={(r) => r.productId}
             defaultSort={{ key: 'name', dir: 'asc' }}
             exportName={`inventory-movements_${f.start || 'all'}_${f.end || 'all'}`}
-            emptyText="No stock movements for the selected filters. Try a wider period or tick “Include items with no stock / movement”."
+            emptyText={tx('No stock movements for the selected filters. Try a wider period or tick “Include items with no stock / movement”.')}
             onRowClick={(r) => {
               navigate(`/inventory/items/${r.productId}${f.locationId ? `?locationId=${f.locationId}` : ''}`);
             }}
-            toolbar={<span className="text-xs">Click a row to open the item's stock card. Balances ignore the movement-type filter.</span>}
+            toolbar={<span className="text-xs">{tx('Click a row to open the item\'s stock card. Balances ignore the movement-type filter.')}</span>}
           />
         </ReportState>
       )}
@@ -250,12 +251,12 @@ export function MovementReport({ ctl }: { ctl: ReturnType<typeof useReportFilter
         <ReportState query={lines}>
           {ls && (
             <KpiGrid>
-              <Kpi label="Movements" value={ls.lines.toLocaleString()} hint={`${l?.range.start} → ${l?.range.end}`} />
-              <Kpi label="Stock in (value)" value={money(ls.gainValue)} tone="good" hint={`${qty(ls.gainQty)} units`} />
-              <Kpi label="Stock out / loss (value)" value={money(ls.lossValue)} tone="bad" hint={`${qty(ls.lossQty)} units`} />
-              <Kpi label="Net value" value={money(ls.value)} tone={ls.value < 0 ? 'bad' : ls.value > 0 ? 'good' : undefined} />
-              <Kpi label="Documents / lines" value={`${ls.documents} / ${ls.lines}`} />
-              <Kpi label="Items / locations" value={`${ls.items} / ${ls.locations}`} />
+              <Kpi label={tx('Movements')} value={ls.lines.toLocaleString()} hint={`${l?.range.start} → ${l?.range.end}`} />
+              <Kpi label={tx('Stock in (value)')} value={money(ls.gainValue)} tone="good" hint={`${qty(ls.gainQty)} units`} />
+              <Kpi label={tx('Stock out / loss (value)')} value={money(ls.lossValue)} tone="bad" hint={`${qty(ls.lossQty)} units`} />
+              <Kpi label={tx('Net value')} value={money(ls.value)} tone={ls.value < 0 ? 'bad' : ls.value > 0 ? 'good' : undefined} />
+              <Kpi label={tx('Documents / lines')} value={`${ls.documents} / ${ls.lines}`} />
+              <Kpi label={tx('Items / locations')} value={`${ls.items} / ${ls.locations}`} />
             </KpiGrid>
           )}
           <DataTable
@@ -264,11 +265,11 @@ export function MovementReport({ ctl }: { ctl: ReturnType<typeof useReportFilter
             rowKey={(r) => r.id}
             defaultSort={{ key: 'date', dir: 'desc' }}
             exportName={`inventory-all-movements_${f.start || 'all'}_${f.end || 'all'}`}
-            emptyText="No stock movements for the selected filters in this period."
+            emptyText={tx('No stock movements for the selected filters in this period.')}
             onRowClick={(r) => navigate(`/inventory/ledger/${r.id}`)}
             toolbar={
               <span className="text-xs">
-                Click a line to open the ledger entry.{l?.truncated && ' Showing the latest 5,000 lines — narrow the filters for the rest.'}
+                {tx('Click a line to open the ledger entry.')}{l?.truncated && ' Showing the latest 5,000 lines — narrow the filters for the rest.'}
               </span>
             }
           />

@@ -21,6 +21,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { useSalesByHour, useSalesSummary, useTopItems, useItemsByGroup } from '@/pages/pos/api';
+import { tx } from '@/lib/i18n/tx';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Local styles — sheen + entrance, scoped to this page.
@@ -350,16 +351,16 @@ export function DashboardPage() {
                 onClick={refreshAll}
                 className="border-white/40 bg-white/10 text-white hover:bg-white/20"
               >
-                <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> Refresh
+                <RefreshCw className={`mr-2 h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} /> {tx('Refresh')}
               </Button>
               <Button asChild className="bg-white text-sky-700 hover:bg-white/90 shadow-lg">
                 <Link to="/pos/terminal">
-                  <Coffee className="mr-2 h-4 w-4" /> Terminal
+                  <Coffee className="mr-2 h-4 w-4" /> {tx('Terminal')}
                 </Link>
               </Button>
               <Button asChild variant="outline" className="border-white/40 bg-white/10 text-white hover:bg-white/20">
                 <Link to="/tables">
-                  <Utensils className="mr-2 h-4 w-4" /> Tables
+                  <Utensils className="mr-2 h-4 w-4" /> {tx('Tables')}
                 </Link>
               </Button>
             </div>
@@ -384,7 +385,7 @@ export function DashboardPage() {
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4 text-sky-600" /> Sales Overview
+                  <TrendingUp className="h-4 w-4 text-sky-600" /> {tx('Sales Overview')}
                 </CardTitle>
                 <CardDescription>
                   {range === 'today' ? 'Gross sales by hour' : `Gross sales by ${groupBy}`}
@@ -393,17 +394,17 @@ export function DashboardPage() {
               {totals && (
                 <div className="text-right">
                   <div className="text-xl font-extrabold tabular-nums">{formatMoney(num(totals.grossSales), currency)}</div>
-                  <div className="text-[11px] font-semibold text-muted-foreground">{totals.orders ?? 0} orders</div>
+                  <div className="text-[11px] font-semibold text-muted-foreground">{totals.orders ?? 0} {tx('orders')}</div>
                 </div>
               )}
             </CardHeader>
             <CardContent>
               {!canPosReports ? (
-                <NoAccess label="Sales analytics require the pos:reports permission." />
+                <NoAccess label={tx('Sales analytics require the pos:reports permission.')} />
               ) : salesLoading ? (
                 <Skeleton className="h-64 w-full shimmer" />
               ) : series.every((s) => s.value === 0) ? (
-                <EmptyState icon={TrendingUp} label="No sales in this period yet." />
+                <EmptyState icon={TrendingUp} label={tx('No sales in this period yet.')} />
               ) : (
                 <div className="h-64 w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -448,17 +449,17 @@ export function DashboardPage() {
           <Card className="box-sky dash-in" style={{ animationDelay: '120ms' }}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Boxes className="h-4 w-4 text-violet-600" /> Sales by Category
+                <Boxes className="h-4 w-4 text-violet-600" /> {tx('Sales by Category')}
               </CardTitle>
-              <CardDescription>Share of gross sales</CardDescription>
+              <CardDescription>{tx('Share of gross sales')}</CardDescription>
             </CardHeader>
             <CardContent>
               {!canPosReports ? (
-                <NoAccess label="Requires the pos:reports permission." />
+                <NoAccess label={tx('Requires the pos:reports permission.')} />
               ) : byGroup.isLoading ? (
                 <Skeleton className="h-64 w-full shimmer" />
               ) : categories.length === 0 ? (
-                <EmptyState icon={Boxes} label="No category sales yet." />
+                <EmptyState icon={Boxes} label={tx('No category sales yet.')} />
               ) : (
                 <>
                   <div className="relative h-44 w-full">
@@ -484,7 +485,7 @@ export function DashboardPage() {
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total</div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{tx('Total')}</div>
                       <div className="text-base font-extrabold tabular-nums">{compactMoney(categoryTotal, currency)}</div>
                     </div>
                   </div>
@@ -517,19 +518,19 @@ export function DashboardPage() {
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <Flame className="h-4 w-4 text-orange-500" /> Top Selling Items
+                  <Flame className="h-4 w-4 text-orange-500" /> {tx('Top Selling Items')}
                 </CardTitle>
-                <CardDescription>Best sellers this period</CardDescription>
+                <CardDescription>{tx('Best sellers this period')}</CardDescription>
               </div>
-              <Link to="/pos/reports" className="text-xs font-bold text-sky-600 hover:underline">View all</Link>
+              <Link to="/pos/reports" className="text-xs font-bold text-sky-600 hover:underline">{tx('View all')}</Link>
             </CardHeader>
             <CardContent>
               {!canPosReports ? (
-                <NoAccess label="Requires the pos:reports permission." />
+                <NoAccess label={tx('Requires the pos:reports permission.')} />
               ) : topItems.isLoading ? (
                 <Skeleton className="h-48 w-full shimmer" />
               ) : !Array.isArray(topItems.data) || topItems.data.length === 0 ? (
-                <EmptyState icon={Flame} label="No items sold yet." />
+                <EmptyState icon={Flame} label={tx('No items sold yet.')} />
               ) : (
                 <ol className="space-y-2.5">
                   {(topItems.data as any[]).map((it, i, arr) => {
@@ -555,7 +556,7 @@ export function DashboardPage() {
                               />
                             </div>
                             <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-                              {num(it.quantity)} sold
+                              {num(it.quantity)} {tx('sold')}
                             </span>
                           </div>
                         </div>
@@ -571,15 +572,15 @@ export function DashboardPage() {
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <ActivityIcon className="h-4 w-4 text-sky-600" /> Recent Activity
+                  <ActivityIcon className="h-4 w-4 text-sky-600" /> {tx('Recent Activity')}
                 </CardTitle>
-                <CardDescription>Latest events in your org</CardDescription>
+                <CardDescription>{tx('Latest events in your org')}</CardDescription>
               </div>
             </CardHeader>
             <CardContent>
               {activity.isLoading && <Skeleton className="h-48 w-full shimmer" />}
               {activity.data && activity.data.length === 0 && (
-                <EmptyState icon={ActivityIcon} label="No activity yet." />
+                <EmptyState icon={ActivityIcon} label={tx('No activity yet.')} />
               )}
               {activity.data && activity.data.length > 0 && (
                 <ul className="dash-scroll max-h-72 space-y-1 overflow-y-auto pr-1 text-sm">
@@ -610,21 +611,21 @@ export function DashboardPage() {
             <CardHeader className="flex-row items-center justify-between space-y-0">
               <div>
                 <CardTitle className="flex items-center gap-2">
-                  <AlertCircle className="h-4 w-4 text-rose-500" /> Inventory Alerts
+                  <AlertCircle className="h-4 w-4 text-rose-500" /> {tx('Inventory Alerts')}
                 </CardTitle>
-                <CardDescription>Items at or below par</CardDescription>
+                <CardDescription>{tx('Items at or below par')}</CardDescription>
               </div>
               {canInventory && (
-                <Link to="/inventory" className="text-xs font-bold text-sky-600 hover:underline">View all</Link>
+                <Link to="/inventory" className="text-xs font-bold text-sky-600 hover:underline">{tx('View all')}</Link>
               )}
             </CardHeader>
             <CardContent>
               {!canInventory ? (
-                <NoAccess label="Requires the inventory:read permission." />
+                <NoAccess label={tx('Requires the inventory:read permission.')} />
               ) : reorder.isLoading ? (
                 <Skeleton className="h-48 w-full shimmer" />
               ) : lowStock.length === 0 ? (
-                <EmptyState icon={Package} label="All items above par." />
+                <EmptyState icon={Package} label={tx('All items above par.')} />
               ) : (
                 <ul className="space-y-2">
                   {lowStock.map((r) => (
@@ -635,10 +636,10 @@ export function DashboardPage() {
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold">{r.name}</div>
                         <div className="text-[11px] text-muted-foreground tabular-nums">
-                          {r.onHand} on hand · par {r.par}
+                          {r.onHand} {tx('on hand · par')} {r.par}
                         </div>
                       </div>
-                      <span className="pill shrink-0 bg-rose-100 text-rose-700">Low stock</span>
+                      <span className="pill shrink-0 bg-rose-100 text-rose-700">{tx('Low stock')}</span>
                     </li>
                   ))}
                 </ul>
@@ -652,9 +653,9 @@ export function DashboardPage() {
           <Card className="box-sky lg:col-span-2 dash-in" style={{ animationDelay: '280ms' }}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-amber-500" /> AR Aging Snapshot
+                <AlertCircle className="h-4 w-4 text-amber-500" /> {tx('AR Aging Snapshot')}
               </CardTitle>
-              <CardDescription>Open receivables by age</CardDescription>
+              <CardDescription>{tx('Open receivables by age')}</CardDescription>
             </CardHeader>
             <CardContent>
               {kpi.data ? (
@@ -684,22 +685,22 @@ export function DashboardPage() {
           <Card className="box-sky dash-in" style={{ animationDelay: '320ms' }}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-sky-600" /> Quick Actions
+                <Sparkles className="h-4 w-4 text-sky-600" /> {tx('Quick Actions')}
               </CardTitle>
-              <CardDescription>Common tasks</CardDescription>
+              <CardDescription>{tx('Common tasks')}</CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-2 gap-2">
               <Button asChild variant="outline" className="h-11 justify-start lift-on-hover">
-                <Link to="/invoices/new"><Plus className="mr-2 h-4 w-4 text-sky-600" />New Invoice</Link>
+                <Link to="/invoices/new"><Plus className="mr-2 h-4 w-4 text-sky-600" />{tx('New Invoice')}</Link>
               </Button>
               <Button asChild variant="outline" className="h-11 justify-start lift-on-hover">
-                <Link to="/payments"><HandCoins className="mr-2 h-4 w-4 text-teal-600" />Record Payment</Link>
+                <Link to="/payments"><HandCoins className="mr-2 h-4 w-4 text-teal-600" />{tx('Record Payment')}</Link>
               </Button>
               <Button asChild variant="outline" className="h-11 justify-start lift-on-hover">
-                <Link to="/products"><Package className="mr-2 h-4 w-4 text-cyan-600" />Add Product</Link>
+                <Link to="/products"><Package className="mr-2 h-4 w-4 text-cyan-600" />{tx('Add Product')}</Link>
               </Button>
               <Button asChild variant="outline" className="h-11 justify-start lift-on-hover">
-                <Link to="/partners"><Users className="mr-2 h-4 w-4 text-blue-600" />Add Partner</Link>
+                <Link to="/partners"><Users className="mr-2 h-4 w-4 text-blue-600" />{tx('Add Partner')}</Link>
               </Button>
             </CardContent>
           </Card>
@@ -713,17 +714,17 @@ export function DashboardPage() {
             can be restored with a shape this render never expected — and a
             dashboard tile is not worth white-screening the page over.
           */}
-          <SmallStat label="Partners" value={partners.data?.meta?.total} href="/partners" icon={Users} tone="from-sky-500 to-cyan-500" />
-          <SmallStat label="Products" value={products.data?.meta?.total} href="/products" icon={Package} tone="from-cyan-500 to-teal-500" />
-          <SmallStat label="Open Invoices" value={kpi.data?.openInvoices} href="/invoices" icon={Receipt} tone="from-blue-500 to-sky-500" />
-          <SmallStat label="Overdue" value={kpi.data?.overdueInvoices} href="/ar-aging" icon={AlertCircle} tone="from-rose-500 to-red-500" />
+          <SmallStat label={tx('Partners')} value={partners.data?.meta?.total} href="/partners" icon={Users} tone="from-sky-500 to-cyan-500" />
+          <SmallStat label={tx('Products')} value={products.data?.meta?.total} href="/products" icon={Package} tone="from-cyan-500 to-teal-500" />
+          <SmallStat label={tx('Open Invoices')} value={kpi.data?.openInvoices} href="/invoices" icon={Receipt} tone="from-blue-500 to-sky-500" />
+          <SmallStat label={tx('Overdue')} value={kpi.data?.overdueInvoices} href="/ar-aging" icon={AlertCircle} tone="from-rose-500 to-red-500" />
         </div>
 
         {/* ── Status bar ── */}
         <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border/60 bg-card px-4 py-3 text-sm shadow-sm">
           <span className="flex items-center gap-2">
             <Clock className="h-4 w-4 text-sky-600" />
-            <span className="text-muted-foreground">Business date</span>
+            <span className="text-muted-foreground">{tx('Business date')}</span>
             <strong>{new Date().toLocaleDateString()}</strong>
           </span>
           <span className="hidden h-4 w-px bg-border sm:block" />
@@ -735,7 +736,7 @@ export function DashboardPage() {
           <span className="hidden h-4 w-px bg-border sm:block" />
           <span className="flex items-center gap-2">
             <RefreshCw className="h-4 w-4 text-sky-600" />
-            <span className="text-muted-foreground">Updated</span>
+            <span className="text-muted-foreground">{tx('Updated')}</span>
             <strong>
               {kpi.dataUpdatedAt
                 ? new Date(kpi.dataUpdatedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -743,7 +744,7 @@ export function DashboardPage() {
             </strong>
           </span>
           <Button asChild size="sm" className="ml-auto">
-            <Link to="/pos/reports"><ArrowRight className="mr-2 h-4 w-4" />Full reports</Link>
+            <Link to="/pos/reports"><ArrowRight className="mr-2 h-4 w-4" />{tx('Full reports')}</Link>
           </Button>
         </div>
       </div>
@@ -785,7 +786,7 @@ function KpiCard({
           {change != null && (
             <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${good ? 'text-emerald-100' : 'text-rose-100'}`}>
               {good ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-              {Math.abs(change).toFixed(1)}% vs previous
+              {Math.abs(change).toFixed(1)}{tx('% vs previous')}
             </span>
           )}
         </div>

@@ -65,6 +65,7 @@ import { STATUS_META, statusMeta, fmtMoney, sortZones, zoneLabel, zoneRankMap, c
 import { useAuthStore } from '@/stores/auth.store';
 import { api } from '@/lib/api';
 import { TableDetailDialog } from './TableDetailDialog';
+import { tx } from '@/lib/i18n/tx';
 
 type FormState = Omit<CreateTableInput, 'number'> & { number: string };
 
@@ -200,7 +201,7 @@ export const TablesPage: React.FC = () => {
   async function submitCreate() {
       const number = Number(form.number);
       if (!form.name.trim() || !Number.isFinite(number)) {
-        toast.error('Name and a numeric "number" are required');
+        toast.error(tx('Name and a numeric "number" are required'));
         return;
       }
       const body: CreateTableInput = {
@@ -227,7 +228,7 @@ export const TablesPage: React.FC = () => {
         if (!editTarget) return;
         const number = Number(form.number);
         if (!Number.isFinite(number)) {
-          toast.error('Number is required');
+          toast.error(tx('Number is required'));
           return;
         }
         const body: UpdateTableInput = {
@@ -284,25 +285,25 @@ export const TablesPage: React.FC = () => {
             </div>
             <div>
               <div className="text-xs font-semibold uppercase tracking-[0.16em] text-white/70">
-                Restaurant
+                {tx('Restaurant')}
               </div>
               <div className="text-2xl md:text-3xl font-extrabold tracking-tight">
-                Tables
+                {tx('Tables')}
               </div>
               <div className="text-sm text-white/80 mt-0.5">
-                Manage seats, status, merge and transfer — all in real time.
+                {tx('Manage seats, status, merge and transfer — all in real time.')}
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <Button asChild variant="outline" className="border-white/30 bg-white/10 text-white hover:bg-white/20">
               <a href="/tables/reservations">
-                <CalendarPlusIcon /> Reservations
+                <CalendarPlusIcon /> {tx('Reservations')}
               </a>
             </Button>
             <Button asChild variant="outline" className="border-white/30 bg-white/10 text-white hover:bg-white/20">
               <a href="/tables/reports">
-                <BarChart3Icon /> Reports
+                <BarChart3Icon /> {tx('Reports')}
               </a>
             </Button>
             {canManageZones ? (
@@ -312,7 +313,7 @@ export const TablesPage: React.FC = () => {
                 className="border-white/30 bg-white/10 text-white hover:bg-white/20"
               >
                 <a href="/tables/zones">
-                  <MapIcon className="w-4 h-4 mr-1.5" /> Manage Zones
+                  <MapIcon className="w-4 h-4 mr-1.5" /> {tx('Manage Zones')}
                 </a>
               </Button>
             ) : null}
@@ -320,7 +321,7 @@ export const TablesPage: React.FC = () => {
               onClick={openCreate}
               className="bg-white text-blue-700 hover:bg-white/90 btn-shine shadow-lg"
             >
-              <Plus className="w-4 h-4 mr-1.5" /> New Table
+              <Plus className="w-4 h-4 mr-1.5" /> {tx('New Table')}
             </Button>
           </div>
         </div>
@@ -329,7 +330,7 @@ export const TablesPage: React.FC = () => {
       {/* ── Toolbar ── */}
       <div className="glass-card p-3 space-y-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="section-title mr-2">Status</span>
+          <span className="section-title mr-2">{tx('Status')}</span>
           {(['all', 'available', 'occupied', 'reserved', 'out_of_service'] as const).map(
             (k) => (
               <button
@@ -350,7 +351,7 @@ export const TablesPage: React.FC = () => {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className="section-title mr-2">Zone</span>
+          <span className="section-title mr-2">{tx('Zone')}</span>
           <button
             onClick={() => setZoneFilter('all')}
             className={`pill transition-all ${
@@ -359,7 +360,7 @@ export const TablesPage: React.FC = () => {
                 : 'bg-white text-muted-foreground border border-border hover:border-slate-400 hover:text-slate-600'
             }`}
           >
-            All · {tables.length}
+            {tx('All ·')} {tables.length}
           </button>
           {sortZones(zones).map((z) => {
             const count = zoneSections.get(z.key)?.length ?? 0;
@@ -386,24 +387,24 @@ export const TablesPage: React.FC = () => {
           <div className="relative w-48">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
             <Input
-              placeholder="Search by name, number…"
+              placeholder={tx('Search by name, number…')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-9 pl-8 text-sm"
             />
           </div>
           <Button variant="outline" size="sm" onClick={() => refetch()}>
-            <RefreshCw className="w-3 h-3 mr-1" /> Refresh
+            <RefreshCw className="w-3 h-3 mr-1" /> {tx('Refresh')}
           </Button>
           <Button size="sm" onClick={openCreate} className="btn-shine shadow-md shadow-blue-500/20">
-            <Plus className="w-3 h-3 mr-1" /> New Table
+            <Plus className="w-3 h-3 mr-1" /> {tx('New Table')}
           </Button>
         </div>
       </div>
 
       {/* ── Zones ── */}
       {isLoading ? (
-        <div className="text-slate-400 py-10 text-center">Loading tables…</div>
+        <div className="text-slate-400 py-10 text-center">{tx('Loading tables…')}</div>
       ) : grouped.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-slate-400">
@@ -417,7 +418,7 @@ export const TablesPage: React.FC = () => {
             </p>
             {tables.length === 0 ? (
               <Button onClick={openCreate} className="mt-4" size="sm">
-                <Plus className="w-3 h-3 mr-1" /> Create Table
+                <Plus className="w-3 h-3 mr-1" /> {tx('Create Table')}
               </Button>
             ) : null}
           </CardContent>
@@ -435,7 +436,7 @@ export const TablesPage: React.FC = () => {
                 />
                 {zoneLabel(zones, zoneKey)}
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
-                  {list.length} table{list.length === 1 ? '' : 's'}
+                  {list.length} {tx('table')}{list.length === 1 ? '' : 's'}
                 </span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1">
@@ -466,7 +467,7 @@ export const TablesPage: React.FC = () => {
                           className="inline-block w-2 h-2 rounded-full"
                           style={{ background: table.zoneColor ?? '#cbd5e1' }}
                         />
-                        {table.zoneName ?? table.zone} · {table.seats} seat{table.seats === 1 ? '' : 's'}
+                        {table.zoneName ?? table.zone} · {table.seats} {tx('seat')}{table.seats === 1 ? '' : 's'}
                       </div>
                     </div>
                     <span
@@ -480,16 +481,16 @@ export const TablesPage: React.FC = () => {
                   {openOrders.length > 0 ? (
                     <div className="mt-3 text-xs text-foreground flex items-center gap-1.5">
                       <span className="font-bold text-base">{openOrders.length}</span>
-                      <span className="text-muted-foreground">open order{openOrders.length > 1 ? 's' : ''} ·</span>
+                      <span className="text-muted-foreground">{tx('open order')}{openOrders.length > 1 ? 's' : ''} ·</span>
                       <span className="font-extrabold text-gradient">{fmtMoney(total)}</span>
                     </div>
                   ) : (
-                    <div className="mt-3 text-xs text-muted-foreground italic">No open orders</div>
+                    <div className="mt-3 text-xs text-muted-foreground italic">{tx('No open orders')}</div>
                   )}
 
                   {table.reservations && table.reservations.length > 0 ? (
                     <div className="mt-2 text-[11px] px-2 py-1 rounded-md bg-blue-50 text-blue-700 border border-blue-200">
-                      Next booking:{' '}
+                      {tx('Next booking:')}{' '}
                       <span className="font-bold">
                         {new Date(table.reservations[0].startAt).toLocaleString([], {
                           month: 'short',
@@ -511,7 +512,7 @@ export const TablesPage: React.FC = () => {
                       className="h-7 text-[11px] lift-on-hover"
                       onClick={() => openEdit(table)}
                     >
-                      <Pencil className="w-3 h-3 mr-1" /> Edit
+                      <Pencil className="w-3 h-3 mr-1" /> {tx('Edit')}
                     </Button>
                     <Button
                       variant="outline"
@@ -528,7 +529,7 @@ export const TablesPage: React.FC = () => {
                       className="h-7 text-[11px] text-rose-600 hover:text-rose-700 hover:bg-rose-50"
                       onClick={() => setArchiveTarget(table)}
                     >
-                      <Archive className="w-3 h-3 mr-1" /> Archive
+                      <Archive className="w-3 h-3 mr-1" /> {tx('Archive')}
                     </Button>
                     {(() => {
                       const order = zoneOrders.get(table.zone) ?? [];
@@ -542,7 +543,7 @@ export const TablesPage: React.FC = () => {
                             size="sm"
                             className="h-7 w-7 p-0 lift-on-hover"
                             disabled={first}
-                            title="Move up — toward the front of the picker"
+                            title={tx('Move up — toward the front of the picker')}
                             onClick={() => moveTable(table, 'up')}
                           >
                             <ChevronUp className="w-3.5 h-3.5" />
@@ -552,7 +553,7 @@ export const TablesPage: React.FC = () => {
                             size="sm"
                             className="h-7 w-7 p-0 lift-on-hover"
                             disabled={last}
-                            title="Move down — toward the back of the picker"
+                            title={tx('Move down — toward the back of the picker')}
                             onClick={() => moveTable(table, 'down')}
                           >
                             <ChevronDown className="w-3.5 h-3.5" />
@@ -587,19 +588,18 @@ export const TablesPage: React.FC = () => {
           <DialogHeader>
             <DialogTitle>{editTarget ? `Edit T${editTarget.number}` : 'Create table'}</DialogTitle>
             <DialogDescription>
-              Geometry, layout, and operational metadata. The Floor Plan editor
-              will read these fields in the next iteration.
+              {tx('Geometry, layout, and operational metadata. The Floor Plan editor will read these fields in the next iteration.')}
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Name">
+            <Field label={tx('Name')}>
               <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Table 1"
+                placeholder={tx('Table 1')}
               />
             </Field>
-            <Field label="Number">
+            <Field label={tx('Number')}>
               <Input
                 type="number"
                 value={form.number}
@@ -607,7 +607,7 @@ export const TablesPage: React.FC = () => {
                 placeholder="1"
               />
             </Field>
-            <Field label="Seats">
+            <Field label={tx('Seats')}>
               <Input
                 type="number"
                 value={form.seats ?? 2}
@@ -615,7 +615,7 @@ export const TablesPage: React.FC = () => {
                 min={0}
               />
             </Field>
-            <Field label="Zone">
+            <Field label={tx('Zone')}>
               <select
                 className="h-10 px-3 rounded-md border border-slate-200 bg-white text-sm"
                 value={form.zone}
@@ -635,7 +635,7 @@ export const TablesPage: React.FC = () => {
                 ))}
               </select>
             </Field>
-            <Field label="Shape">
+            <Field label={tx('Shape')}>
               <select
                 className="h-10 px-3 rounded-md border border-slate-200 bg-white text-sm"
                 value={form.shape}
@@ -648,41 +648,41 @@ export const TablesPage: React.FC = () => {
                 ))}
               </select>
             </Field>
-            <Field label="Active" className="col-span-2">
+            <Field label={tx('Active')} className="col-span-2">
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={form.active ?? true}
                   onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
                 />
-                Show in picker
+                {tx('Show in picker')}
               </label>
             </Field>
-            <Field label="Sort Order">
+            <Field label={tx('Sort Order')}>
               <Input
                 type="number"
                 value={form.sortOrder ?? 0}
                 onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) }))}
               />
             </Field>
-            <Field label="QR Code URL">
+            <Field label={tx('QR Code URL')}>
               <Input
                 value={form.qrCodeUrl ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, qrCodeUrl: e.target.value }))}
                 placeholder="https://menu.example.com/t/1"
               />
             </Field>
-            <Field label="Notes" className="col-span-2">
+            <Field label={tx('Notes')} className="col-span-2">
               <Input
                 value={form.notes ?? ''}
                 onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-                placeholder="Optional"
+                placeholder={tx('Optional')}
               />
             </Field>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => { setCreateOpen(false); setEditTarget(null); }}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               onClick={editTarget ? submitEdit : submitCreate}
@@ -701,20 +701,18 @@ export const TablesPage: React.FC = () => {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Archive T{archiveTarget?.number}?</AlertDialogTitle>
+            <AlertDialogTitle>{tx('Archive T')}{archiveTarget?.number}?</AlertDialogTitle>
             <AlertDialogDescription>
-              The table is hidden from the picker but its history (orders,
-              reservations, audit) is kept. Reactivation is done from the DB
-              (or by editing <code>active=true</code> in the API).
+              {tx('The table is hidden from the picker but its history (orders, reservations, audit) is kept. Reactivation is done from the DB (or by editing')} <code>active=true</code> {tx('in the API).')}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>{tx('Cancel')}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-rose-600 hover:bg-rose-700"
               onClick={doArchive}
             >
-              Archive
+              {tx('Archive')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

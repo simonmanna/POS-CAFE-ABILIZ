@@ -1,0 +1,24 @@
+# Keep the build context to source only. Host node_modules (Windows binaries,
+# pnpm symlinks) must never overwrite the ones installed inside the image, and
+# .env / database dumps must never be baked into a layer.
+.git
+**/node_modules
+**/dist
+**/*.log
+**/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+**/var
+apps/android
+apps/api/backup
+audit
+docs
+tests
+workspace
+old-production-database
+deployed-backup-database
+infra/backups
+*.zip
+*.dump
+deployment

@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { notify } from '@/lib/notify';
 import { apiErrorMessage } from '@/lib/api-error';
+import { tx } from '@/lib/i18n/tx';
 
 type Action = 'terminate' | 'suspend' | 'reactivate' | 'confirm' | 'transfer' | null;
 
@@ -64,20 +65,20 @@ export function HrLifecycleActions({
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm">
             <MoreHorizontal className="mr-1.5 h-4 w-4" />
-            Actions
+            {tx('Actions')}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {status === 'PROBATION' && (
             <DropdownMenuItem onSelect={() => setAction('confirm')}>
-              Confirm (probation passed)
+              {tx('Confirm (probation passed)')}
             </DropdownMenuItem>
           )}
           {!ended && !suspended && (
-            <DropdownMenuItem onSelect={() => setAction('transfer')}>Transfer…</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setAction('transfer')}>{tx('Transfer…')}</DropdownMenuItem>
           )}
           {!ended && !suspended && (
-            <DropdownMenuItem onSelect={() => setAction('suspend')}>Suspend…</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setAction('suspend')}>{tx('Suspend…')}</DropdownMenuItem>
           )}
           {(ended || suspended) && (
             <DropdownMenuItem onSelect={() => setAction('reactivate')}>
@@ -89,7 +90,7 @@ export function HrLifecycleActions({
               onSelect={() => setAction('terminate')}
               className="text-rose-600 focus:text-rose-600"
             >
-              End employment…
+              {tx('End employment…')}
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>
@@ -154,17 +155,15 @@ function TerminateDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>End employment</DialogTitle>
+          <DialogTitle>{tx('End employment')}</DialogTitle>
           <DialogDescription>
-            Records that {employee.firstName} has left. Their orders, invoices, payments, cash
-            sessions and audit history are <strong>not</strong> changed — they stay attributed to
-            this person, and the record remains readable as a former employee.
+            {tx('Records that')} {employee.firstName} {tx('has left. Their orders, invoices, payments, cash sessions and audit history are')} <strong>not</strong> {tx('changed — they stay attributed to this person, and the record remains readable as a former employee.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>Last working day</Label>
+            <Label>{tx('Last working day')}</Label>
             <Input
               type="date"
               value={terminationDate}
@@ -172,7 +171,7 @@ function TerminateDialog({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label>Reason</Label>
+            <Label>{tx('Reason')}</Label>
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} />
           </div>
           <label className="flex items-center gap-2 text-sm">
@@ -181,7 +180,7 @@ function TerminateDialog({
               checked={resigned}
               onChange={(e) => setResigned(e.target.checked)}
             />
-            They resigned (voluntary departure)
+            {tx('They resigned (voluntary departure)')}
           </label>
           <label className="flex items-start gap-2 text-sm">
             <input
@@ -192,15 +191,14 @@ function TerminateDialog({
               className="mt-0.5"
             />
             <span>
-              Disable their login immediately
+              {tx('Disable their login immediately')}
               {hasAccount ? (
                 <span className="block text-xs text-muted-foreground">
-                  Signs them out everywhere, and the revocation reaches offline terminals on their
-                  next sync so the PIN stops working there too.
+                  {tx('Signs them out everywhere, and the revocation reaches offline terminals on their next sync so the PIN stops working there too.')}
                 </span>
               ) : (
                 <span className="block text-xs text-muted-foreground">
-                  This employee has no linked login.
+                  {tx('This employee has no linked login.')}
                 </span>
               )}
             </span>
@@ -209,7 +207,7 @@ function TerminateDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             variant="destructive"
@@ -223,14 +221,14 @@ function TerminateDialog({
                   resigned,
                   terminationDate: terminationDate || undefined,
                 });
-                notify.success('Employment ended');
+                notify.success(tx('Employment ended'));
                 onClose();
               } catch (err) {
                 notify.error(apiErrorMessage(err, 'Could not end employment'));
               }
             }}
           >
-            End employment
+            {tx('End employment')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -257,16 +255,15 @@ function SuspendDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Suspend {employee.firstName}</DialogTitle>
+          <DialogTitle>{tx('Suspend')} {employee.firstName}</DialogTitle>
           <DialogDescription>
-            Suspension is not termination: employment continues, and payroll, leave balances and
-            history are untouched. Use it to pause access while something is investigated.
+            {tx('Suspension is not termination: employment continues, and payroll, leave balances and history are untouched. Use it to pause access while something is investigated.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>Reason</Label>
+            <Label>{tx('Reason')}</Label>
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} />
           </div>
           <label className="flex items-center gap-2 text-sm">
@@ -277,9 +274,9 @@ function SuspendDialog({
               disabled={!hasAccount}
             />
             <span>
-              Disable their login while suspended
+              {tx('Disable their login while suspended')}
               <span className="block text-xs text-muted-foreground">
-                Either way, they cannot sign in at a POS till until reactivated.
+                {tx('Either way, they cannot sign in at a POS till until reactivated.')}
               </span>
             </span>
           </label>
@@ -287,7 +284,7 @@ function SuspendDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             disabled={!valid || suspend.isPending}
@@ -298,14 +295,14 @@ function SuspendDialog({
                   reason,
                   disableAccount: hasAccount ? disableAccount : false,
                 });
-                notify.success('Employee suspended');
+                notify.success(tx('Employee suspended'));
                 onClose();
               } catch (err) {
                 notify.error(apiErrorMessage(err, 'Could not suspend the employee'));
               }
             }}
           >
-            Suspend
+            {tx('Suspend')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -345,7 +342,7 @@ function ReactivateDialog({
 
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>Reason (optional)</Label>
+            <Label>{tx('Reason (optional)')}</Label>
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
           </div>
           {wasTerminated && (
@@ -355,7 +352,7 @@ function ReactivateDialog({
                 checked={toProbation}
                 onChange={(e) => setToProbation(e.target.checked)}
               />
-              Start on probation
+              {tx('Start on probation')}
             </label>
           )}
           <label className="flex items-start gap-2 text-sm">
@@ -367,9 +364,9 @@ function ReactivateDialog({
               className="mt-0.5"
             />
             <span>
-              Re-enable their login
+              {tx('Re-enable their login')}
               <span className="block text-xs text-muted-foreground">
-                Opt-in on purpose — the account may have been disabled for an unrelated reason.
+                {tx('Opt-in on purpose — the account may have been disabled for an unrelated reason.')}
               </span>
             </span>
           </label>
@@ -377,7 +374,7 @@ function ReactivateDialog({
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             disabled={reactivate.isPending}
@@ -420,16 +417,16 @@ function ConfirmDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Confirm {employee.firstName}</DialogTitle>
-          <DialogDescription>Marks probation as passed and records the date.</DialogDescription>
+          <DialogTitle>{tx('Confirm')} {employee.firstName}</DialogTitle>
+          <DialogDescription>{tx('Marks probation as passed and records the date.')}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-1.5">
-          <Label>Note (optional)</Label>
+          <Label>{tx('Note (optional)')}</Label>
           <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             disabled={confirm.isPending}
@@ -439,14 +436,14 @@ function ConfirmDialog({
                   employeeId: employee.id,
                   reason: reason || undefined,
                 });
-                notify.success('Employee confirmed');
+                notify.success(tx('Employee confirmed'));
                 onClose();
               } catch (err) {
                 notify.error(apiErrorMessage(err, 'Could not confirm the employee'));
               }
             }}
           >
-            Confirm
+            {tx('Confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -475,22 +472,21 @@ function TransferDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Transfer {employee.firstName}</DialogTitle>
+          <DialogTitle>{tx('Transfer')} {employee.firstName}</DialogTitle>
           <DialogDescription>
-            Changes where they work from now on. Past transactions keep the branch and department
-            they actually happened in — nothing historical is rewritten.
+            {tx('Changes where they work from now on. Past transactions keep the branch and department they actually happened in — nothing historical is rewritten.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3">
           <div className="grid gap-1.5">
-            <Label>Department</Label>
+            <Label>{tx('Department')}</Label>
             <select
               className="h-9 rounded-md border bg-background px-3 text-sm"
               value={toDepartmentId}
               onChange={(e) => setToDepartmentId(e.target.value)}
             >
-              <option value="">Keep current</option>
+              <option value="">{tx('Keep current')}</option>
               {(departments?.rows ?? []).map((d: any) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
@@ -499,13 +495,13 @@ function TransferDialog({
             </select>
           </div>
           <div className="grid gap-1.5">
-            <Label>Position</Label>
+            <Label>{tx('Position')}</Label>
             <select
               className="h-9 rounded-md border bg-background px-3 text-sm"
               value={toPositionId}
               onChange={(e) => setToPositionId(e.target.value)}
             >
-              <option value="">Keep current</option>
+              <option value="">{tx('Keep current')}</option>
               {(positions?.rows ?? []).map((p: any) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -514,7 +510,7 @@ function TransferDialog({
             </select>
           </div>
           <div className="grid gap-1.5">
-            <Label>Effective date</Label>
+            <Label>{tx('Effective date')}</Label>
             <Input
               type="date"
               value={effectiveDate}
@@ -522,14 +518,14 @@ function TransferDialog({
             />
           </div>
           <div className="grid gap-1.5">
-            <Label>Reason</Label>
+            <Label>{tx('Reason')}</Label>
             <Textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} />
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            {tx('Cancel')}
           </Button>
           <Button
             disabled={!valid || transfer.isPending || (!toDepartmentId && !toPositionId)}
@@ -542,14 +538,14 @@ function TransferDialog({
                   effectiveDate: effectiveDate || undefined,
                   reason,
                 });
-                notify.success('Employee transferred');
+                notify.success(tx('Employee transferred'));
                 onClose();
               } catch (err) {
                 notify.error(apiErrorMessage(err, 'Could not transfer the employee'));
               }
             }}
           >
-            Transfer
+            {tx('Transfer')}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -5,6 +5,7 @@ import { useRentalReturns, useCreateReturn, useInspectReturn, useSettleReturn, u
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { date } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -60,16 +61,16 @@ export function RentalReturnsPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Returns & Settlement</h1>
-          <p className="text-sm text-muted-foreground">Receive units back, inspect condition, charge damages, settle.</p>
+          <h1 className="text-xl font-semibold">{tx('Returns & Settlement')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Receive units back, inspect condition, charge damages, settle.')}</p>
         </div>
-        <Button onClick={() => setCreateOpen((v) => !v)}><ArrowLeftRight className="h-4 w-4" /> New return</Button>
+        <Button onClick={() => setCreateOpen((v) => !v)}><ArrowLeftRight className="h-4 w-4" /> {tx('New return')}</Button>
       </div>
 
       {createOpen && (
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="text-sm">Create return</CardTitle>
+            <CardTitle className="text-sm">{tx('Create return')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 p-4">
             <select
@@ -77,15 +78,15 @@ export function RentalReturnsPage() {
               onChange={(e) => openCreate(e.target.value)}
               className="w-full rounded-md border bg-card px-3 py-2 text-sm"
             >
-              <option value="">Select a checked-out agreement…</option>
+              <option value="">{tx('Select a checked-out agreement…')}</option>
               {openAgreements.map((a) => (
-                <option key={a.id} value={a.id}>{a.agreementNumber} · {a.lines?.length ?? 0} line(s)</option>
+                <option key={a.id} value={a.id}>{a.agreementNumber} · {a.lines?.length ?? 0} {tx('line(s)')}</option>
               ))}
             </select>
 
             {selectedAgreement && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Lines — set returned qty / missing / condition</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{tx('Lines — set returned qty / missing / condition')}</p>
                 {(selectedAgreement.lines ?? []).map((l) => {
                   const state = lineChecks[l.id] ?? { qty: String(l.quantity), missing: '0', grade: 'good' };
                   return (
@@ -103,7 +104,7 @@ export function RentalReturnsPage() {
                       <input
                         type="number"
                         className="w-16 rounded border px-2 py-1 text-sm"
-                        placeholder="missing"
+                        placeholder={tx('missing')}
                         value={state.missing}
                         onChange={(e) => setLineChecks((m) => ({ ...m, [l.id]: { ...state, missing: e.target.value } }))}
                       />
@@ -112,21 +113,21 @@ export function RentalReturnsPage() {
                         value={state.grade}
                         onChange={(e) => setLineChecks((m) => ({ ...m, [l.id]: { ...state, grade: e.target.value } }))}
                       >
-                        <option value="good">good</option>
-                        <option value="fair">fair</option>
-                        <option value="poor">poor</option>
-                        <option value="damaged">damaged</option>
+                        <option value="good">{tx('good')}</option>
+                        <option value="fair">{tx('fair')}</option>
+                        <option value="poor">{tx('poor')}</option>
+                        <option value="damaged">{tx('damaged')}</option>
                       </select>
                       <input
                         className="w-20 rounded border px-2 py-1 text-sm"
-                        placeholder="damage type"
+                        placeholder={tx('damage type')}
                         value={damages[l.id]?.damageType ?? ''}
                         onChange={(e) => setDamages((m) => ({ ...m, [l.id]: { damageType: e.target.value, charge: damages[l.id]?.charge ?? '' } }))}
                       />
                       <input
                         type="number"
                         className="w-24 rounded border px-2 py-1 text-sm"
-                        placeholder="charge"
+                        placeholder={tx('charge')}
                         value={damages[l.id]?.charge ?? ''}
                         onChange={(e) => setDamages((m) => ({ ...m, [l.id]: { damageType: damages[l.id]?.damageType ?? '', charge: e.target.value } }))}
                       />
@@ -151,7 +152,7 @@ export function RentalReturnsPage() {
                     'Return created',
                   )}
                 >
-                  Create return
+                  {tx('Create return')}
                 </Button>
               </div>
             )}
@@ -161,29 +162,29 @@ export function RentalReturnsPage() {
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} returns</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('returns')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No returns yet.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No returns yet.')}</p>}
             {rows.map((r) => (
               <div key={r.id} className="px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">{r.returnNumber}</p>
                     <p className="text-xs text-muted-foreground">
-                      {r.agreement?.agreementNumber ?? r.agreementId.slice(0, 8)} · received {date(r.receivedAt)}
+                      {r.agreement?.agreementNumber ?? r.agreementId.slice(0, 8)} {tx('· received')} {date(r.receivedAt)}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Button size="sm" variant="outline" onClick={() => inspectAll(r.id)}>
-                      <SearchCheck className="h-4 w-4" /> Inspect
+                      <SearchCheck className="h-4 w-4" /> {tx('Inspect')}
                     </Button>
                     <Button
                       size="sm"
                       onClick={() => run(() => settleReturn.mutateAsync({ returnId: r.id }), 'Settled')}
                     >
-                      Settle
+                      {tx('Settle')}
                     </Button>
                   </div>
                 </div>

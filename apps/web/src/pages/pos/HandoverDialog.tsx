@@ -18,6 +18,7 @@ import { useSessionReconciliation } from '@/features/pos/session-reconciliation'
 import { apiErrorMessage } from '@/lib/api-error';
 import type { CashSession } from './types';
 import { toast } from 'sonner';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -118,7 +119,7 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
         closingAccounts: Object.keys(closingAccounts).length ? closingAccounts : undefined,
         uncountedAccounts: Object.keys(uncountedAccounts).length ? uncountedAccounts : undefined,
       });
-      toast.success('Register handed over to the incoming cashier');
+      toast.success(tx('Register handed over to the incoming cashier'));
       onDone();
       onClose();
     } catch (e: any) {
@@ -133,18 +134,17 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
       <DialogContent className="flex max-h-[85vh] flex-col overflow-hidden sm:max-w-[720px]">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2">
-            <ArrowLeftRight className="h-4 w-4 text-indigo-600" /> Shift handover
+            <ArrowLeftRight className="h-4 w-4 text-indigo-600" /> {tx('Shift handover')}
           </DialogTitle>
           <DialogDescription>
-            Hand the register to the next cashier without closing the day. The day's
-            sales stay on the same register; the counted cash carries over as the opening float.
+            {tx('Hand the register to the next cashier without closing the day. The day\'s sales stay on the same register; the counted cash carries over as the opening float.')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 min-h-0 space-y-4 overflow-y-auto pr-1">
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label>Counted cash (blind count, {orgCur()})</Label>
+              <Label>{tx('Counted cash (blind count,')} {orgCur()})</Label>
               <Input
                 type="number"
                 value={counted}
@@ -157,7 +157,7 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
             {showClosingAmounts ? (
               <div className="flex flex-col justify-center space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-600">Expected cash</span>
+                  <span className="text-slate-600">{tx('Expected cash')}</span>
                   <span className="font-mono font-bold">{fmt(expectedCash)}</span>
                 </div>
               </div>
@@ -176,7 +176,7 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
             }
           >
             {variance === 0 ? <Check className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
-            Variance: {variance >= 0 ? '+' : ''}{fmt(variance)}
+            {tx('Variance:')} {variance >= 0 ? '+' : ''}{fmt(variance)}
             <span className="ml-auto font-normal text-xs opacity-75">
               {variance === 0 ? 'Balanced' : variance > 0 ? 'Over' : 'Short'}
             </span>
@@ -185,47 +185,47 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
 
         {needsReason ? (
           <div>
-            <Label>Variance reason *</Label>
+            <Label>{tx('Variance reason *')}</Label>
             <Input
               value={varianceReason}
               onChange={(e) => setVarianceReason(e.target.value)}
-              placeholder="e.g. Gave excess change to a customer"
+              placeholder={tx('e.g. Gave excess change to a customer')}
             />
           </div>
         ) : null}
 
           <div className="grid gap-3 sm:grid-cols-4">
             <div>
-              <Label>Incoming cashier</Label>
+              <Label>{tx('Incoming cashier')}</Label>
               <select className={selectCls} value={incomingUserId} onChange={(e) => setIncomingUserId(e.target.value)}>
-                <option value="">Select…</option>
+                <option value="">{tx('Select…')}</option>
                 {staff.filter((u) => u.id !== currentUserId).map((u) => (
                   <option key={u.id} value={u.id}>{u.firstName}</option>
                 ))}
               </select>
             </div>
             <div>
-              <Label>Their PIN</Label>
+              <Label>{tx('Their PIN')}</Label>
               <Input type="password" inputMode="numeric" value={incomingPin} onChange={(e) => setIncomingPin(e.target.value)} placeholder="••••" />
             </div>
             <div>
-              <Label>Approving manager</Label>
+              <Label>{tx('Approving manager')}</Label>
               <select className={selectCls} value={approvedById} onChange={(e) => setApprovedById(e.target.value)}>
-                <option value="">Select…</option>
+                <option value="">{tx('Select…')}</option>
                 {staff.map((u) => (
                   <option key={u.id} value={u.id}>{u.firstName}</option>
                 ))}
               </select>
             </div>
             <div>
-              <Label>Manager PIN</Label>
+              <Label>{tx('Manager PIN')}</Label>
               <Input type="password" inputMode="numeric" value={managerPin} onChange={(e) => setManagerPin(e.target.value)} placeholder="••••" />
             </div>
           </div>
 
         {trackedAccounts.length ? (
           <div className="space-y-2 rounded-lg border border-slate-200 p-3">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Wallet and bank balances</p>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{tx('Wallet and bank balances')}</p>
             {trackedAccounts.map((a) => (
               <div key={a.accountId} className="flex items-center gap-2">
                 <span className="flex-1 text-sm text-slate-700">{a.label}</span>
@@ -233,11 +233,11 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
                   <>
                     <Input
                       className="h-8 w-40 text-xs"
-                      placeholder="Why not checked?"
+                      placeholder={tx('Why not checked?')}
                       value={uncounted[a.accountId]}
                       onChange={(e) => setUncounted((u) => ({ ...u, [a.accountId]: e.target.value }))}
                     />
-                    <button type="button" className="text-[11px] font-semibold text-slate-500" onClick={() => setUncounted((u) => { const n = { ...u }; delete n[a.accountId]; return n; })}>Count</button>
+                    <button type="button" className="text-[11px] font-semibold text-slate-500" onClick={() => setUncounted((u) => { const n = { ...u }; delete n[a.accountId]; return n; })}>{tx('Count')}</button>
                   </>
                 ) : (
                   <>
@@ -245,26 +245,26 @@ export const HandoverDialog: React.FC<Props> = ({ open, session, currentUserId, 
                       type="number"
                       min={0}
                       className="h-8 w-32 text-right font-mono text-xs"
-                      placeholder="Provider shows"
+                      placeholder={tx('Provider shows')}
                       value={accountCounts[a.accountId] ?? ''}
                       onChange={(e) => setAccountCounts((c) => ({ ...c, [a.accountId]: e.target.value }))}
                     />
-                    <button type="button" className="text-[11px] font-semibold text-slate-500" onClick={() => setUncounted((u) => ({ ...u, [a.accountId]: '' }))}>Not checked</button>
+                    <button type="button" className="text-[11px] font-semibold text-slate-500" onClick={() => setUncounted((u) => ({ ...u, [a.accountId]: '' }))}>{tx('Not checked')}</button>
                   </>
                 )}
               </div>
             ))}
-            <p className="text-[11px] text-slate-500">The counted cash carries over as the next cashier's opening float.</p>
+            <p className="text-[11px] text-slate-500">{tx('The counted cash carries over as the next cashier\'s opening float.')}</p>
           </div>
         ) : (
-          <p className="text-xs text-slate-500">The counted cash carries over as the next cashier's opening float.</p>
+          <p className="text-xs text-slate-500">{tx('The counted cash carries over as the next cashier\'s opening float.')}</p>
         )}
 
         {err ? <p className="text-sm text-rose-600">{err}</p> : null}
         </div>
 
         <DialogFooter className="shrink-0 border-t border-slate-200 pt-4">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{tx('Cancel')}</Button>
           <Button onClick={submit} disabled={handover.isPending} style={{ background: '#4f46e5' }}>
             {handover.isPending ? 'Handing over…' : 'Hand over register'}
           </Button>

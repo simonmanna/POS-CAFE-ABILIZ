@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import { dateTime } from '@/lib/format';
 import { DataTable, Kpi, KpiGrid, ReportState, money, qty, type Column } from './shared';
 import { Field, FilterBar, type useReportFilters } from './filters';
+import { tx } from '@/lib/i18n/tx';
 
 export type RegisterKind = 'stock_in' | 'stock_out' | 'damages' | 'adjustments' | 'transfers';
 
@@ -63,14 +64,14 @@ const CONFIG: Record<RegisterKind, {
 const PALETTE = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#0ea5e9', '#a855f7', '#14b8a6', '#f97316', '#64748b', '#84cc16'];
 
 function Change({ pct, invert }: { pct: number | null; invert?: boolean }) {
-  if (pct == null) return <span className="text-muted-foreground">new vs previous period</span>;
-  if (pct === 0) return <span className="inline-flex items-center gap-0.5 text-muted-foreground"><Minus className="h-3 w-3" />0% vs previous</span>;
+  if (pct == null) return <span className="text-muted-foreground">{tx('new vs previous period')}</span>;
+  if (pct === 0) return <span className="inline-flex items-center gap-0.5 text-muted-foreground"><Minus className="h-3 w-3" />{tx('0% vs previous')}</span>;
   const up = pct > 0;
   const good = invert ? !up : up;
   return (
     <span className={cn('inline-flex items-center gap-0.5', good ? 'text-emerald-600' : 'text-destructive')}>
       {up ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-      {Math.abs(pct)}% vs previous
+      {Math.abs(pct)}{tx('% vs previous')}
     </span>
   );
 }
@@ -181,30 +182,30 @@ export function RegisterReport({ kind, ctl }: { kind: RegisterKind; ctl: ReturnT
   const selectCls = 'h-9 w-full rounded-md border bg-background px-2 text-sm';
   const extra = (
     <>
-      <Field label="Source">
+      <Field label={tx('Source')}>
         <select className={selectCls} value={f.source} onChange={(e) => set({ source: e.target.value })}>
-          <option value="">All sources</option>
+          <option value="">{tx('All sources')}</option>
           {d?.facets.sources.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </Field>
       <Field label={cfg.reasonLabel}>
         <select className={selectCls} value={f.reason} onChange={(e) => set({ reason: e.target.value })}>
-          <option value="">All</option>
+          <option value="">{tx('All')}</option>
           {d?.facets.reasons.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
       </Field>
-      <Field label="Responsible person">
+      <Field label={tx('Responsible person')}>
         <select className={selectCls} value={f.staffId} onChange={(e) => set({ staffId: e.target.value })}>
-          <option value="">Anyone</option>
+          <option value="">{tx('Anyone')}</option>
           {d?.facets.staff.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </Field>
       {isAdj && (
-        <Field label="Direction">
+        <Field label={tx('Direction')}>
           <select className={selectCls} value={f.direction} onChange={(e) => set({ direction: e.target.value })}>
-            <option value="">Gains & losses</option>
-            <option value="gain">Gains only (+)</option>
-            <option value="loss">Losses only (−)</option>
+            <option value="">{tx('Gains & losses')}</option>
+            <option value="gain">{tx('Gains only (+)')}</option>
+            <option value="loss">{tx('Losses only (−)')}</option>
           </select>
         </Field>
       )}
@@ -270,21 +271,21 @@ export function RegisterReport({ kind, ctl }: { kind: RegisterKind; ctl: ReturnT
             <KpiGrid>
               {isAdj ? (
                 <>
-                  <Kpi label="Net adjustment value" value={money(s.value)} tone={s.value < 0 ? 'bad' : s.value > 0 ? 'good' : undefined} hint={<Change pct={s.changePct.value} />} />
-                  <Kpi label="Gains (+)" value={money(s.gainValue)} tone="good" hint={`${qty(s.gainQty)} units`} />
-                  <Kpi label="Losses (−)" value={money(s.lossValue)} tone="bad" hint={`${qty(s.lossQty)} units`} />
+                  <Kpi label={tx('Net adjustment value')} value={money(s.value)} tone={s.value < 0 ? 'bad' : s.value > 0 ? 'good' : undefined} hint={<Change pct={s.changePct.value} />} />
+                  <Kpi label={tx('Gains (+)')} value={money(s.gainValue)} tone="good" hint={`${qty(s.gainQty)} units`} />
+                  <Kpi label={tx('Losses (−)')} value={money(s.lossValue)} tone="bad" hint={`${qty(s.lossQty)} units`} />
                 </>
               ) : (
                 <>
                   <Kpi label={cfg.valueLabel} value={money(s.value)} tone={cfg.tone} hint={<Change pct={s.changePct.value} invert={kind === 'damages'} />} />
-                  <Kpi label="Quantity" value={qty(s.qty)} hint={<Change pct={s.changePct.qty} invert={kind === 'damages'} />} />
-                  <Kpi label="Daily average" value={money(s.avgValuePerDay)} hint={`over ${d.range.days} day(s)`} />
+                  <Kpi label={tx('Quantity')} value={qty(s.qty)} hint={<Change pct={s.changePct.qty} invert={kind === 'damages'} />} />
+                  <Kpi label={tx('Daily average')} value={money(s.avgValuePerDay)} hint={`over ${d.range.days} day(s)`} />
                 </>
               )}
-              <Kpi label="Documents / lines" value={`${s.documents} / ${s.lines}`} hint={<Change pct={s.changePct.lines} invert={kind === 'damages'} />} />
-              <Kpi label="Items / locations" value={`${s.items} / ${s.locations}`} hint={s.paretoItems ? `${s.paretoItems} item(s) = 80% of value` : undefined} />
+              <Kpi label={tx('Documents / lines')} value={`${s.documents} / ${s.lines}`} hint={<Change pct={s.changePct.lines} invert={kind === 'damages'} />} />
+              <Kpi label={tx('Items / locations')} value={`${s.items} / ${s.locations}`} hint={s.paretoItems ? `${s.paretoItems} item(s) = 80% of value` : undefined} />
               <Kpi
-                label="Control gaps"
+                label={tx('Control gaps')}
                 value={`${s.unassignedLines} / ${s.unapprovedLines}`}
                 tone={s.unassignedLines || s.unapprovedLines ? 'warn' : 'good'}
                 hint="No responsible / not approved"
@@ -292,10 +293,10 @@ export function RegisterReport({ kind, ctl }: { kind: RegisterKind; ctl: ReturnT
             </KpiGrid>
 
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground">
-              <span>Period {d.range.start} → {d.range.end}</span>
-              <span>Compared with {d.previousRange.start} → {d.previousRange.end}: {money(s.previous.value)} · {s.previous.lines} line(s)</span>
-              {s.topItem && <span>Top item: <b className="text-foreground">{s.topItem.name}</b> ({s.topItem.sharePct}% of value)</span>}
-              {zeroCost && <span className="text-amber-600">⚠ All lines carry zero cost — value charts fall back to line counts. Check item cost prices.</span>}
+              <span>{tx('Period')} {d.range.start} → {d.range.end}</span>
+              <span>{tx('Compared with')} {d.previousRange.start} → {d.previousRange.end}: {money(s.previous.value)} · {s.previous.lines} {tx('line(s)')}</span>
+              {s.topItem && <span>{tx('Top item:')} <b className="text-foreground">{s.topItem.name}</b> ({s.topItem.sharePct}{tx('% of value)')}</span>}
+              {zeroCost && <span className="text-amber-600">{tx('⚠ All lines carry zero cost — value charts fall back to line counts. Check item cost prices.')}</span>}
             </div>
 
             <ChartCard title={`${cfg.noun} trend`} subtitle={`${d.trend.bucket === 'day' ? 'Daily' : d.trend.bucket === 'week' ? 'Weekly' : 'Monthly'} value (bars) and line count (line)`}>
@@ -329,7 +330,7 @@ export function RegisterReport({ kind, ctl }: { kind: RegisterKind; ctl: ReturnT
               <ChartCard title={kind === 'damages' || isAdj ? `By ${cfg.reasonLabel.toLowerCase()}` : 'By source'}>
                 <Donut data={kind === 'damages' || isAdj ? d.byReason : d.bySource} empty={cfg.empty} />
               </ChartCard>
-              <ChartCard title="By category">
+              <ChartCard title={tx('By category')}>
                 <Donut data={d.byCategory} empty={cfg.empty} />
               </ChartCard>
             </div>
@@ -338,7 +339,7 @@ export function RegisterReport({ kind, ctl }: { kind: RegisterKind; ctl: ReturnT
               <ChartCard title={isTrf ? 'By route' : `By ${cfg.locationLabel.toLowerCase()}`}>
                 <RankBars rows={d.byLocation} empty={cfg.empty} color={cfg.color} />
               </ChartCard>
-              <ChartCard title="By weekday" subtitle="Lines per day of week">
+              <ChartCard title={tx('By weekday')} subtitle={tx('Lines per day of week')}>
                 <div className="h-44">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={d.byWeekday}>
@@ -350,7 +351,7 @@ export function RegisterReport({ kind, ctl }: { kind: RegisterKind; ctl: ReturnT
                   </ResponsiveContainer>
                 </div>
               </ChartCard>
-              <ChartCard title="By hour of day" subtitle="When movements are recorded">
+              <ChartCard title={tx('By hour of day')} subtitle={tx('When movements are recorded')}>
                 <div className="h-44">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={d.byHour}>
@@ -366,7 +367,7 @@ export function RegisterReport({ kind, ctl }: { kind: RegisterKind; ctl: ReturnT
 
             <Card className="space-y-3 p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">Breakdown by</span>
+                <span className="text-sm font-medium">{tx('Breakdown by')}</span>
                 {BREAKDOWNS.map((b) => (
                   <button
                     key={b.key}
@@ -391,7 +392,7 @@ export function RegisterReport({ kind, ctl }: { kind: RegisterKind; ctl: ReturnT
             </Card>
 
             <Card className="space-y-2 p-3">
-              <div className="text-sm font-medium">{cfg.noun} register</div>
+              <div className="text-sm font-medium">{cfg.noun} {tx('register')}</div>
               <DataTable
                 rows={d.rows}
                 columns={lineCols}
@@ -402,7 +403,7 @@ export function RegisterReport({ kind, ctl }: { kind: RegisterKind; ctl: ReturnT
                 onRowClick={(l) => navigate(`/inventory/ledger/${l.id}`)}
                 toolbar={
                   <span className="text-xs">
-                    Click a line to open the ledger entry.{d.truncated && ' Showing the latest 5,000 lines — narrow the filters for the rest.'}
+                    {tx('Click a line to open the ledger entry.')}{d.truncated && ' Showing the latest 5,000 lines — narrow the filters for the rest.'}
                   </span>
                 }
               />

@@ -16,6 +16,7 @@ import {
 import { money, date, useOrgCurrency } from '@/lib/format';
 
 import { useReceipt } from '@/pages/pos/api';
+import { tx } from '@/lib/i18n/tx';
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
@@ -34,7 +35,7 @@ export function ReceiptDetailPage() {
     const currency = useOrgCurrency();
 
   if (isLoading || !receipt) {
-    return <div className="text-sm text-muted-foreground">Loading...</div>;
+    return <div className="text-sm text-muted-foreground">{tx('Loading...')}</div>;
   }
 
   const lines = receipt.lines ?? [];
@@ -43,12 +44,12 @@ export function ReceiptDetailPage() {
     <div className="mx-auto max-w-2xl space-y-4">
       <div className="flex items-center justify-between print:hidden">
         <Button variant="outline" onClick={() => navigate('/pos/receipts')}>
-          Back
+          {tx('Back')}
         </Button>
         <div className="flex gap-2">
           {has(PERMISSIONS.pos.reports) && (
             <Button variant="outline" onClick={() => window.print()}>
-              <Printer className="mr-2 h-4 w-4" /> Print
+              <Printer className="mr-2 h-4 w-4" /> {tx('Print')}
             </Button>
           )}
         </div>
@@ -59,8 +60,8 @@ export function ReceiptDetailPage() {
           <div className="flex items-start justify-between border-b pb-4">
             <div>
               <div className="flex items-center gap-3">
-                <h1 className="text-2xl font-semibold">Payment Receipt</h1>
-                {receipt.settlementStatus === 'written_off' && <Badge variant="destructive">written off</Badge>}
+                <h1 className="text-2xl font-semibold">{tx('Payment Receipt')}</h1>
+                {receipt.settlementStatus === 'written_off' && <Badge variant="destructive">{tx('written off')}</Badge>}
               </div>
               <p className="text-sm text-muted-foreground">{receipt.documentNumber}</p>
             </div>
@@ -68,24 +69,24 @@ export function ReceiptDetailPage() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Received from" value={receipt.partner?.name ?? '-'} />
-            <Field label="Method" value={receipt.paymentMode?.replace(/_/g, ' ') ?? '—'} />
-            <Field label="Reference" value={receipt.documentNumber} />
-            <Field label="Status" value={receipt.paymentStatus?.replace(/_/g, ' ') ?? '—'} />
+            <Field label={tx('Received from')} value={receipt.partner?.name ?? '-'} />
+            <Field label={tx('Method')} value={receipt.paymentMode?.replace(/_/g, ' ') ?? '—'} />
+            <Field label={tx('Reference')} value={receipt.documentNumber} />
+            <Field label={tx('Status')} value={receipt.paymentStatus?.replace(/_/g, ' ') ?? '—'} />
           </div>
 
           <div className="rounded-md bg-muted/50 p-4 text-center">
-            <div className="text-xs uppercase tracking-wide text-muted-foreground">Amount received</div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground">{tx('Amount received')}</div>
             <div className="text-3xl font-semibold">{money(receipt.amountPaid, currency)}</div>
           </div>
 
           {/* Cash change: shown only when the customer overpaid in cash. */}
           {Number((receipt as any).amountTendered ?? 0) > Number(receipt.amountPaid) && (
             <div className="grid grid-cols-3 gap-4 rounded-md border p-4">
-              <Field label="Bill total" value={money((receipt as any).totalAmount, currency)} />
-              <Field label="Cash tendered" value={money((receipt as any).amountTendered, currency)} />
+              <Field label={tx('Bill total')} value={money((receipt as any).totalAmount, currency)} />
+              <Field label={tx('Cash tendered')} value={money((receipt as any).amountTendered, currency)} />
               <Field
-                label="Change given"
+                label={tx('Change given')}
                 value={money(Math.max(0, Number((receipt as any).amountTendered) - Number((receipt as any).totalAmount)), currency)}
               />
             </div>
@@ -93,13 +94,13 @@ export function ReceiptDetailPage() {
 
           {lines.length > 0 && (
             <div>
-              <div className="mb-2 text-sm font-medium">Items</div>
+              <div className="mb-2 text-sm font-medium">{tx('Items')}</div>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Description</TableHead>
-                    <TableHead className="text-right">Qty</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead>{tx('Description')}</TableHead>
+                    <TableHead className="text-right">{tx('Qty')}</TableHead>
+                    <TableHead className="text-right">{tx('Total')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -117,7 +118,7 @@ export function ReceiptDetailPage() {
 
           {Number(receipt.amountResidual) > 0 && (
             <p className="text-sm text-muted-foreground">
-              Balance due: {money(receipt.amountResidual, currency)}
+              {tx('Balance due:')} {money(receipt.amountResidual, currency)}
             </p>
           )}
         </CardContent>

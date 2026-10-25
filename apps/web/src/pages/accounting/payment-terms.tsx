@@ -33,6 +33,7 @@ import {
 } from '@/features/accounting/api';
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@erp/shared';
+import { tx } from '@/lib/i18n/tx';
 
 /* ── Form state ─────────────────────────────────────────── */
 
@@ -213,7 +214,7 @@ export default function PaymentTermsPage() {
       render: (t) =>
         t.discountDays != null && t.discountPercent != null ? (
           <span className="text-sm">
-            {Number(t.discountPercent)}% if paid within {t.discountDays} day
+            {Number(t.discountPercent)}{tx('% if paid within')} {t.discountDays} day
             {t.discountDays !== 1 ? 's' : ''}
           </span>
         ) : (
@@ -225,9 +226,9 @@ export default function PaymentTermsPage() {
       header: 'Status',
       render: (t) =>
         t.isActive ? (
-          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Active</Badge>
+          <Badge className="bg-green-100 text-green-700 hover:bg-green-100">{tx('Active')}</Badge>
         ) : (
-          <Badge variant="secondary">Inactive</Badge>
+          <Badge variant="secondary">{tx('Inactive')}</Badge>
         ),
     },
     {
@@ -241,8 +242,8 @@ export default function PaymentTermsPage() {
               variant="ghost"
               size="icon"
               onClick={() => openEdit(t)}
-              aria-label="Edit payment term"
-              title="Edit payment term"
+              aria-label={tx('Edit payment term')}
+              title={tx('Edit payment term')}
             >
               <Pencil className="h-4 w-4" />
             </Button>
@@ -252,8 +253,8 @@ export default function PaymentTermsPage() {
               variant="ghost"
               size="icon"
               onClick={() => setArchiving(t)}
-              aria-label="Archive payment term"
-              title="Archive payment term"
+              aria-label={tx('Archive payment term')}
+              title={tx('Archive payment term')}
             >
               <Archive className="h-4 w-4 text-destructive" />
             </Button>
@@ -270,15 +271,14 @@ export default function PaymentTermsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Payment Terms</h1>
+          <h1 className="text-2xl font-semibold">{tx('Payment Terms')}</h1>
           <p className="text-sm text-muted-foreground">
-            Configure due-date terms (immediate, net days, end of month) selectable on sales
-            invoices.
+            {tx('Configure due-date terms (immediate, net days, end of month) selectable on sales invoices.')}
           </p>
         </div>
         {canCreate && (
           <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" /> New Payment Term
+            <Plus className="h-4 w-4" /> {tx('New Payment Term')}
           </Button>
         )}
       </div>
@@ -289,7 +289,7 @@ export default function PaymentTermsPage() {
         <Input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search payment terms..."
+          placeholder={tx('Search payment terms...')}
           className="pl-9"
         />
       </div>
@@ -312,7 +312,7 @@ export default function PaymentTermsPage() {
         <div className="rounded-lg border bg-muted/30">
           <div className="border-b px-4 py-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Archived ({archived.length})
+              {tx('Archived (')}{archived.length})
             </h2>
           </div>
           <div className="divide-y">
@@ -334,7 +334,7 @@ export default function PaymentTermsPage() {
                     onClick={() => restoreTerm.mutate(t.id)}
                     disabled={restoreTerm.isPending}
                   >
-                    <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> Restore
+                    <RotateCcw className="h-3.5 w-3.5 mr-1.5" /> {tx('Restore')}
                   </Button>
                 )}
               </div>
@@ -359,19 +359,19 @@ export default function PaymentTermsPage() {
             {/* Name & Code */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="name">Name</Label>
+                <Label htmlFor="name">{tx('Name')}</Label>
                 <Input
                   id="name"
-                  placeholder="e.g. Net 30"
+                  placeholder={tx('e.g. Net 30')}
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="code">Code</Label>
+                <Label htmlFor="code">{tx('Code')}</Label>
                 <Input
                   id="code"
-                  placeholder="e.g. net-30"
+                  placeholder={tx('e.g. net-30')}
                   value={form.code}
                   onChange={(e) => setForm({ ...form, code: e.target.value })}
                 />
@@ -380,18 +380,18 @@ export default function PaymentTermsPage() {
 
             {/* Method */}
             <div className="space-y-1.5">
-              <Label htmlFor="method">Due date computation</Label>
+              <Label htmlFor="method">{tx('Due date computation')}</Label>
               <Select
                 value={form.method}
                 onValueChange={(v) => setForm({ ...form, method: v as PaymentTermMethod })}
               >
                 <SelectTrigger id="method">
-                  <SelectValue placeholder="Select computation" />
+                  <SelectValue placeholder={tx('Select computation')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="immediate">Immediate Payment</SelectItem>
-                  <SelectItem value="net_days">Days after invoice date (net days)</SelectItem>
-                  <SelectItem value="end_of_following_month">End of following month</SelectItem>
+                  <SelectItem value="immediate">{tx('Immediate Payment')}</SelectItem>
+                  <SelectItem value="net_days">{tx('Days after invoice date (net days)')}</SelectItem>
+                  <SelectItem value="end_of_following_month">{tx('End of following month')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -419,26 +419,26 @@ export default function PaymentTermsPage() {
             {/* Early-payment discount */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="discountDays">Early-payment window (days)</Label>
+                <Label htmlFor="discountDays">{tx('Early-payment window (days)')}</Label>
                 <Input
                   id="discountDays"
                   type="number"
                   step="1"
                   min="0"
-                  placeholder="Optional"
+                  placeholder={tx('Optional')}
                   value={form.discountDays}
                   onChange={(e) => setForm({ ...form, discountDays: e.target.value })}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="discountPercent">Early-payment discount (%)</Label>
+                <Label htmlFor="discountPercent">{tx('Early-payment discount (%)')}</Label>
                 <Input
                   id="discountPercent"
                   type="number"
                   step="0.01"
                   min="0"
                   max="100"
-                  placeholder="Optional"
+                  placeholder={tx('Optional')}
                   value={form.discountPercent}
                   onChange={(e) => setForm({ ...form, discountPercent: e.target.value })}
                 />
@@ -448,7 +448,7 @@ export default function PaymentTermsPage() {
             {/* Sort order + Active */}
             <div className="grid grid-cols-2 gap-4 items-end">
               <div className="space-y-1.5">
-                <Label htmlFor="sortOrder">Display order</Label>
+                <Label htmlFor="sortOrder">{tx('Display order')}</Label>
                 <Input
                   id="sortOrder"
                   type="number"
@@ -464,7 +464,7 @@ export default function PaymentTermsPage() {
                   onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
                   className="h-4 w-4 rounded border-input"
                 />
-                <span className="font-medium">Active</span>
+                <span className="font-medium">{tx('Active')}</span>
               </label>
             </div>
 
@@ -473,12 +473,12 @@ export default function PaymentTermsPage() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button onClick={handleSave} disabled={isPending}>
               {isPending ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving…
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" /> {tx('Saving…')}
                 </>
               ) : editing ? (
                 'Save changes'
@@ -494,13 +494,11 @@ export default function PaymentTermsPage() {
       <Dialog open={!!archiving} onOpenChange={(open) => !open && setArchiving(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Archive payment term?</DialogTitle>
+            <DialogTitle>{tx('Archive payment term?')}</DialogTitle>
             <DialogDescription>
               {archiving ? (
                 <>
-                  <strong>{archiving.name}</strong> will be removed from sales pickers. Existing
-                  invoices keep their payment term name. You can restore it later from the
-                  archived section.
+                  <strong>{archiving.name}</strong> {tx('will be removed from sales pickers. Existing invoices keep their payment term name. You can restore it later from the archived section.')}
                 </>
               ) : (
                 ''
@@ -509,7 +507,7 @@ export default function PaymentTermsPage() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setArchiving(null)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               variant="destructive"

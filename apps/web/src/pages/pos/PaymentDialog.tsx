@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { PaymentMethod, PaymentTender } from './types';
+import { tx } from '@/lib/i18n/tx';
 
 /** The pay panel offers the tender kinds PLUS a non-tender "settle on account"
  *  mode (credit_settlement) that books the sale to the customer's AR instead of
@@ -268,10 +269,10 @@ export const PaymentDialog: React.FC<Props> = ({
       <DialogContent className="sm:max-w-[860px] p-0 overflow-hidden">
         <DialogHeader className="bg-gradient-to-r from-emerald-500 to-emerald-700 text-white p-4">
           <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
-            <Wallet className="h-4 w-4" /> Charge
+            <Wallet className="h-4 w-4" /> {tx('Charge')}
           </DialogTitle>
           <DialogDescription className="text-emerald-100 text-xs">
-            Pay with one or many methods. Split by adding tenders until the total is covered.
+            {tx('Pay with one or many methods. Split by adding tenders until the total is covered.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -296,7 +297,7 @@ export const PaymentDialog: React.FC<Props> = ({
                     {m.icon}
                     <span className="text-[11px] font-bold">{m.label}</span>
                     {m.methods.length > 1 ? (
-                      <span className="text-[9px] font-semibold opacity-70">{m.methods.length} accounts</span>
+                      <span className="text-[9px] font-semibold opacity-70">{m.methods.length} {tx('accounts')}</span>
                     ) : null}
                   </button>
                 );
@@ -307,52 +308,49 @@ export const PaymentDialog: React.FC<Props> = ({
               <div className="space-y-2">
                 <div className="rounded-lg border-2 border-sky-200 bg-sky-50 p-4 space-y-1.5">
                   <div className="flex items-center gap-2 text-sky-800 font-bold text-sm">
-                    <Wallet className="h-4 w-4" /> Settle on account (credit)
+                    <Wallet className="h-4 w-4" /> {tx('Settle on account (credit)')}
                   </div>
                   <p className="text-xs text-sky-700">
-                    No money is collected now. {fmt(total)} is booked to the customer's
-                    account (AR) and stays unpaid until a payment is recorded against
-                    the invoice.
+                    {tx('No money is collected now.')} {fmt(total)} {tx('is booked to the customer\'s account (AR) and stays unpaid until a payment is recorded against the invoice.')}
                   </p>
                 </div>
 
                 {!creditEnabled ? (
                   <div className="rounded-lg border-2 border-amber-200 bg-amber-50 p-4 space-y-2.5">
                     <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
-                      <AlertTriangle className="h-4 w-4" /> No customer selected
+                      <AlertTriangle className="h-4 w-4" /> {tx('No customer selected')}
                     </div>
                     <p className="text-xs text-amber-700">
-                      An on-account sale has to be billed to a named customer — somebody
-                      has to owe the money. Walk-in customers must pay now.
+                      {tx('An on-account sale has to be billed to a named customer — somebody has to owe the money. Walk-in customers must pay now.')}
                     </p>
                     {onPickCustomer ? (
                       <Button onClick={onPickCustomer} className="w-full bg-amber-600 hover:bg-amber-700">
-                        <UserPlus className="h-4 w-4 mr-1" /> Select customer
+                        <UserPlus className="h-4 w-4 mr-1" /> {tx('Select customer')}
                       </Button>
                     ) : null}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-1.5 text-sm">
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Customer</span>
+                      <span className="text-slate-500">{tx('Customer')}</span>
                       <span className="font-bold">{customerName ?? '—'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Credit limit</span>
+                      <span className="text-slate-500">{tx('Credit limit')}</span>
                       <span className="font-mono">{creditInfo && creditInfo.creditLimit > 0 ? fmt(creditInfo.creditLimit) : 'No limit'}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Already owing</span>
+                      <span className="text-slate-500">{tx('Already owing')}</span>
                       <span className="font-mono">{fmt(creditInfo?.outstanding ?? 0)}</span>
                     </div>
                     {creditInfo?.available != null ? (
                       <div className="flex justify-between">
-                        <span className="text-slate-500">Available</span>
+                        <span className="text-slate-500">{tx('Available')}</span>
                         <span className="font-mono font-bold text-emerald-600">{fmt(creditInfo.available)}</span>
                       </div>
                     ) : null}
                     <div className="flex justify-between border-t border-slate-200 pt-1.5">
-                      <span className="text-slate-500">Owing after this sale</span>
+                      <span className="text-slate-500">{tx('Owing after this sale')}</span>
                       <span className="font-mono font-bold">{fmt(balanceAfter)}</span>
                     </div>
                   </div>
@@ -370,7 +368,7 @@ export const PaymentDialog: React.FC<Props> = ({
             {unconfigured ? (
               <div className="rounded-lg border-2 border-amber-200 bg-amber-50 p-4 space-y-2">
                 <div className="flex items-center gap-2 text-amber-800 font-bold text-sm">
-                  <AlertTriangle className="h-4 w-4" /> No {TENDER_KIND_LABEL[activeKind]?.toLowerCase()} account is set up
+                  <AlertTriangle className="h-4 w-4" /> {tx('No')} {TENDER_KIND_LABEL[activeKind]?.toLowerCase()} {tx('account is set up')}
                 </div>
                 <p className="text-xs text-amber-700">
                   A {TENDER_KIND_LABEL[activeKind]?.toLowerCase()} payment has to land in a named finance
@@ -381,7 +379,7 @@ export const PaymentDialog: React.FC<Props> = ({
                   to="/settings/payment-methods"
                   className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-amber-700"
                 >
-                  <Settings2 className="h-3.5 w-3.5" /> Open Payment methods
+                  <Settings2 className="h-3.5 w-3.5" /> {tx('Open Payment methods')}
                 </Link>
               </div>
             ) : null}
@@ -416,7 +414,7 @@ export const PaymentDialog: React.FC<Props> = ({
             {/* The account is configuration, not a cashier decision — show it, don't ask. */}
             {needsMethod && selectedMethod?.accountId ? (
               <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Receiving account</span>
+                <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{tx('Receiving account')}</span>
                 <span className="flex items-center gap-1.5 text-sm font-bold text-slate-700">
                   {selectedMethod.accountName} · {selectedMethod.accountCode}
                   <Check className="h-3.5 w-3.5 text-emerald-600" />
@@ -437,14 +435,14 @@ export const PaymentDialog: React.FC<Props> = ({
               />
               {activeKind === 'store_credit' ? (
                 <div className="flex items-center gap-2 mt-2 text-xs">
-                  <span className="font-semibold text-sky-700">Available credit: {fmt(availableCredit)}</span>
+                  <span className="font-semibold text-sky-700">{tx('Available credit:')} {fmt(availableCredit)}</span>
                   <button
                     type="button"
                     className="px-2.5 py-1 rounded-md bg-sky-100 text-sky-700 hover:bg-sky-200 font-bold disabled:opacity-50"
                     disabled={availableCredit <= 0}
                     onClick={() => setTendered(String(Math.min(remaining, availableCredit)))}
                   >
-                    Use max
+                    {tx('Use max')}
                   </button>
                 </div>
               ) : null}
@@ -453,7 +451,7 @@ export const PaymentDialog: React.FC<Props> = ({
             {activeKind !== 'cash' && activeKind !== 'store_credit' && !unconfigured ? (
               <div>
                 <Label>
-                  Reference / transaction id {selectedMethod?.requiresReference ? '(recommended)' : '(optional)'}
+                  {tx('Reference / transaction id')} {selectedMethod?.requiresReference ? '(recommended)' : '(optional)'}
                 </Label>
                 <Input
                   value={reference}
@@ -470,7 +468,7 @@ export const PaymentDialog: React.FC<Props> = ({
               className="w-full"
               style={{ background: activeTile?.color }}
             >
-              <Plus className="h-4 w-4 mr-1" /> Add {selectedMethod?.label ?? activeTile?.label} — {fmt(activeKind === 'cash' ? (tenderValid ? tenderNum : remaining) : Math.min(tenderValid ? tenderNum : remaining, activeKind === 'store_credit' ? Math.min(remaining, availableCredit) : remaining))}
+              <Plus className="h-4 w-4 mr-1" /> {tx('Add')} {selectedMethod?.label ?? activeTile?.label} — {fmt(activeKind === 'cash' ? (tenderValid ? tenderNum : remaining) : Math.min(tenderValid ? tenderNum : remaining, activeKind === 'store_credit' ? Math.min(remaining, availableCredit) : remaining))}
             </Button>
 
             {/* Never leave a dead button unexplained. */}
@@ -478,7 +476,7 @@ export const PaymentDialog: React.FC<Props> = ({
               <p className="text-center text-xs font-semibold text-slate-500">{blockedReason}</p>
             ) : referenceWanted ? (
               <p className="text-center text-xs text-amber-700">
-                Add the {selectedMethod?.label} transaction id if the customer has it — you can still take the payment without it.
+                {tx('Add the')} {selectedMethod?.label} {tx('transaction id if the customer has it — you can still take the payment without it.')}
               </p>
             ) : null}
             </>
@@ -491,19 +489,19 @@ export const PaymentDialog: React.FC<Props> = ({
           {/* Right column: total + tenders + settle */}
           <div className="bg-slate-50 border-l border-slate-200 p-4 flex flex-col">
             <div className="text-center mb-3">
-              <div className="text-xs uppercase tracking-wider text-slate-500">Total due</div>
+              <div className="text-xs uppercase tracking-wider text-slate-500">{tx('Total due')}</div>
               <div className="text-3xl font-extrabold text-slate-800 mt-1">{fmt(total)}</div>
             </div>
             <div className="space-y-1 text-sm">
-              <div className="flex justify-between"><span>Tenders entered</span><span className="font-mono">{fmt(paid)}</span></div>
-              <div className="flex justify-between font-bold text-emerald-600"><span>Remaining</span><span className="font-mono">{fmt(remaining)}</span></div>
+              <div className="flex justify-between"><span>{tx('Tenders entered')}</span><span className="font-mono">{fmt(paid)}</span></div>
+              <div className="flex justify-between font-bold text-emerald-600"><span>{tx('Remaining')}</span><span className="font-mono">{fmt(remaining)}</span></div>
               {change > 0 ? (
-                <div className="flex justify-between font-bold text-amber-600"><span>Change</span><span className="font-mono">{fmt(change)}</span></div>
+                <div className="flex justify-between font-bold text-amber-600"><span>{tx('Change')}</span><span className="font-mono">{fmt(change)}</span></div>
               ) : null}
             </div>
             <div className="mt-3 flex-1 overflow-y-auto space-y-1.5">
               {tenders.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center mt-4">No tenders yet</p>
+                <p className="text-xs text-slate-400 text-center mt-4">{tx('No tenders yet')}</p>
               ) : tenders.map((t, i) => (
                 <div key={i} className="flex items-center justify-between bg-white rounded border border-slate-200 px-2 py-1.5 text-xs">
                   <div className="flex items-center gap-1.5">
@@ -521,7 +519,7 @@ export const PaymentDialog: React.FC<Props> = ({
             {/* Optional manager override indicator (already verified upstream via parent) */}
             {overrideId ? (
               <div className="mt-2 text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded px-2 py-1">
-                ✓ Manager override applied
+                {tx('✓ Manager override applied')}
               </div>
             ) : null}
 
@@ -534,18 +532,18 @@ export const PaymentDialog: React.FC<Props> = ({
               {busy
                 ? 'Processing…'
                 : isCredit
-                  ? <><Wallet className="h-4 w-4 mr-1" /> Charge {fmt(total)} to account</>
-                  : <><Check className="h-4 w-4 mr-1" /> Settle {fmt(total)}</>}
+                  ? <><Wallet className="h-4 w-4 mr-1" /> {tx('Charge')} {fmt(total)} {tx('to account')}</>
+                  : <><Check className="h-4 w-4 mr-1" /> {tx('Settle')} {fmt(total)}</>}
             </Button>
           </div>
         </div>
 
         <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{tx('Cancel')}</Button>
           {/* Hidden helper — if discount > 10% and no override, allow cashier to request one */}
           {effectiveDiscountPercent > 10 && !overrideId ? (
             <Button onClick={requestOverride} variant="outline" className="border-amber-300 text-amber-700">
-              Request manager override
+              {tx('Request manager override')}
             </Button>
           ) : null}
           {/* Postpaid credit is now a payment mode ("Credit") in the method grid. */}

@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface DeadLetter {
   id: string;
@@ -64,7 +65,7 @@ export function DeadLettersPage() {
       })).data;
     },
     onSuccess: () => {
-      notify.success('Recorded');
+      notify.success(tx('Recorded'));
       setResolving(null);
       setNote('');
       qc.invalidateQueries({ queryKey: ['sync-dead-letters'] });
@@ -80,19 +81,18 @@ export function DeadLettersPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold">
-            <Inbox className="h-6 w-6" /> Rejected offline sales
+            <Inbox className="h-6 w-6" /> {tx('Rejected offline sales')}
           </h1>
           <p className="text-muted-foreground">
-            Operations a device sent on sync that the server refused. Each one may be
-            real money that never got recorded.
+            {tx('Operations a device sent on sync that the server refused. Each one may be real money that never got recorded.')}
           </p>
         </div>
         <div className="flex gap-2">
           <Button variant={status === 'open' ? 'default' : 'outline'} size="sm" onClick={() => setStatus('open')}>
-            Open{openCount > 0 ? ` (${openCount})` : ''}
+            {tx('Open')}{openCount > 0 ? ` (${openCount})` : ''}
           </Button>
           <Button variant={status === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setStatus('all')}>
-            All
+            {tx('All')}
           </Button>
         </div>
       </div>
@@ -103,9 +103,9 @@ export function DeadLettersPage() {
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
             <CheckCircle2 className="h-8 w-8 text-emerald-500" />
-            <p className="font-medium">Nothing rejected</p>
+            <p className="font-medium">{tx('Nothing rejected')}</p>
             <p className="text-sm text-muted-foreground">
-              Every operation pushed by every device has been accepted.
+              {tx('Every operation pushed by every device has been accepted.')}
             </p>
           </CardContent>
         </Card>
@@ -125,7 +125,7 @@ export function DeadLettersPage() {
                       )}
                     </CardTitle>
                     <span className="text-xs text-muted-foreground">
-                      {dl.deviceName} · seq {dl.deviceSeq} ·{' '}
+                      {dl.deviceName} {tx('· seq')} {dl.deviceSeq} ·{' '}
                       {dl.occurredAt ? new Date(dl.occurredAt).toLocaleString() : 'no timestamp'}
                     </span>
                   </div>
@@ -135,7 +135,7 @@ export function DeadLettersPage() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <details className="text-xs">
-                    <summary className="cursor-pointer text-muted-foreground">Payload</summary>
+                    <summary className="cursor-pointer text-muted-foreground">{tx('Payload')}</summary>
                     <pre className="mt-2 max-h-48 overflow-auto rounded-md border bg-muted/40 p-2">
                       {JSON.stringify(dl.payload, null, 2)}
                     </pre>
@@ -143,10 +143,10 @@ export function DeadLettersPage() {
                   {dl.status === 'open' ? (
                     <div className="flex justify-end gap-2">
                       <Button size="sm" variant="outline" onClick={() => { setResolving({ dl, action: 'resolved' }); setNote(''); }}>
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Mark handled
+                        <CheckCircle2 className="h-3.5 w-3.5" /> {tx('Mark handled')}
                       </Button>
                       <Button size="sm" variant="ghost" className="text-rose-400" onClick={() => { setResolving({ dl, action: 'discarded' }); setNote(''); }}>
-                        <Trash2 className="h-3.5 w-3.5" /> Discard
+                        <Trash2 className="h-3.5 w-3.5" /> {tx('Discard')}
                       </Button>
                     </div>
                   ) : (
@@ -176,7 +176,7 @@ export function DeadLettersPage() {
               : 'Use this only if the operation must never post — a duplicate, a test, or a cancelled sale.'}
           </p>
           <div className="grid gap-1.5">
-            <Label htmlFor="dl-note">What happened? (recorded in the audit log)</Label>
+            <Label htmlFor="dl-note">{tx('What happened? (recorded in the audit log)')}</Label>
             <Input
               id="dl-note"
               value={note}
@@ -185,14 +185,14 @@ export function DeadLettersPage() {
             />
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setResolving(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setResolving(null)}>{tx('Cancel')}</Button>
             <Button
               variant={resolving?.action === 'discarded' ? 'destructive' : 'default'}
               disabled={!note.trim() || resolve.isPending}
               onClick={() => resolve.mutate()}
             >
               {resolve.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Confirm
+              {tx('Confirm')}
             </Button>
           </div>
         </DialogContent>

@@ -2,6 +2,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { DataTable, type Column } from '@/components/data-table';
 import { money, date } from '@/lib/format';
 import { useArAging, type AgingRow } from '@/features/invoicing/api';
+import { tx } from '@/lib/i18n/tx';
 
 const BUCKETS: { key: keyof import('@/features/invoicing/api').AgingBuckets; label: string }[] = [
   { key: 'current', label: 'Current' },
@@ -25,8 +26,8 @@ export function ArAgingPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Accounts Receivable</h1>
-        <p className="text-sm text-muted-foreground">Outstanding customer balances by age (derived from open invoices).</p>
+        <h1 className="text-2xl font-semibold">{tx('Accounts Receivable')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('Outstanding customer balances by age (derived from open invoices).')}</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">

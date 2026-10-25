@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { notify } from '@/lib/notify';
 import { apiErrorMessage } from '@/lib/api-error';
+import { tx } from '@/lib/i18n/tx';
 
 const time = (d: string | null) => (d ? new Date(d).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) : '—');
 const date = (d: string | null) => (d ? new Date(d).toLocaleDateString('id-ID') : '—');
@@ -64,31 +65,31 @@ export function HrTeamPage() {
   return (
     <div className="space-y-4 p-6">
       <div>
-        <h1 className="text-xl font-semibold">My team</h1>
+        <h1 className="text-xl font-semibold">{tx('My team')}</h1>
         <p className="text-sm text-muted-foreground">
-          Your direct reports and anyone in a department you manage.
+          {tx('Your direct reports and anyone in a department you manage.')}
         </p>
       </div>
 
       {todayLoading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
+        <p className="text-sm text-muted-foreground">{tx('Loading…')}</p>
       ) : (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          <Tile label="Team" value={today?.total ?? 0} />
-          <Tile label="Present" value={today?.present ?? 0} />
-          <Tile label="Late" value={today?.late ?? 0} />
-          <Tile label="On leave" value={today?.onLeave ?? 0} />
-          <Tile label="Absent" value={today?.absent ?? 0} />
-          <Tile label="Not clocked in" value={today?.notClockedIn ?? 0} />
+          <Tile label={tx('Team')} value={today?.total ?? 0} />
+          <Tile label={tx('Present')} value={today?.present ?? 0} />
+          <Tile label={tx('Late')} value={today?.late ?? 0} />
+          <Tile label={tx('On leave')} value={today?.onLeave ?? 0} />
+          <Tile label={tx('Absent')} value={today?.absent ?? 0} />
+          <Tile label={tx('Not clocked in')} value={today?.notClockedIn ?? 0} />
         </div>
       )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="today">Today</TabsTrigger>
-          <TabsTrigger value="people">People</TabsTrigger>
+          <TabsTrigger value="today">{tx('Today')}</TabsTrigger>
+          <TabsTrigger value="people">{tx('People')}</TabsTrigger>
           <TabsTrigger value="leave">
-            Leave requests
+            {tx('Leave requests')}
             {pending?.rows?.length ? (
               <Badge className="ml-1.5 bg-amber-100 text-amber-800">{pending.rows.length}</Badge>
             ) : null}
@@ -102,11 +103,11 @@ export function HrTeamPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b text-left text-xs uppercase text-muted-foreground">
-                      <th className="py-2">Employee</th>
-                      <th className="py-2">Status</th>
-                      <th className="py-2">In</th>
-                      <th className="py-2">Out</th>
-                      <th className="py-2 text-right">Late (min)</th>
+                      <th className="py-2">{tx('Employee')}</th>
+                      <th className="py-2">{tx('Status')}</th>
+                      <th className="py-2">{tx('In')}</th>
+                      <th className="py-2">{tx('Out')}</th>
+                      <th className="py-2 text-right">{tx('Late (min)')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -134,8 +135,7 @@ export function HrTeamPage() {
                 </table>
               ) : (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  Nobody reports to you yet. Team membership comes from the supervisor field on an
-                  employee, or from managing a department.
+                  {tx('Nobody reports to you yet. Team membership comes from the supervisor field on an employee, or from managing a department.')}
                 </p>
               )}
             </CardContent>
@@ -165,7 +165,7 @@ export function HrTeamPage() {
                   ))}
                 </ul>
               ) : (
-                <p className="py-8 text-center text-sm text-muted-foreground">No team members.</p>
+                <p className="py-8 text-center text-sm text-muted-foreground">{tx('No team members.')}</p>
               )}
             </CardContent>
           </Card>
@@ -174,7 +174,7 @@ export function HrTeamPage() {
         <TabsContent value="leave" className="mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Awaiting your decision</CardTitle>
+              <CardTitle className="text-base">{tx('Awaiting your decision')}</CardTitle>
             </CardHeader>
             <CardContent>
               {pending?.rows?.length ? (
@@ -189,7 +189,7 @@ export function HrTeamPage() {
                           </span>
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {date(r.startDate)} → {date(r.endDate)} · {Number(r.days)} day(s)
+                          {date(r.startDate)} → {date(r.endDate)} · {Number(r.days)} {tx('day(s)')}
                           {r.reason ? ` · ${r.reason}` : ''}
                         </div>
                       </div>
@@ -200,14 +200,14 @@ export function HrTeamPage() {
                           disabled={reject.isPending}
                           onClick={() => decide('reject', r.id)}
                         >
-                          Reject
+                          {tx('Reject')}
                         </Button>
                         <Button
                           size="sm"
                           disabled={approve.isPending}
                           onClick={() => decide('approve', r.id)}
                         >
-                          Approve
+                          {tx('Approve')}
                         </Button>
                       </div>
                     </li>
@@ -215,7 +215,7 @@ export function HrTeamPage() {
                 </ul>
               ) : (
                 <p className="py-8 text-center text-sm text-muted-foreground">
-                  Nothing waiting on you.
+                  {tx('Nothing waiting on you.')}
                 </p>
               )}
             </CardContent>

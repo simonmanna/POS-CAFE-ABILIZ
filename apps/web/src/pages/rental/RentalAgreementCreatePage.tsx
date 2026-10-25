@@ -7,6 +7,7 @@ import { useRentalCatalog, useCreateAgreement } from '@/features/rental/api';
 import { api } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -64,15 +65,15 @@ export function RentalAgreementCreatePage() {
 
   const handleCreate = async () => {
     if (!partnerId) {
-      toast.error('Enter a partner');
+      toast.error(tx('Enter a partner'));
       return;
     }
     if (!lines.length) {
-      toast.error('Add at least one line');
+      toast.error(tx('Add at least one line'));
       return;
     }
     if (!startAt || !dueAt || dueAt <= startAt) {
-      toast.error('Check the window');
+      toast.error(tx('Check the window'));
       return;
     }
     setBusy(true);
@@ -83,7 +84,7 @@ export function RentalAgreementCreatePage() {
         dueAt: new Date(dueAt + 'T23:59:59').toISOString(),
         lines: lines.map((l) => ({ productId: l.productId, quantity: l.quantity, ratePeriod: l.ratePeriod, unitRate: l.unitRate })),
       });
-      toast.success('Agreement created');
+      toast.success(tx('Agreement created'));
       navigate(`/rental/agreements/${agreement.id}`);
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Create failed');
@@ -95,42 +96,42 @@ export function RentalAgreementCreatePage() {
   return (
     <div className="space-y-4 p-6">
       <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-        <button onClick={() => navigate('/rental/agreements')} className="hover:text-foreground">Rentals</button>
+        <button onClick={() => navigate('/rental/agreements')} className="hover:text-foreground">{tx('Rentals')}</button>
         <span>/</span>
-        <span>Agreements</span>
+        <span>{tx('Agreements')}</span>
         <span>/</span>
-        <span className="text-foreground">New</span>
+        <span className="text-foreground">{tx('New')}</span>
       </nav>
 
       <div className="flex items-center gap-3">
         <ArrowLeft className="h-5 w-5 text-primary" />
-        <h1 className="text-xl font-semibold">New rental agreement</h1>
+        <h1 className="text-xl font-semibold">{tx('New rental agreement')}</h1>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="text-sm">Partner & window</CardTitle>
+            <CardTitle className="text-sm">{tx('Partner & window')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3 p-4">
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted-foreground">Partner (name or phone)</span>
+              <span className="mb-1 block text-xs font-medium text-muted-foreground">{tx('Partner (name or phone)')}</span>
               <input
                 value={partnerName}
                 onChange={(e) => { setPartnerName(e.target.value); setPartnerId(''); }}
                 onBlur={(e) => searchPartner(e.target.value)}
-                placeholder="Type at least 2 characters, then blur to resolve"
+                placeholder={tx('Type at least 2 characters, then blur to resolve')}
                 className="w-full rounded-md border bg-card px-3 py-2 text-sm"
               />
-              {partnerId && <p className="mt-1 text-xs text-emerald-600">Resolved: {partnerId}</p>}
+              {partnerId && <p className="mt-1 text-xs text-emerald-600">{tx('Resolved:')} {partnerId}</p>}
             </label>
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">Pickup</span>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">{tx('Pickup')}</span>
                 <input type="date" value={startAt} onChange={(e) => setStartAt(e.target.value)} className="w-full rounded-md border bg-card px-3 py-2 text-sm" />
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">Due</span>
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">{tx('Due')}</span>
                 <input type="date" value={dueAt} onChange={(e) => setDueAt(e.target.value)} className="w-full rounded-md border bg-card px-3 py-2 text-sm" />
               </label>
             </div>
@@ -139,7 +140,7 @@ export function RentalAgreementCreatePage() {
 
         <Card>
           <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="text-sm">Lines</CardTitle>
+            <CardTitle className="text-sm">{tx('Lines')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 p-4">
             <div className="max-h-64 space-y-1 overflow-auto">
@@ -160,7 +161,7 @@ export function RentalAgreementCreatePage() {
                 ))}
             </div>
             <div className="divide-y rounded-md border">
-              {lines.length === 0 && <p className="p-3 text-sm text-muted-foreground">No lines yet.</p>}
+              {lines.length === 0 && <p className="p-3 text-sm text-muted-foreground">{tx('No lines yet.')}</p>}
               {lines.map((l) => (
                 <div key={l.productId} className="flex items-center justify-between px-3 py-2 text-sm">
                   <span className="truncate">{l.productName} × {l.quantity}</span>

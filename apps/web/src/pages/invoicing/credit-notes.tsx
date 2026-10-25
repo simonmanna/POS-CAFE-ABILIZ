@@ -10,6 +10,7 @@ import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { money, date } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { useCreditNotes, type Invoice } from '@/features/invoicing/api';
+import { tx } from '@/lib/i18n/tx';
 
 const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   posted: 'default',
@@ -53,12 +54,12 @@ export function CreditNotesPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Credit Notes</h1>
-          <p className="text-sm text-muted-foreground">Reverse revenue and reduce a customer's balance.</p>
+          <h1 className="text-2xl font-semibold">{tx('Credit Notes')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Reverse revenue and reduce a customer\'s balance.')}</p>
         </div>
         {hasPermission(PERMISSIONS.creditNote.create) && (
           <Button onClick={() => navigate('/credit-notes/new')}>
-            <Plus className="h-4 w-4" /> New Credit Note
+            <Plus className="h-4 w-4" /> {tx('New Credit Note')}
           </Button>
         )}
       </div>
@@ -67,7 +68,7 @@ export function CreditNotesPage() {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
-          placeholder="Search credit notes..."
+          placeholder={tx('Search credit notes...')}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -77,13 +78,13 @@ export function CreditNotesPage() {
 
       {meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} credit note(s)</span>
+          <span>{meta.total} {tx('credit note(s)')}</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {tx('Previous')}
             </Button>
             <span>
-              Page {meta.page} of {meta.totalPages}
+              {tx('Page')} {meta.page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -91,7 +92,7 @@ export function CreditNotesPage() {
               disabled={page >= meta.totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>

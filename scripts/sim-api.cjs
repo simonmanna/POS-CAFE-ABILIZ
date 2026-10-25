@@ -23,6 +23,6 @@ if (!/\/pos_stage1_\d+(\?|$)/.test(url)) {
 const child = spawn(process.execPath, ['--max-http-header-size=65536', 'dist/main.js'], {
   cwd: api,
   stdio: 'inherit',
-  env: { ...process.env, ...env, DATABASE_URL: url, PORT: process.env.PORT || '3001', NODE_ENV: 'development', RLS_ALLOW_SUPERUSER: 'true' },
+  env: { ...process.env, ...env, DATABASE_URL: url, PORT: process.env.PORT || '3001', NODE_ENV: 'development', RLS_ALLOW_SUPERUSER: 'true', BACKUP_CRON_ENABLED: 'false' },
 });
 child.on('exit', (code) => process.exit(code ?? 0));

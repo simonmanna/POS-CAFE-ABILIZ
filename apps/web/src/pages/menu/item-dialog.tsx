@@ -45,6 +45,7 @@ import {
   useAssignAccompanimentGroup,
   useUnassignAccompanimentGroup,
 } from '@/pages/pos/pos-features-api';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -273,19 +274,19 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
-              <Label htmlFor="mi-name" className="text-sm font-medium text-slate-700 mb-1.5">Name *</Label>
+              <Label htmlFor="mi-name" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Name *')}</Label>
               <Input id="mi-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
             <div>
-              <Label htmlFor="mi-code" className="text-sm font-medium text-slate-700 mb-1.5">Code (SKU)</Label>
-              <Input id="mi-code" placeholder="e.g. MI-ESP" value={code} onChange={(e) => setCode(e.target.value)} />
+              <Label htmlFor="mi-code" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Code (SKU)')}</Label>
+              <Input id="mi-code" placeholder={tx('e.g. MI-ESP')} value={code} onChange={(e) => setCode(e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="mi-cat" className="text-sm font-medium text-slate-700 mb-1.5">Category</Label>
+              <Label htmlFor="mi-cat" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Category')}</Label>
               <Select value={categoryId || '_none'} onValueChange={(v) => setCategoryId(v === '_none' ? '' : v)}>
-                <SelectTrigger id="mi-cat"><SelectValue placeholder="Pick category" /></SelectTrigger>
+                <SelectTrigger id="mi-cat"><SelectValue placeholder={tx('Pick category')} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="_none">— No category —</SelectItem>
+                  <SelectItem value="_none">{tx('— No category —')}</SelectItem>
                   {categories.map((c) => (
                     <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                   ))}
@@ -293,26 +294,26 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
               </Select>
             </div>
             <div>
-              <Label htmlFor="mi-price" className="text-sm font-medium text-slate-700 mb-1.5">Base price</Label>
+              <Label htmlFor="mi-price" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Base price')}</Label>
               <Input id="mi-price" type="number" step="1" min="0"
                 placeholder="0"
                 value={basePrice}
                 onChange={(e) => setBasePrice(e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="mi-prep" className="text-sm font-medium text-slate-700 mb-1.5">Prep time (minutes)</Label>
+              <Label htmlFor="mi-prep" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Prep time (minutes)')}</Label>
               <Input id="mi-prep" type="number" min="0" step="1"
                 value={prepTime}
                 onChange={(e) => setPrepTime(e.target.value)} />
             </div>
             <div className="md:col-span-2">
               <Label htmlFor="mi-station" className="text-sm font-medium text-slate-700 mb-1.5">
-                Prep station <span className="font-normal text-slate-400">(optional)</span>
+                {tx('Prep station')} <span className="font-normal text-slate-400">{tx('(optional)')}</span>
               </Label>
               <Select value={stationCode || '_none'} onValueChange={(v) => setStationCode(v === '_none' ? '' : v)}>
-                <SelectTrigger id="mi-station"><SelectValue placeholder="No station — derive from recipe" /></SelectTrigger>
+                <SelectTrigger id="mi-station"><SelectValue placeholder={tx('No station — derive from recipe')} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="_none">— No station —</SelectItem>
+                  <SelectItem value="_none">{tx('— No station —')}</SelectItem>
                   {stations.map((st) => (
                     <SelectItem key={st.id} value={st.code}>{st.name}</SelectItem>
                   ))}
@@ -325,12 +326,12 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
               </p>
             </div>
             <div className="md:col-span-2">
-              <Label htmlFor="mi-img" className="text-sm font-medium text-slate-700 mb-1.5">Image</Label>
+              <Label htmlFor="mi-img" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Image')}</Label>
               <div className="flex items-start gap-3">
                 {previewSrc && (
                   <img
                     src={previewSrc}
-                    alt="Item preview"
+                    alt={tx('Item preview')}
                     className="w-16 h-16 rounded-md border border-slate-200 object-cover shrink-0"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
@@ -338,7 +339,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                 <div className="flex-1 space-y-1.5">
                   <Input
                     id="mi-img"
-                    placeholder="Paste image URL, or upload below"
+                    placeholder={tx('Paste image URL, or upload below')}
                     value={previewSrc}
                     onChange={(e) => { setPreviewSrc(e.target.value); imageFileIdRef.current = ''; }}
                   />
@@ -349,7 +350,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                     </Button>
                     {previewSrc && (
                       <Button type="button" size="sm" variant="ghost" onClick={() => { setPreviewSrc(''); imageFileIdRef.current = ''; }}>
-                        <X className="h-3 w-3 mr-1" /> Clear
+                        <X className="h-3 w-3 mr-1" /> {tx('Clear')}
                       </Button>
                     )}
                   </div>
@@ -357,7 +358,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
               </div>
             </div>
             <div className="md:col-span-2">
-              <Label htmlFor="mi-desc" className="text-sm font-medium text-slate-700 mb-1.5">Description</Label>
+              <Label htmlFor="mi-desc" className="text-sm font-medium text-slate-700 mb-1.5">{tx('Description')}</Label>
               <Textarea id="mi-desc" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
             </div>
             <div className="md:col-span-2 flex items-center gap-3 rounded-lg border p-3 bg-slate-50">
@@ -389,10 +390,10 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
               />
               <div>
                 <Label htmlFor="mi-inv-tracked" className="cursor-pointer text-sm font-semibold text-slate-700">
-                  Inventory tracked
+                  {tx('Inventory tracked')}
                 </Label>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  When checked, each sale deducts stock based on the ingredients below.
+                  {tx('When checked, each sale deducts stock based on the ingredients below.')}
                 </p>
               </div>
             </div>
@@ -401,18 +402,18 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
           {/* Ingredients */}
           <div className="border-t border-gray-200 pt-4 space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-semibold text-slate-800">Ingredients (products)</Label>
+              <Label className="text-sm font-semibold text-slate-800">{tx('Ingredients (products)')}</Label>
               <Button
                 type="button" size="sm"
                 className="rounded-lg border-[#3b82f6] text-[#fff] hover:bg-[#3b82f6]/10"
                 onClick={() => setIngredients((s) => [...s, newIngredient()])}
               >
-                <PlusCircle className="h-4 w-4 mr-1" /> Add ingredient
+                <PlusCircle className="h-4 w-4 mr-1" /> {tx('Add ingredient')}
               </Button>
             </div>
 
              <Input
-               placeholder="Search products..."
+               placeholder={tx('Search products...')}
                value={productSearch}
                onChange={(e) => setProductSearch(e.target.value)}
                className="border-gray-200 rounded-lg focus:border-[#3b82f6] focus:ring-[#3b82f6]/20"
@@ -433,10 +434,10 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                       s.map((row, i) => i === idx ? { ...row, productId: v === '_pick' ? '' : v } : row))}
                   >
                     <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Pick product" />
+                      <SelectValue placeholder={tx('Pick product')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="_pick">— pick —</SelectItem>
+                      <SelectItem value="_pick">{tx('— pick —')}</SelectItem>
                       {productOptions.map((p) => (
                         <SelectItem key={p.id} value={p.id}>
                           <span className="font-mono text-xs mr-2">{p.code}</span>
@@ -449,7 +450,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                   <Input
                     type="number" min="0.001" step="0.001"
                     className="w-24"
-                    placeholder="Qty"
+                    placeholder={tx('Qty')}
                     value={ing.quantity ?? 1}
                     onChange={(e) => setIngredients((s) =>
                       s.map((row, i) => i === idx ? { ...row, quantity: Number(e.target.value) } : row))}
@@ -465,7 +466,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
             </div>
             {ingredients.some((i) => !i.productId) && (
               <p className="text-sm text-destructive">
-                Pick a product for every ingredient row before saving.
+                {tx('Pick a product for every ingredient row before saving.')}
               </p>
             )}
           </div>
@@ -474,14 +475,14 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
           {isEdit && (
             <div className="border-t border-gray-200 pt-4 space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-semibold text-slate-800">Variants (size / type)</Label>
+                <Label className="text-sm font-semibold text-slate-800">{tx('Variants (size / type)')}</Label>
                 <Button type="button" size="sm" className="rounded-lg" style={{ background: '#4f46e5' }}
                   onClick={() => { setShowNewVariant(true); setVariantName(''); setVariantPrice(''); }}>
-                  <PlusCircle className="h-4 w-4 mr-1" /> Add variant
+                  <PlusCircle className="h-4 w-4 mr-1" /> {tx('Add variant')}
                 </Button>
               </div>
               {variants.length === 0 && (
-                <p className="text-sm text-muted-foreground italic">No variants. The base price is used for all orders.</p>
+                <p className="text-sm text-muted-foreground italic">{tx('No variants. The base price is used for all orders.')}</p>
               )}
               <div className="space-y-2">
                 {variants.map((v) => (
@@ -497,11 +498,11 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
               {showNewVariant && (
                 <div className="flex items-end gap-2 p-3 rounded-lg border border-indigo-200 bg-indigo-50">
                   <div className="flex-1">
-                    <Label className="text-[11px]">Name</Label>
-                    <Input value={variantName} onChange={(e) => setVariantName(e.target.value)} placeholder="e.g. Large" autoFocus />
+                    <Label className="text-[11px]">{tx('Name')}</Label>
+                    <Input value={variantName} onChange={(e) => setVariantName(e.target.value)} placeholder={tx('e.g. Large')} autoFocus />
                   </div>
                   <div className="w-32">
-                    <Label className="text-[11px]">Price (UGX)</Label>
+                    <Label className="text-[11px]">{tx('Price (UGX)')}</Label>
                     <Input type="number" min="0" step="1" value={variantPrice} onChange={(e) => setVariantPrice(e.target.value)} placeholder="0" />
                   </div>
                   <Button size="sm" style={{ background: '#16a34a' }}
@@ -509,12 +510,12 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                       if (!variantName.trim() || !variantPrice) return;
                       try {
                         await createVariant.mutateAsync({ menuItemId: item!.id, name: variantName.trim(), price: Number(variantPrice) });
-                        toast.success('Variant added');
+                        toast.success(tx('Variant added'));
                         setShowNewVariant(false);
                       } catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to add variant'); }
                     }}
                     disabled={createVariant.isPending}>
-                    <Check className="h-4 w-4 mr-1" /> Add
+                    <Check className="h-4 w-4 mr-1" /> {tx('Add')}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setShowNewVariant(false)}><X className="h-4 w-4" /></Button>
                 </div>
@@ -526,14 +527,14 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
           {isEdit && (
             <div className="border-t border-gray-200 pt-4 space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-semibold text-slate-800">Accompaniment Groups</Label>
+                <Label className="text-sm font-semibold text-slate-800">{tx('Accompaniment Groups')}</Label>
                 <span className="text-xs text-slate-400">
-                  Manage groups in <a href="/menu/accompaniments" className="text-indigo-600 underline">Accompaniments</a>
+                  {tx('Manage groups in')} <a href="/menu/accompaniments" className="text-indigo-600 underline">{tx('Accompaniments')}</a>
                 </span>
               </div>
               {allAccGroups.length === 0 ? (
                 <p className="text-sm text-muted-foreground italic">
-                  No groups exist. Create them in the <a href="/menu/accompaniments" className="text-indigo-600 underline">Accompaniments page</a> first.
+                  {tx('No groups exist. Create them in the')} <a href="/menu/accompaniments" className="text-indigo-600 underline">{tx('Accompaniments page')}</a> {tx('first.')}
                 </p>
               ) : (
                 <div className="flex flex-wrap gap-2">
@@ -565,7 +566,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
                       >
                         {on ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
                         {g.name}
-                        <span className="opacity-50 ml-1">({g.options.length} opts)</span>
+                        <span className="opacity-50 ml-1">({g.options.length} {tx('opts)')}</span>
                       </button>
                     );
                   })}
@@ -576,7 +577,7 @@ export function ItemDialog({ open, item, categories, onOpenChange, onSubmit }: P
 
           <DialogFooter className="px-5 py-3 border-t bg-slate-50 gap-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={submitting} className="rounded-lg border-gray-300 hover:bg-gray-100">
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button type="submit" disabled={submitting || !valid} className="rounded-lg bg-[#3b82f6] hover:bg-[#2563eb] text-white">
               {submitting ? 'Saving…' : isEdit ? 'Save changes' : 'Create item'}
@@ -606,7 +607,7 @@ function VariantRow({
     try {
       await onUpdate.mutateAsync({ menuItemId, variantId: variant.id, name: name.trim(), price: Number(price) || 0 });
       setEditing(false);
-      toast.success('Variant updated');
+      toast.success(tx('Variant updated'));
     } catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to update'); }
   };
 
@@ -614,14 +615,14 @@ function VariantRow({
     return (
       <div className="flex items-end gap-2 p-2 rounded-lg border border-indigo-200 bg-indigo-50">
         <div className="flex-1">
-          <Label className="text-[11px]">Name</Label>
+          <Label className="text-[11px]">{tx('Name')}</Label>
           <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
         </div>
         <div className="w-32">
-          <Label className="text-[11px]">Price</Label>
+          <Label className="text-[11px]">{tx('Price')}</Label>
           <Input type="number" min="0" step="1" value={price} onChange={(e) => setPrice(e.target.value)} />
         </div>
-        <Button size="sm" style={{ background: '#16a34a' }} onClick={handleSave}><Check className="h-4 w-4 mr-1" /> Save</Button>
+        <Button size="sm" style={{ background: '#16a34a' }} onClick={handleSave}><Check className="h-4 w-4 mr-1" /> {tx('Save')}</Button>
         <Button size="sm" variant="ghost" onClick={() => setEditing(false)}><X className="h-4 w-4" /></Button>
       </div>
     );
@@ -631,14 +632,14 @@ function VariantRow({
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white">
       <span className="flex-1 font-medium text-sm text-slate-800">{variant.name}</span>
       <span className="font-mono text-sm text-slate-600">{fmt(variant.price)}</span>
-      <button onClick={() => { setName(variant.name); setPrice(String(variant.price)); setEditing(true); }} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-indigo-600" title="Edit" aria-label={`Edit ${variant.name}`}>
+      <button onClick={() => { setName(variant.name); setPrice(String(variant.price)); setEditing(true); }} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-indigo-600" title={tx('Edit')} aria-label={`Edit ${variant.name}`}>
         <Pencil className="h-3.5 w-3.5" />
       </button>
       <button onClick={async () => {
         if (!window.confirm(`Delete variant "${variant.name}"?`)) return;
-        try { await onDelete.mutateAsync({ menuItemId, variantId: variant.id }); toast.success('Variant deleted'); }
+        try { await onDelete.mutateAsync({ menuItemId, variantId: variant.id }); toast.success(tx('Variant deleted')); }
         catch (e: any) { toast.error(e?.response?.data?.message || 'Failed to delete'); }
-      }} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-rose-600" title="Delete variant" aria-label={`Delete ${variant.name}`}>
+      }} className="h-11 w-11 inline-flex items-center justify-center text-slate-400 hover:text-rose-600" title={tx('Delete variant')} aria-label={`Delete ${variant.name}`}>
         <Trash2 className="h-3.5 w-3.5" />
       </button>
     </div>

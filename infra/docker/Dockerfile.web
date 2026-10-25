@@ -18,6 +18,16 @@ COPY apps/web apps/web
 # for a deliberately cross-origin API.
 ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
+# Build-time mirrors of the API's ENABLE_* module gates (they only show or hide
+# navigation; the API enforces access). Unset = hidden, same as before.
+ARG VITE_ENABLE_BEVERAGE=
+ARG VITE_ENABLE_TASKS=
+ARG VITE_ENABLE_MANUFACTURING=
+ARG VITE_ENABLE_HR=
+ARG VITE_ENABLE_ORDERS=
+# Public demo build: shows and prefills the demo credentials on the login page.
+ARG VITE_DEMO_MODE=
+ENV VITE_ENABLE_BEVERAGE=${VITE_ENABLE_BEVERAGE}     VITE_ENABLE_TASKS=${VITE_ENABLE_TASKS}     VITE_ENABLE_MANUFACTURING=${VITE_ENABLE_MANUFACTURING}     VITE_ENABLE_HR=${VITE_ENABLE_HR}     VITE_ENABLE_ORDERS=${VITE_ENABLE_ORDERS}     VITE_DEMO_MODE=${VITE_DEMO_MODE}
 RUN pnpm --filter @erp/shared build
 RUN pnpm --filter @erp/web build
 
@@ -25,5 +35,5 @@ FROM nginx:1.27-alpine AS runtime
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 COPY infra/docker/nginx.conf /etc/nginx/conf.d/default.conf
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD wget -qO- http://localhost/ || exit 1
+    CMD wget -qO- http://127.0.0.1/ || exit 1
 EXPOSE 80

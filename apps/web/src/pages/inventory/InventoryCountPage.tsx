@@ -18,6 +18,7 @@ import { notify } from '@/lib/notify';
 import { dateTime } from '@/lib/format';
 import { useAuthStore } from '@/stores/auth.store';
 import { useLookups } from './inventory-reports/filters';
+import { tx } from '@/lib/i18n/tx';
 
 type CountType = 'opening' | 'closing' | 'cycle' | 'spot';
 const COUNT_TYPE_LABEL: Record<CountType, string> = {
@@ -246,7 +247,7 @@ export function InventoryCountPage() {
       if (!session) throw new Error('No session');
       return (await api.patch<CountSession>(`/inventory/counts/${session.id}/draft`, buildPayload())).data;
     },
-    onSuccess: (s) => { loadSession(s); notify.success('Draft saved'); },
+    onSuccess: (s) => { loadSession(s); notify.success(tx('Draft saved')); },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Save failed'),
   });
 
@@ -277,7 +278,7 @@ export function InventoryCountPage() {
       await api.patch(`/inventory/counts/${session.id}/draft`, buildPayload());
       return (await api.get<CountSession>(`/inventory/counts/${session.id}/review`)).data;
     },
-    onSuccess: (s) => { loadSession(s); notify.success('System quantities revealed for review'); },
+    onSuccess: (s) => { loadSession(s); notify.success(tx('System quantities revealed for review')); },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Could not load the review sheet'),
   });
 
@@ -290,7 +291,7 @@ export function InventoryCountPage() {
       setSession(null);
       setEdits({});
       qc.invalidateQueries({ queryKey: ['inventory-count-sheet'] });
-      notify.success('Count cancelled');
+      notify.success(tx('Count cancelled'));
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Cancel failed'),
   });
@@ -383,20 +384,20 @@ export function InventoryCountPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
-            <ClipboardList className="h-6 w-6" /> Inventory Count
+            <ClipboardList className="h-6 w-6" /> {tx('Inventory Count')}
           </h1>
           <p className="text-sm text-muted-foreground">
-            Physically count stock. Variances post an audited adjustment — stock is never overwritten directly.
+            {tx('Physically count stock. Variances post an audited adjustment — stock is never overwritten directly.')}
           </p>
         </div>
       </div>
 
       <div className="flex gap-1 border-b pb-2">
         <Button size="sm" variant={tab === 'count' ? 'default' : 'outline'} onClick={() => setTab('count')}>
-          <ClipboardList className="mr-1 h-3 w-3" /> Count
+          <ClipboardList className="mr-1 h-3 w-3" /> {tx('Count')}
         </Button>
         <Button size="sm" variant={tab === 'history' ? 'default' : 'outline'} onClick={() => setTab('history')}>
-          <History className="mr-1 h-3 w-3" /> History
+          <History className="mr-1 h-3 w-3" /> {tx('History')}
         </Button>
       </div>
 
@@ -405,9 +406,9 @@ export function InventoryCountPage() {
           <CardContent className="p-6 space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
-                <label className="text-sm font-medium">Location</label>
+                <label className="text-sm font-medium">{tx('Location')}</label>
                 <Select value={locationId} onValueChange={setLocationId}>
-                  <SelectTrigger><SelectValue placeholder="Store / Kitchen / Warehouse" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder={tx('Store / Kitchen / Warehouse')} /></SelectTrigger>
                   <SelectContent>
                     {locations.data?.map((l) => (
                       <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
@@ -416,21 +417,21 @@ export function InventoryCountPage() {
                 </Select>
               </div>
               <div>
-                <label className="text-sm font-medium">Count Type</label>
+                <label className="text-sm font-medium">{tx('Count Type')}</label>
                 <Select value={countType} onValueChange={(v) => setCountType(v as CountType)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="opening">Morning (Opening)</SelectItem>
-                    <SelectItem value="closing">Evening (Closing)</SelectItem>
-                    <SelectItem value="cycle">Cycle count (by category)</SelectItem>
-                    <SelectItem value="spot">Spot check (chosen items)</SelectItem>
+                    <SelectItem value="opening">{tx('Morning (Opening)')}</SelectItem>
+                    <SelectItem value="closing">{tx('Evening (Closing)')}</SelectItem>
+                    <SelectItem value="cycle">{tx('Cycle count (by category)')}</SelectItem>
+                    <SelectItem value="spot">{tx('Spot check (chosen items)')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="flex items-end">
                 {isDraft ? (
                   <div className="flex w-full items-center justify-between gap-2 rounded-md border border-emerald-600/30 bg-emerald-600/10 px-3 py-2 text-sm">
-                    <span>Counting <span className="font-medium">{session?.countCode}</span> — enter actual quantities below.</span>
+                    <span>{tx('Counting')} <span className="font-medium">{session?.countCode}</span> {tx('— enter actual quantities below.')}</span>
                     <Button
                       size="sm" variant="ghost" className="h-7 shrink-0 text-xs"
                       disabled={start.isPending}
@@ -438,7 +439,7 @@ export function InventoryCountPage() {
                         if (window.confirm(`Discard ${session?.countCode ?? 'this count'} and every quantity entered so far, and start a fresh sheet?`)) start.mutate(true);
                       }}
                     >
-                      Start over
+                      {tx('Start over')}
                     </Button>
                   </div>
                 ) : (
@@ -452,11 +453,11 @@ export function InventoryCountPage() {
             <div className="flex flex-wrap items-end gap-3">
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={blind} disabled={isDraft} onChange={(e) => setBlind(e.target.checked)} />
-                Blind count <span className="text-xs text-muted-foreground">(hide system quantities from counters)</span>
+                {tx('Blind count')} <span className="text-xs text-muted-foreground">{tx('(hide system quantities from counters)')}</span>
               </label>
               {countType === 'cycle' && (
                 <div className="min-w-[220px]">
-                  <label className="text-sm font-medium" htmlFor="count-scope-category">Category</label>
+                  <label className="text-sm font-medium" htmlFor="count-scope-category">{tx('Category')}</label>
                   <select
                     id="count-scope-category"
                     className="block h-9 w-full rounded-md border bg-background px-2 text-sm"
@@ -464,14 +465,14 @@ export function InventoryCountPage() {
                     disabled={isDraft}
                     onChange={(e) => setScopeCategoryId(e.target.value)}
                   >
-                    <option value="">Choose a category…</option>
+                    <option value="">{tx('Choose a category…')}</option>
                     {(lookups.categories.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
               )}
               {countType === 'spot' && (
                 <div className="min-w-[260px] flex-1">
-                  <label className="text-sm font-medium" htmlFor="count-scope-products">Items (Ctrl/⌘-click for several)</label>
+                  <label className="text-sm font-medium" htmlFor="count-scope-products">{tx('Items (Ctrl/⌘-click for several)')}</label>
                   <select
                     id="count-scope-products"
                     multiple
@@ -487,12 +488,12 @@ export function InventoryCountPage() {
             </div>
             {locations.isError ? (
               <div className="flex items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm">
-                <span>Could not load stock locations, so no count can be started.</span>
-                <Button size="sm" variant="outline" onClick={() => locations.refetch()}>Retry</Button>
+                <span>{tx('Could not load stock locations, so no count can be started.')}</span>
+                <Button size="sm" variant="outline" onClick={() => locations.refetch()}>{tx('Retry')}</Button>
               </div>
             ) : !locations.isLoading && (locations.data?.length ?? 0) === 0 ? (
               <p className="text-xs text-destructive">
-                No stock locations exist yet. Create one under Inventory → Locations before counting.
+                {tx('No stock locations exist yet. Create one under Inventory → Locations before counting.')}
               </p>
             ) : (
               <p className="text-xs text-muted-foreground">
@@ -517,7 +518,7 @@ export function InventoryCountPage() {
         <Card>
           <CardContent className="flex items-center gap-3 p-6 text-sm">
             <span>{(sheet.error as any)?.response?.data?.message ?? 'Could not load the count sheet.'}</span>
-            <Button size="sm" variant="outline" onClick={() => sheet.refetch()}>Retry</Button>
+            <Button size="sm" variant="outline" onClick={() => sheet.refetch()}>{tx('Retry')}</Button>
           </CardContent>
         </Card>
       )}
@@ -542,7 +543,7 @@ export function InventoryCountPage() {
             </div>
             <div className={`flex gap-2 ${isDraft ? '' : 'hidden'}`}>
               <Button size="sm" variant="ghost" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
-                <XCircle className="mr-1 h-4 w-4" /> Cancel
+                <XCircle className="mr-1 h-4 w-4" /> {tx('Cancel')}
               </Button>
               {blindView && canReview && (
                 <Button size="sm" variant="outline" onClick={() => review.mutate()} disabled={review.isPending}>
@@ -569,17 +570,17 @@ export function InventoryCountPage() {
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
               <Search className="pointer-events-none absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-              <Input className="w-56 pl-8" placeholder="Search product…" value={search} onChange={(e) => setSearch(e.target.value)} />
+              <Input className="w-56 pl-8" placeholder={tx('Search product…')} value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
             <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="w-48"><SelectValue placeholder="Category" /></SelectTrigger>
+              <SelectTrigger className="w-48"><SelectValue placeholder={tx('Category')} /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All categories</SelectItem>
+                <SelectItem value="all">{tx('All categories')}</SelectItem>
                 {categories.map((c) => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
               </SelectContent>
             </Select>
             <Button size="sm" variant={onlyVariance ? 'default' : 'outline'} onClick={() => setOnlyVariance((v) => !v)}>
-              Only variances
+              {tx('Only variances')}
             </Button>
           </div>
 
@@ -588,11 +589,11 @@ export function InventoryCountPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="px-3 py-2 text-left">Product</th>
-                  <th className="px-3 py-2 text-right">System</th>
-                  <th className="px-3 py-2 text-right w-28">Actual</th>
-                  <th className="px-3 py-2 text-right">Variance</th>
-                  <th className="px-3 py-2 text-left">Reason</th>
+                  <th className="px-3 py-2 text-left">{tx('Product')}</th>
+                  <th className="px-3 py-2 text-right">{tx('System')}</th>
+                  <th className="px-3 py-2 text-right w-28">{tx('Actual')}</th>
+                  <th className="px-3 py-2 text-right">{tx('Variance')}</th>
+                  <th className="px-3 py-2 text-left">{tx('Reason')}</th>
                   <th className="px-3 py-2 text-center w-10"></th>
                 </tr>
               </thead>
@@ -608,7 +609,7 @@ export function InventoryCountPage() {
                           {ln.productName}
                           {ln.unit && <span className="ml-1 text-xs text-muted-foreground">({ln.unit})</span>}
                         </td>
-                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{blindView ? <span className="text-xs text-muted-foreground">Hidden</span> : num(ln.systemQty)}</td>
+                        <td className="px-3 py-1.5 text-right font-mono tabular-nums">{blindView ? <span className="text-xs text-muted-foreground">{tx('Hidden')}</span> : num(ln.systemQty)}</td>
                         <td className="px-3 py-1.5">
                           <Input type="number" inputMode="decimal" className="h-8 text-right" placeholder={isDraft ? '—' : 'Start count'} disabled={!isDraft} value={ed.countedQty} onChange={(e) => setEdit(ln.id, { countedQty: e.target.value })} />
                         </td>
@@ -637,7 +638,7 @@ export function InventoryCountPage() {
                           <div className="flex items-center gap-2">
                             <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${expanded ? 'rotate-90' : ''}`} />
                             <span className="font-medium">{group.parentProductName}</span>
-                            <Badge variant="secondary" className="ml-1 text-xs">{group.items.length} variants</Badge>
+                            <Badge variant="secondary" className="ml-1 text-xs">{group.items.length} {tx('variants')}</Badge>
                           </div>
                         </td>
                       </tr>
@@ -650,7 +651,7 @@ export function InventoryCountPage() {
                               {ln.productName}
                               {ln.unit && <span className="ml-1 text-xs text-muted-foreground">({ln.unit})</span>}
                             </td>
-                            <td className="px-3 py-1.5 text-right font-mono tabular-nums">{blindView ? <span className="text-xs text-muted-foreground">Hidden</span> : num(ln.systemQty)}</td>
+                            <td className="px-3 py-1.5 text-right font-mono tabular-nums">{blindView ? <span className="text-xs text-muted-foreground">{tx('Hidden')}</span> : num(ln.systemQty)}</td>
                             <td className="px-3 py-1.5">
                               <Input type="number" inputMode="decimal" className="h-8 text-right" placeholder={isDraft ? '—' : 'Start count'} disabled={!isDraft} value={ed.countedQty} onChange={(e) => setEdit(ln.id, { countedQty: e.target.value })} />
                             </td>
@@ -671,13 +672,13 @@ export function InventoryCountPage() {
                         );
                       })}
                       {expanded && group.items.length === 0 && (
-                        <tr><td colSpan={6} className="px-3 py-4 pl-10 text-center text-muted-foreground">No variants</td></tr>
+                        <tr><td colSpan={6} className="px-3 py-4 pl-10 text-center text-muted-foreground">{tx('No variants')}</td></tr>
                       )}
                     </Fragment>
                   );
                 })}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">No items match the filter</td></tr>
+                  <tr><td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">{tx('No items match the filter')}</td></tr>
                 )}
               </tbody>
             </table>
@@ -689,21 +690,21 @@ export function InventoryCountPage() {
         <div className="space-y-2">
           {history.isLoading && <Skeleton className="h-48 w-full" />}
           {history.isError && (
-            <Card><CardContent className="p-8 text-center text-destructive">Failed to load count history</CardContent></Card>
+            <Card><CardContent className="p-8 text-center text-destructive">{tx('Failed to load count history')}</CardContent></Card>
           )}
           {history.data && history.data.length > 0 && (
             <div className="rounded-md border">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="px-3 py-2 text-left">Code</th>
-                    <th className="px-3 py-2 text-left">Location</th>
-                    <th className="px-3 py-2 text-left">Type</th>
-                    <th className="px-3 py-2 text-left">Status</th>
-                    <th className="px-3 py-2 text-right">Items</th>
-                    <th className="px-3 py-2 text-left">Started</th>
-                    <th className="px-3 py-2 text-left">Submitted</th>
-                    <th className="px-3 py-2 text-center w-40">Actions</th>
+                    <th className="px-3 py-2 text-left">{tx('Code')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Location')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Type')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Status')}</th>
+                    <th className="px-3 py-2 text-right">{tx('Items')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Started')}</th>
+                    <th className="px-3 py-2 text-left">{tx('Submitted')}</th>
+                    <th className="px-3 py-2 text-center w-40">{tx('Actions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -724,10 +725,10 @@ export function InventoryCountPage() {
                         <div className="flex items-center justify-center gap-1">
                           {s.status === 'draft' && (
                             <Button size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs" onClick={() => resumeDraft(s)}>
-                              <Play className="h-3 w-3" /> Continue
+                              <Play className="h-3 w-3" /> {tx('Continue')}
                             </Button>
                           )}
-                          <Button size="sm" variant="ghost" onClick={() => setViewSessionId(s.id)} title="View count">
+                          <Button size="sm" variant="ghost" onClick={() => setViewSessionId(s.id)} title={tx('View count')}>
                             <Eye className="h-4 w-4" />
                           </Button>
                         </div>
@@ -739,7 +740,7 @@ export function InventoryCountPage() {
             </div>
           )}
           {history.data && history.data.length === 0 && (
-            <Card><CardContent className="p-8 text-center text-muted-foreground">No counts yet</CardContent></Card>
+            <Card><CardContent className="p-8 text-center text-muted-foreground">{tx('No counts yet')}</CardContent></Card>
           )}
         </div>
       )}
@@ -747,22 +748,22 @@ export function InventoryCountPage() {
       {/* Save Draft Dialog */}
       <Dialog open={saveDraftOpen} onOpenChange={(o) => { if (!o) setSaveDraftOpen(false); }}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Save Count Draft</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Save Count Draft')}</DialogTitle></DialogHeader>
           <div className="space-y-4 pt-2">
             <div>
-              <label className="text-sm font-medium">Name</label>
-              <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} placeholder="e.g. Inventory Count Jul 01" />
+              <label className="text-sm font-medium">{tx('Name')}</label>
+              <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} placeholder={tx('e.g. Inventory Count Jul 01')} />
             </div>
             <div>
-              <label className="text-sm font-medium">Description <span className="text-muted-foreground font-normal">(optional)</span></label>
+              <label className="text-sm font-medium">{tx('Description')} <span className="text-muted-foreground font-normal">{tx('(optional)')}</span></label>
               <textarea
                 className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
                 value={draftNotes} onChange={(e) => setDraftNotes(e.target.value)}
-                placeholder="Any notes about this count…"
+                placeholder={tx('Any notes about this count…')}
               />
             </div>
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={() => setSaveDraftOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setSaveDraftOpen(false)}>{tx('Cancel')}</Button>
               <Button onClick={() => { saveDraft.mutate(); setSaveDraftOpen(false); }} disabled={saveDraft.isPending || !draftName.trim()}>
                 <Save className="mr-1 h-4 w-4" /> {saveDraft.isPending ? 'Saving…' : 'Save Draft'}
               </Button>
@@ -778,7 +779,7 @@ export function InventoryCountPage() {
             <div className="p-6"><Skeleton className="h-64 w-full" /></div>
           )}
           {viewSession.isError && (
-            <div className="p-6 text-center text-destructive">Failed to load count details</div>
+            <div className="p-6 text-center text-destructive">{tx('Failed to load count details')}</div>
           )}
           {viewSession.data && (
             <>
@@ -798,13 +799,13 @@ export function InventoryCountPage() {
                     {viewSession.data.status}
                   </Badge>
                   <span className="text-white/50">|</span>
-                  <span>{viewSession.data.lines.length} items</span>
+                  <span>{viewSession.data.lines.length} {tx('items')}</span>
                   <span className="text-white/50">|</span>
-                  <span>Started {dateTime(viewSession.data.startedAt)}</span>
+                  <span>{tx('Started')} {dateTime(viewSession.data.startedAt)}</span>
                   {viewSession.data.submittedAt && (
                     <>
                       <span className="text-white/50">|</span>
-                      <span>Submitted {dateTime(viewSession.data.submittedAt)}</span>
+                      <span>{tx('Submitted')} {dateTime(viewSession.data.submittedAt)}</span>
                     </>
                   )}
                 </div>
@@ -820,7 +821,7 @@ export function InventoryCountPage() {
                         resumeDraft(d);
                       }}
                     >
-                      <Play className="h-3.5 w-3.5" /> Continue counting
+                      <Play className="h-3.5 w-3.5" /> {tx('Continue counting')}
                     </Button>
                   </div>
                 )}
@@ -830,11 +831,11 @@ export function InventoryCountPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b bg-slate-50">
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Product</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">System</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Actual</th>
-                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Variance</th>
-                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Reason</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">{tx('Product')}</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">{tx('System')}</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">{tx('Actual')}</th>
+                        <th className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">{tx('Variance')}</th>
+                        <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">{tx('Reason')}</th>
                       </tr>
                     </thead>
                     <tbody>

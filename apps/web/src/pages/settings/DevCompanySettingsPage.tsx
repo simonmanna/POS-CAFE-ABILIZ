@@ -13,6 +13,7 @@ import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
 import { MODULE_FEATURES, featureEnabled } from '@/lib/features';
 import { ORG_FEATURES_QUERY_KEY } from '@/lib/use-org-features';
+import { tx } from '@/lib/i18n/tx';
 
 interface DeveloperSettings {
   logoUrl: string | null;
@@ -79,7 +80,7 @@ export function DevCompanySettingsPage() {
       return (await api.put('/settings/developer', payload)).data;
     },
     onSuccess: (data: DeveloperSettings) => {
-      notify.success('Developer settings saved');
+      notify.success(tx('Developer settings saved'));
       const org = auth.organization;
       if (org) {
         auth.setOrganization({ ...org, name: data.name });
@@ -96,7 +97,7 @@ export function DevCompanySettingsPage() {
 
     // Validate image type
     if (!file.type.startsWith('image/')) {
-      notify.error('Please select an image file');
+      notify.error(tx('Please select an image file'));
       return;
     }
 
@@ -113,7 +114,7 @@ export function DevCompanySettingsPage() {
 
       const signedRes = await api.post(`/files/${uploadRes.data.id}/signed-url`);
       setLogoUrl(signedRes.data.url);
-      notify.success('Logo uploaded');
+      notify.success(tx('Logo uploaded'));
     } catch (err: any) {
       notify.error(err?.response?.data?.message ?? 'Upload failed');
     } finally {
@@ -134,9 +135,9 @@ export function DevCompanySettingsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold">Developer Company Settings</h1>
+      <h1 className="text-2xl font-semibold">{tx('Developer Company Settings')}</h1>
       <p className="text-sm text-muted-foreground">
-        Configure the base company profile and which modules are available.
+        {tx('Configure the base company profile and which modules are available.')}
       </p>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -146,8 +147,8 @@ export function DevCompanySettingsPage() {
             <div className="flex items-center gap-2">
               <Building2 className="h-4 w-4 text-muted-foreground" />
               <div>
-                <CardTitle>Company Profile</CardTitle>
-                <CardDescription>Basic company identity used across the system.</CardDescription>
+                <CardTitle>{tx('Company Profile')}</CardTitle>
+                <CardDescription>{tx('Basic company identity used across the system.')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -158,13 +159,13 @@ export function DevCompanySettingsPage() {
               <>
                 {/* Company Logo */}
                 <div>
-                  <label className="text-sm font-medium">Company Logo</label>
+                  <label className="text-sm font-medium">{tx('Company Logo')}</label>
                   <div className="mt-2 flex items-center gap-4">
                     {logoUrl ? (
                       <div className="relative h-20 w-20 overflow-hidden rounded-lg border bg-muted">
                         <img
                           src={logoUrl}
-                          alt="Company logo"
+                          alt={tx('Company logo')}
                           className="h-full w-full object-contain"
                           onError={(e) => {
                             (e.target as HTMLImageElement).style.display = 'none';
@@ -196,7 +197,7 @@ export function DevCompanySettingsPage() {
                           variant="ghost"
                           onClick={() => setLogoUrl(null)}
                         >
-                          Remove
+                          {tx('Remove')}
                         </Button>
                       )}
                       <input
@@ -219,21 +220,21 @@ export function DevCompanySettingsPage() {
 
                 {/* Company Name */}
                 <div>
-                  <label className="text-sm font-medium">Company Name</label>
+                  <label className="text-sm font-medium">{tx('Company Name')}</label>
                   <Input
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     className="mt-1"
-                    placeholder="Your company name"
+                    placeholder={tx('Your company name')}
                   />
                 </div>
 
                 {/* POS Mode */}
                 <hr className="border-t" />
                 <div>
-                  <label className="text-sm font-medium">POS Mode</label>
+                  <label className="text-sm font-medium">{tx('POS Mode')}</label>
                   <p className="text-xs text-muted-foreground mb-3">
-                    Choose between Cafe/Restaurant or Retail mode. This affects the POS terminal layout and available features.
+                    {tx('Choose between Cafe/Restaurant or Retail mode. This affects the POS terminal layout and available features.')}
                   </p>
                   {posLoading ? (
                     <Skeleton className="h-10 w-64" />
@@ -259,14 +260,14 @@ export function DevCompanySettingsPage() {
                           checked={sharedDrawer}
                           onChange={(e) => setSharedDrawer(e.target.checked)}
                         />
-                        Allow other cashiers on the register (shared drawer)
+                        {tx('Allow other cashiers on the register (shared drawer)')}
                       </label>
                       <Button onClick={async () => {
                         try {
                           await updatePos.mutateAsync({ posMode, sharedDrawer });
-                          notify.success('POS settings saved');
+                          notify.success(tx('POS settings saved'));
                         } catch {
-                          notify.error('Failed to save POS settings');
+                          notify.error(tx('Failed to save POS settings'));
                         }
                       }} disabled={updatePos.isPending} size="sm">
                         {updatePos.isPending ? 'Saving...' : 'Save POS Mode'}
@@ -285,9 +286,9 @@ export function DevCompanySettingsPage() {
             <div className="flex items-center gap-2">
               <Blocks className="h-4 w-4 text-muted-foreground" />
               <div>
-                <CardTitle>Modules</CardTitle>
+                <CardTitle>{tx('Modules')}</CardTitle>
                 <CardDescription>
-                  Turn a module off to hide its group from the left sidebar navigation.
+                  {tx('Turn a module off to hide its group from the left sidebar navigation.')}
                 </CardDescription>
               </div>
             </div>
@@ -333,8 +334,8 @@ export function DevCompanySettingsPage() {
             <div className="flex items-center gap-2">
               <Puzzle className="h-4 w-4 text-muted-foreground" />
               <div>
-                <CardTitle>Features</CardTitle>
-                <CardDescription>Enable or disable modules for this organization.</CardDescription>
+                <CardTitle>{tx('Features')}</CardTitle>
+                <CardDescription>{tx('Enable or disable modules for this organization.')}</CardDescription>
               </div>
             </div>
           </CardHeader>
@@ -358,7 +359,7 @@ export function DevCompanySettingsPage() {
                       <div className="flex items-center gap-2 text-sm font-medium">
                         {feat.label}
                         {features[feat.key] && (
-                          <Badge variant="secondary" className="text-[10px]">active</Badge>
+                          <Badge variant="secondary" className="text-[10px]">{tx('active')}</Badge>
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground">{feat.description}</p>
@@ -379,7 +380,7 @@ export function DevCompanySettingsPage() {
           ) : (
             <Save className="mr-2 h-4 w-4" />
           )}
-          Save Developer Settings
+          {tx('Save Developer Settings')}
         </Button>
       </div>
     </div>

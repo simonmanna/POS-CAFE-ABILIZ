@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUS_STYLE: Record<string, string> = {
   PRESENT: 'bg-emerald-100 text-emerald-800',
@@ -62,18 +63,18 @@ export function HrAttendancePage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Attendance</h1>
-          <p className="text-sm text-muted-foreground">Clock events, daily records and registers.</p>
+          <h1 className="text-xl font-semibold">{tx('Attendance')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Clock events, daily records and registers.')}</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => { setClockForm({}); setClockOpen(true); }}><Clock className="h-4 w-4" /> Clock in/out</Button>
-          <Button onClick={() => { setManualForm({ date: today() }); setManualOpen(true); }}>Manual entry</Button>
+          <Button variant="outline" onClick={() => { setClockForm({}); setClockOpen(true); }}><Clock className="h-4 w-4" /> {tx('Clock in/out')}</Button>
+          <Button onClick={() => { setManualForm({ date: today() }); setManualOpen(true); }}>{tx('Manual entry')}</Button>
         </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm">
-          <option value="">All employees</option>
+          <option value="">{tx('All employees')}</option>
           {employees.map((e: any) => <option key={e.id} value={e.id}>{e.employeeCode} · {e.firstName}{e.lastName ? ' ' + e.lastName : ''}</option>)}
         </select>
         <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm">
@@ -86,11 +87,11 @@ export function HrAttendancePage() {
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} attendance records</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('attendance records')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No records match the filters.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No records match the filters.')}</p>}
             {rows.map((a: any) => (
               <div key={a.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <div className="flex items-center gap-3">
@@ -107,9 +108,9 @@ export function HrAttendancePage() {
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="hidden text-right text-xs text-muted-foreground md:block">
-                    <p>Worked: {Math.floor((a.workedMinutes ?? 0) / 60)}h {(a.workedMinutes ?? 0) % 60}m</p>
-                    {a.overtimeMinutes > 0 && <p className="text-amber-600">OT: {Math.floor(a.overtimeMinutes / 60)}h {a.overtimeMinutes % 60}m</p>}
-                    {a.lateMinutes > 0 && <p className="text-rose-600">Late: {a.lateMinutes}m</p>}
+                    <p>{tx('Worked:')} {Math.floor((a.workedMinutes ?? 0) / 60)}h {(a.workedMinutes ?? 0) % 60}m</p>
+                    {a.overtimeMinutes > 0 && <p className="text-amber-600">{tx('OT:')} {Math.floor(a.overtimeMinutes / 60)}h {a.overtimeMinutes % 60}m</p>}
+                    {a.lateMinutes > 0 && <p className="text-rose-600">{tx('Late:')} {a.lateMinutes}m</p>}
                   </div>
                   <Badge variant="outline" className={STATUS_STYLE[a.status] ?? ''}>{a.status.replace(/_/g, ' ')}</Badge>
                 </div>
@@ -122,28 +123,28 @@ export function HrAttendancePage() {
       {/* Clock dialog */}
       <Dialog open={clockOpen} onOpenChange={setClockOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Clock in / out</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Clock in / out')}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
             <div>
-              <Label>Employee *</Label>
+              <Label>{tx('Employee *')}</Label>
               <select value={clockForm.employeeId ?? ''} onChange={(e) => setClockForm({ ...clockForm, employeeId: e.target.value })}
                 className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                <option value="">Select employee…</option>
+                <option value="">{tx('Select employee…')}</option>
                 {employees.map((e: any) => <option key={e.id} value={e.id}>{e.employeeCode} · {e.firstName}{e.lastName ? ' ' + e.lastName : ''}</option>)}
               </select>
             </div>
             <div>
-              <Label>Event *</Label>
+              <Label>{tx('Event *')}</Label>
               <select value={clockForm.eventType ?? ''} onChange={(e) => setClockForm({ ...clockForm, eventType: e.target.value })}
                 className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                <option value="">Select event…</option>
-                <option value="CHECK_IN">Check in</option>
-                <option value="CHECK_OUT">Check out</option>
-                <option value="BREAK_START">Break start</option>
-                <option value="BREAK_END">Break end</option>
+                <option value="">{tx('Select event…')}</option>
+                <option value="CHECK_IN">{tx('Check in')}</option>
+                <option value="CHECK_OUT">{tx('Check out')}</option>
+                <option value="BREAK_START">{tx('Break start')}</option>
+                <option value="BREAK_END">{tx('Break end')}</option>
               </select>
             </div>
-            <Button onClick={doClock} disabled={clock.isPending}>Record event</Button>
+            <Button onClick={doClock} disabled={clock.isPending}>{tx('Record event')}</Button>
           </div>
         </DialogContent>
       </Dialog>
@@ -151,35 +152,35 @@ export function HrAttendancePage() {
       {/* Manual entry dialog */}
       <Dialog open={manualOpen} onOpenChange={setManualOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Manual attendance</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Manual attendance')}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
             <div>
-              <Label>Employee *</Label>
+              <Label>{tx('Employee *')}</Label>
               <select value={manualForm.employeeId ?? ''} onChange={(e) => setManualForm({ ...manualForm, employeeId: e.target.value })}
                 className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                <option value="">Select employee…</option>
+                <option value="">{tx('Select employee…')}</option>
                 {employees.map((e: any) => <option key={e.id} value={e.id}>{e.employeeCode} · {e.firstName}{e.lastName ? ' ' + e.lastName : ''}</option>)}
               </select>
             </div>
             <div>
-              <Label>Date *</Label>
+              <Label>{tx('Date *')}</Label>
               <Input type="date" value={manualForm.date ?? ''} onChange={(e) => setManualForm({ ...manualForm, date: e.target.value })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Check-in *</Label>
+                <Label>{tx('Check-in *')}</Label>
                 <Input type="datetime-local" value={manualForm.checkInAt ?? ''} onChange={(e) => setManualForm({ ...manualForm, checkInAt: e.target.value })} />
               </div>
               <div>
-                <Label>Check-out</Label>
+                <Label>{tx('Check-out')}</Label>
                 <Input type="datetime-local" value={manualForm.checkOutAt ?? ''} onChange={(e) => setManualForm({ ...manualForm, checkOutAt: e.target.value })} />
               </div>
             </div>
             <div>
-              <Label>Break minutes</Label>
+              <Label>{tx('Break minutes')}</Label>
               <Input type="number" value={manualForm.totalBreakMinutes ?? ''} onChange={(e) => setManualForm({ ...manualForm, totalBreakMinutes: e.target.value })} />
             </div>
-            <Button onClick={doManual} disabled={manual.isPending}>Save record</Button>
+            <Button onClick={doManual} disabled={manual.isPending}>{tx('Save record')}</Button>
           </div>
         </DialogContent>
       </Dialog>

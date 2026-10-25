@@ -8,6 +8,9 @@ import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { useAuthStore } from '@/stores/auth.store';
+import { useTranslation } from 'react-i18next';
+import { LanguageSwitcher } from '@/components/language-switcher';
+import { tx } from '@/lib/i18n/tx';
 
 // CSS Styles - Sky/Blue Theme
 const styles = `
@@ -121,13 +124,28 @@ type View = 'login' | 'mfa' | 'forgot' | 'forgot-sent';
 /** Organization code sent with every sign-in; never prompted for. */
 const DEFAULT_ORG_CODE = 'DEMO';
 
+/**
+ * Public demo build (VITE_DEMO_MODE=true): the sign-in card shows the demo
+ * credentials and comes prefilled with them, and a bare username is accepted in
+ * place of an email. Never set this on a deployment that holds real data.
+ */
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === 'true';
+const DEMO_LOGIN = { username: 'admin', password: 'admin' };
+const DEMO_EMAIL_DOMAIN = 'demo.test';
+/** The API signs in by email; in demo mode `admin` means `admin@demo.test`. */
+const toLoginEmail = (value: string): string => {
+  const v = value.trim();
+  return DEMO_MODE && v && !v.includes('@') ? `${v}@${DEMO_EMAIL_DOMAIN}` : v;
+};
+
 export function LoginPage() {
+  const { t } = useTranslation();
   const [view, setView] = useState<View>('login');
   // Single-tenant deployment: the organization is fixed, so the field is not
   // shown. Override with VITE_ORG_CODE at build time for another tenant.
   const orgCode = (import.meta.env.VITE_ORG_CODE as string | undefined) ?? DEFAULT_ORG_CODE;
-  const [email, setEmail] = useState('admin@demo.test');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState(DEMO_MODE ? DEMO_LOGIN.username : 'admin@demo.test');
+  const [password, setPassword] = useState(DEMO_MODE ? DEMO_LOGIN.password : '');
   const [mfaToken, setMfaToken] = useState('');
   const [mfaCode, setMfaCode] = useState('');
   const [showPwd, setShowPwd] = useState(false);
@@ -136,7 +154,7 @@ export function LoginPage() {
 
   const login = useMutation({
     mutationFn: async () =>
-      (await api.post<LoginResponse>('/auth/login', { organizationCode: orgCode, email, password })).data,
+      (await api.post<LoginResponse>('/auth/login', { organizationCode: orgCode, email: toLoginEmail(email), password })).data,
     onSuccess: (data) => {
       if ((data as any).requiresMfa) {
         setMfaToken((data as any).mfaToken);
@@ -171,6 +189,11 @@ export function LoginPage() {
     <>
       <style>{styles}</style>
       <div className="login-root flex min-h-screen items-center justify-center p-4 relative overflow-hidden">
+        {/* Language picker — available before sign-in */}
+        <div className="absolute right-4 top-4 z-20">
+          <LanguageSwitcher className="gap-1 px-2 text-white hover:bg-white/15 hover:text-white" />
+        </div>
+
         {/* Ambient layers */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div className="aurora" />
@@ -197,34 +220,34 @@ export function LoginPage() {
                       <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-md border border-white/25">
                         <Coffee className="h-6 w-6 text-sky-300" />
                       </div>
-                      <div className="text-xl font-extrabold tracking-tight">Cafe POS</div>
+                      <div className="text-xl font-extrabold tracking-tight">{tx('Cafe POS')}</div>
                       <span className="ml-auto inline-flex items-center gap-1 rounded-full bg-emerald-400/15 border border-emerald-300/30 px-3 py-1 text-xs font-bold text-emerald-300">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Live
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> {tx('Live')}
                       </span>
                     </div>
 
                     <div className="relative flex flex-col items-start justify-center flex-1 text-left">
                       <h1 className="text-5xl font-black leading-[1.05] tracking-tight mb-5 max-w-md">
-                        Run your floor,<br />tables & till —<br />
-                        <span className="text-gradient">all in one place.</span>
+                        {tx('Run your floor,')}<br />{tx('tables & till —')}<br />
+                        <span className="text-gradient">{tx('all in one place.')}</span>
                       </h1>
                       <p className="text-white/70 max-w-sm text-sm leading-relaxed">
-                        One command center for orders, kitchen, inventory and books. Fast at the counter, honest in the ledger.
+                        {tx('One command center for orders, kitchen, inventory and books. Fast at the counter, honest in the ledger.')}
                       </p>
 
                       <div className="mt-8 flex gap-6">
-                        <Stat value="Counter" label="Café & retail" />
+                        <Stat value="Counter" label={tx('Café & retail')} />
                         <div className="w-px bg-white/15" />
-                        <Stat value="Kitchen" label="Live KDS" />
+                        <Stat value="Kitchen" label={tx('Live KDS')} />
                         <div className="w-px bg-white/15" />
-                        <Stat value="Books" label="Real ledger" />
+                        <Stat value="Books" label={tx('Real ledger')} />
                       </div>
                     </div>
 
                     <div className="relative grid grid-cols-3 gap-3 mt-10">
-                      <Feature icon={<Monitor className="h-5 w-5" />} label="Tables" />
-                      <Feature icon={<Calendar className="h-5 w-5" />} label="Reservations" />
-                      <Feature icon={<FileText className="h-5 w-5" />} label="Audit" />
+                      <Feature icon={<Monitor className="h-5 w-5" />} label={tx('Tables')} />
+                      <Feature icon={<Calendar className="h-5 w-5" />} label={tx('Reservations')} />
+                      <Feature icon={<FileText className="h-5 w-5" />} label={tx('Audit')} />
                     </div>
                   </div>
 
@@ -235,7 +258,7 @@ export function LoginPage() {
                           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 border border-white/20 text-sky-300">
                             <Coffee className="h-4 w-4" />
                           </div>
-                          <div className="font-extrabold text-base text-gradient">Cafe POS</div>
+                          <div className="font-extrabold text-base text-gradient">{tx('Cafe POS')}</div>
                         </div>
 
                         <div className="mb-8">
@@ -243,9 +266,9 @@ export function LoginPage() {
                             <Building2 className="h-6 w-6" />
                           </div>
                           <h2 className="text-2xl font-extrabold tracking-tight text-white">
-                            {view === 'login' && 'Welcome back'}
+                            {view === 'login' && t('common.welcome')}
                             {view === 'mfa' && 'Two-factor authentication'}
-                            {view === 'forgot' && 'Reset your password'}
+                            {view === 'forgot' && t('auth.resetPassword')}
                             {view === 'forgot-sent' && 'Check your inbox'}
                           </h2>
                           <p className="text-sm text-white/60 mt-2">
@@ -261,18 +284,28 @@ export function LoginPage() {
                             className="space-y-4"
                             onSubmit={(e) => { e.preventDefault(); login.mutate(); }}
                           >
-                            <Field label="Email">
+                            {DEMO_MODE && (
+                              <div className="rounded-xl border border-sky-300/30 bg-sky-400/10 px-4 py-3 text-sm text-sky-100">
+                                <div className="font-bold">{tx('Demo system')}</div>
+                                <div className="mt-1 text-white/80">
+                                  {tx('Username')} <code className="font-bold text-white">{DEMO_LOGIN.username}</code>
+                                  {' · '}
+                                  {tx('Password')} <code className="font-bold text-white">{DEMO_LOGIN.password}</code>
+                                </div>
+                              </div>
+                            )}
+                            <Field label={DEMO_MODE ? 'Username' : t('auth.email')}>
                               <Input
-                                type="email"
+                                type={DEMO_MODE ? 'text' : 'email'}
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
-                                autoComplete="email"
+                                autoComplete={DEMO_MODE ? 'username' : 'email'}
                                 required
                                 className="h-12 rounded-xl bg-white/5 border-white/15 text-white placeholder:text-white/30 focus:border-sky-400 focus:ring-sky-400/40"
-                                placeholder="your@email.com"
+                                placeholder={DEMO_MODE ? DEMO_LOGIN.username : 'your@email.com'}
                               />
                             </Field>
-                            <Field label="Password">
+                            <Field label={t('auth.password')}>
                               <div className="relative">
                                 <Input
                                   type={showPwd ? 'text' : 'password'}
@@ -301,14 +334,14 @@ export function LoginPage() {
                               {login.isPending
                                 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 : <LogIn className="mr-2 h-4 w-4" />}
-                              Sign in
+                              {t('auth.login')}
                             </Button>
                             <button
                               type="button"
                               onClick={() => setView('forgot')}
                               className="block w-full text-center text-sm text-sky-300/90 hover:text-sky-200 font-medium transition-colors"
                             >
-                              Forgot password?
+                              {t('auth.forgotPassword')}
                             </button>
                           </form>
                         )}
@@ -318,7 +351,7 @@ export function LoginPage() {
                             className="space-y-4"
                             onSubmit={(e) => { e.preventDefault(); mfa.mutate(); }}
                           >
-                            <Field label="Authenticator code">
+                            <Field label={t('auth.mfaCode')}>
                               <Input
                                 value={mfaCode}
                                 onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -338,14 +371,14 @@ export function LoginPage() {
                               {mfa.isPending
                                 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 : <KeyRound className="mr-2 h-4 w-4" />}
-                              Verify
+                              {tx('Verify')}
                             </Button>
                             <button
                               type="button"
                               onClick={() => setView('login')}
                               className="block w-full text-center text-sm text-white/50 hover:text-white transition-colors"
                             >
-                              Back
+                              {t('common.back')}
                             </button>
                           </form>
                         )}
@@ -355,7 +388,7 @@ export function LoginPage() {
                             className="space-y-4"
                             onSubmit={(e) => { e.preventDefault(); forgot.mutate(); }}
                           >
-                            <Field label="Email">
+                            <Field label={t('auth.email')}>
                               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="h-12 rounded-xl bg-white/5 border-white/15 text-white placeholder:text-white/30 focus:border-sky-400 focus:ring-sky-400/40" />
                             </Field>
                             <Button
@@ -366,14 +399,14 @@ export function LoginPage() {
                               {forgot.isPending
                                 ? <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                 : <Mail className="mr-2 h-4 w-4" />}
-                              Send reset link
+                              {t('auth.sendResetLink')}
                             </Button>
                             <button
                               type="button"
                               onClick={() => setView('login')}
                               className="block w-full text-center text-sm text-white/50 hover:text-white transition-colors"
                             >
-                              Back to sign in
+                              {tx('Back to sign in')}
                             </button>
                           </form>
                         )}
@@ -384,22 +417,21 @@ export function LoginPage() {
                               <Mail className="h-8 w-8" />
                             </div>
                             <p className="text-sm text-white/70">
-                              If an account exists for <strong className="text-white">{email}</strong>,
-                              a reset link has been sent.
+                              {tx('If an account exists for')} <strong className="text-white">{email}</strong>{tx(', a reset link has been sent.')}
                             </p>
                             <Button
                               variant="outline"
                               onClick={() => setView('login')}
                               className="w-full h-12 rounded-xl bg-white/5 border-white/20 text-white hover:bg-white/10"
                             >
-                              Back to sign in
+                              {tx('Back to sign in')}
                             </Button>
                           </div>
                         )}
 
             <div className="mt-8 flex items-center justify-center gap-4 text-[11px] text-white/40">
-              <span className="inline-flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" /> Encrypted</span>
-              <span className="inline-flex items-center gap-1"><Zap className="h-3.5 w-3.5" /> Offline-first</span>
+              <span className="inline-flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" /> {tx('Encrypted')}</span>
+              <span className="inline-flex items-center gap-1"><Zap className="h-3.5 w-3.5" /> {tx('Offline-first')}</span>
             </div>
           </div>
         </div>

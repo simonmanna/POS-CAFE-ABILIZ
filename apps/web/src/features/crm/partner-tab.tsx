@@ -14,6 +14,7 @@ import {
   type ActivityType,
 } from './api';
 import { DealFormDialog } from './deal-form';
+import { tx } from '@/lib/i18n/tx';
 
 const ACTIVITY_LABEL: Record<ActivityType, string> = {
   call: 'Call',
@@ -43,7 +44,7 @@ export function CrmPartnerTab({ partnerId }: { partnerId: string }) {
         <Card>
           <CardContent className="flex items-start justify-between px-5 py-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Total spent</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tx('Total spent')}</p>
               <p className="mt-1 text-xl font-bold">{spendLoading ? '…' : money(spend?.totalSpent ?? 0, 'IDR')}</p>
             </div>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700"><Receipt className="h-4.5 w-4.5" /></div>
@@ -52,7 +53,7 @@ export function CrmPartnerTab({ partnerId }: { partnerId: string }) {
         <Card>
           <CardContent className="flex items-start justify-between px-5 py-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Orders</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tx('Orders')}</p>
               <p className="mt-1 text-xl font-bold">{spendLoading ? '…' : String(spend?.orderCount ?? 0)}</p>
             </div>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-700"><ShoppingBag className="h-4.5 w-4.5" /></div>
@@ -61,7 +62,7 @@ export function CrmPartnerTab({ partnerId }: { partnerId: string }) {
         <Card>
           <CardContent className="flex items-start justify-between px-5 py-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Last order</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tx('Last order')}</p>
               <p className="mt-1 text-xl font-bold">{spendLoading ? '…' : (spend?.lastOrderAt ? date(spend.lastOrderAt) : '—')}</p>
             </div>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700"><CalendarClock className="h-4.5 w-4.5" /></div>
@@ -70,7 +71,7 @@ export function CrmPartnerTab({ partnerId }: { partnerId: string }) {
         <Card>
           <CardContent className="flex items-start justify-between px-5 py-4">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Open receivable</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tx('Open receivable')}</p>
               <p className={cn('mt-1 text-xl font-bold', (spend?.openReceivable ?? 0) > 0 ? 'text-amber-600' : '')}>
                 {spendLoading ? '…' : money(spend?.openReceivable ?? 0, 'IDR')}
               </p>
@@ -82,10 +83,10 @@ export function CrmPartnerTab({ partnerId }: { partnerId: string }) {
       {/* Deals */}
       <Card>
         <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg flex flex-row items-center justify-between">
-          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Deals</CardTitle>
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Deals')}</CardTitle>
           {hasWrite && (
             <Button size="sm" className="h-8" onClick={() => setFormOpen(true)}>
-              <Plus className="mr-1.5 h-4 w-4" /> New Deal
+              <Plus className="mr-1.5 h-4 w-4" /> {tx('New Deal')}
             </Button>
           )}
         </CardHeader>
@@ -96,17 +97,17 @@ export function CrmPartnerTab({ partnerId }: { partnerId: string }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Deal</TableHead>
-                  <TableHead className="text-right">Amount</TableHead>
-                  <TableHead>Stage</TableHead>
-                  <TableHead>Owner</TableHead>
-                  <TableHead>Expected close</TableHead>
+                  <TableHead>{tx('Deal')}</TableHead>
+                  <TableHead className="text-right">{tx('Amount')}</TableHead>
+                  <TableHead>{tx('Stage')}</TableHead>
+                  <TableHead>{tx('Owner')}</TableHead>
+                  <TableHead>{tx('Expected close')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(deals?.data ?? []).length === 0 ? (
                   <TableRow><TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
-                    No deals for this partner yet.
+                    {tx('No deals for this partner yet.')}
                   </TableCell></TableRow>
                 ) : deals?.data.map((d) => (
                   <TableRow key={d.id} className="cursor-pointer hover:bg-muted/50" onClick={() => navigate(`/crm/deals/${d.id}`)}>
@@ -126,13 +127,13 @@ export function CrmPartnerTab({ partnerId }: { partnerId: string }) {
       {/* Timeline */}
       <Card>
         <CardHeader className="pb-3 px-5 pt-4 bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Activity timeline</CardTitle>
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Activity timeline')}</CardTitle>
         </CardHeader>
         <CardContent className="px-5 py-4">
           {actsLoading ? (
             <Skeleton className="h-24 w-full" />
           ) : (activities?.data ?? []).length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">No activity logged for this partner.</p>
+            <p className="py-4 text-center text-sm text-muted-foreground">{tx('No activity logged for this partner.')}</p>
           ) : (
             <ul className="space-y-3">
               {activities?.data.map((a) => (
@@ -147,13 +148,13 @@ export function CrmPartnerTab({ partnerId }: { partnerId: string }) {
                   <div className="flex shrink-0 items-center gap-2">
                     {a.type === 'task' && a.status !== 'done' && (
                       <Button variant="outline" size="sm" className="h-7 px-2 text-[11px]" onClick={() => completeActivity.mutate(a.id)}>
-                        Complete
+                        {tx('Complete')}
                       </Button>
                     )}
-                    {a.status === 'done' && <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">Done</Badge>}
+                    {a.status === 'done' && <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-[10px]">{tx('Done')}</Badge>}
                     {a.dealId && (
                       <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px]" onClick={() => navigate(`/crm/deals/${a.dealId}`)}>
-                        <Handshake className={cn('mr-1 h-3 w-3')} /> Deal
+                        <Handshake className={cn('mr-1 h-3 w-3')} /> {tx('Deal')}
                       </Button>
                     )}
                   </div>

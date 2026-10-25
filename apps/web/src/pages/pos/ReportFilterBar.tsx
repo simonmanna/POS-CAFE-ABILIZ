@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { ReportFilterOptions } from './types';
 import { isoLocal, todayIso, weekStartFromDay, monthStart, humanise } from './report-utils';
+import { tx } from '@/lib/i18n/tx';
 
 /** Every filter the report suite understands. Tabs opt in by name. */
 export interface ReportFilterState {
@@ -130,11 +131,11 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-2">
         <div>
-          <Label>From</Label>
+          <Label>{tx('From')}</Label>
           <Input type="date" value={state.fromDate} max={state.toDate || undefined} onChange={(e) => set({ fromDate: e.target.value })} />
         </div>
         <div>
-          <Label>To</Label>
+          <Label>{tx('To')}</Label>
           <Input type="date" value={state.toDate} min={state.fromDate || undefined} onChange={(e) => set({ toDate: e.target.value })} />
         </div>
 
@@ -142,7 +143,7 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
           <div className="min-w-[170px]">
             <Label>{has('cashier') ? 'Cashier' : 'Waiter'}</Label>
             <select className={SELECT_CLASS} value={state.waiterId ?? ''} onChange={(e) => set({ waiterId: e.target.value || undefined })}>
-              <option value="">All {has('cashier') ? 'cashiers' : 'waiters'}</option>
+              <option value="">{tx('All')} {has('cashier') ? 'cashiers' : 'waiters'}</option>
               {(options?.waiters ?? []).map((w) => (
                 <option key={w.id} value={w.id}>{w.name}</option>
               ))}
@@ -152,9 +153,9 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
 
         {has('category') && (
           <div className="min-w-[170px]">
-            <Label>Category</Label>
+            <Label>{tx('Category')}</Label>
             <select className={SELECT_CLASS} value={state.categoryId ?? ''} onChange={(e) => set({ categoryId: e.target.value || undefined })}>
-              <option value="">All categories</option>
+              <option value="">{tx('All categories')}</option>
               {(options?.categories ?? []).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
@@ -164,9 +165,9 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
 
         {has('orderType') && (
           <div className="min-w-[150px]">
-            <Label>Order type</Label>
+            <Label>{tx('Order type')}</Label>
             <select className={SELECT_CLASS} value={state.orderType ?? ''} onChange={(e) => set({ orderType: e.target.value || undefined })}>
-              <option value="">All types</option>
+              <option value="">{tx('All types')}</option>
               {(options?.orderTypes ?? [{ id: 'dine_in', name: 'dine in' }, { id: 'takeaway', name: 'takeaway' }, { id: 'delivery', name: 'delivery' }]).map((t) => (
                 <option key={t.id} value={t.id}>{humanise(t.id)}</option>
               ))}
@@ -176,9 +177,9 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
 
         {has('payment') && (
           <div className="min-w-[160px]">
-            <Label>Payment method</Label>
+            <Label>{tx('Payment method')}</Label>
             <select className={SELECT_CLASS} value={state.paymentMethod ?? ''} onChange={(e) => set({ paymentMethod: e.target.value || undefined })}>
-              <option value="">All tenders</option>
+              <option value="">{tx('All tenders')}</option>
               {(options?.paymentMethods ?? []).map((m) => (
                 // Tenders with no sales in the range stay selectable but are
                 // marked, so "no card sales today" is a visible answer.
@@ -190,9 +191,9 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
 
         {has('orderStatus') && (
           <div className="min-w-[150px]">
-            <Label>Order status</Label>
+            <Label>{tx('Order status')}</Label>
             <select className={SELECT_CLASS} value={state.status ?? ''} onChange={(e) => set({ status: e.target.value || undefined })}>
-              <option value="">All statuses</option>
+              <option value="">{tx('All statuses')}</option>
               {(options?.orderStatuses ?? []).map((s) => (
                 <option key={s.id} value={s.id}>{humanise(s.id)}</option>
               ))}
@@ -202,9 +203,9 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
 
         {has('sessionStatus') && (
           <div className="min-w-[150px]">
-            <Label>Shift status</Label>
+            <Label>{tx('Shift status')}</Label>
             <select className={SELECT_CLASS} value={state.status ?? ''} onChange={(e) => set({ status: e.target.value || undefined })}>
-              <option value="">All shifts</option>
+              <option value="">{tx('All shifts')}</option>
               {SESSION_STATUSES.map((s) => (
                 <option key={s.id} value={s.id}>{s.name}</option>
               ))}
@@ -214,9 +215,9 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
 
         {has('register') && (
           <div className="min-w-[170px]">
-            <Label>Register</Label>
+            <Label>{tx('Register')}</Label>
             <select className={SELECT_CLASS} value={state.registerId ?? ''} onChange={(e) => set({ registerId: e.target.value || undefined })}>
-              <option value="">All registers</option>
+              <option value="">{tx('All registers')}</option>
               {(options?.registers ?? []).map((r) => (
                 <option key={r.id} value={r.id}>{r.name}</option>
               ))}
@@ -226,9 +227,9 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
 
         {has('item') && (
           <div className="min-w-[190px]">
-            <Label>Menu item</Label>
+            <Label>{tx('Menu item')}</Label>
             <select className={SELECT_CLASS} value={state.itemKey ?? ''} onChange={(e) => set({ itemKey: e.target.value || undefined })}>
-              <option value="">All items</option>
+              <option value="">{tx('All items')}</option>
               {(itemOptions ?? []).map((i) => (
                 <option key={i.key} value={i.key}>{i.name}</option>
               ))}
@@ -238,9 +239,9 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
 
         {has('search') && (
           <div className="min-w-[190px]">
-            <Label>Order / invoice #</Label>
+            <Label>{tx('Order / invoice #')}</Label>
             <Input
-              placeholder="e.g. INV-1042"
+              placeholder={tx('e.g. INV-1042')}
               value={state.search ?? ''}
               onChange={(e) => set({ search: e.target.value || undefined })}
             />
@@ -249,9 +250,9 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
 
         {has('itemSearch') && (
           <div className="min-w-[170px]">
-            <Label>Item name</Label>
+            <Label>{tx('Item name')}</Label>
             <Input
-              placeholder="e.g. latte"
+              placeholder={tx('e.g. latte')}
               value={state.itemSearch ?? ''}
               onChange={(e) => set({ itemSearch: e.target.value || undefined })}
             />
@@ -265,14 +266,14 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
               checked={Boolean(state.includeCancelled)}
               onChange={(e) => set({ includeCancelled: e.target.checked, status: e.target.checked ? state.status : state.status })}
             />
-            Include cancelled
+            {tx('Include cancelled')}
           </label>
         )}
 
         <div className="ml-auto flex items-end gap-2">
           {onRefresh ? (
             <Button variant="outline" onClick={onRefresh} disabled={isFetching}>
-              <RefreshCw className={'h-4 w-4 mr-1' + (isFetching ? ' animate-spin' : '')} /> Refresh
+              <RefreshCw className={'h-4 w-4 mr-1' + (isFetching ? ' animate-spin' : '')} /> {tx('Refresh')}
             </Button>
           ) : null}
         </div>
@@ -299,7 +300,7 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
         <div className="flex flex-wrap items-center gap-2 text-sm">
           {rangeInvalid ? (
             <span className="rounded-full bg-amber-50 px-2.5 py-1 text-amber-700 border border-amber-200">
-              From is after To — the range is read in date order.
+              {tx('From is after To — the range is read in date order.')}
             </span>
           ) : null}
           {chips.map((c) => (
@@ -307,7 +308,7 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
               key={String(c.key)}
               className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-sky-700 hover:bg-sky-100"
               onClick={() => set(c.clear)}
-              title="Remove this filter"
+              title={tx('Remove this filter')}
             >
               {c.label}
               <X className="h-3.5 w-3.5" />
@@ -315,7 +316,7 @@ const ReportFilterBar: React.FC<Props> = ({ state, onChange, fields, options, it
           ))}
           {chips.length > 0 ? (
             <button className="text-slate-500 underline hover:text-slate-700" onClick={clearAll}>
-              Clear all filters
+              {tx('Clear all filters')}
             </button>
           ) : null}
           {typeof resultCount === 'number' ? (

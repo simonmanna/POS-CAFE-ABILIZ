@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { date } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `Rp ${Number(n || 0).toLocaleString('id-ID')}`;
 
@@ -47,11 +48,11 @@ export function RepairOrdersPage() {
     <div className="space-y-4 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Repair Orders</h1>
-          <p className="text-sm text-muted-foreground">Receive → diagnose → quote → repair → test → deliver → close.</p>
+          <h1 className="text-xl font-semibold">{tx('Repair Orders')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Receive → diagnose → quote → repair → test → deliver → close.')}</p>
         </div>
         <Link to="/repair/orders/new">
-          <Button><Plus className="h-4 w-4" /> New repair order</Button>
+          <Button><Plus className="h-4 w-4" /> {tx('New repair order')}</Button>
         </Link>
       </div>
 
@@ -59,7 +60,7 @@ export function RepairOrdersPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search repair number, serial, IMEI…"
+          placeholder={tx('Search repair number, serial, IMEI…')}
           className="w-64 rounded-md border bg-card px-3 py-2 text-sm"
         />
         <select value={status} onChange={(e) => setStatus(e.target.value)} className="rounded-md border bg-card px-3 py-2 text-sm">
@@ -71,11 +72,11 @@ export function RepairOrdersPage() {
 
       <Card>
         <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-sm">{rows.length} repair orders</CardTitle>
+          <CardTitle className="text-sm">{rows.length} {tx('repair orders')}</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
           <div className="divide-y">
-            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No repair orders match the filters.</p>}
+            {rows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No repair orders match the filters.')}</p>}
             {rows.map((o: any) => (
               <Link key={o.id} to={`/repair/orders/${o.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                 <div className="flex items-center gap-3">

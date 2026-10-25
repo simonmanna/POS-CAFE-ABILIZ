@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { DiscountType } from '@/features/pos/types';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -75,9 +76,9 @@ export const DiscountDialog: React.FC<Props> = ({ open, initialPercent, onClose,
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-[440px]">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Tag className="h-4 w-4" /> Order-level discount</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Tag className="h-4 w-4" /> {tx('Order-level discount')}</DialogTitle>
           <DialogDescription>
-            Choose percentage or fixed amount. Discounts ≥ 10% (or {orgCur()} 50,000) need a manager override.
+            {tx('Choose percentage or fixed amount. Discounts ≥ 10% (or')} {orgCur()} {tx('50,000) need a manager override.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -90,7 +91,7 @@ export const DiscountDialog: React.FC<Props> = ({ open, initialPercent, onClose,
             }`}
             onClick={() => setMode('percentage')}
           >
-            <Percent className="w-3.5 h-3.5" /> Percentage
+            <Percent className="w-3.5 h-3.5" /> {tx('Percentage')}
           </button>
           <button
             type="button"
@@ -99,7 +100,7 @@ export const DiscountDialog: React.FC<Props> = ({ open, initialPercent, onClose,
             }`}
             onClick={() => setMode('fixed_amount')}
           >
-            <DollarSign className="w-3.5 h-3.5" /> Fixed Amount
+            <DollarSign className="w-3.5 h-3.5" /> {tx('Fixed Amount')}
           </button>
         </div>
 
@@ -131,19 +132,19 @@ export const DiscountDialog: React.FC<Props> = ({ open, initialPercent, onClose,
 
         {requiresOverride ? (
           <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded px-3 py-2">
-            ⚠ This discount requires a manager override. Tap Apply, then verify the manager PIN.
+            {tx('⚠ This discount requires a manager override. Tap Apply, then verify the manager PIN.')}
           </div>
         ) : null}
 
         {err ? <p className="text-sm text-rose-600">{err}</p> : null}
 
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="ghost" onClick={onClose}>{tx('Cancel')}</Button>
           <Button
             onClick={doApply}
             style={{ background: '#f59e0b' }}
           >
-            Apply
+            {tx('Apply')}
           </Button>
         </DialogFooter>
       </DialogContent>

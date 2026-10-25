@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { cn } from '@/lib/utils';
+import { tx } from '@/lib/i18n/tx';
 
 interface Notification {
   id: string;
@@ -43,9 +44,9 @@ export function NotificationsBell() {
       await api.post('/notifications/read-all');
       setItems((prev) => prev.map((n) => ({ ...n, status: 'read', readAt: new Date().toISOString() })));
       setUnread(0);
-      notify.success('Marked all as read');
+      notify.success(tx('Marked all as read'));
     } catch {
-      notify.error('Could not mark all as read');
+      notify.error(tx('Could not mark all as read'));
     }
   };
 
@@ -83,17 +84,17 @@ export function NotificationsBell() {
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
           <div className="absolute right-0 top-full z-40 mt-2 w-80 max-w-[90vw] rounded-md border bg-card shadow-lg">
             <div className="flex items-center justify-between border-b p-3">
-              <h3 className="font-semibold">Notifications</h3>
+              <h3 className="font-semibold">{tx('Notifications')}</h3>
               {unread > 0 && (
                 <Button variant="ghost" size="sm" onClick={markAllRead}>
                   <Check className="mr-1 h-3 w-3" />
-                  Mark all
+                  {tx('Mark all')}
                 </Button>
               )}
             </div>
             <div className="max-h-96 overflow-y-auto">
               {items.length === 0 && (
-                <div className="p-6 text-center text-sm text-muted-foreground">No notifications yet</div>
+                <div className="p-6 text-center text-sm text-muted-foreground">{tx('No notifications yet')}</div>
               )}
               {items.map((n) => (
                 <button

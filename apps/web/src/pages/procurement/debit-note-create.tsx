@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface Partner { id: string; name: string; code: string }
 interface Product { id: string; name: string; code: string; salesPrice?: number; costPrice?: number; taxId?: string }
@@ -79,73 +80,73 @@ export function DebitNoteCreatePage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">New Debit Note</h1>
+      <h1 className="text-2xl font-semibold">{tx('New Debit Note')}</h1>
 
       <Card>
         <CardHeader>
-          <CardTitle>Direction & partner</CardTitle>
+          <CardTitle>{tx('Direction & partner')}</CardTitle>
           <CardDescription>
-            Outbound = we send to a customer (increases their AR). Inbound = supplier sends us one (increases our AP).
+            {tx('Outbound = we send to a customer (increases their AR). Inbound = supplier sends us one (increases our AP).')}
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div>
-            <label className="text-sm font-medium">Direction</label>
+            <label className="text-sm font-medium">{tx('Direction')}</label>
             <select
               value={direction}
               onChange={(e) => setDirection(e.target.value as any)}
               className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
             >
-              <option value="outbound">Outbound (to customer)</option>
-              <option value="inbound">Inbound (from supplier)</option>
+              <option value="outbound">{tx('Outbound (to customer)')}</option>
+              <option value="inbound">{tx('Inbound (from supplier)')}</option>
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium">Partner</label>
+            <label className="text-sm font-medium">{tx('Partner')}</label>
             <select
               value={partnerId}
               onChange={(e) => setPartnerId(e.target.value)}
               className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
             >
-              <option value="">Select partner…</option>
+              <option value="">{tx('Select partner…')}</option>
               {partners.data?.map((p) => (
                 <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium">Reason</label>
+            <label className="text-sm font-medium">{tx('Reason')}</label>
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
             >
-              <option value="price_adjustment">Price adjustment</option>
-              <option value="returned_goods">Returned goods</option>
-              <option value="overcharge">Overcharge</option>
-              <option value="correction">Correction</option>
-              <option value="other">Other</option>
+              <option value="price_adjustment">{tx('Price adjustment')}</option>
+              <option value="returned_goods">{tx('Returned goods')}</option>
+              <option value="overcharge">{tx('Overcharge')}</option>
+              <option value="correction">{tx('Correction')}</option>
+              <option value="other">{tx('Other')}</option>
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium">Notes</label>
+            <label className="text-sm font-medium">{tx('Notes')}</label>
             <Input className="mt-1" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
           {isRtv && (
             <div>
-              <label className="text-sm font-medium">Return from warehouse</label>
+              <label className="text-sm font-medium">{tx('Return from warehouse')}</label>
               <select
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
                 className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
               >
-                <option value="">Default warehouse</option>
+                <option value="">{tx('Default warehouse')}</option>
                 {locations.data?.filter((l) => l.type === 'warehouse').map((l) => (
                   <option key={l.id} value={l.id}>{l.code} — {l.name}</option>
                 ))}
               </select>
               <p className="mt-1 text-xs text-muted-foreground">
-                Returned goods leave this warehouse and their value is reversed out of stock when the note is posted.
+                {tx('Returned goods leave this warehouse and their value is reversed out of stock when the note is posted.')}
               </p>
             </div>
           )}
@@ -155,8 +156,8 @@ export function DebitNoteCreatePage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Lines</CardTitle>
-            <Button size="sm" variant="outline" onClick={addLine}><Plus className="mr-2 h-3 w-3" />Add line</Button>
+            <CardTitle>{tx('Lines')}</CardTitle>
+            <Button size="sm" variant="outline" onClick={addLine}><Plus className="mr-2 h-3 w-3" />{tx('Add line')}</Button>
           </div>
         </CardHeader>
         <CardContent>
@@ -169,7 +170,7 @@ export function DebitNoteCreatePage() {
                     onChange={(e) => pickProduct(idx, e.target.value)}
                     defaultValue=""
                   >
-                    <option value="">Pick product…</option>
+                    <option value="">{tx('Pick product…')}</option>
                     {products.data?.map((p) => (
                       <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
                     ))}
@@ -177,7 +178,7 @@ export function DebitNoteCreatePage() {
                 </div>
                 <div className="md:col-span-4">
                   <Input
-                    placeholder="Description"
+                    placeholder={tx('Description')}
                     value={ln.description}
                     onChange={(e) => {
                       const next = [...lines];
@@ -211,23 +212,23 @@ export function DebitNoteCreatePage() {
                 <div className="md:col-span-1 text-right text-sm tabular-nums">
                   {(ln.quantity * ln.unitPrice).toFixed(2)}
                 </div>
-                <Button size="icon" variant="ghost" onClick={() => removeLine(idx)} aria-label="Remove">
+                <Button size="icon" variant="ghost" onClick={() => removeLine(idx)} aria-label={tx('Remove')}>
                   <Trash2 className="h-3 w-3 text-destructive" />
                 </Button>
               </div>
             ))}
           </div>
           <div className="mt-4 flex items-center justify-between border-t pt-3">
-            <span className="text-sm font-medium">Total</span>
+            <span className="text-sm font-medium">{tx('Total')}</span>
             <span className="text-lg font-bold tabular-nums">{total.toFixed(2)}</span>
           </div>
         </CardContent>
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
+        <Button variant="outline" onClick={() => navigate(-1)}>{tx('Cancel')}</Button>
         <Button onClick={() => create.mutate()} disabled={!partnerId || lines.length === 0 || create.isPending}>
-          <Save className="mr-2 h-4 w-4" />Save draft
+          <Save className="mr-2 h-4 w-4" />{tx('Save draft')}
         </Button>
       </div>
     </div>

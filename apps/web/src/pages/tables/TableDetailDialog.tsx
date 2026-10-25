@@ -27,6 +27,7 @@ import { useTable, useTables, useMergeTables, useTransferTable, useUnmergeTable,
 import { api } from '@/lib/api';
 import type { PosTable } from '@/features/tables/types';
 import { statusMeta, fmtMoney, minutesBetween } from '@/features/tables/utils';
+import { tx } from '@/lib/i18n/tx';
 
 // Release 2026-09-r2 finding F8. Re-enable once the endpoint is fixed.
 const TABLES_PAGE_SPLIT_ENABLED = false;
@@ -70,7 +71,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
     if (!targetId || !t) return;
     try {
       await merge.mutateAsync({ sourceId: t.id, targetId });
-      toast.success('Tables merged');
+      toast.success(tx('Tables merged'));
       setTargetId('');
       onClose();
     } catch (e: any) {
@@ -82,7 +83,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
     if (!t) return;
     try {
       await unmerge.mutateAsync(t.id);
-      toast.success('Unmerged');
+      toast.success(tx('Unmerged'));
     } catch (e: any) {
       toast.error(e?.response?.data?.message ?? 'Unmerge failed');
     }
@@ -92,7 +93,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
     if (!targetId || !t) return;
     try {
       await transfer.mutateAsync({ sourceId: t.id, targetId });
-      toast.success('Open orders transferred');
+      toast.success(tx('Open orders transferred'));
       setTargetId('');
       onClose();
     } catch (e: any) {
@@ -104,7 +105,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
     if (!t || !splitSource) return;
     try {
       const { data: doc } = await api.get(`/pos/tabs/${t.id}`);
-      if (!doc?.lines?.length) { toast.error('Source document has no lines'); return; }
+      if (!doc?.lines?.length) { toast.error(tx('Source document has no lines')); return; }
       const lines: Array<{ id: string; quantity: number }> = doc.lines;
       const split1: Array<{ sourceItemId: string; quantity: number }> = [];
       const split2: Array<{ sourceItemId: string; quantity: number }> = [];
@@ -118,7 +119,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
           split2.push({ sourceItemId: ln.id, quantity: qty });
         }
       }
-      if (split1.length === 0) { toast.error('Cannot split — each line quantity is 1'); return; }
+      if (split1.length === 0) { toast.error(tx('Cannot split — each line quantity is 1')); return; }
       await split.mutateAsync({
         tableId: t.id,
         body: {
@@ -129,7 +130,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
           ],
         },
       });
-      toast.success('Bill split into two tickets');
+      toast.success(tx('Bill split into two tickets'));
       setSplitOpen(false);
       onClose();
     } catch (e: any) {
@@ -152,10 +153,10 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
             </span>
           </DialogTitle>
           <DialogDescription>
-            {t.seats} seats · {t.zoneName ?? t.zone}
+            {t.seats} {tx('seats ·')} {t.zoneName ?? t.zone}
             {t.mergedIntoId ? (
               <span className="ml-2 text-rose-600 font-bold">
-                ⚠ merged — use Unmerge before re-using
+                {tx('⚠ merged — use Unmerge before re-using')}
               </span>
             ) : null}
           </DialogDescription>
@@ -164,10 +165,10 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
         {/* Open orders */}
         <section>
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-            Open orders
+            {tx('Open orders')}
           </h3>
           {openOrders.length === 0 ? (
-            <Card><CardContent className="p-4 text-sm text-slate-400">No open orders</CardContent></Card>
+            <Card><CardContent className="p-4 text-sm text-slate-400">{tx('No open orders')}</CardContent></Card>
           ) : (
             <div className="space-y-2">
               {openOrders.map((o) => (
@@ -181,7 +182,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                         {o.customerName ?? 'Walk-in'}
                         {o.guestCount ? ` · ${o.guestCount} guests` : ''}
                         {' · '}
-                        opened {minutesBetween(o.openedAt, null)}m ago
+                        {tx('opened')} {minutesBetween(o.openedAt, null)}{tx('m ago')}
                       </div>
                     </div>
                     <div className="font-extrabold text-slate-700">
@@ -191,7 +192,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                 </Card>
               ))}
               <div className="flex justify-between text-sm font-bold pt-2 border-t border-slate-100">
-                <span>Total on table</span>
+                <span>{tx('Total on table')}</span>
                 <span>{fmtMoney(total)}</span>
               </div>
             </div>
@@ -202,7 +203,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
         {t.reservations && t.reservations.length > 0 ? (
           <section>
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-              Upcoming reservations
+              {tx('Upcoming reservations')}
             </h3>
             <div className="space-y-1.5">
               {t.reservations.slice(0, 5).map((r) => (
@@ -232,23 +233,23 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
           <div className="flex flex-wrap items-end gap-2">
             <div className="flex-1 min-w-[200px]">
               <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-                Target table
+                {tx('Target table')}
               </label>
               <select
                 value={targetId}
                 onChange={(e) => setTargetId(e.target.value)}
                 className="h-10 w-full px-3 rounded-lg border border-input bg-white text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="">Select a table…</option>
+                <option value="">{tx('Select a table…')}</option>
                 {otherTables.map((ot) => (
                   <option key={ot.id} value={ot.id}>
-                    T{ot.number} {ot.name} · {ot.seats} seats ·{' '}
+                    T{ot.number} {ot.name} · {ot.seats} {tx('seats ·')}{' '}
                     {ot.zoneName ?? ot.zone} ·{' '}
                      {statusMeta(ot.status).label}
                   </option>
                 ))}
                 {otherTables.length === 0 ? (
-                  <option disabled>No other active tables available</option>
+                  <option disabled>{tx('No other active tables available')}</option>
                 ) : null}
               </select>
             </div>
@@ -259,7 +260,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                 disabled={!targetId || merge.isPending}
                 onClick={doMerge}
               >
-                <Link2 className="w-3 h-3 mr-1" /> Merge
+                <Link2 className="w-3 h-3 mr-1" /> {tx('Merge')}
               </Button>
               <Button
                 variant="outline"
@@ -267,7 +268,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                 disabled={!targetId || transfer.isPending}
                 onClick={doTransfer}
               >
-                <ArrowRightLeft className="w-3 h-3 mr-1" /> Transfer
+                <ArrowRightLeft className="w-3 h-3 mr-1" /> {tx('Transfer')}
               </Button>
               {t.mergedIntoId ? (
                 <Button
@@ -276,7 +277,7 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                   onClick={doUnmerge}
                   disabled={unmerge.isPending}
                 >
-                  <Unlink className="w-3 h-3 mr-1" /> Unmerge
+                  <Unlink className="w-3 h-3 mr-1" /> {tx('Unmerge')}
                 </Button>
               ) : null}
             </div>
@@ -291,31 +292,31 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
                 onClick={() => setSplitOpen(true)}
                 disabled={openOrders.length === 0}
               >
-                <Scissors className="w-3 h-3 mr-1" /> Split bill
+                <Scissors className="w-3 h-3 mr-1" /> {tx('Split bill')}
               </Button>
             ) : null}
             <Button variant="outline" size="sm" onClick={() => onEdit(t)}>
-              <Pencil className="w-3 h-3 mr-1" /> Edit
+              <Pencil className="w-3 h-3 mr-1" /> {tx('Edit')}
             </Button>
           </div>
         </section>
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            <X className="w-3 h-3 mr-1" /> Close
+            <X className="w-3 h-3 mr-1" /> {tx('Close')}
           </Button>
         </DialogFooter>
 
         {/* Split-bill inline prompt */}
         {splitOpen ? (
           <div className="mt-3 border border-amber-200 bg-amber-50 rounded-lg p-3 space-y-2">
-            <h4 className="text-sm font-bold text-amber-800">Split bill</h4>
+            <h4 className="text-sm font-bold text-amber-800">{tx('Split bill')}</h4>
             <select
               value={splitSource}
               onChange={(e) => setSplitSource(e.target.value)}
               className="h-9 px-3 rounded-md border border-amber-200 bg-white text-sm w-full"
             >
-              <option value="">Select an open order…</option>
+              <option value="">{tx('Select an open order…')}</option>
               {openOrders.map((o) => (
                 <option key={o.id} value={o.orderId}>
                   #{o.order?.orderNumber ?? o.orderId.slice(0, 6)} ·{' '}
@@ -324,15 +325,14 @@ export const TableDetailDialog: React.FC<Props> = ({ table, onClose, onEdit }) =
               ))}
             </select>
             <p className="text-[11px] text-amber-700">
-              Use the order panel's split controls for item-level splits.
-              This quick action flags the chosen order for the split workflow.
+              {tx('Use the order panel\'s split controls for item-level splits. This quick action flags the chosen order for the split workflow.')}
             </p>
             <div className="flex gap-2">
               <Button size="sm" variant="ghost" onClick={() => setSplitOpen(false)}>
-                Cancel
+                {tx('Cancel')}
               </Button>
               <Button size="sm" onClick={doSplit} disabled={!splitSource || split.isPending}>
-                <Receipt className="w-3 h-3 mr-1" /> Initiate split
+                <Receipt className="w-3 h-3 mr-1" /> {tx('Initiate split')}
               </Button>
             </div>
           </div>

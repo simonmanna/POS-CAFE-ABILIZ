@@ -13,6 +13,7 @@ import { formatCurrency } from '@/lib/utils';
 import { date } from '@/lib/format';
 import { useMenuItem } from '@/features/menu/api';
 import { useMenuItemBundle } from '@/pages/pos/pos-features-api';
+import { tx } from '@/lib/i18n/tx';
 
 function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
@@ -29,41 +30,41 @@ function TabOverview({ item }: { item: NonNullable<ReturnType<typeof useMenuItem
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <Card>
         <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Item Details</CardTitle>
+          <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Item Details')}</CardTitle>
         </CardHeader>
         <CardContent className="px-5 pb-4">
           <dl className="divide-y">
-            <InfoRow label="Name" value={<span className="font-semibold">{item.name}</span>} />
-            <InfoRow label="Code" value={item.code ? <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-primary font-semibold">{item.code}</code> : null} />
-            <InfoRow label="Description" value={item.description} />
-            <InfoRow label="Category" value={item.category?.name ? <span className="font-semibold">{item.category.name}</span> : null} />
-            <InfoRow label="Status" value={item.isAvailable ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Available</Badge> : <Badge variant="secondary" className="text-xs">Unavailable</Badge>} />
-            <InfoRow label="Prep Time" value={item.preparationTime != null ? `${item.preparationTime}m` : null} />
-            <InfoRow label="Prep Station" value={item.stationCode ? <Badge variant="outline" className="text-xs">{item.stationCode}</Badge> : null} />
-            <InfoRow label="Display Order" value={item.displayOrder != null ? String(item.displayOrder) : null} />
+            <InfoRow label={tx('Name')} value={<span className="font-semibold">{item.name}</span>} />
+            <InfoRow label={tx('Code')} value={item.code ? <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-primary font-semibold">{item.code}</code> : null} />
+            <InfoRow label={tx('Description')} value={item.description} />
+            <InfoRow label={tx('Category')} value={item.category?.name ? <span className="font-semibold">{item.category.name}</span> : null} />
+            <InfoRow label={tx('Status')} value={item.isAvailable ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">{tx('Available')}</Badge> : <Badge variant="secondary" className="text-xs">{tx('Unavailable')}</Badge>} />
+            <InfoRow label={tx('Prep Time')} value={item.preparationTime != null ? `${item.preparationTime}m` : null} />
+            <InfoRow label={tx('Prep Station')} value={item.stationCode ? <Badge variant="outline" className="text-xs">{item.stationCode}</Badge> : null} />
+            <InfoRow label={tx('Display Order')} value={item.displayOrder != null ? String(item.displayOrder) : null} />
           </dl>
         </CardContent>
       </Card>
       <div className="space-y-4">
         <Card>
           <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Pricing</CardTitle>
+            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Pricing')}</CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-4">
             <dl className="divide-y">
-              <InfoRow label="Base Price" value={priceMajor != null ? <span className="font-bold text-lg text-emerald-600">{formatCurrency(priceMajor)}</span> : <span className="text-muted-foreground">Derived from variants</span>} />
-              <InfoRow label="Image" value={item.image ? <img src={item.image} alt={item.name} className="h-16 w-16 object-cover rounded border" /> : null} />
+              <InfoRow label={tx('Base Price')} value={priceMajor != null ? <span className="font-bold text-lg text-emerald-600">{formatCurrency(priceMajor)}</span> : <span className="text-muted-foreground">{tx('Derived from variants')}</span>} />
+              <InfoRow label={tx('Image')} value={item.image ? <img src={item.image} alt={item.name} className="h-16 w-16 object-cover rounded border" /> : null} />
             </dl>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Metadata</CardTitle>
+            <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Metadata')}</CardTitle>
           </CardHeader>
           <CardContent className="px-5 pb-4">
             <dl className="divide-y">
-              <InfoRow label="Created" value={date(item.createdAt)} />
-              <InfoRow label="Last Updated" value={date(item.updatedAt)} />
+              <InfoRow label={tx('Created')} value={date(item.createdAt)} />
+              <InfoRow label={tx('Last Updated')} value={date(item.updatedAt)} />
             </dl>
           </CardContent>
         </Card>
@@ -77,21 +78,21 @@ function TabIngredients({ item }: { item: NonNullable<ReturnType<typeof useMenuI
   if (ingredients.length === 0) return (
     <Card><CardContent className="py-16 flex flex-col items-center text-muted-foreground gap-2">
       <Package className="h-10 w-10 opacity-30" />
-      <p className="font-semibold">No ingredients configured</p>
-      <p className="text-xs">Add ingredients to track what products are consumed when this menu item is sold</p>
+      <p className="font-semibold">{tx('No ingredients configured')}</p>
+      <p className="text-xs">{tx('Add ingredients to track what products are consumed when this menu item is sold')}</p>
     </CardContent></Card>
   );
   return (
     <Card>
       <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Ingredients</CardTitle>
+        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Ingredients')}</CardTitle>
       </CardHeader>
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/30">
-            <TableHead className="text-xs font-bold text-muted-foreground uppercase">Product</TableHead>
-            <TableHead className="text-xs font-bold text-muted-foreground uppercase">Code</TableHead>
-            <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">Qty Used</TableHead>
+            <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Product')}</TableHead>
+            <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Code')}</TableHead>
+            <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">{tx('Qty Used')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -113,21 +114,21 @@ function TabVariants({ bundle }: { bundle: NonNullable<ReturnType<typeof useMenu
   if (variants.length === 0) return (
     <Card><CardContent className="py-16 flex flex-col items-center text-muted-foreground gap-2">
       <Layers className="h-10 w-10 opacity-30" />
-      <p className="font-semibold">No variants configured</p>
-      <p className="text-xs">Variants allow different sizes or versions with their own prices</p>
+      <p className="font-semibold">{tx('No variants configured')}</p>
+      <p className="text-xs">{tx('Variants allow different sizes or versions with their own prices')}</p>
     </CardContent></Card>
   );
   return (
     <Card>
       <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Variants</CardTitle>
+        <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Variants')}</CardTitle>
       </CardHeader>
       <Table>
         <TableHeader>
           <TableRow className="bg-muted/30">
-            <TableHead className="text-xs font-bold text-muted-foreground uppercase">Name</TableHead>
-            <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">Price</TableHead>
-            <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">Sort Order</TableHead>
+            <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Name')}</TableHead>
+            <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">{tx('Price')}</TableHead>
+            <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">{tx('Sort Order')}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -149,8 +150,8 @@ function TabModifiers({ bundle }: { bundle: NonNullable<ReturnType<typeof useMen
   if (groups.length === 0) return (
     <Card><CardContent className="py-16 flex flex-col items-center text-muted-foreground gap-2">
       <SlidersHorizontal className="h-10 w-10 opacity-30" />
-      <p className="font-semibold">No modifier groups assigned</p>
-      <p className="text-xs">Add modifiers for add-ons (extra shot) or prep instructions (well done)</p>
+      <p className="font-semibold">{tx('No modifier groups assigned')}</p>
+      <p className="text-xs">{tx('Add modifiers for add-ons (extra shot) or prep instructions (well done)')}</p>
     </CardContent></Card>
   );
   return (
@@ -162,15 +163,15 @@ function TabModifiers({ bundle }: { bundle: NonNullable<ReturnType<typeof useMen
               <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{g.name}</CardTitle>
               <Badge variant="outline" className="text-xs capitalize">{g.groupType.toLowerCase().replace(/_/g, ' ')}</Badge>
             </div>
-            <div className="text-xs text-muted-foreground">Min {g.minSelect} &middot; Max {g.maxSelect}</div>
+            <div className="text-xs text-muted-foreground">{tx('Min')} {g.minSelect} &middot; Max {g.maxSelect}</div>
           </CardHeader>
           <CardContent className="px-5 pb-4 pt-3">
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase">Option</TableHead>
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">Price Delta</TableHead>
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-center">Default</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Option')}</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">{tx('Price Delta')}</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-center">{tx('Default')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -178,7 +179,7 @@ function TabModifiers({ bundle }: { bundle: NonNullable<ReturnType<typeof useMen
                   <TableRow key={m.id} className="hover:bg-muted/20">
                     <TableCell className="font-semibold text-sm">{m.name}</TableCell>
                     <TableCell className="text-right text-sm">{m.priceDelta ? formatCurrency(m.priceDelta) : '—'}</TableCell>
-                    <TableCell className="text-center">{m.isDefault ? <Badge className="bg-emerald-100 text-emerald-700 text-xs">Default</Badge> : '—'}</TableCell>
+                    <TableCell className="text-center">{m.isDefault ? <Badge className="bg-emerald-100 text-emerald-700 text-xs">{tx('Default')}</Badge> : '—'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -195,7 +196,7 @@ function TabAccompaniments({ bundle }: { bundle: NonNullable<ReturnType<typeof u
   if (groups.length === 0) return (
     <Card><CardContent className="py-16 flex flex-col items-center text-muted-foreground gap-2">
       <UtensilsCrossed className="h-10 w-10 opacity-30" />
-      <p className="font-semibold">No accompaniments configured</p>
+      <p className="font-semibold">{tx('No accompaniments configured')}</p>
       <p className="text-xs">Accompaniment groups define side dishes or add-ons like &ldquo;Choose 1 Side&rdquo;</p>
     </CardContent></Card>
   );
@@ -213,9 +214,9 @@ function TabAccompaniments({ bundle }: { bundle: NonNullable<ReturnType<typeof u
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30">
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase">Option</TableHead>
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">Price Impact</TableHead>
-                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-center">Default</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Option')}</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">{tx('Price Impact')}</TableHead>
+                  <TableHead className="text-xs font-bold text-muted-foreground uppercase text-center">{tx('Default')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -223,7 +224,7 @@ function TabAccompaniments({ bundle }: { bundle: NonNullable<ReturnType<typeof u
                   <TableRow key={o.id} className="hover:bg-muted/20">
                     <TableCell className="font-semibold text-sm">{o.name}</TableCell>
                     <TableCell className="text-right text-sm">{o.priceImpact ? formatCurrency(o.priceImpact) : '—'}</TableCell>
-                    <TableCell className="text-center">{o.isDefault ? <Badge className="bg-emerald-100 text-emerald-700 text-xs">Default</Badge> : '—'}</TableCell>
+                    <TableCell className="text-center">{o.isDefault ? <Badge className="bg-emerald-100 text-emerald-700 text-xs">{tx('Default')}</Badge> : '—'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -268,7 +269,7 @@ export default function MenuDetailPage() {
   if (!item) {
     return (
       <div className="flex items-center justify-center h-64 text-muted-foreground">
-        <div className="text-center"><Coffee className="h-12 w-12 opacity-30 mx-auto mb-2" /><p className="font-semibold">Menu item not found</p></div>
+        <div className="text-center"><Coffee className="h-12 w-12 opacity-30 mx-auto mb-2" /><p className="font-semibold">{tx('Menu item not found')}</p></div>
       </div>
     );
   }
@@ -280,7 +281,7 @@ export default function MenuDetailPage() {
       <div className="flex flex-col h-full">
         <div className="px-6 py-4 border-b bg-white shadow-sm">
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3">
-            <button onClick={() => navigate('/menu')} className="hover:text-primary transition-colors font-medium">Menu</button>
+            <button onClick={() => navigate('/menu')} className="hover:text-primary transition-colors font-medium">{tx('Menu')}</button>
             <ChevronRight className="h-3 w-3" />
             <span className="font-semibold">{item.name}</span>
           </div>
@@ -295,9 +296,9 @@ export default function MenuDetailPage() {
                   <h1 className="text-xl font-bold">{item.name}</h1>
                   {item.code && <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-muted-foreground font-semibold">{item.code}</code>}
                   {item.isAvailable ? (
-                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Available</Badge>
+                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">{tx('Available')}</Badge>
                   ) : (
-                    <Badge variant="secondary" className="text-xs">Unavailable</Badge>
+                    <Badge variant="secondary" className="text-xs">{tx('Unavailable')}</Badge>
                   )}
                 </div>
                 {item.category && <p className="text-sm text-muted-foreground mt-0.5">{item.category.name}</p>}
@@ -310,26 +311,26 @@ export default function MenuDetailPage() {
                     <RefreshCw className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Refresh</TooltipContent>
+                <TooltipContent>{tx('Refresh')}</TooltipContent>
               </Tooltip>
               <Button variant="outline" size="sm" className="border-primary text-primary hover:bg-primary/10 font-semibold" onClick={() => navigate('/menu')}>
-                <Edit className="h-4 w-4 mr-1.5" /> Edit
+                <Edit className="h-4 w-4 mr-1.5" /> {tx('Edit')}
               </Button>
             </div>
           </div>
           <div className="flex items-center gap-6 mt-3 pt-3 border-t">
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Price:</span>
+              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{tx('Price:')}</span>
               <span className="font-bold text-sm text-emerald-600">{priceMajor ? formatCurrency(priceMajor) : 'See variants'}</span>
             </div>
             <Separator orientation="vertical" className="h-4" />
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Prep Time:</span>
+              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{tx('Prep Time:')}</span>
               <span className="font-semibold text-sm">{item.preparationTime ? `${item.preparationTime}m` : '—'}</span>
             </div>
             <Separator orientation="vertical" className="h-4" />
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Ingredients:</span>
+              <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{tx('Ingredients:')}</span>
               <span className="font-semibold text-sm">{ingredientCount}</span>
             </div>
           </div>

@@ -47,8 +47,9 @@ import type { Customer, SettleMode } from './types';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
 import { useScannerDebounce } from './scanner-debounce';
 import PosLoginScreen from './PosLoginScreen';
-import { api, resolveAssetUrl } from '@/lib/api';
+import { api, resolveAssetUrl, serverUnreachable } from '@/lib/api';
 import './pos-pro.css';
+import { tx } from '@/lib/i18n/tx';
 
 const fmt = (n: number | string) => `${useAuthStore.getState().organization?.currencyCode ?? 'IDR'} ${Number(n || 0).toLocaleString()}`;
 
@@ -294,7 +295,7 @@ const RetailTerminal: React.FC = () => {
       const st = useCartStore.getState();
       if (st.orderId !== orderId || st.operationPending || saveOrderItems.isPending) return;
       if (st.lines.length === 0) {
-        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { toast.error('Could not save the empty order'); return; }
+        try { await cancelOrderMut.mutateAsync({ orderId, reason: 'Order emptied' }); } catch { toast.error(tx('Could not save the empty order')); return; }
         if (useCartStore.getState().orderId === orderId) { setOrderId(undefined); setTabVersion(undefined); }
         orderSaveSig.current = '';
         return;
@@ -310,7 +311,7 @@ const RetailTerminal: React.FC = () => {
         }
         orderSaveSig.current = sig;
       } catch (e: any) {
-        if (e?.response?.status === 409) toast.error('Order changed on another terminal. Your cart is preserved; resolve the difference before charging.');
+        if (e?.response?.status === 409) toast.error(tx('Order changed on another terminal. Your cart is preserved; resolve the difference before charging.'));
       }
     }, 700);
     return () => clearTimeout(t);
@@ -471,7 +472,7 @@ const RetailTerminal: React.FC = () => {
     );
     if (needsOverride) {
       requestOverride('discount').then((result) => {
-        if (!result) { toast.error('Manager override cancelled'); return; }
+        if (!result) { toast.error(tx('Manager override cancelled')); return; }
         setTransactionDiscount(amount, type);
         useCartStore.setState({ overrideById: result.managerId, overridePin: result.pin });
         if (amount > 0) setShowDiscountReason(true);
@@ -486,10 +487,13 @@ const RetailTerminal: React.FC = () => {
 
   /* ============== Charge (payment) ============== */
   const onCharge = () => {
-    if (!saleQuote.data || saleQuote.isFetching || saleQuote.isError) { toast.error('Wait for the server price quote before charging'); return; }
+    // With no connection the quote cannot be had: the cart total stands in, the
+    // sale is queued and the server re-prices it on replay (same rule as the
+    // cafe terminal). Demanding it offline left the till unable to take money.
+    if (!serverUnreachable() && (!saleQuote.data || saleQuote.isFetching || saleQuote.isError)) { toast.error(tx('Wait for the server price quote before charging')); return; }
     if (useCartStore.getState().operationPending) throw new Error('Resolve the pending payment before switching orders');
     if (saveOrderItems.isPending) throw new Error('Wait for the order save to finish');
-    if (pendingOrderCreate.current) { toast.info('Saving the new order; try again shortly'); return; }
+    if (pendingOrderCreate.current) { toast.info(tx('Saving the new order; try again shortly')); return; }
     if (!cartReadyToCommit(lines)) return;
     setShowPayment(true);
   };
@@ -498,13 +502,13 @@ const RetailTerminal: React.FC = () => {
    * through onSettle so it reuses whichever server path already owns this cart
    * instead of creating a second Order of its own. */
   const onCreditSale = async () => {
-    if (!customer?.id) { toast.error('Select a customer to charge on account'); return; }
+    if (!customer?.id) { toast.error(tx('Select a customer to charge on account')); return; }
     if (!cartReadyToCommit(lines)) return;
     await onSettle({ tenders: [], transactionDiscountPercent: 0, settleMode: 'credit' });
   };
 
   const onSettle = async (input: { tenders: PaymentTender[]; transactionDiscountPercent: number; amountTendered?: number; overrideById?: string; overridePin?: string; settleMode?: SettleMode }) => {
-    if (!saleQuote.data || saleQuote.isError || saleQuote.isFetching) throw new Error('A current server price quote is required before payment');
+    if (!serverUnreachable() && (!saleQuote.data || saleQuote.isError || saleQuote.isFetching)) throw new Error('A current server price quote is required before payment');
     const isCredit = input.settleMode === 'credit';
     /* Credit collects nothing — say who owes what instead of announcing change. */
     const settledToast = () => `Charged ${fmt(total)} to ${customer?.name ?? 'account'} — due later`;
@@ -716,11 +720,11 @@ const RetailTerminal: React.FC = () => {
         {locked ? (
           <div className="pos-lock-overlay-pro">
             <div className="pos-lock-icon"><LockIcon className="h-10 w-10" /></div>
-            <div className="pos-lock-title">Open your shift to start selling</div>
-            <div className="pos-lock-sub">Pick a cash register, count your opening float, then tap "Open shift".</div>
+            <div className="pos-lock-title">{tx('Open your shift to start selling')}</div>
+            <div className="pos-lock-sub">{tx('Pick a cash register, count your opening float, then tap "Open shift".')}</div>
             <button type="button" onClick={() => setShowOpenShift(true)} className="pos-action-btn-pro bg-emerald h-12 px-6"
               style={{ width: 'auto', paddingLeft: 24, paddingRight: 24, minHeight: 48 }}>
-              <ShoppingBag className="pos-action-icon" /> Open shift
+              <ShoppingBag className="pos-action-icon" /> {tx('Open shift')}
             </button>
           </div>
         ) : showOrders ? (
@@ -801,7 +805,7 @@ const RetailTerminal: React.FC = () => {
         onPickCustomer={() => setShowCustomer(true)} />
       <OverrideDialog open={!!overrideKind} kind={overrideKind ?? 'discount'} onClose={() => onOverrideVerified(null)}
         onVerified={onOverrideVerified} />
-      <PinConfirmDialog open={showPinConfirm} title="Delete item"
+      <PinConfirmDialog open={showPinConfirm} title={tx('Delete item')}
         description={pendingRemoveLine
           ? `Give a reason and your PIN to take "${pendingRemoveLine.name}" off this order.`
           : 'Give a reason and your PIN to take this item off the order.'}
@@ -828,7 +832,7 @@ const RetailTerminal: React.FC = () => {
       ) : lastCompleted ? (
         <ReceiptPreview open onClose={() => setLastCompleted(null)} type="bill"
           title={`Receipt ${lastCompleted.invoiceNumber ?? ''}`}
-          subtitle="Offline — sync pending"
+          subtitle={tx('Offline — sync pending')}
           lines={lastCompleted.lines} total={lastCompleted.total}
           discountPercent={lastCompleted.discountPercent} discountAmount={lastCompleted.discountAmount}
           customerName={lastCompleted.customerName} />
@@ -838,7 +842,7 @@ const RetailTerminal: React.FC = () => {
         <>
           <button type="button" className="fixed bottom-4 right-4 z-50 bg-sky-700 text-white px-4 py-2 rounded-lg shadow-lg text-sm font-semibold hover:bg-sky-800"
             onClick={() => setShowReprint({ invoiceId: lastCompleted.invoiceId!, title: 'Receipt' })}>
-            Reprint
+            {tx('Reprint')}
           </button>
           <ReprintDialog open={!!showReprint} title={showReprint?.title ?? ''} onClose={() => setShowReprint(null)}
             onConfirm={(reason) => { if (!showReprint) return; reprintReceipt.mutateAsync({ invoiceId: showReprint.invoiceId, reason }); toast.success(`Reprint queued: ${reason}`); }} />

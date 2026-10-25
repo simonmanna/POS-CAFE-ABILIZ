@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useInventoryGlTieOut } from '@/features/accounting/api';
 import { money } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 const SOURCE_LABELS: Record<string, string> = {
   goods_receipt: 'Goods receipts',
@@ -46,21 +47,21 @@ export function InventoryGlTieOutPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Inventory GL Tie-out</h1>
-          <p className="text-sm text-gray-500">Stock sub-ledger value against the inventory control account, with every difference traced to its source.</p>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Inventory GL Tie-out')}</h1>
+          <p className="text-sm text-gray-500">{tx('Stock sub-ledger value against the inventory control account, with every difference traced to its source.')}</p>
         </div>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isRefetching} className="gap-1.5">
-          <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? 'animate-spin' : ''}`} /> Refresh
+          <RefreshCw className={`h-3.5 w-3.5 ${isRefetching ? 'animate-spin' : ''}`} /> {tx('Refresh')}
         </Button>
       </div>
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-white p-3 shadow-sm">
         <div className="min-w-[150px] space-y-1">
-          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">As Of</Label>
+          <Label className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{tx('As Of')}</Label>
           <Input type="date" value={asOf} max={today} onChange={(e) => setAsOf(e.target.value || today)} className="h-9 text-xs" />
         </div>
         <p className="text-xs text-muted-foreground">
-          Today uses on-hand × running average. A past date rebuilds the value from the stock ledger.
+          {tx('Today uses on-hand × running average. A past date rebuilds the value from the stock ledger.')}
         </p>
       </div>
 
@@ -79,7 +80,7 @@ export function InventoryGlTieOutPage() {
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <Card>
-              <CardHeader className="p-3 pb-1"><CardTitle className="text-[10px] font-bold uppercase text-muted-foreground">Stock sub-ledger</CardTitle></CardHeader>
+              <CardHeader className="p-3 pb-1"><CardTitle className="text-[10px] font-bold uppercase text-muted-foreground">{tx('Stock sub-ledger')}</CardTitle></CardHeader>
               <CardContent className="p-3 pt-0"><span className="text-2xl font-bold">{money(data.subledgerValue)}</span></CardContent>
             </Card>
             <Card>
@@ -91,7 +92,7 @@ export function InventoryGlTieOutPage() {
               <CardContent className="p-3 pt-0"><span className="text-2xl font-bold">{money(data.glBalance)}</span></CardContent>
             </Card>
             <Card>
-              <CardHeader className="p-3 pb-1"><CardTitle className="text-[10px] font-bold uppercase text-muted-foreground">Variance</CardTitle></CardHeader>
+              <CardHeader className="p-3 pb-1"><CardTitle className="text-[10px] font-bold uppercase text-muted-foreground">{tx('Variance')}</CardTitle></CardHeader>
               <CardContent className="p-3 pt-0">
                 <span className={`text-2xl font-bold ${data.withinTolerance ? 'text-emerald-600' : 'text-destructive'}`}>{money(data.variance)}</span>
               </CardContent>
@@ -99,9 +100,9 @@ export function InventoryGlTieOutPage() {
             <Card className={data.withinTolerance && data.unpostedMovements.length === 0 ? 'border-emerald-300' : 'border-destructive/40'}>
               <CardContent className="flex h-full items-center gap-3 p-4">
                 {data.withinTolerance && data.unpostedMovements.length === 0 ? (
-                  <><ShieldCheck className="h-8 w-8 text-emerald-600" /><div><p className="font-semibold text-emerald-700">Ties out</p><p className="text-xs text-muted-foreground">Within ±{money(data.tolerance)}</p></div></>
+                  <><ShieldCheck className="h-8 w-8 text-emerald-600" /><div><p className="font-semibold text-emerald-700">{tx('Ties out')}</p><p className="text-xs text-muted-foreground">{tx('Within ±')}{money(data.tolerance)}</p></div></>
                 ) : (
-                  <><ShieldAlert className="h-8 w-8 text-destructive" /><div><p className="font-semibold text-destructive">Needs attention</p><p className="text-xs text-muted-foreground">See the sources below</p></div></>
+                  <><ShieldAlert className="h-8 w-8 text-destructive" /><div><p className="font-semibold text-destructive">{tx('Needs attention')}</p><p className="text-xs text-muted-foreground">{tx('See the sources below')}</p></div></>
                 )}
               </CardContent>
             </Card>
@@ -110,20 +111,19 @@ export function InventoryGlTieOutPage() {
           {data.unpostedMovements.length > 0 && (
             <Card className="border-destructive/40">
               <CardHeader className="border-b bg-destructive/5 px-5 pb-2 pt-4">
-                <CardTitle className="text-xs font-bold uppercase tracking-wider text-destructive">Stock movements with no journal entry</CardTitle>
+                <CardTitle className="text-xs font-bold uppercase tracking-wider text-destructive">{tx('Stock movements with no journal entry')}</CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Stock value moved but nothing reached the GL. Post the catch-up with <code className="rounded bg-muted px-1">pnpm --filter @erp/api backfill:inventory-gl-gaps</code> (dry run first).
-                  Opening balances are memo rows; post opening inventory through a manual journal against equity.
+                  {tx('Stock value moved but nothing reached the GL. Post the catch-up with')} <code className="rounded bg-muted px-1">pnpm --filter @erp/api backfill:inventory-gl-gaps</code> {tx('(dry run first). Opening balances are memo rows; post opening inventory through a manual journal against equity.')}
                 </p>
               </CardHeader>
               <CardContent className="overflow-x-auto p-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="text-[10px] uppercase">Source</TableHead>
-                      <TableHead className="text-[10px] uppercase">Move type</TableHead>
-                      <TableHead className="text-right text-[10px] uppercase">Rows</TableHead>
-                      <TableHead className="pr-5 text-right text-[10px] uppercase">Value</TableHead>
+                      <TableHead className="text-[10px] uppercase">{tx('Source')}</TableHead>
+                      <TableHead className="text-[10px] uppercase">{tx('Move type')}</TableHead>
+                      <TableHead className="text-right text-[10px] uppercase">{tx('Rows')}</TableHead>
+                      <TableHead className="pr-5 text-right text-[10px] uppercase">{tx('Value')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -143,7 +143,7 @@ export function InventoryGlTieOutPage() {
 
           <Card>
             <CardHeader className="border-b bg-muted/30 px-5 pb-2 pt-4">
-              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Value by source</CardTitle>
+              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{tx('Value by source')}</CardTitle>
               <p className="text-xs text-muted-foreground">
                 Ledger value each source moved vs what it posted to the inventory account. Sources that post as one entry
                 (e.g. a receipt voucher) or corrections without a stock row show a difference here by design.
@@ -153,15 +153,15 @@ export function InventoryGlTieOutPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-[10px] uppercase">Source</TableHead>
-                    <TableHead className="text-right text-[10px] uppercase">Stock ledger</TableHead>
+                    <TableHead className="text-[10px] uppercase">{tx('Source')}</TableHead>
+                    <TableHead className="text-right text-[10px] uppercase">{tx('Stock ledger')}</TableHead>
                     <TableHead className="text-right text-[10px] uppercase">GL</TableHead>
-                    <TableHead className="pr-5 text-right text-[10px] uppercase">Difference</TableHead>
+                    <TableHead className="pr-5 text-right text-[10px] uppercase">{tx('Difference')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {data.bySource.length === 0 ? (
-                    <TableRow><TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">No inventory activity yet.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={4} className="py-10 text-center text-sm text-muted-foreground">{tx('No inventory activity yet.')}</TableCell></TableRow>
                   ) : (
                     data.bySource.map((r) => (
                       <TableRow key={r.source}>
@@ -180,8 +180,7 @@ export function InventoryGlTieOutPage() {
           </Card>
 
           <p className="text-xs text-muted-foreground">
-            Per-product value: <Link className="text-primary hover:underline" to="/inventory-valuation">Inventory Valuation</Link> ·
-            POS COGS detail: <Link className="text-primary hover:underline" to="/pos-gl-reconciliation">POS → GL Recon</Link>
+            {tx('Per-product value:')} <Link className="text-primary hover:underline" to="/inventory-valuation">{tx('Inventory Valuation')}</Link> {tx('· POS COGS detail:')} <Link className="text-primary hover:underline" to="/pos-gl-reconciliation">{tx('POS → GL Recon')}</Link>
           </p>
         </>
       )}

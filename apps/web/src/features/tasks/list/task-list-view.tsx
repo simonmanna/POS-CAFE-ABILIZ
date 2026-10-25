@@ -16,6 +16,7 @@ import { useTaskStore } from '../task.store';
 import { PRIORITY_COLORS, PRIORITY_LABELS, CATEGORY_LABELS } from '../kanban/column-config';
 import type { Task, TaskFilters } from '../types';
 import { TaskStatus } from '../types';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-slate-100 text-slate-700',
@@ -192,7 +193,7 @@ export function TaskListView() {
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2">
         <Input
-          placeholder="Search tasks..."
+          placeholder={tx('Search tasks...')}
           className="h-8 w-48"
           value={filters.search}
           onChange={(e) => setFilters({ search: e.target.value })}
@@ -202,10 +203,10 @@ export function TaskListView() {
           onValueChange={(v) => setFilters({ priority: v ? [v] : [] })}
         >
           <SelectTrigger className="h-8 w-32">
-            <SelectValue placeholder="Priority" />
+            <SelectValue placeholder={tx('Priority')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Priorities</SelectItem>
+            <SelectItem value="">{tx('All Priorities')}</SelectItem>
             {Object.entries(PRIORITY_LABELS).map(([k, v]) => (
               <SelectItem key={k} value={k}>{v}</SelectItem>
             ))}
@@ -216,10 +217,10 @@ export function TaskListView() {
           onValueChange={(v) => setFilters({ assignedToId: v })}
         >
           <SelectTrigger className="h-8 w-40">
-            <SelectValue placeholder="Assignee" />
+            <SelectValue placeholder={tx('Assignee')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Assignees</SelectItem>
+            <SelectItem value="">{tx('All Assignees')}</SelectItem>
             {assignees.map((u) => (
               <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
             ))}
@@ -230,10 +231,10 @@ export function TaskListView() {
           onValueChange={(v) => setFilters({ category: v })}
         >
           <SelectTrigger className="h-8 w-36">
-            <SelectValue placeholder="Category" />
+            <SelectValue placeholder={tx('Category')} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Categories</SelectItem>
+            <SelectItem value="">{tx('All Categories')}</SelectItem>
             {Object.entries(CATEGORY_LABELS).map(([k, v]) => (
               <SelectItem key={k} value={k}>{v}</SelectItem>
             ))}
@@ -241,7 +242,7 @@ export function TaskListView() {
         </Select>
         <div className="flex-1" />
         <Button size="sm" onClick={() => navigate('/tasks/new')}>
-          <Plus className="mr-1 h-4 w-4" /> New Task
+          <Plus className="mr-1 h-4 w-4" /> {tx('New Task')}
         </Button>
       </div>
 
@@ -258,7 +259,7 @@ export function TaskListView() {
       {/* Pagination info */}
       {data && (
         <div className="text-xs text-muted-foreground">
-          {data.total} task{data.total !== 1 ? 's' : ''} found
+          {data.total} {tx('task')}{data.total !== 1 ? 's' : ''} {tx('found')}
         </div>
       )}
     </div>

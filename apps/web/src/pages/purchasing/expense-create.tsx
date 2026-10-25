@@ -9,6 +9,7 @@ import { money } from '@/lib/format';
 import { usePartners } from '@/features/partners/api';
 import { useProducts } from '@/features/products/api';
 import { useCreateExpense, usePostExpense, type CreateExpenseInput } from '@/features/invoicing/api';
+import { tx } from '@/lib/i18n/tx';
 
 const selectClass =
   'flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
@@ -96,10 +97,10 @@ export function ExpenseCreatePage() {
   return (
     <form onSubmit={onSubmit} className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">New Expense</h1>
+        <h1 className="text-2xl font-semibold">{tx('New Expense')}</h1>
         <div className="flex gap-2">
           <Button type="submit" name="action" value="save" variant="outline" disabled={busy}>
-            Save draft
+            {tx('Save draft')}
           </Button>
           <Button type="submit" name="action" value="post" disabled={busy}>
             Save &amp; Post
@@ -109,13 +110,13 @@ export function ExpenseCreatePage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Details</CardTitle>
+          <CardTitle className="text-base">{tx('Details')}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label>Supplier</Label>
+            <Label>{tx('Supplier')}</Label>
             <select className={selectClass} {...register('partnerId', { required: true })}>
-              <option value="">Select supplier</option>
+              <option value="">{tx('Select supplier')}</option>
               {(partners.data?.data ?? []).map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -124,15 +125,15 @@ export function ExpenseCreatePage() {
             </select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="reference">Reference</Label>
+            <Label htmlFor="reference">{tx('Reference')}</Label>
             <Input id="reference" {...register('reference')} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="issueDate">Bill date</Label>
+            <Label htmlFor="issueDate">{tx('Bill date')}</Label>
             <Input id="issueDate" type="date" {...register('issueDate', { required: true })} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="dueDate">Due date</Label>
+            <Label htmlFor="dueDate">{tx('Due date')}</Label>
             <Input id="dueDate" type="date" {...register('dueDate')} />
           </div>
         </CardContent>
@@ -140,22 +141,22 @@ export function ExpenseCreatePage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">Lines</CardTitle>
+          <CardTitle className="text-base">{tx('Lines')}</CardTitle>
           <Button type="button" variant="outline" size="sm" onClick={() => append({ quantity: 1 })}>
-            <Plus className="h-4 w-4" /> Add line
+            <Plus className="h-4 w-4" /> {tx('Add line')}
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
           {fields.map((field, index) => (
             <div key={field.id} className="grid grid-cols-12 items-end gap-2">
               <div className="col-span-3">
-                <Label className="text-xs">Product</Label>
+                <Label className="text-xs">{tx('Product')}</Label>
                 <select
                   className={selectClass}
                   value={watch(`lines.${index}.productId`) ?? ''}
                   onChange={(e) => onProductChange(index, e.target.value)}
                 >
-                  <option value="">— none —</option>
+                  <option value="">{tx('— none —')}</option>
                   {productList.map((p) => (
                     <option key={p.id} value={p.id}>
                       {p.name}
@@ -164,19 +165,19 @@ export function ExpenseCreatePage() {
                 </select>
               </div>
               <div className="col-span-3">
-                <Label className="text-xs">Description</Label>
+                <Label className="text-xs">{tx('Description')}</Label>
                 <Input {...register(`lines.${index}.description`)} />
               </div>
               <div className="col-span-1">
-                <Label className="text-xs">Qty</Label>
+                <Label className="text-xs">{tx('Qty')}</Label>
                 <Input type="number" step="any" {...register(`lines.${index}.quantity`, { valueAsNumber: true })} />
               </div>
               <div className="col-span-2">
-                <Label className="text-xs">Unit price</Label>
+                <Label className="text-xs">{tx('Unit price')}</Label>
                 <Input type="number" step="any" {...register(`lines.${index}.unitPrice`, { valueAsNumber: true })} />
               </div>
               <div className="col-span-1">
-                <Label className="text-xs">Disc %</Label>
+                <Label className="text-xs">{tx('Disc %')}</Label>
                 <Input
                   type="number"
                   step="any"
@@ -201,11 +202,11 @@ export function ExpenseCreatePage() {
           <div className="flex justify-end border-t pt-3">
             <div className="w-64 space-y-1 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Subtotal (net of discount)</span>
+                <span className="text-muted-foreground">{tx('Subtotal (net of discount)')}</span>
                 <span>{money(subtotal)}</span>
               </div>
               <p className="text-xs text-muted-foreground">
-                Tax is applied from each product when the bill is posted.
+                {tx('Tax is applied from each product when the bill is posted.')}
               </p>
             </div>
           </div>

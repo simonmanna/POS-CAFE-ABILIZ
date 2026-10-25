@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import { Coffee, Loader2, AlertCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { usePosAuthStore } from '@/features/pos/pos-auth.store';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   onLoggedIn: () => void;
@@ -127,7 +128,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit, onExit })
             onClick={onExit}
             className="absolute top-6 left-6 text-slate-400 hover:text-white text-sm flex items-center gap-1"
           >
-            ← Back
+            {tx('← Back')}
           </button>
         )}
 
@@ -135,19 +136,19 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit, onExit })
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 mb-4">
             <Coffee className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-white">POS Terminal</h1>
-          <p className="text-slate-400 text-sm mt-1">Select your name to start</p>
+          <h1 className="text-2xl font-bold text-white">{tx('POS Terminal')}</h1>
+          <p className="text-slate-400 text-sm mt-1">{tx('Select your name to start')}</p>
         </div>
 
         {staffLoading ? (
           <div className="flex items-center gap-2 text-slate-400">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading staff…
+            <Loader2 className="h-4 w-4 animate-spin" /> {tx('Loading staff…')}
           </div>
         ) : activeUsers.length === 0 ? (
           <div className="text-slate-400 text-center max-w-sm">
             <AlertCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-            <p>No active staff found.</p>
-            <p className="text-xs mt-1">Ask a manager to create staff accounts with POS PINs.</p>
+            <p>{tx('No active staff found.')}</p>
+            <p className="text-xs mt-1">{tx('Ask a manager to create staff accounts with POS PINs.')}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-w-lg w-full px-4">
@@ -178,7 +179,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit, onExit })
         onClick={handleBack}
         className="absolute top-6 left-6 text-slate-400 hover:text-white text-sm flex items-center gap-1"
       >
-        ← Back
+        {tx('← Back')}
       </button>
 
       <div className="mb-6 text-center">
@@ -188,7 +189,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit, onExit })
         <h2 className="text-xl font-bold text-white">
           {selectedUser?.firstName}
         </h2>
-        <p className="text-slate-400 text-sm mt-1">Enter your POS PIN</p>
+        <p className="text-slate-400 text-sm mt-1">{tx('Enter your POS PIN')}</p>
       </div>
 
       {/* PIN dots — grow from MIN_PIN up to MAX_PIN as the cashier types */}
@@ -228,7 +229,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit, onExit })
           disabled={loading}
           className="w-20 h-16 rounded-xl bg-white/5 text-slate-400 text-xs font-semibold border border-white/10 hover:bg-white/10 disabled:opacity-40"
         >
-          Clear
+          {tx('Clear')}
         </button>
         <button
           onClick={() => handlePinDigit('0')}
@@ -248,7 +249,7 @@ const PosLoginScreen: React.FC<Props> = ({ onLoggedIn, onBeforeSubmit, onExit })
 
       {loading && (
         <div className="mt-4 flex items-center gap-2 text-slate-400">
-          <Loader2 className="h-4 w-4 animate-spin" /> Verifying…
+          <Loader2 className="h-4 w-4 animate-spin" /> {tx('Verifying…')}
         </div>
       )}
     </div>

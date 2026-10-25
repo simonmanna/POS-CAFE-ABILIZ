@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { tx } from '@/lib/i18n/tx';
 
 const TYPES = [
   { value: 'repair', label: 'Repair' },
@@ -61,53 +62,53 @@ export function RepairOrderCreatePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div>
-        <h1 className="text-xl font-semibold">New Repair Order</h1>
-        <p className="text-sm text-muted-foreground">Record the incoming item and problem. Diagnosis and quotation come next.</p>
+        <h1 className="text-xl font-semibold">{tx('New Repair Order')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('Record the incoming item and problem. Diagnosis and quotation come next.')}</p>
       </div>
 
       <Card>
-        <CardHeader className="bg-muted/30 border-b rounded-t-lg"><CardTitle className="text-sm">Order</CardTitle></CardHeader>
+        <CardHeader className="bg-muted/30 border-b rounded-t-lg"><CardTitle className="text-sm">{tx('Order')}</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2">
           <div>
-            <Label>Order type</Label>
+            <Label>{tx('Order type')}</Label>
             <select value={form.orderType} onChange={(e) => set('orderType', e.target.value)} className="w-full rounded-md border bg-card px-3 py-2 text-sm">
               {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
             </select>
           </div>
           <div>
-            <Label>Priority</Label>
+            <Label>{tx('Priority')}</Label>
             <select value={form.priority} onChange={(e) => set('priority', e.target.value)} className="w-full rounded-md border bg-card px-3 py-2 text-sm">
               {PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </div>
           <div className="sm:col-span-2">
-            <Label>Customer (partner ID)</Label>
-            <Input value={form.partnerId} onChange={(e) => set('partnerId', e.target.value)} placeholder="Partner ID — leave blank for walk-in" />
+            <Label>{tx('Customer (partner ID)')}</Label>
+            <Input value={form.partnerId} onChange={(e) => set('partnerId', e.target.value)} placeholder={tx('Partner ID — leave blank for walk-in')} />
           </div>
           <div>
-            <Label>Due date</Label>
+            <Label>{tx('Due date')}</Label>
             <Input type="date" value={form.dueDate} onChange={(e) => set('dueDate', e.target.value)} />
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader className="bg-muted/30 border-b rounded-t-lg"><CardTitle className="text-sm">Item / Equipment</CardTitle></CardHeader>
+        <CardHeader className="bg-muted/30 border-b rounded-t-lg"><CardTitle className="text-sm">{tx('Item / Equipment')}</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-3">
           <div>
-            <Label>Item type</Label>
-            <Input value={form.itemType} onChange={(e) => set('itemType', e.target.value)} placeholder="Phone, laptop, vehicle…" />
+            <Label>{tx('Item type')}</Label>
+            <Input value={form.itemType} onChange={(e) => set('itemType', e.target.value)} placeholder={tx('Phone, laptop, vehicle…')} />
           </div>
           <div>
-            <Label>Brand</Label>
-            <Input value={form.brand} onChange={(e) => set('brand', e.target.value)} placeholder="Samsung, Toyota…" />
+            <Label>{tx('Brand')}</Label>
+            <Input value={form.brand} onChange={(e) => set('brand', e.target.value)} placeholder={tx('Samsung, Toyota…')} />
           </div>
           <div>
-            <Label>Model</Label>
-            <Input value={form.model} onChange={(e) => set('model', e.target.value)} placeholder="S24, Avanza…" />
+            <Label>{tx('Model')}</Label>
+            <Input value={form.model} onChange={(e) => set('model', e.target.value)} placeholder={tx('S24, Avanza…')} />
           </div>
           <div>
-            <Label>Serial number</Label>
+            <Label>{tx('Serial number')}</Label>
             <Input value={form.serialNumber} onChange={(e) => set('serialNumber', e.target.value)} />
           </div>
           <div>
@@ -115,11 +116,11 @@ export function RepairOrderCreatePage() {
             <Input value={form.imei} onChange={(e) => set('imei', e.target.value)} />
           </div>
           <div>
-            <Label>Asset tag</Label>
+            <Label>{tx('Asset tag')}</Label>
             <Input value={form.assetTag} onChange={(e) => set('assetTag', e.target.value)} />
           </div>
           <div>
-            <Label>Plate number</Label>
+            <Label>{tx('Plate number')}</Label>
             <Input value={form.plateNumber} onChange={(e) => set('plateNumber', e.target.value)} />
           </div>
           <div>
@@ -127,17 +128,17 @@ export function RepairOrderCreatePage() {
             <Input value={form.vin} onChange={(e) => set('vin', e.target.value)} />
           </div>
           <div className="sm:col-span-3">
-            <Label>Problem description</Label>
+            <Label>{tx('Problem description')}</Label>
             <textarea
               value={form.problemDescription}
               onChange={(e) => set('problemDescription', e.target.value)}
               rows={3}
               className="w-full rounded-md border bg-card px-3 py-2 text-sm"
-              placeholder="Reported fault, symptoms, customer notes…"
+              placeholder={tx('Reported fault, symptoms, customer notes…')}
             />
           </div>
           <div className="sm:col-span-3">
-            <Label>Internal notes</Label>
+            <Label>{tx('Internal notes')}</Label>
             <textarea
               value={form.notes}
               onChange={(e) => set('notes', e.target.value)}
@@ -151,8 +152,8 @@ export function RepairOrderCreatePage() {
       {error && <p className="text-sm text-red-600">{error}</p>}
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => navigate('/repair/orders')}>Cancel</Button>
-        <Button onClick={submit} disabled={create.isPending}>Create repair order</Button>
+        <Button variant="outline" onClick={() => navigate('/repair/orders')}>{tx('Cancel')}</Button>
+        <Button onClick={submit} disabled={create.isPending}>{tx('Create repair order')}</Button>
       </div>
     </div>
   );

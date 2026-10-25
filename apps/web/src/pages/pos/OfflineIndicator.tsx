@@ -13,6 +13,7 @@ import { useOfflineQueue, useFailedSales, type FailedSale } from '@/features/pos
 import { usePosSettings } from '@/features/pos/api';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { tx } from '@/lib/i18n/tx';
 
 function saleAmount(sale: FailedSale): number | null {
   const tenders = sale.payload?.tenders;
@@ -35,7 +36,7 @@ const FailedSaleRow: React.FC<{
     setBusy(true);
     try {
       await onRetry(sale.idempotencyKey);
-      toast.info('Sale moved back to the sync queue.');
+      toast.info(tx('Sale moved back to the sync queue.'));
     } finally {
       setBusy(false);
     }
@@ -44,7 +45,7 @@ const FailedSaleRow: React.FC<{
     setBusy(true);
     try {
       await onDiscard(sale.idempotencyKey);
-      toast.warning('Sale discarded permanently.');
+      toast.warning(tx('Sale discarded permanently.'));
     } finally {
       setBusy(false);
       setConfirmingDiscard(false);
@@ -73,7 +74,7 @@ const FailedSaleRow: React.FC<{
               onClick={discard}
               className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2.5 py-1 text-xs text-white hover:bg-rose-500 disabled:opacity-50"
             >
-              <Trash2 className="h-3 w-3" /> Discard forever
+              <Trash2 className="h-3 w-3" /> {tx('Discard forever')}
             </button>
             <button
               type="button"
@@ -81,7 +82,7 @@ const FailedSaleRow: React.FC<{
               onClick={() => setConfirmingDiscard(false)}
               className="rounded-md border px-2.5 py-1 text-xs hover:bg-muted disabled:opacity-50"
             >
-              Keep
+              {tx('Keep')}
             </button>
           </>
         ) : (
@@ -92,7 +93,7 @@ const FailedSaleRow: React.FC<{
               onClick={retry}
               className="inline-flex items-center gap-1 rounded-md border border-emerald-400/50 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-50"
             >
-              <RotateCcw className="h-3 w-3" /> Retry
+              <RotateCcw className="h-3 w-3" /> {tx('Retry')}
             </button>
             <button
               type="button"
@@ -100,7 +101,7 @@ const FailedSaleRow: React.FC<{
               onClick={() => setConfirmingDiscard(true)}
               className="inline-flex items-center gap-1 rounded-md border border-rose-400/50 px-2.5 py-1 text-xs text-rose-300 hover:bg-rose-500/10 disabled:opacity-50"
             >
-              <Trash2 className="h-3 w-3" /> Discard…
+              <Trash2 className="h-3 w-3" /> {tx('Discard…')}
             </button>
           </>
         )}
@@ -194,26 +195,24 @@ export const OfflineIndicator: React.FC = () => {
           className="pos-tbl-pill !bg-rose-600/30 !border-rose-400/70 animate-pulse"
         >
           <AlertTriangle className="h-3.5 w-3.5 text-rose-200" />
-          <span className="text-rose-100">{failed.length} failed</span>
+          <span className="text-rose-100">{failed.length} {tx('failed')}</span>
         </button>
       )}
 
       <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Rejected offline sales</DialogTitle>
+            <DialogTitle>{tx('Rejected offline sales')}</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            These queued sales were rejected by the server and were NOT recorded.
-            Retry after the cause is fixed, or discard only if the sale was rung up
-            another way.
+            {tx('These queued sales were rejected by the server and were NOT recorded. Retry after the cause is fixed, or discard only if the sale was rung up another way.')}
           </p>
           <div className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">
             {failed.map((sale) => (
               <FailedSaleRow key={sale.idempotencyKey} sale={sale} onRetry={retry} onDiscard={discard} />
             ))}
             {failed.length === 0 && (
-              <p className="py-6 text-center text-sm text-muted-foreground">Nothing left to review.</p>
+              <p className="py-6 text-center text-sm text-muted-foreground">{tx('Nothing left to review.')}</p>
             )}
           </div>
         </DialogContent>

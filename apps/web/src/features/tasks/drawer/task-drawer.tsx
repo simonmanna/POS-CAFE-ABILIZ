@@ -43,6 +43,7 @@ import {
 } from '../kanban/column-config';
 import type { TaskComment } from '../types';
 import { TaskStatus } from '../types';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-slate-100 text-slate-700',
@@ -122,7 +123,7 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
             </div>
           ) : (
             <div className="flex items-center justify-center h-40 text-muted-foreground">
-              Task not found
+              {tx('Task not found')}
             </div>
           )}
         </DialogContent>
@@ -187,7 +188,7 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
                 onClose();
                 navigate(`/tasks/${task.id}/edit`);
               }}
-              title="Edit task"
+              title={tx('Edit task')}
             >
               <Pencil className="h-4 w-4" />
             </Button>
@@ -214,7 +215,7 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
             {/* ── Quick actions: status / priority / assignee ── */}
             <div className="grid grid-cols-3 gap-3 rounded-lg border bg-muted/30 p-3">
               <div className="space-y-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{tx('Status')}</span>
                 <Select
                   value={task.status}
                   onValueChange={(value) => patch({ status: value })}
@@ -229,7 +230,7 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
                 </Select>
               </div>
               <div className="space-y-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Priority</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{tx('Priority')}</span>
                 <Select
                   value={task.priority}
                   onValueChange={(value) => patch({ priority: value })}
@@ -244,15 +245,15 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
                 </Select>
               </div>
               <div className="space-y-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Assignee</span>
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{tx('Assignee')}</span>
                 <Select
                   value={task.assignedToId ?? ''}
                   onValueChange={(value) => patch({ assignedToId: value || null })}
                   disabled={updateTask.isPending}
                 >
-                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                  <SelectTrigger className="h-8 text-xs"><SelectValue placeholder={tx('Unassigned')} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="" className="text-xs">Unassigned</SelectItem>
+                    <SelectItem value="" className="text-xs">{tx('Unassigned')}</SelectItem>
                     {assignees.map((u) => (
                       <SelectItem key={u.id} value={u.id} className="text-xs">{u.name}</SelectItem>
                     ))}
@@ -264,16 +265,16 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
             <Separator />
 
             <div className="grid grid-cols-2 gap-3">
-              <InfoRow icon={<User className="h-4 w-4" />} label="Assigned To" value={task.assignedTo ? `${task.assignedTo.firstName} ${task.assignedTo.lastName ?? ''}`.trim() : 'Unassigned'} />
-              <InfoRow icon={<User className="h-4 w-4" />} label="Supervisor" value={task.supervisor ? `${task.supervisor.firstName} ${task.supervisor.lastName ?? ''}`.trim() : 'None'} />
-              <InfoRow icon={<Building2 className="h-4 w-4" />} label="Branch" value={task.branch?.name ?? '-'} />
-              <InfoRow icon={<MapPin className="h-4 w-4" />} label="Area" value={task.area ?? '-'} />
-              <InfoRow icon={<Layers className="h-4 w-4" />} label="Category" value={task.category ? CATEGORY_LABELS[task.category] ?? task.category : '-'} />
-              <InfoRow icon={<Calendar className="h-4 w-4" />} label="Due Date" value={task.dueDate ? `${new Date(task.dueDate).toLocaleDateString()}${task.dueTime ? ` ${task.dueTime}` : ''}` : '-'} />
-              <InfoRow icon={<Clock className="h-4 w-4" />} label="Est. Duration" value={task.estimatedMinutes ? `${task.estimatedMinutes} min` : '-'} />
-              {task.actualMinutes && <InfoRow icon={<Clock className="h-4 w-4" />} label="Actual Duration" value={`${task.actualMinutes} min`} />}
+              <InfoRow icon={<User className="h-4 w-4" />} label={tx('Assigned To')} value={task.assignedTo ? `${task.assignedTo.firstName} ${task.assignedTo.lastName ?? ''}`.trim() : 'Unassigned'} />
+              <InfoRow icon={<User className="h-4 w-4" />} label={tx('Supervisor')} value={task.supervisor ? `${task.supervisor.firstName} ${task.supervisor.lastName ?? ''}`.trim() : 'None'} />
+              <InfoRow icon={<Building2 className="h-4 w-4" />} label={tx('Branch')} value={task.branch?.name ?? '-'} />
+              <InfoRow icon={<MapPin className="h-4 w-4" />} label={tx('Area')} value={task.area ?? '-'} />
+              <InfoRow icon={<Layers className="h-4 w-4" />} label={tx('Category')} value={task.category ? CATEGORY_LABELS[task.category] ?? task.category : '-'} />
+              <InfoRow icon={<Calendar className="h-4 w-4" />} label={tx('Due Date')} value={task.dueDate ? `${new Date(task.dueDate).toLocaleDateString()}${task.dueTime ? ` ${task.dueTime}` : ''}` : '-'} />
+              <InfoRow icon={<Clock className="h-4 w-4" />} label={tx('Est. Duration')} value={task.estimatedMinutes ? `${task.estimatedMinutes} min` : '-'} />
+              {task.actualMinutes && <InfoRow icon={<Clock className="h-4 w-4" />} label={tx('Actual Duration')} value={`${task.actualMinutes} min`} />}
               {task.isRecurring && (
-                <InfoRow icon={<RotateCcw className="h-4 w-4" />} label="Recurrence" value={task.recurrenceType ?? 'Yes'} />
+                <InfoRow icon={<RotateCcw className="h-4 w-4" />} label={tx('Recurrence')} value={task.recurrenceType ?? 'Yes'} />
               )}
             </div>
 
@@ -283,7 +284,7 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
               <div>
                 <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
                   <CheckSquare className="h-4 w-4" />
-                  Checklist ({task.checklistProgress}%)
+                  {tx('Checklist (')}{task.checklistProgress}%)
                 </h4>
                 <div className="space-y-1">
                   {task.checklistItems.map((item) => (
@@ -314,7 +315,7 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
               <div>
                 <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
                   <Paperclip className="h-4 w-4" />
-                  Attachments ({task.attachmentUrls.length + task.photoUrls.length})
+                  {tx('Attachments (')}{task.attachmentUrls.length + task.photoUrls.length})
                 </h4>
               </div>
             )}
@@ -325,14 +326,14 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
             <div>
               <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
                 <MessageSquare className="h-4 w-4" />
-                Comments {(task.comments?.length ?? 0) > 0 && `(${task.comments!.length})`}
+                {tx('Comments')} {(task.comments?.length ?? 0) > 0 && `(${task.comments!.length})`}
               </h4>
               <div className="flex items-end gap-2 mb-3">
                 <Textarea
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   rows={2}
-                  placeholder="Write a comment…"
+                  placeholder={tx('Write a comment…')}
                   className="text-sm"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitComment();
@@ -361,7 +362,7 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
               <div>
                 <h4 className="flex items-center gap-2 text-sm font-semibold mb-2">
                   <History className="h-4 w-4" />
-                  Activity
+                  {tx('Activity')}
                 </h4>
                 <div className="space-y-2 text-xs text-muted-foreground">
                   {task.activityLog.slice(0, 10).map((log) => (
@@ -381,12 +382,12 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
               <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3">
                 <h4 className="flex items-center gap-2 text-sm font-semibold mb-1 text-amber-700">
                   <AlertTriangle className="h-4 w-4" />
-                  Verification Required
+                  {tx('Verification Required')}
                 </h4>
                 {task.verifiedAt ? (
                   <div className="flex items-center gap-2 text-sm text-emerald-700">
                     <CircleCheck className="h-4 w-4" />
-                    Verified on {new Date(task.verifiedAt).toLocaleDateString()}
+                    {tx('Verified on')} {new Date(task.verifiedAt).toLocaleDateString()}
                     {task.verifiedBy && ` by ${task.verifiedBy.firstName} ${task.verifiedBy.lastName ?? ''}`.trim()}
                   </div>
                 ) : showVerify ? (
@@ -394,7 +395,7 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
                     <Input
                       value={verifyNote}
                       onChange={(e) => setVerifyNote(e.target.value)}
-                      placeholder="Verification note (optional)"
+                      placeholder={tx('Verification note (optional)')}
                       className="text-sm"
                     />
                     <div className="flex gap-2">
@@ -402,13 +403,13 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
                         <ShieldCheck className="h-3.5 w-3.5 mr-1" />
                         {verifyTask.isPending ? 'Verifying…' : 'Confirm verification'}
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => setShowVerify(false)}>Cancel</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setShowVerify(false)}>{tx('Cancel')}</Button>
                     </div>
                   </div>
                 ) : (
                   <Button size="sm" variant="outline" className="mt-1" onClick={() => setShowVerify(true)}>
                     <ShieldCheck className="h-3.5 w-3.5 mr-1" />
-                    Mark verified
+                    {tx('Mark verified')}
                   </Button>
                 )}
               </div>
@@ -416,7 +417,7 @@ export function TaskDrawer({ taskId, open, onClose }: TaskDrawerProps) {
           </div>
         ) : (
           <div className="flex items-center justify-center h-40 text-muted-foreground">
-            Task not found
+            {tx('Task not found')}
           </div>
         )}
       </DialogContent>
@@ -428,7 +429,7 @@ function CommentBubble({ comment }: { comment: TaskComment }) {
   return (
     <div className="rounded-lg border bg-muted/30 p-3">
       <div className="text-xs text-muted-foreground mb-1">
-        User · {new Date(comment.createdAt).toLocaleDateString()}
+        {tx('User ·')} {new Date(comment.createdAt).toLocaleDateString()}
       </div>
       <div className="text-sm">{comment.content}</div>
       {comment.replies && comment.replies.length > 0 && (

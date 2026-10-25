@@ -5,6 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
+import { tx } from '@/lib/i18n/tx';
 
 /** Screen-only height bounds for the preview paper (px). Long receipts scroll. */
 const PAPER_MIN_H = 320;
@@ -58,7 +59,7 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
         url = URL.createObjectURL(res.data);
         setPdfUrl(url);
       } catch (e: any) {
-        if (!cancelled) toast.error('Could not load receipt PDF');
+        if (!cancelled) toast.error(tx('Could not load receipt PDF'));
       }
     })();
     return () => {
@@ -116,10 +117,10 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
       <DialogContent className="sm:max-w-[640px] p-0 overflow-hidden">
         <DialogHeader className="bg-gradient-to-r from-slate-700 to-slate-900 text-white p-4">
           <DialogTitle className="text-white text-base font-bold flex items-center gap-2">
-            <Printer className="h-4 w-4" /> Receipt {invoiceNumber ?? ''}
+            <Printer className="h-4 w-4" /> {tx('Receipt')} {invoiceNumber ?? ''}
           </DialogTitle>
           <DialogDescription className="text-slate-300 text-xs">
-            Print, email, or download the receipt for this sale.
+            {tx('Print, email, or download the receipt for this sale.')}
           </DialogDescription>
         </DialogHeader>
 
@@ -128,7 +129,7 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
             <iframe
               ref={iframeRef}
               srcDoc={receiptHtml}
-              title="Receipt preview"
+              title={tx('Receipt preview')}
               className="bg-white shadow-md"
               style={{ width: 340, height: paperH }}
               onLoad={onIframeLoad}
@@ -137,25 +138,25 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
             <iframe
               ref={iframeRef}
               src={pdfUrl}
-              title="Receipt preview"
+              title={tx('Receipt preview')}
               className="bg-white shadow-md"
               style={{ width: 340, height: 600 }}
             />
           ) : (
             <div className="flex items-center justify-center text-slate-500 text-sm min-h-[200px]">
-              <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Loading receipt…
+              <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> {tx('Loading receipt…')}
             </div>
           )}
         </div>
 
         <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 flex flex-wrap gap-2 sm:justify-between">
           <Button variant="ghost" onClick={onClose}>
-            <X className="h-4 w-4 mr-1" /> Close
+            <X className="h-4 w-4 mr-1" /> {tx('Close')}
           </Button>
           <div className="flex flex-wrap justify-end gap-2">
             {onLogoff && (
-              <Button variant="outline" onClick={onLogoff} title="Log off this POS terminal — back to staff PIN login" className="text-rose-700 border-rose-300 hover:bg-rose-50">
-                <LogOut className="h-4 w-4 mr-1" /> Log off
+              <Button variant="outline" onClick={onLogoff} title={tx('Log off this POS terminal — back to staff PIN login')} className="text-rose-700 border-rose-300 hover:bg-rose-50">
+                <LogOut className="h-4 w-4 mr-1" /> {tx('Log off')}
               </Button>
             )}
             <Button variant="outline" onClick={onDownload} disabled={!pdfUrl && !receiptHtml}>
@@ -163,10 +164,10 @@ export const ReceiptPreviewDialog: React.FC<Props> = ({ open, invoiceId, invoice
             </Button>
             {canReprint && (
               <Button variant="outline" onClick={onReprint} disabled={busy !== null}>
-                <RefreshCw className="h-4 w-4 mr-1" /> Reprint
+                <RefreshCw className="h-4 w-4 mr-1" /> {tx('Reprint')}
               </Button>
             )}
-            <Button onClick={onPrint} disabled={busy !== null} title="Send to thermal printer" style={{ background: '#16a34a' }}>
+            <Button onClick={onPrint} disabled={busy !== null} title={tx('Send to thermal printer')} style={{ background: '#16a34a' }}>
               <Printer className="h-4 w-4 mr-1" /> {busy === 'print' ? 'Sending…' : 'Print'}
             </Button>
           </div>

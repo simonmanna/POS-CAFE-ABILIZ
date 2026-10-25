@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface Warehouse { id: string; code: string; name: string; type: string }
 interface Product { id: string; name: string; code: string }
@@ -87,16 +88,16 @@ export function GoodsReceiptCreatePage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold">New Goods Receipt</h1>
+      <h1 className="text-2xl font-semibold">{tx('New Goods Receipt')}</h1>
 
       <Card>
         <CardHeader>
-          <CardTitle>Receipt details</CardTitle>
-          <CardDescription>Receipts post stock-in moves automatically.</CardDescription>
+          <CardTitle>{tx('Receipt details')}</CardTitle>
+          <CardDescription>{tx('Receipts post stock-in moves automatically.')}</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div>
-            <label className="text-sm font-medium">PO (optional)</label>
+            <label className="text-sm font-medium">{tx('PO (optional)')}</label>
             <Input
               className="mt-1"
               value={poId}
@@ -104,25 +105,25 @@ export function GoodsReceiptCreatePage() {
                 const newId = e.target.value;
                 navigate(`/procurement/goods-receipts/new?poId=${newId}`, { replace: true });
               }}
-              placeholder="PO id (auto-fills lines)"
+              placeholder={tx('PO id (auto-fills lines)')}
             />
             {po.data && <p className="mt-1 text-xs text-muted-foreground">{po.data.orderNumber}</p>}
           </div>
           <div>
-            <label className="text-sm font-medium">Warehouse</label>
+            <label className="text-sm font-medium">{tx('Warehouse')}</label>
             <select
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value)}
               className="mt-1 w-full rounded border bg-background px-2 py-1 text-sm"
             >
-              <option value="">Select warehouse…</option>
+              <option value="">{tx('Select warehouse…')}</option>
               {warehouses.data?.map((w) => (
                 <option key={w.id} value={w.id}>{w.code} — {w.name}</option>
               ))}
             </select>
           </div>
           <div className="md:col-span-2">
-            <label className="text-sm font-medium">Notes</label>
+            <label className="text-sm font-medium">{tx('Notes')}</label>
             <Input className="mt-1" value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </CardContent>
@@ -131,9 +132,9 @@ export function GoodsReceiptCreatePage() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Lines</CardTitle>
+            <CardTitle>{tx('Lines')}</CardTitle>
             <Button size="sm" variant="outline" onClick={() => setLines([...lines, { description: '', quantity: 1 }])}>
-              <Plus className="mr-2 h-3 w-3" />Add line
+              <Plus className="mr-2 h-3 w-3" />{tx('Add line')}
             </Button>
           </div>
         </CardHeader>
@@ -155,7 +156,7 @@ export function GoodsReceiptCreatePage() {
                   }}
                   defaultValue={ln.productId ?? ''}
                 >
-                  <option value="">Pick product…</option>
+                  <option value="">{tx('Pick product…')}</option>
                   {products.data?.map((p) => (
                     <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
                   ))}
@@ -163,7 +164,7 @@ export function GoodsReceiptCreatePage() {
               </div>
               <div className="md:col-span-3">
                 <Input
-                  placeholder="Description"
+                  placeholder={tx('Description')}
                   value={ln.description}
                   onChange={(e) => {
                     const next = [...lines];
@@ -186,7 +187,7 @@ export function GoodsReceiptCreatePage() {
               <div className="md:col-span-1">
                 <Input
                   type="number" step="0.01" min="0"
-                  placeholder="Cost"
+                  placeholder={tx('Cost')}
                   value={ln.unitCost ?? 0}
                   onChange={(e) => {
                     const next = [...lines];
@@ -197,7 +198,7 @@ export function GoodsReceiptCreatePage() {
               </div>
               <div className="md:col-span-1">
                 <Input
-                  placeholder="Batch #"
+                  placeholder={tx('Batch #')}
                   value={ln.batchNumber ?? ''}
                   onChange={(e) => {
                     const next = [...lines];
@@ -226,9 +227,9 @@ export function GoodsReceiptCreatePage() {
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
+        <Button variant="outline" onClick={() => navigate(-1)}>{tx('Cancel')}</Button>
         <Button onClick={() => create.mutate()} disabled={!warehouseId || lines.length === 0 || create.isPending}>
-          <Truck className="mr-2 h-4 w-4" />Save & post
+          <Truck className="mr-2 h-4 w-4" />{tx('Save & post')}
         </Button>
       </div>
     </div>

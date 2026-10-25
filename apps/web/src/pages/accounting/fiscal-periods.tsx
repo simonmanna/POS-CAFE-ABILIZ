@@ -33,6 +33,7 @@ import {
   type FiscalPeriod,
 } from '@/features/accounting/api';
 import { cn } from '@/lib/utils';
+import { tx } from '@/lib/i18n/tx';
 
 const STATUS_BADGE: Record<FiscalPeriod['status'], { label: string; className: string }> = {
   open: { label: 'Open', className: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100' },
@@ -92,22 +93,22 @@ function FiscalPeriodsPage() {
           onClick={() => navigate('/accounts')}
           className="hover:text-foreground transition-colors"
         >
-          Accounting
+          {tx('Accounting')}
         </button>
         <ChevronRight className="h-3 w-3" />
-        <span className="text-foreground font-medium truncate max-w-[300px]">Fiscal Periods</span>
+        <span className="text-foreground font-medium truncate max-w-[300px]">{tx('Fiscal Periods')}</span>
       </nav>
 
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Fiscal Periods</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Fiscal Periods')}</h1>
           <p className="text-sm text-gray-500">
-            Manage accounting periods — open, close, and lock periods to control posting windows.
+            {tx('Manage accounting periods — open, close, and lock periods to control posting windows.')}
           </p>
         </div>
         <Button onClick={() => setCreateOpen(true)} className="gap-1.5">
-          <Plus className="h-4 w-4" /> Create Period
+          <Plus className="h-4 w-4" /> {tx('Create Period')}
         </Button>
       </div>
 
@@ -115,11 +116,11 @@ function FiscalPeriodsPage() {
       <Card>
         <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg flex-row items-center justify-between">
           <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-            Periods
+            {tx('Periods')}
           </CardTitle>
           {!isLoading && meta && (
             <span className="text-[10px] text-muted-foreground">
-              {meta.total} period{meta.total !== 1 ? 's' : ''}
+              {meta.total} {tx('period')}{meta.total !== 1 ? 's' : ''}
             </span>
           )}
         </CardHeader>
@@ -128,19 +129,19 @@ function FiscalPeriodsPage() {
             <TableHeader>
               <TableRow className="bg-muted/30">
                 <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">
-                  Name
+                  {tx('Name')}
                 </TableHead>
                 <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">
-                  Start Date
+                  {tx('Start Date')}
                 </TableHead>
                 <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">
-                  End Date
+                  {tx('End Date')}
                 </TableHead>
                 <TableHead className="text-[10px] font-bold text-muted-foreground uppercase">
-                  Status
+                  {tx('Status')}
                 </TableHead>
                 <TableHead className="text-[10px] font-bold text-muted-foreground uppercase text-right">
-                  Actions
+                  {tx('Actions')}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -163,9 +164,9 @@ function FiscalPeriodsPage() {
                   >
                     <div className="flex flex-col items-center gap-1">
                       <Lock className="h-8 w-8 opacity-30" />
-                      <p className="font-medium text-sm">No fiscal periods found</p>
+                      <p className="font-medium text-sm">{tx('No fiscal periods found')}</p>
                       <p className="text-xs">
-                        Create your first accounting period to get started.
+                        {tx('Create your first accounting period to get started.')}
                       </p>
                     </div>
                   </TableCell>
@@ -197,7 +198,7 @@ function FiscalPeriodsPage() {
                               onClick={() => handleClose(p.id)}
                               disabled={closeMutation.isPending}
                             >
-                              <Lock className="h-3 w-3" /> Close
+                              <Lock className="h-3 w-3" /> {tx('Close')}
                             </Button>
                           )}
                           {p.status === 'closed' && (
@@ -209,7 +210,7 @@ function FiscalPeriodsPage() {
                                 onClick={() => handleReopen(p.id)}
                                 disabled={reopenMutation.isPending}
                               >
-                                <RotateCcw className="h-3 w-3" /> Reopen
+                                <RotateCcw className="h-3 w-3" /> {tx('Reopen')}
                               </Button>
                               <Button
                                 variant="outline"
@@ -218,13 +219,13 @@ function FiscalPeriodsPage() {
                                 onClick={() => handleLock(p.id)}
                                 disabled={lockMutation.isPending}
                               >
-                                <Unlock className="h-3 w-3" /> Lock
+                                <Unlock className="h-3 w-3" /> {tx('Lock')}
                               </Button>
                             </>
                           )}
                           {p.status === 'locked' && (
                             <span className="text-[10px] text-muted-foreground italic px-2">
-                              No actions
+                              {tx('No actions')}
                             </span>
                           )}
                         </div>
@@ -241,7 +242,7 @@ function FiscalPeriodsPage() {
       {/* Pagination */}
       {meta && meta.totalPages > 1 && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} total periods</span>
+          <span>{meta.total} {tx('total periods')}</span>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -249,10 +250,10 @@ function FiscalPeriodsPage() {
               disabled={page <= 1}
               onClick={() => setPage((p) => p - 1)}
             >
-              Previous
+              {tx('Previous')}
             </Button>
             <span className="text-xs font-medium">
-              Page {meta.page} of {meta.totalPages}
+              {tx('Page')} {meta.page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -260,7 +261,7 @@ function FiscalPeriodsPage() {
               disabled={page >= meta.totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>
@@ -270,25 +271,24 @@ function FiscalPeriodsPage() {
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Fiscal Period</DialogTitle>
+            <DialogTitle>{tx('Create Fiscal Period')}</DialogTitle>
             <DialogDescription>
-              Define a new accounting period. Once created, transactions can be posted within the
-              date range.
+              {tx('Define a new accounting period. Once created, transactions can be posted within the date range.')}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="name">Period Name</Label>
+              <Label htmlFor="name">{tx('Period Name')}</Label>
               <Input
                 id="name"
-                placeholder="e.g. Q1 2026, January 2026"
+                placeholder={tx('e.g. Q1 2026, January 2026')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="startDate">Start Date</Label>
+                <Label htmlFor="startDate">{tx('Start Date')}</Label>
                 <Input
                   id="startDate"
                   type="date"
@@ -297,7 +297,7 @@ function FiscalPeriodsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="endDate">End Date</Label>
+                <Label htmlFor="endDate">{tx('End Date')}</Label>
                 <Input
                   id="endDate"
                   type="date"
@@ -317,7 +317,7 @@ function FiscalPeriodsPage() {
                 setEndDate('');
               }}
             >
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               onClick={handleCreate}

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { useRoles, useCreateUser, useUpdateUser } from '@/features/staff/api';
 import type { UserSummary } from '@/features/staff/types';
+import { tx } from '@/lib/i18n/tx';
 
 const createSchema = z.object({
   email: z.string().email('Invalid email'),
@@ -118,24 +119,24 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
         <form onSubmit={onSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="firstName">First name</Label>
-              <Input id="firstName" placeholder="Jane" {...form.register('firstName')} />
+              <Label htmlFor="firstName">{tx('First name')}</Label>
+              <Input id="firstName" placeholder={tx('Jane')} {...form.register('firstName')} />
               {form.formState.errors.firstName && (
                 <p className="text-sm text-destructive">{form.formState.errors.firstName.message as string}</p>
               )}
             </div>
             <div className="space-y-2">
-              <Label htmlFor="lastName">Last name</Label>
-              <Input id="lastName" placeholder="Doe" {...form.register('lastName')} />
+              <Label htmlFor="lastName">{tx('Last name')}</Label>
+              <Input id="lastName" placeholder={tx('Doe')} {...form.register('lastName')} />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email">{tx('Email')}</Label>
             <Input
               id="email"
               type="email"
-              placeholder="jane@cafe.test"
+              placeholder={tx('jane@cafe.test')}
               {...form.register('email')}
             />
             {form.formState.errors.email && (
@@ -145,11 +146,11 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
 
           {!isEdit && schema === 'create' && (
             <div className="space-y-2">
-              <Label htmlFor="password">Initial password</Label>
+              <Label htmlFor="password">{tx('Initial password')}</Label>
               <Input
                 id="password"
                 type="password"
-                placeholder="At least 10 characters"
+                placeholder={tx('At least 10 characters')}
                 {...form.register('password' as any)}
               />
               {(form.formState.errors as any).password && !isEdit && (
@@ -158,18 +159,18 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                The user can change it after first login. Use "Reset password" later if they forget it.
+                {tx('The user can change it after first login. Use "Reset password" later if they forget it.')}
               </p>
             </div>
           )}
 
           <div className="space-y-2">
-            <Label>Roles</Label>
+            <Label>{tx('Roles')}</Label>
             <div className="rounded-md border bg-muted/30 p-3 max-h-44 overflow-y-auto space-y-1">
-              {roles.isLoading && <p className="text-sm text-muted-foreground">Loading roles…</p>}
+              {roles.isLoading && <p className="text-sm text-muted-foreground">{tx('Loading roles…')}</p>}
               {allRoles.length === 0 && !roles.isLoading && (
                 <p className="text-sm text-muted-foreground">
-                  No roles available. Create a role first.
+                  {tx('No roles available. Create a role first.')}
                 </p>
               )}
               {allRoles.map((r) => {
@@ -185,11 +186,11 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
                     <span className="flex-1">{r.name}</span>
                     {r.isSystem && (
                       <Badge variant="secondary" className="text-[10px]">
-                        System
+                        {tx('System')}
                       </Badge>
                     )}
                     <span className="font-mono text-[10px] text-muted-foreground">
-                      {r.permissions.length} perms
+                      {r.permissions.length} {tx('perms')}
                     </span>
                   </label>
                 );
@@ -197,7 +198,7 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
             </div>
             {selectedRoleIds.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                {selectedRoleIds.length} role(s) selected
+                {selectedRoleIds.length} {tx('role(s) selected')}
               </p>
             )}
           </div>
@@ -208,12 +209,12 @@ export function UserDialog({ open, onOpenChange, user }: UserDialogProps) {
               className="h-4 w-4 rounded border-input"
               {...form.register('isActive')}
             />
-            <span>Active (uncheck to disable login without deleting)</span>
+            <span>{tx('Active (uncheck to disable login without deleting)')}</span>
           </label>
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button type="submit" disabled={isPending}>
               {isPending ? 'Saving…' : isEdit ? 'Save changes' : 'Create user'}

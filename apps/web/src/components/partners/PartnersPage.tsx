@@ -72,6 +72,7 @@ import {
   type Partner,
 } from '@/features/partners/api';
 import { usePaymentTerms } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 const schema = z.object({
   code: z.string().optional(),
@@ -296,10 +297,10 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
 
       if (editing) {
         await updatePartner.mutateAsync({ id: editing.id, data: payload as any });
-        notify.success('Partner updated successfully');
+        notify.success(tx('Partner updated successfully'));
       } else {
         await createPartner.mutateAsync(payload as any);
-        notify.success('Partner created successfully');
+        notify.success(tx('Partner created successfully'));
       }
       setOpen(false);
       resetForm(null);
@@ -312,7 +313,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
     if (!deleting) return;
     try {
       await deletePartner.mutateAsync(deleting.id);
-      notify.success('Partner deleted successfully');
+      notify.success(tx('Partner deleted successfully'));
       setDeleting(null);
     } catch (error) {
       notify.error(error instanceof Error ? error.message : 'Could not delete partner');
@@ -360,17 +361,17 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
         header: 'Type',
         render: (p) => {
           if (partnerType === 'customer') {
-            return <Badge className={TYPE_CFG.customer.badgeCls}>Customer</Badge>;
+            return <Badge className={TYPE_CFG.customer.badgeCls}>{tx('Customer')}</Badge>;
           }
           if (partnerType === 'supplier') {
-            return <Badge className={TYPE_CFG.supplier.badgeCls}>Supplier</Badge>;
+            return <Badge className={TYPE_CFG.supplier.badgeCls}>{tx('Supplier')}</Badge>;
           }
           return (
             <div className="flex flex-wrap gap-1">
-              {p.isCustomer && <Badge className={TYPE_CFG.customer.badgeCls}>Customer</Badge>}
-              {p.isSupplier && <Badge className={TYPE_CFG.supplier.badgeCls}>Supplier</Badge>}
+              {p.isCustomer && <Badge className={TYPE_CFG.customer.badgeCls}>{tx('Customer')}</Badge>}
+              {p.isSupplier && <Badge className={TYPE_CFG.supplier.badgeCls}>{tx('Supplier')}</Badge>}
               {p.isEmployee && (
-                <Badge className="bg-green-100 text-green-800 hover:bg-green-200 border-none">Employee</Badge>
+                <Badge className="bg-green-100 text-green-800 hover:bg-green-200 border-none">{tx('Employee')}</Badge>
               )}
             </div>
           );
@@ -413,7 +414,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
             variant="ghost"
             onClick={() => navigate(p.isCustomer ? `/customers/${p.id}` : `/suppliers/${p.id}`)}
             aria-label={`View ${p.name}`}
-            title="View"
+            title={tx('View')}
             className="h-8 w-8 p-0 hover:bg-gray-50 hover:text-gray-600"
           >
             <Eye className="h-4 w-4" />
@@ -424,7 +425,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
               variant="ghost"
               onClick={() => openEdit(p)}
               aria-label={`Edit ${p.name}`}
-              title="Edit"
+              title={tx('Edit')}
               className="h-8 w-8 p-0 hover:bg-blue-50 hover:text-blue-600"
             >
               <Edit className="h-4 w-4" />
@@ -436,7 +437,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
               variant="ghost"
               onClick={() => setDeleting(p)}
               aria-label={`Delete ${p.name}`}
-              title="Delete"
+              title={tx('Delete')}
               className="h-8 w-8 p-0 hover:bg-red-50 hover:text-red-600"
             >
               <Trash2 className="h-4 w-4" />
@@ -455,8 +456,8 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
     return (
       <div className="space-y-4 p-6">
         <div className="rounded-lg border border-destructive/20 bg-destructive/5 p-6 text-center">
-          <h1 className="text-2xl font-semibold text-destructive">Access Denied</h1>
-          <p className="mt-2 text-sm text-muted-foreground">You do not have permission to view partners.</p>
+          <h1 className="text-2xl font-semibold text-destructive">{tx('Access Denied')}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">{tx('You do not have permission to view partners.')}</p>
         </div>
       </div>
     );
@@ -497,7 +498,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
             />
           </div>
           <div className="flex items-center gap-3">
-            <Label className="text-sm text-gray-600">Show:</Label>
+            <Label className="text-sm text-gray-600">{tx('Show:')}</Label>
             <select
               className="h-11 rounded-lg border border-gray-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#0066aa]/20"
               value={pageSize}
@@ -508,7 +509,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
             >
               {[10, 20, 50, 100].map((size) => (
                 <option key={size} value={size}>
-                  {size} per page
+                  {size} {tx('per page')}
                 </option>
               ))}
             </select>
@@ -527,14 +528,14 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-gray-100">
                 <Users className="h-8 w-8 text-gray-400" />
               </div>
-              <h3 className="text-lg font-semibold text-gray-800">No {cfg ? cfg.label.toLowerCase() + 's' : 'partners'} found</h3>
+              <h3 className="text-lg font-semibold text-gray-800">{tx('No')} {cfg ? cfg.label.toLowerCase() + 's' : 'partners'} {tx('found')}</h3>
               <p className="mt-1 text-sm text-gray-500">
                 {search ? 'Try adjusting your search terms' : `Create your first ${cfg ? cfg.label.toLowerCase() : 'partner'} to get started`}
               </p>
               {!search && canCreate && (
                 <Button onClick={openCreate} className="mt-4" variant="outline">
                   <Plus className="mr-2 h-4 w-4" />
-                  Create {cfg ? cfg.label : 'Partner'}
+                  {tx('Create')} {cfg ? cfg.label : 'Partner'}
                 </Button>
               )}
             </div>
@@ -545,7 +546,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
       {meta && (
         <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
           <div className="text-sm text-gray-600">
-            Showing <span className="font-medium text-gray-800">{(page - 1) * pageSize + 1}</span> to{' '}
+            {tx('Showing')} <span className="font-medium text-gray-800">{(page - 1) * pageSize + 1}</span> to{' '}
             <span className="font-medium text-gray-800">{Math.min(page * pageSize, meta.total)}</span> of{' '}
             <span className="font-medium text-gray-800">{meta.total}</span> {cfg ? cfg.label.toLowerCase() + 's' : 'partners'}
           </div>
@@ -557,10 +558,10 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
               onClick={() => setPage((p) => p - 1)}
               className="border-gray-300"
             >
-              Previous
+              {tx('Previous')}
             </Button>
             <span className="text-sm text-gray-600">
-              Page {page} of {meta.totalPages}
+              {tx('Page')} {page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -569,7 +570,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
               onClick={() => setPage((p) => p + 1)}
               className="border-gray-300"
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>
@@ -607,9 +608,9 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
           <form onSubmit={onSubmit} className="p-6">
             <Tabs defaultValue="general" className="w-full">
               <TabsList className="grid w-full grid-cols-3 mb-2">
-                <TabsTrigger value="general">General</TabsTrigger>
-                <TabsTrigger value="contact">Contact Person</TabsTrigger>
-                <TabsTrigger value="address">Address</TabsTrigger>
+                <TabsTrigger value="general">{tx('General')}</TabsTrigger>
+                <TabsTrigger value="contact">{tx('Contact Person')}</TabsTrigger>
+                <TabsTrigger value="address">{tx('Address')}</TabsTrigger>
               </TabsList>
 
               {/* ── General tab ── */}
@@ -618,19 +619,19 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <Tag className="h-5 w-5 text-[#f59e0b]" />
-                    <Label className="text-base font-semibold text-gray-800">Basic Information</Label>
+                    <Label className="text-base font-semibold text-gray-800">{tx('Basic Information')}</Label>
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="code" className="text-sm font-medium text-gray-700">
-                        Code <span className="text-xs text-muted-foreground">(auto if empty)</span>
+                        {tx('Code')} <span className="text-xs text-muted-foreground">{tx('(auto if empty)')}</span>
                       </Label>
                       <div className="relative">
                         <Code2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <Input
                           id="code"
                           className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                          placeholder="CUST-001"
+                          placeholder={tx('CUST-001')}
                           {...form.register('code')}
                         />
                       </div>
@@ -640,14 +641,14 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="name" className="text-sm font-medium text-gray-700">
-                        Name <span className="text-destructive">*</span>
+                        {tx('Name')} <span className="text-destructive">*</span>
                       </Label>
                       <div className="relative">
                         <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <Input
                           id="name"
                           className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                          placeholder="Acme Ltd"
+                          placeholder={tx('Acme Ltd')}
                           {...form.register('name')}
                         />
                       </div>
@@ -659,7 +660,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
                       <Label htmlFor="email" className="text-sm font-medium text-gray-700">
-                        Email
+                        {tx('Email')}
                       </Label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -667,7 +668,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                           id="email"
                           type="email"
                           className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                          placeholder="contact@example.com"
+                          placeholder={tx('contact@example.com')}
                           {...form.register('email')}
                         />
                       </div>
@@ -677,7 +678,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="phone" className="text-sm font-medium text-gray-700">
-                        Phone
+                        {tx('Phone')}
                       </Label>
                       <div className="relative">
                         <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -697,25 +698,25 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                   <div className="space-y-4">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-700">Partner Type</Label>
+                      <Label className="text-sm font-medium text-gray-700">{tx('Partner Type')}</Label>
                       <Select value={partnerKind} onValueChange={(v) => setPartnerKind(v as 'individual' | 'business')}>
                         <SelectTrigger className="h-11 border-gray-200 rounded-lg">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="individual">Individual</SelectItem>
-                          <SelectItem value="business">Business</SelectItem>
+                          <SelectItem value="individual">{tx('Individual')}</SelectItem>
+                          <SelectItem value="business">{tx('Business')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="paymentTermId" className="text-sm font-medium text-gray-700">Payment Term</Label>
+                      <Label htmlFor="paymentTermId" className="text-sm font-medium text-gray-700">{tx('Payment Term')}</Label>
                       <Select value={paymentTermId} onValueChange={setPaymentTermId}>
                         <SelectTrigger className="h-11 border-gray-200 rounded-lg">
-                          <SelectValue placeholder="Default (from settings)" />
+                          <SelectValue placeholder={tx('Default (from settings)')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">Default (from settings)</SelectItem>
+                          <SelectItem value="">{tx('Default (from settings)')}</SelectItem>
                           {paymentTerms.filter((t) => t.isActive).map((term) => (
                             <SelectItem key={term.id} value={term.id}>{term.name}</SelectItem>
                           ))}
@@ -736,17 +737,17 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                   <div className="space-y-4">
                     <div className="flex items-center gap-2">
                       <User className="h-5 w-5 text-[#f59e0b]" />
-                      <Label className="text-base font-semibold text-gray-800">Contact Details</Label>
+                      <Label className="text-base font-semibold text-gray-800">{tx('Contact Details')}</Label>
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label className="text-sm font-medium text-gray-700">Membership Level</Label>
+                        <Label className="text-sm font-medium text-gray-700">{tx('Membership Level')}</Label>
                         <Select value={membershipLevel} onValueChange={setMembershipLevel}>
                           <SelectTrigger className="h-11 border-gray-200 rounded-lg">
-                            <SelectValue placeholder="Select level" />
+                            <SelectValue placeholder={tx('Select level')} />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">None</SelectItem>
+                            <SelectItem value="">{tx('None')}</SelectItem>
                             {MEMBERSHIP_OPTIONS.map((opt) => (
                               <SelectItem key={opt} value={opt}>{opt.charAt(0).toUpperCase() + opt.slice(1)}</SelectItem>
                             ))}
@@ -754,10 +755,10 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                         </Select>
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-sm font-medium text-gray-700">Gender</Label>
+                        <Label className="text-sm font-medium text-gray-700">{tx('Gender')}</Label>
                         <Select value={gender} onValueChange={setGender}>
                           <SelectTrigger className="h-11 border-gray-200 rounded-lg">
-                            <SelectValue placeholder="Select gender" />
+                            <SelectValue placeholder={tx('Select gender')} />
                           </SelectTrigger>
                           <SelectContent>
                             {GENDER_OPTIONS.map((opt) => (
@@ -823,7 +824,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                     })}
                   </div>
                   {partnerType && (
-                    <p className="text-xs text-gray-400">This partner type is locked for this view.</p>
+                    <p className="text-xs text-gray-400">{tx('This partner type is locked for this view.')}</p>
                   )}
                 </div>
 
@@ -832,7 +833,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                   <div className="space-y-3">
                     <div className="flex items-center gap-2">
                       <Award className="h-5 w-5 text-[#f59e0b]" />
-                      <Label className="text-base font-semibold text-gray-800">Loyalty Points</Label>
+                      <Label className="text-base font-semibold text-gray-800">{tx('Loyalty Points')}</Label>
                     </div>
                     <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
                       {editing ? (
@@ -842,13 +843,13 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                             <span className="text-lg font-extrabold text-amber-900">
                               {loyaltyEarned.toLocaleString()}
                             </span>
-                            <span className="text-sm text-amber-700">points earned (lifetime)</span>
+                            <span className="text-sm text-amber-700">{tx('points earned (lifetime)')}</span>
                           </div>
                         ) : (
-                          <p className="text-sm text-amber-600">Loading loyalty data...</p>
+                          <p className="text-sm text-amber-600">{tx('Loading loyalty data...')}</p>
                         )
                       ) : (
-                        <p className="text-sm text-amber-600">Points will be tracked after the customer makes their first purchase.</p>
+                        <p className="text-sm text-amber-600">{tx('Points will be tracked after the customer makes their first purchase.')}</p>
                       )}
                     </div>
                   </div>
@@ -858,12 +859,12 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <FileText className="h-5 w-5 text-[#f59e0b]" />
-                    <Label htmlFor="notes" className="text-base font-semibold text-gray-800">Notes</Label>
+                    <Label htmlFor="notes" className="text-base font-semibold text-gray-800">{tx('Notes')}</Label>
                   </div>
                   <Textarea
                     id="notes"
                     className="border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa] min-h-[80px]"
-                    placeholder="Any additional notes about this partner..."
+                    placeholder={tx('Any additional notes about this partner...')}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                   />
@@ -876,61 +877,61 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <User className="h-5 w-5 text-[#f59e0b]" />
-                    <Label className="text-base font-semibold text-gray-800">Primary Contact Person</Label>
+                    <Label className="text-base font-semibold text-gray-800">{tx('Primary Contact Person')}</Label>
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="contactFirstName" className="text-sm font-medium text-gray-700">First Name</Label>
+                      <Label htmlFor="contactFirstName" className="text-sm font-medium text-gray-700">{tx('First Name')}</Label>
                       <div className="relative">
                         <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <Input
                           id="contactFirstName"
                           className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                          placeholder="John"
+                          placeholder={tx('John')}
                           value={contactFirstName}
                           onChange={(e) => setContactFirstName(e.target.value)}
                         />
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="contactLastName" className="text-sm font-medium text-gray-700">Last Name</Label>
+                      <Label htmlFor="contactLastName" className="text-sm font-medium text-gray-700">{tx('Last Name')}</Label>
                       <div className="relative">
                         <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <Input
                           id="contactLastName"
                           className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                          placeholder="Doe"
+                          placeholder={tx('Doe')}
                           value={contactLastName}
                           onChange={(e) => setContactLastName(e.target.value)}
                         />
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="contactPosition" className="text-sm font-medium text-gray-700">Position / Title</Label>
+                      <Label htmlFor="contactPosition" className="text-sm font-medium text-gray-700">{tx('Position / Title')}</Label>
                       <Input
                         id="contactPosition"
                         className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                        placeholder="Procurement Manager"
+                        placeholder={tx('Procurement Manager')}
                         value={contactPosition}
                         onChange={(e) => setContactPosition(e.target.value)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="contactEmail" className="text-sm font-medium text-gray-700">Contact Email</Label>
+                      <Label htmlFor="contactEmail" className="text-sm font-medium text-gray-700">{tx('Contact Email')}</Label>
                       <div className="relative">
                         <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <Input
                           id="contactEmail"
                           type="email"
                           className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                          placeholder="john@example.com"
+                          placeholder={tx('john@example.com')}
                           value={contactEmail}
                           onChange={(e) => setContactEmail(e.target.value)}
                         />
                       </div>
                     </div>
                     <div className="space-y-2 sm:col-span-2">
-                      <Label htmlFor="contactPhone" className="text-sm font-medium text-gray-700">Contact Phone</Label>
+                      <Label htmlFor="contactPhone" className="text-sm font-medium text-gray-700">{tx('Contact Phone')}</Label>
                       <div className="relative">
                         <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <Input
@@ -952,68 +953,68 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                 <div className="space-y-4">
                   <div className="flex items-center gap-2">
                     <MapPin className="h-5 w-5 text-[#f59e0b]" />
-                    <Label className="text-base font-semibold text-gray-800">Address</Label>
+                    <Label className="text-base font-semibold text-gray-800">{tx('Address')}</Label>
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label className="text-sm font-medium text-gray-700">Address Type</Label>
+                      <Label className="text-sm font-medium text-gray-700">{tx('Address Type')}</Label>
                       <Select value={addrType} onValueChange={(v) => setAddrType(v as 'billing' | 'shipping')}>
                         <SelectTrigger className="h-11 border-gray-200 rounded-lg">
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="shipping">Delivery / Shipping</SelectItem>
-                          <SelectItem value="billing">Billing</SelectItem>
+                          <SelectItem value="shipping">{tx('Delivery / Shipping')}</SelectItem>
+                          <SelectItem value="billing">{tx('Billing')}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2 sm:col-span-2">
-                      <Label htmlFor="addrLine1" className="text-sm font-medium text-gray-700">Address Line 1</Label>
+                      <Label htmlFor="addrLine1" className="text-sm font-medium text-gray-700">{tx('Address Line 1')}</Label>
                       <div className="relative">
                         <MapPin className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <Input
                           id="addrLine1"
                           className="pl-10 h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                          placeholder="123 Main Street"
+                          placeholder={tx('123 Main Street')}
                           value={addrLine1}
                           onChange={(e) => setAddrLine1(e.target.value)}
                         />
                       </div>
                     </div>
                     <div className="space-y-2 sm:col-span-2">
-                      <Label htmlFor="addrLine2" className="text-sm font-medium text-gray-700">Address Line 2</Label>
+                      <Label htmlFor="addrLine2" className="text-sm font-medium text-gray-700">{tx('Address Line 2')}</Label>
                       <Input
                         id="addrLine2"
                         className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                        placeholder="Apt, suite, etc."
+                        placeholder={tx('Apt, suite, etc.')}
                         value={addrLine2}
                         onChange={(e) => setAddrLine2(e.target.value)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="addrCity" className="text-sm font-medium text-gray-700">City</Label>
+                      <Label htmlFor="addrCity" className="text-sm font-medium text-gray-700">{tx('City')}</Label>
                       <Input
                         id="addrCity"
                         className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                        placeholder="Kampala"
+                        placeholder={tx('Kampala')}
                         value={addrCity}
                         onChange={(e) => setAddrCity(e.target.value)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="addrState" className="text-sm font-medium text-gray-700">State / Region</Label>
+                      <Label htmlFor="addrState" className="text-sm font-medium text-gray-700">{tx('State / Region')}</Label>
                       <Input
                         id="addrState"
                         className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                        placeholder="Central Region"
+                        placeholder={tx('Central Region')}
                         value={addrState}
                         onChange={(e) => setAddrState(e.target.value)}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="addrPostalCode" className="text-sm font-medium text-gray-700">Postal Code</Label>
+                      <Label htmlFor="addrPostalCode" className="text-sm font-medium text-gray-700">{tx('Postal Code')}</Label>
                       <Input
                         id="addrPostalCode"
                         className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
@@ -1023,11 +1024,11 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="addrCountry" className="text-sm font-medium text-gray-700">Country</Label>
+                      <Label htmlFor="addrCountry" className="text-sm font-medium text-gray-700">{tx('Country')}</Label>
                       <Input
                         id="addrCountry"
                         className="h-11 border-gray-200 rounded-lg focus:border-[#0066aa] focus:ring-[#0066aa]"
-                        placeholder="Uganda"
+                        placeholder={tx('Uganda')}
                         value={addrCountry}
                         onChange={(e) => setAddrCountry(e.target.value)}
                       />
@@ -1045,7 +1046,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
               onClick={() => setOpen(false)}
               className="h-11 px-6 rounded-lg border-gray-300 hover:bg-gray-100"
             >
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               type="submit"
@@ -1056,7 +1057,7 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
               {createPartner.isPending || updatePartner.isPending ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  Saving...
+                  {tx('Saving...')}
                 </span>
               ) : (
                 <>
@@ -1077,22 +1078,22 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
                 <Trash2 className="h-5 w-5 text-white" />
               </div>
               <div>
-                <AlertDialogTitle>Delete Partner</AlertDialogTitle>
+                <AlertDialogTitle>{tx('Delete Partner')}</AlertDialogTitle>
                 <AlertDialogDescription className="text-white/80 mt-1">
-                  This action cannot be undone.
+                  {tx('This action cannot be undone.')}
                 </AlertDialogDescription>
               </div>
             </div>
           </AlertDialogHeader>
           <div className="p-6">
             <p className="text-sm text-gray-600">
-              Are you sure you want to delete{' '}
+              {tx('Are you sure you want to delete')}{' '}
               <span className="font-semibold text-gray-800">{deleting?.name}</span>{' '}
               <span className="text-gray-500">({deleting?.code})</span>?
             </p>
           </div>
           <AlertDialogFooter className="p-6 border-t border-gray-200 bg-gray-50/50 rounded-b-lg gap-2">
-            <AlertDialogCancel className="h-11 px-6 rounded-lg border-gray-300 hover:bg-gray-100">Cancel</AlertDialogCancel>
+            <AlertDialogCancel className="h-11 px-6 rounded-lg border-gray-300 hover:bg-gray-100">{tx('Cancel')}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               disabled={deletePartner.isPending}
@@ -1101,12 +1102,12 @@ export function PartnersList({ partnerType }: { partnerType?: PartnerTypeFilter 
               {deletePartner.isPending ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  Deleting...
+                  {tx('Deleting...')}
                 </span>
               ) : (
                 <>
                   <Trash2 className="h-4 w-4 mr-2" />
-                  Delete Partner
+                  {tx('Delete Partner')}
                 </>
               )}
             </AlertDialogAction>

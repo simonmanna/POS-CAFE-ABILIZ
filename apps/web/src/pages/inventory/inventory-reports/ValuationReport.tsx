@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { date } from '@/lib/format';
 import { DataTable, Kpi, KpiGrid, ReportState, money, qty, type Column } from './shared';
 import { FilterBar, type useReportFilters } from './filters';
+import { tx } from '@/lib/i18n/tx';
 
 interface ValuationRow {
   productId: string;
@@ -82,8 +83,8 @@ export function ValuationReport({ ctl }: { ctl: ReturnType<typeof useReportFilte
       <ReportState query={report}>
         {t && (
           <KpiGrid>
-            <Kpi label="Stock value (cost)" value={money(t.value)} hint={`${t.items} item(s) shown`} />
-            <Kpi label="Retail value" value={money(t.retailValue)} hint={t.retailValue > t.value ? `Potential margin ${money(t.retailValue - t.value)}` : undefined} />
+            <Kpi label={tx('Stock value (cost)')} value={money(t.value)} hint={`${t.items} item(s) shown`} />
+            <Kpi label={tx('Retail value')} value={money(t.retailValue)} hint={t.retailValue > t.value ? `Potential margin ${money(t.retailValue - t.value)}` : undefined} />
             {statusTile('in_stock', 'In stock', t.inStock, 'good')}
             {statusTile('low', 'Low stock', t.low, 'warn')}
             {statusTile('out', 'Out of stock', t.out)}
@@ -93,7 +94,7 @@ export function ValuationReport({ ctl }: { ctl: ReturnType<typeof useReportFilte
 
         {report.data && report.data.byCategory.length > 0 && (
           <Card className="p-3">
-            <div className="mb-2 text-sm font-medium">Value by category</div>
+            <div className="mb-2 text-sm font-medium">{tx('Value by category')}</div>
             <div className="space-y-1.5">
               {report.data.byCategory.slice(0, 12).map((c) => (
                 <div key={c.category} className="grid grid-cols-[minmax(0,10rem)_1fr_auto] items-center gap-3 text-sm">
@@ -102,7 +103,7 @@ export function ValuationReport({ ctl }: { ctl: ReturnType<typeof useReportFilte
                     <div className="h-full rounded bg-primary" style={{ width: `${Math.max(1, c.share)}%` }} />
                   </div>
                   <span className="whitespace-nowrap font-mono text-xs tabular-nums">
-                    {money(c.value)} · {c.share}% · {c.items} item(s)
+                    {money(c.value)} · {c.share}% · {c.items} {tx('item(s)')}
                   </span>
                 </div>
               ))}
@@ -116,9 +117,9 @@ export function ValuationReport({ ctl }: { ctl: ReturnType<typeof useReportFilte
           rowKey={(r) => r.productId}
           defaultSort={{ key: 'value', dir: 'desc' }}
           exportName={`inventory-valuation_${new Date().toISOString().slice(0, 10)}`}
-          emptyText="No items match the selected filters."
+          emptyText={tx('No items match the selected filters.')}
           onRowClick={(r) => navigate(`/inventory/items/${r.productId}`)}
-          toolbar={<span className="text-xs">Current on-hand at running average cost.</span>}
+          toolbar={<span className="text-xs">{tx('Current on-hand at running average cost.')}</span>}
         />
       </ReportState>
     </div>

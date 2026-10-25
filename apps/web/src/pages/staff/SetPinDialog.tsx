@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { notify } from '@/lib/notify';
 import { apiErrorMessage } from '@/lib/api-error';
+import { tx } from '@/lib/i18n/tx';
 
 const PIN_RE = /^\d{4,8}$/;
 
@@ -58,7 +59,7 @@ export function SetPinDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>{hasPin ? 'Reset' : 'Set'} POS PIN for {personName}</DialogTitle>
+          <DialogTitle>{hasPin ? 'Reset' : 'Set'} {tx('POS PIN for')} {personName}</DialogTitle>
           <DialogDescription>
             {hasPin
               ? 'The old PIN stops working immediately. Any PIN lockout is cleared.'
@@ -81,7 +82,7 @@ export function SetPinDialog({
           }}
         >
           <div className="grid gap-1.5">
-            <Label htmlFor="new-pin">New PIN</Label>
+            <Label htmlFor="new-pin">{tx('New PIN')}</Label>
             <Input
               id="new-pin"
               type="password"
@@ -91,10 +92,10 @@ export function SetPinDialog({
               onChange={(e) => setPin(digits(e.target.value))}
               autoFocus
             />
-            <p className="text-xs text-muted-foreground">4–8 digits.</p>
+            <p className="text-xs text-muted-foreground">{tx('4–8 digits.')}</p>
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="confirm-pin">Confirm PIN</Label>
+            <Label htmlFor="confirm-pin">{tx('Confirm PIN')}</Label>
             <Input
               id="confirm-pin"
               type="password"
@@ -104,7 +105,7 @@ export function SetPinDialog({
               onChange={(e) => setConfirm(digits(e.target.value))}
             />
             {confirm.length > 0 && !matches && (
-              <p className="text-xs text-rose-700">PINs do not match.</p>
+              <p className="text-xs text-rose-700">{tx('PINs do not match.')}</p>
             )}
           </div>
 
@@ -118,21 +119,21 @@ export function SetPinDialog({
                 onClick={async () => {
                   try {
                     await onClear();
-                    notify.success('PIN removed');
+                    notify.success(tx('PIN removed'));
                     onOpenChange(false);
                   } catch (err) {
                     notify.error(apiErrorMessage(err, 'Could not remove the PIN'));
                   }
                 }}
               >
-                Remove PIN
+                {tx('Remove PIN')}
               </Button>
             ) : (
               <span />
             )}
             <div className="flex gap-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {tx('Cancel')}
               </Button>
               <Button type="submit" disabled={pending || !valid || !matches}>
                 {hasPin ? 'Reset PIN' : 'Set PIN'}

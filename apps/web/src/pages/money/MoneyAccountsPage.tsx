@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { tx } from '@/lib/i18n/tx';
 
 const TYPES = ['cash', 'bank', 'mobile_money', 'petty_cash'] as const;
 type AccountType = typeof TYPES[number];
@@ -43,14 +44,14 @@ function AccountFormDialog({ open, onClose, editing, initialType }: { open: bool
   const saving = create.isPending || update.isPending;
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.code.trim()) { toast.error('Name and code are required'); return; }
+    if (!form.name.trim() || !form.code.trim()) { toast.error(tx('Name and code are required')); return; }
     try {
       if (editing) {
         await update.mutateAsync({ id: editing.id, name: form.name.trim(), bankName: form.bankName.trim() || undefined, accountNumber: form.accountNumber.trim() || undefined, isDefault: form.isDefault });
-        toast.success('Account updated');
+        toast.success(tx('Account updated'));
       } else {
         await create.mutateAsync({ code: form.code.trim(), name: form.name.trim(), accountType: form.type, currencyId: form.currencyId || undefined, bankName: form.bankName.trim() || undefined, accountNumber: form.accountNumber.trim() || undefined, isDefault: form.isDefault });
-        toast.success('Account created');
+        toast.success(tx('Account created'));
       }
       onClose();
     } catch (err) {
@@ -63,34 +64,34 @@ function AccountFormDialog({ open, onClose, editing, initialType }: { open: bool
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{editing ? `Edit ${editing.name}` : 'Add a money account'}</DialogTitle>
-          <DialogDescription>A place where the business holds money: a bank account, mobile-money wallet, safe or petty-cash box. Register drawers are created with their register.</DialogDescription>
+          <DialogDescription>{tx('A place where the business holds money: a bank account, mobile-money wallet, safe or petty-cash box. Register drawers are created with their register.')}</DialogDescription>
         </DialogHeader>
         <form onSubmit={save} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="acct-name">Name</Label>
-            <Input id="acct-name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Stanbic Operations" />
+            <Label htmlFor="acct-name">{tx('Name')}</Label>
+            <Input id="acct-name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={tx('e.g. Stanbic Operations')} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label htmlFor="acct-type">Type</Label>
+              <Label htmlFor="acct-type">{tx('Type')}</Label>
               <select id="acct-type" disabled={!!editing} className="min-h-[40px] w-full rounded-md border bg-background px-3 text-sm disabled:opacity-60" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as AccountType })}>
                 {TYPES.map((t) => <option key={t} value={t}>{accountTypeLabel(t)}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="acct-code">Code</Label>
-              <Input id="acct-code" required disabled={!!editing} className="font-mono" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder="e.g. BANK-02" />
+              <Label htmlFor="acct-code">{tx('Code')}</Label>
+              <Input id="acct-code" required disabled={!!editing} className="font-mono" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} placeholder={tx('e.g. BANK-02')} />
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="acct-currency">Currency</Label>
+            <Label htmlFor="acct-currency">{tx('Currency')}</Label>
             <select id="acct-currency" disabled={!!editing} className="min-h-[40px] w-full rounded-md border bg-background px-3 text-sm disabled:opacity-60" value={form.currencyId} onChange={(e) => setForm({ ...form, currencyId: e.target.value })}>
-              {!base ? <option value="">Organisation currency</option> : null}
+              {!base ? <option value="">{tx('Organisation currency')}</option> : null}
               {(currencies as any[]).map((c) => <option key={c.code} value={c.code}>{c.code} · {c.name}{c.code === base ? ' (base)' : ''}</option>)}
-              {base && !(currencies as any[]).some((c) => c.code === base) ? <option value={base}>{base} (base)</option> : null}
+              {base && !(currencies as any[]).some((c) => c.code === base) ? <option value={base}>{base} {tx('(base)')}</option> : null}
             </select>
             {form.currencyId && base && form.currencyId !== base ? (
-              <p className="text-xs text-amber-700 dark:text-amber-400">POS payments can only use {base} accounts. Balances are still shown in {base}.</p>
+              <p className="text-xs text-amber-700 dark:text-amber-400">{tx('POS payments can only use')} {base} {tx('accounts. Balances are still shown in')} {base}.</p>
             ) : null}
           </div>
           {form.type === 'bank' || form.type === 'mobile_money' ? (
@@ -108,12 +109,12 @@ function AccountFormDialog({ open, onClose, editing, initialType }: { open: bool
           <label className="flex min-h-[44px] items-center gap-3 rounded-lg border p-3 text-sm">
             <input type="checkbox" className="h-4 w-4" checked={form.isDefault} onChange={(e) => setForm({ ...form, isDefault: e.target.checked })} />
             <span>
-              <span className="font-medium">Main {accountTypeLabel(form.type).toLowerCase()} account</span>
-              <span className="block text-xs text-muted-foreground">Suggested first wherever this type of account is chosen.</span>
+              <span className="font-medium">{tx('Main')} {accountTypeLabel(form.type).toLowerCase()} {tx('account')}</span>
+              <span className="block text-xs text-muted-foreground">{tx('Suggested first wherever this type of account is chosen.')}</span>
             </span>
           </label>
           <DialogFooter className="gap-2">
-            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Cancel</Button>
+            <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>{tx('Cancel')}</Button>
             <Button type="submit" disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}{editing ? 'Save changes' : 'Add account'}</Button>
           </DialogFooter>
         </form>
@@ -169,18 +170,18 @@ export function MoneyAccountsPage() {
 
   return (
     <MoneyPage
-      title="Accounts"
-      description="Every place the business holds money, what flows into each one, and its current book balance."
+      title={tx('Accounts')}
+      description={tx('Every place the business holds money, what flows into each one, and its current book balance.')}
       actions={hasPermission(PERMISSIONS.account.create) ? (
-        <Button className="min-h-[44px]" onClick={() => setDialog({ editing: null })}><Plus className="mr-2 h-4 w-4" /> Add account</Button>
+        <Button className="min-h-[44px]" onClick={() => setDialog({ editing: null })}><Plus className="mr-2 h-4 w-4" /> {tx('Add account')}</Button>
       ) : null}
     >
       <div className="flex flex-col gap-3 md:flex-row md:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
-          <Input aria-label="Search accounts" value={q} onChange={(e) => set('q', e.target.value)} placeholder="Search name, code, bank, number, payment method or register…" className="pl-9" />
+          <Input aria-label={tx('Search accounts')} value={q} onChange={(e) => set('q', e.target.value)} placeholder={tx('Search name, code, bank, number, payment method or register…')} className="pl-9" />
         </div>
-        <div className="flex flex-wrap gap-2" role="group" aria-label="Account type">
+        <div className="flex flex-wrap gap-2" role="group" aria-label={tx('Account type')}>
           {(['all', ...GROUPS] as string[]).filter((g) => g === 'all' || totals.has(g)).map((g) => (
             <button
               key={g}
@@ -197,7 +198,7 @@ export function MoneyAccountsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label="Loading" /></div>
+        <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" aria-label={tx('Loading')} /></div>
       ) : isError ? (
         <LoadError message="Accounts could not be loaded." onRetry={() => refetch()} />
       ) : filtered.length === 0 ? (
@@ -215,9 +216,9 @@ export function MoneyAccountsPage() {
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
                   <h2 id={`group-${g}`} className="flex items-center gap-2 text-base font-semibold text-foreground">
                     <AccountTypeIcon type={g} className="h-7 w-7" /> {accountTypeLabel(g)}
-                    <span className="text-xs font-normal text-muted-foreground">{t?.count ?? rows.length} account{(t?.count ?? rows.length) === 1 ? '' : 's'}</span>
+                    <span className="text-xs font-normal text-muted-foreground">{t?.count ?? rows.length} {tx('account')}{(t?.count ?? rows.length) === 1 ? '' : 's'}</span>
                   </h2>
-                  <span className="text-sm text-muted-foreground">Total <MoneyAmount value={t?.balance ?? 0} className="font-semibold text-foreground" /></span>
+                  <span className="text-sm text-muted-foreground">{tx('Total')} <MoneyAmount value={t?.balance ?? 0} className="font-semibold text-foreground" /></span>
                 </div>
                 <ul className="divide-y rounded-xl border bg-card">
                   {rows.map((a) => (
@@ -231,15 +232,15 @@ export function MoneyAccountsPage() {
                         <span className="min-w-0">
                           <span className="flex flex-wrap items-center gap-2">
                             <span className="font-medium text-foreground">{a.name}</span>
-                            {a.isDefault ? <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase">Main</span> : null}
-                            {isDrawer(a) ? <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium"><Lock className="h-3 w-3" aria-hidden /> Shift only</span> : null}
+                            {a.isDefault ? <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase">{tx('Main')}</span> : null}
+                            {isDrawer(a) ? <span className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium"><Lock className="h-3 w-3" aria-hidden /> {tx('Shift only')}</span> : null}
                           </span>
                           <span className="block text-xs text-muted-foreground">
                             {a.code}{a.bankName ? ` · ${a.bankName}` : ''}{a.accountNumber ? ` · ${a.accountNumber}` : ''}{a.currencyCode ? ` · ${a.currencyCode}` : ''}
                           </span>
                           <span className="mt-1 flex flex-wrap gap-1">
-                            {(a.registers ?? []).map((r) => <span key={r.id} className="rounded-full border px-2 py-0.5 text-[11px]">Drawer of {r.name}</span>)}
-                            {(a.posMethods ?? []).filter((m) => m.isActive).map((m) => <span key={m.id} className="rounded-full border px-2 py-0.5 text-[11px]">Receives {m.label}</span>)}
+                            {(a.registers ?? []).map((r) => <span key={r.id} className="rounded-full border px-2 py-0.5 text-[11px]">{tx('Drawer of')} {r.name}</span>)}
+                            {(a.posMethods ?? []).filter((m) => m.isActive).map((m) => <span key={m.id} className="rounded-full border px-2 py-0.5 text-[11px]">{tx('Receives')} {m.label}</span>)}
                           </span>
                         </span>
                       </button>
@@ -248,13 +249,13 @@ export function MoneyAccountsPage() {
                           <MoneyAmount value={a.balance} className={cn('font-semibold', Number(a.balance) < 0 && 'text-destructive')} />
                           <p className="text-[11px] text-muted-foreground">
                             {Number(a.todayIn ?? 0) || Number(a.todayOut ?? 0)
-                              ? <>Today +<MoneyAmount value={a.todayIn} currency="" /> / −<MoneyAmount value={a.todayOut} currency="" /></>
+                              ? <>{tx('Today +')}<MoneyAmount value={a.todayIn} currency="" /> / −<MoneyAmount value={a.todayOut} currency="" /></>
                               : a.lastActivityAt ? `Last activity ${new Date(a.lastActivityAt).toLocaleDateString(undefined, { timeZone })}` : 'No activity yet'}
                           </p>
                         </div>
                         {hasPermission(PERMISSIONS.account.update) ? (
                           <Button variant="outline" size="sm" className="min-h-[44px]" onClick={() => setDialog({ editing: a })}>
-                            <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Edit
+                            <Pencil className="mr-1.5 h-3.5 w-3.5" aria-hidden /> {tx('Edit')}
                           </Button>
                         ) : null}
                       </div>

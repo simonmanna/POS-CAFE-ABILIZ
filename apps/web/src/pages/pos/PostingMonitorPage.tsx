@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 interface InventoryException {
   id: string;
@@ -94,7 +95,7 @@ export function PostingMonitorPage() {
       })).data;
     },
     onSuccess: () => {
-      notify.success('Recorded');
+      notify.success(tx('Recorded'));
       setResolving(null);
       setNote('');
       qc.invalidateQueries({ queryKey: ['posting-monitor'] });
@@ -105,7 +106,7 @@ export function PostingMonitorPage() {
   const retry = useMutation({
     mutationFn: async (id: string) => (await api.post(`/pos/posting-monitor/jobs/${id}/retry`, {})).data,
     onSuccess: () => {
-      notify.success('Re-queued');
+      notify.success(tx('Re-queued'));
       qc.invalidateQueries({ queryKey: ['posting-monitor'] });
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
@@ -120,19 +121,18 @@ export function PostingMonitorPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-semibold">
-            <ListChecks className="h-6 w-6" /> Posting monitor
+            <ListChecks className="h-6 w-6" /> {tx('Posting monitor')}
           </h1>
           <p className="text-muted-foreground">
-            Inventory postings that ran out-of-band after a sale. The sale is never
-            blocked by stock — but nothing drifts silently: failures land here.
+            {tx('Inventory postings that ran out-of-band after a sale. The sale is never blocked by stock — but nothing drifts silently: failures land here.')}
           </p>
         </div>
         <div className="flex gap-2">
           <Button variant={tab === 'exceptions' ? 'default' : 'outline'} size="sm" onClick={() => setTab('exceptions')}>
-            Exceptions{openEx > 0 ? ` (${openEx})` : ''}
+            {tx('Exceptions')}{openEx > 0 ? ` (${openEx})` : ''}
           </Button>
           <Button variant={tab === 'jobs' ? 'default' : 'outline'} size="sm" onClick={() => setTab('jobs')}>
-            Jobs{failedJobs > 0 ? ` (${failedJobs} failed)` : ''}
+            {tx('Jobs')}{failedJobs > 0 ? ` (${failedJobs} failed)` : ''}
           </Button>
         </div>
       </div>
@@ -140,13 +140,13 @@ export function PostingMonitorPage() {
       {tab === 'exceptions' ? (
         <>
           <div className="flex gap-2">
-            <Button variant={exStatus === 'open' ? 'default' : 'outline'} size="sm" onClick={() => setExStatus('open')}>Open</Button>
-            <Button variant={exStatus === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setExStatus('all')}>All</Button>
+            <Button variant={exStatus === 'open' ? 'default' : 'outline'} size="sm" onClick={() => setExStatus('open')}>{tx('Open')}</Button>
+            <Button variant={exStatus === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setExStatus('all')}>{tx('All')}</Button>
           </div>
           {exQ.isLoading ? (
             <Skeleton className="h-32 w-full" />
           ) : (exQ.data ?? []).length === 0 ? (
-            <EmptyState label="No inventory exceptions" hint="Every sale's stock deducted cleanly." />
+            <EmptyState label={tx('No inventory exceptions')} hint="Every sale's stock deducted cleanly." />
           ) : (
             <div className="space-y-3">
               {(exQ.data ?? []).map((ex) => (
@@ -168,7 +168,7 @@ export function PostingMonitorPage() {
                   <CardContent className="space-y-3">
                     {ex.payload && (
                       <details className="text-xs">
-                        <summary className="cursor-pointer text-muted-foreground">Details</summary>
+                        <summary className="cursor-pointer text-muted-foreground">{tx('Details')}</summary>
                         <pre className="mt-2 max-h-48 overflow-auto rounded-md border bg-muted/40 p-2">
                           {JSON.stringify(ex.payload, null, 2)}
                         </pre>
@@ -177,10 +177,10 @@ export function PostingMonitorPage() {
                     {ex.status === 'open' ? (
                       <div className="flex justify-end gap-2">
                         <Button size="sm" variant="outline" onClick={() => { setResolving({ ex, action: 'resolved' }); setNote(''); }}>
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Mark corrected
+                          <CheckCircle2 className="h-3.5 w-3.5" /> {tx('Mark corrected')}
                         </Button>
                         <Button size="sm" variant="ghost" className="text-rose-400" onClick={() => { setResolving({ ex, action: 'discarded' }); setNote(''); }}>
-                          <Trash2 className="h-3.5 w-3.5" /> Discard
+                          <Trash2 className="h-3.5 w-3.5" /> {tx('Discard')}
                         </Button>
                       </div>
                     ) : (
@@ -199,13 +199,13 @@ export function PostingMonitorPage() {
       ) : (
         <>
           <div className="flex gap-2">
-            <Button variant={jobStatus === 'failed' ? 'default' : 'outline'} size="sm" onClick={() => setJobStatus('failed')}>Failed</Button>
-            <Button variant={jobStatus === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setJobStatus('all')}>All</Button>
+            <Button variant={jobStatus === 'failed' ? 'default' : 'outline'} size="sm" onClick={() => setJobStatus('failed')}>{tx('Failed')}</Button>
+            <Button variant={jobStatus === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setJobStatus('all')}>{tx('All')}</Button>
           </div>
           {jobsQ.isLoading ? (
             <Skeleton className="h-32 w-full" />
           ) : (jobsQ.data ?? []).length === 0 ? (
-            <EmptyState label="No jobs" hint="Nothing pending or failed in the inventory-posting queue." />
+            <EmptyState label={tx('No jobs')} hint="Nothing pending or failed in the inventory-posting queue." />
           ) : (
             <div className="space-y-3">
               {(jobsQ.data ?? []).map((job) => (
@@ -215,7 +215,7 @@ export function PostingMonitorPage() {
                       <CardTitle className="flex items-center gap-2 text-base">
                         <StatusDot status={job.status} />
                         <code className="font-mono text-sm">{job.invoiceNumber}</code>
-                        <span className="text-xs text-muted-foreground">attempt {job.attempts}/{job.maxAttempts}</span>
+                        <span className="text-xs text-muted-foreground">{tx('attempt')} {job.attempts}/{job.maxAttempts}</span>
                       </CardTitle>
                       <span className="text-xs text-muted-foreground">{new Date(job.createdAt).toLocaleString()}</span>
                     </div>
@@ -224,7 +224,7 @@ export function PostingMonitorPage() {
                   {job.status === 'failed' && (
                     <CardContent className="flex justify-end">
                       <Button size="sm" variant="outline" disabled={retry.isPending} onClick={() => retry.mutate(job.id)}>
-                        {retry.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Retry
+                        {retry.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} {tx('Retry')}
                       </Button>
                     </CardContent>
                   )}
@@ -246,7 +246,7 @@ export function PostingMonitorPage() {
               : 'Use this only if the line must never deduct — a test, a duplicate, or an untracked item.'}
           </p>
           <div className="grid gap-1.5">
-            <Label htmlFor="ex-note">What happened? (recorded in the audit log)</Label>
+            <Label htmlFor="ex-note">{tx('What happened? (recorded in the audit log)')}</Label>
             <Input
               id="ex-note"
               value={note}
@@ -255,14 +255,14 @@ export function PostingMonitorPage() {
             />
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setResolving(null)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setResolving(null)}>{tx('Cancel')}</Button>
             <Button
               variant={resolving?.action === 'discarded' ? 'destructive' : 'default'}
               disabled={!note.trim() || resolve.isPending}
               onClick={() => resolve.mutate()}
             >
               {resolve.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Confirm
+              {tx('Confirm')}
             </Button>
           </div>
         </DialogContent>

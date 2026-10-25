@@ -22,6 +22,7 @@ import {
   useJournals,
   type DetailedReportAccount,
 } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 const ANY = '__any__';
 
@@ -165,9 +166,9 @@ export function DetailedAccountingReportPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="border-l-4 border-[#3b82f6] pl-4 space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Detailed Accounting Report</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">{tx('Detailed Accounting Report')}</h1>
           <p className="text-sm text-gray-500">
-            Opening balance, every posted transaction and the closing balance, per account.
+            {tx('Opening balance, every posted transaction and the closing balance, per account.')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -184,19 +185,19 @@ export function DetailedAccountingReportPage() {
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/30 p-3">
         <div className="space-y-1">
-          <Label className="text-xs">From</Label>
+          <Label className="text-xs">{tx('From')}</Label>
           <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-[150px]" />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">To</Label>
+          <Label className="text-xs">{tx('To')}</Label>
           <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-[150px]" />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Classification</Label>
+          <Label className="text-xs">{tx('Classification')}</Label>
           <Select value={classification} onValueChange={setClassification}>
             <SelectTrigger className="w-[160px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value={ANY}>All</SelectItem>
+              <SelectItem value={ANY}>{tx('All')}</SelectItem>
               {CLASSIFICATIONS.map((c) => (
                 <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
               ))}
@@ -204,11 +205,11 @@ export function DetailedAccountingReportPage() {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Branch</Label>
+          <Label className="text-xs">{tx('Branch')}</Label>
           <Select value={branchId} onValueChange={setBranchId}>
             <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value={ANY}>All branches</SelectItem>
+              <SelectItem value={ANY}>{tx('All branches')}</SelectItem>
               {(branches.data?.data ?? []).map((b: any) => (
                 <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
               ))}
@@ -216,11 +217,11 @@ export function DetailedAccountingReportPage() {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Cost Center</Label>
+          <Label className="text-xs">{tx('Cost Center')}</Label>
           <Select value={costCenterId} onValueChange={setCostCenterId}>
             <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value={ANY}>All cost centers</SelectItem>
+              <SelectItem value={ANY}>{tx('All cost centers')}</SelectItem>
               {(costCenters.data?.data ?? []).map((c: any) => (
                 <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
               ))}
@@ -228,11 +229,11 @@ export function DetailedAccountingReportPage() {
           </Select>
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Journal</Label>
+          <Label className="text-xs">{tx('Journal')}</Label>
           <Select value={journalId} onValueChange={setJournalId}>
             <SelectTrigger className="w-[170px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value={ANY}>All journals</SelectItem>
+              <SelectItem value={ANY}>{tx('All journals')}</SelectItem>
               {(journals.data?.data ?? []).map((j: any) => (
                 <SelectItem key={j.id} value={j.id}>{j.code} — {j.name}</SelectItem>
               ))}
@@ -241,15 +242,15 @@ export function DetailedAccountingReportPage() {
         </div>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <input type="checkbox" checked={includeZero} onChange={(e) => setIncludeZero(e.target.checked)} />
-          Include zero-activity accounts
+          {tx('Include zero-activity accounts')}
         </label>
         <label className="flex items-center gap-2 text-xs text-muted-foreground">
           <input type="checkbox" checked={summaryOnly} onChange={(e) => setSummaryOnly(e.target.checked)} />
-          Summary only
+          {tx('Summary only')}
         </label>
         <div className="ml-auto flex gap-2">
-          <Button size="sm" variant="ghost" onClick={expandAll} disabled={summaryOnly || !data}>Expand all</Button>
-          <Button size="sm" variant="ghost" onClick={collapseAll} disabled={!data}>Collapse all</Button>
+          <Button size="sm" variant="ghost" onClick={expandAll} disabled={summaryOnly || !data}>{tx('Expand all')}</Button>
+          <Button size="sm" variant="ghost" onClick={collapseAll} disabled={!data}>{tx('Collapse all')}</Button>
         </div>
       </div>
 
@@ -257,9 +258,8 @@ export function DetailedAccountingReportPage() {
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
           <AlertTriangle className="h-4 w-4 shrink-0" />
           <span>
-            {data.totals.lineCount.toLocaleString()} lines match this period but only the first{' '}
-            {data.maxLines.toLocaleString()} are shown. Account totals below remain complete — narrow
-            the date range or filter by account to see every line.
+            {data.totals.lineCount.toLocaleString()} {tx('lines match this period but only the first')}{' '}
+            {data.maxLines.toLocaleString()} {tx('are shown. Account totals below remain complete — narrow the date range or filter by account to see every line.')}
           </span>
         </div>
       )}
@@ -285,12 +285,12 @@ export function DetailedAccountingReportPage() {
           <TableHeader>
             <TableRow>
               <TableHead className="w-8" />
-              <TableHead className="w-24">Code</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead className="text-right">Opening</TableHead>
-              <TableHead className="text-right">Debit</TableHead>
-              <TableHead className="text-right">Credit</TableHead>
-              <TableHead className="text-right">Closing</TableHead>
+              <TableHead className="w-24">{tx('Code')}</TableHead>
+              <TableHead>{tx('Account')}</TableHead>
+              <TableHead className="text-right">{tx('Opening')}</TableHead>
+              <TableHead className="text-right">{tx('Debit')}</TableHead>
+              <TableHead className="text-right">{tx('Credit')}</TableHead>
+              <TableHead className="text-right">{tx('Closing')}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -303,7 +303,7 @@ export function DetailedAccountingReportPage() {
             ) : !data || data.accounts.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
-                  No posted activity in this period.
+                  {tx('No posted activity in this period.')}
                 </TableCell>
               </TableRow>
             ) : (
@@ -331,7 +331,7 @@ export function DetailedAccountingReportPage() {
                             {account.name}
                             {account.lineCount > 0 && (
                               <span className="ml-2 text-xs text-muted-foreground">
-                                {account.lineCount} line{account.lineCount === 1 ? '' : 's'}
+                                {account.lineCount} {tx('line')}{account.lineCount === 1 ? '' : 's'}
                               </span>
                             )}
                           </TableCell>
@@ -350,14 +350,14 @@ export function DetailedAccountingReportPage() {
                               <Table>
                                 <TableHeader>
                                   <TableRow>
-                                    <TableHead className="w-28 text-xs">Date</TableHead>
-                                    <TableHead className="w-40 text-xs">Entry</TableHead>
-                                    <TableHead className="w-24 text-xs">Journal</TableHead>
-                                    <TableHead className="text-xs">Description</TableHead>
-                                    <TableHead className="w-36 text-xs">Partner</TableHead>
-                                    <TableHead className="w-28 text-right text-xs">Debit</TableHead>
-                                    <TableHead className="w-28 text-right text-xs">Credit</TableHead>
-                                    <TableHead className="w-32 text-right text-xs">Balance</TableHead>
+                                    <TableHead className="w-28 text-xs">{tx('Date')}</TableHead>
+                                    <TableHead className="w-40 text-xs">{tx('Entry')}</TableHead>
+                                    <TableHead className="w-24 text-xs">{tx('Journal')}</TableHead>
+                                    <TableHead className="text-xs">{tx('Description')}</TableHead>
+                                    <TableHead className="w-36 text-xs">{tx('Partner')}</TableHead>
+                                    <TableHead className="w-28 text-right text-xs">{tx('Debit')}</TableHead>
+                                    <TableHead className="w-28 text-right text-xs">{tx('Credit')}</TableHead>
+                                    <TableHead className="w-32 text-right text-xs">{tx('Balance')}</TableHead>
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -397,7 +397,7 @@ export function DetailedAccountingReportPage() {
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Posted and reversed entries only; drafts are excluded.
+        {tx('Posted and reversed entries only; drafts are excluded.')}
         {isFetching && ' Refreshing…'}
       </p>
     </div>

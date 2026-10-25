@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useVerifyOverride } from './api';
+import { tx } from '@/lib/i18n/tx';
 
 export interface OverrideResult {
   managerId: string;
@@ -75,18 +76,18 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
             {title ?? `Manager override required`}
           </DialogTitle>
           <DialogDescription>
-            To {KIND_LABEL[kind]}, please verify with a manager.
+            {tx('To')} {KIND_LABEL[kind]}{tx(', please verify with a manager.')}
           </DialogDescription>
         </DialogHeader>
 
         {usePassword && (
           <div>
-            <Label>Manager email</Label>
+            <Label>{tx('Manager email')}</Label>
             <Input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="manager@cafe.com"
+              placeholder={tx('manager@cafe.com')}
             />
           </div>
         )}
@@ -94,7 +95,7 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
         {!usePassword ? (
           <div>
             <Label className="flex items-center gap-1">
-              <KeyRound className="h-3 w-3" /> Manager PIN (4–8 digits)
+              <KeyRound className="h-3 w-3" /> {tx('Manager PIN (4–8 digits)')}
             </Label>
             <Input
               type="password"
@@ -110,12 +111,12 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
               onClick={() => setUsePassword(true)}
               className="text-[11px] text-blue-600 hover:underline mt-1"
             >
-              Use manager password instead
+              {tx('Use manager password instead')}
             </button>
           </div>
         ) : (
           <div>
-            <Label>Manager password</Label>
+            <Label>{tx('Manager password')}</Label>
             <Input
               type="password"
               value={password}
@@ -128,7 +129,7 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
               onClick={() => setUsePassword(false)}
               className="text-[11px] text-blue-600 hover:underline mt-1"
             >
-              Use PIN instead
+              {tx('Use PIN instead')}
             </button>
           </div>
         )}
@@ -137,7 +138,7 @@ export const OverrideDialog: React.FC<Props> = ({ open, kind, title, onClose, on
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onVerified(null)}>
-            <X className="h-4 w-4 mr-1" /> Cancel
+            <X className="h-4 w-4 mr-1" /> {tx('Cancel')}
           </Button>
           <Button onClick={submit} disabled={verify.isPending} style={{ background: '#f59e0b' }}>
             {verify.isPending ? 'Verifying…' : 'Verify'}

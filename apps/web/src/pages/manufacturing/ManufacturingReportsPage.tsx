@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useReport } from '@/features/manufacturing/api';
+import { tx } from '@/lib/i18n/tx';
 
 export function ManufacturingReportsPage() {
   const wip = useReport('wip-reconciliation');
@@ -14,41 +15,41 @@ export function ManufacturingReportsPage() {
   return (
     <div className="space-y-6 p-6">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-semibold"><BarChart3 className="h-6 w-6" /> Manufacturing Reports</h1>
-        <p className="text-sm text-muted-foreground">Costing controls and production analytics.</p>
+        <h1 className="flex items-center gap-2 text-2xl font-semibold"><BarChart3 className="h-6 w-6" /> {tx('Manufacturing Reports')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('Costing controls and production analytics.')}</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2">WIP Reconciliation
+          <CardHeader><CardTitle className="flex items-center gap-2">{tx('WIP Reconciliation')}
             {wip.data && (wip.data.balanced
-              ? <Badge variant="default"><CheckCircle2 className="mr-1 h-3 w-3" /> Balanced</Badge>
-              : <Badge variant="destructive"><AlertTriangle className="mr-1 h-3 w-3" /> Drift</Badge>)}
+              ? <Badge variant="default"><CheckCircle2 className="mr-1 h-3 w-3" /> {tx('Balanced')}</Badge>
+              : <Badge variant="destructive"><AlertTriangle className="mr-1 h-3 w-3" /> {tx('Drift')}</Badge>)}
           </CardTitle></CardHeader>
           <CardContent className="space-y-1 text-sm">
-            <Row label="GL WIP balance" value={wip.data?.glBalance} />
-            <Row label="Open orders' WIP" value={wip.data?.openOrdersWip} />
-            <Row label="Drift" value={wip.data?.drift} />
+            <Row label={tx('GL WIP balance')} value={wip.data?.glBalance} />
+            <Row label={tx('Open orders\' WIP')} value={wip.data?.openOrdersWip} />
+            <Row label={tx('Drift')} value={wip.data?.drift} />
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>KPIs</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{tx('KPIs')}</CardTitle></CardHeader>
           <CardContent className="space-y-1 text-sm">
-            <Row label="Completed orders" value={kpis.data?.orders} />
-            <Row label="Yield %" value={kpis.data?.yieldPct} />
-            <Row label="Waste %" value={kpis.data?.wastePct} />
-            <Row label="Avg cost / batch" value={kpis.data?.avgCostPerBatch} />
+            <Row label={tx('Completed orders')} value={kpis.data?.orders} />
+            <Row label={tx('Yield %')} value={kpis.data?.yieldPct} />
+            <Row label={tx('Waste %')} value={kpis.data?.wastePct} />
+            <Row label={tx('Avg cost / batch')} value={kpis.data?.avgCostPerBatch} />
           </CardContent>
         </Card>
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Production trends</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{tx('Production trends')}</CardTitle></CardHeader>
         <CardContent>
-          {!trends.data?.length ? <p className="text-sm text-muted-foreground">No completed orders yet.</p> : (
+          {!trends.data?.length ? <p className="text-sm text-muted-foreground">{tx('No completed orders yet.')}</p> : (
             <Table>
-              <TableHeader><TableRow><TableHead>Date</TableHead><TableHead className="text-right">Orders</TableHead><TableHead className="text-right">Produced</TableHead><TableHead className="text-right">Cost</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>{tx('Date')}</TableHead><TableHead className="text-right">{tx('Orders')}</TableHead><TableHead className="text-right">{tx('Produced')}</TableHead><TableHead className="text-right">{tx('Cost')}</TableHead></TableRow></TableHeader>
               <TableBody>
                 {trends.data.map((t: any) => (
                   <TableRow key={t.date}>
@@ -65,11 +66,11 @@ export function ManufacturingReportsPage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Ingredient usage</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{tx('Ingredient usage')}</CardTitle></CardHeader>
         <CardContent>
-          {!usage.data?.length ? <p className="text-sm text-muted-foreground">Nothing consumed yet.</p> : (
+          {!usage.data?.length ? <p className="text-sm text-muted-foreground">{tx('Nothing consumed yet.')}</p> : (
             <Table>
-              <TableHeader><TableRow><TableHead>Ingredient</TableHead><TableHead className="text-right">Qty consumed</TableHead><TableHead className="text-right">Cost</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>{tx('Ingredient')}</TableHead><TableHead className="text-right">{tx('Qty consumed')}</TableHead><TableHead className="text-right">{tx('Cost')}</TableHead></TableRow></TableHeader>
               <TableBody>
                 {usage.data.map((u: any) => (
                   <TableRow key={u.productId}>
@@ -86,10 +87,10 @@ export function ManufacturingReportsPage() {
 
       {!!capacity.data?.length && (
         <Card>
-          <CardHeader><CardTitle>Work-centre capacity</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{tx('Work-centre capacity')}</CardTitle></CardHeader>
           <CardContent>
             <Table>
-              <TableHeader><TableRow><TableHead>Work centre</TableHead><TableHead className="text-right">Load (min)</TableHead><TableHead className="text-right">Capacity/day</TableHead><TableHead className="text-right">Utilisation</TableHead></TableRow></TableHeader>
+              <TableHeader><TableRow><TableHead>{tx('Work centre')}</TableHead><TableHead className="text-right">{tx('Load (min)')}</TableHead><TableHead className="text-right">{tx('Capacity/day')}</TableHead><TableHead className="text-right">{tx('Utilisation')}</TableHead></TableRow></TableHeader>
               <TableBody>
                 {capacity.data.map((c: any) => (
                   <TableRow key={c.workCenterId}>

@@ -4,6 +4,7 @@ import { ArrowRight, ChevronDown, ChevronRight, ExternalLink } from 'lucide-reac
 import type { MoneyActivity } from '@/features/money/api';
 import { cn } from '@/lib/utils';
 import { CategoryBadge, DirectionLabel, MoneyAmount, useOrgTimezone } from './money-ui';
+import { tx } from '@/lib/i18n/tx';
 
 /** Where the source document behind an activity lives, when the app has a page for it. */
 export function sourceHref(a: Pick<MoneyActivity, 'sourceType' | 'sourceId' | 'register' | 'journalEntryId'>): { href: string; label: string } | null {
@@ -70,7 +71,7 @@ function legSummary(a: MoneyActivity) {
   }
   const legs = ins.length ? ins : outs;
   if (legs.length === 1) return <span>{ins.length ? 'Into' : 'From'} {legs[0].accountName}</span>;
-  return <span>{ins.length ? 'Into' : 'From'} {legs.length} accounts</span>;
+  return <span>{ins.length ? 'Into' : 'From'} {legs.length} {tx('accounts')}</span>;
 }
 
 /** What an activity moved, and where to trace it. Shared by the table row and the phone card. */
@@ -80,7 +81,7 @@ function ActivityDetails({ a }: { a: MoneyActivity }) {
   return (
     <div className="grid gap-3 md:grid-cols-[1fr_auto]">
       <div>
-        <p className="mb-1 text-xs font-medium text-muted-foreground">Account movements</p>
+        <p className="mb-1 text-xs font-medium text-muted-foreground">{tx('Account movements')}</p>
         <ul className="divide-y divide-border/60 md:space-y-1 md:divide-y-0">
           {a.legs.map((l) => (
             <li key={l.accountId} className="flex items-center justify-between gap-4 py-2 text-sm md:py-0 md:text-xs">
@@ -91,21 +92,21 @@ function ActivityDetails({ a }: { a: MoneyActivity }) {
         </ul>
         {Number(a.internalMoved) > 0 && (Number(a.externalIn) > 0 || Number(a.externalOut) > 0) ? (
           <p className="mt-2 text-xs text-muted-foreground">
-            Moved between your accounts: <MoneyAmount value={a.internalMoved} currency={a.currencyCode} />.{' '}
-            {Number(a.externalOut) > 0 ? <>Left the business (e.g. fees): <MoneyAmount value={a.externalOut} currency={a.currencyCode} />.</> : null}
-            {Number(a.externalIn) > 0 ? <>Came into the business: <MoneyAmount value={a.externalIn} currency={a.currencyCode} />.</> : null}
+            {tx('Moved between your accounts:')} <MoneyAmount value={a.internalMoved} currency={a.currencyCode} />.{' '}
+            {Number(a.externalOut) > 0 ? <>{tx('Left the business (e.g. fees):')} <MoneyAmount value={a.externalOut} currency={a.currencyCode} />.</> : null}
+            {Number(a.externalIn) > 0 ? <>{tx('Came into the business:')} <MoneyAmount value={a.externalIn} currency={a.currencyCode} />.</> : null}
           </p>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-x-4 text-xs md:flex-col md:items-end md:gap-1">
-        <span className="w-full text-muted-foreground md:w-auto">Entry {a.entryNumber}</span>
+        <span className="w-full text-muted-foreground md:w-auto">{tx('Entry')} {a.entryNumber}</span>
         {src ? (
           <Link to={src.href} className={linkClass}>
             {src.label} <ExternalLink className="h-3 w-3" aria-hidden />
           </Link>
         ) : null}
         <Link to={`/journal-entries/${a.journalEntryId}`} className={linkClass}>
-          Journal entry <ExternalLink className="h-3 w-3" aria-hidden />
+          {tx('Journal entry')} <ExternalLink className="h-3 w-3" aria-hidden />
         </Link>
       </div>
     </div>
@@ -124,7 +125,7 @@ export function MoneyActivityList({ rows, emptyText = 'No money activity for the
   return (
     <>
       {/* Phones: one stacked card per activity, the whole card is the tap target. */}
-      <ul className="divide-y rounded-xl border bg-card md:hidden" aria-label="Money activity">
+      <ul className="divide-y rounded-xl border bg-card md:hidden" aria-label={tx('Money activity')}>
         {rows.map((a) => {
           const isOpen = open.has(a.id);
           const t = time(a.occurredAt, timeZone);
@@ -141,7 +142,7 @@ export function MoneyActivityList({ rows, emptyText = 'No money activity for the
                 <span className="min-w-0 flex-1 space-y-1">
                   <span className="flex flex-wrap items-center gap-1.5">
                     <CategoryBadge category={a.category} label={a.categoryLabel} />
-                    {reversed ? <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">Reversed</span> : null}
+                    {reversed ? <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">{tx('Reversed')}</span> : null}
                   </span>
                   <span className={cn('block truncate text-sm text-foreground', reversed && 'line-through')}>{a.description || a.entryNumber}</span>
                   <span className="block truncate text-xs text-muted-foreground">
@@ -156,7 +157,7 @@ export function MoneyActivityList({ rows, emptyText = 'No money activity for the
               </button>
               {isOpen ? (
                 <div className="border-t bg-muted/30 px-3 py-3">
-                  {a.register ? <p className="mb-2 text-xs text-muted-foreground">Register: {a.register.name}</p> : null}
+                  {a.register ? <p className="mb-2 text-xs text-muted-foreground">{tx('Register:')} {a.register.name}</p> : null}
                   <ActivityDetails a={a} />
                 </div>
               ) : null}
@@ -170,11 +171,11 @@ export function MoneyActivityList({ rows, emptyText = 'No money activity for the
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-left text-xs text-muted-foreground">
-              <th className="w-12 px-1 py-2"><span className="sr-only">Details</span></th>
-              <th className="px-2 py-2 font-medium">When</th>
-              <th className="px-2 py-2 font-medium">What happened</th>
-              <th className="px-2 py-2 font-medium">Accounts</th>
-              <th className="px-3 py-2 text-right font-medium">Amount</th>
+              <th className="w-12 px-1 py-2"><span className="sr-only">{tx('Details')}</span></th>
+              <th className="px-2 py-2 font-medium">{tx('When')}</th>
+              <th className="px-2 py-2 font-medium">{tx('What happened')}</th>
+              <th className="px-2 py-2 font-medium">{tx('Accounts')}</th>
+              <th className="px-3 py-2 text-right font-medium">{tx('Amount')}</th>
             </tr>
           </thead>
           <tbody>
@@ -204,7 +205,7 @@ export function MoneyActivityList({ rows, emptyText = 'No money activity for the
                     <td className="px-2 py-2.5 align-top">
                       <div className="flex flex-wrap items-center gap-2">
                         <CategoryBadge category={a.category} label={a.categoryLabel} />
-                        {reversed ? <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">Reversed</span> : null}
+                        {reversed ? <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">{tx('Reversed')}</span> : null}
                       </div>
                       <div className={cn('mt-1 max-w-[340px] truncate text-xs text-muted-foreground', reversed && 'line-through')} title={a.description ?? undefined}>
                         {a.description || a.entryNumber}
@@ -212,7 +213,7 @@ export function MoneyActivityList({ rows, emptyText = 'No money activity for the
                     </td>
                     <td className="px-2 py-2.5 align-top text-xs text-foreground">
                       {legSummary(a)}
-                      {a.register ? <div className="text-muted-foreground">Register: {a.register.name}</div> : null}
+                      {a.register ? <div className="text-muted-foreground">{tx('Register:')} {a.register.name}</div> : null}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right align-top">
                       <MoneyAmount value={amt.value} currency={a.currencyCode} sign={amt.sign} className={amountTone(a)} />

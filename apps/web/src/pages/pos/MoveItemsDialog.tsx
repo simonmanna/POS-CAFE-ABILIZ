@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { useTables } from '@/features/tables/api';
 import type { CartLine } from '@/features/pos/types';
 import type { PosTable } from '@/features/tables/types';
+import { tx } from '@/lib/i18n/tx';
 
 interface Props {
   open: boolean;
@@ -125,7 +126,7 @@ export const MoveItemsDialog: React.FC<Props> = ({
           <>
             <div className="p-4 space-y-2 max-h-[50vh] overflow-y-auto">
               {lines.length === 0 ? (
-                <div className="text-center text-slate-400 py-8">Cart is empty</div>
+                <div className="text-center text-slate-400 py-8">{tx('Cart is empty')}</div>
               ) : (
                 <>
                   {lines.length > 1 && (
@@ -201,14 +202,14 @@ export const MoveItemsDialog: React.FC<Props> = ({
 
             <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 gap-2">
               <Button variant="ghost" onClick={onClose}>
-                <X className="h-4 w-4 mr-1" /> Cancel
+                <X className="h-4 w-4 mr-1" /> {tx('Cancel')}
               </Button>
               <Button
                 onClick={() => setStep(2)}
                 disabled={!canAdvance}
                 className="bg-pink-600 hover:bg-pink-700 text-white"
               >
-                Next → <ArrowRightLeft className="h-4 w-4 ml-1" />
+                {tx('Next →')} <ArrowRightLeft className="h-4 w-4 ml-1" />
               </Button>
             </DialogFooter>
           </>
@@ -221,14 +222,14 @@ export const MoveItemsDialog: React.FC<Props> = ({
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search table…"
+                placeholder={tx('Search table…')}
                 className="h-9 text-sm"
               />
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[44vh] overflow-y-auto">
                 {tblLoading ? (
-                  <div className="col-span-full text-center text-slate-400 py-8">Loading tables…</div>
+                  <div className="col-span-full text-center text-slate-400 py-8">{tx('Loading tables…')}</div>
                 ) : candidates.length === 0 ? (
-                  <div className="col-span-full text-center text-slate-400 py-8">No eligible tables</div>
+                  <div className="col-span-full text-center text-slate-400 py-8">{tx('No eligible tables')}</div>
                 ) : (
                   candidates.map((t) => (
                     <button
@@ -257,7 +258,7 @@ export const MoveItemsDialog: React.FC<Props> = ({
 
             <DialogFooter className="border-t border-slate-200 p-3 bg-slate-50 gap-2">
               <Button variant="ghost" onClick={() => setStep(1)}>
-                ← Back
+                {tx('← Back')}
               </Button>
               <Button
                 onClick={confirm}

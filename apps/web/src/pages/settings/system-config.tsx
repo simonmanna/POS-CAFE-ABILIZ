@@ -12,6 +12,7 @@ import {
 import { api } from '@/lib/api';
 import { usePosSettings, useUpdatePosSettings } from '@/features/pos/api';
 import { notify } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 /**
  * Registry-driven configuration, rendered from GET /settings/effective. Each row
@@ -50,10 +51,10 @@ function SettingRow({
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{s.label}</span>
           {s.source === 'default' && (
-            <Badge variant="outline" className="text-[10px]">default</Badge>
+            <Badge variant="outline" className="text-[10px]">{tx('default')}</Badge>
           )}
           {s.cascades && (
-            <Badge variant="secondary" className="text-[10px]">cascades</Badge>
+            <Badge variant="secondary" className="text-[10px]">{tx('cascades')}</Badge>
           )}
         </div>
         {s.description && <p className="text-xs text-muted-foreground">{s.description}</p>}
@@ -156,7 +157,7 @@ export function GroupCard({
         {q.isLoading ? (
           <Skeleton className="h-40 w-full" />
         ) : (q.data?.length ?? 0) === 0 ? (
-          <p className="py-6 text-sm text-muted-foreground">No configurable settings here yet.</p>
+          <p className="py-6 text-sm text-muted-foreground">{tx('No configurable settings here yet.')}</p>
         ) : (
           <div className="divide-y">
             {q.data?.map((s) => (
@@ -169,7 +170,7 @@ export function GroupCard({
                 ) : (
                   <Save className="mr-2 h-4 w-4" />
                 )}
-                Save{dirty.size > 0 ? ` (${dirty.size})` : ''}
+                {tx('Save')}{dirty.size > 0 ? ` (${dirty.size})` : ''}
               </Button>
             </div>
           </div>
@@ -214,8 +215,8 @@ function ConnectionModeCard() {
         <div className="flex items-center gap-2">
           <Network className="h-4 w-4 text-muted-foreground" />
           <div>
-            <CardTitle>System Connection Mode</CardTitle>
-            <CardDescription>Is this system online (networked) or offline (runs only on this PC)?</CardDescription>
+            <CardTitle>{tx('System Connection Mode')}</CardTitle>
+            <CardDescription>{tx('Is this system online (networked) or offline (runs only on this PC)?')}</CardDescription>
           </div>
         </div>
       </CardHeader>
@@ -232,8 +233,8 @@ function ConnectionModeCard() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="offline">Offline (this PC only)</SelectItem>
-                    <SelectItem value="online">Online (check connection)</SelectItem>
+                    <SelectItem value="offline">{tx('Offline (this PC only)')}</SelectItem>
+                    <SelectItem value="online">{tx('Online (check connection)')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -244,7 +245,7 @@ function ConnectionModeCard() {
               ) : (
                 <Save className="mr-2 h-4 w-4" />
               )}
-              Save
+              {tx('Save')}
             </Button>
           </div>
         )}
@@ -259,14 +260,14 @@ export function SystemConfigSection() {
       <ConnectionModeCard />
       <GroupCard
         group="inventory"
-        title="Inventory Configuration"
-        description="Org-level defaults. Cascading settings can also be overridden per warehouse, category, or product."
+        title={tx('Inventory Configuration')}
+        description={tx('Org-level defaults. Cascading settings can also be overridden per warehouse, category, or product.')}
         icon={<SlidersHorizontal className="h-4 w-4 text-muted-foreground" />}
       />
       <GroupCard
         group="accounting"
-        title="Accounting Configuration"
-        description="Organization-wide accounting behaviour."
+        title={tx('Accounting Configuration')}
+        description={tx('Organization-wide accounting behaviour.')}
         icon={<Landmark className="h-4 w-4 text-muted-foreground" />}
       />
     </>

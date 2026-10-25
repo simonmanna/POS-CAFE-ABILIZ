@@ -18,6 +18,7 @@ import { useAuthStore } from '@/stores/auth.store';
 import { SystemConfigSection, GroupCard } from './system-config';
 import TaxesPage from '@/pages/accounting/taxes';
 import { CurrencyPage } from '@/pages/accounting/currency';
+import { tx } from '@/lib/i18n/tx';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -133,9 +134,9 @@ function AccountField({ label, description, value, accounts, onChange }: {
       <label className="text-sm font-medium">{label}</label>
       <p className="text-xs text-muted-foreground">{description}</p>
       <Select value={value ?? ''} onValueChange={onChange}>
-        <SelectTrigger><SelectValue placeholder="Select account..." /></SelectTrigger>
+        <SelectTrigger><SelectValue placeholder={tx('Select account...')} /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="">— None —</SelectItem>
+          <SelectItem value="">{tx('— None —')}</SelectItem>
           {accounts.map((a) => (
             <SelectItem key={a.id} value={a.id}>{a.code} — {a.name}</SelectItem>
           ))}
@@ -157,9 +158,9 @@ function JournalField({ label, description, value, journals, onChange }: {
       <label className="text-sm font-medium">{label}</label>
       <p className="text-xs text-muted-foreground">{description}</p>
       <Select value={value ?? ''} onValueChange={onChange}>
-        <SelectTrigger><SelectValue placeholder="Select journal..." /></SelectTrigger>
+        <SelectTrigger><SelectValue placeholder={tx('Select journal...')} /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="">— None —</SelectItem>
+          <SelectItem value="">{tx('— None —')}</SelectItem>
           {journals.map((j) => (
             <SelectItem key={j.id} value={j.id}>{j.code} — {j.name}</SelectItem>
           ))}
@@ -209,7 +210,7 @@ function DocumentConfigSection() {
     mutationFn: async ({ code, isActive }: { code: string; isActive: boolean }) =>
       (await api.patch(`/documents/types/${code}`, { isActive })).data,
     onSuccess: () => {
-      notify.success('Document type updated');
+      notify.success(tx('Document type updated'));
       qc.invalidateQueries({ queryKey: ['document-types'] });
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
@@ -223,10 +224,9 @@ function DocumentConfigSection() {
         <div className="flex items-center gap-2">
           <FileText className="h-4 w-4 text-muted-foreground" />
           <div>
-            <CardTitle>Document Types & Numbering</CardTitle>
+            <CardTitle>{tx('Document Types & Numbering')}</CardTitle>
             <CardDescription>
-              Document types registered for this organization, their number sequences, and how they behave.
-              Toggle a type to enable/disable it org-wide.
+              {tx('Document types registered for this organization, their number sequences, and how they behave. Toggle a type to enable/disable it org-wide.')}
             </CardDescription>
           </div>
         </div>
@@ -235,7 +235,7 @@ function DocumentConfigSection() {
         {isLoading ? (
           <Skeleton className="h-40 w-full" />
         ) : types.length === 0 ? (
-          <p className="py-6 text-sm text-muted-foreground">No document types configured.</p>
+          <p className="py-6 text-sm text-muted-foreground">{tx('No document types configured.')}</p>
         ) : (
           <div className="divide-y">
             {types.map((t) => (
@@ -248,18 +248,18 @@ function DocumentConfigSection() {
                   </div>
                   <p className="text-xs text-muted-foreground">{t.description ?? '—'}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                    <span>Category: <span className="font-medium text-foreground">{t.category}</span></span>
+                    <span>{tx('Category:')} <span className="font-medium text-foreground">{t.category}</span></span>
                     <span className="text-muted-foreground/50">·</span>
-                    <span>Sequence: <span className="font-mono">{t.numberingPrefix ?? ''}{'{'}1→{t.numberingPadding}{'}'}</span></span>
+                    <span>{tx('Sequence:')} <span className="font-mono">{t.numberingPrefix ?? ''}{'{'}1→{t.numberingPadding}{'}'}</span></span>
                     <span className="text-muted-foreground/50">·</span>
-                    <span>Edit: <span className="font-medium">{t.editPolicy}</span></span>
+                    <span>{tx('Edit:')} <span className="font-medium">{t.editPolicy}</span></span>
                   </div>
                   <div className="mt-1.5 flex flex-wrap gap-1">
-                    <DocFlag on={t.isFinancial} label="Financial" />
-                    <DocFlag on={t.isInventoryRelevant} label="Inventory" />
-                    <DocFlag on={t.requiresPosting} label="Requires Posting" />
-                    <DocFlag on={!!t.postingPolicy} label="Has Posting Policy" />
-                    <DocFlag on={!!t.cancellationPolicy} label="Cancellable" />
+                    <DocFlag on={t.isFinancial} label={tx('Financial')} />
+                    <DocFlag on={t.isInventoryRelevant} label={tx('Inventory')} />
+                    <DocFlag on={t.requiresPosting} label={tx('Requires Posting')} />
+                    <DocFlag on={!!t.postingPolicy} label={tx('Has Posting Policy')} />
+                    <DocFlag on={!!t.cancellationPolicy} label={tx('Cancellable')} />
                   </div>
                 </div>
                 <div className="shrink-0">
@@ -308,18 +308,18 @@ function BranchConfigSection() {
   const createBranch = useMutation({
     mutationFn: async (body: { code: string; name: string; timezone?: string }) =>
       (await api.post('/branches', body)).data,
-    onSuccess: () => { notify.success('Branch created'); qc.invalidateQueries({ queryKey: ['branches'] }); },
+    onSuccess: () => { notify.success(tx('Branch created')); qc.invalidateQueries({ queryKey: ['branches'] }); },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
   });
   const updateBranch = useMutation({
     mutationFn: async ({ id, ...body }: { id: string; name?: string; timezone?: string; isActive?: boolean }) =>
       (await api.patch(`/branches/${id}`, body)).data,
-    onSuccess: () => { notify.success('Branch updated'); qc.invalidateQueries({ queryKey: ['branches'] }); },
+    onSuccess: () => { notify.success(tx('Branch updated')); qc.invalidateQueries({ queryKey: ['branches'] }); },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
   });
   const deleteBranch = useMutation({
     mutationFn: async (id: string) => (await api.delete(`/branches/${id}`)).data,
-    onSuccess: () => { notify.success('Branch deleted'); qc.invalidateQueries({ queryKey: ['branches'] }); },
+    onSuccess: () => { notify.success(tx('Branch deleted')); qc.invalidateQueries({ queryKey: ['branches'] }); },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
   });
 
@@ -333,7 +333,7 @@ function BranchConfigSection() {
   }, [dialogOpen, editing]);
 
   const save = async () => {
-    if (!form.code.trim() || !form.name.trim()) { notify.error('Code and name are required'); return; }
+    if (!form.code.trim() || !form.name.trim()) { notify.error(tx('Code and name are required')); return; }
     if (editing) {
       await updateBranch.mutateAsync({ id: editing.id, name: form.name.trim(), timezone: form.timezone.trim() || undefined });
     } else {
@@ -351,13 +351,13 @@ function BranchConfigSection() {
           <div className="flex items-center gap-2">
             <Building2 className="h-4 w-4 text-muted-foreground" />
             <div>
-              <CardTitle>Branches</CardTitle>
-              <CardDescription>Manage the company's locations. Each branch can scope documents, stock, and cash sessions.</CardDescription>
+              <CardTitle>{tx('Branches')}</CardTitle>
+              <CardDescription>{tx('Manage the company\'s locations. Each branch can scope documents, stock, and cash sessions.')}</CardDescription>
             </div>
           </div>
           {canCreate && (
             <Button size="sm" onClick={() => { setEditing(null); setDialogOpen(true); }}>
-              <UserPlus className="mr-2 h-3 w-3" /> Add Branch
+              <UserPlus className="mr-2 h-3 w-3" /> {tx('Add Branch')}
             </Button>
           )}
         </div>
@@ -366,7 +366,7 @@ function BranchConfigSection() {
         {isLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : branches.length === 0 ? (
-          <p className="py-6 text-sm text-muted-foreground">No branches yet. Add one to start separating locations.</p>
+          <p className="py-6 text-sm text-muted-foreground">{tx('No branches yet. Add one to start separating locations.')}</p>
         ) : (
           <div className="divide-y">
             {branches.map((b) => (
@@ -376,9 +376,9 @@ function BranchConfigSection() {
                     <span className="text-sm font-medium">{b.name}</span>
                     <Badge variant="outline" className="text-[10px] font-mono">{b.code}</Badge>
                     {b.isActive ? (
-                      <Badge className="bg-green-100 text-green-700 hover:bg-green-100">Active</Badge>
+                      <Badge className="bg-green-100 text-green-700 hover:bg-green-100">{tx('Active')}</Badge>
                     ) : (
-                      <Badge variant="secondary">Inactive</Badge>
+                      <Badge variant="secondary">{tx('Inactive')}</Badge>
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground">{b.timezone || 'No timezone set'}</p>
@@ -386,7 +386,7 @@ function BranchConfigSection() {
                 <div className="flex items-center gap-2">
                   {canUpdate && (
                     <>
-                      <Button size="sm" variant="ghost" onClick={() => { setEditing(b); setDialogOpen(true); }}>Edit</Button>
+                      <Button size="sm" variant="ghost" onClick={() => { setEditing(b); setDialogOpen(true); }}>{tx('Edit')}</Button>
                       <label className="flex items-center gap-2 text-sm cursor-pointer">
                         <input
                           type="checkbox"
@@ -400,7 +400,7 @@ function BranchConfigSection() {
                     </>
                   )}
                   {canDelete && (
-                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteBranch.mutate(b.id)}>Delete</Button>
+                    <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteBranch.mutate(b.id)}>{tx('Delete')}</Button>
                   )}
                 </div>
               </div>
@@ -417,21 +417,21 @@ function BranchConfigSection() {
           <div className="space-y-3 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label htmlFor="bcode">Code</Label>
-                <Input id="bcode" value={form.code} disabled={!!editing} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="e.g. HQ" />
+                <Label htmlFor="bcode">{tx('Code')}</Label>
+                <Input id="bcode" value={form.code} disabled={!!editing} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={tx('e.g. HQ')} />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="bname">Name</Label>
-                <Input id="bname" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. Head Office" />
+                <Label htmlFor="bname">{tx('Name')}</Label>
+                <Input id="bname" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={tx('e.g. Head Office')} />
               </div>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="btz">Timezone</Label>
-              <Input id="btz" value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} placeholder="e.g. Africa/Kampala" />
+              <Label htmlFor="btz">{tx('Timezone')}</Label>
+              <Input id="btz" value={form.timezone} onChange={(e) => setForm({ ...form, timezone: e.target.value })} placeholder={tx('e.g. Africa/Kampala')} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>{tx('Cancel')}</Button>
             <Button onClick={save} disabled={createBranch.isPending || updateBranch.isPending}>
               {editing ? 'Save' : 'Create'}
             </Button>
@@ -553,7 +553,7 @@ export function CompanySettingsPage() {
       fiscalYearStartMonth,
     })).data,
     onSuccess: (data: CompanySettingsData) => {
-      notify.success('Accounting settings saved');
+      notify.success(tx('Accounting settings saved'));
       const o = auth.organization;
       if (data.baseCurrencyCode && o) auth.setOrganization({ ...o, currencyCode: data.baseCurrencyCode });
       qc.invalidateQueries({ queryKey: ['settings-company'] });
@@ -564,7 +564,7 @@ export function CompanySettingsPage() {
   const updateOrg = useMutation({
     mutationFn: async () => (await api.patch('/organizations/me/settings', { timezone })).data,
     onSuccess: (data: OrgDetails) => {
-      notify.success('Organization updated');
+      notify.success(tx('Organization updated'));
       const o = auth.organization;
       if (o) auth.setOrganization({ ...o, timezone: data.timezone });
       qc.invalidateQueries({ queryKey: ['organization-me'] });
@@ -580,7 +580,7 @@ export function CompanySettingsPage() {
       return (await api.put('/settings/inventory-defaults', payload)).data;
     },
     onSuccess: () => {
-      notify.success('Inventory defaults saved');
+      notify.success(tx('Inventory defaults saved'));
       qc.invalidateQueries({ queryKey: ['inventory-defaults'] });
     },
     onError: (e: any) => notify.error(e?.response?.data?.message ?? 'Failed'),
@@ -591,7 +591,7 @@ export function CompanySettingsPage() {
       email: inviteEmail, firstName: inviteFirst, lastName: inviteLast || undefined,
     })).data,
     onSuccess: (data: any) => {
-      notify.success('Invited', `Token: ${data.inviteToken?.slice(0, 12)}…`);
+      notify.success(tx('Invited'), `Token: ${data.inviteToken?.slice(0, 12)}…`);
       setInviteOpen(false);
       setInviteEmail('');
       setInviteFirst('');
@@ -603,13 +603,13 @@ export function CompanySettingsPage() {
 
   const deactivate = useMutation({
     mutationFn: async (id: string) => await api.patch(`/organizations/users/${id}/deactivate`),
-    onSuccess: () => { notify.success('Deactivated'); qc.invalidateQueries({ queryKey: ['organization-users'] }); },
+    onSuccess: () => { notify.success(tx('Deactivated')); qc.invalidateQueries({ queryKey: ['organization-users'] }); },
   });
 
   const changePwd = useMutation({
     mutationFn: async () => (await api.post('/auth/change-password', { currentPassword: oldPwd, newPassword: newPwd })).data,
     onSuccess: () => {
-      notify.success('Password changed — please sign in again');
+      notify.success(tx('Password changed — please sign in again'));
       setPasswordOpen(false);
       setOldPwd('');
       setNewPwd('');
@@ -639,9 +639,9 @@ export function CompanySettingsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">Company Settings</h1>
+        <h1 className="text-2xl font-semibold">{tx('Company Settings')}</h1>
         <p className="text-sm text-muted-foreground">
-          Configure financial defaults, organization-wide settings, inventory, and users.
+          {tx('Configure financial defaults, organization-wide settings, inventory, and users.')}
         </p>
       </div>
 
@@ -652,43 +652,43 @@ export function CompanySettingsPage() {
           {/* ── Left vertical tab rail (Odoo-style) ── */}
           <TabsList className="h-auto w-full shrink-0 flex-row gap-1 overflow-x-auto rounded-lg border bg-muted/30 p-2 lg:w-60 lg:flex-col lg:overflow-visible">
             <TabsTrigger value="general" className={tabClass}>
-              <Landmark className="h-4 w-4" /> General
+              <Landmark className="h-4 w-4" /> {tx('General')}
             </TabsTrigger>
             <TabsTrigger value="accounting" className={tabClass}>
-              <BookOpen className="h-4 w-4" /> Accounting
+              <BookOpen className="h-4 w-4" /> {tx('Accounting')}
             </TabsTrigger>
             <TabsTrigger value="currencies" className={tabClass}>
-              <Coins className="h-4 w-4" /> Currencies
+              <Coins className="h-4 w-4" /> {tx('Currencies')}
             </TabsTrigger>
             <TabsTrigger value="inventory" className={tabClass}>
-              <Boxes className="h-4 w-4" /> Inventory
+              <Boxes className="h-4 w-4" /> {tx('Inventory')}
             </TabsTrigger>
             <TabsTrigger value="purchase" className={tabClass}>
-              <ShoppingCart className="h-4 w-4" /> Purchase
+              <ShoppingCart className="h-4 w-4" /> {tx('Purchase')}
             </TabsTrigger>
             <TabsTrigger value="tax" className={tabClass}>
-              <Percent className="h-4 w-4" /> Tax
+              <Percent className="h-4 w-4" /> {tx('Tax')}
             </TabsTrigger>
             <TabsTrigger value="multicurrency" className={tabClass}>
-              <DollarSign className="h-4 w-4" /> Multi-Currency
+              <DollarSign className="h-4 w-4" /> {tx('Multi-Currency')}
             </TabsTrigger>
             <TabsTrigger value="document" className={tabClass}>
-              <FileText className="h-4 w-4" /> Document
+              <FileText className="h-4 w-4" /> {tx('Document')}
             </TabsTrigger>
             <TabsTrigger value="branches" className={tabClass}>
-              <Building2 className="h-4 w-4" /> Branches
+              <Building2 className="h-4 w-4" /> {tx('Branches')}
             </TabsTrigger>
             <TabsTrigger value="organization" className={tabClass}>
-              <Building2 className="h-4 w-4" /> Organization
+              <Building2 className="h-4 w-4" /> {tx('Organization')}
             </TabsTrigger>
             <TabsTrigger value="users" className={tabClass}>
-              <Users className="h-4 w-4" /> Users
+              <Users className="h-4 w-4" /> {tx('Users')}
             </TabsTrigger>
             <TabsTrigger value="myaccount" className={tabClass}>
-              <ShieldCheck className="h-4 w-4" /> My Account
+              <ShieldCheck className="h-4 w-4" /> {tx('My Account')}
             </TabsTrigger>
             <TabsTrigger value="system" className={tabClass}>
-              <SettingsIcon className="h-4 w-4" /> System
+              <SettingsIcon className="h-4 w-4" /> {tx('System')}
             </TabsTrigger>
           </TabsList>
 
@@ -702,17 +702,17 @@ export function CompanySettingsPage() {
                   <div className="flex items-center gap-2">
                     <Landmark className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <CardTitle>Base Configuration</CardTitle>
-                      <CardDescription>Core financial settings that affect all transactions.</CardDescription>
+                      <CardTitle>{tx('Base Configuration')}</CardTitle>
+                      <CardDescription>{tx('Core financial settings that affect all transactions.')}</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Base Currency</label>
-                    <p className="text-xs text-muted-foreground">The primary currency for this organization.</p>
+                    <label className="text-sm font-medium">{tx('Base Currency')}</label>
+                    <p className="text-xs text-muted-foreground">{tx('The primary currency for this organization.')}</p>
                     <Select value={baseCurrencyCode} onValueChange={setBaseCurrencyCode}>
-                      <SelectTrigger><SelectValue placeholder="Select currency..." /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={tx('Select currency...')} /></SelectTrigger>
                       <SelectContent>
                         {currencies.map((c) => (
                           <SelectItem key={c.code} value={c.code}>{c.code} — {c.name} ({c.symbol})</SelectItem>
@@ -721,19 +721,19 @@ export function CompanySettingsPage() {
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Costing Method</label>
-                    <p className="text-xs text-muted-foreground">Default inventory costing method.</p>
+                    <label className="text-sm font-medium">{tx('Costing Method')}</label>
+                    <p className="text-xs text-muted-foreground">{tx('Default inventory costing method.')}</p>
                     <Select value={costingMethod} onValueChange={setCostingMethod}>
-                      <SelectTrigger><SelectValue placeholder="Select costing method..." /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={tx('Select costing method...')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">— None —</SelectItem>
+                        <SelectItem value="">{tx('— None —')}</SelectItem>
                         {COSTING_METHODS.map((m) => (<SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>))}
                       </SelectContent>
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Fiscal Year Start</label>
-                    <p className="text-xs text-muted-foreground">First month of the fiscal year.</p>
+                    <label className="text-sm font-medium">{tx('Fiscal Year Start')}</label>
+                    <p className="text-xs text-muted-foreground">{tx('First month of the fiscal year.')}</p>
                     <Select value={String(fiscalYearStartMonth)} onValueChange={(v) => setFiscalYearStartMonth(Number(v))}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -742,12 +742,12 @@ export function CompanySettingsPage() {
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">Default Sales Tax</label>
-                    <p className="text-xs text-muted-foreground">Tax applied to sales transactions by default.</p>
+                    <label className="text-sm font-medium">{tx('Default Sales Tax')}</label>
+                    <p className="text-xs text-muted-foreground">{tx('Tax applied to sales transactions by default.')}</p>
                     <Select value={defaultSalesTaxId} onValueChange={setDefaultSalesTaxId}>
-                      <SelectTrigger><SelectValue placeholder="Select tax..." /></SelectTrigger>
+                      <SelectTrigger><SelectValue placeholder={tx('Select tax...')} /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">— None —</SelectItem>
+                        <SelectItem value="">{tx('— None —')}</SelectItem>
                         {taxes.map((t) => (<SelectItem key={t.id} value={t.id}>{t.name} ({t.rate}%)</SelectItem>))}
                       </SelectContent>
                     </Select>
@@ -756,7 +756,7 @@ export function CompanySettingsPage() {
               </Card>
               <Button onClick={() => saveAccounting.mutate()} disabled={saveAccounting.isPending || loading}>
                 {saveAccounting.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save Accounting Settings
+                {tx('Save Accounting Settings')}
               </Button>
             </TabsContent>
 
@@ -767,16 +767,16 @@ export function CompanySettingsPage() {
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <CardTitle>Default Accounts</CardTitle>
-                      <CardDescription>Primary accounts used by the posting engine.</CardDescription>
+                      <CardTitle>{tx('Default Accounts')}</CardTitle>
+                      <CardDescription>{tx('Primary accounts used by the posting engine.')}</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <AccountField label="Income Account" description="Default account for income/revenue transactions." value={incomeAccountId} accounts={accounts} onChange={setIncomeAccountId} />
-                  <AccountField label="Expense Account" description="Default account for expense transactions." value={expenseAccountId} accounts={accounts} onChange={setExpenseAccountId} />
-                  <AccountField label="Product Income Account" description="Default income account for product sales." value={productIncomeAccountId} accounts={accounts} onChange={setProductIncomeAccountId} />
-                  <AccountField label="Product Expense Account" description="Default expense account for product cost of goods." value={productExpenseAccountId} accounts={accounts} onChange={setProductExpenseAccountId} />
+                  <AccountField label={tx('Income Account')} description={tx('Default account for income/revenue transactions.')} value={incomeAccountId} accounts={accounts} onChange={setIncomeAccountId} />
+                  <AccountField label={tx('Expense Account')} description={tx('Default account for expense transactions.')} value={expenseAccountId} accounts={accounts} onChange={setExpenseAccountId} />
+                  <AccountField label={tx('Product Income Account')} description={tx('Default income account for product sales.')} value={productIncomeAccountId} accounts={accounts} onChange={setProductIncomeAccountId} />
+                  <AccountField label={tx('Product Expense Account')} description={tx('Default expense account for product cost of goods.')} value={productExpenseAccountId} accounts={accounts} onChange={setProductExpenseAccountId} />
                 </CardContent>
               </Card>
 
@@ -785,13 +785,13 @@ export function CompanySettingsPage() {
                   <div className="flex items-center gap-2">
                     <ReceiptText className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <CardTitle>Sales Journals</CardTitle>
-                      <CardDescription>Journal used by default for customer invoices and POS sales entries.</CardDescription>
+                      <CardTitle>{tx('Sales Journals')}</CardTitle>
+                      <CardDescription>{tx('Journal used by default for customer invoices and POS sales entries.')}</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <JournalField label="Default Sales Journal" description="Used automatically for the invoice journal entry unless the invoice picks a specific journal. Falls back to a journal with code SALES, then the first active sales journal." value={defaultSalesJournalId} journals={journals} onChange={setDefaultSalesJournalId} />
+                  <JournalField label={tx('Default Sales Journal')} description={tx('Used automatically for the invoice journal entry unless the invoice picks a specific journal. Falls back to a journal with code SALES, then the first active sales journal.')} value={defaultSalesJournalId} journals={journals} onChange={setDefaultSalesJournalId} />
                 </CardContent>
               </Card>
 
@@ -800,20 +800,20 @@ export function CompanySettingsPage() {
                   <div className="flex items-center gap-2">
                     <ArrowLeftRight className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <CardTitle>Exchange Differences</CardTitle>
-                      <CardDescription>Journal and accounts for FX revaluation entries.</CardDescription>
+                      <CardTitle>{tx('Exchange Differences')}</CardTitle>
+                      <CardDescription>{tx('Journal and accounts for FX revaluation entries.')}</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <JournalField label="Exchange Difference Journal" description="Journal used for recording exchange rate gain/loss adjustments." value={exchangeDifferenceJournalId} journals={journals} onChange={setExchangeDifferenceJournalId} />
-                  <AccountField label="Exchange Gain Account" description="Account credited for unrealized/realized exchange gains." value={exchangeGainAccountId} accounts={accounts} onChange={setExchangeGainAccountId} />
-                  <AccountField label="Exchange Loss Account" description="Account debited for unrealized/realized exchange losses." value={exchangeLossAccountId} accounts={accounts} onChange={setExchangeLossAccountId} />
+                  <JournalField label={tx('Exchange Difference Journal')} description={tx('Journal used for recording exchange rate gain/loss adjustments.')} value={exchangeDifferenceJournalId} journals={journals} onChange={setExchangeDifferenceJournalId} />
+                  <AccountField label={tx('Exchange Gain Account')} description={tx('Account credited for unrealized/realized exchange gains.')} value={exchangeGainAccountId} accounts={accounts} onChange={setExchangeGainAccountId} />
+                  <AccountField label={tx('Exchange Loss Account')} description={tx('Account debited for unrealized/realized exchange losses.')} value={exchangeLossAccountId} accounts={accounts} onChange={setExchangeLossAccountId} />
                 </CardContent>
               </Card>
               <Button onClick={() => saveAccounting.mutate()} disabled={saveAccounting.isPending || loading}>
                 {saveAccounting.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save Accounting Settings
+                {tx('Save Accounting Settings')}
               </Button>
             </TabsContent>
 
@@ -824,13 +824,13 @@ export function CompanySettingsPage() {
                   <div className="flex items-center gap-2">
                     <Coins className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <CardTitle>Enabled Currencies</CardTitle>
-                      <CardDescription>Currencies available for transactions.</CardDescription>
+                      <CardTitle>{tx('Enabled Currencies')}</CardTitle>
+                      <CardDescription>{tx('Currencies available for transactions.')}</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <p className="mb-3 text-xs text-muted-foreground">Base currency is always enabled.</p>
+                  <p className="mb-3 text-xs text-muted-foreground">{tx('Base currency is always enabled.')}</p>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                     {currencies.map((c) => {
                       const isBase = c.code === baseCurrencyCode;
@@ -848,7 +848,7 @@ export function CompanySettingsPage() {
               </Card>
               <Button onClick={() => saveAccounting.mutate()} disabled={saveAccounting.isPending || loading}>
                 {saveAccounting.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                Save Accounting Settings
+                {tx('Save Accounting Settings')}
               </Button>
             </TabsContent>
 
@@ -859,8 +859,8 @@ export function CompanySettingsPage() {
                   <div className="flex items-center gap-2">
                     <Boxes className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <CardTitle>Inventory Defaults</CardTitle>
-                      <CardDescription>Applied to new products that don't set their own tracking config.</CardDescription>
+                      <CardTitle>{tx('Inventory Defaults')}</CardTitle>
+                      <CardDescription>{tx('Applied to new products that don\'t set their own tracking config.')}</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
@@ -870,17 +870,17 @@ export function CompanySettingsPage() {
                   ) : (
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Default costing method</label>
+                        <label className="text-sm font-medium">{tx('Default costing method')}</label>
                         <Select value={invCosting} onValueChange={setInvCosting}>
-                          <SelectTrigger><SelectValue placeholder="System default (AVCO)" /></SelectTrigger>
+                          <SelectTrigger><SelectValue placeholder={tx('System default (AVCO)')} /></SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="">System default (AVCO)</SelectItem>
+                            <SelectItem value="">{tx('System default (AVCO)')}</SelectItem>
                             {COSTING_METHODS.map((m) => (<SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>))}
                           </SelectContent>
                         </Select>
                       </div>
                       <div className="space-y-1.5">
-                        <label className="text-sm font-medium">Default picking strategy</label>
+                        <label className="text-sm font-medium">{tx('Default picking strategy')}</label>
                         <Select value={invPicking} onValueChange={setInvPicking}>
                           <SelectTrigger><SelectValue /></SelectTrigger>
                           <SelectContent>
@@ -890,19 +890,19 @@ export function CompanySettingsPage() {
                       </div>
                       <div className="sm:col-span-2 flex flex-wrap gap-6">
                         <label className="flex items-center gap-2 text-sm cursor-pointer">
-                          <input type="checkbox" className="rounded" checked={invBatch} onChange={(e) => { setInvBatch(e.target.checked); if (!e.target.checked) setInvExpiry(false); }} /> Batch tracking
+                          <input type="checkbox" className="rounded" checked={invBatch} onChange={(e) => { setInvBatch(e.target.checked); if (!e.target.checked) setInvExpiry(false); }} /> {tx('Batch tracking')}
                         </label>
                         <label className="flex items-center gap-2 text-sm cursor-pointer">
-                          <input type="checkbox" className="rounded" checked={invExpiry} onChange={(e) => { setInvExpiry(e.target.checked); if (e.target.checked) setInvBatch(true); }} /> Expiry tracking
+                          <input type="checkbox" className="rounded" checked={invExpiry} onChange={(e) => { setInvExpiry(e.target.checked); if (e.target.checked) setInvBatch(true); }} /> {tx('Expiry tracking')}
                         </label>
                         <label className="flex items-center gap-2 text-sm cursor-pointer">
-                          <input type="checkbox" className="rounded" checked={invSerial} onChange={(e) => setInvSerial(e.target.checked)} /> Serial tracking
+                          <input type="checkbox" className="rounded" checked={invSerial} onChange={(e) => setInvSerial(e.target.checked)} /> {tx('Serial tracking')}
                         </label>
                       </div>
                       <div>
                         <Button onClick={() => saveInvDefaults.mutate()} disabled={saveInvDefaults.isPending}>
                           {saveInvDefaults.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                          Save defaults
+                          {tx('Save defaults')}
                         </Button>
                       </div>
                     </div>
@@ -911,8 +911,8 @@ export function CompanySettingsPage() {
               </Card>
               <GroupCard
                 group="inventory"
-                title="Inventory Policy"
-                description="Allow Negative Stock, and whether direct stock in/out need an approver."
+                title={tx('Inventory Policy')}
+                description={tx('Allow Negative Stock, and whether direct stock in/out need an approver.')}
                 icon={<Boxes className="h-4 w-4 text-muted-foreground" />}
               />
             </TabsContent>
@@ -921,8 +921,8 @@ export function CompanySettingsPage() {
             <TabsContent value="purchase" className="mt-0">
               <GroupCard
                 group="purchasing"
-                title="Purchase Configuration"
-                description="Purchase behaviour for this organization."
+                title={tx('Purchase Configuration')}
+                description={tx('Purchase behaviour for this organization.')}
                 icon={<ShoppingCart className="h-4 w-4 text-muted-foreground" />}
               />
             </TabsContent>
@@ -954,25 +954,25 @@ export function CompanySettingsPage() {
                   <div className="flex items-center gap-2">
                     <Building2 className="h-4 w-4 text-muted-foreground" />
                     <div>
-                      <CardTitle>Organization</CardTitle>
-                      <CardDescription>Tenant-wide settings.</CardDescription>
+                      <CardTitle>{tx('Organization')}</CardTitle>
+                      <CardDescription>{tx('Tenant-wide settings.')}</CardDescription>
                     </div>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="text-xs text-muted-foreground rounded-lg bg-muted/30 p-2.5 mb-2">
-                    Company name, logo, and features managed in{' '}
-                    <a href="/settings/developer" className="underline">Developer Company Settings</a>.
+                    {tx('Company name, logo, and features managed in')}{' '}
+                    <a href="/settings/developer" className="underline">{tx('Developer Company Settings')}</a>.
                   </div>
                   {org.isLoading ? <Skeleton className="h-16 w-full" /> : (
                     <>
                       <div>
-                        <label className="text-sm font-medium">Timezone</label>
+                        <label className="text-sm font-medium">{tx('Timezone')}</label>
                         <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} className="mt-1" />
                       </div>
                       <Button onClick={() => updateOrg.mutate()} disabled={updateOrg.isPending}>
                         {updateOrg.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                        Save
+                        {tx('Save')}
                       </Button>
                     </>
                   )}
@@ -988,12 +988,12 @@ export function CompanySettingsPage() {
                     <div className="flex items-center gap-2">
                       <Users className="h-4 w-4 text-muted-foreground" />
                       <div>
-                        <CardTitle>Users</CardTitle>
-                        <CardDescription>Manage who has access to this organization</CardDescription>
+                        <CardTitle>{tx('Users')}</CardTitle>
+                        <CardDescription>{tx('Manage who has access to this organization')}</CardDescription>
                       </div>
                     </div>
                     <Button size="sm" onClick={() => setInviteOpen(true)}>
-                      <UserPlus className="mr-2 h-3 w-3" />Invite
+                      <UserPlus className="mr-2 h-3 w-3" />{tx('Invite')}
                     </Button>
                   </div>
                 </CardHeader>
@@ -1008,7 +1008,7 @@ export function CompanySettingsPage() {
                       <div className="flex items-center gap-2">
                         <Badge variant={u.isActive ? 'default' : 'outline'}>{u.isActive ? 'active' : 'inactive'}</Badge>
                         {u.isActive && u.id !== auth.user?.id && (
-                          <Button size="sm" variant="ghost" onClick={() => deactivate.mutate(u.id)}>Deactivate</Button>
+                          <Button size="sm" variant="ghost" onClick={() => deactivate.mutate(u.id)}>{tx('Deactivate')}</Button>
                         )}
                       </div>
                     </div>
@@ -1023,21 +1023,21 @@ export function CompanySettingsPage() {
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle>My Account</CardTitle>
+                      <CardTitle>{tx('My Account')}</CardTitle>
                       <CardDescription>{auth.user?.email}</CardDescription>
                     </div>
                     <Button size="sm" variant="outline" onClick={() => setPasswordOpen(true)}>
-                      <KeyRound className="mr-2 h-3 w-3" />Change password
+                      <KeyRound className="mr-2 h-3 w-3" />{tx('Change password')}
                     </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Roles</span>
+                    <span className="text-muted-foreground">{tx('Roles')}</span>
                     <span>{auth.user?.roles?.join(', ') || '—'}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Permissions</span>
+                    <span className="text-muted-foreground">{tx('Permissions')}</span>
                     <span>{auth.permissions.length}</span>
                   </div>
                 </CardContent>
@@ -1056,27 +1056,27 @@ export function CompanySettingsPage() {
       {/* Invite dialog */}
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Invite user</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Invite user')}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-sm font-medium">Email</label>
+              <label className="text-sm font-medium">{tx('Email')}</label>
               <Input type="email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} className="mt-1" />
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-sm font-medium">First name</label>
+                <label className="text-sm font-medium">{tx('First name')}</label>
                 <Input value={inviteFirst} onChange={(e) => setInviteFirst(e.target.value)} className="mt-1" />
               </div>
               <div>
-                <label className="text-sm font-medium">Last name</label>
+                <label className="text-sm font-medium">{tx('Last name')}</label>
                 <Input value={inviteLast} onChange={(e) => setInviteLast(e.target.value)} className="mt-1" />
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setInviteOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setInviteOpen(false)}>{tx('Cancel')}</Button>
             <Button onClick={() => invite.mutate()} disabled={!inviteEmail || !inviteFirst || invite.isPending}>
-              <Mail className="mr-2 h-4 w-4" />Send invite
+              <Mail className="mr-2 h-4 w-4" />{tx('Send invite')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1085,21 +1085,21 @@ export function CompanySettingsPage() {
       {/* Change password dialog */}
       <Dialog open={passwordOpen} onOpenChange={setPasswordOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Change password</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Change password')}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-sm font-medium">Current password</label>
+              <label className="text-sm font-medium">{tx('Current password')}</label>
               <Input type="password" value={oldPwd} onChange={(e) => setOldPwd(e.target.value)} className="mt-1" />
             </div>
             <div>
-              <label className="text-sm font-medium">New password (min 8 chars)</label>
+              <label className="text-sm font-medium">{tx('New password (min 8 chars)')}</label>
               <Input type="password" value={newPwd} onChange={(e) => setNewPwd(e.target.value)} className="mt-1" />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setPasswordOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setPasswordOpen(false)}>{tx('Cancel')}</Button>
             <Button onClick={() => changePwd.mutate()} disabled={!oldPwd || newPwd.length < 8 || changePwd.isPending}>
-              <Check className="mr-2 h-4 w-4" />Change
+              <Check className="mr-2 h-4 w-4" />{tx('Change')}
             </Button>
           </DialogFooter>
         </DialogContent>

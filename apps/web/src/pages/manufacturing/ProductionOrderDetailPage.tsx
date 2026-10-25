@@ -19,6 +19,7 @@ import {
   useWorkOrderAction,
 } from '@/features/manufacturing/api';
 import { ORDER_STATUS_VARIANT } from './ProductionOrdersPage';
+import { tx } from '@/lib/i18n/tx';
 
 export function ProductionOrderDetailPage() {
   const { id = '' } = useParams();
@@ -45,21 +46,21 @@ export function ProductionOrderDetailPage() {
   const [passedQty, setPassedQty] = useState('');
   const [failedQty, setFailedQty] = useState('');
 
-  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
-  if (!order) return <div className="p-6 text-sm text-muted-foreground">Order not found.</div>;
+  if (isLoading) return <div className="p-6 text-sm text-muted-foreground">{tx('Loading…')}</div>;
+  if (!order) return <div className="p-6 text-sm text-muted-foreground">{tx('Order not found.')}</div>;
 
   const act = async (m: { mutateAsync: (a: { id: string; body?: Record<string, unknown> }) => Promise<unknown> }, body?: Record<string, unknown>, ok?: string) => {
     try {
       await m.mutateAsync({ id, body });
       if (ok) notify.success(ok);
     } catch (e: any) {
-      notify.error('Action failed', e?.response?.data?.message ?? e?.message);
+      notify.error(tx('Action failed'), e?.response?.data?.message ?? e?.message);
     }
   };
 
   const doComplete = async () => {
     if (!(Number(qtyProduced) > 0)) {
-      notify.error('Enter the actual quantity produced.');
+      notify.error(tx('Enter the actual quantity produced.'));
       return;
     }
     await act(complete, { qtyProduced: Number(qtyProduced), scrapQty: scrapQty ? Number(scrapQty) : undefined }, 'Order completed — finished goods received.');
@@ -89,38 +90,38 @@ export function ProductionOrderDetailPage() {
         <Button asChild variant="ghost" size="icon"><Link to="/manufacturing/orders"><ArrowLeft className="h-4 w-4" /></Link></Button>
         <div className="flex-1">
           <h1 className="font-mono text-xl font-semibold">{order.orderCode}</h1>
-          <p className="text-sm text-muted-foreground">Planned {Number(order.plannedQty)} · created {new Date(order.createdAt).toLocaleDateString()}</p>
+          <p className="text-sm text-muted-foreground">{tx('Planned')} {Number(order.plannedQty)} {tx('· created')} {new Date(order.createdAt).toLocaleDateString()}</p>
         </div>
         <Badge variant={ORDER_STATUS_VARIANT[order.status]}>{order.status.replace('_', ' ')}</Badge>
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {canConfirm && <Button variant="outline" onClick={() => act(confirm, undefined, 'Order confirmed.')}><ClipboardCheck className="mr-2 h-4 w-4" /> Confirm</Button>}
-        {canStart && <Button onClick={() => act(start, undefined, 'Started — materials consumed into WIP.')}><Play className="mr-2 h-4 w-4" /> Start</Button>}
-        {canComplete && <Button onClick={() => setCompleteOpen(true)}><PackageCheck className="mr-2 h-4 w-4" /> Complete</Button>}
-        {canQc && <Button onClick={() => setQcOpen(true)}><ShieldCheck className="mr-2 h-4 w-4" /> Record QC</Button>}
-        {canReverse && <Button variant="outline" onClick={() => act(reverse, { reason: 'reversed from UI' }, 'Order reversed.')}><Undo2 className="mr-2 h-4 w-4" /> Reverse</Button>}
-        {canCancel && <Button variant="destructive" onClick={() => act(cancel, { reason: 'cancelled from UI' }, 'Order cancelled.')}><XCircle className="mr-2 h-4 w-4" /> Cancel</Button>}
+        {canConfirm && <Button variant="outline" onClick={() => act(confirm, undefined, 'Order confirmed.')}><ClipboardCheck className="mr-2 h-4 w-4" /> {tx('Confirm')}</Button>}
+        {canStart && <Button onClick={() => act(start, undefined, 'Started — materials consumed into WIP.')}><Play className="mr-2 h-4 w-4" /> {tx('Start')}</Button>}
+        {canComplete && <Button onClick={() => setCompleteOpen(true)}><PackageCheck className="mr-2 h-4 w-4" /> {tx('Complete')}</Button>}
+        {canQc && <Button onClick={() => setQcOpen(true)}><ShieldCheck className="mr-2 h-4 w-4" /> {tx('Record QC')}</Button>}
+        {canReverse && <Button variant="outline" onClick={() => act(reverse, { reason: 'reversed from UI' }, 'Order reversed.')}><Undo2 className="mr-2 h-4 w-4" /> {tx('Reverse')}</Button>}
+        {canCancel && <Button variant="destructive" onClick={() => act(cancel, { reason: 'cancelled from UI' }, 'Order cancelled.')}><XCircle className="mr-2 h-4 w-4" /> {tx('Cancel')}</Button>}
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Stat label="Material cost" value={Number(order.materialCost).toFixed(2)} />
-        <Stat label="Produced" value={Number(order.producedQty)} />
-        <Stat label="Unit cost" value={order.status === 'completed' ? Number(order.outputUnitCost).toFixed(2) : '—'} />
-        <Stat label="Yield variance" value={Number(order.yieldVariance).toFixed(2)} />
+        <Stat label={tx('Material cost')} value={Number(order.materialCost).toFixed(2)} />
+        <Stat label={tx('Produced')} value={Number(order.producedQty)} />
+        <Stat label={tx('Unit cost')} value={order.status === 'completed' ? Number(order.outputUnitCost).toFixed(2) : '—'} />
+        <Stat label={tx('Yield variance')} value={Number(order.yieldVariance).toFixed(2)} />
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Materials</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{tx('Materials')}</CardTitle></CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Product</TableHead>
-                <TableHead className="text-right">Planned</TableHead>
-                <TableHead className="text-right">Consumed</TableHead>
-                <TableHead className="text-right">Unit cost</TableHead>
-                <TableHead className="text-right">Total</TableHead>
+                <TableHead>{tx('Product')}</TableHead>
+                <TableHead className="text-right">{tx('Planned')}</TableHead>
+                <TableHead className="text-right">{tx('Consumed')}</TableHead>
+                <TableHead className="text-right">{tx('Unit cost')}</TableHead>
+                <TableHead className="text-right">{tx('Total')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -139,16 +140,16 @@ export function ProductionOrderDetailPage() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Outputs</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{tx('Outputs')}</CardTitle></CardHeader>
         <CardContent>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Product</TableHead>
-                <TableHead>Kind</TableHead>
-                <TableHead className="text-right">Expected</TableHead>
-                <TableHead className="text-right">Produced</TableHead>
-                <TableHead>Batch</TableHead>
+                <TableHead>{tx('Product')}</TableHead>
+                <TableHead>{tx('Kind')}</TableHead>
+                <TableHead className="text-right">{tx('Expected')}</TableHead>
+                <TableHead className="text-right">{tx('Produced')}</TableHead>
+                <TableHead>{tx('Batch')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -168,27 +169,27 @@ export function ProductionOrderDetailPage() {
 
       <Card>
         <CardHeader className="flex-row items-center justify-between">
-          <CardTitle>Work Orders</CardTitle>
+          <CardTitle>{tx('Work Orders')}</CardTitle>
           {!workOrders?.length && ['confirmed', 'in_progress'].includes(order.status) && (
             <Button size="sm" variant="outline" onClick={async () => {
-              try { await generateWo.mutateAsync(id); notify.success('Work orders generated from routing.'); }
-              catch (e: any) { notify.error('No routing', e?.response?.data?.message ?? e?.message); }
-            }}><Hammer className="mr-1 h-3 w-3" /> Generate</Button>
+              try { await generateWo.mutateAsync(id); notify.success(tx('Work orders generated from routing.')); }
+              catch (e: any) { notify.error(tx('No routing'), e?.response?.data?.message ?? e?.message); }
+            }}><Hammer className="mr-1 h-3 w-3" /> {tx('Generate')}</Button>
           )}
         </CardHeader>
         <CardContent>
           {!workOrders?.length ? (
-            <p className="text-sm text-muted-foreground">No work orders. Generate them from the BOM's routing (Phase 4).</p>
+            <p className="text-sm text-muted-foreground">{tx('No work orders. Generate them from the BOM\'s routing (Phase 4).')}</p>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-12">#</TableHead>
-                  <TableHead>Operation</TableHead>
-                  <TableHead>Work centre</TableHead>
-                  <TableHead className="text-right">Labour (min)</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  <TableHead>{tx('Operation')}</TableHead>
+                  <TableHead>{tx('Work centre')}</TableHead>
+                  <TableHead className="text-right">{tx('Labour (min)')}</TableHead>
+                  <TableHead>{tx('Status')}</TableHead>
+                  <TableHead className="text-right">{tx('Actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -220,38 +221,38 @@ export function ProductionOrderDetailPage() {
 
       <Dialog open={qcOpen} onOpenChange={setQcOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Record QC · {order.orderCode}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Record QC ·')} {order.orderCode}</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <p className="text-sm text-muted-foreground">Passed units move to the sale location; failed units are scrapped from quarantine.</p>
+            <p className="text-sm text-muted-foreground">{tx('Passed units move to the sale location; failed units are scrapped from quarantine.')}</p>
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1"><Label>Passed</Label><Input type="number" value={passedQty} onChange={(e) => setPassedQty(e.target.value)} /></div>
-              <div className="space-y-1"><Label>Failed</Label><Input type="number" value={failedQty} onChange={(e) => setFailedQty(e.target.value)} /></div>
+              <div className="space-y-1"><Label>{tx('Passed')}</Label><Input type="number" value={passedQty} onChange={(e) => setPassedQty(e.target.value)} /></div>
+              <div className="space-y-1"><Label>{tx('Failed')}</Label><Input type="number" value={failedQty} onChange={(e) => setFailedQty(e.target.value)} /></div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setQcOpen(false)}>Cancel</Button>
-            <Button onClick={doQc}>Record</Button>
+            <Button variant="outline" onClick={() => setQcOpen(false)}>{tx('Cancel')}</Button>
+            <Button onClick={doQc}>{tx('Record')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={completeOpen} onOpenChange={setCompleteOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Complete {order.orderCode}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{tx('Complete')} {order.orderCode}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1">
-              <Label>Actual quantity produced</Label>
+              <Label>{tx('Actual quantity produced')}</Label>
               <Input type="number" value={qtyProduced} onChange={(e) => setQtyProduced(e.target.value)} placeholder={String(Number(order.plannedQty))} />
-              <p className="text-xs text-muted-foreground">Unit cost = material cost ÷ this quantity, so under-yield raises the cost.</p>
+              <p className="text-xs text-muted-foreground">{tx('Unit cost = material cost ÷ this quantity, so under-yield raises the cost.')}</p>
             </div>
             <div className="space-y-1">
-              <Label>Scrap quantity (optional)</Label>
+              <Label>{tx('Scrap quantity (optional)')}</Label>
               <Input type="number" value={scrapQty} onChange={(e) => setScrapQty(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCompleteOpen(false)}>Cancel</Button>
-            <Button onClick={doComplete} disabled={complete.isPending}>Receive finished goods</Button>
+            <Button variant="outline" onClick={() => setCompleteOpen(false)}>{tx('Cancel')}</Button>
+            <Button onClick={doComplete} disabled={complete.isPending}>{tx('Receive finished goods')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

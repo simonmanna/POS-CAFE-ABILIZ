@@ -28,6 +28,24 @@
         "scripts/sim-api.cjs"
       ],
       "port": 3001
+    },
+    {
+      "name": "api-alt",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set PORT=3002&& pnpm --filter @erp/api start:dev"
+      ],
+      "port": 3002
+    },
+    {
+      "name": "web-alt",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "set VITE_API_URL=http://localhost:3002&& pnpm --filter @erp/web exec vite --port 5174 --strictPort"
+      ],
+      "port": 5174
     }
   ]
 }

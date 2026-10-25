@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { entityTypeLabel } from '@/lib/approval-entity-types';
 import { useState } from 'react';
+import { tx } from '@/lib/i18n/tx';
 
 interface Approval {
   id: string;
@@ -45,7 +46,7 @@ export function ApprovalsPage() {
       await api.post(`/approvals/${vars.id}/decide`, { status: vars.status, comment: vars.comment });
     },
     onSuccess: () => {
-      notify.success('Decision recorded');
+      notify.success(tx('Decision recorded'));
       qc.invalidateQueries({ queryKey: ['approvals'] });
     },
     onError: (err: any) => notify.error(err?.response?.data?.message ?? 'Failed'),
@@ -54,7 +55,7 @@ export function ApprovalsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Approvals</h1>
+        <h1 className="text-2xl font-semibold">{tx('Approvals')}</h1>
         <div className="flex gap-2">
           {(['pending', 'approved', 'rejected', 'cancelled'] as const).map((s) => (
             <Button
@@ -72,7 +73,7 @@ export function ApprovalsPage() {
       {list.data && list.data.length === 0 && (
         <Card>
           <CardContent className="p-8 text-center text-sm text-muted-foreground">
-            No {status} requests
+            {tx('No')} {status} {tx('requests')}
           </CardContent>
         </Card>
       )}
@@ -88,7 +89,7 @@ export function ApprovalsPage() {
                   {stepProgress(req) && (
                     <span className="mr-1 font-medium text-foreground">{stepProgress(req)} ·</span>
                   )}
-                  Required {req.requiredCount} approval(s) at this step · {req.decisions.length} decision(s) ·{' '}
+                  {tx('Required')} {req.requiredCount} {tx('approval(s) at this step ·')} {req.decisions.length} {tx('decision(s) ·')}{' '}
                   {new Date(req.createdAt).toLocaleString()}
                 </CardDescription>
               </div>
@@ -115,7 +116,7 @@ export function ApprovalsPage() {
                 <MessageSquare className="h-4 w-4 text-muted-foreground" />
                 <input
                   type="text"
-                  placeholder="Comment (optional)"
+                  placeholder={tx('Comment (optional)')}
                   value={comment[req.id] ?? ''}
                   onChange={(e) => setComment((c) => ({ ...c, [req.id]: e.target.value }))}
                   className="flex-1 rounded border bg-background px-2 py-1 text-sm"
@@ -126,14 +127,14 @@ export function ApprovalsPage() {
                   disabled={decide.isPending}
                   onClick={() => decide.mutate({ id: req.id, status: 'rejected', comment: comment[req.id] })}
                 >
-                  <X className="mr-1 h-3 w-3" />Reject
+                  <X className="mr-1 h-3 w-3" />{tx('Reject')}
                 </Button>
                 <Button
                   size="sm"
                   disabled={decide.isPending}
                   onClick={() => decide.mutate({ id: req.id, status: 'approved', comment: comment[req.id] })}
                 >
-                  <Check className="mr-1 h-3 w-3" />Approve
+                  <Check className="mr-1 h-3 w-3" />{tx('Approve')}
                 </Button>
               </div>
             )}

@@ -5,6 +5,7 @@ import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { exportCSV } from '@/lib/export-csv';
 import { formatMoney } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 // ---------------------------------------------------------------------------
 // Formatting
@@ -145,12 +146,12 @@ export function DataTable<T>({
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-          <span>{sorted.length.toLocaleString()} row(s)</span>
+          <span>{sorted.length.toLocaleString()} {tx('row(s)')}</span>
           {toolbar}
         </div>
         {exportName && (
           <Button variant="outline" size="sm" onClick={doExport} disabled={sorted.length === 0}>
-            <Download className="mr-2 h-3 w-3" />Export CSV
+            <Download className="mr-2 h-3 w-3" />{tx('Export CSV')}
           </Button>
         )}
       </div>
@@ -226,7 +227,7 @@ export function DataTable<T>({
       {sorted.length > 25 && (
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
           <label className="flex items-center gap-2">
-            Rows per page
+            {tx('Rows per page')}
             <select
               className="h-8 rounded-md border bg-background px-2 text-sm"
               value={pageSize}
@@ -237,9 +238,9 @@ export function DataTable<T>({
           </label>
           {pageSize > 0 && (
             <div className="flex items-center gap-2">
-              <Button size="sm" variant="outline" disabled={current <= 1} onClick={() => setPage(current - 1)}>Previous</Button>
-              <span>Page {current} of {totalPages}</span>
-              <Button size="sm" variant="outline" disabled={current >= totalPages} onClick={() => setPage(current + 1)}>Next</Button>
+              <Button size="sm" variant="outline" disabled={current <= 1} onClick={() => setPage(current - 1)}>{tx('Previous')}</Button>
+              <span>{tx('Page')} {current} of {totalPages}</span>
+              <Button size="sm" variant="outline" disabled={current >= totalPages} onClick={() => setPage(current + 1)}>{tx('Next')}</Button>
             </div>
           )}
         </div>
@@ -250,14 +251,14 @@ export function DataTable<T>({
 
 export function ReportState({ query, children }: { query: { isLoading: boolean; isError: boolean; error: unknown; data: unknown }; children: ReactNode }) {
   if (query.isLoading) {
-    return <Card className="p-10 text-center text-sm text-muted-foreground">Loading report…</Card>;
+    return <Card className="p-10 text-center text-sm text-muted-foreground">{tx('Loading report…')}</Card>;
   }
   if (query.isError) {
     const e = query.error as { response?: { status?: number; data?: { message?: string | string[] } }; message?: string };
     const msg = e?.response?.data?.message ?? e?.message ?? 'Unknown error';
     return (
       <Card className="p-6 text-sm text-destructive">
-        Failed to load the report{e?.response?.status ? ` (HTTP ${e.response.status})` : ''}: {Array.isArray(msg) ? msg.join(', ') : msg}
+        {tx('Failed to load the report')}{e?.response?.status ? ` (HTTP ${e.response.status})` : ''}: {Array.isArray(msg) ? msg.join(', ') : msg}
       </Card>
     );
   }

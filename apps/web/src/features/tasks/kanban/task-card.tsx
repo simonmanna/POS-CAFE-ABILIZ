@@ -13,6 +13,7 @@ import {
   PRIORITY_LABELS,
   TASK_TYPE_ICONS,
 } from './column-config';
+import { tx } from '@/lib/i18n/tx';
 
 /** Next status in the happy-path flow for the quick-advance button. */
 const NEXT_STATUS: Partial<Record<TaskStatus, TaskStatus>> = {
@@ -108,7 +109,7 @@ export function TaskCard({ task, onClick, onQuickStatus, busy }: TaskCardProps) 
               {initials(task.assignedTo.firstName, task.assignedTo.lastName)}
             </span>
           ) : (
-            <span className="text-muted-foreground/50">Unassigned</span>
+            <span className="text-muted-foreground/50">{tx('Unassigned')}</span>
           )}
           {task.dueDate && (
             <span className={cn('flex items-center gap-1', isOverdue && 'text-red-500 font-medium')}>

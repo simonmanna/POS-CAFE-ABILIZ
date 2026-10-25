@@ -11,6 +11,7 @@ import { date } from '@/lib/format';
 import { formatCurrency } from '@/lib/utils';
 import { useJournal, useAccounts } from '@/features/accounting/api';
 import { useJournalEntries, type JournalEntryRow } from '@/features/accounting/api';
+import { tx } from '@/lib/i18n/tx';
 
 const statusVariant: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   posted: 'default',
@@ -84,7 +85,7 @@ export function JournalDetailPage() {
       <div className="flex items-center justify-center h-64 text-muted-foreground">
         <div className="text-center">
           <BookText className="h-12 w-12 opacity-30 mx-auto mb-2" />
-          <p className="font-semibold">Journal not found</p>
+          <p className="font-semibold">{tx('Journal not found')}</p>
         </div>
       </div>
     );
@@ -100,7 +101,7 @@ export function JournalDetailPage() {
       {/* Breadcrumb + Header */}
       <div className="px-6 py-4 border-b bg-white shadow-sm">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3">
-          <button onClick={() => navigate('/journals')} className="hover:text-primary transition-colors font-medium">Journals</button>
+          <button onClick={() => navigate('/journals')} className="hover:text-primary transition-colors font-medium">{tx('Journals')}</button>
           <ChevronRight className="h-3 w-3" />
           <span className="font-semibold">{journal.name}</span>
         </div>
@@ -125,7 +126,7 @@ export function JournalDetailPage() {
                 </Badge>
               </div>
               <p className="text-sm text-muted-foreground mt-0.5">
-                {journal._count?.entries ?? 0} journal entries
+                {journal._count?.entries ?? 0} {tx('journal entries')}
                 {journal.sequencePrefix ? ` · Prefix: ${journal.sequencePrefix}` : ''}
               </p>
             </div>
@@ -133,10 +134,10 @@ export function JournalDetailPage() {
 
           <div className="flex items-center gap-2 flex-shrink-0">
             <Button variant="outline" size="sm" className="border-primary text-primary hover:bg-primary/10 font-semibold" onClick={() => navigate(`/journals/${id}/edit`)}>
-              <Edit className="h-4 w-4 mr-1.5" /> Edit
+              <Edit className="h-4 w-4 mr-1.5" /> {tx('Edit')}
             </Button>
             <Button variant="outline" size="sm" onClick={() => navigate(`/journal-entries/new?journalCode=${journal.code}`)}>
-              <FileText className="h-4 w-4 mr-1.5" /> New Entry
+              <FileText className="h-4 w-4 mr-1.5" /> {tx('New Entry')}
             </Button>
           </div>
         </div>
@@ -174,28 +175,28 @@ export function JournalDetailPage() {
                 <Card>
                   <CardContent className="py-16 flex flex-col items-center text-muted-foreground gap-2">
                     <FileText className="h-10 w-10 opacity-30" />
-                    <p className="font-semibold">No entries in this journal</p>
-                    <p className="text-xs">Post an invoice, payment, or manual entry to see it here</p>
+                    <p className="font-semibold">{tx('No entries in this journal')}</p>
+                    <p className="text-xs">{tx('Post an invoice, payment, or manual entry to see it here')}</p>
                     <Button variant="outline" size="sm" className="mt-2" onClick={() => navigate(`/journal-entries/new?journalCode=${journal.code}`)}>
-                      <FileText className="h-4 w-4 mr-1" /> New Entry
+                      <FileText className="h-4 w-4 mr-1" /> {tx('New Entry')}
                     </Button>
                   </CardContent>
                 </Card>
               ) : (
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-5 flex-row items-center justify-between bg-muted/30 border-b rounded-t-lg">
-                    <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Journal Entries</CardTitle>
-                    <p className="text-xs text-muted-foreground font-medium">{journalEntries.length} entries</p>
+                    <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Journal Entries')}</CardTitle>
+                    <p className="text-xs text-muted-foreground font-medium">{journalEntries.length} {tx('entries')}</p>
                   </CardHeader>
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/30">
-                        <TableHead className="text-xs font-bold text-muted-foreground uppercase">Entry #</TableHead>
-                        <TableHead className="text-xs font-bold text-muted-foreground uppercase">Date</TableHead>
-                        <TableHead className="text-xs font-bold text-muted-foreground uppercase">Description</TableHead>
-                        <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">Debit</TableHead>
-                        <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">Credit</TableHead>
-                        <TableHead className="text-xs font-bold text-muted-foreground uppercase">Status</TableHead>
+                        <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Entry #')}</TableHead>
+                        <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Date')}</TableHead>
+                        <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Description')}</TableHead>
+                        <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">{tx('Debit')}</TableHead>
+                        <TableHead className="text-xs font-bold text-muted-foreground uppercase text-right">{tx('Credit')}</TableHead>
+                        <TableHead className="text-xs font-bold text-muted-foreground uppercase">{tx('Status')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -226,36 +227,36 @@ export function JournalDetailPage() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                    <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Journal Details</CardTitle>
+                    <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Journal Details')}</CardTitle>
                   </CardHeader>
                   <CardContent className="px-5 pb-4">
                     <dl className="divide-y">
-                      <InfoRow label="Code" value={<code className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-primary font-semibold">{journal.code}</code>} />
-                      <InfoRow label="Name" value={<span className="font-semibold">{journal.name}</span>} />
-                      <InfoRow label="Type" value={
+                      <InfoRow label={tx('Code')} value={<code className="text-xs bg-muted px-2 py-0.5 rounded font-mono text-primary font-semibold">{journal.code}</code>} />
+                      <InfoRow label={tx('Name')} value={<span className="font-semibold">{journal.name}</span>} />
+                      <InfoRow label={tx('Type')} value={
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-semibold ${TYPE_COLORS[journal.journalType] ?? 'bg-gray-50 text-gray-700'}`}>
                           {TYPE_LABELS[journal.journalType] ?? journal.journalType}
                         </span>
                       } />
-                      <InfoRow label="Status" value={
+                      <InfoRow label={tx('Status')} value={
                         journal.isActive
-                          ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">Active</Badge>
-                          : <Badge variant="secondary" className="text-xs">Inactive</Badge>
+                          ? <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 text-xs">{tx('Active')}</Badge>
+                          : <Badge variant="secondary" className="text-xs">{tx('Inactive')}</Badge>
                       } />
-                      <InfoRow label="Entries" value={<span className="font-semibold text-sm">{journal._count?.entries ?? 0}</span>} />
+                      <InfoRow label={tx('Entries')} value={<span className="font-semibold text-sm">{journal._count?.entries ?? 0}</span>} />
                     </dl>
                   </CardContent>
                 </Card>
 
                 <Card>
                   <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                    <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Accounting Setup</CardTitle>
+                    <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Accounting Setup')}</CardTitle>
                   </CardHeader>
                   <CardContent className="px-5 pb-4">
                     <dl className="divide-y">
-                      <InfoRow label="Default Debit" value={<span className="text-sm font-mono">{getAccountLabel(journal.defaultDebitAccountId)}</span>} />
-                      <InfoRow label="Default Credit" value={<span className="text-sm font-mono">{getAccountLabel(journal.defaultCreditAccountId)}</span>} />
-                      <InfoRow label="Sequence Prefix" value={journal.sequencePrefix ? <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">{journal.sequencePrefix}</code> : <span className="text-muted-foreground">—</span>} />
+                      <InfoRow label={tx('Default Debit')} value={<span className="text-sm font-mono">{getAccountLabel(journal.defaultDebitAccountId)}</span>} />
+                      <InfoRow label={tx('Default Credit')} value={<span className="text-sm font-mono">{getAccountLabel(journal.defaultCreditAccountId)}</span>} />
+                      <InfoRow label={tx('Sequence Prefix')} value={journal.sequencePrefix ? <code className="text-xs bg-muted px-2 py-0.5 rounded font-mono">{journal.sequencePrefix}</code> : <span className="text-muted-foreground">—</span>} />
                     </dl>
                   </CardContent>
                 </Card>

@@ -21,6 +21,7 @@ import { notify } from '@/lib/notify';
 import {
   TaskType, TaskPriority, TaskStatus, TaskCategory, TaskArea
 } from '@/features/tasks/types';
+import { tx } from '@/lib/i18n/tx';
 
 // Simple inline Checkbox component
 function Checkbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -223,10 +224,10 @@ export function TaskEditPage() {
 
       if (isNew) {
         await createTask.mutateAsync(payload);
-        notify.success('Task created');
+        notify.success(tx('Task created'));
       } else {
         await updateTask.mutateAsync({ id: id!, ...payload });
-        notify.success('Task updated');
+        notify.success(tx('Task updated'));
       }
       navigate('/tasks');
     } catch (err: any) {
@@ -265,7 +266,7 @@ export function TaskEditPage() {
       <div className="px-6 py-4 border-b bg-white shadow-sm">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3">
           <button onClick={() => navigate('/tasks')} className="hover:text-primary transition-colors font-medium">
-            Tasks
+            {tx('Tasks')}
           </button>
           <ChevronRight className="h-3 w-3" />
           <span className="font-semibold">{isNew ? 'New Task' : existingTask?.title}</span>
@@ -295,7 +296,7 @@ export function TaskEditPage() {
 
           <div className="flex items-center gap-2 flex-shrink-0">
             <Button variant="outline" size="sm" onClick={() => navigate('/tasks')}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button size="sm" onClick={onSubmit} disabled={saving}>
               <Save className="h-4 w-4 mr-1.5" />
@@ -331,22 +332,22 @@ export function TaskEditPage() {
             <TabsContent value="general" className="mt-0 outline-none space-y-6">
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Basic Information</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Basic Information')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="title" className="text-sm font-medium">Title *</Label>
-                      <Input id="title" {...form.register('title')} placeholder="Enter task title" />
+                      <Label htmlFor="title" className="text-sm font-medium">{tx('Title *')}</Label>
+                      <Input id="title" {...form.register('title')} placeholder={tx('Enter task title')} />
                       {form.formState.errors.title && (
                         <p className="text-sm text-red-500">{form.formState.errors.title.message}</p>
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="taskType" className="text-sm font-medium">Task Type</Label>
+                      <Label htmlFor="taskType" className="text-sm font-medium">{tx('Task Type')}</Label>
                       <Select onValueChange={handleSelectChange('taskType')} defaultValue={form.watch('taskType')}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select type" />
+                          <SelectValue placeholder={tx('Select type')} />
                         </SelectTrigger>
                         <SelectContent>
                           {Object.entries(TYPE_LABELS).map(([value, label]) => (
@@ -358,16 +359,16 @@ export function TaskEditPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="description" className="text-sm font-medium">Description</Label>
-                    <Textarea id="description" {...form.register('description')} rows={3} placeholder="Task description (optional)" />
+                    <Label htmlFor="description" className="text-sm font-medium">{tx('Description')}</Label>
+                    <Textarea id="description" {...form.register('description')} rows={3} placeholder={tx('Task description (optional)')} />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="priority" className="text-sm font-medium">Priority</Label>
+                      <Label htmlFor="priority" className="text-sm font-medium">{tx('Priority')}</Label>
                       <Select onValueChange={handleSelectChange('priority')} defaultValue={form.watch('priority')}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select priority" />
+                          <SelectValue placeholder={tx('Select priority')} />
                         </SelectTrigger>
                         <SelectContent>
                           {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
@@ -381,10 +382,10 @@ export function TaskEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="status" className="text-sm font-medium">Status</Label>
+                      <Label htmlFor="status" className="text-sm font-medium">{tx('Status')}</Label>
                       <Select onValueChange={handleSelectChange('status')} defaultValue={form.watch('status')}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select status" />
+                          <SelectValue placeholder={tx('Select status')} />
                         </SelectTrigger>
                         <SelectContent>
                           {Object.entries(STATUS_LABELS).map(([value, label]) => (
@@ -397,13 +398,13 @@ export function TaskEditPage() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="category" className="text-sm font-medium">Category</Label>
+                      <Label htmlFor="category" className="text-sm font-medium">{tx('Category')}</Label>
                       <Select onValueChange={handleSelectChange('category')} defaultValue={(form.watch('category') as string | undefined) ?? ''}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
+                          <SelectValue placeholder={tx('Select category')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">{tx('None')}</SelectItem>
                           {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
                             <SelectItem key={value} value={value}>{label}</SelectItem>
                           ))}
@@ -411,13 +412,13 @@ export function TaskEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="area" className="text-sm font-medium">Area</Label>
+                      <Label htmlFor="area" className="text-sm font-medium">{tx('Area')}</Label>
                       <Select onValueChange={handleSelectChange('area')} defaultValue={(form.watch('area') as string | undefined) ?? ''}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select area" />
+                          <SelectValue placeholder={tx('Select area')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">{tx('None')}</SelectItem>
                           {Object.entries(AREA_LABELS).map(([value, label]) => (
                             <SelectItem key={value} value={value}>{label}</SelectItem>
                           ))}
@@ -433,20 +434,20 @@ export function TaskEditPage() {
             <TabsContent value="scheduling" className="mt-0 outline-none space-y-6">
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Due Date & Time</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Due Date & Time')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-4">
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="dueDate" className="text-sm font-medium">Due Date</Label>
+                      <Label htmlFor="dueDate" className="text-sm font-medium">{tx('Due Date')}</Label>
                       <Input id="dueDate" type="date" {...form.register('dueDate')} />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="dueTime" className="text-sm font-medium">Due Time</Label>
+                      <Label htmlFor="dueTime" className="text-sm font-medium">{tx('Due Time')}</Label>
                       <Input id="dueTime" type="time" {...form.register('dueTime')} />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="estimatedMinutes" className="text-sm font-medium">Estimated Duration (minutes)</Label>
+                      <Label htmlFor="estimatedMinutes" className="text-sm font-medium">{tx('Estimated Duration (minutes)')}</Label>
                       <Input id="estimatedMinutes" type="number" min="0" step="5" {...form.register('estimatedMinutes', { valueAsNumber: true })} placeholder="e.g., 30" />
                     </div>
                   </div>
@@ -455,12 +456,12 @@ export function TaskEditPage() {
 
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Verification</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Verification')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-4">
                   <div className="flex items-center gap-4">
                     <Checkbox
-                      label="Requires Verification"
+                      label={tx('Requires Verification')}
                       checked={form.watch('requiresVerification')}
                       onChange={(checked) => form.setValue('requiresVerification', checked, { shouldValidate: true })}
                     />
@@ -468,8 +469,8 @@ export function TaskEditPage() {
 
                   {form.watch('requiresVerification') && (
                     <div className="space-y-1.5 ml-6">
-                      <Label htmlFor="verificationMethod" className="text-sm font-medium">Verification Method</Label>
-                      <Input id="verificationMethod" {...form.register('verificationMethod')} placeholder="e.g., Photo, Signature, QR Code" />
+                      <Label htmlFor="verificationMethod" className="text-sm font-medium">{tx('Verification Method')}</Label>
+                      <Input id="verificationMethod" {...form.register('verificationMethod')} placeholder={tx('e.g., Photo, Signature, QR Code')} />
                     </div>
                   )}
                 </CardContent>
@@ -480,12 +481,12 @@ export function TaskEditPage() {
             <TabsContent value="assignment" className="mt-0 outline-none space-y-6">
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Assignment</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Assignment')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="assignedToId" className="text-sm font-medium">Assign To</Label>
+                      <Label htmlFor="assignedToId" className="text-sm font-medium">{tx('Assign To')}</Label>
                       <Select
                         onValueChange={(value) => {
                           handleSelectChange('assignedToId')(value);
@@ -502,7 +503,7 @@ export function TaskEditPage() {
                           <SelectValue placeholder={loadingAssignees ? 'Loading users…' : 'Select user'} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">Unassigned</SelectItem>
+                          <SelectItem value="">{tx('Unassigned')}</SelectItem>
                           {assignees.map((u) => (
                             <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                           ))}
@@ -515,13 +516,13 @@ export function TaskEditPage() {
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="supervisorId" className="text-sm font-medium">Supervisor</Label>
+                      <Label htmlFor="supervisorId" className="text-sm font-medium">{tx('Supervisor')}</Label>
                       <Select onValueChange={handleSelectChange('supervisorId')} defaultValue={form.watch('supervisorId') ?? ''}>
                         <SelectTrigger>
                           <SelectValue placeholder={loadingAssignees ? 'Loading users…' : 'Select supervisor'} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">{tx('None')}</SelectItem>
                           {assignees.map((u) => (
                             <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
                           ))}
@@ -531,13 +532,13 @@ export function TaskEditPage() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="branchId" className="text-sm font-medium">Branch</Label>
+                    <Label htmlFor="branchId" className="text-sm font-medium">{tx('Branch')}</Label>
                     <Select onValueChange={handleSelectChange('branchId')} defaultValue={form.watch('branchId') ?? ''}>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select branch" />
+                        <SelectValue placeholder={tx('Select branch')} />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">All branches</SelectItem>
+                        <SelectItem value="">{tx('All branches')}</SelectItem>
                         {branches.map((b) => (
                           <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
                         ))}
@@ -552,12 +553,12 @@ export function TaskEditPage() {
             <TabsContent value="recurrence" className="mt-0 outline-none space-y-6">
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Recurring Task Settings</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Recurring Task Settings')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-4">
                   <div className="flex items-center gap-4">
                     <Checkbox
-                      label="This is a recurring task"
+                      label={tx('This is a recurring task')}
                       checked={form.watch('isRecurring')}
                       onChange={(checked) => form.setValue('isRecurring', checked, { shouldValidate: true })}
                     />
@@ -567,20 +568,20 @@ export function TaskEditPage() {
                     <div className="space-y-4 ml-6 border-l-2 border-muted pl-4">
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <Label htmlFor="taskType" className="text-sm font-medium">Recurring Task Type</Label>
+                          <Label htmlFor="taskType" className="text-sm font-medium">{tx('Recurring Task Type')}</Label>
                           <Select onValueChange={handleSelectChange('taskType')} defaultValue={form.watch('taskType')}>
                             <SelectTrigger>
-                              <SelectValue placeholder="Select type" />
+                              <SelectValue placeholder={tx('Select type')} />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value={TaskType.RECURRING}>Recurring</SelectItem>
-                              <SelectItem value={TaskType.SHIFT}>Shift</SelectItem>
-                              <SelectItem value={TaskType.OPENING}>Opening</SelectItem>
-                              <SelectItem value={TaskType.CLOSING}>Closing</SelectItem>
-                              <SelectItem value={TaskType.CLEANING}>Cleaning</SelectItem>
-                              <SelectItem value={TaskType.MAINTENANCE}>Maintenance</SelectItem>
-                              <SelectItem value={TaskType.INVENTORY}>Inventory</SelectItem>
-                              <SelectItem value={TaskType.AUDIT}>Audit</SelectItem>
+                              <SelectItem value={TaskType.RECURRING}>{tx('Recurring')}</SelectItem>
+                              <SelectItem value={TaskType.SHIFT}>{tx('Shift')}</SelectItem>
+                              <SelectItem value={TaskType.OPENING}>{tx('Opening')}</SelectItem>
+                              <SelectItem value={TaskType.CLOSING}>{tx('Closing')}</SelectItem>
+                              <SelectItem value={TaskType.CLEANING}>{tx('Cleaning')}</SelectItem>
+                              <SelectItem value={TaskType.MAINTENANCE}>{tx('Maintenance')}</SelectItem>
+                              <SelectItem value={TaskType.INVENTORY}>{tx('Inventory')}</SelectItem>
+                              <SelectItem value={TaskType.AUDIT}>{tx('Audit')}</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>

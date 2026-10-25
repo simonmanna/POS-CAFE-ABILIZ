@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { date } from '@/lib/format';
 import type { PaginatedResult } from '@erp/shared';
+import { tx } from '@/lib/i18n/tx';
 
 interface GRN {
   id: string;
@@ -117,13 +118,13 @@ export function GoodsReceiptsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Goods Receipts</h1>
-          <p className="text-sm text-muted-foreground">Stock received against purchases (auto-generated)</p>
+          <h1 className="text-2xl font-semibold">{tx('Goods Receipts')}</h1>
+          <p className="text-sm text-muted-foreground">{tx('Stock received against purchases (auto-generated)')}</p>
         </div>
         <Button asChild>
           <Link to="/procurement/goods-receipts/new">
             <Plus className="mr-2 h-4 w-4" />
-            New Receipt
+            {tx('New Receipt')}
           </Link>
         </Button>
       </div>
@@ -133,7 +134,7 @@ export function GoodsReceiptsPage() {
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="pl-9"
-            placeholder="Search receipts..."
+            placeholder={tx('Search receipts...')}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
           />
@@ -161,18 +162,18 @@ export function GoodsReceiptsPage() {
         data={rows}
         loading={isLoading}
         getRowId={(g) => g.id}
-        emptyMessage="No goods receipts found."
+        emptyMessage={tx('No goods receipts found.')}
       />
 
       {meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} receipt(s)</span>
+          <span>{meta.total} {tx('receipt(s)')}</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {tx('Previous')}
             </Button>
             <span>
-              Page {meta.page} of {meta.totalPages}
+              {tx('Page')} {meta.page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -180,7 +181,7 @@ export function GoodsReceiptsPage() {
               disabled={page >= meta.totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>

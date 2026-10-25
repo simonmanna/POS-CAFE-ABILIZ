@@ -10,6 +10,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { tx } from '@/lib/i18n/tx';
 
 /** Card-like strip that holds the search box, filters and active-filter chips. */
 export function ListToolbar({ children, chips }: { children: ReactNode; chips?: ReactNode }) {
@@ -36,7 +37,7 @@ export function SearchInput({
       {value && (
         <button
           type="button"
-          aria-label="Clear search"
+          aria-label={tx('Clear search')}
           onClick={() => onChange('')}
           className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
@@ -104,7 +105,7 @@ export function DateRangeFilter({
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs">
-            <CalendarRange className="h-3.5 w-3.5" /> Range <ChevronDown className="h-3 w-3 opacity-60" />
+            <CalendarRange className="h-3.5 w-3.5" /> {tx('Range')} <ChevronDown className="h-3 w-3 opacity-60" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-40">
@@ -115,7 +116,7 @@ export function DateRangeFilter({
       </DropdownMenu>
       <input
         type="date"
-        aria-label="From date"
+        aria-label={tx('From date')}
         value={from}
         max={to || undefined}
         onChange={(e) => onChange(e.target.value, to)}
@@ -124,7 +125,7 @@ export function DateRangeFilter({
       <span className="text-xs text-muted-foreground">→</span>
       <input
         type="date"
-        aria-label="To date"
+        aria-label={tx('To date')}
         value={to}
         min={from || undefined}
         onChange={(e) => onChange(from, e.target.value)}
@@ -144,7 +145,7 @@ export function FilterChips({ chips, onClearAll }: { chips: ActiveChip[]; onClea
   if (!chips.length) return null;
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-1.5 border-t pt-2.5">
-      <span className="mr-1 text-xs text-muted-foreground">Filters:</span>
+      <span className="mr-1 text-xs text-muted-foreground">{tx('Filters:')}</span>
       {chips.map((c) => (
         <span
           key={c.key}
@@ -162,7 +163,7 @@ export function FilterChips({ chips, onClearAll }: { chips: ActiveChip[]; onClea
         </span>
       ))}
       <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={onClearAll}>
-        Clear all
+        {tx('Clear all')}
       </Button>
     </div>
   );

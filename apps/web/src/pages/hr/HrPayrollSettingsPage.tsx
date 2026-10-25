@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { tx } from '@/lib/i18n/tx';
 
 const fmtPct = (r: number | null) => (r === null ? '—' : `${r * 100}%`);
 
@@ -70,27 +71,27 @@ export function HrPayrollSettingsPage() {
   return (
     <div className="space-y-4 p-6">
       <div>
-        <h1 className="text-xl font-semibold">Payroll settings</h1>
-        <p className="text-sm text-muted-foreground">Allowance/deduction components and tax tables.</p>
+        <h1 className="text-xl font-semibold">{tx('Payroll settings')}</h1>
+        <p className="text-sm text-muted-foreground">{tx('Allowance/deduction components and tax tables.')}</p>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
-          <TabsTrigger value="components">Components</TabsTrigger>
-          <TabsTrigger value="taxes">Tax tables</TabsTrigger>
+          <TabsTrigger value="components">{tx('Components')}</TabsTrigger>
+          <TabsTrigger value="taxes">{tx('Tax tables')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="components" className="space-y-4">
           <div className="flex justify-end">
-            <Button onClick={openCompCreate}>New component</Button>
+            <Button onClick={openCompCreate}>{tx('New component')}</Button>
           </div>
           <Card>
             <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-sm">{compRows.length} components</CardTitle>
+              <CardTitle className="text-sm">{compRows.length} {tx('components')}</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y">
-                {compRows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No components yet — add housing, transport, insurance, etc.</p>}
+                {compRows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No components yet — add housing, transport, insurance, etc.')}</p>}
                 {compRows.map((c: any) => (
                   <div key={c.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                     <div className="flex items-center gap-3">
@@ -106,10 +107,10 @@ export function HrPayrollSettingsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      {!c.isActive && <Badge variant="outline" className="bg-muted text-muted-foreground">Inactive</Badge>}
-                      <button onClick={() => openCompEdit(c)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">Edit</button>
+                      {!c.isActive && <Badge variant="outline" className="bg-muted text-muted-foreground">{tx('Inactive')}</Badge>}
+                      <button onClick={() => openCompEdit(c)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">{tx('Edit')}</button>
                       <button onClick={() => { if (confirm(`Delete component ${c.name}?`)) deleteC.mutate(c.id); }}
-                        className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Delete</button>
+                        className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">{tx('Delete')}</button>
                     </div>
                   </div>
                 ))}
@@ -120,29 +121,29 @@ export function HrPayrollSettingsPage() {
 
         <TabsContent value="taxes" className="space-y-4">
           <div className="flex justify-end">
-            <Button onClick={openTableCreate}>New tax table</Button>
+            <Button onClick={openTableCreate}>{tx('New tax table')}</Button>
           </div>
           <Card>
             <CardHeader className="bg-muted/30 border-b rounded-t-lg">
-              <CardTitle className="text-sm">{tableRows.length} tax tables</CardTitle>
+              <CardTitle className="text-sm">{tableRows.length} {tx('tax tables')}</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y">
-                {tableRows.length === 0 && <p className="p-6 text-sm text-muted-foreground">No tax tables yet — add PAYE brackets so payroll can withhold.</p>}
+                {tableRows.length === 0 && <p className="p-6 text-sm text-muted-foreground">{tx('No tax tables yet — add PAYE brackets so payroll can withhold.')}</p>}
                 {tableRows.map((t: any) => (
                   <div key={t.id} className="flex items-center justify-between px-4 py-3 hover:bg-muted/40">
                     <div className="flex-1">
                       <p className="text-sm font-medium">{t.code} · {t.name} · {t.taxType.replace(/_/g, ' ')}</p>
                       <p className="text-xs text-muted-foreground">
-                        Effective {t.effectiveFrom?.slice(0, 10)}{t.countryCode ? ` · ${t.countryCode}` : ''} ·{' '}
+                        {tx('Effective')} {t.effectiveFrom?.slice(0, 10)}{t.countryCode ? ` · ${t.countryCode}` : ''} ·{' '}
                         {(t.brackets ?? []).map((b: any) => `Rp ${Number(b.fromAmount).toLocaleString('id-ID')}–${b.toAmount ? 'Rp ' + Number(b.toAmount).toLocaleString('id-ID') : '∞'} @ ${b.rate * 100}%`).join(' · ')}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      {!t.isActive && <Badge variant="outline" className="bg-muted text-muted-foreground">Inactive</Badge>}
-                      <button onClick={() => openTableEdit(t)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">Edit</button>
+                      {!t.isActive && <Badge variant="outline" className="bg-muted text-muted-foreground">{tx('Inactive')}</Badge>}
+                      <button onClick={() => openTableEdit(t)} className="rounded-md border px-2 py-1 text-xs hover:bg-muted/60">{tx('Edit')}</button>
                       <button onClick={() => { if (confirm(`Delete tax table ${t.name}?`)) deleteT.mutate(t.id); }}
-                        className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">Delete</button>
+                        className="rounded-md border px-2 py-1 text-xs text-rose-600 hover:bg-rose-50">{tx('Delete')}</button>
                     </div>
                   </div>
                 ))}
@@ -165,29 +166,29 @@ export function HrPayrollSettingsPage() {
             <div className="grid gap-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Code *</Label>
+                  <Label>{tx('Code *')}</Label>
                   <Input value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value })} />
                 </div>
                 <div>
-                  <Label>Name *</Label>
+                  <Label>{tx('Name *')}</Label>
                   <Input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Type</Label>
+                  <Label>{tx('Type')}</Label>
                   <select value={form.componentType} onChange={(e) => setForm({ ...form, componentType: e.target.value })}
                     className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                    <option value="ALLOWANCE">Allowance</option>
-                    <option value="DEDUCTION">Deduction</option>
+                    <option value="ALLOWANCE">{tx('Allowance')}</option>
+                    <option value="DEDUCTION">{tx('Deduction')}</option>
                   </select>
                 </div>
                 <div>
-                  <Label>Calc method</Label>
+                  <Label>{tx('Calc method')}</Label>
                   <select value={form.calcMethod} onChange={(e) => setForm({ ...form, calcMethod: e.target.value })}
                     className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                    <option value="FIXED">Fixed amount</option>
-                    <option value="PERCENTAGE">Percentage of base</option>
+                    <option value="FIXED">{tx('Fixed amount')}</option>
+                    <option value="PERCENTAGE">{tx('Percentage of base')}</option>
                   </select>
                 </div>
               </div>
@@ -198,20 +199,20 @@ export function HrPayrollSettingsPage() {
                     onChange={(e) => setForm({ ...form, [form.calcMethod === 'FIXED' ? 'amount' : 'rate']: e.target.value })} />
                 </div>
                 <div>
-                  <Label>Applies to</Label>
+                  <Label>{tx('Applies to')}</Label>
                   <select value={form.appliesTo ?? ''} onChange={(e) => setForm({ ...form, appliesTo: e.target.value })}
                     className="w-full rounded-md border bg-card px-3 py-2 text-sm">
-                    <option value="">Everyone</option>
-                    <option value="ALL">All employees</option>
-                    <option value="FULL_TIME">Full-time only</option>
-                    <option value="CONTRACT">Contract only</option>
+                    <option value="">{tx('Everyone')}</option>
+                    <option value="ALL">{tx('All employees')}</option>
+                    <option value="FULL_TIME">{tx('Full-time only')}</option>
+                    <option value="CONTRACT">{tx('Contract only')}</option>
                   </select>
                 </div>
               </div>
               <div className="flex gap-4 text-sm">
-                <label className="flex items-center gap-1"><input type="checkbox" checked={form.isTaxable} onChange={(e) => setForm({ ...form, isTaxable: e.target.checked })} /> Taxable</label>
-                <label className="flex items-center gap-1"><input type="checkbox" checked={form.isRecurring} onChange={(e) => setForm({ ...form, isRecurring: e.target.checked })} /> Recurring</label>
-                <label className="flex items-center gap-1"><input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} /> Active</label>
+                <label className="flex items-center gap-1"><input type="checkbox" checked={form.isTaxable} onChange={(e) => setForm({ ...form, isTaxable: e.target.checked })} /> {tx('Taxable')}</label>
+                <label className="flex items-center gap-1"><input type="checkbox" checked={form.isRecurring} onChange={(e) => setForm({ ...form, isRecurring: e.target.checked })} /> {tx('Recurring')}</label>
+                <label className="flex items-center gap-1"><input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} /> {tx('Active')}</label>
               </div>
               <Button onClick={submitComp} disabled={!form.code || !form.name || createC.isPending || updateC.isPending}>
                 {editing ? 'Save changes' : 'Create component'}
@@ -221,35 +222,35 @@ export function HrPayrollSettingsPage() {
             <div className="grid gap-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Code *</Label>
+                  <Label>{tx('Code *')}</Label>
                   <Input value={form.code ?? ''} onChange={(e) => setForm({ ...form, code: e.target.value })} />
                 </div>
                 <div>
-                  <Label>Name *</Label>
+                  <Label>{tx('Name *')}</Label>
                   <Input value={form.name ?? ''} onChange={(e) => setForm({ ...form, name: e.target.value })} />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Tax type</Label>
+                  <Label>{tx('Tax type')}</Label>
                   <select value={form.taxType} onChange={(e) => setForm({ ...form, taxType: e.target.value })}
                     className="w-full rounded-md border bg-card px-3 py-2 text-sm">
                     <option value="PAYE">PAYE</option>
-                    <option value="PENSION">Pension</option>
-                    <option value="SOCIAL_SECURITY">Social security</option>
-                    <option value="LOCAL">Local</option>
+                    <option value="PENSION">{tx('Pension')}</option>
+                    <option value="SOCIAL_SECURITY">{tx('Social security')}</option>
+                    <option value="LOCAL">{tx('Local')}</option>
                   </select>
                 </div>
                 <div>
-                  <Label>Effective from *</Label>
+                  <Label>{tx('Effective from *')}</Label>
                   <Input type="date" value={form.effectiveFrom ?? ''} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
                 </div>
               </div>
               <div>
-                <Label>Country code</Label>
+                <Label>{tx('Country code')}</Label>
                 <Input value={form.countryCode ?? ''} onChange={(e) => setForm({ ...form, countryCode: e.target.value })} placeholder="ID" />
               </div>
-              <p className="text-xs text-muted-foreground">Brackets are managed through the API — the payroll engine applies the top-most active table of each type.</p>
+              <p className="text-xs text-muted-foreground">{tx('Brackets are managed through the API — the payroll engine applies the top-most active table of each type.')}</p>
               <Button onClick={submitTable} disabled={!form.code || !form.name || !form.effectiveFrom || createT.isPending || updateT.isPending}>
                 {editing ? 'Save changes' : 'Create tax table'}
               </Button>

@@ -8,6 +8,7 @@ import { DataTable, type Column } from '@/components/data-table';
 import { useDebouncedValue } from '@/lib/use-debounced-value';
 import { money, date, statusLabel } from '@/lib/format';
 import { usePayments, type Payment } from '@/features/invoicing/api';
+import { tx } from '@/lib/i18n/tx';
 
 export function PaymentsPage() {
   const navigate = useNavigate();
@@ -50,9 +51,9 @@ export function PaymentsPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-semibold">Receipts</h1>
+        <h1 className="text-2xl font-semibold">{tx('Receipts')}</h1>
         <p className="text-sm text-muted-foreground">
-          Customer payments. Record a new one from an invoice's "Register payment".
+          {tx('Customer payments. Record a new one from an invoice\'s "Register payment".')}
         </p>
       </div>
 
@@ -60,7 +61,7 @@ export function PaymentsPage() {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           className="pl-9"
-          placeholder="Search receipts..."
+          placeholder={tx('Search receipts...')}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
         />
@@ -70,13 +71,13 @@ export function PaymentsPage() {
 
       {meta && (
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>{meta.total} receipt(s)</span>
+          <span>{meta.total} {tx('receipt(s)')}</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              Previous
+              {tx('Previous')}
             </Button>
             <span>
-              Page {meta.page} of {meta.totalPages}
+              {tx('Page')} {meta.page} of {meta.totalPages}
             </span>
             <Button
               variant="outline"
@@ -84,7 +85,7 @@ export function PaymentsPage() {
               disabled={page >= meta.totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Next
+              {tx('Next')}
             </Button>
           </div>
         </div>

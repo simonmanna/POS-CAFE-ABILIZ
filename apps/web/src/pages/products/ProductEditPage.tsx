@@ -28,6 +28,7 @@ import { useAccounts, type Account } from '@/features/accounting/api';
 import { useKitchenStations } from '@/pages/pos/pos-features-api';
 import { api, resolveAssetUrl } from '@/lib/api';
 import { toast } from 'sonner';
+import { tx } from '@/lib/i18n/tx';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -243,11 +244,11 @@ export function ProductEditPage() {
           onValueChange={(v: string) => form.setValue(def.fieldName, v === '__inherit__' ? '' : v)}
         >
           <SelectTrigger className="w-full">
-            <SelectValue placeholder="Inherit (no override)" />
+            <SelectValue placeholder={tx('Inherit (no override)')} />
           </SelectTrigger>
           <SelectContent className="max-h-64">
             <SelectItem value="__inherit__">
-              <span className="text-muted-foreground italic">— Inherit —</span>
+              <span className="text-muted-foreground italic">{tx('— Inherit —')}</span>
             </SelectItem>
             {accounts
               .filter((a) => a.isActive !== false)
@@ -398,10 +399,10 @@ export function ProductEditPage() {
       };
       if (isNew) {
         await createProduct.mutateAsync(payload);
-        notify.success('Product created');
+        notify.success(tx('Product created'));
       } else {
         await updateProduct.mutateAsync({ id, data: payload });
-        notify.success('Product updated');
+        notify.success(tx('Product updated'));
       }
       navigate('/products');
     } catch (err: any) {
@@ -431,7 +432,7 @@ export function ProductEditPage() {
       {/* Breadcrumb + Header — matches InventoryDetailPage styling */}
       <div className="px-6 py-4 border-b bg-white shadow-sm">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-3">
-          <button onClick={() => navigate('/products')} className="hover:text-primary transition-colors font-medium">Products</button>
+          <button onClick={() => navigate('/products')} className="hover:text-primary transition-colors font-medium">{tx('Products')}</button>
           <ChevronRight className="h-3 w-3" />
           <span className="font-semibold">{isNew ? 'New Product' : existingProduct?.name}</span>
         </div>
@@ -460,7 +461,7 @@ export function ProductEditPage() {
 
           <div className="flex items-center gap-2 flex-shrink-0">
             <Button variant="outline" size="sm" onClick={() => navigate('/products')}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button size="sm" onClick={onSubmit} disabled={saving}>
               <Save className="h-4 w-4 mr-1.5" />
@@ -498,29 +499,29 @@ export function ProductEditPage() {
               {/* Basic Info */}
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Basic Information</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Basic Information')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label htmlFor="code" className="text-sm font-medium">Code *</Label>
-                      <Input id="code" placeholder="PRD-001" {...form.register('code')} />
+                      <Label htmlFor="code" className="text-sm font-medium">{tx('Code *')}</Label>
+                      <Input id="code" placeholder={tx('PRD-001')} {...form.register('code')} />
                       {form.formState.errors.code && (
                         <p className="text-sm text-destructive">{form.formState.errors.code.message}</p>
                       )}
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-sm font-medium">SKU</Label>
-                      <Input placeholder="SKU-001" {...form.register('sku')} />
+                      <Input placeholder={tx('SKU-001')} {...form.register('sku')} />
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Name *</Label>
-                    <Input placeholder="Product name" {...form.register('name')} />
+                    <Label className="text-sm font-medium">{tx('Name *')}</Label>
+                    <Input placeholder={tx('Product name')} {...form.register('name')} />
                   </div>
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Product Type</Label>
+                      <Label className="text-sm font-medium">{tx('Product Type')}</Label>
                       <Select value={form.watch('productType')} onValueChange={(v) => form.setValue('productType', v)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -531,11 +532,11 @@ export function ProductEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Category</Label>
+                      <Label className="text-sm font-medium">{tx('Category')}</Label>
                       <Select value={form.watch('categoryId')} onValueChange={(v) => form.setValue('categoryId', v)}>
-                        <SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={tx('Select category')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">{tx('None')}</SelectItem>
                           {categories.map((c) => (
                             <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                           ))}
@@ -543,7 +544,7 @@ export function ProductEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Costing Method</Label>
+                      <Label className="text-sm font-medium">{tx('Costing Method')}</Label>
                       <Select value={form.watch('costingMethod')} onValueChange={(v) => form.setValue('costingMethod', v)}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -554,28 +555,28 @@ export function ProductEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Kitchen Station</Label>
+                      <Label className="text-sm font-medium">{tx('Kitchen Station')}</Label>
                       <Select value={form.watch('station') || 'cafe'} onValueChange={(v) => form.setValue('station', v)}>
-                        <SelectTrigger><SelectValue placeholder="Select station" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={tx('Select station')} /></SelectTrigger>
                         <SelectContent>
                           {kitchenStations.map((s) => (
                             <SelectItem key={s.id} value={s.code}>{s.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                      <p className="text-[11px] text-muted-foreground">Which KDS screen this product's tickets route to.</p>
+                      <p className="text-[11px] text-muted-foreground">{tx('Which KDS screen this product\'s tickets route to.')}</p>
                     </div>
                   </div>
                   {/* Image upload */}
                   <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Image</Label>
+                    <Label className="text-sm font-medium">{tx('Image')}</Label>
                     <div className="flex items-center gap-3">
                       <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
                         {uploadingImg ? 'Uploading…' : 'Choose Image'}
                       </Button>
                       <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                       {previewSrc && (
-                        <img src={previewSrc} alt="Preview" className="h-12 w-12 object-cover rounded border" />
+                        <img src={previewSrc} alt={tx('Preview')} className="h-12 w-12 object-cover rounded border" />
                       )}
                     </div>
                   </div>
@@ -587,16 +588,16 @@ export function ProductEditPage() {
             <TabsContent value="pricing-uom" className="mt-0 outline-none space-y-6">
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Pricing</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Pricing')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Sales Price</Label>
+                      <Label className="text-sm font-medium">{tx('Sales Price')}</Label>
                       <Input type="number" step="0.01" min={0} placeholder="0.00" {...form.register('salesPrice')} />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Cost Price</Label>
+                      <Label className="text-sm font-medium">{tx('Cost Price')}</Label>
                       <Input type="number" step="0.01" min={0} placeholder="0.00" {...form.register('costPrice')} />
                     </div>
                   </div>
@@ -605,16 +606,16 @@ export function ProductEditPage() {
 
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Units of Measure</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Units of Measure')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Stock Unit</Label>
+                      <Label className="text-sm font-medium">{tx('Stock Unit')}</Label>
                       <Select value={form.watch('uomId')} onValueChange={(v) => form.setValue('uomId', v)}>
-                        <SelectTrigger><SelectValue placeholder="Select UOM" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={tx('Select UOM')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">{tx('None')}</SelectItem>
                           {units.map((u: any) => (
                             <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
                           ))}
@@ -622,11 +623,11 @@ export function ProductEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Purchase Unit</Label>
+                      <Label className="text-sm font-medium">{tx('Purchase Unit')}</Label>
                       <Select value={form.watch('purchaseUomId')} onValueChange={(v) => form.setValue('purchaseUomId', v)}>
-                        <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={tx('Optional')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">{tx('None')}</SelectItem>
                           {units.map((u: any) => (
                             <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
                           ))}
@@ -634,11 +635,11 @@ export function ProductEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Sales Unit</Label>
+                      <Label className="text-sm font-medium">{tx('Sales Unit')}</Label>
                       <Select value={form.watch('salesUomId')} onValueChange={(v) => form.setValue('salesUomId', v)}>
-                        <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={tx('Optional')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">{tx('None')}</SelectItem>
                           {units.map((u: any) => (
                             <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
                           ))}
@@ -646,11 +647,11 @@ export function ProductEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Recipe Unit</Label>
+                      <Label className="text-sm font-medium">{tx('Recipe Unit')}</Label>
                       <Select value={form.watch('recipeUomId')} onValueChange={(v) => form.setValue('recipeUomId', v)}>
-                        <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={tx('Optional')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">{tx('None')}</SelectItem>
                           {units.map((u: any) => (
                             <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
                           ))}
@@ -658,11 +659,11 @@ export function ProductEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Production Unit</Label>
+                      <Label className="text-sm font-medium">{tx('Production Unit')}</Label>
                       <Select value={form.watch('productionUomId')} onValueChange={(v) => form.setValue('productionUomId', v)}>
-                        <SelectTrigger><SelectValue placeholder="Optional" /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={tx('Optional')} /></SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">None</SelectItem>
+                          <SelectItem value="">{tx('None')}</SelectItem>
                           {units.map((u: any) => (
                             <SelectItem key={u.id} value={u.id}>{u.code} — {u.name}</SelectItem>
                           ))}
@@ -670,22 +671,22 @@ export function ProductEditPage() {
                       </Select>
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">UOM Conversion</Label>
+                      <Label className="text-sm font-medium">{tx('UOM Conversion')}</Label>
                       <Input type="number" step="0.01" min={1} placeholder="1" {...form.register('uomConversion')} />
-                      <p className="text-[10px] text-muted-foreground">Stock units per 1 purchase unit</p>
+                      <p className="text-[10px] text-muted-foreground">{tx('Stock units per 1 purchase unit')}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Reorder Qty</Label>
+                      <Label className="text-sm font-medium">{tx('Reorder Qty')}</Label>
                       <Input type="number" min={0} placeholder="0" {...form.register('reorderQty')} />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Min Sale Qty</Label>
+                      <Label className="text-sm font-medium">{tx('Min Sale Qty')}</Label>
                       <Input type="number" min={0} step="0.01" placeholder="0" {...form.register('minSaleQty')} />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Max Sale Qty</Label>
+                      <Label className="text-sm font-medium">{tx('Max Sale Qty')}</Label>
                       <Input type="number" min={0} step="0.01" placeholder="0" {...form.register('maxSaleQty')} />
                     </div>
                   </div>
@@ -697,16 +698,16 @@ export function ProductEditPage() {
             <TabsContent value="inventory" className="mt-0 outline-none space-y-6">
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Inventory Tracking</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Inventory Tracking')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-4">
                   <label className="flex items-center gap-2 text-sm cursor-pointer">
                     <input type="checkbox" className="rounded" checked={form.watch('trackInventory')} onChange={(e) => form.setValue('trackInventory', e.target.checked)} />
-                    Track Inventory
+                    {tx('Track Inventory')}
                   </label>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label className="text-sm font-medium">Picking Strategy</Label>
+                      <Label className="text-sm font-medium">{tx('Picking Strategy')}</Label>
                       <Select value={form.watch('pickingStrategy')} onValueChange={(v) => form.setValue('pickingStrategy', v)} disabled={!form.watch('trackInventory')}>
                         <SelectTrigger><SelectValue /></SelectTrigger>
                         <SelectContent>
@@ -720,22 +721,22 @@ export function ProductEditPage() {
                   <div className="flex flex-wrap gap-6">
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" className="rounded" checked={form.watch('batchTracking')} onChange={(e) => form.setValue('batchTracking', e.target.checked)} disabled={!form.watch('trackInventory')} />
-                      Batch Tracking
+                      {tx('Batch Tracking')}
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" className="rounded" checked={form.watch('expiryTracking')} onChange={(e) => form.setValue('expiryTracking', e.target.checked)} disabled={!form.watch('trackInventory')} />
-                      Expiry Tracking
+                      {tx('Expiry Tracking')}
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input type="checkbox" className="rounded" checked={form.watch('serialTracking')} onChange={(e) => form.setValue('serialTracking', e.target.checked)} disabled={!form.watch('trackInventory')} />
-                      Serial Tracking
+                      {tx('Serial Tracking')}
                     </label>
                   </div>
                   {form.watch('expiryTracking') && (
-                    <p className="text-[11px] text-slate-500">Expiry tracking enables Batch tracking (expiry is recorded per batch).</p>
+                    <p className="text-[11px] text-slate-500">{tx('Expiry tracking enables Batch tracking (expiry is recorded per batch).')}</p>
                   )}
                   {form.watch('costingMethod') === 'SPECIFIC' && !form.watch('serialTracking') && !form.watch('batchTracking') && (
-                    <p className="text-[11px] text-amber-600">Specific Identification needs Serial or Batch tracking to identify each unit's cost.</p>
+                    <p className="text-[11px] text-amber-600">{tx('Specific Identification needs Serial or Batch tracking to identify each unit\'s cost.')}</p>
                   )}
                 </CardContent>
               </Card>
@@ -745,11 +746,11 @@ export function ProductEditPage() {
             <TabsContent value="beverage" className="mt-0 outline-none space-y-6">
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Beverage Control</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Beverage Control')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-4">
                   <div className="space-y-1.5">
-                    <Label className="text-sm font-medium">Measurement Method</Label>
+                    <Label className="text-sm font-medium">{tx('Measurement Method')}</Label>
                     <Select value={form.watch('measurementMethod')} onValueChange={(v) => form.setValue('measurementMethod', v)}>
                       <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
                       <SelectContent>
@@ -762,29 +763,29 @@ export function ProductEditPage() {
                   {form.watch('measurementMethod') === 'digital_weight' && (
                     <div className="grid grid-cols-2 gap-4 border rounded-lg bg-slate-50 p-4">
                       <div className="space-y-1.5">
-                        <Label className="text-sm">Container Volume (ml)</Label>
+                        <Label className="text-sm">{tx('Container Volume (ml)')}</Label>
                         <Input type="number" min={0} step="1" placeholder="e.g. 750" {...form.register('containerVolumeMl')} />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-sm">Empty Bottle Weight (g)</Label>
+                        <Label className="text-sm">{tx('Empty Bottle Weight (g)')}</Label>
                         <Input type="number" min={0} step="0.1" placeholder="e.g. 400" {...form.register('emptyBottleWeightG')} />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-sm">Full Bottle Weight (g)</Label>
+                        <Label className="text-sm">{tx('Full Bottle Weight (g)')}</Label>
                         <Input type="number" min={0} step="0.1" placeholder="e.g. 1150" {...form.register('fullBottleWeightG')} />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-sm">Standard Pour (ml)</Label>
+                        <Label className="text-sm">{tx('Standard Pour (ml)')}</Label>
                         <Input type="number" min={0} step="0.1" placeholder="e.g. 44" {...form.register('standardPourMl')} />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-sm">Variance Tolerance (g)</Label>
+                        <Label className="text-sm">{tx('Variance Tolerance (g)')}</Label>
                         <Input type="number" min={0} step="0.1" placeholder="e.g. 5" {...form.register('varianceToleranceG')} />
                       </div>
                       <div className="flex items-end">
                         <label className="flex items-center gap-2 text-sm cursor-pointer">
                           <input type="checkbox" className="rounded" checked={form.watch('allowPartialBottle')} onChange={(e) => form.setValue('allowPartialBottle', e.target.checked)} />
-                          Allow Partial Bottle
+                          {tx('Allow Partial Bottle')}
                         </label>
                       </div>
                     </div>
@@ -799,17 +800,17 @@ export function ProductEditPage() {
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg flex-row items-center justify-between">
                   <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Packaging &amp; Barcodes</CardTitle>
                   <Button type="button" size="sm" variant="outline" onClick={() => setPackagingRows([...packagingRows, { name: '', quantity: '', barcode: '' }])}>
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Add pack
+                    <Plus className="h-3.5 w-3.5 mr-1" /> {tx('Add pack')}
                   </Button>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-2">
-                  <p className="text-[11px] text-muted-foreground">Each pack = a quantity of the stock unit. Scanning a pack barcode adds that many base units (e.g. a case of 24).</p>
-                  {packagingRows.length === 0 && <p className="text-sm text-muted-foreground">No packaging defined.</p>}
+                  <p className="text-[11px] text-muted-foreground">{tx('Each pack = a quantity of the stock unit. Scanning a pack barcode adds that many base units (e.g. a case of 24).')}</p>
+                  {packagingRows.length === 0 && <p className="text-sm text-muted-foreground">{tx('No packaging defined.')}</p>}
                   {packagingRows.map((row, i) => (
                     <div key={i} className="grid grid-cols-[1fr_130px_1fr_auto] gap-2 items-center">
-                      <Input placeholder="Pack name (e.g. Carton)" value={row.name} onChange={(e) => updatePack(i, 'name', e.target.value)} />
-                      <Input type="number" step="any" min={0} placeholder="qty of base" value={row.quantity} onChange={(e) => updatePack(i, 'quantity', e.target.value)} />
-                      <Input placeholder="Barcode (optional)" value={row.barcode} onChange={(e) => updatePack(i, 'barcode', e.target.value)} />
+                      <Input placeholder={tx('Pack name (e.g. Carton)')} value={row.name} onChange={(e) => updatePack(i, 'name', e.target.value)} />
+                      <Input type="number" step="any" min={0} placeholder={tx('qty of base')} value={row.quantity} onChange={(e) => updatePack(i, 'quantity', e.target.value)} />
+                      <Input placeholder={tx('Barcode (optional)')} value={row.barcode} onChange={(e) => updatePack(i, 'barcode', e.target.value)} />
                       <Button type="button" size="icon" variant="ghost" onClick={() => setPackagingRows(packagingRows.filter((_, j) => j !== i))}>
                         <Trash2 className="h-4 w-4 text-destructive/70" />
                       </Button>
@@ -823,11 +824,11 @@ export function ProductEditPage() {
             <TabsContent value="accounting" className="mt-0 outline-none space-y-6">
               <Card>
                 <CardHeader className="pb-2 pt-4 px-5 bg-muted/30 border-b rounded-t-lg">
-                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Inventory Accounting Overrides</CardTitle>
+                  <CardTitle className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{tx('Inventory Accounting Overrides')}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 py-4 space-y-1">
                   <p className="text-[11px] text-muted-foreground mb-3">
-                    Leave each field as "<span className="italic">Inherit</span>" to use the category's default (when a category is selected) or the org-level Account Mapping.
+                    {tx('Leave each field as "')}<span className="italic">{tx('Inherit')}</span>{tx('" to use the category\'s default (when a category is selected) or the org-level Account Mapping.')}
                   </p>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                     {ACCOUNT_OVERRIDE_FIELDS.map(renderAccountSelect)}
@@ -839,7 +840,7 @@ export function ProductEditPage() {
 
           {/* Bottom actions — always visible */}
           <div className="flex items-center justify-between pt-6 pb-8 border-t mt-6">
-            <Button type="button" variant="outline" onClick={() => navigate('/products')}>Cancel</Button>
+            <Button type="button" variant="outline" onClick={() => navigate('/products')}>{tx('Cancel')}</Button>
             <Button type="submit" disabled={saving}>
               <Save className="h-4 w-4 mr-1.5" />
               {saving ? 'Saving…' : 'Save Product'}

@@ -49,6 +49,7 @@ import { usePosSettings } from '@/features/pos/api';
 import { useAuthStore } from '@/stores/auth.store';
 import type { CashSession } from './types';
 import { toast } from 'sonner';
+import { tx } from '@/lib/i18n/tx';
 
 const orgCur = () => useAuthStore.getState().organization?.currencyCode ?? 'IDR';
 const fmt = (n: number | string | null | undefined) => `${orgCur()} ${Number(n || 0).toLocaleString()}`;
@@ -166,14 +167,14 @@ const DeviceOpRow: React.FC<{
                   onClick={onDiscard}
                   className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
                 >
-                  <Trash2 className="h-3 w-3" /> Discard forever
+                  <Trash2 className="h-3 w-3" /> {tx('Discard forever')}
                 </button>
                 <button
                   type="button"
                   onClick={onCancelDiscard}
                   className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
                 >
-                  Keep
+                  {tx('Keep')}
                 </button>
               </>
             ) : (
@@ -184,7 +185,7 @@ const DeviceOpRow: React.FC<{
                   onClick={onRetry}
                   className="inline-flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
                 >
-                  <RefreshCw className="h-3 w-3" /> Retry sync
+                  <RefreshCw className="h-3 w-3" /> {tx('Retry sync')}
                 </button>
                 <button
                   type="button"
@@ -192,7 +193,7 @@ const DeviceOpRow: React.FC<{
                   onClick={onStartDiscard}
                   className="rounded-md border border-rose-300 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
                 >
-                  Discard…
+                  {tx('Discard…')}
                 </button>
               </>
             )}
@@ -205,7 +206,7 @@ const DeviceOpRow: React.FC<{
             className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CloudUpload className="h-3 w-3" />}
-            Sync now
+            {tx('Sync now')}
           </button>
         )}
       </div>
@@ -408,10 +409,10 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     setBusyOp(op.idempotencyKey);
     try {
       const outcome = await replaySale(op);
-      if (outcome.status === 'identity') toast.warning('This payment was queued under a different organization — it cannot be synced from this sign-in.');
-      else if (outcome.status === 'ok') toast.success('Payment synced');
-      else if (outcome.status === 'rejected') toast.info('The server rejected it — review it in the list.');
-      else toast.error('Could not reach the server. The payment stays queued.');
+      if (outcome.status === 'identity') toast.warning(tx('This payment was queued under a different organization — it cannot be synced from this sign-in.'));
+      else if (outcome.status === 'ok') toast.success(tx('Payment synced'));
+      else if (outcome.status === 'rejected') toast.info(tx('The server rejected it — review it in the list.'));
+      else toast.error(tx('Could not reach the server. The payment stays queued.'));
       await refreshDeviceOps();
       void recheck();
     } finally {
@@ -423,10 +424,10 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     setBusyOp(op.idempotencyKey);
     try {
       const outcome = await retryAndSyncFailed(op);
-      if (outcome.status === 'ok') toast.success('Payment synced');
-      else if (outcome.status === 'rejected') toast.info('The server rejected it again — see the reason in the list.');
-      else if (outcome.status === 'identity') toast.warning('This payment was queued under a different organization — it cannot be synced from this sign-in.');
-      else toast.error('Could not reach the server. The payment stays queued.');
+      if (outcome.status === 'ok') toast.success(tx('Payment synced'));
+      else if (outcome.status === 'rejected') toast.info(tx('The server rejected it again — see the reason in the list.'));
+      else if (outcome.status === 'identity') toast.warning(tx('This payment was queued under a different organization — it cannot be synced from this sign-in.'));
+      else toast.error(tx('Could not reach the server. The payment stays queued.'));
       await refreshDeviceOps();
       void recheck();
     } finally {
@@ -438,7 +439,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
     setBusyOp(op.idempotencyKey);
     try {
       await discardFailed(op.idempotencyKey);
-      toast.warning('Rejected payment discarded permanently');
+      toast.warning(tx('Rejected payment discarded permanently'));
       await refreshDeviceOps();
     } finally {
       setBusyOp(null);
@@ -659,7 +660,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
       });
       setResult(res as CashSession);
       setStep('done');
-      toast.success('Shift closed');
+      toast.success(tx('Shift closed'));
     } catch (e: any) {
       const decoded = decodeError(e?.response?.data ?? e?.message);
       setProblem(decoded);
@@ -751,22 +752,22 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
           {step !== 'done' ? (
             <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-center">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Opening float</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{tx('Opening float')}</p>
                 <p className="font-mono text-sm font-bold text-slate-900">{fmt(session.openingFloat)}</p>
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Sales this shift</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{tx('Sales this shift')}</p>
                 <p className="font-mono text-sm font-bold text-slate-900">
                   {recon ? fmt(recon.report?.totals?.salesTotal) : '—'}
                 </p>
                 {recon ? (
                   <p className="text-[10px] text-slate-500">
-                    {plain(recon.report?.totals?.saleCount)} sale{Number(recon.report?.totals?.saleCount) === 1 ? '' : 's'} · all payment methods
+                    {plain(recon.report?.totals?.saleCount)} {tx('sale')}{Number(recon.report?.totals?.saleCount) === 1 ? '' : 's'} {tx('· all payment methods')}
                   </p>
                 ) : null}
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Open since</p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{tx('Open since')}</p>
                 <p className="text-sm font-bold text-slate-900">
                   {session.openedAt ? new Date(session.openedAt).toLocaleTimeString() : '—'}
                 </p>
@@ -792,11 +793,11 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
               {recon && showClosingAmounts ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
-                    Closing amounts
+                    {tx('Closing amounts')}
                   </p>
                   <div className="mt-1.5 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-slate-700">Cash (drawer)</span>
+                      <span className="text-sm text-slate-700">{tx('Cash (drawer)')}</span>
                       <span className="font-mono text-sm font-bold tabular-nums text-slate-900">
                         {fmt(recon.report?.totals?.expectedCash)}
                       </span>
@@ -841,12 +842,12 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
               ) : null}
 
               {!recon ? (
-                <Notice tone="info" title="Checking this shift...">
-                  <p>Looking for open orders, unpaid sales and stock still posting.</p>
+                <Notice tone="info" title={tx('Checking this shift...')}>
+                  <p>{tx('Looking for open orders, unpaid sales and stock still posting.')}</p>
                 </Notice>
               ) : ready ? (
-                <Notice tone="ok" title="All clear — nothing is left open">
-                  <p>Every order is settled and the books agree with the drawer. You can count now.</p>
+                <Notice tone="ok" title={tx('All clear — nothing is left open')}>
+                  <p>{tx('Every order is settled and the books agree with the drawer. You can count now.')}</p>
                 </Notice>
               ) : (
                 <Notice tone="warn" title={`${problemCount} thing${problemCount === 1 ? '' : 's'} to sort out first`}>
@@ -861,7 +862,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                             {b.items.slice(0, b.count ? 50 : 4).map((item) => (
                               <li key={item}>{item}</li>
                             ))}
-                            {!b.count && b.items.length > 4 ? <li>and {b.items.length - 4} more like this</li> : null}
+                            {!b.count && b.items.length > 4 ? <li>and {b.items.length - 4} {tx('more like this')}</li> : null}
                           </ul>
                         ) : null}
                       </li>
@@ -873,8 +874,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
               {recon?.pendingPostings ? (
                 <Notice tone="info" title={`${recon.pendingPostings} stock deduction${recon.pendingPostings === 1 ? '' : 's'} still posting`}>
                   <p>
-                    This does not stop you closing — your sales and money are final. Stock catches up on its own;
-                    anything that cannot post shows on the Posting Monitor for a manager.
+                    {tx('This does not stop you closing — your sales and money are final. Stock catches up on its own; anything that cannot post shows on the Posting Monitor for a manager.')}
                   </p>
                 </Notice>
               ) : null}
@@ -895,23 +895,21 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
           {step === 'count' ? (
             <>
               {showClosingAmounts ? (
-                <Notice tone="info" title="Count to the expected figures">
+                <Notice tone="info" title={tx('Count to the expected figures')}>
                   <p>
-                    The expected closing amounts were shown on the previous screen. Count what is actually
-                    there and enter it — the difference is shown when you confirm.
+                    {tx('The expected closing amounts were shown on the previous screen. Count what is actually there and enter it — the difference is shown when you confirm.')}
                   </p>
                 </Notice>
               ) : (
-                <Notice tone="info" title="Blind count">
+                <Notice tone="info" title={tx('Blind count')}>
                   <p>
-                    The expected closing amounts are not shown on this terminal. Count what is actually
-                    there and enter it — the difference is shown when you confirm.
+                    {tx('The expected closing amounts are not shown on this terminal. Count what is actually there and enter it — the difference is shown when you confirm.')}
                   </p>
                 </Notice>
               )}
 
               <div className="flex items-center justify-between">
-                <Label className="text-sm font-bold">Cash in the drawer ({orgCur()})</Label>
+                <Label className="text-sm font-bold">{tx('Cash in the drawer (')}{orgCur()})</Label>
                 <button
                   type="button"
                   className="flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900"
@@ -948,9 +946,9 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   })}
                   <div className="flex items-center justify-between rounded-lg bg-slate-900 px-3 py-2.5 text-white">
                     <span className="text-sm font-semibold">
-                      Counted total
+                      {tx('Counted total')}
                       <span className="ml-2 text-xs font-normal opacity-70">
-                        {denomPieces} note{denomPieces === 1 ? '' : 's'}/coin{denomPieces === 1 ? '' : 's'}
+                        {denomPieces} {tx('note')}{denomPieces === 1 ? '' : 's'}/coin{denomPieces === 1 ? '' : 's'}
                       </span>
                     </span>
                     <span className="font-mono text-lg font-extrabold tabular-nums">{fmt(denomTotal)}</span>
@@ -961,7 +959,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                       className="flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-rose-600"
                       onClick={() => setDenom({})}
                     >
-                      <Trash2 className="h-3 w-3" /> Start the count over
+                      <Trash2 className="h-3 w-3" /> {tx('Start the count over')}
                     </button>
                   ) : null}
                 </div>
@@ -977,7 +975,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                     autoFocus
                   />
                   <p className="mt-1 text-xs text-slate-500">
-                    Everything in the drawer, including the opening float.
+                    {tx('Everything in the drawer, including the opening float.')}
                   </p>
                 </div>
               )}
@@ -989,7 +987,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
             <>
               <div className="flex items-center justify-between rounded-lg border-2 border-slate-900 px-4 py-3">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">You counted</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{tx('You counted')}</p>
                   <p className="text-xs text-slate-500">
                     {byDenom ? `${denomPieces} notes/coins` : 'Entered as one total'}
                   </p>
@@ -1003,18 +1001,18 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
               {accountRows.length ? (
                 <div className="rounded-lg border border-slate-200 overflow-x-auto">
                   <p className="border-b border-slate-100 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                    Wallet and bank accounts
+                    {tx('Wallet and bank accounts')}
                   </p>
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-[10px] uppercase tracking-wide text-slate-400">
-                        <th className="px-3 py-1 text-left font-bold">Account</th>
-                        <th className="px-2 py-1 text-right font-bold">Opening</th>
-                        <th className="px-2 py-1 text-right font-bold">Received</th>
-                        <th className="px-2 py-1 text-right font-bold">Refunds</th>
-                        {showClosingAmounts ? <th className="px-2 py-1 text-right font-bold">Expected</th> : null}
-                        <th className="px-2 py-1 text-right font-bold">Provider shows</th>
-                        <th className="px-3 py-1 text-right font-bold">Variance</th>
+                        <th className="px-3 py-1 text-left font-bold">{tx('Account')}</th>
+                        <th className="px-2 py-1 text-right font-bold">{tx('Opening')}</th>
+                        <th className="px-2 py-1 text-right font-bold">{tx('Received')}</th>
+                        <th className="px-2 py-1 text-right font-bold">{tx('Refunds')}</th>
+                        {showClosingAmounts ? <th className="px-2 py-1 text-right font-bold">{tx('Expected')}</th> : null}
+                        <th className="px-2 py-1 text-right font-bold">{tx('Provider shows')}</th>
+                        <th className="px-3 py-1 text-right font-bold">{tx('Variance')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1043,7 +1041,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                                 <input
                                   aria-label={`Why ${row.label} was not counted`}
                                   className="w-36 rounded border border-amber-300 bg-amber-50 p-1 text-xs"
-                                  placeholder="Why not counted?"
+                                  placeholder={tx('Why not counted?')}
                                   value={uncounted[row.accountId]}
                                   onChange={(e) => setUncounted((u) => ({ ...u, [row.accountId]: e.target.value }))}
                                 />
@@ -1052,7 +1050,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                                   className="whitespace-nowrap text-[10px] font-semibold text-slate-500 hover:text-slate-900"
                                   onClick={() => setUncounted((u) => { const next = { ...u }; delete next[row.accountId]; return next; })}
                                 >
-                                  Enter balance instead
+                                  {tx('Enter balance instead')}
                                 </button>
                               </div>
                             ) : (
@@ -1081,7 +1079,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                                     setShowManager(true);
                                   }}
                                 >
-                                  Could not check
+                                  {tx('Could not check')}
                                 </button>
                               </div>
                             )}
@@ -1109,12 +1107,12 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
               {cashVariance != null && Math.abs(cashVariance) > 0.005 ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">Drawer difference</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">{tx('Drawer difference')}</p>
                   <p className="mt-1 text-sm text-amber-900">
-                    You counted <span className="font-mono font-bold">{fmt(countedNum)}</span> —{' '}
+                    {tx('You counted')} <span className="font-mono font-bold">{fmt(countedNum)}</span> —{' '}
                     {cashVariance < 0
-                      ? <>{orgCur()} {plain(Math.abs(cashVariance))} <b>short</b>. If accepted, this is recorded as a <b>withdrawal</b>.</>
-                      : <>{orgCur()} {plain(cashVariance)} <b>over</b>. If accepted, this is recorded as a <b>cash-in</b>.</>}
+                      ? <>{orgCur()} {plain(Math.abs(cashVariance))} <b>{tx('short')}</b>{tx('. If accepted, this is recorded as a')} <b>{tx('withdrawal')}</b>.</>
+                      : <>{orgCur()} {plain(cashVariance)} <b>{tx('over')}</b>{tx('. If accepted, this is recorded as a')} <b>{tx('cash-in')}</b>.</>}
                   </p>
                   <label className="mt-2 flex items-start gap-2 text-sm font-semibold text-amber-900 cursor-pointer">
                     <input
@@ -1123,11 +1121,11 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                       onChange={(e) => setAutoAdjustCash(e.target.checked)}
                       className="mt-0.5"
                     />
-                    Accept — record the difference automatically and close without a variance review
+                    {tx('Accept — record the difference automatically and close without a variance review')}
                   </label>
                   {!autoAdjustCash ? (
                     <p className="mt-1 text-xs text-amber-800">
-                      Without accepting, write below why the drawer does not balance (a manager is asked for a big difference).
+                      {tx('Without accepting, write below why the drawer does not balance (a manager is asked for a big difference).')}
                     </p>
                   ) : null}
                 </div>
@@ -1138,7 +1136,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   {autoAdjustCash && cashVariance != null && Math.abs(cashVariance) > 0.005
                     ? 'Anything else worth noting?'
                     : 'If the drawer or a wallet doesn\u2019t balance, why?'}{' '}
-                  <span className="font-normal text-slate-400">(only needed if it does not balance)</span>
+                  <span className="font-normal text-slate-400">{tx('(only needed if it does not balance)')}</span>
                 </Label>
                 <Textarea
                   ref={reasonRef}
@@ -1152,7 +1150,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
               <div>
                 <Label className="text-sm font-bold">
-                  Anything else worth noting? <span className="font-normal text-slate-400">(optional)</span>
+                  {tx('Anything else worth noting?')} <span className="font-normal text-slate-400">{tx('(optional)')}</span>
                 </Label>
                 <Input
                   value={notes}
@@ -1169,7 +1167,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   onClick={() => setShowManager((v) => !v)}
                 >
                   <ShieldCheck className="h-4 w-4 text-slate-400" />
-                  Manager sign-off
+                  {tx('Manager sign-off')}
                   <span className="ml-auto text-xs font-normal text-slate-400">
                     {showManager ? 'Hide' : 'For a big difference or an unchecked account'}
                   </span>
@@ -1177,21 +1175,20 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                 {showManager ? (
                   <div className="mt-2 space-y-2">
                     <p className="text-xs text-slate-500">
-                      A manager (not you) enters their own login below. We ask when the cash difference is large,
-                      when a wallet/bank balance differs, or when an account could not be checked.
+                      {tx('A manager (not you) enters their own login below. We ask when the cash difference is large, when a wallet/bank balance differs, or when an account could not be checked.')}
                     </p>
                     <div className="grid grid-cols-2 gap-2">
                       <Input
                         value={approverEmail}
                         onChange={(e) => setApproverEmail(e.target.value)}
-                        placeholder="Manager email"
+                        placeholder={tx('Manager email')}
                         autoComplete="off"
                       />
                       <Input
                         type="password"
                         value={managerPin}
                         onChange={(e) => setManagerPin(e.target.value)}
-                        placeholder="Manager PIN"
+                        placeholder={tx('Manager PIN')}
                         autoComplete="off"
                       />
                     </div>
@@ -1230,23 +1227,23 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
 
               <div className="space-y-1 rounded-lg border border-slate-200 p-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">You counted</span>
+                  <span className="text-slate-500">{tx('You counted')}</span>
                   <span className="font-mono font-bold">{fmt(result.closingCounted)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">System expected</span>
+                  <span className="text-slate-500">{tx('System expected')}</span>
                   <span className="font-mono font-bold">{fmt(result.closingExpected)}</span>
                 </div>
               </div>
 
               {result.varianceStatus === 'pending_review' ? (
-                <Notice tone="warn" title="A manager will review this difference">
-                  <p>Nothing more for you to do — the shift is closed and flagged for review.</p>
+                <Notice tone="warn" title={tx('A manager will review this difference')}>
+                  <p>{tx('Nothing more for you to do — the shift is closed and flagged for review.')}</p>
                 </Notice>
               ) : null}
               {variance === 0 ? (
-                <Notice tone="ok" title="Nice count">
-                  <p>Cash on hand matched the books exactly.</p>
+                <Notice tone="ok" title={tx('Nice count')}>
+                  <p>{tx('Cash on hand matched the books exactly.')}</p>
                 </Notice>
               ) : null}
 
@@ -1255,11 +1252,11 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                 <div className="rounded-xl border border-slate-200">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2.5">
                     <p className="flex items-center gap-2 text-sm font-bold text-slate-800">
-                      <Printer className="h-4 w-4 text-slate-500" /> Print the closing summary?
+                      <Printer className="h-4 w-4 text-slate-500" /> {tx('Print the closing summary?')}
                     </p>
                     <div className="flex items-center gap-2">
                       {printed ? (
-                        <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-600">Printed</span>
+                        <span className="text-[11px] font-bold uppercase tracking-wide text-emerald-600">{tx('Printed')}</span>
                       ) : null}
                       <Button
                         size="sm"
@@ -1276,7 +1273,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                     <iframe
                       ref={paperRef}
                       srcDoc={paper.html}
-                      title="Closing summary preview"
+                      title={tx('Closing summary preview')}
                       className="bg-white shadow-md"
                       style={{ width: 340, height: paperH }}
                       onLoad={fitPaper}
@@ -1292,9 +1289,9 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
         <DialogFooter className="border-t border-slate-100 px-6 py-4">
           {step === 'check' ? (
             <>
-              <Button variant="ghost" onClick={onClose}>Not yet</Button>
+              <Button variant="ghost" onClick={onClose}>{tx('Not yet')}</Button>
               <Button onClick={() => { setProblem(null); setStep('count'); }} disabled={!ready}>
-                Count the drawer <ArrowRight className="ml-1 h-4 w-4" />
+                {tx('Count the drawer')} <ArrowRight className="ml-1 h-4 w-4" />
               </Button>
             </>
           ) : null}
@@ -1302,10 +1299,10 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
           {step === 'count' ? (
             <>
               <Button variant="ghost" onClick={() => setStep('check')}>
-                <ArrowLeft className="mr-1 h-4 w-4" /> Back
+                <ArrowLeft className="mr-1 h-4 w-4" /> {tx('Back')}
               </Button>
               <Button onClick={() => { setProblem(null); setStep('confirm'); }} disabled={!countedValid}>
-                Review <ArrowRight className="ml-1 h-4 w-4" />
+                {tx('Review')} <ArrowRight className="ml-1 h-4 w-4" />
               </Button>
             </>
           ) : null}
@@ -1313,11 +1310,11 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
           {step === 'confirm' ? (
             <>
               <Button variant="ghost" onClick={() => setStep('count')}>
-                <ArrowLeft className="mr-1 h-4 w-4" /> Change the count
+                <ArrowLeft className="mr-1 h-4 w-4" /> {tx('Change the count')}
               </Button>
               <Button onClick={submit} disabled={closeShift.isPending} style={{ background: '#dc2626' }}>
                 {closeShift.isPending ? (
-                  <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> Closing…</>
+                  <><Loader2 className="mr-1 h-4 w-4 animate-spin" /> {tx('Closing…')}</>
                 ) : (
                   'Close shift'
                 )}
@@ -1331,7 +1328,7 @@ export const ShiftCloseDialog: React.FC<Props> = ({ open, session, onClose, onCl
                   for the rare case where it did not. */}
               {!paper ? (
                 <Button variant="ghost" onClick={showSummary}>
-                  <Printer className="mr-1 h-4 w-4" /> Closing summary
+                  <Printer className="mr-1 h-4 w-4" /> {tx('Closing summary')}
                 </Button>
               ) : null}
               <Button onClick={finish}>{printed ? 'Done' : 'Done — skip printing'}</Button>

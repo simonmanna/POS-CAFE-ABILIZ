@@ -7,6 +7,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { exportList, type ExportColumn, type ExportFormat } from '@/lib/export-list';
 import { notify, apiMessage } from '@/lib/notify';
+import { tx } from '@/lib/i18n/tx';
 
 export interface ExportMenuProps<T> {
   basename: string;
@@ -33,11 +34,11 @@ export function ExportMenu<T>({
     setBusy(true);
     try {
       const { rows, truncated } = await fetchAll();
-      if (!rows.length) return notify.info('Nothing to export');
+      if (!rows.length) return notify.info(tx('Nothing to export'));
       write(rows);
       if (truncated) notify.warning(`Export capped at ${rows.length.toLocaleString()} rows`, 'Narrow the filters to export the rest.');
     } catch (e) {
-      notify.error('Export failed', apiMessage(e, 'Could not load the rows to export.'));
+      notify.error(tx('Export failed'), apiMessage(e, 'Could not load the rows to export.'));
     } finally {
       setBusy(false);
     }
@@ -50,25 +51,25 @@ export function ExportMenu<T>({
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" disabled={disabled} className="gap-1.5">
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          Export
+          {tx('Export')}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60">
         <DropdownMenuLabel className="text-xs text-muted-foreground">
-          All matching{total != null ? ` (${total.toLocaleString()})` : ''}
+          {tx('All matching')}{total != null ? ` (${total.toLocaleString()})` : ''}
         </DropdownMenuLabel>
         <DropdownMenuItem onClick={() => run('csv', 'all')}>
-          <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" /> CSV (Excel)
+          <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" /> {tx('CSV (Excel)')}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => run('pdf', 'all')}>
           <FileText className="mr-2 h-4 w-4 text-rose-600" /> PDF
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Current page ({pageRows.length})
+          {tx('Current page (')}{pageRows.length})
         </DropdownMenuLabel>
         <DropdownMenuItem disabled={!pageRows.length} onClick={() => run('csv', 'page')}>
-          <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" /> CSV (Excel)
+          <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" /> {tx('CSV (Excel)')}
         </DropdownMenuItem>
         <DropdownMenuItem disabled={!pageRows.length} onClick={() => run('pdf', 'page')}>
           <FileText className="mr-2 h-4 w-4 text-rose-600" /> PDF

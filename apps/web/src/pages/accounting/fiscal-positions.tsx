@@ -24,6 +24,7 @@ import {
 } from '@/features/accounting/api';
 import { useAuthStore } from '@/stores/auth.store';
 import { PERMISSIONS } from '@erp/shared';
+import { tx } from '@/lib/i18n/tx';
 
 interface PositionFormState {
   name: string;
@@ -132,9 +133,9 @@ export default function FiscalPositionsPage() {
       header: 'Status',
       render: (p) =>
         p.isActive ? (
-          <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">Active</Badge>
+          <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200">{tx('Active')}</Badge>
         ) : (
-          <Badge className="bg-slate-100 text-slate-600 border-slate-200">Inactive</Badge>
+          <Badge className="bg-slate-100 text-slate-600 border-slate-200">{tx('Inactive')}</Badge>
         ),
     },
     {
@@ -146,7 +147,7 @@ export default function FiscalPositionsPage() {
             <Button
               variant="ghost"
               size="sm"
-              title="Edit fiscal position"
+              title={tx('Edit fiscal position')}
               onClick={() => openEdit(p)}
             >
               <Pencil className="h-4 w-4" />
@@ -156,7 +157,7 @@ export default function FiscalPositionsPage() {
             <Button
               variant="ghost"
               size="sm"
-              title="Archive fiscal position"
+              title={tx('Archive fiscal position')}
               onClick={() => setArchiving(p)}
             >
               <Archive className="h-4 w-4" />
@@ -171,14 +172,14 @@ export default function FiscalPositionsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Fiscal Positions</h1>
+          <h1 className="text-2xl font-bold">{tx('Fiscal Positions')}</h1>
           <p className="text-sm text-muted-foreground">
-            Tax-treatment labels selectable on sales invoices (Odoo-style).
+            {tx('Tax-treatment labels selectable on sales invoices (Odoo-style).')}
           </p>
         </div>
         {canCreate && (
           <Button onClick={openCreate}>
-            <Plus className="mr-2 h-4 w-4" /> New Fiscal Position
+            <Plus className="mr-2 h-4 w-4" /> {tx('New Fiscal Position')}
           </Button>
         )}
       </div>
@@ -186,7 +187,7 @@ export default function FiscalPositionsPage() {
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Search fiscal positions..."
+          placeholder={tx('Search fiscal positions...')}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -205,7 +206,7 @@ export default function FiscalPositionsPage() {
       {(archived?.length ?? 0) > 0 && (
         <div className="rounded-lg border bg-muted/30">
           <div className="border-b px-4 py-2 text-sm font-medium text-muted-foreground">
-            Archived ({archived?.length})
+            {tx('Archived (')}{archived?.length})
           </div>
           <ul className="divide-y">
             {archived?.map((p) => (
@@ -220,7 +221,7 @@ export default function FiscalPositionsPage() {
                     size="sm"
                     onClick={() => restorePosition.mutate(p.id)}
                   >
-                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> Restore
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" /> {tx('Restore')}
                   </Button>
                 )}
               </li>
@@ -243,15 +244,15 @@ export default function FiscalPositionsPage() {
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="name">Name</Label>
-                <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Domestic — Taxable" />
+                <Label htmlFor="name">{tx('Name')}</Label>
+                <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={tx('Domestic — Taxable')} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="code">Code</Label>
-                <Input id="code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="domestic_taxable" />
+                <Label htmlFor="code">{tx('Code')}</Label>
+                <Input id="code" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={tx('domestic_taxable')} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="sortOrder">Display order</Label>
+                <Label htmlFor="sortOrder">{tx('Display order')}</Label>
                 <Input id="sortOrder" type="number" min={0} value={form.sortOrder} onChange={(e) => setForm({ ...form, sortOrder: e.target.value })} />
               </div>
               <label className="flex items-center gap-2 text-sm font-medium">
@@ -261,13 +262,13 @@ export default function FiscalPositionsPage() {
                   onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
                   className="h-4 w-4 rounded border-input"
                 />
-                Active
+                {tx('Active')}
               </label>
               {formError && <p className="text-sm text-red-600">{formError}</p>}
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                Cancel
+                {tx('Cancel')}
               </Button>
               <Button type="submit" disabled={createPosition.isPending || updatePosition.isPending}>
                 {editing ? 'Save changes' : 'Create position'}
@@ -281,16 +282,14 @@ export default function FiscalPositionsPage() {
       <Dialog open={archiving != null} onOpenChange={(o) => !o && setArchiving(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Archive fiscal position?</DialogTitle>
+            <DialogTitle>{tx('Archive fiscal position?')}</DialogTitle>
             <DialogDescription>
-              <strong>{archiving?.name}</strong> will be removed from sales pickers. Existing
-              invoices keep their fiscal position name. You can restore it later from the archived
-              section.
+              <strong>{archiving?.name}</strong> {tx('will be removed from sales pickers. Existing invoices keep their fiscal position name. You can restore it later from the archived section.')}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setArchiving(null)}>
-              Cancel
+              {tx('Cancel')}
             </Button>
             <Button
               variant="destructive"
@@ -299,7 +298,7 @@ export default function FiscalPositionsPage() {
                 if (archiving) archivePosition.mutate(archiving.id, { onSuccess: () => setArchiving(null) });
               }}
             >
-              Archive
+              {tx('Archive')}
             </Button>
           </DialogFooter>
         </DialogContent>

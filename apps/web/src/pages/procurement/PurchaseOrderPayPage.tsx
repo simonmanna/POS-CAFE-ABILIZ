@@ -9,6 +9,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { notify } from '@/lib/notify';
 import { formatMoney } from '@/lib/format';
+import { tx } from '@/lib/i18n/tx';
 
 interface PO {
   id: string; orderNumber: string; status: string;
@@ -36,7 +37,7 @@ export function PurchaseOrderPayPage() {
         reference: reference || undefined,
       })).data,
     onSuccess: () => {
-      notify.success('Payment recorded');
+      notify.success(tx('Payment recorded'));
       qc.invalidateQueries({ queryKey: ['purchase-order', id] });
       qc.invalidateQueries({ queryKey: ['purchase-orders'] });
       navigate(`/procurement/purchase-orders/${id}`);
@@ -45,14 +46,14 @@ export function PurchaseOrderPayPage() {
   });
 
   if (po.isLoading) return <Skeleton className="h-96 w-full" />;
-  if (po.error || !po.data) return <Card><CardContent className="p-8 text-center text-destructive">Not found</CardContent></Card>;
+  if (po.error || !po.data) return <Card><CardContent className="p-8 text-center text-destructive">{tx('Not found')}</CardContent></Card>;
 
   const data = po.data;
   if (data.paymentType !== 'credit') {
     return (
       <Card><CardContent className="p-8 text-center">
-        This is a cash purchase — payment is auto-settled on receive. No manual payment needed.
-        <div className="mt-4"><Button onClick={() => navigate(-1)}>Go back</Button></div>
+        {tx('This is a cash purchase — payment is auto-settled on receive. No manual payment needed.')}
+        <div className="mt-4"><Button onClick={() => navigate(-1)}>{tx('Go back')}</Button></div>
       </CardContent></Card>
     );
   }
@@ -68,26 +69,26 @@ export function PurchaseOrderPayPage() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h1 className="text-2xl font-semibold">Register Payment</h1>
+          <h1 className="text-2xl font-semibold">{tx('Register Payment')}</h1>
           <p className="text-sm text-muted-foreground">{data.orderNumber}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Total</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{tx('Total')}</CardTitle></CardHeader>
           <CardContent className="pt-0">
             <p className="text-2xl font-bold">{formatMoney(totalAmount, data.currencyCode)}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Already Paid</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{tx('Already Paid')}</CardTitle></CardHeader>
           <CardContent className="pt-0">
             <p className="text-2xl font-bold text-emerald-600">{formatMoney(totalPaid, data.currencyCode)}</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Remaining</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">{tx('Remaining')}</CardTitle></CardHeader>
           <CardContent className="pt-0">
             <p className="text-2xl font-bold text-amber-600">{formatMoney(remaining, data.currencyCode)}</p>
           </CardContent>
@@ -95,11 +96,11 @@ export function PurchaseOrderPayPage() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle>Payment details</CardTitle></CardHeader>
+        <CardHeader><CardTitle>{tx('Payment details')}</CardTitle></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
           <div>
             <label className="text-sm font-medium">
-              Amount <span className="text-muted-foreground">(default: full remaining)</span>
+              {tx('Amount')} <span className="text-muted-foreground">{tx('(default: full remaining)')}</span>
             </label>
             <Input
               type="number"
@@ -113,19 +114,19 @@ export function PurchaseOrderPayPage() {
             />
           </div>
           <div>
-            <label className="text-sm font-medium">Reference</label>
+            <label className="text-sm font-medium">{tx('Reference')}</label>
             <Input
               className="mt-1"
               value={reference}
               onChange={(e) => setReference(e.target.value)}
-              placeholder="Optional (e.g. receipt #)"
+              placeholder={tx('Optional (e.g. receipt #)')}
             />
           </div>
         </CardContent>
       </Card>
 
       <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
+        <Button variant="outline" onClick={() => navigate(-1)}>{tx('Cancel')}</Button>
         <Button
           onClick={() => payMut.mutate()}
           disabled={payMut.isPending}
